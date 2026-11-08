@@ -1,6 +1,8 @@
 # FamilyHub architecture review
 
-Version 0.3 proposed. 8 November 2026. Awaiting owner approval.
+Version 0.4 proposed. 8 November 2026. Awaiting owner approval.
+
+Owner direction after the independent reviews: defer shopping, develop acquisition before the playback interfaces, and verify one component at a time. Section 10 supersedes the earlier playback-first sequence. Shopping and Mealie are later work; references elsewhere describe the eventual platform rather than the initial deployment.
 
 Independent reviews are complete: [Astra](REVIEW_ASTRA.md) and [Opus](REVIEW_OPUS.md), both at medium effort. Read [the comparison and proposed revisions](REVIEW_COMPARISON.md) for agreements, disagreements and corrections. The smaller diagrams below replace the original combined graph. Service substitutions remain proposals requiring owner selection.
 
@@ -34,7 +36,6 @@ flowchart LR
     Family --> Music[Navidrome and mobile client - listen]
     Family --> Files[Nextcloud - files]
     Family --> Photos[Immich - photos]
-    Family --> Lists[Mealie - shopping]
     Family --> Requests[Requests - portal choice pending]
 ```
 
@@ -278,19 +279,39 @@ Image rollback alone cannot reverse a schema migration. Rollback restores the co
 
 ## 10. Milestones and dependencies
 
+Acquisition comes first after a small development foundation. Define stable download/library paths, permissions, storage headroom and provisional language/quality choices before the first transfer. Playback requirements still constrain file selection: audio tracks, subtitle formats, codecs, bitrate and the target clients matter. The interface can come later; format compatibility cannot be postponed indefinitely. Use a short sample playback check after each media type imports, without building the full family playback experience at that stage.
+
 | Phase | Depends on | Deliverable and exit check |
 |---|---|---|
 | 0. Architecture approval | This review | Owner decisions recorded; unresolved facts assigned checks |
-| 1. Development foundation | Phase 0 | Linux VM, reproducible Compose layout, DNS/TLS proof, secret handling and sample-data restore |
-| 2. Playback | Phase 1 | Existing local movie on LG TV, remote phone music, offline music and separate user histories |
-| 3. Acquisition | Phase 2 | Movie, TV and music imports from authorized test sources, scheduling, failure handling and no download loops |
+| 1. Development foundation | Phase 0 | Linux VM, minimal Compose layout, stable storage paths, secret handling, private administrator access and configuration restore with sample data |
+| 2. Acquisition | Phase 1 | Complete the component gates below, one at a time; verify imported files, scheduling, failure handling and no download loops |
+| 3. Playback | Phase 2 | Jellyfin and music clients use the verified libraries; LG TV playback, remote/offline phone music and separate histories pass |
 | 4. Files | Phase 1; backup destination before real data | Mapped SMB file visible on phone, private access denial, conflict and restore tests |
 | 5. Photos | Phase 4 resource evidence and backup gate | Android/iPhone uploads and independent photo/database restore |
-| 6. Collaboration and usability | Phase 1 | Household membership verified, simultaneous list edits, family dashboard and onboarding |
+| 6. Family access and usability | Selected family modules | Private HTTPS/remote access, simple entry points and onboarding; shopping remains deferred |
 | 7. Production migration | Hardware gates and preceding acceptance | Fresh Debian install, restored sample data, Intel QSV validation, full load/reboot/restore tests |
 | 8. Public FOSS release | Stable private operation | License inventory, clean examples, CI, install/update/restore docs, localization and external install test |
 
-Phases 4–6 are logically independent, but introduce them sequentially on the memory-constrained validation VM. Cleanup remains report-only until its own approval and tests pass. A later PWA, unified TV requests, recommendation ML and arbitrary group collaboration remain outside the initial implementation.
+### Acquisition component gates
+
+The sequence below is proposed within the owner's acquisition-first direction. Every gate records the configuration, expected result, actual result and recovery action. A failed gate is resolved before adding the next component.
+
+| Step | Add | Evidence required before continuing |
+|---|---|---|
+| 1 | qBittorrent only | One authorized test torrent completes into the intended download folder, its payload integrity is verified, and pause/resume plus restart recovery work |
+| 2 | Prowlarr | One owner-configured authorized source passes its connection and search checks; distinguish a successful search from an actually available download |
+| 3 | Radarr | One supported movie request/search reaches qBittorrent, imports into the movie library and remains correct after rescan/restart; verify permissions and hardlink/copy behavior |
+| 4 | Sonarr | One sample series has correctly matched season/episode files; import and monitoring do not create duplicate or unintended downloads |
+| 5 | Lidarr | One sample album matches its artist/release/tracks, imports with usable tags and avoids monitoring the artist's entire catalog unintentionally |
+| 6 | Request portal trial | Evaluate Ombi for movie, TV and album requests; verify a regular user can submit a request and see accurate pending/failed/available status without manager access |
+| 7 | Shared operating rules | Verify download window, daytime limits, low-space behavior, bounded failure recovery and protection against reacquisition; cleanup stays manual/report-only |
+
+Use lawful sample payloads and owner-authorized sources. If a sample cannot be obtained automatically, manual import can prove the import stage, but the automatic search/download gate remains unverified. Do not configure unauthorized sources or use private family data as test material.
+
+After each successful movie/episode/album import, inspect the saved files and perform a small format/audio/subtitle playback check using an existing compatible client. Full Jellyfin/Navidrome deployment and family interface validation follow in Phase 3. Hardware-specific Intel QSV and actual LG/phone checks remain necessary when those devices are available.
+
+Phases 4–6 are logically independent, but introduce them sequentially on the memory-constrained validation VM. Cleanup remains report-only until its own approval and tests pass. Shopping/Mealie, a later PWA, unified TV requests, recommendation ML and arbitrary group collaboration remain outside the initial implementation. Shopping's household membership and shared-edit tests move with that later feature.
 
 Proposed repository areas after approval are `compose/`, `env/*.example`, `docs/`, `tests/`, and small installation/backup orchestration tools. CI checks Compose resolution for supported module combinations, secret leakage, pinned image references, shell/config validity and synthetic-data install/restore. A clean Linux installation must reproduce the documented deployment without private developer state.
 
@@ -318,7 +339,7 @@ Proposed repository areas after approval are `compose/`, `env/*.example`, `docs/
 
 **Verified:** Immich supports mobile automatic upload, but iOS controls background execution timing. Acceptance should require successful eventual upload and recovery visibility, not an exact unattended upload deadline. Android battery policy and VPN reachability also need device tests. [Immich mobile backup](https://docs.immich.app/features/mobile-backup/).
 
-Keep the supplied ten production acceptance criteria. Add measurable checks for remote authorization, unavailable metadata, nearly full disk, expired/revoked credentials, unavailable backup target and wrong/missing media mount. Killing a container must leave unrelated mounted data untouched; this does not claim immunity to host compromise. Test reboot recovery with internet disconnected and a failed service dependency.
+Keep the supplied production acceptance criteria, with the shared-shopping-list criterion deferred alongside shopping. It is a later acceptance target rather than a gate for the initial release. Add measurable checks for remote authorization, unavailable metadata, nearly full disk, expired/revoked credentials, unavailable backup target and wrong/missing media mount. Killing a container must leave unrelated mounted data untouched; this does not claim immunity to host compromise. Test reboot recovery with internet disconnected and a failed service dependency.
 
 For any later dashboard visual change, keep screenshots and a verification record for Windows Chromium, Mac Safari, Android Chrome and iPhone Safari. Use real devices when available; clearly mark emulated checks and outstanding physical-device/font rendering checks. Test Tab, Shift+Tab, Enter and Space, visible focus and focus preservation. TV playback and mobile background behavior require actual target devices.
 
