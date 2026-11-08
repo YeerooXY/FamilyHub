@@ -241,8 +241,8 @@ def verify_jellyfin(pw, args):
         return f"user HTTP {st}, admin HTTP {ad}"
     check("jellyfin ordinary user denied admin metadata defaults", denied)
 
-    def rng():
-        iid = m1080["Id"]
+    def rng(item=m1080):
+        iid = item["Id"]
         pi = jget("POST", f"{JF}/Items/{iid}/PlaybackInfo?userId={ua}", jf_hdr(ta), {}, stage="jf playbackinfo")
         src = pi["MediaSources"][0]
         h = dict(jf_hdr(ta), Range="bytes=0-4095")
@@ -253,6 +253,9 @@ def verify_jellyfin(pw, args):
             assert fh.read(4096) == raw, "range bytes differ from original file"
         return f"HTTP 206, 4096 bytes match original; DirectPlay={src.get('SupportsDirectPlay')} (no decode claim)"
     check("jellyfin 1080p static Range bytes match original", rng)
+    # The generated episode hardlinks the movie fixture; indexing alone can hide a stale path.
+    for episode in (i for i in items if i["Type"] == "Episode"):
+        check("jellyfin episode static Range bytes match original", lambda ep=episode: rng(ep))
 
 
 # ---- Navidrome ----

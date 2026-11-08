@@ -51,3 +51,11 @@ Two bounded implementation jobs completed through the included `claude:default` 
 See [the playback guide](PLAYBACK.md) and [API checker instructions](API_PLAYBACK_CHECK.md) for reproduction. Sample accounts are development-only. The remaining client and recovery gates keep this milestone short of production acceptance.
 
 This follow-up used direct runtime checks and small factual documentation edits; no additional implementation worker was needed.
+
+## Episode playback repair
+
+On 8 November the owner reported a fatal player error for the sample series. Jellyfin logs showed a missing file at the old `/data/tv/FamilyHub Samples/FamilyHub Sample Series/...` path. The fixture had been moved to `/data/tv/FamilyHub Sample Series/...` after indexing, and the earlier checks confirmed episode indexing without reading its stream. That gap allowed stale metadata to pass.
+
+A native administrator `POST /Library/Refresh` rescan repaired the library reference. No media or account was deleted. The episode then decoded in Windows Chromium at 1920x1080, beyond 2.5 seconds with 65 frames, no media error, and Hungarian subtitles visible. Screenshot: ignored `.local/playback/jellyfin-episode-playing.png`. The API checker now performs the same original-byte Range check on the hardlinked episode as on its movie fixture; the full verification run passed. Existing browser tabs may retain the removed item identifier: refresh Jellyfin and reopen the series from the library.
+
+This repair used a standard library rescan, a small extension of the existing stream check and factual documentation edits; it did not require an implementation worker. After moving media, wait for a completed library scan and verify playback before reporting the library healthy.

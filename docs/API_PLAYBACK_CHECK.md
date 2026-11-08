@@ -17,7 +17,7 @@ The state dir is `0700` and holds `credentials.json` (`0600`) with generated dev
 
 Output is JSON with one entry per check; exit code is 0 only if all pass.
 
-- **Jellyfin:** wizard and admin setup if needed; users A/B (non-admin); Movie/TV libraries; login of all three users with `IsAdministrator` as expected; 2 movies (1080p, 2160p) and 1 episode indexed; movie favorite/played set for A and absent for B; ordinary user denied `/System/Configuration/MetadataOptions/Default` (HTTP 403; admin HTTP 200); `Range` request to `/Videos/{id}/stream?static=true` returns 206 and the first 4096 bytes equal the original file.
+- **Jellyfin:** wizard and admin setup if needed; users A/B (non-admin); Movie/TV libraries; login of all three users with `IsAdministrator` as expected; 2 movies (1080p, 2160p) and 1 episode indexed; movie favorite/played set for A and absent for B; ordinary user denied `/System/Configuration/MetadataOptions/Default` (HTTP 403; admin HTTP 200); `Range` request to `/Videos/{id}/stream?static=true` returns 206 and the first 4096 bytes equal the original file for both the 1080p movie and its hardlinked sample episode. This detects stale indexed paths as well as missing media.
 - **Navidrome:** admin created on first run, users A/B (non-admin); login `isAdmin` flags; scan; 2 albums and 4 songs; song starred for A and not B; each of the 4 FLACs streamed with `format=raw` and SHA256-compared with the original under `<media-root>/music`.
 
 `--verify-only` creates nothing and sets no favorites or stars; it re-checks the earlier state.
