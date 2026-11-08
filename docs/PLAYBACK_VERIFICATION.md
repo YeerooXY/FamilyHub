@@ -59,3 +59,11 @@ On 8 November the owner reported a fatal player error for the sample series. Jel
 A native administrator `POST /Library/Refresh` rescan repaired the library reference. No media or account was deleted. The episode then decoded in Windows Chromium at 1920x1080, beyond 2.5 seconds with 65 frames, no media error, and Hungarian subtitles visible. Screenshot: ignored `.local/playback/jellyfin-episode-playing.png`. The API checker now performs the same original-byte Range check on the hardlinked episode as on its movie fixture; the full verification run passed. Existing browser tabs may retain the removed item identifier: refresh Jellyfin and reopen the series from the library.
 
 This repair used a standard library rescan, a small extension of the existing stream check and factual documentation edits; it did not require an implementation worker. After moving media, wait for a completed library scan and verify playback before reporting the library healthy.
+
+## Android connection preparation
+
+The owner selected Android and confirmed enabling Tailscale Serve and installing Substreamer. The existing Windows Tailscale node now serves private HTTPS on port 8443, proxying to the existing `127.0.0.1:14533` SSH forward. Existing Serve configuration was empty before setup; no public Funnel configuration was enabled. The generated private URL was supplied directly to the owner rather than committed as machine-specific configuration.
+
+Verified from Windows with normal TLS certificate validation: HTTPS `/ping` returned HTTP 200 and salted OpenSubsonic `ping` authentication succeeded for `sample-a`. These checks confirm the private endpoint and music credentials, not actual Android playback. Phone login, background playback, original-quality download and airplane-mode playback remain pending owner observations.
+
+Development access depends on the Windows PC, Debian VM, SSH-forward process and Tailscale remaining available. Serve runs in the background, but the SSH tunnel is not boot-persistent. The eventual production server should provide its own private endpoint. This was runtime configuration and a factual verification note; no implementation worker was required.
