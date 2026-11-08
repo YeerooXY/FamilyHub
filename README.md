@@ -8,7 +8,7 @@ Read [the architecture review](ARCHITECTURE_REVIEW.md) for the service map, trad
 
 The independent [Astra](REVIEW_ASTRA.md) and [Opus](REVIEW_OPUS.md) reviews are complete. Read [their comparison](REVIEW_COMPARISON.md) for agreements, differing recommendations and the proposed simplifications.
 
-Status: the first storage foundation is implemented and verified in the Debian development VM. Jellyfin and Navidrome now pass sample playback checks inside the VM; workstation access and real-device checks remain pending. The project license is not yet selected.
+Status: the first storage foundation is implemented and verified in the Debian development VM. Jellyfin and Navidrome pass sample playback checks inside the VM and through private localhost access on Windows; TV, phone and recovery checks remain pending. The project license is not yet selected.
 
 See the [storage guide](docs/STORAGE.md) for the storage scripts and development VM helper.
 

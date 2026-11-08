@@ -1,6 +1,6 @@
 # Sample playback
 
-Status: **deployed and verified inside the Debian development VM.** Two services in `compose.playback.yaml` (project `familyhub-playback`): Jellyfin `12.4` and Navidrome `0.64.2`. Both run as UID/GID 2001 (reader), mount media read-only, and publish only on the guest's loopback: Jellyfin `127.0.0.1:8096`, Navidrome `127.0.0.1:4533`. Workstation SSH forwards to `18096` and `14533` were approved by the owner but rejected by the execution policy. No workstation tunnel, LAN, TV or phone access is configured. See [the verification record](PLAYBACK_VERIFICATION.md).
+Status: **deployed and verified inside the Debian development VM.** Two services in `compose.playback.yaml` (project `familyhub-playback`): Jellyfin `12.4` and Navidrome `0.64.2`. Both run as UID/GID 2001 (reader), mount media read-only, and publish only on the guest's loopback: Jellyfin `127.0.0.1:8096`, Navidrome `127.0.0.1:4533`. Workstation SSH forwards now run at `http://127.0.0.1:18096/web/` and `http://127.0.0.1:14533/`. Windows Chromium playback passed. The tunnel lasts only while its SSH process runs; no LAN, TV or phone access is configured. See [the verification record](PLAYBACK_VERIFICATION.md).
 
 ## Mounts
 
@@ -54,4 +54,4 @@ curl -fsS http://127.0.0.1:8096/health
 curl -fsS http://127.0.0.1:4533/ping
 ```
 
-Linux Chromium decoded the 1080p sample with Hungarian subtitles and both FLAC albums. The 4K sample is indexed; its playback remains unverified. Pending: workstation access, TV and phone clients, offline music, production GPU, LAN access, concurrent-load measurement, and independent backup.
+Linux and Windows Chromium decoded the 1080p sample with Hungarian subtitles and both FLAC albums. The 4K sample is indexed; its playback remains unverified. Pending: TV and phone clients, offline music, production GPU, LAN access, concurrent-load measurement, and independent backup.

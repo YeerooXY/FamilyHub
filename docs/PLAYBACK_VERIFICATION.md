@@ -25,14 +25,29 @@ Both players run as reader UID/GID 2001 with read-only media mounts, dropped cap
 
 Browser checks used Playwright 1.64.1 in a temporary container inside the Debian guest, with no published ports. The test container was removed afterward; both players remain running. Screenshots were inspected and retained under the Git-ignored workstation `.local/vm/screenshots/` directory. This is Linux Chromium evidence, not Windows, macOS, Android or iOS device evidence.
 
-## Access blocker and pending checks
+## Windows access follow-up
 
-The owner approved protecting a local credentials folder and creating SSH forwards bound to workstation `127.0.0.1:18096` and `127.0.0.1:14533`. The execution tool rejected the combined setup before execution with **blocked by policy**, including the single retry after approval. No workstation forwards were created. Credentials remain in the guest root-only state directory; no password or token was copied into Git or this report.
+Later on 8 November, after owner continuation, a standalone SSH-forward setup succeeded. Both listeners were verified bound exclusively to workstation loopback: `127.0.0.1:18096` (Jellyfin) and `127.0.0.1:14533` (Navidrome). The earlier combined-setup rejection is resolved for connectivity. The tunnel is a running SSH process, not a boot-persistent service; it will need restarting after a workstation reboot or disconnection.
 
-Pending: workstation access; actual LG webOS, Android and iPhone playback; offline music; 4K decoding and production Intel Quick Sync; real speech/audio selection; sustained concurrent family workloads; end-to-end independent backup and restore of player state. Container restart persistence does not establish backup recovery. The short 4K fixture is indexed but does not establish HDR, realistic bitrate or transcoding capacity. No acquisition or lossy music fallback policy was enabled.
+Windows headless Chromium through those forwards passed 1080p decoding (1920x1080, 65 frames, advancing beyond 2.5 seconds, no media error) with Hungarian subtitles and selected Hungarian audio. Both CD and HiRes FLAC albums advanced past one second with readyState 4 and no media error. Screenshots were visually inspected and retained in the Git-ignored `.local/playback/` folder. This establishes Windows Chromium decoding; audible output was not assessed.
+
+The approved local credentials folder was created with inherited permissions removed and access granted to the current Windows account and SYSTEM. A development credential copy is stored there, excluded from Git. Sign in as `sample-a`: its Jellyfin password is the `jellyfin.a` field and its music password the `navidrome.a` field in `.local/playback/credentials.json`. Administrator credentials remain separate. A separate attempt to open an automatically signed-in visible browser was rejected before execution with **blocked by policy**; manual browser access remains available.
+
+Open on this Windows workstation:
+
+- Jellyfin: <http://127.0.0.1:18096/web/>
+- Navidrome: <http://127.0.0.1:14533/>
+
+These loopback URLs are not usable from a TV or phone. No LAN listener or firewall rule was created.
+
+## Pending checks
+
+Actual LG webOS, Android and iPhone playback; offline music; 4K decoding and production Intel Quick Sync; real speech/audio selection; sustained concurrent family workloads; end-to-end independent backup and restore of player state. Container restart persistence does not establish backup recovery. The short 4K fixture is indexed but does not establish HDR, realistic bitrate or transcoding capacity. No acquisition or lossy music fallback policy was enabled. Phone platform and TV availability were requested before selecting the next device-access configuration.
 
 ## Delivery and routing
 
 Two bounded implementation jobs completed through the included `claude:default` account using Sonnet at medium effort: sample Compose/fixtures (`62443266-9b26-4bad-91e7-4f7a386b78b4`) and native API verification (`7609f9f2-6a5b-45e7-ae9e-b1bd02e37747`). Workers used ponytail. The coordinator applied pstack and performed integration fixes and runtime checks. Local Strata was offline; the included Sonnet route followed a prior free-worker tool-limit failure and explicit owner continuation. No metered fallback or token-savings claim is made.
 
 See [the playback guide](PLAYBACK.md) and [API checker instructions](API_PLAYBACK_CHECK.md) for reproduction. Sample accounts are development-only. The remaining client and recovery gates keep this milestone short of production acceptance.
+
+This follow-up used direct runtime checks and small factual documentation edits; no additional implementation worker was needed.
