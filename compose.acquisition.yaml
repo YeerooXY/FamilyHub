@@ -1,0 +1,44 @@
+# Optional search and download project. No library mounts or peer ports.
+name: familyhub-acquisition
+
+services:
+  qbittorrent:
+    image: ${QBITTORRENT_IMAGE:-ghcr.io/qbittorrent/docker-qbittorrent-nox:5.3.0-2@sha256:43b2d352cf76330a7ca34c7320b9b74227d6f31e662e0e123d0457206b09a7ea}
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    mem_limit: 1g
+    cpus: 2.0
+    stop_grace_period: 30m
+    tty: true
+    environment:
+      PUID: ${FAMILYHUB_WRITER_ID:-2000}
+      PGID: ${FAMILYHUB_WRITER_ID:-2000}
+      QBT_LEGAL_NOTICE: confirm
+      QBT_VERSION: 5.3.0-2
+      QBT_WEBUI_PORT: 8080
+    ports:
+      - "127.0.0.1:8080:8080/tcp"
+    volumes:
+      - ${FAMILYHUB_APPDATA:-/srv/familyhub/appdata}/qbittorrent:/config
+      - ${FAMILYHUB_DATA:-/srv/familyhub/data}/downloads:/data/downloads
+
+  prowlarr:
+    image: linuxserver/prowlarr:2.7.0.5723-ls167@sha256:431d7efebcef466e56adaa40a7a2fa2b0e85159a037b8bf465eaadbf0cf5bedf
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    mem_limit: 1g
+    cpus: 1.0
+    environment:
+      PUID: ${FAMILYHUB_WRITER_ID:-2000}
+      PGID: ${FAMILYHUB_WRITER_ID:-2000}
+      HOME: /config
+    ports:
+      - "127.0.0.1:9696:9696/tcp"
+    volumes:
+      - ${FAMILYHUB_APPDATA:-/srv/familyhub/appdata}/prowlarr:/config

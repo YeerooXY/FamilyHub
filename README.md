@@ -17,3 +17,5 @@ Sample playback (Jellyfin and Navidrome with synthetic fixtures): see [the playb
 Read the [verification record](docs/STORAGE_VERIFICATION.md) for completed checks and remaining limits. Shopping is deferred.
 
 Read the [sample playback verification record](docs/PLAYBACK_VERIFICATION.md) for evidence and remaining checks.
+
+The optional [acquisition guide](docs/ACQUISITION.md) covers the private qBittorrent/Prowlarr foundation and its current automation limits.
