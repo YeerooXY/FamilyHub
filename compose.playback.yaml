@@ -1,0 +1,36 @@
+# Sample playback: Jellyfin (video) and Navidrome (music). Private; guest loopback only.
+# Run: docker compose -f compose.playback.yaml --env-file .env up -d   (see docs/PLAYBACK.md)
+name: familyhub-playback
+
+x-common: &common
+  user: "${FAMILYHUB_READER_ID:-2001}:${FAMILYHUB_READER_ID:-2001}"
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  jellyfin:
+    <<: *common
+    # Jellyfin's image ships its own /health HEALTHCHECK; none is added here.
+    image: ${JELLYFIN_IMAGE:-jellyfin/jellyfin:12.4@sha256:fea863d0cd9ec445985d9c75fc6ed64e38a1d2766cf0c250a33d553f4fc1b771}
+    ports: ["127.0.0.1:8096:8096"]
+    volumes:
+      - ${FAMILYHUB_APPDATA:-/srv/familyhub/appdata}/jellyfin:/config
+      - ${FAMILYHUB_APPDATA:-/srv/familyhub/appdata}/jellyfin-cache:/cache
+      - ${FAMILYHUB_DATA:-/srv/familyhub/data}/media/movies:/data/movies:ro
+      - ${FAMILYHUB_DATA:-/srv/familyhub/data}/media/tv:/data/tv:ro
+
+  navidrome:
+    <<: *common
+    image: ${NAVIDROME_IMAGE:-deluan/navidrome:0.64.2@sha256:38dc2727bfcfd5ede290f8ada114fc90368146f265ae4701ddddbcbe2a44ee52}
+    ports: ["127.0.0.1:4533:4533"]
+    environment:
+      ND_MUSICFOLDER: /music
+      ND_DATAFOLDER: /data
+      ND_ENABLEINSIGHTSCOLLECTOR: "false"
+    volumes:
+      - ${FAMILYHUB_APPDATA:-/srv/familyhub/appdata}/navidrome:/data
+      - ${FAMILYHUB_DATA:-/srv/familyhub/data}/media/music:/music:ro
