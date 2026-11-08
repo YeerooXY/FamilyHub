@@ -1,6 +1,8 @@
 # FamilyHub architecture review
 
-Version 0.2 proposed. 8 November 2026. Awaiting owner approval.
+Version 0.3 proposed. 8 November 2026. Awaiting owner approval.
+
+Independent reviews are complete: [Astra](REVIEW_ASTRA.md) and [Opus](REVIEW_OPUS.md), both at medium effort. Read [the comparison and proposed revisions](REVIEW_COMPARISON.md) for agreements, disagreements and corrections. The smaller diagrams below replace the original combined graph. Service substitutions remain proposals requiring owner selection.
 
 This document plans a family server and a later installable FOSS integration platform. Automatic torrent downloads for movies, television and music are included in the proposed private deployment. No installation, application deployment or production code is authorized by this review.
 
@@ -20,42 +22,53 @@ Start development with 6 vCPUs, 12 GB RAM and a 200 GB dynamically expanding Lin
 
 ## 2. Architecture and dependency map
 
-Arrows show access or dependency, not unrestricted network reachability.
+Each view answers one question. A service appearing in different views is the same deployment. Databases and detailed dependencies remain in the table, rather than adding them to every diagram. Arrows show access or data relationships, not unrestricted network reachability.
+
+### What does the family open?
+
+This view preserves the selected applications while the consolidation proposals are reviewed. Requests means Seerr for video plus an unresolved music request route; Ombi is the proposed single-portal trial in section 6.
 
 ```mermaid
-flowchart TB
-    LAN[Family devices on LAN] --> EDGE[Private Caddy HTTPS proxy]
-    REMOTE[Remote phones and computers] --> VPN[Tailscale or approved alternative]
-    VPN --> EDGE
-    EDGE --> HOME[Family Homepage]
-    EDGE --> JF[Jellyfin]
-    EDGE --> ND[Navidrome]
-    EDGE --> SR[Seerr]
-    EDGE --> NC[Nextcloud]
-    EDGE --> IM[Immich]
-    EDGE --> ME[Mealie]
-    PC[Windows and Linux PCs] --> SMB[Samba]
-    NC --> SMB
-    SR --> ARR[Radarr and Sonarr]
-    MUSIC[Music requests via administrator initially] --> LI[Lidarr]
-    ARR --> PR[Prowlarr indexer configuration]
-    LI --> PR
-    ARR --> QB[qBittorrent]
-    LI --> QB
-    QB --> DL[Download storage]
-    DL --> IMPORT[Radarr / Sonarr / Lidarr import]
-    IMPORT --> MEDIA[Movie / TV / music libraries]
-    MEDIA --> JF
-    MEDIA --> ND
-    BA[Bazarr] --> MEDIA
-    SMB --> FILES[Private and shared files]
-    IM --> PHOTOS[Immich managed photos]
-    NC --> NCDB[Nextcloud database and cache]
-    IM --> IMDB[Immich database and supported cache]
-    ME --> MEDB[Mealie database]
-    BACKUP[Host backup jobs] --> DEST[Independent backup destination]
-    STATE[Application state / databases / files / photos] --> BACKUP
-    MON[Availability / metrics / disk monitoring] --> ALERT[Administrator alerts]
+flowchart LR
+    Family[Family devices] --> Video[Jellyfin - watch]
+    Family --> Music[Navidrome and mobile client - listen]
+    Family --> Files[Nextcloud - files]
+    Family --> Photos[Immich - photos]
+    Family --> Lists[Mealie - shopping]
+    Family --> Requests[Requests - portal choice pending]
+```
+
+### How does media arrive?
+
+Managers issue download commands and import completed files. Import is an action performed by those managers, not another service. Prowlarr supplies indexer configuration. Request status and subsequent library scans are omitted from this view.
+
+```mermaid
+flowchart LR
+    Requests[Approved movie / TV / album requests] --> Managers[Radarr / Sonarr / Lidarr]
+    Indexers[Prowlarr] -. indexer configuration .-> Managers
+    Managers -->|download command| Client[qBittorrent]
+    Client --> Downloads[(Completed downloads)]
+    Downloads -->|read and import| Managers
+    Managers -->|hardlink or copy| Libraries[(Movie / TV / music libraries)]
+    Libraries --> Players[Jellyfin / Navidrome]
+```
+
+### How are private services and data protected?
+
+Host backup jobs capture consistent recovery sets; this box represents an operation, not another always-running application. Internet-facing administration remains disabled.
+
+```mermaid
+flowchart LR
+    Remote[Remote devices] --> VPN[Approved VPN]
+    VPN --> HTTPS[Private HTTPS proxy]
+    LAN[Local devices] --> HTTPS
+    HTTPS --> Apps[Family applications]
+    PC[Mapped drive] --> SMB[Samba]
+    Apps -->|Nextcloud external storage| SMB
+    SMB --> Files[(Private and shared files)]
+    Files --> Backup[Consistent backup jobs]
+    State[(Application state and managed photos)] --> Backup
+    Backup --> Destination[(Independent backup destination)]
 ```
 
 | Module | Required dependencies | Failure boundary |
@@ -168,7 +181,11 @@ Movie/TV workflow is Seerr request, approval or permitted auto-approval, Radarr/
 
 Music workflow is an approved artist/album selection in Lidarr, source search, qBittorrent download, Lidarr import/tagging, then Navidrome scan and mobile playback. Lidarr is a collection acquisition manager, not a streaming player. Start artists unmonitored and approve selected albums; avoid monitoring entire catalogs unintentionally. Single-track requests, Hungarian catalog coverage and reliable matching remain acceptance questions. Do not promise automatic acquisition for every song. [Lidarr quick start](https://wiki.servarr.com/lidarr/quick-start-guide).
 
-Initially, family music requests go through an administrator while downloads and imports run automatically. That leaves a documented usability gap if every family member needs self-service music requests. In that case, evaluate a maintained FOSS Lidarr request frontend before considering a small FamilyHub request form. Do not expose Lidarr administration to family members.
+Music request UX remains an owner decision. The original administrator-assisted option means a family member asks for an album and the administrator adds it in Lidarr; downloads and imports then run automatically. This is a human queue and is not an approved default.
+
+The first proposed simplification trial is **Ombi as a replacement for Seerr**, providing movie, TV and music requests in one portal. Upstream documents Radarr, Sonarr and Lidarr connections plus Jellyfin integration. This establishes a candidate, not a tested FamilyHub workflow. Require a nontechnical user to search for the correct album, submit it, see pending/failed/available states and play the completed result without manager access. Test per-user permissions, duplicate detection, Hungarian catalog matching and Navidrome availability reporting explicitly. Use the free web interface; native app price/license is a separate audit. [Ombi managers](https://docs.ombi.app/settings/all-the-arrs/), [Ombi Jellyfin integration](https://docs.ombi.app/settings/jellyfin/).
+
+If that trial fails, compare Seerr plus a maintained FOSS music request frontend with the explicitly accepted human-queue option. A shared shopping-list request queue still requires an administrator to copy requests into Lidarr. Custom request code remains the last option. Keep the existing portal choice until the owner approves a substitution. Do not expose Lidarr administration to family members.
 
 Use separate categories for music, movies and television. Start with two active downloads and one import job. Schedule bulk transfer for 23:00–07:00 Europe/Budapest; define daytime upload/download caps after measuring the home connection. qBittorrent has scheduled alternative limits, but a limit of zero can mean unlimited. A strict no-download daytime policy requires verified pause/resume behavior. Manual priority expires and restores the normal schedule. Initially make this administrator-only. [qBittorrent API](https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-%28qBittorrent-5.0%29).
 
@@ -318,7 +335,7 @@ No implementation begins until the owner approves the architecture and the inten
 | Actual family size and damaged numeric ranges | 4–6 users confirmed by the owner; confirm the remaining numeric assumptions in section 1 |
 | Host and development runtime | Debian 13, one Linux VM, Compose, then fresh physical Debian install |
 | Automatic acquisition scope | Include movies, TV and music using the stack in section 6 |
-| Music request experience | Administrator-assisted requests initially; evaluate a separate FOSS frontend if self-service is required |
+| Music request experience | Test Ombi as one self-service request portal; compare with Seerr plus a music frontend if it fails. Administrator-assisted requests require explicit acceptance |
 | Remote-access dependency | Accept hosted Tailscale for private v1, with documented self-hosted option; otherwise design WireGuard/Headscale first |
 | Backup destination and retention | Name an existing independent destination; approve 24-hour RPO and proposed retention after capacity review |
 | TLS/name ownership | Existing domain plus split DNS/DNS-01 if available; otherwise prove local trust on all clients |
