@@ -1,12 +1,12 @@
 # FamilyHub architecture review
 
-Version 0.4 proposed. 8 November 2026. Awaiting owner approval.
+Version 0.5. 8 November 2026. The owner authorized the first development-host/storage milestone; later application modules remain proposed.
 
-Owner direction after the independent reviews: defer shopping, develop acquisition before the playback interfaces, and verify one component at a time. Section 10 supersedes the earlier playback-first sequence. Shopping and Mealie are later work; references elsewhere describe the eventual platform rather than the initial deployment.
+Current owner direction supersedes the earlier acquisition-first proposal: establish the storage foundation, verify sample playback, then add acquisition components one at a time. The first storage milestone is implemented and verified; see [the storage guide](docs/STORAGE.md) and [verification record](docs/STORAGE_VERIFICATION.md). Shopping and Mealie are later work; references elsewhere describe the eventual platform rather than the initial deployment.
 
 Independent reviews are complete: [Astra](REVIEW_ASTRA.md) and [Opus](REVIEW_OPUS.md), both at medium effort. Read [the comparison and proposed revisions](REVIEW_COMPARISON.md) for agreements, disagreements and corrections. The smaller diagrams below replace the original combined graph. Service substitutions remain proposals requiring owner selection.
 
-This document plans a family server and a later installable FOSS integration platform. Automatic torrent downloads for movies, television and music are included in the proposed private deployment. No installation, application deployment or production code is authorized by this review.
+This document plans a family server and a later installable FOSS integration platform. Automatic torrent downloads for movies, television and music are included in the proposed private deployment. The owner has authorized the development-host/storage foundation; later application deployment remains outside the completed milestone.
 
 Evidence labels used below are **Verified** for upstream documentation or source, **Proposed** for architecture choices, and **Unverified** for behavior that requires testing. Upstream capabilities do not establish that this hardware or a particular client passes acceptance tests.
 
@@ -16,7 +16,7 @@ Use Debian 13, Docker Engine and Compose on one host. Run independent applicatio
 
 The core media stack should be Jellyfin, Navidrome and Substreamer. Add Seerr, Radarr, Sonarr, Bazarr, Prowlarr, qBittorrent and **Lidarr** for automatic acquisition. Seerr handles movie and television requests; music acquisition has a separate request boundary. Navidrome remains the music player and library server.
 
-Latest owner requirement: all songs must be high quality. Exact library formats, release-quality checks and any lossy fallback or derived mobile-streaming allowance require an explicit policy; none has been approved by a reviewer recommendation alone. The owner requested fresh independent Astra and Opus sequencing opinions without a preferred outcome, and conditionally authorized starting if their substantive recommendations agree. The earlier acquisition-first sequence remains a proposal pending that comparison. See [the neutral requirements brief](SEQUENCING_REVIEW_BRIEF.md); review outcomes are kept separately so later reviewers can use the same unsteered brief.
+Latest owner requirement: all songs must be high quality. Exact library formats, release-quality checks and any lossy fallback or derived mobile-streaming allowance require an explicit policy; none has been approved by a reviewer recommendation alone. Opus completed the fresh independent sequencing review; Astra's corresponding review was blocked by quota. The owner's later explicit instruction to proceed with the first Opus milestone superseded the earlier wait-for-consensus condition for that milestone. See [the neutral requirements brief](SEQUENCING_REVIEW_BRIEF.md).
 
 The owner confirmed **4–6 family members** on 8 November 2026. Other ranges lost punctuation in the supplied brief. Planning assumptions requiring confirmation are 4–6 VM vCPUs, 8–12 GB VM memory, a 100–200 GB VM disk, a 400–550 W PSU, future 4–10 TB HDDs, a 23:00–07:00 download window, 7–30 days for watched temporary media and 30–90 days for unwatched temporary media.
 
@@ -140,10 +140,11 @@ Proposed logical paths are deployment variables, with stable container paths.
 /srv/familyhub/files/personal/<user>/  Samba-owned personal shares
 /srv/familyhub/files/shared/<group>/   Samba-owned shared folders
 /srv/familyhub/photos/immich/          Immich-managed asset tree
-/srv/familyhub/media/downloads/        incomplete and completed downloads
-/srv/familyhub/media/library/music/   persistent music collection
-/srv/familyhub/media/library/movies/  movies, with temporary/protected roots
-/srv/familyhub/media/library/tv/      television, with temporary/protected roots
+/srv/familyhub/data/downloads/        incomplete and completed downloads
+/srv/familyhub/data/media/music/      persistent music collection
+/srv/familyhub/data/media/movies/     movies, with temporary/protected roots
+/srv/familyhub/data/media/tv/         television, with temporary/protected roots
+/srv/familyhub/data/quarantine/music/ candidate music requiring review
 /srv/familyhub/cache/                 bounded disposable caches
 /srv/familyhub/backup-staging/        temporary exports, not independent backup
 /mnt/familyhub-backup/                separate local disk, if selected
@@ -281,14 +282,14 @@ Image rollback alone cannot reverse a schema migration. Rollback restores the co
 
 ## 10. Milestones and dependencies
 
-Acquisition comes first after a small development foundation. Define stable download/library paths, permissions, storage headroom and provisional language/quality choices before the first transfer. Playback requirements still constrain file selection: audio tracks, subtitle formats, codecs, bitrate and the target clients matter. The interface can come later; format compatibility cannot be postponed indefinitely. Use a short sample playback check after each media type imports, without building the full family playback experience at that stage.
+The current order is storage foundation, sample playback, then acquisition. Stable paths and permissions are now verified. Use sample media to establish audio, subtitle, codec and client behavior before configuring acquisition quality profiles. Add and verify one component at a time.
 
 | Phase | Depends on | Deliverable and exit check |
 |---|---|---|
 | 0. Architecture approval | This review | Owner decisions recorded; unresolved facts assigned checks |
-| 1. Development foundation | Phase 0 | Linux VM, minimal Compose layout, stable storage paths, secret handling, private administrator access and configuration restore with sample data |
-| 2. Acquisition | Phase 1 | Complete the component gates below, one at a time; verify imported files, scheduling, failure handling and no download loops |
-| 3. Playback | Phase 2 | Jellyfin and music clients use the verified libraries; LG TV playback, remote/offline phone music and separate histories pass |
+| 1. Development host and storage | Owner explicitly authorized this milestone | Complete: Debian Hyper-V VM, Docker/Compose, stable paths, permission roles, private administrator access, hardlinks and reboot persistence. Independent backup remains later and is required before reliance on real family data |
+| 2. Sample playback | Phase 1 | Deploy the selected players against sample libraries and check target clients, languages, original music quality and separate user state; record unavailable devices rather than claiming a pass |
+| 3. Acquisition | Phase 2 | Complete the component gates below, one at a time; verify imported files, scheduling, failure handling and no download loops |
 | 4. Files | Phase 1; backup destination before real data | Mapped SMB file visible on phone, private access denial, conflict and restore tests |
 | 5. Photos | Phase 4 resource evidence and backup gate | Android/iPhone uploads and independent photo/database restore |
 | 6. Family access and usability | Selected family modules | Private HTTPS/remote access, simple entry points and onboarding; shopping remains deferred |
@@ -311,7 +312,7 @@ The sequence below is proposed within the owner's acquisition-first direction. E
 
 Use lawful sample payloads and owner-authorized sources. If a sample cannot be obtained automatically, manual import can prove the import stage, but the automatic search/download gate remains unverified. Do not configure unauthorized sources or use private family data as test material.
 
-After each successful movie/episode/album import, inspect the saved files and perform a small format/audio/subtitle playback check using an existing compatible client. Full Jellyfin/Navidrome deployment and family interface validation follow in Phase 3. Hardware-specific Intel QSV and actual LG/phone checks remain necessary when those devices are available.
+After each successful movie/episode/album import in Phase 3, inspect the saved files and repeat the relevant format/audio/subtitle checks against the players introduced in Phase 2. Hardware-specific Intel QSV and actual LG/phone checks remain necessary when those devices are available.
 
 Phases 4–6 are logically independent, but introduce them sequentially on the memory-constrained validation VM. Cleanup remains report-only until its own approval and tests pass. Shopping/Mealie, a later PWA, unified TV requests, recommendation ML and arbitrary group collaboration remain outside the initial implementation. Shopping's household membership and shared-edit tests move with that later feature.
 
@@ -351,7 +352,7 @@ FamilyHub's own license remains TBD. Proposed options are Apache-2.0 for permiss
 
 Before public release, record exact component/image versions, licenses, copyright notices, source availability, modification obligations and trademarks. Audit bundled models, artwork, codecs and example media separately. MusicBrainz/TMDB/subtitle services and app stores have their own availability and terms; FOSS orchestration cannot promise their catalogs or permanent free access. Disable optional telemetry/integrations by default and document unavoidable metadata requests. A practical Debian installation may need vendor firmware, so distinguish FOSS application code from hardware firmware and external hosted services in public claims.
 
-No implementation begins until the owner approves the architecture and the intended first implementation phase. Approval of this review does not choose unspecified purchases, public exposure or destructive retention policies.
+Implementation stays within the owner's authorized milestone. The development-host/storage foundation is complete; later applications require their own scope confirmation. Approval does not choose unspecified purchases, public exposure or destructive retention policies.
 
 | Decision | Recommended proposal |
 |---|---|

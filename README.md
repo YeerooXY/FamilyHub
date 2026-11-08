@@ -8,4 +8,8 @@ Read [the architecture review](ARCHITECTURE_REVIEW.md) for the service map, trad
 
 The independent [Astra](REVIEW_ASTRA.md) and [Opus](REVIEW_OPUS.md) reviews are complete. Read [their comparison](REVIEW_COMPARISON.md) for agreements, differing recommendations and the proposed simplifications.
 
-Status: architecture review. Application implementation has not started. The project license is not yet selected.
+Status: the first storage foundation is implemented and verified in the Debian development VM. Media applications are the next step. The project license is not yet selected.
+
+See the [storage guide](docs/STORAGE.md) for the storage scripts and development VM helper.
+
+Read the [verification record](docs/STORAGE_VERIFICATION.md) for completed checks and remaining limits. Shopping is deferred.
