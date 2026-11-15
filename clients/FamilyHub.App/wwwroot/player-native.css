@@ -12,7 +12,7 @@
 #show-queue.now-playing .now-copy { width:auto; min-width:0; padding-right:0; }
 .now-playing #now-title { font-size:14px; line-height:1.35; }
 .now-playing #now-artist { font-size:12px; margin-top:2px; }
-.now-playing #bar-next { font-size:10px; margin-top:3px; color:var(--muted); }
+.now-playing #bar-next { font-size:12px; margin-top:3px; color:var(--muted); }
 .transport { max-width:none; }
 .transport-buttons { gap:4px; height:44px; }
 .transport-buttons button { width:44px; min-width:44px; height:44px; min-height:44px; padding:0; }
@@ -25,7 +25,7 @@
   box-shadow:none;
 }
 .transport-buttons #shuffle-toggle { padding:12px; margin-right:4px; }
-.seek-row { margin-top:0; gap:8px; font-size:10px; }
+.seek-row { margin-top:0; gap:8px; font-size:12px; }
 .seek-row span { flex-shrink:0; min-width:28px; text-align:center; }
 .seek-row input { min-width:0; height:28px; }
 .player-tools {
@@ -47,7 +47,7 @@
   #show-queue.now-playing { gap:10px; padding-right:48px; }
   .now-playing .cover { width:44px; height:44px; }
   .now-playing #now-title { font-size:13px; }
-  .now-playing #now-artist { font-size:11px; }
+  .now-playing #now-artist { font-size:12px; }
   .now-playing #bar-next { display:none; }
   .transport-buttons { gap:8px; }
   .seek-row,.seek-row input { height:44px; }

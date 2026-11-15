@@ -16,6 +16,10 @@ public partial class App : Application
         window.Deactivated += (_, _) => mainPage.SetActive(false);
         window.Stopped += (_, _) => mainPage.SetActive(false);
         window.Destroying += (_, _) => mainPage.SetActive(false);
+#if WINDOWS || MACCATALYST
+        window.MinimumWidth = 850;
+        window.MinimumHeight = 640;
+#endif
 #if WINDOWS
         // The native caption buttons remain; MainPage hides MAUI's title row
         // after its handler exists and supplies the web header's hit regions.

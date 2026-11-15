@@ -12,7 +12,7 @@ a, .btn-link {
     border-color: #1861ac;
 }
 
-.btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
+.btn:focus-visible, .btn:active:focus-visible, .btn-link.nav-link:focus-visible, .form-control:focus-visible, .form-check-input:focus-visible {
   box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
 }
 
@@ -20,7 +20,7 @@ a, .btn-link {
     padding-top: 1.1rem;
 }
 
-h1:focus {
+h1:focus-visible {
     outline: none;
 }
 

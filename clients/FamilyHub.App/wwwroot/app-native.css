@@ -196,7 +196,7 @@ button:active:not(:disabled):not([aria-disabled=true]),#search-form button:activ
 .settings-group { border-top:1px solid #ffffff0c; margin-top:12px; padding-top:12px; }
 #profile-menu .theme-label { padding:4px 8px 8px; margin:0; font-weight:600; }
 .server-settings>span { display:flex; flex:1; align-items:center; justify-content:space-between; gap:8px; }
-.server-settings .server-state { display:inline; color:var(--muted); font-size:11px; font-weight:400; }
+.server-settings .server-state { display:inline; color:var(--muted); font-size:12px; font-weight:400; }
 .server-state.is-connected { color:#85dab1; }
 .app-update { border-color:#ffffff0c; margin-top:12px; padding-top:12px; }
 #profile-menu .app-update button { gap:10px; }
@@ -212,7 +212,7 @@ button:active:not(:disabled):not([aria-disabled=true]),#search-form button:activ
 .sidebar-playlist .cover { width:44px; height:44px; flex-shrink:0; border-radius:6px; }
 .sidebar-playlist .nav-label { min-width:0; }
 .sidebar-playlist strong,.sidebar-playlist small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.sidebar-playlist small { font-size:11px; color:var(--muted); margin-top:4px; }
+.sidebar-playlist small { font-size:12px; color:var(--muted); margin-top:4px; }
 .quick-play-art { display:grid; place-items:center; background:linear-gradient(140deg,color-mix(in srgb,var(--accent-blue) 75%,#171923),#202430); color:var(--on-accent,#fff); }
 .quick-play-art .icon { width:24px; height:24px; }
 @media(min-width:721px) {
@@ -329,7 +329,7 @@ body[data-view=search] .workspace>main { display:flex; flex-direction:column; ov
 #pick .song-artwork>.cover { width:100%; height:100%; }
 .search-results .song-artwork { width:76px; height:76px; }
 .search-results .song-text strong { font-size:16px; }
-.discover-button { display:inline-flex; align-items:center; gap:6px; min-height:44px; padding:6px; font-size:11px; white-space:nowrap; }
+.discover-button { display:inline-flex; align-items:center; gap:6px; min-height:44px; padding:6px; font-size:12px; white-space:nowrap; }
 .discover-button .icon { width:18px; height:18px; }
 .player-tools { max-width:260px; }
 
@@ -667,10 +667,10 @@ body[data-view=preferences] #view-title { width:min(900px,100%); margin-inline:a
 .upload-choices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:8px 0 16px; }
 .upload-choices>.upload-choice { margin:0; position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; min-height:148px; padding:20px 12px; border:1px solid color-mix(in srgb,var(--accent-blue) 24%,#ffffff18); border-radius:14px; background:color-mix(in srgb,var(--accent-blue) 5%,transparent); color:var(--ink); cursor:pointer; text-align:center; overflow:hidden; transition:background .18s,transform .18s; }
 .upload-choice>.icon { width:32px; height:32px; color:var(--accent-blue); }.upload-choice strong { font-size:15px; }.upload-choice small { color:var(--muted); font-size:12px; }.upload-choice:hover { background:color-mix(in srgb,var(--accent-blue) 12%,transparent); }.upload-choice:active { transform:scale(.98); }.upload-choice:focus-within { outline:2px solid var(--accent-blue); outline-offset:3px; }.upload-choice input[type=file] { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; margin:0; }
-.upload-guidance { font-size:13px; line-height:1.5; color:var(--muted); }.upload-limits { font-size:11px; color:var(--muted); margin-top:4px; }.upload-selection { margin:20px 0; border-top:1px solid #ffffff10; padding-top:16px; }.upload-selection>div,.upload-status>div { display:flex; justify-content:space-between; align-items:center; gap:12px; }.upload-selection>div>span { color:var(--muted); font-size:12px; }.upload-selection ul { list-style:none; padding:0; margin:12px 0; max-height:180px; overflow:auto; }.upload-selection li { display:flex; align-items:center; gap:10px; padding:7px 0; font-size:12px; }.upload-selection li span { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.upload-selection li>.icon { width:18px; height:18px; flex-shrink:0; color:var(--muted); }.upload-selection li>.icon:last-child:not(:first-child) { color:var(--mint); }.upload-selection>small { color:var(--muted); font-size:12px; }
+.upload-guidance { font-size:13px; line-height:1.5; color:var(--muted); }.upload-limits { font-size:12px; color:var(--muted); margin-top:4px; }.upload-selection { margin:20px 0; border-top:1px solid #ffffff10; padding-top:16px; }.upload-selection>div,.upload-status>div { display:flex; justify-content:space-between; align-items:center; gap:12px; }.upload-selection>div>span { color:var(--muted); font-size:12px; }.upload-selection ul { list-style:none; padding:0; margin:12px 0; max-height:180px; overflow:auto; }.upload-selection li { display:flex; align-items:center; gap:10px; padding:7px 0; font-size:12px; }.upload-selection li span { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.upload-selection li>.icon { width:18px; height:18px; flex-shrink:0; color:var(--muted); }.upload-selection li>.icon:last-child:not(:first-child) { color:var(--mint); }.upload-selection>small { color:var(--muted); font-size:12px; }
 .upload-target { display:block; color:var(--muted); font-size:13px; margin:16px 0; }.upload-target select { display:block; width:100%; box-sizing:border-box; margin-top:8px; min-height:44px; border:1px solid #ffffff24; border-radius:10px; padding:10px 14px; background:var(--panel,#20232c); color:var(--ink); color-scheme:dark; }
 .upload-status { display:grid; gap:12px; margin:20px 0; font-size:13px; }.upload-status>div>span,.upload-status>small { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }.upload-status progress { width:100%; height:6px; accent-color:var(--accent-blue); }.upload-songs-dialog .entry-error { overflow-wrap:anywhere; }.upload-songs-dialog .actions { flex-wrap:wrap; }
-@media(max-width:480px) { .upload-open span { display:none; }.upload-choice { min-height:132px; padding:16px 8px; }.upload-choice strong { font-size:13px; }.upload-choice small { font-size:11px; } }
+@media(max-width:480px) { .upload-open span { display:none; }.upload-choice { min-height:132px; padding:16px 8px; }.upload-choice strong { font-size:13px; }.upload-choice small { font-size:12px; } }
 @media(prefers-reduced-motion:reduce) { .upload-choice { transition:none; }.upload-choice:active { transform:none; } }
 .session-invite { display:grid; gap:8px; margin:18px 0; }.session-invite select { min-height:44px; background:#ffffff0a; border:1px solid #ffffff20; border-radius:8px; padding:10px; color:var(--text); }.session-invite select option { background:#1b202a; }.session-invite span { font-size:13px; color:var(--muted); }
 
@@ -713,7 +713,7 @@ body[data-view=preferences] #view-title { width:min(900px,100%); margin-inline:a
 .playlist-identity>.cover,.playlist-identity>.playlist-image-picker { width:clamp(168px,18vw,232px); height:clamp(168px,18vw,232px); flex-shrink:0; border-radius:8px; }
 .playlist-hero .playlist-action-bar { padding:24px 0 0; }
 .playlist-options #delete-playlist { margin:0; align-self:auto; }
-button,label,input[type=range],.song-row,.playlist-summary,.playlist-kind,.stats-leaderboard,.stats-period,.stats-period-picker { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+body { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
 input:not([type=range]),textarea,[contenteditable=true] { -webkit-user-select:text; user-select:text; }
 @media(max-width:720px) { .playlist-identity { flex-direction:column; align-items:flex-start; gap:18px; }.playlist-identity>.cover,.playlist-identity>.playlist-image-picker { width:184px; height:184px; align-self:center; } }
 .new-playlist-sources { display:flex; flex-wrap:wrap; gap:8px; margin:20px 0; }.new-playlist-sources button { min-height:40px; border:1px solid #ffffff16; border-radius:20px; padding:8px 12px; font-size:12px; }.new-playlist-sources button[aria-pressed=true] { color:var(--accent-blue); border-color:var(--accent-blue); background:color-mix(in srgb,var(--accent-blue) 8%,transparent); }

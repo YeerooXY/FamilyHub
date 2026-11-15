@@ -60,7 +60,7 @@
     }
     private void SelectionReady(int skipped, bool limited)
     {
-        selectionNote = skipped > 0 ? $"Skipped {skipped} files that are empty, too large or unsupported." : null;
+        selectionNote = skipped > 0 ? $"Skipped {skipped} {(skipped == 1 ? "file" : "files")} that {(skipped == 1 ? "is" : "are")} empty, too large or unsupported." : null;
         if (limited) selectionNote = $"The folder is large. Selected {files.Count} songs; choose a smaller folder for the rest.";
         if (files.Count == 0) error = "No supported audio files found.";
         pendingFocus = files.Count > 0 ? "upload-start" : "upload-audio-file";

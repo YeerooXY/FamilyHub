@@ -23,7 +23,7 @@
 .transfer-recent li,.transfer-results li { display:flex; align-items:center; gap:16px; padding:10px 0; border-top:1px solid #ffffff0c; }
 .transfer-recent li>span:first-child,.transfer-results li>span:first-child { flex:1; min-width:0; }
 .transfer-recent strong,.transfer-results strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
-.transfer-recent small,.transfer-results small { display:block; color:var(--muted); font-size:11px; margin-top:4px; }
+.transfer-recent small,.transfer-results small { display:block; color:var(--muted); font-size:12px; margin-top:4px; }
 .transfer-result { font-size:12px; white-space:nowrap; color:var(--muted); }
 .transfer-result.ready,.transfer-result.saved { color:#91ddb8; }
 .transfer-result.review,.transfer-result.error { color:#e8c28f; }
