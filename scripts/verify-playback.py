@@ -327,6 +327,9 @@ def verify_navidrome(pw, args):
     songs = []
     def albums():
         al = sj(USERS["a"], pw["a"], "getAlbumList2", type="alphabeticalByName", size=50)["albumList2"].get("album", [])
+        fixture_names = {"Sample CD 16-44.1", "Sample HiRes 24-96"}
+        al = [a for a in al if a.get("artist") == "Sample Artist" and a.get("name") in fixture_names]
+        assert {a["name"] for a in al} == fixture_names, "sample albums missing from the first 50 albums"
         assert len(al) == 2, f"{len(al)} albums"
         for a in al:
             songs.extend(sj(USERS["a"], pw["a"], "getAlbum", id=a["id"])["album"]["song"])

@@ -67,3 +67,11 @@ The owner selected Android and confirmed enabling Tailscale Serve and installing
 Verified from Windows with normal TLS certificate validation: HTTPS `/ping` returned HTTP 200 and salted OpenSubsonic `ping` authentication succeeded for `sample-a`. These checks confirm the private endpoint and music credentials, not actual Android playback. Phone login, background playback, original-quality download and airplane-mode playback remain pending owner observations.
 
 Development access depends on the Windows PC, Debian VM, SSH-forward process and Tailscale remaining available. Serve runs in the background, but the SSH tunnel is not boot-persistent. The eventual production server should provide its own private endpoint. This was runtime configuration and a factual verification note; no implementation worker was required.
+
+### Mobile connection restored, 10 November 2026
+
+The existing Tailscale node and private Serve route were still active, but no process was listening on workstation port 14533. The guest's Navidrome ping was healthy. A hidden SSH process restored the existing loopback forward using `familyhub-dev.mshome.net`, the saved SSH key and strict host-key verification. No Serve settings, public exposure or account credentials changed. The process uses keepalives and exits after repeated connection failures; it does not restart itself.
+
+Through the existing private HTTPS endpoint, normal certificate validation passed, `/ping` and the player page returned 200, and saved `sample-a` credentials authenticated successfully. Search returned exactly one `FamilyHub Samples / Intake Verification / Trimmed Tone` track. Its raw stream SHA-256 matched the previously verified library file, `ce14f844ed902a595a6c14c38dde5d42171da61865c09dbc6e54483e4331ea89`. This checks the full server route from Windows; phone login, audible playback, background behavior and offline playback still require a phone test.
+
+Mobile users can browse and play imported music in Navidrome or Substreamer. YouTube search and fetching remain administrator CLI operations; the player searches its existing library. The owner was asked for a song/artist or a specific video URL for the next import. This was a small runtime repair and documentation update, completed directly without a worker.

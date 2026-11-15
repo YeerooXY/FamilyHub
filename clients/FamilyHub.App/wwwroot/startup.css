@@ -1,0 +1,9 @@
+.startup-screen { position:fixed; inset:0; z-index:100; display:grid; place-items:center; margin:0; background:radial-gradient(ellipse at 50% 48%,#151c2e 0,#090b10 58%); }
+.startup-disc { position:relative; width:80px; height:80px; animation:startup-breathe 1.6s ease-in-out infinite; }
+.startup-disc img { display:block; width:100%; height:100%; }
+.startup-disc::before { content:""; position:absolute; inset:-16px; border:1px solid #adbcff24; border-radius:50%; animation:startup-ring 1.6s ease-out infinite; }
+@keyframes startup-breathe { 0%,100% { opacity:.7; transform:scale(.96); } 50% { opacity:1; transform:scale(1); } }
+@keyframes startup-ring { from { opacity:.7; transform:scale(.8); } to { opacity:0; transform:scale(1.3); } }
+.workspace { animation:startup-content .24s ease-out both; }
+@keyframes startup-content { from { opacity:0; } to { opacity:1; } }
+@media(prefers-reduced-motion:reduce) { .startup-disc,.startup-disc::before,.workspace { animation:none; } }

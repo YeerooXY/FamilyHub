@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:FamilyHub.App"
+             xmlns:components="clr-namespace:FamilyHub.App.Components"
+             xmlns:media="clr-namespace:CommunityToolkit.Maui.Views;assembly=CommunityToolkit.Maui.MediaElement"
+             BackgroundColor="#07101F" x:Class="FamilyHub.App.MainPage">
+
+    <Grid>
+    <media:MediaElement x:Name="audio" HeightRequest="1" WidthRequest="1" Opacity="0" ShouldAutoPlay="True" ShouldShowPlaybackControls="False" ShouldKeepScreenOn="False" />
+    <media:MediaElement x:Name="audioNext" HeightRequest="1" WidthRequest="1" Opacity="0" ShouldAutoPlay="False" ShouldShowPlaybackControls="False" ShouldKeepScreenOn="False" />
+    <BlazorWebView x:Name="blazorWebView" HostPage="wwwroot/index.html">
+        <BlazorWebView.RootComponents>
+            <RootComponent Selector="#app" ComponentType="{x:Type components:Routes}" />
+        </BlazorWebView.RootComponents>
+    </BlazorWebView>
+
+</Grid>
+</ContentPage>

@@ -1,0 +1,16 @@
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+const source = fs.readFileSync(require('path').join(__dirname, '../music_web/static/app.js'), 'utf8');
+const pure = source.slice(source.indexOf('function related('), source.indexOf('async function advance('));
+const context = { artistName: t => (t?.channel || t?.artist || "").toLocaleLowerCase(), currentJob: { analysis: { reliable: true, bpm: 120 } }, prepared: new Map(), history: [], skipped: [] };
+vm.createContext(context); vm.runInContext(pure, context);
+const tracks = Array.from({ length: 10 }, (_, i) => ({ url: `source${i}`, channel: i < 5 ? 'Seed artist' : 'Other artist' }));
+const randomized = context.shuffled(tracks, () => .23);
+assert.equal(new Set(randomized.map((r) => r.url)).size, tracks.length);
+assert.equal(tracks[0].url, 'source0', 'shuffle must preserve the pool');
+const ranked = context.related({ channel: 'Seed artist' }, tracks);
+assert.equal(ranked[0].channel, 'Seed artist');
+assert(ranked.slice(0, 5).some((r) => r.channel === 'Other artist'), 'mix must diversify artists');
+context.skipped.push('source0');
+assert.notEqual(context.related({ channel: 'Seed artist' }, tracks)[0].url, 'source0');
+assert.deepEqual(context.related({ channel: 'Seed artist' }, tracks), context.related({ channel: 'Seed artist' }, tracks));
+console.log('Shuffle pool, deterministic related-artist mix, diversity and skip avoidance passed.');

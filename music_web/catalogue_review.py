@@ -1,0 +1,208 @@
+"""Persistent trimming flags and source-backed metadata repair proposals."""
+import copy
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import re
+import threading
+import unicodedata
+from .musicbrainz import read as musicbrainz
+
+ID=re.compile(r'(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})')
+UNKNOWN={'','unknown','unknown artist','unknown album','unsorted','selected recordings','youtube','local imports'}
+FIELDS=('artist','album','genre')
+
+class ReviewError(ValueError):
+    def __init__(self,message,status=400):super().__init__(message);self.status=status
+
+def missing(value): return not isinstance(value,str) or value.strip().casefold() in UNKNOWN
+
+def text(value,limit=120):
+    if not isinstance(value,str) or len(value)>limit or re.search(r'[\x00-\x1f\x7f]',value):
+        raise ReviewError('Enter text without control characters.')
+    return value.strip()
+
+def normal(value):
+    value=''.join(c for c in unicodedata.normalize('NFKD',value or '') if not unicodedata.combining(c))
+    return re.sub(r'[^\w]+',' ',value.casefold()).strip()
+
+def seed(source,track):
+    title=source.get('track_title') or track['title']
+    artist=source.get('artist') or track.get('channel','')
+    parts=re.split(r'\s+[-\u2013\u2014]\s+',title,maxsplit=1)
+    if not source.get('track_title') and len(parts)==2:
+        artist=source.get('artist') or parts[0];title=parts[1]
+    title=re.sub(r'\s*[\[(][^\])]*(?:official|audio|video|lyrics|release|hq|hd)[^\])]*[\])]',lambda m:m.group(0) if re.search(r'remix|live|acoustic|slowed|nightcore|instrumental',m.group(0),re.I) else '',title,flags=re.I).strip()
+    artist=re.sub(r'\s*-?\s*Topic$|VEVO$','',artist,flags=re.I).strip()
+    return dict(title=title[:200],artist=artist[:120],duration=track.get('original_duration') or track.get('duration') or 0)
+
+def lookup(row):
+    values={};suggested={};source_url='';seed_info=row['seed'];embedded=row.get('embedded',{})
+    for key in ('artist','album'):
+        if key in row['missing'] and not missing(embedded.get(key)):values[key]=text(embedded[key])
+    if not set(row['missing'])-values.keys():return dict(values=values,suggested={},source_url='',source='File/source tags')
+    title,artist=seed_info['title'],seed_info['artist']
+    if not title or missing(artist):return dict(values=values,suggested={},source_url='',source='No unambiguous artist')
+    quote=lambda value:'"'+value.replace('\\',' ').replace('"',' ')+'"'
+    found=musicbrainz('recording/',query='recording:'+quote(title)+' AND artist:'+quote(artist),limit=8).get('recordings',[])
+    exact=[]
+    for candidate in found:
+        artists=[normal(c.get('artist',{}).get('name',c.get('name',''))) for c in candidate.get('artist-credit',[]) if isinstance(c,dict)]
+        duration=candidate.get('length')
+        if (normal(candidate.get('title',''))==normal(title) and normal(artist) in artists
+                and type(duration) in (int,float) and seed_info['duration']>0 and abs(duration/1000-seed_info['duration'])<=3
+                and int(candidate.get('score',0))>=95):exact.append(candidate)
+    exact={c['id']:c for c in exact if re.fullmatch(r'[0-9a-f-]{36}',c.get('id',''))}
+    if len(exact)!=1:return dict(values=values,suggested={},source_url='',source='No unique title, artist and duration match')
+    identifier=next(iter(exact));record=musicbrainz('recording/'+identifier,inc='artists+releases+genres')
+    source_url='https://musicbrainz.org/recording/'+identifier
+    credit=''.join(c.get('name',c.get('artist',{}).get('name',''))+c.get('joinphrase','') for c in record.get('artist-credit',[]) if isinstance(c,dict)).strip()
+    if credit:suggested['artist']=credit[:120]
+    releases=[r for r in record.get('releases',[]) if r.get('status')=='Official' and 'Compilation' not in r.get('release-group',{}).get('secondary-types',[])]
+    albums=[r for r in releases if r.get('release-group',{}).get('primary-type')=='Album']
+    titles={r['title'] for r in albums or releases if r.get('title')}
+    if len(titles)==1:suggested['album']=next(iter(titles))[:120]
+    genres=sorted(record.get('genres',[]),key=lambda g:g.get('count',0),reverse=True)
+    if genres and genres[0].get('count',0)>0:suggested['genre']=str(genres[0]['name'])[:80]
+    for key,value in suggested.items():
+        if key in row['missing'] and not missing(value):values.setdefault(key,value)
+    return dict(values=values,suggested=suggested,source_url=source_url,source='MusicBrainz')
+
+class CatalogueReview:
+    MAX_ROWS=10000
+    def __init__(self,workspace):
+        self.path=Path(workspace)/'.catalogue-review.json';self.lock=threading.RLock();self.dirty=False
+        self.data=json.loads(self.path.read_text(encoding='utf-8')) if self.path.exists() else dict(trimming={},metadata={},overrides={})
+        if not isinstance(self.data,dict):raise ReviewError('Invalid catalogue review store.')
+        for section in ('trimming','metadata','overrides'):
+            self.data.setdefault(section,{})
+            if not isinstance(self.data[section],dict) or len(self.data[section])>self.MAX_ROWS:raise ReviewError('Invalid catalogue review store.')
+        for row in self.data['metadata'].values():
+            if row.get('state')=='processing':row['state']='queued';self.dirty=True
+
+    def flush(self):
+        with self.lock:
+            if not self.dirty:return
+            temporary=self.path.with_suffix('.tmp');temporary.write_text(json.dumps(self.data,ensure_ascii=False),encoding='utf-8');temporary.replace(self.path);self.dirty=False
+
+    def overrides(self,identifier,digest):
+        with self.lock:
+            row=self.data['overrides'].get(identifier,{})
+            return dict(row.get('values',{})) if row.get('sha256')==digest else {}
+
+    def observe(self,track,source,digest):
+        identifier=track['id'];current=dict(artist=track['channel'],album=track.get('library_album',''),genre=track.get('genre',''))
+        absent=[key for key in FIELDS if missing(current[key])]
+        with self.lock:
+            existing=self.data['metadata'].get(identifier)
+            if existing and existing['sha256']==digest:
+                if existing['missing']!=absent or existing['current']!=current or existing['title']!=track['title']:
+                    existing.update(missing=absent,current=current,title=track['title'],revision=existing['revision']+1)
+                    if not absent:existing['state']='done'
+                    elif existing['state']=='processing':existing['state']='queued'
+                    self.dirty=True
+                return
+            if not absent or len(self.data['metadata'])>=self.MAX_ROWS:return
+            self.data['metadata'][identifier]=dict(id=identifier,sha256=digest,title=track['title'],current=current,missing=absent,seed=seed(source,track),
+                embedded={k:source.get(k,'') for k in ('artist','album')},state='queued',revision=1,suggested={},source='',source_url='')
+            created=self.data['metadata'][identifier]
+            trusted={key:re.sub(r'[\x00-\x1f\x7f]',' ',source[key])[:120] for key in ('artist','album') if key in absent and not missing(source.get(key))}
+            if trusted:
+                self._apply(created,trusted);created['state']='queued' if created['missing'] else 'done'
+            self.dirty=True
+
+    def flag_trim(self,track,digest,user,position=0):
+        with self.lock:
+            identifier=track['id'];row=self.data['trimming'].get(identifier)
+            if row is None or row.get('sha256')!=digest or row.get('state')=='done':
+                if row is None and len(self.data['trimming'])>=self.MAX_ROWS:raise ReviewError('The trimming queue is full.')
+                row=dict(id=identifier,sha256=digest,title=track['title'],artist=track['channel'],requested_by=[],positions=[],state='queued',at=datetime.now(timezone.utc).isoformat())
+                self.data['trimming'][identifier]=row
+            if user not in row['requested_by'] and len(row['requested_by'])<64:row['requested_by'].append(user)
+            row.setdefault('positions',[])
+            if len(row['positions'])<32 and not any(abs(position-p)<.5 for p in row['positions']):row['positions'].append(round(position,2))
+            self.dirty=True;self.flush();return copy.deepcopy(row)
+
+    def resolve_trim(self,identifier):
+        with self.lock:
+            if identifier not in self.data['trimming']:raise ReviewError('Trimming request not found.')
+            self.data['trimming'][identifier]['state']='done';self.dirty=True;self.flush()
+
+    def _apply(self,row,values):
+        valid={key:text(value,80 if key=='genre' else 120) for key,value in values.items() if key in FIELDS}
+        valid={key:value for key,value in valid.items() if not missing(value)}
+        previous=self.data['overrides'].get(row['id'],{})
+        saved=dict(previous.get('values',{})) if previous.get('sha256')==row['sha256'] else {}
+        saved.update(valid);self.data['overrides'][row['id']]=dict(sha256=row['sha256'],values=saved)
+        row['current'].update(valid);row['missing']=[key for key in FIELDS if missing(row['current'].get(key))]
+        row.update(state='review' if row['missing'] else 'done',revision=row['revision']+1)
+        self.dirty=True
+
+    def edit_metadata(self,identifier,revision,values):
+        with self.lock:
+            row=self.data['metadata'].get(identifier)
+            if not row:raise ReviewError('Metadata request not found.')
+            if type(revision) is not int or row['revision']!=revision:raise ReviewError('This metadata changed. Open it again.',409)
+            if not isinstance(values,dict) or not values or set(values)-set(FIELDS):raise ReviewError('Choose artist, album or genre fields.')
+            self._apply(row,values);self.flush();return copy.deepcopy(row)
+
+    def process_one(self,allowed,resolver=lookup):
+        if not allowed():return False
+        with self.lock:
+            row=next((r for r in self.data['metadata'].values() if r['state']=='queued'),None)
+            if row is None:return False
+            row.update(state='processing',revision=row['revision']+1);version=row['revision'];captured=copy.deepcopy(row);self.dirty=True;self.flush()
+        try:
+            result=resolver(captured)
+            if not isinstance(result,dict) or not isinstance(result.get('values',{}),dict):raise ReviewError('Invalid metadata result.')
+            result['values']={key:text(value,80 if key=='genre' else 120) for key,value in result.get('values',{}).items() if key in FIELDS}
+        except Exception:result=dict(values={},suggested={},source_url='',source='Lookup unavailable; review manually')
+        with self.lock:
+            if row['revision']!=version or row['state']!='processing':return True
+            row.update(suggested=result.get('suggested',{}),source=result.get('source',''),source_url=result.get('source_url',''))
+            self._apply(row,{k:v for k,v in result.get('values',{}).items() if k in row['missing']})
+            self.flush()
+        return True
+
+    def snapshot(self,query=""):
+        with self.lock:
+            self.flush()
+            trim=[copy.deepcopy(r) for r in self.data['trimming'].values() if r['state']!='done']
+            metadata=[copy.deepcopy(r) for r in self.data['metadata'].values() if r['state']!='done']
+            if query:
+                wanted=normal(query);trim=[r for r in trim if wanted in normal(r['title']+' '+r['artist'])];metadata=[r for r in metadata if wanted in normal(r['title']+' '+r['current']['artist'])]
+            metadata.sort(key=lambda row:(row['state']!='review',row['title'].casefold()))
+            return dict(trimming=trim[:100],metadata=metadata[:100],trimming_total=len(trim),metadata_total=len(metadata))
+
+
+def register(app,body,review,recording,admin,rate):
+    import math
+    from flask import g,jsonify,request
+    @app.errorhandler(ReviewError)
+    def invalid_review(error):return jsonify(error=str(error)),error.status
+    @app.get('/api/catalogue/review')
+    def review_queues():
+        query=request.args.get('q','')
+        if len(query)>120:raise ReviewError('Search up to 120 characters.')
+        return jsonify(**review.snapshot(query),can_edit=admin())
+
+    @app.post('/api/catalogue/trimming')
+    def request_trimming():
+        data=body(2048);identifier=data.get('id');position=data.get('position',0)
+        if not isinstance(identifier,str) or not ID.fullmatch(identifier):raise ReviewError('Choose a saved song.')
+        if type(position) not in (int,float) or not math.isfinite(position) or not 0<=position<=86400:raise ReviewError('Invalid song position.')
+        rate()
+        track,digest=recording(identifier)
+        return jsonify(request=review.flag_trim(track,digest,g.user,position)),201
+
+    @app.post('/api/catalogue/trimming/<identifier>/resolve')
+    def resolve_trimming(identifier):
+        if not admin():return jsonify(error='Only the admin can resolve trimming requests.'),403
+        body(1024);review.resolve_trim(identifier);return jsonify(ok=True)
+
+    @app.patch('/api/catalogue/metadata/<identifier>')
+    def edit_metadata(identifier):
+        if not admin():return jsonify(error='Only the admin can edit shared song metadata.'),403
+        data=body(4096)
+        recording(identifier)
+        return jsonify(metadata=review.edit_metadata(identifier,data.get('revision'),data.get('values')))

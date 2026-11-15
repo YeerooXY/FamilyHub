@@ -1,0 +1,36 @@
+@implements IDisposable
+@inject MusicSession Session
+
+@if (artwork is not null)
+{
+    <span class="cover playlist-cover" aria-hidden="true"><img src="@artwork" alt="" /></span>
+}
+else if (fallback is not null)
+{
+    <TrackCover Track="fallback" />
+}
+else
+{
+    <span class="cover playlist-cover generated-cover" aria-hidden="true"><MusicIcon Name="playlist" /></span>
+}
+
+@code {
+    [Parameter, EditorRequired] public MusicPlaylist Playlist { get; set; } = null!;
+    private string? artwork, requestKey;
+    private MusicTrack? fallback;
+    private CancellationTokenSource? cancellation;
+    protected override async Task OnParametersSetAsync()
+    {
+        fallback = Playlist.Tracks.Select(Session.Resolve).OfType<MusicTrack>().FirstOrDefault();
+        var key = Session.Server + Session.User + Playlist.Id + Playlist.CoverUrl + Session.Connected;
+        if (key == requestKey) return;
+        requestKey = key; artwork = null;
+        cancellation?.Cancel(); cancellation?.Dispose();
+        var pending = cancellation = new();
+        try { var result = await Session.GetPlaylistArtworkAsync(Playlist, pending.Token); if (!pending.IsCancellationRequested) artwork = result; }
+        catch (OperationCanceledException) { }
+        catch (InvalidDataException) { }
+        catch (ObjectDisposedException) { }
+    }
+    public void Dispose() { cancellation?.Cancel(); cancellation?.Dispose(); }
+}

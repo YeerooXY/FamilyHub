@@ -19,3 +19,11 @@ Read the [verification record](docs/STORAGE_VERIFICATION.md) for completed check
 Read the [sample playback verification record](docs/PLAYBACK_VERIFICATION.md) for evidence and remaining checks.
 
 The optional [acquisition guide](docs/ACQUISITION.md) covers the private qBittorrent/Prowlarr foundation and its current automation limits.
+
+The [music import guide](docs/MUSIC_IMPORT.md) covers the deployed Lidarr connections and the remaining matched-album check. The [music intake guide](docs/MUSIC_INTAKE.md) covers YouTube search, source-audio downloads, local files, tagged imports and trimming. Read the [music verification record](docs/MUSIC_VERIFICATION.md) for tested behavior and limits.
+
+The [mobile music interface](docs/MOBILE_MUSIC.md) adds the selected search-list layout and local-file uploads. Its private Tailscale connection is active; HTTPS sign-in, search, generated-audio import and delivery through the music player passed on 11 November 2026. Actual phone and offline playback remain owner checks.
+
+The [native music clients](docs/NATIVE_APPS.md) provide Windows and Android builds with configured-server access, device downloads, playlists and a visible queue. Windows offline playback has been checked after restart. The [private iPhone build and signing guide](docs/IOS_PRIVATE_INSTALL.md) records the remaining macOS build and device checks.
+
+The [Spotify offline audio research](docs/SPOTIFY_OFFLINE_RESEARCH.md) records decryption and license-expiry findings, remaining unknowns and a proposed download-comparison experiment.

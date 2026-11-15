@@ -1,0 +1,86 @@
+﻿@inject MusicSession Session
+@inject IJSRuntime JS
+
+<div popover="auto" role="dialog" id="song-playlist-dialog" class="glass-dialog song-playlist-picker" aria-labelledby="song-playlist-heading">
+    <h2 id="song-playlist-heading">Add to playlist</h2>
+    <label class="picker-filter"><MusicIcon Name="search" /><input id="playlist-picker-filter" aria-label="Find a playlist" placeholder="Find a playlist" @bind="filter" @bind:event="oninput" /></label>
+    <div class="picker-new-row @(creating ? "is-editing" : "")">
+        <button id="picker-new-button" class="quiet picker-new" @onclick="BeginCreate" aria-expanded="@(creating ? "true" : "false")"><MusicIcon Name="plus" />New playlist</button>
+        <form class="picker-create" aria-hidden="@(!creating ? "true" : "false")" inert="@(!creating)" @onsubmit="CreateAndSave" @onsubmit:preventDefault>
+            <input id="picker-new-name" aria-label="New playlist name" @bind="name" maxlength="200" placeholder="Playlist name" required />
+            <button type="submit" class="quiet picker-confirm" aria-label="Create playlist" title="Create playlist" aria-disabled="@(saving || creatingPlaylist ? "true" : "false")"><MusicIcon Name="check" /></button>
+        </form>
+    </div>
+    <div class="picker-playlists" aria-label="Your playlists">
+        @foreach (var playlist in Session.Playlists.Where(p => p.CanEdit && p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)))
+        {
+            <label class="picker-choice" @key="Key(playlist)"><PlaylistCover Playlist="playlist" /><span><strong>@playlist.Name</strong><small>@playlist.Tracks.Count songs</small></span><input type="checkbox" aria-label="@playlist.Name" checked="@chosen.Contains(Key(playlist))" @onchange="args => Select(Key(playlist), args)" disabled="@saving" /></label>
+        }
+        @if (!Session.Playlists.Any(p => p.CanEdit && p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))) { <p class="muted">No playlists found.</p> }
+    </div>
+    <p class="entry-error" role="status">@message</p>
+    <div class="actions picker-footer"><button class="quiet" @onclick="Close" aria-disabled="@(saving ? "true" : "false")">Cancel</button><button id="playlist-picker-done" class="primary" @onclick="Save" aria-disabled="@(saving ? "true" : "false")">@(saving ? "Saving..." : "Done")</button></div>
+</div>
+
+@code {
+    private MusicTrack? track;
+    private string opener = "content", filter = "", name = "", message = "";
+    private bool opening, saving, creating, creatingPlaylist, focusName;
+    private HashSet<string> chosen = [];
+    private static string Key(MusicPlaylist playlist) => playlist.OwnerId + ":" + playlist.Id;
+    public void Open(MusicTrack value, string returnId)
+    {
+        track = value; opener = returnId; filter = name = message = ""; creating = false;
+        chosen = Session.Playlists.Where(p => p.CanEdit && p.Tracks.Any(t => t.RecordingId == value.Id)).Select(Key).ToHashSet();
+        opening = true; StateHasChanged();
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (opening) { opening = false; await JS.InvokeVoidAsync("familyhub.showPlaylistPicker", opener); }
+        if (focusName) { focusName = false; await JS.InvokeVoidAsync("familyhub.focus", "picker-new-name"); }
+    }
+    private void BeginCreate() { creating = true; focusName = true; }
+    private void Select(string id, ChangeEventArgs args) { if (args.Value is true) chosen.Add(id); else chosen.Remove(id); }
+    private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "song-playlist-dialog", opener).AsTask();
+    private async Task CreateAndSave()
+    {
+        if (saving || creatingPlaylist || string.IsNullOrWhiteSpace(name)) return;
+        creatingPlaylist = true;
+        try { await Session.CreatePlaylistAsync(name.Trim()); chosen.Add(Key(Session.Playlists.Last())); await Save(); }
+        catch (Exception ex) { message = ex.Message; }
+        finally { creatingPlaylist = false; }
+    }
+    private async Task Save()
+    {
+        if (saving || track is null) return;
+        saving = true; message = "";
+        try
+        {
+            var targets = Session.Playlists.Where(p => p.CanEdit).ToList();
+            MusicTrack? saved = null;
+            foreach (var target in targets)
+            {
+                var playlist = Session.Playlists.First(p => p.Id == target.Id && p.OwnerId == target.OwnerId);
+                var positions = playlist.Tracks.Select((t, i) => (t, i)).Where(row => row.t.RecordingId == track.Id).Select(row => row.i).Reverse().ToList();
+                if (chosen.Contains(Key(target)) && positions.Count == 0)
+                {
+                    message = track.Saved ? "Saving playlist..." : "Saving recording to server...";
+                    await InvokeAsync(StateHasChanged);
+                    saved ??= await Session.EnsureServerRecordingAsync(track, CancellationToken.None);
+                    await Session.EditPlaylistAsync(playlist, new { add_source_id = saved.Id });
+                }
+                else if (!chosen.Contains(Key(target)))
+                {
+                    foreach (var position in positions)
+                    {
+                        playlist = Session.Playlists.First(p => p.Id == target.Id && p.OwnerId == target.OwnerId);
+                        await Session.EditPlaylistAsync(playlist, new { remove_index = position });
+                    }
+                }
+            }
+            await Close();
+        }
+        catch (Exception ex) { message = ex.Message; }
+        finally { saving = false; }
+    }
+}

@@ -1,0 +1,38 @@
+﻿@inject MusicSession Session
+@inject IJSRuntime JS
+
+@if (Playlist.CanManageAuthors)
+{
+    @if (!HideTrigger) { <button id="playlist-coauthors" class="quiet playlist-coauthors" aria-haspopup="dialog" @onclick="Open"><MusicIcon Name="people" />Invite collaborators</button> }
+    <dialog id="playlist-coauthors-dialog" class="glass-dialog" aria-labelledby="coauthors-heading">
+        <div class="dialog-heading"><h2 id="coauthors-heading">Co-authors</h2><button id="coauthors-close" class="quiet" aria-label="Close co-authors" @onclick="Close"><MusicIcon Name="close" /></button></div>
+        <div class="coauthor-list">
+        @foreach (var profile in Session.Profiles.Where(p => p.Id != Playlist.OwnerId))
+        {
+            <label class="coauthor-choice"><ProfileAvatar Profile="profile" Size="36" /><span>@profile.Name</span><input type="checkbox" checked="@chosen.Contains(profile.Id)" @onchange="args => Select(profile.Id, args)" disabled="@saving" /></label>
+        }
+        </div>
+        @if (error is not null) { <p class="entry-error" role="status">@error</p> }
+        <div class="actions"><button class="quiet" @onclick="Close" aria-disabled="@(saving ? "true" : "false")">Cancel</button><button class="primary" @onclick="Save" aria-disabled="@(saving ? "true" : "false")">@(saving ? "Saving..." : "Done")</button></div>
+    </dialog>
+}
+
+@code {
+    [Parameter] public bool HideTrigger { get; set; }
+    [Parameter] public string ReturnFocusId { get; set; } = "playlist-coauthors";
+    [Parameter, EditorRequired] public MusicPlaylist Playlist { get; set; } = null!;
+    private HashSet<string> chosen = [];
+    private bool saving;
+    private string? error;
+    public async Task Open() { if (ReturnFocusId == "playlist-menu-toggle") await JS.InvokeVoidAsync("familyhub.closeDialog", "playlist-options", ReturnFocusId); chosen = Playlist.CoAuthors.ToHashSet(); error = null; await JS.InvokeVoidAsync("familyhub.showDialog", "playlist-coauthors-dialog", "coauthors-close"); }
+    private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "playlist-coauthors-dialog", ReturnFocusId).AsTask();
+    private void Select(string id, ChangeEventArgs args) { if (args.Value is true) chosen.Add(id); else chosen.Remove(id); }
+    private async Task Save()
+    {
+        if (saving) return;
+        saving = true; error = null;
+        try { await Session.EditPlaylistAsync(Playlist, new { co_authors = chosen.ToArray() }); await Close(); }
+        catch (Exception exception) { error = exception.Message; }
+        finally { saving = false; }
+    }
+}

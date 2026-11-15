@@ -23,7 +23,7 @@ done
 [ "$(stat -c %u "$APPDATA")" = 0 ] || die "appdata parent must be root-owned"
 [ "$(stat -c %a "$APPDATA")" = 700 ] || die "appdata parent must have mode 0700"
 
-dirs=("$APPDATA/qbittorrent" "$APPDATA/prowlarr")
+dirs=("$APPDATA/qbittorrent" "$APPDATA/prowlarr" "$APPDATA/lidarr")
 for d in "${dirs[@]}"; do
   [ ! -L "$d" ] || die "$d is a symlink"
   if [ -e "$d" ]; then

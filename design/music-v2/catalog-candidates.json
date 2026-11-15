@@ -1,0 +1,437 @@
+[
+  {
+    "key": "bad-romance",
+    "query": "Lady Gaga Bad Romance",
+    "source": "https://itunes.apple.com/search?term=Lady+Gaga+Bad+Romance&entity=song&limit=8&country=US",
+    "candidates": [
+      {
+        "trackId": 1476095084,
+        "trackName": "Bad Romance",
+        "artistName": "Lady Gaga",
+        "collectionName": "The Fame Monster (Deluxe Edition)",
+        "primaryGenreName": "Pop",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/1f/25/c4/1f25c4bf-7f7a-ff26-8769-20ab6052dadf/09UMGIM40719.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/bad-romance/1476095083?i=1476095084&uo=4",
+        "trackTimeMillis": 294504
+      },
+      {
+        "trackId": 1440814279,
+        "trackName": "Bad Romance",
+        "artistName": "Lady Gaga",
+        "collectionName": "The Fame Monster",
+        "primaryGenreName": "Pop",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/e9/1a/4e/e91a4eb9-31e7-89fb-3aad-e8172e534bb6/09UMGIM42295.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/bad-romance/1440814077?i=1440814279&uo=4",
+        "trackTimeMillis": 294504
+      },
+      {
+        "trackId": 1444893703,
+        "trackName": "Bad Romance",
+        "artistName": "Lady Gaga",
+        "collectionName": "Bad Romance - Single",
+        "primaryGenreName": "Pop",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/4a/f1/23/4af123aa-c30e-db5d-c095-1c140fd37550/09UMGIM39393.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/bad-romance/1444893386?i=1444893703&uo=4",
+        "trackTimeMillis": 294640
+      },
+      {
+        "trackId": 1440860318,
+        "trackName": "Bad Romance (Starsmith Remix)",
+        "artistName": "Lady Gaga",
+        "collectionName": "The Fame Monster",
+        "primaryGenreName": "Pop",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/5b/a4/0a/5ba40a95-9bf6-3b0c-ee7b-82f0bf71f589/10UMGIM00578.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/bad-romance-starsmith-remix/1440860294?i=1440860318&uo=4",
+        "trackTimeMillis": 295535
+      },
+      {
+        "trackId": 1444877266,
+        "trackName": "Bad Romance (Skrillex Remix)",
+        "artistName": "Lady Gaga",
+        "collectionName": "Bad Romance (The Remixes) - EP",
+        "primaryGenreName": "Pop",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music128/v4/66/c6/3f/66c63fa7-7c91-0da5-0046-64f2da08a579/00602527302812.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/bad-romance-skrillex-remix/1444877106?i=1444877266&uo=4",
+        "trackTimeMillis": 263067
+      },
+      {
+        "trackId": 1444877264,
+        "trackName": "Bad Romance (Bimbo Jones Radio Remix)",
+        "artistName": "Lady Gaga",
+        "collectionName": "Bad Romance (The Remixes) - EP",
+        "primaryGenreName": "Pop",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music128/v4/66/c6/3f/66c63fa7-7c91-0da5-0046-64f2da08a579/00602527302812.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/bad-romance-bimbo-jones-radio-remix/1444877106?i=1444877264&uo=4",
+        "trackTimeMillis": 238587
+      },
+      {
+        "trackId": 1476727860,
+        "trackName": "Bad Romance (Starsmith Remix)",
+        "artistName": "Lady Gaga",
+        "collectionName": "The Fame Monster (Deluxe Edition)",
+        "primaryGenreName": "Pop",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/1b/98/88/1b9888da-6a1f-bff0-ec03-518f445019f6/19UMGIM73435.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/bad-romance-starsmith-remix/1476727669?i=1476727860&uo=4",
+        "trackTimeMillis": 295535
+      },
+      {
+        "trackId": 1440779793,
+        "trackName": "Bad Romance (Starsmith Remix)",
+        "artistName": "Lady Gaga",
+        "collectionName": "The Remix",
+        "primaryGenreName": "Pop",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/e0/80/34/e080341a-b442-72cd-1d0f-eb6863e8cb88/10UMGIM11335.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/bad-romance-starsmith-remix/1440779326?i=1440779793&uo=4",
+        "trackTimeMillis": 295773
+      }
+    ]
+  },
+  {
+    "key": "one-kiss",
+    "query": "Calvin Harris Dua Lipa One Kiss",
+    "source": "https://itunes.apple.com/search?term=Calvin+Harris+Dua+Lipa+One+Kiss&entity=song&limit=8&country=US",
+    "candidates": [
+      {
+        "trackId": 1364709436,
+        "trackName": "One Kiss",
+        "artistName": "Calvin Harris, Dua Lipa",
+        "collectionName": "One Kiss - Single",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/91/2a/7b/912a7bdb-c2f6-b887-9392-49728fece0df/886447044360.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/one-kiss/1364709432?i=1364709436&uo=4",
+        "trackTimeMillis": 214847
+      },
+      {
+        "trackId": 1761396658,
+        "trackName": "One Kiss",
+        "artistName": "Calvin Harris & Dua Lipa",
+        "collectionName": "96 Months",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/af/89/49/af894922-cf13-9a8d-95ce-59ba0b1f971c/196872370911.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/one-kiss/1761396204?i=1761396658&uo=4",
+        "trackTimeMillis": 214847
+      },
+      {
+        "trackId": 1760348195,
+        "trackName": "One Kiss",
+        "artistName": "Calvin Harris & Dua Lipa",
+        "collectionName": "96 Months",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/96/ad/26/96ad26cb-b361-c810-0655-ce66df16b9d2/196872350296.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/one-kiss/1760348185?i=1760348195&uo=4",
+        "trackTimeMillis": 214847
+      },
+      {
+        "trackId": 1408632633,
+        "trackName": "One Kiss (Extended Mix)",
+        "artistName": "Calvin Harris, Dua Lipa",
+        "collectionName": "One Kiss (Remixes)",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/12/c2/f0/12c2f053-d29d-8706-0a26-2219c2b47b8e/886447205525.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/one-kiss-extended-mix/1408632619?i=1408632633&uo=4",
+        "trackTimeMillis": 282595
+      },
+      {
+        "trackId": 1445752701,
+        "trackName": "One Kiss",
+        "artistName": "KIDZ BOP Kids",
+        "collectionName": "KIDZ BOP 39",
+        "primaryGenreName": "Children's Music",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/a4/1a/c1/a41ac104-d959-2b71-c35a-0b86353e1159/18CRGIM07414.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/one-kiss/1445751511?i=1445752701&uo=4",
+        "trackTimeMillis": 190850
+      },
+      {
+        "trackId": 1632289409,
+        "trackName": "One Kiss",
+        "artistName": "Anevo",
+        "collectionName": "One Kiss - Single",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/bc/a3/55/bca35583-911b-f95a-8f6b-1099008e4de1/cover.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/one-kiss/1632289408?i=1632289409&uo=4",
+        "trackTimeMillis": 187058
+      },
+      {
+        "trackId": 1654176603,
+        "trackName": "One Kiss",
+        "artistName": "Nenei",
+        "collectionName": "One Kiss - Single",
+        "primaryGenreName": "Easy Listening",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/75/83/8d/75838def-307d-e180-61e6-cfae3b385772/197187443154.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/one-kiss/1654176598?i=1654176603&uo=4",
+        "trackTimeMillis": 198009
+      },
+      {
+        "trackId": 1459190316,
+        "trackName": "One Kiss",
+        "artistName": "KIDZ BOP Kids",
+        "collectionName": "KIDZ BOP 39 (Deluxe Edition)",
+        "primaryGenreName": "Children's Music",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/68/39/fe/6839feec-3178-58b3-6e42-41a438fc5e5c/18CRGIM08577.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/one-kiss/1459190241?i=1459190316&uo=4",
+        "trackTimeMillis": 190850
+      }
+    ]
+  },
+  {
+    "key": "scared-to-be-lonely",
+    "query": "Martin Garrix Dua Lipa Scared To Be Lonely",
+    "source": "https://itunes.apple.com/search?term=Martin+Garrix+Dua+Lipa+Scared+To+Be+Lonely&entity=song&limit=8&country=US",
+    "candidates": [
+      {
+        "trackId": 1220446000,
+        "trackName": "Scared to Be Lonely (Acoustic Version)",
+        "artistName": "Martin Garrix & Dua Lipa",
+        "collectionName": "Scared to Be Lonely (Acoustic Version) - Single",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music111/v4/0f/b9/d5/0fb9d5b1-f43d-b0b1-bb68-ca8b4ba5c6b8/886446436005.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/scared-to-be-lonely-acoustic-version/1220445984?i=1220446000&uo=4",
+        "trackTimeMillis": 257357
+      },
+      {
+        "trackId": 1214946164,
+        "trackName": "Scared to Be Lonely (Brooks Remix)",
+        "artistName": "Martin Garrix & Dua Lipa",
+        "collectionName": "Scared to Be Lonely (Remixes, Vol. 1) - EP",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/60/fe/ce/60feced7-81fa-59a5-3276-4bfd172c3c58/886446424569.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/scared-to-be-lonely-brooks-remix/1214946117?i=1214946164&uo=4",
+        "trackTimeMillis": 200625
+      },
+      {
+        "trackId": 1196786344,
+        "trackName": "Scared to Be Lonely",
+        "artistName": "Martin Garrix & Dua Lipa",
+        "collectionName": "Scared To Be Lonely - Single",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/44/46/1f/44461f0c-a949-ce72-0164-704056469fc8/886446328331.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/scared-to-be-lonely/1196786247?i=1196786344&uo=4",
+        "trackTimeMillis": 220883
+      },
+      {
+        "trackId": 1216817231,
+        "trackName": "Scared to Be Lonely (Loud Luxury Remix)",
+        "artistName": "Martin Garrix & Dua Lipa",
+        "collectionName": "Scared to Be Lonely (Remixes, Vol. 2) - EP",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music111/v4/aa/4b/72/aa4b727e-5222-5122-f6d7-7aff02f6c639/886446434490.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/scared-to-be-lonely-loud-luxury-remix/1216817190?i=1216817231&uo=4",
+        "trackTimeMillis": 207885
+      },
+      {
+        "trackId": 1214946165,
+        "trackName": "Scared to Be Lonely (DubVision Remix)",
+        "artistName": "Martin Garrix & Dua Lipa",
+        "collectionName": "Scared to Be Lonely (Remixes, Vol. 1) - EP",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/60/fe/ce/60feced7-81fa-59a5-3276-4bfd172c3c58/886446424569.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/scared-to-be-lonely-dubvision-remix/1214946117?i=1214946165&uo=4",
+        "trackTimeMillis": 190866
+      },
+      {
+        "trackId": 1216817200,
+        "trackName": "Scared to Be Lonely (Medasin Remix)",
+        "artistName": "Martin Garrix & Dua Lipa",
+        "collectionName": "Scared to Be Lonely (Remixes, Vol. 2) - EP",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music111/v4/aa/4b/72/aa4b727e-5222-5122-f6d7-7aff02f6c639/886446434490.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/scared-to-be-lonely-medasin-remix/1216817190?i=1216817200&uo=4",
+        "trackTimeMillis": 212026
+      },
+      {
+        "trackId": 1216817234,
+        "trackName": "Scared to Be Lonely (Joe Mason Remix)",
+        "artistName": "Martin Garrix & Dua Lipa",
+        "collectionName": "Scared to Be Lonely (Remixes, Vol. 2) - EP",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music111/v4/aa/4b/72/aa4b727e-5222-5122-f6d7-7aff02f6c639/886446434490.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/scared-to-be-lonely-joe-mason-remix/1216817190?i=1216817234&uo=4",
+        "trackTimeMillis": 207857
+      },
+      {
+        "trackId": 1214946174,
+        "trackName": "Scared to Be Lonely (Zonderling Remix)",
+        "artistName": "Martin Garrix & Dua Lipa",
+        "collectionName": "Scared to Be Lonely (Remixes, Vol. 1) - EP",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/60/fe/ce/60feced7-81fa-59a5-3276-4bfd172c3c58/886446424569.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/scared-to-be-lonely-zonderling-remix/1214946117?i=1214946174&uo=4",
+        "trackTimeMillis": 234762
+      }
+    ]
+  },
+  {
+    "key": "we-found-love",
+    "query": "Rihanna We Found Love",
+    "source": "https://itunes.apple.com/search?term=Rihanna+We+Found+Love&entity=song&limit=8&country=US",
+    "candidates": [
+      {
+        "trackId": 1440758945,
+        "trackName": "We Found Love (feat. Calvin Harris)",
+        "artistName": "Rihanna",
+        "collectionName": "Talk That Talk",
+        "primaryGenreName": "Pop",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/74/23/7b/74237b93-8346-5fe1-b1eb-938808910c5d/11UMGIM38936.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/we-found-love-feat-calvin-harris/1440758930?i=1440758945&uo=4",
+        "trackTimeMillis": 215227
+      },
+      {
+        "trackId": 1443062439,
+        "trackName": "We Found Love (feat. Calvin Harris) [Calvin Harris Extended Mix]",
+        "artistName": "Rihanna",
+        "collectionName": "Talk That Talk (Deluxe)",
+        "primaryGenreName": "Pop",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music123/v4/ae/46/51/ae465169-b0a4-3c10-42a0-63e4448d1508/16UMGIM59230.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/we-found-love-feat-calvin-harris-calvin-harris-extended-mix/1443061797?i=1443062439&uo=4",
+        "trackTimeMillis": 345733
+      },
+      {
+        "trackId": 1443102668,
+        "trackName": "We Found Love (feat. Calvin Harris)",
+        "artistName": "Rihanna",
+        "collectionName": "Talk That Talk",
+        "primaryGenreName": "Pop",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/16/90/6e/16906e38-2538-9d48-aa30-6eba7405972c/16UMGIM59229.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/we-found-love-feat-calvin-harris/1443102519?i=1443102668&uo=4",
+        "trackTimeMillis": 215227
+      },
+      {
+        "trackId": 1443062143,
+        "trackName": "We Found Love (feat. Calvin Harris)",
+        "artistName": "Rihanna",
+        "collectionName": "Talk That Talk (Deluxe)",
+        "primaryGenreName": "Pop",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music123/v4/ae/46/51/ae465169-b0a4-3c10-42a0-63e4448d1508/16UMGIM59230.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/we-found-love-feat-calvin-harris/1443061797?i=1443062143&uo=4",
+        "trackTimeMillis": 215227
+      },
+      {
+        "trackId": 1713469226,
+        "trackName": "We Found Love (feat. Rihanna)",
+        "artistName": "Calvin Harris",
+        "collectionName": "18 Months",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/ab/af/22/abaf2296-ed4d-6da2-c24d-503cfdfa4c1f/0617465356858.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/we-found-love-feat-rihanna/1713469222?i=1713469226&uo=4",
+        "trackTimeMillis": 215520
+      },
+      {
+        "trackId": 1445151203,
+        "trackName": "We Found Love (Chuckie Extended Remix)",
+        "artistName": "Rihanna & Calvin Harris",
+        "collectionName": "We Found Love (The Remixes)",
+        "primaryGenreName": "Pop",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/1e/9c/1a/1e9c1a4c-95ed-1222-4c93-06e638204c8b/11UMGIM37524.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/we-found-love-chuckie-extended-remix/1445151199?i=1445151203&uo=4",
+        "trackTimeMillis": 357227
+      },
+      {
+        "trackId": 1443103437,
+        "trackName": "We Found Love (feat. Calvin Harris) [Calvin Harris Extended Mix]",
+        "artistName": "Rihanna",
+        "collectionName": "Talk That Talk",
+        "primaryGenreName": "Pop",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/16/90/6e/16906e38-2538-9d48-aa30-6eba7405972c/16UMGIM59229.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/we-found-love-feat-calvin-harris-calvin-harris-extended-mix/1443102519?i=1443103437&uo=4",
+        "trackTimeMillis": 345733
+      },
+      {
+        "trackId": 1443105360,
+        "trackName": "We Found Love (feat. Calvin Harris)",
+        "artistName": "Rihanna",
+        "collectionName": "Talk That Talk (Deluxe Edition)",
+        "primaryGenreName": "Pop",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music123/v4/ac/51/45/ac51452d-c03f-94fb-6f3b-4f18b7beee53/11UMGIM38934.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/we-found-love-feat-calvin-harris/1443105016?i=1443105360&uo=4",
+        "trackTimeMillis": 215227
+      }
+    ]
+  },
+  {
+    "key": "wake-me-up",
+    "query": "Avicii Wake Me Up",
+    "source": "https://itunes.apple.com/search?term=Avicii+Wake+Me+Up&entity=song&limit=8&country=US",
+    "candidates": [
+      {
+        "trackId": 1440872929,
+        "trackName": "Wake Me Up",
+        "artistName": "Avicii",
+        "collectionName": "True",
+        "primaryGenreName": "House",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/18/5b/1e/185b1ef5-5d97-19d8-aebf-8e29e41874ef/13UAAIM59255.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/wake-me-up/1440872730?i=1440872929&uo=4",
+        "trackTimeMillis": 249688
+      },
+      {
+        "trackId": 1445293946,
+        "trackName": "Wake Me Up (Avicii Speed Remix)",
+        "artistName": "Avicii",
+        "collectionName": "Wake Me Up (Remixes) - Single",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/da/13/19/da131997-47da-ff2a-b2a4-c7d157bcd32f/00602537541355.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/wake-me-up-avicii-speed-remix/1445293941?i=1445293946&uo=4",
+        "trackTimeMillis": 424027
+      },
+      {
+        "trackId": 1445293949,
+        "trackName": "Wake Me Up (Reggae Mix)",
+        "artistName": "Avicii",
+        "collectionName": "Wake Me Up (Remixes) - Single",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/da/13/19/da131997-47da-ff2a-b2a4-c7d157bcd32f/00602537541355.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/wake-me-up-reggae-mix/1445293941?i=1445293949&uo=4",
+        "trackTimeMillis": 271627
+      },
+      {
+        "trackId": 1530325787,
+        "trackName": "Wake Me Up",
+        "artistName": "Avicii",
+        "collectionName": "True (Bonus Edition)",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/de/65/6c/de656c04-da50-4be1-1d3d-b0bb32667f52/20UMGIM76790.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/wake-me-up/1530325442?i=1530325787&uo=4",
+        "trackTimeMillis": 247427
+      },
+      {
+        "trackId": 1444323059,
+        "trackName": "Wake Me Up (EDX Miami Sunset Remix)",
+        "artistName": "Avicii",
+        "collectionName": "Wake Me Up (Remixes II) - Single",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/12/7d/ce/127dcee7-f4ab-e15c-54cc-eeb943399464/00602537691906.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/wake-me-up-edx-miami-sunset-remix/1444323057?i=1444323059&uo=4",
+        "trackTimeMillis": 392812
+      },
+      {
+        "trackId": 1807714114,
+        "trackName": "Wake Me Up",
+        "artistName": "Avicii",
+        "collectionName": "Avicii Forever",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/4d/50/b8/4d50b864-b336-7616-a422-50e18f04022c/25UMGIM53730.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/wake-me-up/1807714113?i=1807714114&uo=4",
+        "trackTimeMillis": 249688
+      },
+      {
+        "trackId": 1440849980,
+        "trackName": "Wake Me Up (Live)",
+        "artistName": "Avicii",
+        "collectionName": "iTunes Festival: London 2013 - EP",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music118/v4/9a/24/b8/9a24b845-3b58-24cd-3363-64e8f2c691a5/00602537626182.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/wake-me-up-live/1440849601?i=1440849980&uo=4",
+        "trackTimeMillis": 221222
+      },
+      {
+        "trackId": 1440824523,
+        "trackName": "Wake Me Up (Avicii By Avicii)",
+        "artistName": "Avicii",
+        "collectionName": "True: Avicii By Avicii",
+        "primaryGenreName": "Dance",
+        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music128/v4/38/40/36/38403610-19a8-c161-4bcf-6860aa27fa37/00602537778492.rgb.jpg/100x100bb.jpg",
+        "trackViewUrl": "https://music.apple.com/us/album/wake-me-up-avicii-by-avicii/1440824514?i=1440824523&uo=4",
+        "trackTimeMillis": 425828
+      }
+    ]
+  }
+]

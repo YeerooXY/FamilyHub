@@ -1,0 +1,62 @@
+[
+  {
+    "profile": "windows-chromium",
+    "views": [
+      "player",
+      "library",
+      "search",
+      "settings"
+    ],
+    "imagesLoaded": true,
+    "settings": true,
+    "overflow": false,
+    "keyboard": true,
+    "oneClickSelection": true,
+    "autoplayFocus": true
+  },
+  {
+    "profile": "mac-webkit-emulated",
+    "views": [
+      "player",
+      "library",
+      "search",
+      "settings"
+    ],
+    "imagesLoaded": true,
+    "settings": true,
+    "overflow": false,
+    "keyboard": true,
+    "oneClickSelection": true,
+    "autoplayFocus": true
+  },
+  {
+    "profile": "android-chromium-emulated",
+    "views": [
+      "player",
+      "library",
+      "search",
+      "settings"
+    ],
+    "imagesLoaded": true,
+    "settings": true,
+    "overflow": false,
+    "keyboard": true,
+    "oneClickSelection": true,
+    "autoplayFocus": true
+  },
+  {
+    "profile": "iphone-webkit-emulated",
+    "views": [
+      "player",
+      "library",
+      "search",
+      "settings"
+    ],
+    "imagesLoaded": true,
+    "settings": true,
+    "overflow": false,
+    "keyboard": true,
+    "oneClickSelection": true,
+    "autoplayFocus": true
+  }
+]

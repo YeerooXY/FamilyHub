@@ -19,3 +19,9 @@ backups/
 Thumbs.db
 .paddock/
 .local/
+__pycache__/
+desktop/bin/
+desktop/obj/
+
+clients/**/bin/
+clients/**/obj/

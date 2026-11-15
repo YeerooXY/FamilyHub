@@ -1,0 +1,36 @@
+name: Build private iPhone app
+
+on:
+  workflow_dispatch:
+    inputs:
+      allowance_checked:
+        description: 'I checked the private-repository Actions allowance and spending limit.'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: inputs.allowance_checked
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.401'
+      - name: Select compatible Xcode
+        run: sudo xcode-select --switch /Applications/Xcode_26.5.app/Contents/Developer
+      - name: Install iOS workload
+        run: dotnet workload install maui-ios --skip-manifest-update
+      - name: Build unsigned IPA
+        run: bash scripts/build-ios-app.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: FamilyHub-Music-unsigned
+          path: .local/artifacts/native/ios/FamilyHub-Music-unsigned.ipa
+          retention-days: 1
+          if-no-files-found: error

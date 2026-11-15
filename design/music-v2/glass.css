@@ -1,0 +1,98 @@
+/* Approved composition, with restrained translucent surfaces. */
+:root {
+  --glass-solid: #25212c;
+  --glass-tint: rgba(32, 28, 39, .84);
+  --glass-edge: rgba(227, 214, 255, .18);
+  --glass-light: inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+body {
+  background: #141416 radial-gradient(ellipse at 70% 0, #31243e 0, transparent 65%) fixed;
+}
+.navigation, .mini-player, .mobile-nav, .search-field {
+  background: var(--glass-solid);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-light), 0 12px 30px rgba(0, 0, 0, .12);
+}
+@supports ((backdrop-filter: blur(12px)) or (-webkit-backdrop-filter: blur(12px))) {
+  .navigation, .mini-player, .mobile-nav, .search-field {
+    background: var(--glass-tint);
+    -webkit-backdrop-filter: blur(16px) saturate(115%);
+    backdrop-filter: blur(16px) saturate(115%);
+  }
+}
+.navigation { border-width: 0 1px 0 0; }
+.mini-player, .mobile-nav { border-width: 1px 0 0; }
+.search-field { box-shadow: var(--glass-light); }
+.player-workspace .workspace-rail { padding: 0 0 0 28px; border-radius: 0; }
+.player-workspace { grid-template-columns: minmax(0, 1fr) 320px; }
+.settings-view { padding: 0 0 36px; margin-bottom: 120px; border-radius: 0; }
+.top-avatar { border: 1px solid #837091; background: #483953; }
+.navigation nav button[aria-current=page] { background: #c7a7ec20; box-shadow: inset 0 0 0 1px #c7a7ec26; }
+.navigation nav button:hover, .settings-button:hover { background: #ffffff0c; }
+.mini-player .main-play { box-shadow: 0 0 0 5px #e3cffa0a; }
+@media (max-width: 1120px) {
+  .player-workspace { grid-template-columns: minmax(0, 1fr) 270px; gap: 25px; }
+  .player-workspace .workspace-rail { padding: 0 0 0 22px; }
+}
+@media (max-width: 760px) {
+  .player-workspace .workspace-rail { padding: 0; border: 0; border-radius: 0; }
+  .rail-current { gap: 16px; }
+  .rail-current > .cover { width: 88px; height: 88px; }
+  .rail-current h3 { font-size: 23px; }
+  .settings-view { padding: 0; margin-bottom: 135px; }
+  .mini-player { border: 1px solid var(--glass-edge); }
+  .setting-row { gap: 14px; }
+  .storage-legend { line-height: 1.7; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .navigation, .mini-player, .mobile-nav, .search-field {
+    background: var(--glass-solid); backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
+}
+
+.compact-actions { display: none; }
+@media (max-width: 760px) {
+  .mini-player { border-radius: 0; border-width: 1px 0 0; left: 0; right: 0; bottom: 70px; box-shadow: none; }
+  .compact-actions { display: flex; align-items: center; flex-shrink: 0; gap: 2px; }
+  .compact-actions button { display: grid; place-items: center; width: 42px; height: 44px; background: transparent; padding: 8px; }
+  body[data-view=player] .compact-actions { display: none; }
+  .mobile-nav { border-top: 0; box-shadow: none; }
+}
+
+/* Solid monochrome controls and a larger persistent transport. */
+:root { --icon-detail: #000; }
+.solid-icon { color: #fff; opacity: 1; }
+.main-play { background: #fff; color: #000; --icon-detail: #fff; }
+.main-play .solid-icon { color: #000; }
+.mini-player { left: 0; height: 144px; padding: 18px 28px; gap: 32px; z-index: 8; grid-template-columns: minmax(200px,1fr) minmax(300px,1.4fr) minmax(140px,1fr); }
+.navigation { bottom: 144px; }
+.mini-track .cover { width: 72px; height: 72px; }
+.mini-track strong { font-size: 16px; }
+.mini-track small { font-size: 13px; margin-top: 8px; }
+.compact .main-play { width: 52px; height: 52px; }
+.compact .main-play svg { width: 24px; height: 24px; }
+.compact .icon-button { width: 44px; height: 44px; }
+.compact .icon-button svg { width: 22px; height: 22px; }
+.compact .transport-controls { gap: 22px; }
+.compact .timeline { font-size: 12px; margin-top: 8px; }
+.compact .timeline input { height: 28px; accent-color: #fff; }
+.volume input { accent-color: #fff; }
+.player-workspace, .library-view, .search-view { padding-bottom: 175px; }
+.settings-view { margin-bottom: 175px; }
+html { scroll-padding-bottom: 240px; }
+.setting-row { scroll-margin-bottom: 240px; }
+@media (max-width: 760px) {
+  .mini-player { height: 104px; padding: 16px; gap: 12px; bottom: 70px; }
+  .mini-track .cover { width: 60px; height: 60px; }
+  .mini-track strong { font-size: 14px; }
+  .mini-track small { font-size: 12px; margin-top: 6px; }
+  .compact-actions { gap: 4px; }
+  .compact-actions button { width: 44px; height: 48px; }
+  body[data-view=player] .mini-player { height: 140px; padding: 16px 22px; }
+  body[data-view=player] .compact .main-play { width: 56px; height: 56px; }
+  body[data-view=player] .compact .icon-button { width: 48px; height: 48px; }
+  body[data-view=player] .compact .timeline { margin-top: 10px; }
+  body[data-view=player] .player-workspace { padding-bottom: 200px; }
+  .mobile-nav { z-index: 9; }
+  .settings-view { margin-bottom: 190px; }
+}

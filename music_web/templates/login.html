@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in - FamilyHub Music</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+{% if family_profiles is not none %}<link rel="stylesheet" href="{{ url_for('static', filename='profiles.css') }}">{% endif %}
+</head>
+<body class="login-page">
+<header class="top"><span class="brand">FamilyHub</span></header>
+<main>
+{% if family_profiles is not none %}
+<h1>Choose your profile</h1>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<div class="family-profiles">
+{% for profile in family_profiles %}
+<form method="post" action="/login">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<input type="hidden" name="profile_id" value="{{ profile.id }}">
+<button class="family-profile profile-{{ loop.index0 % 6 }}" type="submit"><span class="profile-avatar" aria-hidden="true">{{ profile.name[:1]|upper }}</span><span>{{ profile.name }}</span></button>
+</form>
+{% endfor %}
+</div>
+{% if family_profiles|length < 12 %}
+<details><summary>Add profile</summary>
+<form method="post" action="/login" class="stack">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<input type="hidden" name="action" value="create">
+<label for="profile-name">Name</label><input id="profile-name" name="name" maxlength="64" required autocomplete="nickname">
+<button type="submit" class="primary">Create profile</button>
+</form></details>
+{% endif %}
+{% else %}
+<h1>Sign in</h1>
+<p class="note">Use your music account.</p>
+<form method="post" action="/login" class="stack">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<label for="username">Username</label>
+<input id="username" name="username" maxlength="64" required autocomplete="username" autocapitalize="none" spellcheck="false" value="{{ username }}">
+<label for="password">Password</label>
+<input id="password" name="password" type="password" maxlength="256" required autocomplete="current-password">
+<label class="check"><input type="checkbox" name="remember" value="1"> Remember this device for 30 days</label>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<button type="submit" class="primary">Sign in</button>
+</form>
+<details><summary>Sign-in help</summary><p class="note">On your PC, open Account → Sign-in details in FamilyHub Music to view your username and passphrase. A server restart ends browser sessions.</p></details>
+{% endif %}
+</main>
+</body>
+</html>

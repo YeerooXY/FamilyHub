@@ -1,0 +1,88 @@
+@implements IDisposable
+@inject ListenTogether Together
+@inject MusicPlayer Player
+@inject MusicSession Session
+@inject IJSRuntime JS
+
+<button id="listen-together" class="quiet listen-together-button" aria-label="Listen Together" title="Listen Together" aria-pressed="@(Together.Room is not null ? "true" : "false")" @onclick="Open"><MusicIcon Name="people" /></button>
+@if (Together.Following)
+{
+    <button class="quiet local-pause-button" aria-label="@(Together.LocallyPaused ? "Resume live session" : "Pause only for me")" title="@(Together.LocallyPaused ? "Resume live session" : "Pause only for me")" aria-pressed="@Together.LocallyPaused.ToString().ToLowerInvariant()" @onclick="Together.ToggleLocalPauseAsync"><MusicIcon Name="@(Together.LocallyPaused ? "play" : "pause")" /></button>
+}
+<dialog id="listen-together-dialog" class="glass-dialog listening-dialog" aria-labelledby="listening-heading" @oncancel="Closed">
+    <div class="dialog-heading"><h2 id="listening-heading">Listen Together</h2><button id="close-listening" class="quiet" aria-label="Close Listen Together" @onclick="Close"><MusicIcon Name="close" /></button></div>
+    @if (Together.Room is { } room)
+    {
+        <div class="listening-session"><MusicIcon Name="people" /><div><strong>@(room.IsHost ? "You're hosting" : "Listening with " + room.HostName)</strong><p>@room.Listeners @(room.Listeners == 1 ? "listener" : "listeners")</p></div></div>
+        <p class="setting-help">@(room.IsHost ? "People on this server can join your queue. You control playback and Auto DJ." : "The host controls songs, playback and Auto DJ. Your volume stays private.")</p>
+        @if (room.Queue is { Count: 0 }) { <p class="setting-help">@(room.IsHost ? "Choose a song or playlist when you're ready." : "Waiting for the host to choose a song.")</p> }
+        @if (room.IsHost)
+        {
+            <div class="session-invite"><label for="invite-listener">Invite a listener</label><select id="invite-listener" @bind="inviteUser"><option value="">Choose a profile</option>@foreach (var profile in Session.Profiles.Where(p => p.Id != Session.User)) { <option value="@profile.Id">@profile.Name</option> }</select><button class="quiet" @onclick="Invite" aria-disabled="@(busy || inviteUser.Length == 0 ? "true" : "false")">Send invitation</button><span role="status">@inviteStatus</span></div>
+        }
+        <button id="leave-listening" class="primary" @onclick="Leave" aria-disabled="@(busy ? "true" : "false")">@(room.IsHost ? "End session" : "Leave session")</button>
+    }
+    else
+    {
+        <p class="setting-help listening-intro">Invite listeners, then choose your music.</p>
+        <button id="start-listening" class="primary" @onclick="Start" aria-disabled="@(busy || !Session.Connected ? "true" : "false")"><MusicIcon Name="people" />@(Together.Rooms.Any(r => r.HostUser == Session.User) ? "Resume hosting" : "Start session")</button>
+        <div class="listening-rooms" aria-label="Available sessions">
+            <h3>Join a session</h3>
+            @foreach (var available in Together.Rooms)
+            {
+                <button class="listening-room" @key="available.Id" @onclick="() => available.HostUser == Session.User ? Start() : Join(available.Id)" aria-disabled="@(busy ? "true" : "false")"><MusicIcon Name="people" /><span><strong>@available.HostName</strong><small>@available.Title</small></span><span>@(available.HostUser == Session.User ? "Resume hosting" : "Join")</span></button>
+            }
+            @if (!Session.Connected) { <p class="setting-help">Server unavailable. Reconnecting...</p> }
+            else if (Together.Rooms.Count == 0) { <p class="listening-empty">No sessions available</p> }
+        </div>
+    }
+    <p class="entry-error" role="status">@(error ?? Together.Message)</p>
+</dialog>
+
+@code {
+    private string inviteUser = "", inviteStatus = "";
+    private async Task Invite()
+    {
+        if (busy || inviteUser.Length == 0) return;
+        busy = true; error = null; inviteStatus = "";
+        try { await Together.InviteAsync(inviteUser); inviteStatus = "Invitation sent"; }
+        catch (Exception exception) { error = exception.Message; }
+        finally { busy = false; }
+    }
+    private bool open, busy;
+    private string? error;
+    private CancellationTokenSource? refresh;
+    protected override void OnInitialized() => Together.Changed += Changed;
+    private void Changed() => _ = InvokeAsync(StateHasChanged);
+    private async Task Open()
+    {
+        open = true; error = null;
+        await JS.InvokeVoidAsync("familyhub.showDialog", "listen-together-dialog", "close-listening");
+        refresh?.Cancel(); refresh?.Dispose(); refresh = new();
+        _ = RefreshLoop(refresh.Token);
+    }
+    private async Task RefreshLoop(CancellationToken token)
+    {
+        while (open && !token.IsCancellationRequested)
+        {
+            try { if (Together.Room is null) await Together.RefreshAsync(); }
+            catch (Exception e) when (e is HttpRequestException or FamilyHubApiException or OperationCanceledException) { error = e.Message; }
+            await InvokeAsync(StateHasChanged);
+            try { await Task.Delay(3000, token); } catch (OperationCanceledException) { return; }
+        }
+    }
+    private void Closed() { open = false; refresh?.Cancel(); }
+    private async Task Close() { Closed(); await JS.InvokeVoidAsync("familyhub.closeDialog", "listen-together-dialog", "listen-together"); }
+    private async Task Act(Func<Task> action)
+    {
+        if (busy) return;
+        busy = true; error = null;
+        try { await action(); await InvokeAsync(StateHasChanged); await JS.InvokeVoidAsync("familyhub.focus", "close-listening"); }
+        catch (Exception e) { error = e.Message; }
+        finally { busy = false; }
+    }
+    private Task Start() => Act(Together.StartAsync);
+    private Task Join(string id) => Act(() => Together.JoinAsync(id));
+    private Task Leave() => Act(Together.LeaveAsync);
+    public void Dispose() { refresh?.Cancel(); refresh?.Dispose(); Together.Changed -= Changed; }
+}

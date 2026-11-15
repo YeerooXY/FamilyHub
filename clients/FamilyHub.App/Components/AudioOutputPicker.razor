@@ -1,0 +1,38 @@
+@inject MusicPlayer Player
+@inject IJSRuntime JS
+
+@if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid())
+{
+    <button id="connect-device" class="quiet" aria-label="Connect to a device" title="Connect to a device" @onclick="Open"><MusicIcon Name="device" /></button>
+    <dialog id="audio-output-dialog" class="glass-dialog" aria-labelledby="audio-output-title">
+        <div class="dialog-heading"><h2 id="audio-output-title">Audio output</h2><button id="audio-output-close" class="quiet" aria-label="Close audio output" @onclick="Close"><MusicIcon Name="close" /></button></div>
+        @if (loading) { <p role="status">Loading audio outputs...</p> }
+        @foreach (var output in outputs)
+        { <button class="audio-output-option" @key="output.Id" aria-pressed="@(Player.AudioOutputId == output.Id ? "true" : "false")" @onclick="() => Select(output.Id)"><MusicIcon Name="@(Player.AudioOutputId == output.Id ? "check-circle" : "volume")" /><span>@output.Name</span></button> }
+        @if (OperatingSystem.IsAndroid()) { <button class="audio-output-option" @onclick="SystemPicker"><MusicIcon Name="volume" /><span>Choose audio output</span></button> }
+        <button class="audio-output-option" @onclick="Bluetooth"><MusicIcon Name="device" /><span>Bluetooth settings</span></button>
+        @if (error is not null) { <p class="entry-error" role="status">@error</p> }
+    </dialog>
+}
+
+@code {
+    private List<AudioOutput> outputs = [];
+    private bool loading;
+    private string? error;
+    private async Task Open()
+    {
+        error = null; loading = true;
+        await JS.InvokeVoidAsync("familyhub.showDialog", "audio-output-dialog", "audio-output-close");
+        try { outputs = await AudioOutputs.ListAsync(); }
+        catch (Exception exception) { error = exception.Message; }
+        finally { loading = false; }
+    }
+    private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "audio-output-dialog", "connect-device").AsTask();
+    private async Task Select(string id)
+    {
+        try { await Player.SetAudioOutputAsync(id); await Close(); }
+        catch (Exception exception) { error = exception.Message; }
+    }
+    private async Task SystemPicker() { try { await AudioOutputs.OpenSystemPickerAsync(); await Close(); } catch (Exception exception) { error = exception.Message; } }
+    private async Task Bluetooth() { try { await AudioOutputs.OpenBluetoothAsync(); await Close(); } catch (Exception exception) { error = exception.Message; } }
+}

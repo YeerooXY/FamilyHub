@@ -1,10 +1,10 @@
 # Acquisition
 
-This optional Compose project runs Prowlarr for torrent search and qBittorrent-nox for downloads. Prowlarr and qBittorrent share Compose's private network so Prowlarr can connect to qBittorrent. The project has no library mounts, media import or rename workflow, or published torrent peer ports. Downloads stay under `/srv/familyhub/data/downloads`, mapped in the container as `/data/downloads`.
+This optional Compose project runs Prowlarr for torrent search, qBittorrent-nox for downloads and Lidarr for music release management. They communicate over Compose's private network. Downloads stay under `/srv/familyhub/data/downloads`, mapped as `/data/downloads`. Lidarr imports to the music library's `Managed` directory through one `/data` mount; see [Music import](MUSIC_IMPORT.md) for its permissions, connections and pending real-album acceptance check. No torrent peer ports are published.
 
-The only host ports are loopback WebUIs: qBittorrent on TCP 8080 and Prowlarr on TCP 9696. For remote administration, use SSH tunnels such as `ssh -L 8080:127.0.0.1:8080 -L 9696:127.0.0.1:9696 guest-host`, then open the corresponding `http://127.0.0.1` URLs locally.
+The only host ports are loopback WebUIs: qBittorrent on TCP 8080, Prowlarr on TCP 9696 and Lidarr on TCP 8686. For remote administration, use SSH tunnels such as `ssh -L 8080:127.0.0.1:8080 -L 9696:127.0.0.1:9696 -L 8686:127.0.0.1:8686 guest-host`, then open the corresponding `http://127.0.0.1` URLs locally.
 
-Each service stores configuration in its own directory under `/srv/familyhub/appdata` (`qbittorrent` and `prowlarr`). The appdata parent stays `root:root 0700`; each child is owned by writer UID/GID 2000 and mode 0700. The bootstrap validates both children before changing either and never changes their contents recursively. qBittorrent keeps its existing `/data/downloads` mount. Prowlarr has only its `/config` mount. Both services use pinned images, `unless-stopped`, `no-new-privileges`, bounded JSON logs, and resource limits.
+Each service stores configuration in its own directory under `/srv/familyhub/appdata` (`qbittorrent`, `prowlarr` and `lidarr`). The appdata parent stays `root:root 0700`; each child is owned by writer UID/GID 2000 and mode 0700. The bootstrap validates all three children before changing any and never changes their contents recursively. qBittorrent keeps its existing `/data/downloads` mount. Prowlarr has only its `/config` mount. All three services use pinned images, `unless-stopped`, `no-new-privileges`, bounded JSON logs, and resource limits.
 
 ## Start
 
@@ -12,10 +12,11 @@ After storage bootstrap has created the standard paths and writer account, copy 
 
 ```sh
 sudo ./scripts/bootstrap-acquisition.sh
+sudo runuser -u familyhub-writer -- mkdir -p /srv/familyhub/data/media/music/Managed
 docker compose -f compose.acquisition.yaml --env-file .env up -d
 ```
 
-The bootstrap requires root and validates the appdata path and both service directories before making changes. It creates or adjusts only those two directories. It does not create the downloads directory; storage bootstrap owns that path.
+The bootstrap requires root and validates the appdata path and all three service directories before making changes. It creates or adjusts only those three directories. It does not create the downloads directory; storage bootstrap owns that path. The command above creates the separate music root as the writer role; adjust that path if `FAMILYHUB_DATA` differs from the default.
 
 ## First use
 
@@ -27,7 +28,9 @@ In qBittorrent settings, set the default save path to `/data/downloads/complete`
 
 ## Scope and limits
 
-This foundation provides manual public-source search and download. Prowlarr is an indexer manager and search interface, not a content host. Public catalogue availability and indexing quality vary; music coverage and language availability are not guaranteed. No Radarr, Lidarr, Bazarr, automatic import, library rename workflow, or request interface is included. Downloads do not appear in Jellyfin or Navidrome libraries automatically. Inbound peer connectivity is unavailable until a separately reviewed network change.
+This foundation provides manual public-source search and download. Prowlarr manages and searches indexers; the indexers determine catalogue coverage and availability. Lidarr is connected for music, with interactive search enabled and automatic search and RSS disabled. Its complete matched-album import flow still needs a real-album test. Downloads outside that workflow need a separate import step. Radarr, Bazarr, movie/TV import automation and a family request interface remain unimplemented. Inbound peer connectivity is unavailable until a separately reviewed network change.
+
+For YouTube audio, local files and trimming, use the administrator [music intake tool](MUSIC_INTAKE.md). Its tagged imports go into `Local Imports`, alongside Lidarr's `Managed` directory, and Navidrome scans both.
 
 ## Upstream references
 
@@ -45,4 +48,6 @@ Prowlarr's native qBittorrent connection test passed. Public indexer configurati
 
 The workstation qBittorrent SSH tunnel uses `127.0.0.1:8080`, matching the guest port. A different forwarded port triggered its Host-header check. Keep native authentication and Host-header checks enabled. Current SSH tunnels are development processes and do not automatically recover after a workstation reboot. Tailscale private app access does not change the torrent client's outbound route or hide it from torrent peers.
 
-Next integration: release identity/quality management, media probing, library imports and player scans. Music requests should reject lossy fallback and suspicious upsampled labels. Larger bit depth or sample rate alone does not establish better source quality. Movie matching must check the actual Hungarian/English streams and Hungarian subtitle track; the presence of the film title in search is insufficient.
+On 10 November 2026, Lidarr was added and its native connections and hardlink permissions passed. The music intake tool passed generated-track import and Navidrome original-byte playback, plus a Creative Commons YouTube audio download. See [Music verification](MUSIC_VERIFICATION.md) for evidence and limits.
+
+Next acceptance check: a real MusicBrainz-matched album through Lidarr, including identity, track list, unchanged source bytes and player scan. Automatic lossy fallback remains an owner decision; the intake tool accepts a specifically selected YouTube URL and records its lossy origin. Larger bit depth or sample rate alone does not establish better source quality. Movie matching must check the actual Hungarian/English streams and Hungarian subtitle track; the presence of the film title in search is insufficient.

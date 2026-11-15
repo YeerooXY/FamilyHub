@@ -1,0 +1,26 @@
+@inject MusicSession Session
+@inject IJSRuntime JS
+
+@if (Session.PlaybackPreferences.SpotifySubscribed is bool subscribed)
+{
+    <label class="setting-toggle"><input id="spotify-premium" type="checkbox" checked="@subscribed" disabled="@(!Session.Connected || saving)" @onchange="Change" /><span>Spotify Premium</span></label>
+}
+else
+{
+    <div class="setting-row"><span>Spotify Premium</span><button id="spotify-profile-choice" disabled="@(!Session.Connected)" @onclick="Choose">Choose</button></div>
+}
+@if (error is not null) { <p class="entry-error" role="status">@error</p> }
+
+@code {
+    private bool saving;
+    private string? error;
+    private Task Choose() => JS.InvokeVoidAsync("familyhub.showDialog", "spotify-question-dialog", "spotify-yes").AsTask();
+    private async Task Change(ChangeEventArgs args)
+    {
+        if (saving) return;
+        saving = true; error = null;
+        try { await Session.SaveSpotifyStatusAsync(args.Value is true); }
+        catch (Exception exception) { error = exception.Message; }
+        finally { saving = false; }
+    }
+}

@@ -1,0 +1,68 @@
+﻿@implements IDisposable
+@inject MusicSession Session
+@inject ListenTogether Together
+@inject IJSRuntime JS
+
+@if (Session.Connected && sourceIdentity == Session.Server + "|" + Session.User && requests.FirstOrDefault() is { } request)
+{
+    <aside class="listening-poke glass-panel" aria-label="Listening request" role="status">
+        <MusicIcon Name="people" /><div><strong>@(request.Kind == "invite" ? request.Name + " invited you to listen." : request.Name + " wants to listen with you.")</strong><div class="actions">@if (Together.Room is null) { <button class="primary" @onclick="() => Accept(request)" aria-disabled="@(busy ? "true" : "false")">@(request.Kind == "invite" ? "Join session" : "Start session")</button> }<button class="quiet" @onclick="() => Dismiss(request)" aria-disabled="@(busy ? "true" : "false")">Dismiss</button></div>@if (error is not null) { <p class="entry-error">@error</p> }</div>
+    </aside>
+}
+
+@code {
+    private readonly CancellationTokenSource lifetime = new();
+    private List<ListeningPoke> requests = [];
+    private CancellationToken token;
+    private string? sourceIdentity;
+    private bool busy;
+    private long requestVersion;
+    private string? error;
+    protected override void OnInitialized() { token = lifetime.Token; _ = Poll(); }
+    private async Task Poll()
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                var api = Session.Api; var user = Session.User; var identity = Session.Server + "|" + user; var version = requestVersion;
+                if (Session.Connected && api is not null)
+                {
+                    await Together.CheckPokedSessionAsync();
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(4));
+                    var result = await api.RequestJsonAsync<ListeningPokes>(HttpMethod.Get, "/api/listening/pokes", cancellationToken: timeout.Token);
+                    if (ReferenceEquals(api, Session.Api) && user == Session.User && version == requestVersion)
+                    {
+                        if (requests.FirstOrDefault() is { } old && !result.Requests.Any(p => p.Id == old.Id)) await JS.InvokeVoidAsync("familyhub.focusIfWithin", ".listening-poke", "listen-together");
+                        await InvokeAsync(() => { requests = result.Requests; sourceIdentity = identity; StateHasChanged(); });
+                    }
+                }
+                else await InvokeAsync(() => { requests = []; StateHasChanged(); });
+            }
+            catch (Exception exception) when (exception is HttpRequestException or FamilyHubApiException or OperationCanceledException or ObjectDisposedException) { }
+            try { await Task.Delay(5000, token); } catch (OperationCanceledException) { return; }
+        }
+    }
+    private async Task Accept(ListeningPoke request)
+    {
+        if (busy) return; busy = true; error = null;
+        try { if (request.Kind == "invite" && request.RoomId is { } room) await Together.JoinAsync(room); else await Together.StartAsync(); await Remove(request); }
+        catch (Exception exception) { error = exception.Message; }
+        finally { busy = false; }
+    }
+    private async Task Dismiss(ListeningPoke request)
+    {
+        if (busy) return; busy = true; error = null;
+        try { await Remove(request); }
+        catch (Exception exception) { error = exception.Message; }
+        finally { busy = false; }
+    }
+    private async Task Remove(ListeningPoke request)
+    {
+        var api = Session.Api ?? throw new InvalidOperationException("Connect to dismiss this request.");
+        await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Delete, "/api/listening/pokes/" + Uri.EscapeDataString(request.Id));
+        requestVersion++; requests.RemoveAll(p => p.Id == request.Id);
+        await JS.InvokeVoidAsync("familyhub.focus", "listen-together");
+    }
+    public void Dispose() { lifetime.Cancel(); lifetime.Dispose(); }
+}

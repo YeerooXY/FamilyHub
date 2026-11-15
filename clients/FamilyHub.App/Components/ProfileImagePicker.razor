@@ -1,0 +1,39 @@
+@inject MusicSession Session
+@inject IJSRuntime JS
+
+<div class="profile-picture-editor">
+    <label class="profile-picture-input" title="Choose profile picture">
+        <ProfileAvatar Profile="Profile" Size="96" />
+        <span class="profile-picture-caption">@(working ? "Saving..." : "Change picture")</span>
+        <InputFile id="profile-image-file" OnChange="ChooseImage" accept="image/jpeg,image/png" aria-label="Choose profile picture" disabled="@(!Session.Connected)" aria-busy="@(working ? "true" : "false")" />
+    </label>
+    <div class="profile-picture-copy"><strong>@Profile?.Name</strong><p class="profile-picture-message" role="status">@message</p></div>
+</div>
+
+@code {
+    [Parameter] public ListenerProfile? Profile { get; set; }
+    private bool working;
+    private string message = "";
+    private async Task ChooseImage(InputFileChangeEventArgs args)
+    {
+        if (working || !Session.Connected) return;
+        working = true; message = "";
+        try
+        {
+            if (args.File.Size > 10 * 1024 * 1024) throw new InvalidOperationException("Choose an image smaller than 10 MB.");
+            var image = await args.File.RequestImageFileAsync("image/jpeg", 512, 512);
+            await using var input = image.OpenReadStream(512 * 1024);
+            using var output = new MemoryStream();
+            await input.CopyToAsync(output);
+            await Session.SetProfileImageAsync("data:image/jpeg;base64," + Convert.ToBase64String(output.ToArray()));
+            message = "Profile picture saved.";
+        }
+        catch (Exception error) { message = error.Message; }
+        finally
+        {
+            working = false;
+            await InvokeAsync(StateHasChanged);
+            await JS.InvokeVoidAsync("familyhub.focus", "profile-image-file");
+        }
+    }
+}

@@ -1,0 +1,84 @@
+@implements IDisposable
+@inject MusicSession Session
+@inject MusicPlayer Player
+@inject IJSRuntime JS
+<div class="catalogue-pools">
+    <div class="catalogue-toolbar"><h2 id="catalogue-review-title" tabindex="-1">Song review</h2></div>
+    <p class="entry-error" role="status">@error</p>
+    <div class="catalogue-columns">
+        <section class="glass-panel catalogue-pool" aria-labelledby="trimming-title"><div class="stats-section-heading"><h2 id="trimming-title">Trimming</h2><span>@(data?.TrimmingTotal ?? 0)</span></div>
+            <div class="catalogue-list">
+                @foreach (var row in data?.Trimming ?? []) { <article @key="row.Id" class="catalogue-row"><div><strong>@row.Title</strong><small>@row.Artist</small><small>@string.Join(", ", row.Positions.Select(Time))</small><small>@string.Join(", ", row.RequestedBy.Select(ProfileName))</small></div><div class="catalogue-actions"><button class="quiet" aria-label="Play @row.Title" aria-disabled="@(Player.FollowingHost ? "true" : "false")" @onclick="() => Play(row.Id)"><MusicIcon Name="play" /></button>@if (data!.CanEdit) { <button class="quiet" aria-disabled="@(saving ? "true" : "false")" @onclick="() => Resolve(row.Id)">Mark resolved</button> }</div></article> }
+                @if (data is { TrimmingTotal: 0 }) { <p class="muted">No trimming requests</p> }
+            </div>
+            @if (data?.TrimmingTotal > 100) { <small>Showing 100 of @data.TrimmingTotal. </small> }
+        </section>
+        <section class="glass-panel catalogue-pool" aria-labelledby="metadata-title"><div class="stats-section-heading"><h2 id="metadata-title">Missing metadata</h2><span>@(data?.MetadataTotal ?? 0)</span></div>
+            <div class="catalogue-list">
+                @foreach (var row in data?.Metadata ?? []) { <article @key="row.Id" class="catalogue-row"><div><strong>@row.Title</strong><small>@string.Join(", ", row.Missing)</small><small>@(row.State == "queued" ? "Queued for lookup" : row.State == "processing" ? "Looking up metadata" : "Needs review")</small></div>@if (data!.CanEdit) { <button id="@("metadata-" + row.Id)" class="quiet" @onclick="() => Open(row)">Review</button> }</article> }
+                @if (data is { MetadataTotal: 0 }) { <p class="muted">No missing metadata</p> }
+            </div>
+            @if (data?.MetadataTotal > 100) { <small>Showing 100 of @data.MetadataTotal. </small> }
+        </section>
+    </div>
+</div>
+<dialog id="metadata-review-dialog" class="glass-dialog metadata-review-dialog" aria-labelledby="metadata-review-title">
+    <div class="dialog-heading"><h2 id="metadata-review-title">Song metadata</h2><button class="quiet" aria-label="Close metadata review" @onclick="Close"><MusicIcon Name="close" /></button></div>
+    <p>@editing?.Title</p>
+    <form @onsubmit="Save" @onsubmit:preventDefault>
+        <label for="metadata-artist">Artist</label><input id="metadata-artist" @bind="artist" maxlength="120" />
+        <label for="metadata-album">Album</label><input id="metadata-album" @bind="album" maxlength="120" />
+        <label for="metadata-genre">Genre</label><input id="metadata-genre" @bind="genre" maxlength="80" />
+        @if (editing?.SourceUrl.StartsWith("https://musicbrainz.org/recording/", StringComparison.Ordinal) == true) { <a href="@editing.SourceUrl" target="_blank" rel="noopener">MusicBrainz recording</a> }
+        <p class="entry-error" role="status">@editError</p><div class="actions"><button type="button" class="quiet" @onclick="Close">Cancel</button><button class="primary" aria-disabled="@(saving ? "true" : "false")">Save</button></div>
+    </form>
+</dialog>
+@code {
+    private CatalogueReviewSnapshot? data;
+    private MetadataRequest? editing;
+    private string artist = "", album = "", genre = "";
+    private string? error, editError, sourceIdentity, pendingFocus;
+    private bool disposed, fetching, saving;
+    private readonly CancellationTokenSource lifetime = new();
+    private string Identity => Session.Server + "\n" + Session.User;
+    protected override void OnInitialized() { Session.Changed += Changed; _ = Poll(); }
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (pendingFocus is { } id) { pendingFocus = null; await JS.InvokeVoidAsync("familyhub.focus", id); } }
+    private void Changed() { if (!disposed) _ = InvokeAsync(async () => { if (sourceIdentity is not null && sourceIdentity != Identity) { data = null; editing = null; await JS.InvokeVoidAsync("familyhub.closeDialog", "metadata-review-dialog", "catalogue-review-title"); } StateHasChanged(); }); }
+    private async Task Poll() { try { while (!lifetime.IsCancellationRequested) { await Refresh(); await Task.Delay(15000, lifetime.Token); } } catch (OperationCanceledException) { } }
+    private async Task Refresh()
+    {
+        if (fetching || disposed || Session.Api is null || !Session.Connected) return;
+        fetching = true;
+        var identity = Identity;
+        try { var result = await Session.Api.RequestJsonAsync<CatalogueReviewSnapshot>(HttpMethod.Get, "/api/catalogue/review", cancellationToken: lifetime.Token); if (identity == Identity && !disposed) { data = result; sourceIdentity = identity; error = null; } }
+        catch (OperationCanceledException) when (disposed) { }
+        catch (Exception exception) { if (identity == Identity) error = exception.Message; }
+        finally { fetching = false; if (!disposed) await InvokeAsync(StateHasChanged); }
+    }
+    private static string Time(double seconds) => $"{(int)seconds / 60}:{(int)seconds % 60:00}";
+    private string ProfileName(string id) => Session.Profiles.FirstOrDefault(p => p.Id == id)?.Name ?? id;
+    private async Task Play(string id) { try { if (!Player.FollowingHost && Session.Library.FirstOrDefault(t => t.Id == id) is { } track) await Player.PlayAsync(track); } catch (Exception exception) { error = exception.Message; } }
+    private async Task Resolve(string id)
+    {
+        if (saving || Session.Api is null) return; saving = true;
+        try { await Session.Api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/catalogue/trimming/" + id + "/resolve", new { }); pendingFocus = "catalogue-review-title"; await Refresh(); }
+        catch (Exception exception) { error = exception.Message; } finally { saving = false; }
+    }
+    private async Task Open(MetadataRequest row)
+    {
+        editing = row; editError = null; artist = row.Current.GetValueOrDefault("artist", ""); album = row.Current.GetValueOrDefault("album", ""); genre = row.Current.GetValueOrDefault("genre", "");
+        StateHasChanged(); await JS.InvokeVoidAsync("familyhub.showDialog", "metadata-review-dialog", "metadata-artist");
+    }
+    private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "metadata-review-dialog", editing is null ? "catalogue-review-title" : "metadata-" + editing.Id).AsTask();
+    private async Task Save()
+    {
+        if (saving || editing is null || Session.Api is null) return; saving = true; editError = null;
+        try {
+            var values = new Dictionary<string,string> { ["artist"] = artist.Trim(), ["album"] = album.Trim(), ["genre"] = genre.Trim() }.Where(p => p.Value.Length > 0).ToDictionary(p => p.Key, p => p.Value);
+            await Session.Api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Patch, "/api/catalogue/metadata/" + editing.Id, new { revision = editing.Revision, values });
+            await JS.InvokeVoidAsync("familyhub.closeDialog", "metadata-review-dialog", "catalogue-review-title"); editing = null; pendingFocus = "catalogue-review-title";
+            await Session.RefreshAsync(); await Refresh();
+        } catch (Exception exception) { editError = exception.Message; } finally { saving = false; }
+    }
+    public void Dispose() { disposed = true; Session.Changed -= Changed; lifetime.Cancel(); lifetime.Dispose(); }
+}

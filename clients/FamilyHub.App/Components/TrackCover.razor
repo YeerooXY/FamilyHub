@@ -1,0 +1,41 @@
+@implements IDisposable
+@inject MusicSession Session
+
+<span class="cover" aria-hidden="true">
+    @if (artwork is not null)
+    {
+        <img src="@artwork" alt="" />
+    }
+    else
+    {
+        @(string.IsNullOrWhiteSpace(Track?.Title) ? "♪" : Track.Title[..1].ToUpperInvariant())
+    }
+</span>
+
+@code {
+    [Parameter] public MusicTrack? Track { get; set; }
+    private string? artwork;
+    private string? requestKey;
+    private CancellationTokenSource? cancellation;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var key = Session.Server + "\n" + Session.User + "\n" + Track?.Id + "\n" + Session.Connected;
+        if (key == requestKey) return;
+        requestKey = key;
+        cancellation?.Cancel(); cancellation?.Dispose();
+        var pending = cancellation = new CancellationTokenSource();
+        artwork = null;
+        if (Track is null) return;
+        try
+        {
+            var result = await Session.GetArtworkAsync(Track, pending.Token);
+            if (ReferenceEquals(cancellation, pending) && !pending.IsCancellationRequested) artwork = result;
+        }
+        catch (OperationCanceledException) { }
+        catch (InvalidDataException) { }
+        catch (ObjectDisposedException) { }
+    }
+
+    public void Dispose() { cancellation?.Cancel(); cancellation?.Dispose(); cancellation = null; }
+}

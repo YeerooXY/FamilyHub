@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="FamilyHub Music">
+  <defs>
+    <linearGradient id="fh-disc" x1="6" y1="4" x2="42" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#89b4ff"/>
+      <stop offset="1" stop-color="#f19cda"/>
+    </linearGradient>
+  </defs>
+  <circle cx="24" cy="24" r="24" fill="url(#fh-disc)"/>
+  <g fill="#10111b">
+    <ellipse cx="17.4" cy="32.2" rx="4.4" ry="3.3" transform="rotate(-20 17.4 32.2)"/>
+    <ellipse cx="30.9" cy="29.4" rx="4.4" ry="3.3" transform="rotate(-20 30.9 29.4)"/>
+    <rect x="19.6" y="15.4" width="2.3" height="16.4"/>
+    <rect x="33" y="12.2" width="2.3" height="16.4"/>
+    <path d="M19.6 15.4 35.3 12.2v4.7l-15.7 3.2z"/>
+  </g>
+</svg>

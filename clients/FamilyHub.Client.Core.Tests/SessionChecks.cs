@@ -1,0 +1,206 @@
+using System.Text.Json;
+using System.Net;
+using System.Text;
+using FamilyHub.App.Services;
+using FamilyHub.Client.Core;
+
+internal static class SessionChecks
+{
+    public static async Task<int> RunAsync()
+    {
+        var checks = 0;
+        void Check(bool value, string message) { if (!value) throw new Exception(message); checks++; }
+        var reachable = true;
+        var removed = false;
+        var unauthorized = false;
+        var publishLibrary = false;
+        var audio = Encoding.UTF8.GetBytes("Verified playback cache fixture");
+        var recording = new MusicTrack { Id = "abcdefghijk", Saved = true, Title = "Cached recording",
+            DownloadUrl = "/api/library/abcdefghijk/download", DownloadExtension = ".m4a", DownloadSize = audio.Length,
+            DownloadSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(audio)) };
+        PlaybackResume? remotePlayback = null;
+        var searchOffsets = new List<int>();
+        var audioRequests = 0;
+        var originalAudioRequests = 0;
+        var compressedAudio = Encoding.UTF8.GetBytes("Smaller playback fixture");
+        var playbackInfoRequests = 0;
+        recording = recording with { PlaybackInfoUrl = "/api/library/abcdefghijk/playback-info" };
+        var compressed = recording with {
+            PlaybackSourceSha256 = recording.DownloadSha256,
+            DownloadUrl = $"/api/library/abcdefghijk/playback/{recording.DownloadSha256.ToLowerInvariant()}/audio.m4a",
+            DownloadSize = compressedAudio.Length,
+            DownloadSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(compressedAudio)).ToLowerInvariant()
+        };
+        // Production SHA-256 values are lower-case, including the source address.
+        recording = recording with { DownloadSha256 = recording.DownloadSha256.ToLowerInvariant() };
+        compressed = compressed with { PlaybackSourceSha256 = recording.DownloadSha256 };
+        HttpResponseMessage Json(string value) => new(HttpStatusCode.OK)
+            { Content = new StringContent(value, Encoding.UTF8, "application/json") };
+        FamilyHubApi Api(Uri origin) => new(origin, new SessionHandler(request =>
+        {
+            if (!reachable) throw new HttpRequestException("Server is unreachable.");
+            if (unauthorized) return new(HttpStatusCode.Unauthorized);
+            if (request.RequestUri!.AbsolutePath == recording.PlaybackInfoUrl)
+            { playbackInfoRequests++; return Json(System.Text.Json.JsonSerializer.Serialize(compressed, FamilyHubApi.JsonOptions)); }
+            if (request.RequestUri!.AbsolutePath == compressed.DownloadUrl)
+            { audioRequests++; return new(HttpStatusCode.OK) { Content = new ByteArrayContent(compressedAudio) }; }
+            if (request.RequestUri!.AbsolutePath == recording.DownloadUrl)
+            { originalAudioRequests++; return new(HttpStatusCode.OK) { Content = new ByteArrayContent(audio) }; }
+            if (request.RequestUri!.AbsolutePath == "/api/profile/playback")
+            {
+                if (request.Method == HttpMethod.Put)
+                {
+                    var body = System.Text.Json.JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                    Check(body.RootElement.GetProperty("profile_id").GetString() == "alex", "Playback upload lost profile identity");
+                    remotePlayback = body.RootElement.GetProperty("playback").Deserialize<PlaybackResume>(FamilyHubApi.JsonOptions);
+                }
+                return Json(System.Text.Json.JsonSerializer.Serialize(new { profile_id = "alex", playback = remotePlayback }, FamilyHubApi.JsonOptions));
+            }
+            if (request.RequestUri!.AbsolutePath == "/api/search")
+            {
+                var body = System.Text.Json.JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                var offset = body.RootElement.GetProperty("offset").GetInt32(); searchOffsets.Add(offset);
+                return Json(offset == 0 ? "{\"results\":[{\"id\":\"pageone0001\",\"title\":\"First page\"}],\"next_offset\":8}" : "{\"results\":[{\"id\":\"pagetwo0001\",\"title\":\"Second page\"}],\"next_offset\":null}");
+            }
+            return request.RequestUri!.AbsolutePath switch
+            {
+                "/api/connect" => Json("{\"family_profiles\":true,\"csrf_token\":\"boot\",\"profiles\":" +
+                    (removed ? "[]" : "[{\"id\":\"alex\",\"name\":\"Alex\"},{\"id\":\"sam\",\"name\":\"Sam\"}]") + "}"),
+                "/api/profile/select" => Json("{\"profile\":{\"id\":\"alex\",\"name\":\"Alex\"},\"csrf_token\":\"selected\",\"preferences\":{\"volume\":0.8,\"shuffle\":false}}"),
+                "/api/library" => Json(System.Text.Json.JsonSerializer.Serialize(new { results = publishLibrary ? new[] { recording } : [] }, FamilyHubApi.JsonOptions)),
+                "/api/playlists" => Json("{\"playlists\":[]}"),
+                _ => throw new Exception("Unexpected endpoint " + request.RequestUri)
+            };
+        }));
+        var session = new MusicSession(Api);
+        try
+        {
+            await session.ConnectServerAsync("https://profiles.test");
+            Check(session.NeedsProfileSelection && session.Profiles.Count == 2, "Connected profile chooser missing");
+            await session.SelectProfileAsync("alex");
+            Check(session.Connected && session.ProfileName == "Alex", "Online profile selection failed");
+            await session.SavePlaybackAsync(new() { TrackIds = [recording.Id], Index = 0, Position = 17 });
+            Check(session.Offline!.GetPlayback()?.Position == 17 && remotePlayback?.Position == 17, "Playback checkpoint missing from device or server");
+            remotePlayback = remotePlayback! with { Position = 42, UpdatedAt = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds() };
+            Check((await session.GetPlaybackAsync())?.Position == 42, "Newer playback position from another device ignored");
+            Check(new OfflineLibrary(session.Offline.RootDirectory + "-other-profile", new Uri("https://profiles.test"), "sam").GetPlayback() is null, "Playback leaked into another profile");
+            var firstPage = await session.SearchPageAsync("Artist", 0);
+            var secondPage = await session.SearchPageAsync("Artist", firstPage.NextOffset!.Value);
+            Check(searchOffsets.SequenceEqual(new[] {0,8}) && firstPage.Tracks[0].Title == "First page" && secondPage.Tracks[0].Title == "Second page" && secondPage.NextOffset is null, "Search pagination lost cursor, data or exhaustion");
+            session.RecordListen(recording);
+            Check(session.HasListeningHistory, "Listening history did not persist for this profile");
+            publishLibrary = true;
+            await session.RefreshLibraryAutomaticallyAsync();
+            Check(session.Library.Count == 1 && session.Library[0].Id == recording.Id, "Automatic refresh missed a server library change");
+            Check(audioRequests == 0 && originalAudioRequests == 0, "Automatic refresh downloaded audio");
+            publishLibrary = false;
+            await session.RefreshLibraryAutomaticallyAsync();
+            var originalRoot = session.Offline!.RootDirectory;
+            Check(session.PlaybackQuality == "max", "Playback must default to the server original");
+            var deviceUpdated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void DeviceChanged() { if (session.DeviceTracks.Any(t => t.Id == recording.Id)) deviceUpdated.TrySetResult(); }
+            session.Changed += DeviceChanged;
+            var maxPlayback = await session.CachePlaybackAsync(recording, CancellationToken.None);
+            await deviceUpdated.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            session.Changed -= DeviceChanged;
+            Check(session.OnThisDevice(recording) && !session.KeptOnDevice(recording), "Playback cache was confused with a kept download");
+            Check(session.DeviceBytes == audio.Length && session.DeviceTracks.Count == 1, "Device view missed freshly cached bytes or songs");
+            Check(originalAudioRequests == 1 && playbackInfoRequests == 0 && File.ReadAllBytes(maxPlayback).SequenceEqual(audio),
+                "Max playback transcoded or changed the original audio");
+            try { session.SetPlaybackQuality("invalid"); throw new Exception("Invalid quality accepted"); }
+            catch (ArgumentException) { checks++; }
+            session.SetPlaybackQuality("lower");
+            var cachedPlayback = await session.CachePlaybackAsync(recording, CancellationToken.None);
+            Check(cachedPlayback != maxPlayback && File.ReadAllBytes(cachedPlayback).SequenceEqual(compressedAudio),
+                "Lower playback reused or overwrote the original cache");
+            Check(audioRequests == 1 && File.Exists(cachedPlayback), "Playback did not prepare verified cache");
+            Check(playbackInfoRequests == 1 && cachedPlayback.EndsWith(".m4a"), "Playback did not request the compressed copy");
+            Check(session.CacheLimitGb == 3 && session.DownloadsWifiOnly, "Cache or network defaults changed");
+            session.SetCacheLimit(5);
+            try { session.SetCacheLimit(2); throw new Exception("Invalid cache limit accepted"); }
+            catch (ArgumentOutOfRangeException) { checks++; }
+            await session.DownloadAsync([recording]);
+            Check(audioRequests == 1 && originalAudioRequests == 1, "Keeping a cached song downloaded the audio again");
+            Check(session.Downloads.Single().DownloadSha256 == compressed.DownloadSha256, "Offline download ignored selected quality");
+            Check(session.LocalPath(recording) is not null, "Saved Data saver copy unavailable for online playback");
+            session.SetPlaybackQuality("max");
+            Check(session.LocalPath(recording) is null, "Max reused a compressed download online");
+            session.SetPlaybackQuality("lower");
+            Microsoft.Maui.Networking.Connectivity.Current.ConnectionProfiles = [Microsoft.Maui.Networking.ConnectionProfile.Cellular];
+            try { await session.DownloadAsync([recording]); throw new Exception("Wi-Fi-only download used mobile data"); }
+            catch (InvalidOperationException) { checks++; }
+            Microsoft.Maui.Networking.Connectivity.Current.ConnectionProfiles = [Microsoft.Maui.Networking.ConnectionProfile.WiFi];
+            await session.RemoveDownloadAsync(recording);
+            await session.Offline.SaveLibraryAsync([new() { Id = "abcdefghijk", Title = "Cached recording" }]);
+            reachable = false;
+            await session.ReconnectAsync();
+            Check(await session.GetCachedPlaybackPathAsync(recording) == cachedPlayback, "Offline warm playback cache was unavailable");
+            Check(await session.CachePlaybackAsync(recording, CancellationToken.None) == cachedPlayback && audioRequests == 1,
+                "Repeated playback unnecessarily downloaded audio");
+            session.SetPlaybackQuality("max");
+            Check(await session.GetCachedPlaybackPathAsync(recording) == maxPlayback && originalAudioRequests == 1,
+                "Max quality reused lower-quality audio or re-downloaded a cached original");
+            File.Delete(maxPlayback);
+            Check(await session.GetCachedPlaybackPathAsync(recording) is null,
+                "Max quality silently fell back to a lower-quality cache");
+            File.WriteAllBytes(maxPlayback, audio);
+            session.SetPlaybackQuality("lower");
+            await session.SavePreferencesAsync(0.25, true, false);
+            await session.SwitchProfileAsync();
+            Check(session.NeedsProfileSelection && session.Profiles.Count == 2, "Offline switch lost profiles");
+            var restarted = new MusicSession(Api);
+            await restarted.InitializeAsync();
+            Check(restarted.NeedsProfileSelection && restarted.Profiles.Count == 2, "Restart lost offline chooser profiles");
+            await restarted.SelectProfileAsync("alex");
+            Check(!restarted.Connected && !restarted.NeedsProfileSelection && restarted.ProfileName == "Alex", "Offline selection failed");
+            Check(restarted.Offline!.RootDirectory == originalRoot && restarted.Library.Single().Title == "Cached recording", "Offline selection used wrong cache");
+            Check(restarted.PlaybackPreferences.Volume == 0.25 && restarted.PlaybackPreferences.Shuffle, "Offline selection lost preferences");
+            Check(!restarted.PlaybackPreferences.AutoDj, "Restart lost Auto DJ preference");
+            Check(restarted.CacheLimitGb == 5, "Restart lost cache preference");
+            Check(restarted.PlaybackQuality == "lower", "Restart lost the device quality setting");
+            await restarted.SelectProfileAsync("sam");
+            Check(restarted.PlaybackQuality == "max", "Quality setting leaked into another profile");
+            Check(restarted.User == "sam" && restarted.Library.Count == 0 && restarted.PlaybackPreferences.Volume == 1, "Profile data leaked to another listener");
+            try { await restarted.SelectProfileAsync("unknown"); throw new Exception("Unknown offline profile accepted"); }
+            catch (InvalidOperationException) { checks++; }
+            Check(restarted.User == "sam", "Failed offline selection changed profile");
+            reachable = true; removed = true;
+            try { await restarted.SelectProfileAsync("alex"); throw new Exception("Removed profile accepted"); }
+            catch (InvalidOperationException) { checks++; }
+            reachable = false;
+            try { await restarted.SelectProfileAsync("alex"); throw new Exception("Confirmed removed profile resurrected offline"); }
+            catch (InvalidOperationException) { checks++; }
+            reachable = true; removed = false;
+            await restarted.SwitchProfileAsync();
+            unauthorized = true;
+            try { await restarted.SelectProfileAsync("alex"); throw new Exception("Unauthorized response used offline fallback"); }
+            catch (FamilyHubApiException error) when (error.StatusCode == 401) { checks++; }
+            restarted.Api?.Dispose();
+        }
+        finally
+        {
+            session.Api?.Dispose();
+            Directory.Delete(FileSystem.AppDataDirectory, true);
+        }
+        return checks;
+    }
+    private sealed class SessionHandler(Func<HttpRequestMessage, HttpResponseMessage> handler) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(handler(request));
+    }
+}
+
+// Minimal platform storage substitutes let the real app session run without MAUI.
+internal static class FileSystem
+{
+    public static string AppDataDirectory { get; } = Path.Combine(Path.GetTempPath(), "familyhub-session-tests-" + Guid.NewGuid().ToString("N"));
+    public static string CacheDirectory => AppDataDirectory;
+}
+internal sealed class Preferences
+{
+    public static Preferences Default { get; } = new();
+    private readonly Dictionary<string, string> values = [];
+    public string Get(string key, string fallback) => values.GetValueOrDefault(key, fallback);
+    public void Set(string key, string value) => values[key] = value;
+}

@@ -1,4 +1,4 @@
-# Optional search and download project. No library mounts or peer ports.
+# Optional search, downloads and music imports. Guest loopback administration only.
 name: familyhub-acquisition
 
 services:
@@ -42,3 +42,22 @@ services:
       - "127.0.0.1:9696:9696/tcp"
     volumes:
       - ${FAMILYHUB_APPDATA:-/srv/familyhub/appdata}/prowlarr:/config
+
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest@sha256:d5707cfe084da21a3864c7ef0edd9c0543b5e26c79c551f84dad5ef8683af8c7
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    mem_limit: 1g
+    cpus: 1.0
+    environment:
+      PUID: ${FAMILYHUB_WRITER_ID:-2000}
+      PGID: ${FAMILYHUB_WRITER_ID:-2000}
+      HOME: /config
+    ports:
+      - "127.0.0.1:8686:8686/tcp"
+    volumes:
+      - ${FAMILYHUB_APPDATA:-/srv/familyhub/appdata}/lidarr:/config
+      - ${FAMILYHUB_DATA:-/srv/familyhub/data}:/data

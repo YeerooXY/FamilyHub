@@ -1,0 +1,50 @@
+.playlist-transfer { margin-top:16px; outline:none; }
+.transfer-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.transfer-actions button { display:inline-flex; align-items:center; gap:8px; min-height:44px; }
+.transfer-actions .icon { width:18px; height:18px; }
+.transfer-status { margin-top:16px; padding:20px; max-width:760px; }
+.transfer-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; font-size:14px; }
+.transfer-heading>span { color:var(--muted); font-variant-numeric:tabular-nums; }
+.transfer-meter { height:5px; margin:16px 0; background:#ffffff12; overflow:hidden; border-radius:5px; }
+.transfer-meter>span { display:block; height:100%; background:var(--accent-blue); border-radius:inherit; transition:width .25s ease-out; }
+.transfer-meter.is-indeterminate>span { width:30%!important; animation:playlist-reading 1.5s ease-in-out infinite; }
+.transfer-current { display:flex; align-items:center; gap:10px; min-width:0; }
+.transfer-current>span:nth-child(2) { flex:1; min-width:0; }
+.transfer-current strong,.transfer-current small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.transfer-current strong { font-size:13px; }
+.transfer-current small { color:var(--muted); font-size:12px; margin-top:4px; }
+.transfer-activity { width:8px; height:8px; border-radius:50%; background:var(--muted); flex-shrink:0; }
+.transfer-activity.is-active { background:var(--accent-blue); animation:playlist-activity 1.5s ease-in-out infinite; }
+.transfer-file { margin-top:20px; }
+.transfer-file-label { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px 16px; font-size:12px; color:var(--muted); }
+.transfer-file-label strong { color:var(--text); font-weight:600; font-variant-numeric:tabular-nums; }
+.transfer-file-meter { margin:10px 0 0; height:6px; }
+.transfer-recent,.transfer-results ul { list-style:none; margin:16px 0 0; padding:0; }
+.transfer-recent li,.transfer-results li { display:flex; align-items:center; gap:16px; padding:10px 0; border-top:1px solid #ffffff0c; }
+.transfer-recent li>span:first-child,.transfer-results li>span:first-child { flex:1; min-width:0; }
+.transfer-recent strong,.transfer-results strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.transfer-recent small,.transfer-results small { display:block; color:var(--muted); font-size:11px; margin-top:4px; }
+.transfer-result { font-size:12px; white-space:nowrap; color:var(--muted); }
+.transfer-result.ready,.transfer-result.saved { color:#91ddb8; }
+.transfer-result.review,.transfer-result.error { color:#e8c28f; }
+.transfer-results { margin:16px 0 0; padding:0; border:0; max-width:760px; }
+.transfer-results summary { padding:10px 0; color:var(--muted); font-size:13px; }
+.transfer-results ul { max-height:320px; overflow:auto; padding-right:12px; }
+@keyframes playlist-reading { from { transform:translateX(-110%); } to { transform:translateX(440%); } }
+@keyframes playlist-activity { 50% { opacity:.35; } }
+@media(max-width:720px) { .transfer-status { padding:16px; } .transfer-current button { padding-inline:10px; } }
+@media(prefers-reduced-motion:reduce) { .transfer-meter>span { transition:none; } .transfer-meter.is-indeterminate>span,.transfer-activity.is-active { animation:none; } }
+
+.transfer-review-button { min-height:36px; padding:8px 10px; font-size:12px; flex-shrink:0; }
+.transfer-results summary>span { margin-left:10px; color:#e8c28f; }
+.transfer-review-dialog { width:min(680px,calc(100vw - 32px)); }
+.transfer-review-song { margin:18px 0; }
+.transfer-review-song strong,.transfer-review-song>span { display:block; }
+.transfer-review-song>span { color:var(--muted); font-size:13px; margin-top:5px; }
+.transfer-candidates { max-height:50dvh; overflow:auto; }
+.transfer-candidate { padding:16px 0; border-top:1px solid #ffffff12; }
+.transfer-candidate>div>strong { display:block; font-size:14px; overflow-wrap:anywhere; }
+.transfer-candidate>div>span { display:block; margin-top:6px; color:var(--muted); font-size:12px; }
+.transfer-candidate-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:12px; }
+.transfer-candidate-actions button { display:inline-flex; align-items:center; gap:8px; min-height:44px; }
+.transfer-review-dialog .icon { width:18px; height:18px; }

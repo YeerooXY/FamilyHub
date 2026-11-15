@@ -1,0 +1,371 @@
+@implements IDisposable
+@using System.Text.Json.Serialization
+@inject MusicSession Session
+@inject IJSRuntime JS
+
+@if (Playlist.CanEdit)
+{
+    <section id="playlist-transfer-progress" class="playlist-transfer" tabindex="-1" aria-label="Playlist import and server downloads">
+        <div class="transfer-actions">
+            @if (Playlist.Tracks.Count == 0)
+            {
+                <button id="transfer-spotify" class="primary" @onclick='() => OpenImport("spotify")' aria-disabled="@Aria(Working || requesting)"><MusicIcon Name="playlist" />Import from Spotify</button>
+                <button id="transfer-youtube" @onclick='() => OpenImport("youtube")' aria-disabled="@Aria(Working || requesting)"><MusicIcon Name="play" />Import from YouTube</button>
+            }
+            else if (!AllOnServer)
+            {
+                <button id="transfer-download" @onclick='() => Start("download")' aria-disabled="@Aria(DownloadUnavailable)"><MusicIcon Name="cloud-check" />@(Status?.State == "paused" && (Status.Mode == "download" || Status.DownloadAfterMatching) ? "Resume server download" : Status?.DownloadAfterMatching == true ? "Download queued" : "Download to server")</button>
+                @if (Playlist.Tracks.Any(t => t.State is "unmatched" or "review" or "error" or "ready"))
+                {
+                    <button id="transfer-match" class="quiet" @onclick='() => Start("match")' aria-disabled="@Aria(Working || requesting || !Session.Connected)"><MusicIcon Name="search" />@(Status?.State == "paused" && Status.Mode != "download" ? "Resume matching" : "Find recordings")</button>
+                }
+            }
+        </div>
+        @if (ShowProgress && Status is { } state)
+        {
+            <div class="transfer-status glass-panel" aria-busy="@Aria(Working)">
+                <div class="transfer-heading"><strong>@Heading</strong><span>@CountLabel</span></div>
+                <div class="transfer-meter @(Working && state.Phase == "reading" && state.Total == 0 ? "is-indeterminate" : "")" role="progressbar" aria-label="@Heading" aria-valuemin="0" aria-valuemax="@Math.Max(1, state.Total)" aria-valuenow="@(state.Total > 0 ? ProgressCount : (int?)null)"><span style="width:@Percent%"></span></div>
+                <div class="transfer-current"><span class="transfer-activity @(Working ? "is-active" : "")" aria-hidden="true"></span><span><strong>@state.Title</strong><small>@state.Message</small></span><button id="transfer-progress-action" class="quiet" @onclick="ProgressAction" aria-disabled="@Aria(requesting || state.State == "pausing")">@(Working ? state.State == "pausing" ? "Pausing..." : "Pause" : "Close")</button></div>
+                @if (state.Mode == "download" && state.ActiveDownloads.Count > 0)
+                {
+                    @foreach (var file in state.ActiveDownloads)
+                    {
+                        var percent = file.DownloadTotalBytes > 0 && file.FilePhase == "downloading" ? Math.Clamp(file.DownloadBytes * 100d / file.DownloadTotalBytes.Value, 0, 100) : (double?)null;
+                        var width = (percent ?? 0).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+                        var size = file.DownloadTotalBytes > 0 ? Size(file.DownloadBytes) + " / " + Size(file.DownloadTotalBytes.Value) : file.DownloadBytes > 0 ? Size(file.DownloadBytes) + " received" : "Size pending";
+                        <div class="transfer-file" @key="file.Index">
+                            <div class="transfer-file-label"><strong>@file.Title</strong><span>@size</span></div>
+                            <small class="muted">@file.Message</small>
+                            <div class="transfer-meter transfer-file-meter @(percent is null ? "is-indeterminate" : "")" role="progressbar" aria-label="@file.Title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@percent" aria-valuetext="@file.Message"><span style="width:@width%"></span></div>
+                        </div>
+                    }
+                }
+                else if (state.Mode == "download")
+                {
+                    <div class="transfer-file">
+                        <div class="transfer-file-label"><span>@FileLabel</span><strong>@FileSizeLabel</strong></div>
+                        <div class="transfer-meter transfer-file-meter @(Working && FilePercent is null ? "is-indeterminate" : "")" role="progressbar" aria-label="@FileLabel" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@(FilePercent is null ? null : FilePercentText)" aria-valuetext="@FileSizeLabel"><span style="width:@FilePercentText%"></span></div>
+                    </div>
+                }
+                @if (state.Recent.Any(RecentNeedsAttention))
+                {
+                    <ul class="transfer-recent" aria-label="Recently checked songs">
+                    @foreach (var item in state.Recent.Where(RecentNeedsAttention))
+                    {
+                        <li @key="item.Index"><span><strong>@item.Title</strong><small>@item.Artist</small></span><span class="transfer-result @item.State">@StateLabel(item.State)</span>@if (item.State is "review" or "error") { <button id="@("review-recent-" + item.Index)" class="quiet transfer-review-button" @onclick="() => OpenReview(item.Index - 1)" aria-disabled="@Aria(Working || requesting)">Review</button> }</li>
+                    }
+                    </ul>
+                }
+            </div>
+        }
+        @if (Playlist.Tracks.Any(NeedsAttention))
+        {
+            <details class="transfer-results"><summary id="review-recordings-summary">Review recordings <span>@Playlist.Tracks.Count(NeedsAttention) need review</span></summary><ul>
+                @for (var i = 0; i < Playlist.Tracks.Count; i++)
+                {
+                    var index = i; var track = Playlist.Tracks[i];
+                    if (!NeedsAttention(track)) continue;
+                    <li><span><strong>@track.Title</strong><small>@track.Artist</small></span><span class="transfer-result @track.State">@StateLabel(track.State)</span>@if (track.State != "saved") { <button id="@("review-recording-" + index)" class="quiet transfer-review-button" @onclick="() => OpenReview(index)" aria-disabled="@Aria(Working || requesting)">Review</button> }</li>
+                }
+            </ul></details>
+        }
+        @if (!string.IsNullOrEmpty(error)) { <p class="entry-error" role="alert">@error</p> }
+    </section>
+    <dialog id="transfer-review-dialog" class="glass-dialog transfer-review-dialog" aria-labelledby="transfer-review-heading">
+        <div class="dialog-heading"><h2 id="transfer-review-heading">Review recording</h2><button id="transfer-review-close" class="quiet" aria-label="Close recording choices" @onclick="CloseReview"><MusicIcon Name="close" /></button></div>
+        <p class="transfer-review-song"><strong>@reviewTitle</strong><span>@reviewArtist</span></p>
+        @if (reviewLoading) { <p role="status">Finding recording choices...</p> }
+        @if (!string.IsNullOrEmpty(reviewError)) { <p class="entry-error" role="alert">@reviewError</p> }
+        <div class="transfer-candidates" aria-busy="@Aria(reviewLoading)">
+        @for (var i = 0; i < Math.Min(1, choices.Count); i++)
+        {
+            var choice = i; var recording = choices[i];
+            <article class="transfer-candidate">
+                <div><strong>@recording.Title</strong><span>@recording.Channel &middot; @RecordingTime(recording.Duration) @if (recording.Saved) { <span class="transfer-result saved">&middot; On server</span> }</span></div>
+                <div class="transfer-candidate-actions"><button class="quiet" @onclick="() => ListenToChoice(recording)" title="Open this recording on YouTube"><MusicIcon Name="play" />Listen</button><button class="primary" @onclick="() => UseRecording(choice, recording)" aria-disabled="@Aria(reviewLoading || requesting)">Use recording</button></div>
+            </article>
+        }
+        </div>
+        @if (!reviewLoading && choices.Count == 0 && string.IsNullOrEmpty(reviewError)) { <p>No recording choices found.</p> }
+        <button class="quiet" @onclick="SearchChoicesAgain" aria-disabled="@Aria(reviewLoading || requesting)"><MusicIcon Name="search" />Search again</button>
+    </dialog>
+    <dialog id="transfer-import-dialog" class="glass-dialog" aria-labelledby="transfer-import-heading">
+        <h2 id="transfer-import-heading">Import from @(provider == "spotify" ? "Spotify" : "YouTube")</h2>
+        <form @onsubmit="Import" @onsubmit:preventDefault>
+            <label for="transfer-url">@(provider == "spotify" ? "Playlist or artist link" : "Public playlist link")</label><input id="transfer-url" type="url" @bind="url" required />
+            <p class="entry-error" role="status">@error</p>
+            <div class="actions"><button class="primary" type="submit" aria-disabled="@Aria(requesting)">@(requesting ? "Starting..." : "Import playlist")</button><button type="button" @onclick="CloseImport">Cancel</button></div>
+        </form>
+    </dialog>
+}
+
+@code {
+    [Parameter, EditorRequired] public MusicPlaylist Playlist { get; set; } = null!;
+    [Parameter] public EventCallback Updated { get; set; }
+    private bool NeedsAttention(PlaylistTrack track) => track.State is "review" or "error"
+        && !(track.RecordingId is { Length: > 0 } id && Session.Library.Any(song => song.Id == id));
+    private bool RecentNeedsAttention(TransferItem item) => item.State is "review" or "error" && item.Index > 0 && item.Index <= Playlist.Tracks.Count
+        && NeedsAttention(Playlist.Tracks[item.Index - 1]);
+    private bool reviewOpen, reviewClose, reviewLoading;
+    private HashSet<string> previousReviewControls = [];
+    private int reviewIndex, reviewRevision;
+    private string reviewTitle = "", reviewArtist = "";
+    private string? reviewError;
+    private List<MusicTrack> choices = [];
+    private static string RecordingTime(double seconds) => $"{(int)Math.Max(0, seconds) / 60}:{(int)Math.Max(0, seconds) % 60:00}";
+    private async Task OpenReview(int index)
+    {
+        if (Working || requesting || reviewLoading || index < 0 || index >= Playlist.Tracks.Count) return;
+        reviewIndex = index; reviewTitle = Playlist.Tracks[index].Title; reviewArtist = Playlist.Tracks[index].Artist;
+        choices = []; reviewError = null; reviewOpen = true; reviewLoading = true;
+        try
+        {
+            var response = await Api.RequestJsonAsync<RecordingChoices>(HttpMethod.Get, Path + "/match?index=" + index + "&revision=" + Playlist.Revision, cancellationToken: lifetime!.Token);
+            reviewRevision = response.Revision; choices = response.Track.Candidates;
+            if (choices.Count == 0) await LoadSearchedChoices();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { reviewError = FriendlyError(ex); }
+        finally { reviewLoading = false; }
+    }
+    private async Task LoadSearchedChoices()
+    {
+        await Api.RequestJsonAsync<RecordingChoices>(HttpMethod.Post, Path + "/match", new { index = reviewIndex, revision = reviewRevision }, lifetime!.Token);
+        var response = await Api.RequestJsonAsync<RecordingChoices>(HttpMethod.Get, Path + "/match?index=" + reviewIndex + "&revision=" + reviewRevision, cancellationToken: lifetime.Token);
+        reviewRevision = response.Revision; choices = response.Track.Candidates;
+    }
+    private async Task SearchChoicesAgain()
+    {
+        if (reviewLoading || requesting) return;
+        reviewLoading = true; reviewError = null;
+        try { await LoadSearchedChoices(); }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { reviewError = FriendlyError(ex); }
+        finally { reviewLoading = false; }
+    }
+    private async Task UseRecording(int choice, MusicTrack recording)
+    {
+        if (reviewLoading || requesting) return;
+        requesting = true; reviewError = null;
+        try
+        {
+            await Api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, Path + "/recording",
+                new { index = reviewIndex, choice, source_id = recording.Id, revision = reviewRevision }, lifetime!.Token);
+            await Session.RefreshAsync();
+            Status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Get, Path + "/prepare", cancellationToken: lifetime.Token);
+            reviewClose = true;
+            await Updated.InvokeAsync();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { reviewError = FriendlyError(ex); }
+        finally { requesting = false; }
+    }
+    private Task CloseReview() => JS.InvokeVoidAsync("familyhub.closeDialog", "transfer-review-dialog", "playlist-transfer-progress").AsTask();
+    private async Task ListenToChoice(MusicTrack recording)
+    {
+        try
+        {
+            if (System.Text.RegularExpressions.Regex.IsMatch(recording.Id, "^[A-Za-z0-9_-]{11}$"))
+                await Launcher.Default.OpenAsync(new Uri("https://www.youtube.com/watch?v=" + recording.Id));
+        }
+        catch { reviewError = "Could not open YouTube. Check your browser and try again."; }
+    }
+    private sealed record RecordingChoices
+    {
+        [JsonPropertyName("revision")] public int Revision { get; init; }
+        [JsonPropertyName("track")] public ChoiceTrack Track { get; init; } = new();
+    }
+    private sealed record ChoiceTrack
+    {
+        [JsonPropertyName("candidates")] public List<MusicTrack> Candidates { get; init; } = [];
+    }
+    private bool AllOnServer => Playlist.Tracks.Count > 0 && Playlist.Tracks.All(t => Session.Library.Any(song => song.Id == t.RecordingId));
+    private bool ShowProgress => !dismissed && Status is { State: not ("idle" or "done") };
+    private bool hadProgress;
+    private TransferStatus? Status;
+    private CancellationTokenSource? lifetime;
+    private string key = "", provider = "spotify", url = "";
+    private string? error;
+    private bool requesting, dismissed, openDialog, closeDialog, polling, disposed, loadedSnapshot;
+    private CancellationToken pollingToken;
+    private bool Working => Status?.State is "running" or "pausing";
+    private bool DownloadUnavailable => requesting || !Session.Connected || Working && Status?.DownloadAfterMatching == true || Status?.State == "pausing" || Working && Status?.Mode == "download";
+    private int ProgressCount => Status?.Phase == "reading" ? Status.Loaded : Status?.Processed ?? 0;
+    private string Percent => (Status is { Total: > 0 } s ? Math.Clamp(ProgressCount * 100d / s.Total, 0, 100) : 0).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+    private string FileLabel => Status?.FilePhase switch { "saved" => "File size", "purifying" => "Purifying audio", "downloading" => "Downloading file", "error" => "Download failed", _ => "Preparing file" };
+    private string FileSizeLabel => Status is { FileSizeBytes: > 0 } s ? Size(s.FileSizeBytes.Value)
+        : Status is { FilePhase: "purifying", DownloadBytes: > 0 } prepared ? $"{Size(prepared.DownloadBytes)} downloaded"
+        : Status is { DownloadTotalBytes: > 0 } d ? $"{Size(d.DownloadBytes)} / {Size(d.DownloadTotalBytes.Value)}"
+        : Status is { DownloadBytes: > 0 } r ? $"{Size(r.DownloadBytes)} received" : "Size pending";
+    private double? FilePercent => Status?.FilePhase == "saved" ? 100
+        : Status is { FilePhase: "downloading", DownloadTotalBytes: > 0 } d ? Math.Clamp(d.DownloadBytes * 100d / d.DownloadTotalBytes.Value, 0, 100) : null;
+    private string FilePercentText => (FilePercent ?? 0).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+    private static string Size(long bytes) => bytes >= 1L << 30 ? $"{bytes / (double)(1L << 30):0.0} GB" : $"{bytes / (double)(1L << 20):0.0} MB";
+    private string Heading => Status?.Phase == "reading" ? "Reading playlist" : Status?.Mode == "download" ? "Downloading to server" : "Finding recordings";
+    private string CountLabel => Status is { Total: > 0 } s ? $"{ProgressCount} / {s.Total}" : "";
+    private static string Aria(bool value) => value ? "true" : "false";
+    private static string StateLabel(string state) => state switch { "saved" => "On server", "ready" => "Found", "review" => "Needs review", "error" => "Failed", "preparing" => "Purifying", _ => "Not checked" };
+    private FamilyHubApi Api => Session.Connected && Session.Api is { } api ? api : throw new InvalidOperationException("Connect to import or download playlists.");
+    private string Path => "/api/playlists/" + Playlist.Id;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var nextKey = Session.Server + "|" + Session.User + "|" + Playlist.Id;
+        if (nextKey == key) return;
+        lifetime?.Cancel(); lifetime?.Dispose(); lifetime = new();
+        key = nextKey; Status = null; error = null; dismissed = false; loadedSnapshot = false;
+        if (!Playlist.CanEdit || !Session.Connected) return;
+        var token = lifetime.Token;
+        try
+        {
+            var status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Get, Path + "/prepare", cancellationToken: token);
+            if (token.IsCancellationRequested) return;
+            Status = status;
+            if (Working) _ = Poll(token);
+            else if (status.State != "idle")
+            {
+                await Session.RefreshAsync();
+                if (!token.IsCancellationRequested) await Updated.InvokeAsync();
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (HttpRequestException) { }
+        catch (FamilyHubApiException) { /* Explicit actions report compatibility or connection errors. */ }
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (hadProgress && !ShowProgress)
+            await JS.InvokeVoidAsync("familyhub.restoreFocus", "transfer-progress-action", "playlist-transfer-progress");
+        hadProgress = ShowProgress;
+        var controls = Playlist.Tracks.Select((track, index) => (track, index))
+            .Where(row => NeedsAttention(row.track)).Select(row => "review-recording-" + row.index).ToHashSet();
+        if (controls.Count > 0) controls.Add("review-recordings-summary");
+        if (Status is { } status)
+            controls.UnionWith(status.Recent.Where(RecentNeedsAttention).Select(item => "review-recent-" + item.Index));
+        foreach (var removed in previousReviewControls.Except(controls))
+            await JS.InvokeVoidAsync("familyhub.restoreFocus", removed, "playlist-transfer-progress");
+        previousReviewControls = controls;
+        if (reviewOpen) { reviewOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "transfer-review-dialog", "transfer-review-close"); }
+        if (reviewClose) { reviewClose = false; await JS.InvokeVoidAsync("familyhub.closeDialog", "transfer-review-dialog", "playlist-transfer-progress"); }
+        if (openDialog) { openDialog = false; await JS.InvokeVoidAsync("familyhub.showDialog", "transfer-import-dialog", "transfer-url"); }
+        if (closeDialog) { closeDialog = false; await JS.InvokeVoidAsync("familyhub.closeDialog", "transfer-import-dialog", "playlist-transfer-progress"); }
+    }
+    private void OpenImport(string value)
+    {
+        if (Working || requesting) return;
+        provider = value; url = ""; error = null; openDialog = true;
+    }
+    private Task CloseImport() => JS.InvokeVoidAsync("familyhub.closeDialog", "transfer-import-dialog", "transfer-" + provider).AsTask();
+    private async Task Import()
+    {
+        if (requesting || Working) return;
+        requesting = true; error = null;
+        try
+        {
+            Status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Post, Path + "/import", new { provider, url, revision = Playlist.Revision }, lifetime!.Token);
+            dismissed = false; loadedSnapshot = false; closeDialog = true;
+            _ = Poll(lifetime.Token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { error = FriendlyError(ex); }
+        finally { requesting = false; }
+    }
+    private async Task Start(string mode)
+    {
+        if (mode == "download" ? DownloadUnavailable : requesting || Working) return;
+        requesting = true; error = null;
+        try
+        {
+            Status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Post, Path + "/prepare", new { mode }, lifetime!.Token);
+            dismissed = false; loadedSnapshot = true;
+            _ = Poll(lifetime.Token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { error = FriendlyError(ex); }
+        finally { requesting = false; }
+    }
+    private async Task ProgressAction()
+    {
+        if (requesting) return;
+        if (!Working)
+        {
+            await JS.InvokeVoidAsync("familyhub.focus", "playlist-transfer-progress");
+            dismissed = true;
+            return;
+        }
+        if (Status?.State == "pausing") return;
+        requesting = true;
+        try { Status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Delete, Path + "/prepare", new { }, lifetime!.Token); }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { error = FriendlyError(ex); }
+        finally { requesting = false; }
+    }
+    private async Task Poll(CancellationToken token)
+    {
+        if (polling && pollingToken == token) return;
+        polling = true; pollingToken = token;
+        try
+        {
+            while (!token.IsCancellationRequested && Working)
+            {
+                await Task.Delay(1500, token);
+                var status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Get, Path + "/prepare", cancellationToken: token);
+                if (token.IsCancellationRequested) return;
+                Status = status;
+                if ((!loadedSnapshot && status.Phase != "reading") || !Working)
+                {
+                    loadedSnapshot = true;
+                    await Session.RefreshAsync();
+                    if (token.IsCancellationRequested) return;
+                    await Updated.InvokeAsync();
+                }
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            if (!disposed && !token.IsCancellationRequested)
+            {
+                error = "Progress connection interrupted. Reopen the playlist to reconnect; the server can keep working. " + FriendlyError(ex);
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        finally { if (pollingToken == token) polling = false; }
+    }
+    private static string FriendlyError(Exception ex) => ex is FamilyHubApiException { StatusCode: 404 }
+        ? "Update the FamilyHub server to use playlist import and server downloads."
+        : ex is HttpRequestException ? "Check the server connection and try again." : ex.Message;
+    public void Dispose() { disposed = true; lifetime?.Cancel(); lifetime?.Dispose(); }
+    private sealed record TransferStatus
+    {
+        [JsonPropertyName("index")] public int Index { get; init; }
+        [JsonPropertyName("active_downloads")] public List<TransferStatus> ActiveDownloads { get; init; } = [];
+        [JsonPropertyName("state")] public string State { get; init; } = "idle";
+        [JsonPropertyName("mode")] public string Mode { get; init; } = "match";
+        [JsonPropertyName("download_after_matching")] public bool DownloadAfterMatching { get; init; }
+        [JsonPropertyName("phase")] public string Phase { get; init; } = "matching";
+        [JsonPropertyName("file_phase")] public string FilePhase { get; init; } = "";
+        [JsonPropertyName("download_bytes")] public long DownloadBytes { get; init; }
+        [JsonPropertyName("download_total_bytes")] public long? DownloadTotalBytes { get; init; }
+        [JsonPropertyName("file_size_bytes")] public long? FileSizeBytes { get; init; }
+        [JsonPropertyName("total")] public int Total { get; init; }
+        [JsonPropertyName("loaded")] public int Loaded { get; init; }
+        [JsonPropertyName("processed")] public int Processed { get; init; }
+        [JsonPropertyName("found")] public int Found { get; init; }
+        [JsonPropertyName("saved")] public int Saved { get; init; }
+        [JsonPropertyName("review")] public int Review { get; init; }
+        [JsonPropertyName("failed")] public int Failed { get; init; }
+        [JsonPropertyName("title")] public string Title { get; init; } = "";
+        [JsonPropertyName("message")] public string Message { get; init; } = "";
+        [JsonPropertyName("recent")] public List<TransferItem> Recent { get; init; } = [];
+    }
+    private sealed record TransferItem
+    {
+        [JsonPropertyName("index")] public int Index { get; init; }
+        [JsonPropertyName("title")] public string Title { get; init; } = "";
+        [JsonPropertyName("artist")] public string Artist { get; init; } = "";
+        [JsonPropertyName("state")] public string State { get; init; } = "";
+    }
+}

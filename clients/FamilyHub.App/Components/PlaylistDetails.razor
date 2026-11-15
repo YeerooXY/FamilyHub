@@ -1,0 +1,46 @@
+﻿@inject MusicSession Session
+@inject IJSRuntime JS
+@if (Playlist.CanEdit)
+{
+    @if (!HideTrigger) { <button id="playlist-details-open" class="quiet playlist-details-open" @onclick="Open"><MusicIcon Name="pencil" />Edit details</button> }
+    <dialog id="playlist-details-dialog" class="glass-dialog playlist-details-dialog" aria-labelledby="playlist-details-heading">
+        <div class="dialog-heading"><h2 id="playlist-details-heading">Edit details</h2><button class="quiet" aria-label="Close playlist details" @onclick="Close"><MusicIcon Name="close" /></button></div>
+        <form @onsubmit="Save" @onsubmit:preventDefault>
+            <div class="playlist-details-fields">
+                <label class="details-cover"><span class="sr">Choose playlist image</span>@if (cover is not null) { <img src="@cover" alt="Playlist cover preview" /> } else { <PlaylistCover Playlist="Playlist" /> }<span class="details-cover-caption">Choose image</span><InputFile OnChange="ChooseCover" accept="image/jpeg,image/png" /></label>
+                <div class="details-text"><label class="sr" for="details-name">Playlist name</label><input id="details-name" @bind="name" maxlength="200" required /><label class="sr" for="details-description">Description</label><textarea id="details-description" @bind="description" maxlength="2000" placeholder="Add a description"></textarea></div>
+            </div>
+            <p class="entry-error" role="status">@error</p>
+            <div class="details-footer">@if (Playlist.CanManageAuthors) { <button class="quiet" type="button" @onclick="() => shared = !shared"><MusicIcon Name="@(shared ? "people" : "person")" />@(shared ? "Make private" : "Make public")</button> }<button class="primary" type="submit" aria-disabled="@(saving ? "true" : "false")">@(saving ? "Saving..." : "Save")</button></div>
+        </form>
+    </dialog>
+}
+@code {
+    [Parameter] public bool HideTrigger { get; set; }
+    [Parameter] public string ReturnFocusId { get; set; } = "playlist-details-open";
+    [Parameter, EditorRequired] public MusicPlaylist Playlist { get; set; } = null!;
+    private string name = "", description = "";
+    private string? cover, error;
+    private bool shared, saving;
+    public async Task Open() { if (ReturnFocusId == "playlist-menu-toggle") await JS.InvokeVoidAsync("familyhub.closeDialog", "playlist-options", ReturnFocusId); name = Playlist.Name; description = Playlist.Description; shared = Playlist.Shared; cover = error = null; await JS.InvokeVoidAsync("familyhub.showDialog", "playlist-details-dialog", "details-name"); }
+    private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "playlist-details-dialog", ReturnFocusId).AsTask();
+    private async Task ChooseCover(InputFileChangeEventArgs args)
+    {
+        try {
+            if (args.File.Size > 10 * 1024 * 1024) throw new InvalidOperationException("Choose an image smaller than 10 MB.");
+            var resized = await args.File.RequestImageFileAsync("image/jpeg", 512, 512);
+            await using var stream = resized.OpenReadStream(512 * 1024); using var output = new MemoryStream(); await stream.CopyToAsync(output);
+            cover = "data:image/jpeg;base64," + Convert.ToBase64String(output.ToArray()); error = null;
+        } catch (Exception exception) { error = exception.Message; }
+    }
+    private async Task Save()
+    {
+        if (saving) return; saving = true; error = null;
+        try {
+            var details = new Dictionary<string, object> { ["name"] = name.Trim(), ["description"] = description };
+            if (Playlist.CanManageAuthors) details["shared"] = shared;
+            if (cover is not null) details["cover_image"] = cover;
+            await Session.EditPlaylistAsync(Playlist, new { details }); await Close();
+        } catch (Exception exception) { error = exception.Message; } finally { saving = false; }
+    }
+}

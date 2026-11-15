@@ -1,0 +1,403 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using FamilyHub.Client.Core;
+
+var origin = new Uri("https://music.test:8444/");
+var checks = 0;
+void Check(bool value, string message) { if (!value) throw new Exception(message); checks++; }
+async Task Throws<T>(Func<Task> action, string message) where T : Exception
+{
+    try { await action(); } catch (T) { checks++; return; }
+    throw new Exception(message);
+}
+HttpResponseMessage Html(string text) => new(HttpStatusCode.OK) { Content = new StringContent(text, Encoding.UTF8, "text/html") };
+HttpResponseMessage Json(string text) => new(HttpStatusCode.OK) { Content = new StringContent(text, Encoding.UTF8, "application/json") };
+
+var loginRequests = new List<string>();
+using (var api = new FamilyHubApi(origin, new Handler(async request =>
+{
+    loginRequests.Add(request.Method + " " + request.RequestUri!.PathAndQuery);
+    Check(request.Headers.GetValues("Origin").Single() == "https://music.test:8444", "Origin header must match configured server");
+    if (request.RequestUri.AbsolutePath == "/login" && request.Method == HttpMethod.Get)
+    {
+        var response = Html("<input value='login&amp;token' type='hidden' name='csrf_token'>");
+        response.Headers.Add("Set-Cookie", "session=first; Secure; HttpOnly; Path=/");
+        return response;
+    }
+    Check(request.Headers.GetValues("Cookie").Single().Contains("session="), "Session cookie was not replayed");
+    if (request.RequestUri.AbsolutePath == "/login")
+    {
+        var form = await request.Content!.ReadAsStringAsync();
+        Check(form.Contains("csrf_token=login%26token") && form.Contains("password=private-password"), "Login form is incorrect");
+        var response = new HttpResponseMessage(HttpStatusCode.Found);
+        response.Headers.Location = new Uri("/", UriKind.Relative);
+        response.Headers.Add("Set-Cookie", "session=authenticated; Secure; HttpOnly; Path=/");
+        return response;
+    }
+    if (request.RequestUri.AbsolutePath == "/") return Html("<meta content=\"api-token\" name=\"csrf-token\">");
+    if (request.RequestUri.AbsolutePath == "/api/artwork/abcdefghijk")
+    {
+        Check(request.Headers.GetValues("Cookie").Single().Contains("authenticated"), "Artwork missed authenticated cookie");
+        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([255, 216, 255, 224]) };
+        response.Content.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+        return response;
+    }
+    if (request.Method == HttpMethod.Post)
+    {
+        Check(request.Headers.GetValues("X-CSRFToken").Single() == "api-token", "Mutation missed CSRF token");
+        return Json("{\"playlist\":{\"id\":\"1234567890123456789012\",\"name\":\"Music\",\"revision\":1,\"tracks\":[]}}");
+    }
+    return Json("{\"results\":[]}");
+})))
+{
+    await api.LoginAsync("user", "private-password");
+    Check(api.UserName == "user", "Signed-in identity was not recorded");
+    Check((await api.GetLibraryAsync()).Count == 0, "Library DTO failed");
+    Check((await api.CreatePlaylistAsync("Music")).Revision == 1, "Playlist mutation failed");
+    Check(await api.GetArtworkAsync("abcdefghijk") == "data:image/jpeg;base64,/9j/4A==", "Artwork data URI failed");
+    await Throws<ArgumentException>(() => api.GetArtworkAsync("../external"), "Artwork allowed path injection");
+    var media = api.CreateMediaRequest("/api/library/abcdefghijk/download");
+    Check(media.Uri.Host == "music.test" && media.Headers["Cookie"].Contains("authenticated"), "Media authentication failed");
+    await Throws<ArgumentException>(() => Task.FromResult(api.CreateMediaRequest("https://evil.test/file")), "Media accepted external origin");
+}
+
+using (var api = new FamilyHubApi(origin, new Handler(async request =>
+{
+    if (request.RequestUri!.AbsolutePath == "/login") return request.Method == HttpMethod.Get ? Html("<input name='csrf_token' value='token'>") : Html("<meta name='csrf-token' content='token'>");
+    if (request.RequestUri.AbsolutePath == "/") return Html("<meta name='csrf-token' content='token'>");
+    Check(request.Method == HttpMethod.Post && request.RequestUri.AbsolutePath == "/api/uploads", "Wrong upload route");
+    Check(request.Headers.GetValues("X-CSRFToken").Single() == "token", "Upload missed CSRF");
+    var body = await request.Content!.ReadAsStringAsync();
+    Check(body.Contains("audio fixture") && body.Contains("read_tags") && body.Contains("true"), "Upload omitted audio or metadata mode");
+    return Json("{\"job\":{\"id\":\"uploaded\"}}");
+})))
+{
+    await api.LoginAsync("user", "password");
+    long received = 0;
+    var uploadBytes = Encoding.UTF8.GetBytes("audio fixture");
+    var response = await api.UploadAudioAsync(new MemoryStream(uploadBytes), uploadBytes.Length, "song.flac", "", "", "", new ImmediateProgress(p => received = p.Received));
+    Check(received == uploadBytes.Length && response.GetProperty("job").GetProperty("id").GetString() == "uploaded", "Upload progress/result mismatch");
+    Check(api.CreateMediaRequest("/api/library/local-0123456789abcdef/download").Uri.AbsolutePath.EndsWith("/download"), "Local media path rejected");
+    Check(new PlaybackResume { TrackIds = ["local-0123456789abcdef"], Index = 0, Position = 10 }.IsValid, "Local recording resume rejected");
+    await Throws<ArgumentException>(() => api.UploadAudioAsync(new MemoryStream(), 134217729, "large.flac", "", "", ""), "Oversized file accepted");
+}
+
+var relativeNow = DateTimeOffset.Parse("2026-11-15T12:00:00Z");
+foreach (var (seconds, expected) in new (double, string)[] { (0,"Just now"), (59,"Just now"), (60,"1 minute ago"), (120,"2 minutes ago"), (3599,"59 minutes ago"), (3600,"1 hour ago"), (7200,"2 hours ago"), (86400,"1 day ago"), (172800,"2 days ago"), (604800,"1 week ago"), (1209600,"2 weeks ago"), (2592000,"1 month ago"), (5184000,"2 months ago"), (31536000,"1 year ago"), (63072000,"2 years ago"), (-3600,"Just now") })
+    Check(RelativeDate.Describe(relativeNow.AddSeconds(-seconds), relativeNow) == expected, "Relative date boundary: " + seconds);
+Check(RelativeDate.Describe((string?)null, relativeNow) == "" && RelativeDate.Describe("invalid", relativeNow) == "", "Unknown date must stay blank");
+Check(RelativeDate.Exact("2026-11-14T12:00:00Z") is { Length: > 0 } && RelativeDate.Exact("invalid") is null, "Exact date tooltip missing/invalid");
+
+var workSnapshot = JsonSerializer.Deserialize<ServerStatistics>("{\"jobs\":[{\"owner\":\"alex\",\"kind\":\"playlist_download\",\"processed\":1,\"total\":4,\"remaining\":3,\"current_title\":\"Song\",\"files\":[{\"index\":2,\"title\":\"Song\",\"message\":\"Purifying audio\",\"download_bytes\":20,\"download_total_bytes\":40}]}]}", FamilyHubApi.JsonOptions)!;
+Check(workSnapshot.Jobs[0].Owner == "alex" && workSnapshot.Jobs[0].Remaining == 3 && workSnapshot.Jobs[0].Files[0].DownloadTotalBytes == 40, "Server work lost requester, remaining count or file progress");
+
+var redirectRequests = 0;
+var profileRequests = 0;
+using (var api = new FamilyHubApi(origin, new Handler(async request =>
+{
+    profileRequests++;
+    if (request.RequestUri!.AbsolutePath == "/api/connect")
+    {
+        var response = Json("{\"family_profiles\":true,\"profiles\":[{\"id\":\"olduser\",\"name\":\"Alex\",\"color\":\"#abcdef\"}],\"csrf_token\":\"bootstrap\"}");
+        response.Headers.Add("Set-Cookie", "session=profiles; Secure; HttpOnly; Path=/");
+        return response;
+    }
+    Check(request.Headers.GetValues("Cookie").Single().Contains("session=profiles"), "Profile request omitted bootstrap cookie");
+    if (request.RequestUri.AbsolutePath == "/api/profile/select")
+    {
+        Check(request.Headers.GetValues("X-CSRFToken").Single() == "bootstrap", "Profile selection omitted bootstrap CSRF");
+        Check((await request.Content!.ReadAsStringAsync()).Contains("olduser"), "Profile identifier missing");
+        return Json("{\"profile\":{\"id\":\"olduser\",\"name\":\"Alex\"},\"preferences\":{\"volume\":0.6,\"shuffle\":true},\"csrf_token\":\"selected\"}");
+    }
+    Check(request.Headers.GetValues("X-CSRFToken").Single() == "selected", "Profile CSRF did not rotate");
+    if (request.RequestUri.AbsolutePath == "/api/profiles")
+        return Json("{\"profile\":{\"id\":\"newprofile\",\"name\":\"Sam\",\"color\":\"#eeeeee\"}}");
+    Check(request.Method == HttpMethod.Patch, "Preferences must use PATCH");
+    return Json("{\"preferences\":{\"volume\":0.25,\"shuffle\":false}}");
+})))
+{
+    Check((await api.ConnectAsync()).Profiles.Single().Name == "Alex", "Family profile bootstrap failed");
+    var selected = await api.SelectProfileAsync("olduser");
+    Check(api.UserName == "olduser" && selected.Preferences.Volume == 0.6 && selected.Preferences.Shuffle, "Selected identity/preferences failed");
+    Check((await api.SavePreferencesAsync(new() { Volume = 0.25 })).Volume == 0.25, "Preference update failed");
+    Check((await api.CreateProfileAsync("Sam")).Name == "Sam", "Profile creation failed");
+    await Throws<ArgumentException>(() => api.SavePreferencesAsync(new() { Volume = double.NaN }), "Nonfinite volume accepted");
+    Check(profileRequests == 4, "Invalid preferences reached server");
+}
+using (var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict)))))
+    await Throws<InvalidOperationException>(() => api.ConnectAsync(), "Disabled family mode did not explain configuration");
+foreach (var detail in new[] { "Another playlist operation is running. Wait for it to finish.", "This playlist changed. Refresh it before editing." })
+{
+    using var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict)
+        { Content = System.Net.Http.Json.JsonContent.Create(new { error = detail }) })));
+    try { await api.RequestJsonAsync<JsonElement>(HttpMethod.Get, "/api/playlists"); Check(false, "Conflict did not throw"); }
+    catch (FamilyHubApiException ex) { Check(ex.StatusCode == 409 && ex.Message == detail, "Conflict reason was replaced with a stale-playlist claim"); }
+}
+foreach (var body in new[] { "not json", "[]", "{\"error\":\"" + new string('x', 5000) + "\"}" })
+{
+    using var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict)
+        { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") })));
+    try { await api.RequestJsonAsync<JsonElement>(HttpMethod.Get, "/api/playlists"); Check(false, "Conflict did not throw"); }
+    catch (FamilyHubApiException ex) { Check(ex.Message.Contains("current state") && !ex.Message.Contains("another device"), "Invalid error response did not use neutral fallback"); }
+}
+var sharedPlaylist = JsonSerializer.Deserialize<MusicPlaylist>("{\"id\":\"same\",\"owner_id\":\"other\",\"owner_name\":\"Sam\",\"shared\":true,\"can_edit\":false}")!;
+Check(sharedPlaylist.OwnerId == "other" && sharedPlaylist.OwnerName == "Sam" && sharedPlaylist.Shared && !sharedPlaylist.CanEdit, "Shared playlist ownership was lost");
+
+using (var api = new FamilyHubApi(origin, new Handler(request =>
+{
+    redirectRequests++;
+    var response = new HttpResponseMessage(HttpStatusCode.Found);
+    response.Headers.Location = new Uri("https://evil.test/collect");
+    return Task.FromResult(response);
+})))
+{
+    await Throws<ArgumentException>(() => api.GetLibraryAsync(), "Cross-origin redirect accepted");
+    Check(redirectRequests == 1, "External destination received a request");
+    await Throws<ArgumentException>(() => api.RequestJsonAsync<JsonElement>(HttpMethod.Get, "https://evil.test/api/library"), "External request accepted");
+    Check(redirectRequests == 1, "Unvalidated destination received a request");
+    await Throws<ArgumentException>(() => api.GetArtworkAsync("abcdefghijk"), "Artwork followed external redirect");
+    Check(redirectRequests == 2, "Artwork leaked a request to external destination");
+}
+foreach (var (mime, bytes, length) in new (string, byte[], long?)[]
+{
+    ("image/svg+xml", Encoding.UTF8.GetBytes("<svg/>"), null),
+    ("image/png", Encoding.UTF8.GetBytes("not a png"), null),
+    ("image/jpeg", [255, 216, 255], 2097153),
+    ("image/jpeg", new byte[2097153], null)
+})
+{
+    using var artworkApi = new FamilyHubApi(origin, new Handler(_ =>
+    {
+        var content = new StreamContent(new MemoryStream(bytes));
+        content.Headers.ContentType = new MediaTypeHeaderValue(mime);
+        if (length.HasValue) content.Headers.ContentLength = length;
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
+    }));
+    await Throws<InvalidDataException>(() => artworkApi.GetArtworkAsync("abcdefghijk"), "Invalid or oversized artwork accepted");
+}
+await Throws<ArgumentException>(() => Task.FromResult(FamilyHubApi.NormalizeOrigin(new Uri("http://music.test/"))), "HTTP allowed");
+await Throws<ArgumentException>(() => Task.FromResult(FamilyHubApi.NormalizeOrigin(new Uri("https://name:secret@music.test/"))), "Credentials in origin allowed");
+var rockSeed = new MusicTrack { Title = "Numb", Channel = "Linkin Park", Genre = "Rock" };
+Check(Similarity.Artist(new() { Title = "[Drum&Bass] - Muzzy - Endgame" }) == "muzz", "Muzzy alias or genre prefix failed");
+Check(!Similarity.IsRecommendation(new() { Title = "Muzzy - Endgame HQ (second half)" }, new() { Title = "[Drum&Bass] - MUZZ - Endgame", Channel = "MUZZ" }), "Same song entered autoplay under another upload");
+Check(!Similarity.IsRecommendation(new() { Title = "Muzzy - Endgame" }, new() { Title = "Muzzy - Feeling Stronger (second half)" }), "Partial upload entered autoplay");
+Check(Similarity.IsRecommendation(new() { Title = "Muzzy - Endgame" }, new() { Title = "MUZZ - Lost Forever" }), "Artist alias rejected a different song");
+Check(!Similarity.IsRecommendation(new() { Title = "50 Cent - Wanksta", Genre = "Hip-hop" }, new() { Title = "Beton.Hofi - HELLO HELLO", Genre = "Hip-hop" }), "Broad genre accepted as recommendation");
+Check(Similarity.IsRecommendation(new() { Title = "50 Cent - Wanksta", Genre = "Hip-hop" }, new() { Title = "In Da Club", Channel = "50 Cent", Genre = "Hip-hop" }), "Matching artist recommendation rejected");
+Check(Similarity.IsSimilar(rockSeed, new() { Title = "Linkin Park - Faint", Channel = "Uploader", Genre = "Unsorted" }), "Same artist should work with unknown genre");
+Check(Similarity.IsSimilar(rockSeed, new() { Title = "Bring Me To Life", Channel = "Evanescence", Genre = "Rock" }), "Matching known genre rejected");
+Check(!Similarity.IsSimilar(rockSeed, new() { Title = "Barbie Girl", Channel = "Aqua", Genre = "Pop" }), "Pop song entered Rock mix");
+Check(!Similarity.IsSimilar(rockSeed, new() { Title = "Unknown", Channel = "Other artist", Genre = "Unsorted" }), "Unknown artist filled mix");
+Check(!Similarity.IsSimilar(rockSeed, new() { Title = "Other", Channel = "Linkin Park", Genre = "Pop" }), "Conflicting known genre accepted");
+
+var data = Encoding.UTF8.GetBytes("audio fixture bytes for resume and verification");
+var track = new MusicTrack { Id = "abcdefghijk", Title = "Song", Channel = "Artist", Saved = true,
+    DownloadUrl = "/api/library/abcdefghijk/download", DownloadExtension = ".m4a", DownloadSize = data.Length,
+    DownloadSha256 = Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant() };
+var folder = Path.Combine(Path.GetTempPath(), "familyhub-core-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(folder);
+try
+{
+    var library = new OfflineLibrary(folder, origin, "user");
+    var calls = 0;
+    using var api = new FamilyHubApi(origin, new Handler(request =>
+    {
+        calls++;
+        Check(request.RequestUri!.AbsolutePath == track.DownloadUrl, "Unexpected download URL");
+        if (calls == 1)
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new InterruptedStream(data, 9)) };
+            response.Content.Headers.ContentLength = data.Length;
+            return Task.FromResult(response);
+        }
+        Check(request.Headers.Range!.Ranges.Single().From == 9, "Download did not resume at persisted byte offset");
+        Check(request.Headers.IfRange!.EntityTag!.Tag == '"' + track.DownloadSha256 + '"', "Resume missed If-Range hash");
+        var complete = new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = new ByteArrayContent(data[9..]) };
+        complete.Content.Headers.ContentRange = new ContentRangeHeaderValue(9, data.Length - 1, data.Length);
+        return Task.FromResult(complete);
+    }));
+    await Throws<IOException>(() => library.DownloadAsync(track, api), "Interrupted response succeeded");
+    Check(library.GetDownloadedPath(track.Id) is null, "Partial file marked downloaded");
+    Check((await library.ListDownloadsAsync()).Count == 0, "Partial leaked into downloaded library");
+    var file = await library.DownloadAsync(track, api);
+    var superseded = Path.Combine(library.RootDirectory,
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(track.Id))).ToLowerInvariant()
+        + "." + new string('a', 64) + ".flac");
+    File.WriteAllText(superseded, "previous server edition");
+    using (var noNetwork = new FamilyHubApi(origin, new Handler(_ => throw new Exception("Warm cache contacted server"))))
+        Check(await library.DownloadAsync(track, noNetwork) == file, "Warm download did not reuse finished edition");
+    Check(!File.Exists(superseded), "Superseded audio retained after verified replacement");
+    Check(File.Exists(file), "Superseded cleanup deleted current edition");
+    Check(File.ReadAllBytes(file).SequenceEqual(data), "Downloaded bytes differ");
+    Check(await library.GetVerifiedDownloadedPathAsync(track) == file, "Verified warm cache was missed");
+    await library.RemoveDownloadAsync(track.Id, canRemove: () => false);
+    Check(File.Exists(file), "Pinned playback file was removed");
+    Check(await library.GetVerifiedDownloadedPathAsync(track with { DownloadSha256 = new string('0', 64) }) is null,
+        "Changed server hash reused previous recording");
+    using (var cancelledLookup = new CancellationTokenSource())
+    {
+        cancelledLookup.Cancel();
+        await Throws<OperationCanceledException>(() => library.GetVerifiedDownloadedPathAsync(track, cancelledLookup.Token), "Warm cache ignored cancellation");
+    }
+    File.WriteAllBytes(file, new byte[data.Length]);
+    File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddSeconds(2));
+    Check(await library.GetVerifiedDownloadedPathAsync(track) is null, "Changed cached file bypassed SHA verification");
+    Check(await new OfflineLibrary(folder, origin, "user").GetVerifiedDownloadedPathAsync(track) is null, "Restart trusted corrupted cached file");
+    File.WriteAllBytes(file, data);
+    Check(await library.GetVerifiedDownloadedPathAsync(track) == file, "Repaired cached file failed verification");
+    Check((await library.ListDownloadsAsync()).Single() == track, "Downloaded metadata differs");
+    Check(await library.GetDownloadedBytesAsync() == data.Length, "Download storage count differs");
+    await library.SaveLibraryAsync([track]);
+    var playlist = new MusicPlaylist { Id = "1234567890123456789012", Name = "Offline", Revision = 2,
+        Tracks = [new PlaylistTrack { Title = track.Title, SourceId = track.Id }, new PlaylistTrack { Title = track.Title, SourceId = track.Id }] };
+    await library.SavePlaylistsAsync([playlist]);
+    var restarted = new OfflineLibrary(folder, origin, "user");
+    Check(restarted.GetDownloadedPath(track.Id) == file, "Offline restart lost downloaded file");
+    Check((await restarted.GetLibraryAsync()).Single() == track, "Offline restart lost library");
+    Check((await restarted.GetPlaylistsAsync()).Single().Tracks.Count == 2, "Offline playlist lost duplicate occurrence");
+    using (var disconnected = new FamilyHubApi(origin, new Handler(_ => throw new IOException("Server unreachable"))))
+        Check(await restarted.DownloadAsync(track, disconnected) == file, "Completed download contacted network");
+    Check(new OfflineLibrary(folder, origin, "other").GetDownloadedPath(track.Id) is null, "Account data leaked");
+    Check(new OfflineLibrary(folder, new Uri("https://other.test/"), "user").GetDownloadedPath(track.Id) is null, "Server data leaked");
+    Check(!Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Where(p => p.EndsWith(".json")).Any(p => File.ReadAllText(p).Contains("private-password")), "Credentials persisted to cache");
+    await restarted.RemoveDownloadAsync(track.Id);
+    Check(restarted.GetDownloadedPath(track.Id) is null && !File.Exists(file), "Remove left downloaded audio");
+
+    using (var bad = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[data.Length]) }))))
+        await Throws<InvalidDataException>(() => restarted.DownloadAsync(track, bad), "Wrong hash accepted");
+    Check(restarted.GetDownloadedPath(track.Id) is null, "Hash failure published audio");
+    Check(!Directory.EnumerateFiles(restarted.RootDirectory, "*.part").Any(), "Corrupt partial retained for repeated hash failures");
+    await Throws<InvalidDataException>(() => restarted.DownloadAsync(track with { DownloadUrl = "https://evil.test/file" }, api), "External media URL accepted");
+    await Throws<ArgumentException>(() => restarted.DownloadAsync(track with { Id = "../outside" }, api), "Unsafe file identifier accepted");
+    await Throws<InvalidDataException>(() => restarted.DownloadAsync(track with { DownloadExtension = "/../bad" }, api), "Unsafe extension accepted");
+
+    var partial = Path.Combine(restarted.RootDirectory, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(track.Id))).ToLowerInvariant() + "." + track.DownloadSha256 + ".part");
+    File.WriteAllBytes(partial, data[..9]);
+    using (var wrongRange = new FamilyHubApi(origin, new Handler(_ =>
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = new ByteArrayContent(data) };
+        response.Content.Headers.ContentRange = new ContentRangeHeaderValue(0, data.Length - 1, data.Length);
+        return Task.FromResult(response);
+    }))) await Throws<InvalidDataException>(() => restarted.DownloadAsync(track, wrongRange), "Incorrect response range accepted");
+    Check(File.ReadAllBytes(partial).SequenceEqual(data[..9]), "Invalid response altered partial bytes");
+    using (var ignoredRange = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(data) }))))
+    {
+        Check(File.ReadAllBytes(await restarted.DownloadAsync(track, ignoredRange)).SequenceEqual(data), "200 restart did not replace partial");
+        var upper = track with { Id = track.Id.ToUpperInvariant(), DownloadUrl = "/api/library/" + track.Id.ToUpperInvariant() + "/download" };
+        var upperPath = await restarted.DownloadAsync(upper, ignoredRange);
+        Check(upperPath != restarted.GetDownloadedPath(track.Id), "Case-sensitive source IDs collided on disk");
+        Check((await restarted.ListDownloadsAsync()).Count == 2, "Case-sensitive source ID lost an entry");
+    }
+    await restarted.RemoveDownloadAsync(track.Id);
+    using var cancellation = new CancellationTokenSource();
+    using (var cancelled = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new StreamContent(new InterruptedStream(data, 9)) }))))
+        await Throws<OperationCanceledException>(() => restarted.DownloadAsync(track, cancelled, cancellation.Token,
+            new ImmediateProgress(_ => cancellation.Cancel())), "Cancellation was ignored");
+    Check(File.ReadAllBytes(partial).SequenceEqual(data[..9]) && restarted.GetDownloadedPath(track.Id) is null,
+        "Cancellation lost resumable bytes or published incomplete audio");
+}
+finally { Directory.Delete(folder, true); }
+{
+    var patches = new List<JsonElement>();
+    using var api = new FamilyHubApi(origin, new Handler(async request =>
+    {
+        using var document = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+        patches.Add(document.RootElement.Clone());
+        return Json("{\"preferences\":{\"volume\":1,\"spotify_subscribed\":true}}");
+    }));
+    await api.SavePreferencesAsync(new ListenerPreferences { SpotifySubscribed = false });
+    Check(!patches[0].TryGetProperty("spotify_subscribed", out _), "Changing volume overwrote another device's Spotify answer");
+    await api.SaveSpotifyStatusAsync(false);
+    Check(patches[1].EnumerateObject().Count() == 1 && !patches[1].GetProperty("spotify_subscribed").GetBoolean(), "Spotify answer changed unrelated playback preferences");
+}
+{
+    using var api = new FamilyHubApi(origin, new Handler(async request =>
+    {
+        using var document = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+        var data = document.RootElement;
+        Check(data.GetProperty("owner_id").GetString() == "other-user" && data.GetProperty("remove_index").GetInt32() == 2 && data.GetProperty("revision").GetInt32() == 7, "Co-author edit lost the playlist owner or revision");
+        return Json("{\"playlist\":{\"id\":\"1234567890123456789012\",\"owner_id\":\"other-user\",\"revision\":8}}");
+    }));
+    await api.UpdatePlaylistAsync("1234567890123456789012", 7, new { remove_index = 2 }, ownerId: "other-user");
+}
+{
+    using var api = new FamilyHubApi(origin, new Handler(async request =>
+    {
+        using var document = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+        var track = document.RootElement.GetProperty("track");
+        Check(track.GetProperty("title").GetString() == "Current song" && track.EnumerateObject().Count() == 3, "Activity metadata omitted the title or sent unrelated download data");
+        return Json("{\"ok\":true}");
+    }));
+    await api.ReportPlaybackActivityAsync(new string('a', 32), true, track: new MusicTrack { Id = "abcdefghijk", Title = "Current song", Channel = "Artist", DownloadSha256 = new string('b', 64) });
+}
+{
+    var now = DateTimeOffset.UtcNow; var pending = new PendingSessionPoke("target", "server|me", now.AddMinutes(2));
+    Check(pending.IsCurrent("server|me", false, now), "Poke did not wait for a session");
+    Check(!pending.IsCurrent("other|me", false, now) && !pending.IsCurrent("server|me", true, now) && !pending.IsCurrent("server|me", false, now.AddMinutes(2)), "Poke crossed accounts, replaced a session or outlived expiry");
+    Check(pending.Find([new ListeningRoom { Id = "wrong", HostUser = "other" }, new ListeningRoom { Id = "right", HostUser = "target" }])?.Id == "right", "Poke joined the wrong host");
+}
+checks += ListeningChecks.Run();
+checks += await SessionChecks.RunAsync();
+checks += await EditionChecks.RunAsync();
+checks += await ProfileImageChecks.RunAsync();
+var quickLibrary = new List<MusicTrack>
+{
+    new() { Id = "favorite", Title = "Favorite", Channel = "Artist A", Genre = "Electronic" },
+    new() { Id = "related", Title = "Related", Channel = "Artist A", Genre = "Electronic" },
+    new() { Id = "other", Title = "Other", Channel = "Artist B", Genre = "Rock" }
+};
+Check(QuickPlay.Queue([], []).Count == 0, "Quick play empty library");
+Check(QuickPlay.Queue(quickLibrary.Concat(quickLibrary), []).Count == 3, "Quick play duplicated recordings");
+var randomQuickPlay = new Random(42);
+var relatedStarts = 0;
+for (var run = 0; run < 500; run++)
+{
+    var queue = QuickPlay.Queue(quickLibrary, Enumerable.Repeat("favorite", 10).ToList(), randomQuickPlay);
+    Check(queue[0].Id != "favorite" && queue.Select(t => t.Id).Distinct().Count() == 3, "Quick play repeated the last song or lost a recording");
+    if (queue[0].Id == "related") relatedStarts++;
+}
+Check(relatedStarts > 450, "Quick play did not favor listening preferences");
+Check(QuickPlay.Queue(quickLibrary, ["removed-recording"]).Count == 3, "Quick play failed with deleted history");
+using (var updates = new FamilyHubApi(origin, new Handler(request => Task.FromResult(Json("{\"version\":\"0.1.2\",\"sha256\":\"abc\",\"size\":123,\"download_url\":\"/api/app-updates/windows-x64/abc\"}")))))
+{
+    var release = await updates.GetAppReleaseAsync("windows-x64");
+    Check(release.Version == "0.1.2" && release.DownloadUrl == "/api/app-updates/windows-x64/abc", "App update metadata did not deserialize");
+    await Throws<ArgumentException>(() => updates.OpenAppUpdateAsync(release with { DownloadUrl = "https://other.test/package.zip" }), "App updates escaped server origin");
+}
+Console.WriteLine($"PASS: {checks} checks for sessions, CSRF, origin boundaries, verified resume, offline restart, playlists and account isolation.");
+
+sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> send) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => send(request);
+}
+
+sealed class InterruptedStream(byte[] data, int prefix) : Stream
+{
+    private bool read;
+    public override bool CanRead => true;
+    public override bool CanSeek => false;
+    public override bool CanWrite => false;
+    public override long Length => throw new NotSupportedException();
+    public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+    public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (read) throw new IOException("Interrupted fixture connection");
+        read = true; data.AsMemory(0, prefix).CopyTo(buffer); return ValueTask.FromResult(prefix);
+    }
+    public override void Flush() => throw new NotSupportedException();
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+    public override void SetLength(long value) => throw new NotSupportedException();
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+}
+
+sealed class ImmediateProgress(Action<DownloadProgress> report) : IProgress<DownloadProgress>
+{
+    public void Report(DownloadProgress value) => report(value);
+}
+

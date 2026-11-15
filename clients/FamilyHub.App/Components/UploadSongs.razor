@@ -1,0 +1,124 @@
+@implements IDisposable
+@inject MusicSession Session
+@inject IJSRuntime JS
+
+<button id="upload-songs-open" class="quiet upload-open" @onclick="Open" aria-label="Upload songs" title="Upload songs"><MusicIcon Name="upload" /><span>Upload songs</span></button>
+<dialog id="upload-songs-dialog" class="glass-dialog upload-songs-dialog" aria-labelledby="upload-songs-heading">
+    <div class="dialog-heading"><h2 id="upload-songs-heading">Upload songs</h2><button class="quiet" aria-label="Close upload" @onclick="Close"><MusicIcon Name="close" /></button></div>
+    <div class="upload-choices">
+        <label class="upload-choice"><MusicIcon Name="music" /><strong>Choose songs</strong><small>One song or several</small><InputFile @key="fileInputGeneration" id="upload-audio-file" OnChange="Choose" accept="audio/*,.mp3,.flac,.m4a,.opus,.ogg,.oga,.wav,.aac,.webm,.mka,.wv,.aiff,.aif" multiple disabled="@(working || picking)" aria-label="Choose songs" /></label>
+        @if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid()) { <button id="upload-folder" type="button" class="upload-choice" @onclick="ChooseFolder" aria-disabled="@(working || picking ? "true" : "false")"><MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Include its subfolders</small></button> }
+        else { <label class="upload-choice"><MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Include its subfolders</small><InputFile @key="fileInputGeneration" id="upload-folder" OnChange="Choose" webkitdirectory="" directory="" multiple disabled="@(working || picking)" aria-label="Choose a folder" /></label> }
+    </div>
+    <p class="upload-guidance">Tags are filled in automatically. Missing details go to Song review.</p>
+    <p class="upload-limits">Up to 500 songs at a time. 128 MB per song.</p>
+    @if (picking) { <p role="status">Reading folder...</p> }
+    @if (files.Count > 0) {
+        <section class="upload-selection" aria-labelledby="upload-selection-title"><div><strong id="upload-selection-title">@files.Count @(files.Count == 1 ? "song" : "songs")</strong><span>@((files.Sum(f => f.Size) / 1048576d).ToString("0.0")) MB</span></div>
+        <ul>@foreach (var song in files.Take(6)) { <li><MusicIcon Name="music" /><span>@song.Name</span>@if (completed.Contains(song)) { <MusicIcon Name="check-circle" /> }</li> }</ul>
+        @if (files.Count > 6) { <small>and @(files.Count - 6) more</small> }
+        </section>
+    }
+    @if (selectionNote is not null) { <p class="upload-guidance" role="status">@selectionNote</p> }
+    <label class="upload-target">Add to playlist<select @bind="playlistKey" disabled="@(working || picking)"><option value="">Library only</option>@foreach (var list in Session.Playlists.Where(p => p.CanEdit)) { <option value="@(list.OwnerId + ":" + list.Id)">@list.Name</option> }</select></label>
+    @if (working || completed.Count > 0) { <div class="upload-status" role="status"><div><strong>@status</strong><span>@completed.Count / @files.Count saved</span></div>@if (currentName is not null) { <small>@currentName</small> }@if (uploading) { <progress aria-label="Uploading song" max="100" value="@percent"></progress> } else if (working) { <progress aria-label="Preparing song on server"></progress> }</div> }
+    @if (error is not null) { <p class="entry-error" role="status">@error</p> }
+    <div class="actions"><button class="quiet" @onclick="Close">Close</button>@if (working) { <button id="upload-stop" class="quiet" @onclick="() => stopping = true" aria-disabled="@(stopping ? "true" : "false")">@(stopping ? "Stopping after this song..." : "Stop after this song")</button> }<button id="upload-start" class="primary" @onclick="Upload" aria-disabled="@(working || picking || Remaining == 0 || !Session.Connected ? "true" : "false")">@(working ? "Uploading..." : Remaining == 0 && files.Count > 0 ? "Uploaded" : Remaining == 0 ? "Upload" : $"Upload {Remaining} {(Remaining == 1 ? "song" : "songs")}")</button></div>
+</dialog>
+
+@code {
+    private List<LocalAudioFile> files = [];
+    private readonly HashSet<LocalAudioFile> completed = [];
+    private readonly Dictionary<LocalAudioFile,string> acceptedJobs = [];
+    private string sourceIdentity = "";
+    private bool selectionInvalidated;
+    private int fileInputGeneration;
+    private string playlistKey = "", status = "";
+    private string? error, selectionNote, currentName, pendingFocus;
+    private bool working, uploading, picking, stopping, disposed;
+    private int percent;
+    private int Remaining => files.Count - completed.Count;
+    private readonly CancellationTokenSource lifetime = new();
+    private string Identity => Session.Server + "\n" + Session.User;
+    protected override void OnInitialized() { sourceIdentity = Identity; Session.Changed += SessionChanged; }
+    private void ClearChangedIdentity() { ResetSelection(); playlistKey = ""; sourceIdentity = Identity; selectionInvalidated = false; fileInputGeneration++; pendingFocus = "upload-audio-file"; }
+    private void SessionChanged() { if (!disposed) _ = InvokeAsync(() => { if (sourceIdentity != Identity) { selectionInvalidated = true; stopping = true; if (!working && !picking) ClearChangedIdentity(); StateHasChanged(); } }); }
+    private Task Open() => JS.InvokeVoidAsync("familyhub.showDialog", "upload-songs-dialog", working ? "upload-stop" : "upload-audio-file").AsTask();
+    private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "upload-songs-dialog", "upload-songs-open").AsTask();
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (pendingFocus is { } id) { pendingFocus = null; await JS.InvokeVoidAsync("familyhub.focus", id); } }
+    private void ResetSelection() { files = []; completed.Clear(); acceptedJobs.Clear(); error = selectionNote = currentName = null; status = ""; }
+    private void Choose(InputFileChangeEventArgs args)
+    {
+        if (working || picking) return; ResetSelection();
+        if (args.FileCount > 500) { error = "Choose up to 500 songs at a time."; return; }
+        var skipped = 0;
+        foreach (var file in args.GetMultipleFiles(500)) {
+            if (!LocalAudioFolderPicker.IsSupported(file.Name) || file.Size is <= 0 or > 134217728) { skipped++; continue; }
+            files.Add(new(file.Name, file.Size, token => Task.FromResult(file.OpenReadStream(134217728, token))));
+        }
+        SelectionReady(skipped, false);
+    }
+    private void SelectionReady(int skipped, bool limited)
+    {
+        selectionNote = skipped > 0 ? $"Skipped {skipped} files that are empty, too large or unsupported." : null;
+        if (limited) selectionNote = $"The folder is large. Selected {files.Count} songs; choose a smaller folder for the rest.";
+        if (files.Count == 0) error = "No supported audio files found.";
+        pendingFocus = files.Count > 0 ? "upload-start" : "upload-audio-file";
+    }
+    private async Task ChooseFolder()
+    {
+        if (working || picking) return; picking = true; error = null;
+        try { var selected = await LocalAudioFolderPicker.PickAsync(lifetime.Token); if (selected is not null && !selectionInvalidated) { ResetSelection(); files = selected.Files.ToList(); SelectionReady(selected.Skipped, selected.LimitReached); } }
+        catch (OperationCanceledException) { }
+        catch (Exception exception) { error = exception.Message; }
+        finally { picking = false; if (selectionInvalidated) ClearChangedIdentity(); pendingFocus ??= "upload-folder"; }
+    }
+    private async Task Upload()
+    {
+        if (working || picking || Remaining == 0 || Session.Api is not { } api || !Session.Connected) return;
+        var user = Session.User; var identity = Session.Server;
+        bool Current() => !selectionInvalidated && ReferenceEquals(api, Session.Api) && user == Session.User && identity == Session.Server;
+        working = true; stopping = false; error = null; var token = lifetime.Token;
+        var failures = new List<string>(); var playlistFailures = 0;
+        try {
+            foreach (var file in files.Where(f => !completed.Contains(f)).ToArray()) {
+                if (stopping || !Current()) break;
+                token.ThrowIfCancellationRequested(); uploading = true; percent = 0; currentName = file.Name; status = "Uploading song..."; await InvokeAsync(StateHasChanged);
+                try {
+                    System.Text.Json.JsonElement response;
+                    if (acceptedJobs.TryGetValue(file, out var acceptedId)) {
+                        uploading = false; status = "Resuming server preparation...";
+                        response = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Get, "/api/jobs/" + Uri.EscapeDataString(acceptedId), cancellationToken:token);
+                    } else {
+                        await using var stream = await file.OpenRead(token);
+                        if (!Current()) break;
+                        response = await api.UploadAudioAsync(stream, file.Size, file.Name, "", "", "", new Progress<DownloadProgress>(p => { percent = (int)(p.Received * 100 / Math.Max(1,p.Total)); if (!disposed) _ = InvokeAsync(StateHasChanged); }), token);
+                        acceptedJobs[file] = response.GetProperty("job").GetProperty("id").GetString()!;
+                    }
+                    uploading = false; var job = response.GetProperty("job"); var id = job.GetProperty("id").GetString()!;
+                    while (job.GetProperty("state").GetString() is "queued" or "running") {
+                        status = job.GetProperty("message").GetString() ?? "Preparing song..."; await InvokeAsync(StateHasChanged); await Task.Delay(1000, token);
+                        if (!Current()) { stopping = true; break; }
+                        response = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Get, "/api/jobs/" + Uri.EscapeDataString(id), cancellationToken:token); job = response.GetProperty("job");
+                    }
+                    if (!Current()) break;
+                    if (job.GetProperty("state").GetString() != "done") { acceptedJobs.Remove(file); throw new InvalidOperationException(job.GetProperty("message").GetString() ?? "The song could not be prepared."); }
+                    completed.Add(file); acceptedJobs.Remove(file);
+                    if (playlistKey.Length > 0) {
+                        try { var target = Session.Playlists.FirstOrDefault(p => p.OwnerId + ":" + p.Id == playlistKey && p.CanEdit) ?? throw new InvalidOperationException(); var source = job.GetProperty("source_id").GetString() ?? throw new InvalidOperationException(); await Session.EditPlaylistAsync(target, new { add_source_id = source }); }
+                        catch (Exception exception) when (exception is not OperationCanceledException) { playlistFailures++; }
+                    }
+                } catch (OperationCanceledException) { throw; }
+                catch (Exception exception) { failures.Add(file.Name + ": " + (exception is FamilyHubApiException { StatusCode: 404 } && acceptedJobs.ContainsKey(file) ? "This upload status expired. Check the library before selecting this song again." : exception.Message)); if (!Current() || !Session.Connected || exception is HttpRequestException) break; }
+                finally { uploading = false; }
+            }
+            if (Current()) await Session.RefreshAsync();
+            status = stopping ? "Upload stopped" : Remaining == 0 ? "Saved on server" : "Upload finished";
+            error = failures.Count > 0 ? string.Join(" ", failures.Take(3)) : null;
+            if (playlistFailures > 0) error = (error is null ? "" : error + " ") + $"{playlistFailures} songs were saved but could not be added to the playlist. Add them from your library.";
+        } catch (OperationCanceledException) { }
+        catch (Exception exception) { error = exception.Message; }
+        finally { working = uploading = false; currentName = null; if (selectionInvalidated) ClearChangedIdentity(); if (!disposed) { pendingFocus = Remaining > 0 ? "upload-start" : "upload-audio-file"; await InvokeAsync(StateHasChanged); } }
+    }
+    public void Dispose() { disposed = true; Session.Changed -= SessionChanged; lifetime.Cancel(); lifetime.Dispose(); }
+}

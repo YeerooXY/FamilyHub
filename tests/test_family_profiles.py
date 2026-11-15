@@ -1,0 +1,205 @@
+"""Passwordless profiles are available only on an explicitly enabled family server."""
+import unittest
+
+from test_music_web import Base, ORIGIN
+from music_web import create_app
+from music_web.playlists import PlaylistStore
+from music_web.profiles import ProfileStore
+
+
+class DisabledProfiles(Base):
+    def test_password_mode_keeps_session_expiry_and_has_no_profile_marker(self):
+        client, _ = self.signed_in()
+        self.assertEqual(self.app.permanent_session_lifetime.days, 30)
+        with client.session_transaction(base_url=ORIGIN) as session:
+            self.assertNotIn('family_profile', session)
+        self.state.sessions.clear()
+        self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 401)
+
+    def test_bootstrap_requires_explicit_opt_in(self):
+        client = self.app.test_client()
+        response = self.go(client, 'GET', '/api/connect')
+        self.assertEqual(response.status_code, 409)
+        self.assertIn('not enabled', response.json['error'])
+        self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 401)
+
+
+class FamilyProfiles(Base):
+    extra = {'FAMILY_PROFILES': True}
+
+    def bootstrap(self, client=None):
+        client = client or self.app.test_client()
+        response = self.go(client, 'GET', '/api/connect')
+        self.assertEqual(response.status_code, 200, response.json)
+        return client, response.json
+
+    def select(self, profile_id='sample-a', client=None):
+        client, bootstrap = self.bootstrap(client)
+        response = self.post(client, bootstrap['csrf_token'], '/api/profile/select', json={'profile_id': profile_id})
+        self.assertEqual(response.status_code, 200, response.json)
+        return client, response.json['csrf_token']
+
+    def test_seed_selection_rotates_csrf_without_navidrome_and_remembers_session(self):
+        client, bootstrap = self.bootstrap()
+        self.assertTrue(bootstrap['family_profiles'])
+        self.assertEqual([p['id'] for p in bootstrap['profiles']], ['sample-a', 'sample-b'])
+        client, token = self.select(client=client)
+        self.ping.assert_not_called()
+        self.assertNotEqual(token, bootstrap['csrf_token'])
+        self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 200)
+        self.assertEqual(self.go(client, 'GET', '/login').status_code, 302)
+        with client.session_transaction(base_url=ORIGIN) as session:
+            self.assertTrue(session.permanent)
+        self.assertEqual(self.post(client, bootstrap['csrf_token'], '/api/playlists', json={'name': 'Old token'}).status_code, 400)
+
+    def test_bootstrap_selection_and_creation_keep_host_origin_csrf_guards(self):
+        client, bootstrap = self.bootstrap()
+        self.assertEqual(client.get('/api/connect', base_url='https://other.test').status_code, 400)
+        for path, body in (('/api/profile/select', {'profile_id': 'sample-a'}), ('/api/profiles', {'name': 'New'})):
+            with self.subTest(path=path):
+                self.assertEqual(self.go(client, 'POST', path, json=body).status_code, 400)
+                response = self.go(client, 'POST', path, origin=False, json=body,
+                                   headers={'X-CSRFToken': bootstrap['csrf_token'], 'Origin': 'https://other.test'})
+                self.assertEqual(response.status_code, 403)
+        for profile_id in ('missing', None, ['sample-a'], '../sample-a'):
+            self.assertEqual(self.post(client, bootstrap['csrf_token'], '/api/profile/select', json={'profile_id': profile_id}).status_code, 400)
+        self.assertEqual(self.go(client, 'GET', '/api/profile/preferences').status_code, 401)
+
+    def test_create_profile_validation_limit_and_stable_restart(self):
+        client, bootstrap = self.bootstrap()
+        token = bootstrap['csrf_token']
+        for name in ('', 'x' * 65, 'bad\nname', True):
+            self.assertEqual(self.post(client, token, '/api/profiles', json={'name': name}).status_code, 400)
+        created = self.post(client, token, '/api/profiles', json={'name': ' New person '})
+        self.assertEqual(created.status_code, 201)
+        profile = created.json['profile']
+        self.assertEqual(profile['name'], 'New person')
+        self.assertNotEqual(profile['id'], profile['name'])
+        self.assertEqual(self.post(client, token, '/api/profiles', json={'name': 'new person'}).status_code, 400)
+        for index in range(9):
+            self.assertEqual(self.post(client, token, '/api/profiles', json={'name': f'Person {index}'}).status_code, 201)
+        self.assertEqual(self.post(client, token, '/api/profiles', json={'name': 'Too many'}).status_code, 400)
+        self.restart()
+        _, bootstrap = self.bootstrap()
+        self.assertIn(profile, bootstrap['profiles'])
+        self.assertEqual(len(bootstrap['profiles']), 12)
+
+    def restart(self):
+        self.app = create_app({'SECRET_KEY': 'k' * 40, 'CLI_PATH': self.app.intake.__file__, 'WORKSPACE': self.ws,
+                               'LIBRARY': self.lib, 'PUBLIC_ORIGIN': ORIGIN, 'ALLOWED_USERS': ['sample-a', 'sample-b'],
+                               'FAMILY_PROFILES': True})
+        self.state = self.app.extensions['music']
+
+    def test_remembered_cookie_restores_profile_after_restart_and_logout_clears_it(self):
+        client, token = self.select()
+        cookie = client.get_cookie('familyhub_music', domain='music.test')
+        self.restart()
+        client = self.app.test_client()
+        client.set_cookie('familyhub_music', cookie.value, domain='music.test')
+        self.assertEqual(self.app.permanent_session_lifetime.days, 3650)
+        self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 200)
+        self.assertEqual(self.go(client, 'GET', '/login').status_code, 302)
+        with client.session_transaction(base_url=ORIGIN) as session:
+            self.assertEqual(session['family_profile'], 'sample-a')
+            self.assertEqual(self.state.sessions[session['sid']]['user'], 'sample-a')
+        self.assertEqual(self.post(client, token, '/logout').status_code, 302)
+        self.assertIn('Choose your profile', self.go(client, 'GET', '/login').get_data(as_text=True))
+        self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 401)
+        with client.session_transaction(base_url=ORIGIN) as session:
+            self.assertNotIn('family_profile', session)
+
+    def test_expired_family_session_restores_only_an_existing_profile(self):
+        client, _ = self.select()
+        for session in self.state.sessions.values():
+            session['expiry'] = 0
+        self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 200)
+        store = ProfileStore(self.ws, [])
+        data = store.read()
+        data['profiles'] = [profile for profile in data['profiles'] if profile['id'] != 'sample-a']
+        store.write(data)
+        self.state.sessions.clear()
+        self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 401)
+        self.assertIn('Choose your profile', self.go(client, 'GET', '/login').get_data(as_text=True))
+        with client.session_transaction(base_url=ORIGIN) as session:
+            self.assertNotIn('family_profile', session)
+
+    def test_preferences_are_validated_isolated_and_persisted(self):
+        client, token = self.select()
+        response = self.go(client, 'PATCH', '/api/profile/preferences', json={'volume': .35, 'shuffle': True, 'auto_dj': True}, headers={'X-CSRFToken': token})
+        self.assertEqual(response.json['preferences'], {'volume': .35, 'shuffle': True, 'auto_dj': True, 'spotify_subscribed': None, 'repeat_mode': 'off'})
+        for change in ({'volume': True}, {'volume': -1}, {'volume': 1.1}, {'volume': 10 ** 300}, {'volume': '1'}, {'shuffle': 1}, {'auto_dj': 1}, {'auto_dj': None}, {'other': 1}, {}):
+            self.assertEqual(self.go(client, 'PATCH', '/api/profile/preferences', json=change, headers={'X-CSRFToken': token}).status_code, 400)
+        other, _ = self.select('sample-b')
+        self.assertEqual(self.go(other, 'GET', '/api/profile/preferences').json['preferences'], {'volume': 1, 'shuffle': False, 'auto_dj': True, 'spotify_subscribed': None, 'repeat_mode': 'off'})
+        self.restart()
+        client, _ = self.select()
+        self.assertEqual(self.go(client, 'GET', '/api/profile/preferences').json['preferences'], {'volume': .35, 'shuffle': True, 'auto_dj': True, 'spotify_subscribed': None, 'repeat_mode': 'off'})
+
+    def test_sharing_during_download_preserves_progress_and_track_edit_lock(self):
+        client, token = self.select()
+        playlist = self.post(client, token, '/api/playlists', json={'name': 'Downloading'}).json['playlist']
+        pid = playlist['id']; store = PlaylistStore(self.ws)
+        playlist['preparation'] = {'state': 'running', 'mode': 'download', 'playlist_revision': 1, 'processed': 3, 'cursor': 3}
+        store.save('sample-a', playlist)
+        coordinator = self.state.playlist_preparation
+        operation = coordinator._operation('sample-a', pid)
+        operation.active = ('sample-a', pid)
+        response = self.go(client, 'PATCH', '/api/playlists/' + pid, json={'revision': 1, 'shared': True}, headers={'X-CSRFToken': token})
+        self.assertEqual(response.status_code, 200, response.json)
+        persisted = store.read('sample-a', pid)
+        self.assertTrue(persisted['shared'])
+        self.assertEqual((persisted['preparation']['processed'], persisted['preparation']['playlist_revision']), (3, 2))
+        other, other_token = self.select('sample-b')
+        visible = self.go(other, 'GET', '/api/playlists').json['playlists']
+        self.assertTrue(any(row['id'] == pid and row['shared'] for row in visible))
+        self.assertEqual(self.go(client, 'PATCH', '/api/playlists/' + pid, json={'revision': 2, 'name': 'Blocked'}, headers={'X-CSRFToken': token}).status_code, 409)
+        self.assertEqual(self.go(other, 'PATCH', '/api/playlists/' + pid, json={'revision': 2, 'owner_id': 'sample-a', 'shared': False}, headers={'X-CSRFToken': other_token}).status_code, 403)
+        self.assertEqual(self.go(client, 'PATCH', '/api/playlists/' + pid, json={'revision': 1, 'shared': False}, headers={'X-CSRFToken': token}).status_code, 409)
+        coordinator.update('sample-a', pid, message='Purifying audio')
+        self.assertTrue(store.read('sample-a', pid)['shared'])
+        operation.active = None
+
+    def test_shared_playlist_owner_permissions_and_colliding_playlist_ids(self):
+        store = PlaylistStore(self.ws)
+        pid = '6CCDIMytDCox2aDcNi1ztu'
+        for owner in ('sample-a', 'sample-b'):
+            store.save(owner, {'id': pid, 'name': owner, 'tracks': [], 'revision': 1})
+        client, token = self.select()
+        other, other_token = self.select('sample-b')
+        own = self.go(client, 'GET', '/api/playlists').json['playlists']
+        self.assertEqual(len(own), 1)
+        self.assertFalse(own[0]['shared'])
+        self.assertTrue(own[0]['can_edit'])
+        self.assertEqual(self.go(client, 'PATCH', '/api/playlists/' + pid, json={'revision': 1, 'shared': 1}, headers={'X-CSRFToken': token}).status_code, 400)
+        response = self.go(client, 'PATCH', '/api/playlists/' + pid, json={'revision': 1, 'shared': True}, headers={'X-CSRFToken': token})
+        self.assertTrue(response.json['playlist']['shared'])
+        self.assertEqual(self.go(client, 'PATCH', '/api/playlists/' + pid, json={'revision': 1, 'shared': False}, headers={'X-CSRFToken': token}).status_code, 409)
+        rows = self.go(other, 'GET', '/api/playlists').json['playlists']
+        self.assertEqual({(p['owner_id'], p['id']) for p in rows}, {('sample-a', pid), ('sample-b', pid)})
+        shared = next(p for p in rows if p['owner_id'] == 'sample-a')
+        self.assertFalse(shared['can_edit'])
+        for method in ('PATCH', 'DELETE'):
+            response = self.go(other, method, '/api/playlists/' + pid, json={'revision': 2, 'owner_id': 'sample-a', 'name': 'Forbidden'}, headers={'X-CSRFToken': other_token})
+            self.assertEqual(response.status_code, 403)
+        self.assertEqual(store.read('sample-a', pid)['name'], 'sample-a')
+        self.assertEqual(store.read('sample-b', pid)['name'], 'sample-b')
+        response = self.go(client, 'PATCH', '/api/playlists/' + pid, json={'revision': 2, 'shared': False}, headers={'X-CSRFToken': token})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(self.go(other, 'GET', '/api/playlists').json['playlists']), 1)
+
+    def test_browser_profile_selection_and_legacy_playlist_preservation(self):
+        pid = '6CCDIMytDCox2aDcNi1ztu'
+        PlaylistStore(self.ws).save('sample-a', {'id': pid, 'name': 'Legacy', 'tracks': []})
+        client = self.app.test_client()
+        page = self.go(client, 'GET', '/login').get_data(as_text=True)
+        self.assertIn('Choose your profile', page)
+        self.assertNotIn('type="password"', page)
+        token = self.token(client, '/login')
+        response = self.go(client, 'POST', '/login', data={'profile_id': 'sample-a', 'csrf_token': token})
+        self.assertEqual(response.status_code, 302)
+        self.ping.assert_not_called()
+        self.assertEqual(self.go(client, 'GET', '/api/playlists').json['playlists'][0]['name'], 'Legacy')
+
+
+if __name__ == '__main__':
+    unittest.main()
