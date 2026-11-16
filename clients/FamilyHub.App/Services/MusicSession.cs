@@ -150,7 +150,7 @@ public sealed class MusicSession
         #if IOS
         DownloadStorage.Configure(Offline.RootDirectory);
 #endif
-        accountVersion++;
+        accountVersion++; TopListenerId = null; topListenerChecked = default;
         if (!sameAccount)
         {
             playbackCaches.Clear();
@@ -273,7 +273,7 @@ public sealed class MusicSession
 
     private void ClearProfile()
     {
-        accountVersion++;
+        accountVersion++; TopListenerId = null; topListenerChecked = default;
         playbackCaches.Clear();
         PinPlayback(null); PinPreparingPlayback(null);
         User = ""; ProfileName = ""; Offline = null; Connected = false;
@@ -451,9 +451,33 @@ public sealed class MusicSession
         finally { connectionLock.Release(); }
     }
 
+    // This month's top listener wears a crown on their picture everywhere in the app.
+    public string? TopListenerId { get; private set; }
+    private DateTime topListenerChecked;
+    public void UpdateTopListener(ServerStatistics stats)
+    {
+        topListenerChecked = DateTime.UtcNow;
+        var top = stats.Profiles.Where(p => p.MonthSeconds >= 60).OrderByDescending(p => p.MonthSeconds).ThenBy(p => p.Name).FirstOrDefault()?.Id;
+        if (top == TopListenerId) return;
+        TopListenerId = top; Changed?.Invoke();
+    }
+    private async Task RefreshTopListenerAsync(FamilyHubApi api, int version)
+    {
+        if (DateTime.UtcNow - topListenerChecked < TimeSpan.FromMinutes(10)) return;
+        topListenerChecked = DateTime.UtcNow;
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var stats = await api.GetServerStatsAsync(timeout.Token);
+            if (version == accountVersion) UpdateTopListener(stats);
+        }
+        catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException or System.Text.Json.JsonException) { }
+    }
+
     public async Task RefreshAsync()
     {
         if (Api is null || Offline is null) return;
+        _ = RefreshTopListenerAsync(Api, accountVersion);
         var version = accountVersion;
         var api = Api;
         var offline = Offline;

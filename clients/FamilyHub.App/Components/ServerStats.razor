@@ -34,11 +34,12 @@
                 <div class="lb-place lb-place-@(place + 1)" data-profile-key="@profile.Id" @key="profile.Id">
                     <div class="lb-avatar">
                         @if (place == 0) { <span class="lb-crown"><MusicIcon Name="crown" /></span> }
-                        <ProfileAvatar Profile="ProfileFor(profile)" Size="@(place == 0 ? 84 : 64)" />
+                        <ProfileAvatar Profile="ProfileFor(profile)" Size="@(place == 0 ? 84 : 64)" ShowCrown="false" />
                         @if (profile.Listening) { <span class="lb-live" title="Listening now"><span class="sr">Listening now</span></span> }
                     </div>
                     <strong>@profile.Name</strong>
                     <span class="lb-time">@Duration(PeriodSeconds(profile))</span>
+                    <span class="lb-saved">@Huf(profile.SavedHuf) Ft saved</span>
                     <div class="lb-step"><span>@(place + 1)</span></div>
                 </div>
             }
@@ -54,10 +55,10 @@
                         <ProfileAvatar Profile="ProfileFor(profile)" Size="44" />
                         <div class="lb-who">
                             <strong>@profile.Name</strong>
-                            <small class="@(profile.Online ? "is-online" : "")">@if (profile.Listening && profile.CurrentTrack is { } song) { <span class="sr">Listening now: </span>@song.Title } else { @(profile.Listening ? "Listening now" : profile.Online ? "Online" : "Offline") }</small>
-                            <span class="lb-bar" aria-hidden="true"><i style="width:@((100 * PeriodSeconds(profile) / leader).ToString("0.#", Inv))%"></i></span>
+                            <small class="lb-status @(profile.Listening ? "is-listening" : profile.Online ? "is-online" : "")"><i aria-hidden="true"></i>@if (profile.Listening && profile.CurrentTrack is { } song) { <span class="sr">Listening now: </span><span>@song.Title</span> } else { <span>@(profile.Listening ? "Listening now" : profile.Online ? "Online" : "Offline")</span> }</small>
                         </div>
-                        <span class="lb-row-time">@Duration(PeriodSeconds(profile))</span>
+                        <div class="lb-figures"><strong>@Duration(PeriodSeconds(profile))</strong><small>@Huf(profile.SavedHuf) Ft saved</small></div>
+                        <span class="lb-bar" aria-hidden="true"><i style="width:@((100 * PeriodSeconds(profile) / leader).ToString("0.#", Inv))%"></i></span>
                         <ListenerMenu Profile="profile" />
                     </li>
                 }
@@ -188,7 +189,7 @@
             var result = await api.GetServerStatsAsync(request.Token);
             if (identity != Session.Server + "\n" + Session.User) return;
             await JS.InvokeVoidAsync("familyhub.captureLeaderboard");
-            sourceIdentity = identity; data = result;
+            sourceIdentity = identity; data = result; Session.UpdateTopListener(result);
             error = null; updated = DateTime.Now;
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { return; }

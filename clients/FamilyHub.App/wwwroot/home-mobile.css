@@ -209,7 +209,7 @@
 .invite-list { display:grid; gap:4px; max-height:min(40dvh,280px); overflow-y:auto; overscroll-behavior:contain; }
 .invite-choice { display:flex; align-items:center; gap:12px; width:100%; min-height:56px; padding:8px 12px; border:1px solid transparent; border-radius:14px; text-align:left;
   font-size:15px; color:var(--ink); background:#ffffff08; transition:background-color .18s ease,border-color .18s ease,transform .12s ease; }
-.invite-choice>span:not(.profile-avatar) { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.invite-choice>span:not(.profile-avatar):not(.avatar-crowned) { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .invite-choice>.icon { width:22px; height:22px; flex-shrink:0; color:var(--muted); transition:color .18s ease,transform .18s cubic-bezier(.2,.8,.2,1); }
 .invite-choice.is-chosen { border-color:color-mix(in srgb,var(--accent-blue) 55%,transparent); background:color-mix(in srgb,var(--accent-blue) 16%,#ffffff08); }
 .invite-choice.is-chosen>.icon { color:var(--accent-blue); transform:scale(1.12); }

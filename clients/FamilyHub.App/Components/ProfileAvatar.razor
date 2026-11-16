@@ -1,15 +1,32 @@
 @implements IDisposable
 @inject MusicSession Session
 
-<span class="profile-avatar @Class" style="--avatar-size:@(Math.Clamp(Size, 24, 128))px;--avatar-color:@Color" aria-hidden="true">
-    @if (artwork is not null) { <img src="@artwork" alt="" /> }
-    else { <span>@Initial</span> }
-</span>
+@if (Crowned)
+{
+    @* This month's top listener: the crown sits on the picture's corner, outside its round clip. *@
+    <span class="avatar-crowned" style="--avatar-size:@(Math.Clamp(Size, 24, 128))px" title="Top listener this month">
+        @Picture
+        <span class="avatar-crown" aria-hidden="true"><MusicIcon Name="crown" /></span>
+    </span>
+}
+else { @Picture }
 
 @code {
     [Parameter] public ListenerProfile? Profile { get; set; }
     [Parameter] public int Size { get; set; } = 40;
     [Parameter] public string Class { get; set; } = "";
+    [Parameter] public bool ShowCrown { get; set; } = true;
+    private bool Crowned => ShowCrown && Profile is not null && Profile.Id == Session.TopListenerId;
+    private RenderFragment Picture => __builder =>
+    {
+        <span class="profile-avatar @Class" style="--avatar-size:@(Math.Clamp(Size, 24, 128))px;--avatar-color:@Color" aria-hidden="true">
+            @if (artwork is not null) { <img src="@artwork" alt="" /> }
+            else { <span>@Initial</span> }
+        </span>
+    };
+    protected override void OnInitialized() => Session.Changed += Refresh;
+    private void Refresh() { if (crownedFor != Crowned) _ = InvokeAsync(() => { crownedFor = Crowned; StateHasChanged(); }); }
+    private bool crownedFor;
     private string? artwork, requestKey;
     private CancellationTokenSource? cancellation;
     private string Color => Profile is { } profile && !string.IsNullOrEmpty(profile.Color) && System.Text.RegularExpressions.Regex.IsMatch(profile.Color, "^#[a-fA-F0-9]{6}$") ? profile.Color : "#a9bff3";
@@ -31,5 +48,5 @@
         catch (OperationCanceledException) { }
         catch (ObjectDisposedException) { }
     }
-    public void Dispose() { cancellation?.Cancel(); cancellation?.Dispose(); cancellation = null; }
+    public void Dispose() { Session.Changed -= Refresh; cancellation?.Cancel(); cancellation?.Dispose(); cancellation = null; }
 }

@@ -612,7 +612,7 @@ body[data-view=preferences] #view-title { width:min(900px,100%); margin-inline:a
 #song-playlist-dialog .picker-create[aria-hidden=false] { visibility:visible; }
 #playlist-coauthors-dialog .coauthor-choice { display:flex; align-items:center; gap:14px; min-height:56px; margin:0; padding:8px 0; }
 #playlist-coauthors-dialog .coauthor-choice > .profile-avatar { flex:0 0 auto; }
-#playlist-coauthors-dialog .coauthor-choice > span:not(.profile-avatar) { flex:1; }
+#playlist-coauthors-dialog .coauthor-choice > span:not(.profile-avatar):not(.avatar-crowned) { flex:1; }
 #playlist-coauthors-dialog .coauthor-choice input { margin:0 4px 0 12px; }
 .song-row .row-actions { grid-template-columns:repeat(2,44px); }
 .song-row .row-more { grid-column:2; }
