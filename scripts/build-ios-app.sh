@@ -19,7 +19,7 @@ dotnet publish "$repo/clients/FamilyHub.App/FamilyHub.App.csproj" \
   -f net10.0-ios -c Release \
   -p:FamilyHubTargetFramework=net10.0-ios -p:RuntimeIdentifier=ios-arm64 \
   -p:EnableCodeSigning=false -p:CodesignRequireProvisioningProfile=false \
-  -p:BuildIpa=true -p:ArchiveOnBuild=false -p:IpaPackagePath="$ipa"
+  -p:BuildIpa=true -p:ArchiveOnBuild=false -p:IpaPackagePath="$ipa" "$@"
 
 if [[ ! -s "$ipa" ]]; then
   echo 'Build completed without the requested IPA. No installable artifact is claimed.' >&2
