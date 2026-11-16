@@ -166,3 +166,12 @@ The owner explicitly requested starting and linking the app connection. Current 
 - The application is therefore available for the owner's phone test with Tailscale enabled. Windows, VM, SSH-forward processes and Tailscale must remain running. The SSH processes are not boot-persistent.
 
 This turn changed runtime connection configuration and factual documentation only. Direct work was appropriate for this deterministic connection task; no worker or additional review was needed. No application UI or extraction behavior changed, so the prior four-profile visual coverage remains applicable. The current `browser-check.json` records the real HTTPS Windows check; the other profile screenshots and prior verification remain separate evidence.
+
+## Phone layout: Home, playlist header, mini player and Now Playing, 16 November 2026
+
+Working tree only; not committed or deployed. Direction: `design/mobile-music/phone-concepts-2026-11-16.png` (left and middle concepts).
+
+- Windows target build (`net10.0-windows10.0.19041.0`) passed. Android and iOS were not built.
+- The native app has no phone-width harness, so the new markup was rebuilt as static pages using the app's real stylesheets (`design/mobile-music/verification-2026-11-16/make.cjs`) and rendered in headless Chromium at 390x844, 320x640 and 1280x800 (`shot.cjs`). No horizontal overflow at any size. Screenshots are in the same folder.
+- Deterministic UI rules (agent-dock `scripts/ui-rules.cjs`): no findings in `HomeView.razor` or `home-mobile.css`. Older findings in `app-native.css` and `player-native.css` (gradient interpolation, one 100vh) are unchanged.
+- Emulated only: Chromium rendering of static markup. Blazor behaviour (expand/collapse, sticky bar observer, Leaderboard scroll), WebKit/iPhone rendering and physical Android/iPhone checks remain open.

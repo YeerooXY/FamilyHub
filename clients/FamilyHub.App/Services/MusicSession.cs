@@ -208,6 +208,12 @@ public sealed class MusicSession
         catch (JsonException) { return []; }
     }
     public bool HasListeningHistory => ListeningHistory().Count > 0;
+    // Most recent first, one entry per recording, limited to recordings this device can still resolve.
+    public List<MusicTrack> RecentlyPlayed(int count)
+    {
+        var source = (Connected ? Library : Downloads).DistinctBy(t => t.Id).ToDictionary(t => t.Id);
+        return ListeningHistory().AsEnumerable().Reverse().Distinct().Select(id => source.GetValueOrDefault(id)).OfType<MusicTrack>().Take(count).ToList();
+    }
     public void RecordListen(MusicTrack track)
     {
         if (string.IsNullOrEmpty(User)) return;

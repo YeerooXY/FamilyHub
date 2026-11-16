@@ -53,14 +53,14 @@ else
 <a class="skip" href="#content">Skip to music</a>
 <header class="app-header">
     <div class="header-start">
-        <button class="brand" @onclick='() => Navigate("Library")' aria-label="FamilyHub Music" title="FamilyHub Music"><img src="familyhub-logo.svg" alt="" /></button>
+        <button class="brand" @onclick='() => Navigate("Home")' aria-label="FamilyHub Music" title="FamilyHub Music"><img src="familyhub-logo.svg" alt="" /></button>
         <nav class="view-history" aria-label="View history">
             <button class="header-icon" @onclick="GoBack" aria-label="Go back" title="Go back" aria-disabled="@Aria(backViews.Count == 0)"><MusicIcon Name="back" /></button>
             <button class="header-icon" @onclick="GoForward" aria-label="Go forward" title="Go forward" aria-disabled="@Aria(forwardViews.Count == 0)"><MusicIcon Name="forward" /></button>
         </nav>
     </div>
     <div class="header-search">
-    <button class="header-icon home-button" @onclick='() => Navigate("Library")' aria-label="Home" title="Home"><MusicIcon Name="home" /></button>
+    <button class="header-icon home-button" @onclick='() => Navigate("Home")' aria-label="Home" title="Home"><MusicIcon Name="home" /></button>
     <form id="search-form" class="@(searching ? "is-searching" : "")" role="search" @onsubmit="Search" @onsubmit:preventDefault>
         <label class="sr" for="q">Song or artist</label>
         <button class="search-submit" type="submit" aria-label="Search songs" aria-disabled="@Aria(busy)"><MusicIcon Name="search" /></button>
@@ -81,16 +81,27 @@ else
 </header>
 <aside class="sidebar">
     <nav id="music-navigation" aria-label="Music">
-    <button id="open-library" class="nav-button" aria-label="Your library" title="Your library" aria-current='@(view == "Library" ? "page" : null)' @onclick='() => Navigate("Library")'><MusicIcon Name="library" /><span class="nav-label">Your library</span></button>
+    <button id="open-home" class="nav-button" aria-label="Home" title="Home" aria-current='@(view == "Home" ? "page" : null)' @onclick='() => Navigate("Home")'><MusicIcon Name="home" /><span class="nav-label">Home</span></button>
+    <button class="nav-button phone-nav" aria-label="Search" aria-current='@(view == "Search" ? "page" : null)' @onclick="OpenSearchTab"><MusicIcon Name="search" /><span class="nav-label">Search</span></button>
+    <button class="nav-button phone-nav" aria-label="Your library" aria-current='@(LibraryViews.Contains(view) ? "page" : null)' @onclick='() => Navigate("Library")'><MusicIcon Name="library" /><span class="nav-label">Library</span></button>
+    <button id="open-library" class="nav-button desktop-nav" aria-label="Your library" title="Your library" aria-current='@(view == "Library" ? "page" : null)' @onclick='() => Navigate("Library")'><MusicIcon Name="library" /><span class="nav-label">Your library</span></button>
     @foreach (var tab in new[] { "Downloads", "Playlists", "Review", "Stats" })
-    { <button class="nav-button" aria-label="@NavLabel(tab)" title="@NavLabel(tab)" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" /><span class="nav-label">@NavLabel(tab)</span></button> }
+    { <button class="nav-button desktop-nav" aria-label="@NavLabel(tab)" title="@NavLabel(tab)" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" /><span class="nav-label">@NavLabel(tab)</span></button> }
     </nav>
     <div id="sidebar-resize" role="separator" tabindex="0" aria-label="Resize library sidebar" aria-orientation="vertical" aria-valuemin="72" aria-valuemax="420" aria-valuenow="@(sidebarCollapsed ? 72 : sidebarWidth)"></div>
 </aside>
 <div class="workspace"><main id="content" tabindex="-1">
-    @if (view != "Playlists" && view != "Review") { <h1 id="view-title">@(view == "Downloads" ? "Cached" : view == "Preferences" ? "Settings" : view == "Stats" ? "Server stats" : view)</h1> }
+    @if (view != "Playlists" && view != "Review" && view != "Home") { <h1 id="view-title">@(view == "Downloads" ? "Cached" : view == "Preferences" ? "Settings" : view == "Stats" ? "Server stats" : view)</h1> }
     <p id="feedback" class="operation-status @(error is not null ? "error" : "")" role="status">@(error ?? (Session.DownloadingId is null ? Session.Message : ""))</p>
-    @if (view == "Library" || view == "Downloads")
+    @if (LibraryViews.Contains(view) && (view != "Playlists" || Selected is null))
+    {
+        <div class="library-switch" role="group" aria-label="Library sections">@foreach (var (tab, label) in new[] { ("Library", "Songs"), ("Playlists", "Playlists"), ("Downloads", "Cached") }) { <button aria-pressed="@Aria(view == tab)" @onclick="() => Navigate(tab)">@label</button> }</div>
+    }
+    @if (view == "Home")
+    {
+        <HomeView OpenPlaylist="OpenPlaylist" Navigate="HomeNavigate" PlayTracks="PlayPlaylist" />
+    }
+    else if (view == "Library" || view == "Downloads")
     {
         var source = (view == "Downloads" ? Session.DeviceTracks : Session.Library).ToList();
         var tracks = source.Where(t => Matches(t, filter) && (genre.Length == 0 || Genre(t) == genre)).ToList();
@@ -147,6 +158,7 @@ else
         else
         {
             <button class="quiet playlist-back" @onclick="AllPlaylists"><MusicIcon Name="back" />All playlists</button>
+            <div class="playlist-sticky" inert><PlaylistCover Playlist="selected" /><strong>@selected.Name</strong><button class="primary round" tabindex="-1" @onclick="() => PlayPlaylist(selected.Tracks.Select(Session.Resolve).OfType<MusicTrack>().ToList())" aria-label="Play playlist" aria-disabled="@Aria(selected.Tracks.Count == 0 || Player.FollowingHost)"><MusicIcon Name="play" /></button></div>
             <section class="playlist-hero glass-panel">
                 <div class="playlist-identity">
                 @if (selected.CanEdit)
@@ -230,7 +242,12 @@ else
         </section>
     }
 </main></div>
-<footer class="player-bar">
+<footer class="player-bar @(playerExpanded ? "is-expanded" : "")" @onkeydown="PlayerKeyDown">
+    @if (playerExpanded)
+    {
+        <button id="player-collapse" class="quiet player-collapse" aria-label="Close Now Playing" title="Close Now Playing" @onclick="CollapsePlayer"><MusicIcon Name="chevron-down" /></button>
+        <button id="player-queue" class="quiet player-queue" aria-label="Open playback queue" title="Queue" @onclick="OpenQueueFromPlayer"><MusicIcon Name="queue" /></button>
+    }
     <div class="now-playing-group"><button id="show-queue" class="now-playing" @onclick="PlayerArea" aria-label='@(Player.Current is null ? "Quick play" : "Open playback queue")'>
         @if (Player.Current is null) { <span class="cover quick-play-art"><MusicIcon Name="play" /></span> } else { <TrackCover @key="Player.Current.Id" Track="Player.Current" /> }
         <span class="now-copy"><strong id="now-title">@(Player.Current?.Title ?? "Quick play")</strong><span id="now-artist">@(Player.Preparing ? "Preparing song..." : Player.Current?.Channel ?? (Player.Queue.Count > 0 ? "Play your queue" : Session.HasListeningHistory ? "Based on your listening" : "Shuffle your library"))</span>@if (Player.Current is not null) { <span id="bar-next">@(NextTrack is { } next ? "Up next \u00b7 " + next.Title : "Open queue")</span> }</span>
@@ -247,7 +264,7 @@ else
     </div><SeekBar /></div>
     <button id="player-more" class="quiet player-more" aria-label="Player options" aria-expanded="@Aria(playerToolsOpen)" aria-controls="player-options" @onclick="TogglePlayerTools"><MusicIcon Name="more" /></button>
     @if (playerToolsOpen) { <button class="player-tools-backdrop" aria-label="Close player options" @onclick="ClosePlayerTools"></button> }
-    <div id="player-options" class="player-tools @(playerToolsOpen ? "is-open" : "")" @onkeydown="PlayerToolsKeyDown">
+    <div id="player-options" class="player-tools @(playerToolsOpen ? "is-open" : "")" @onkeydown="PlayerToolsKeyDown" @onkeydown:stopPropagation="true">
         <button id="player-options-close" class="quiet player-tools-close" aria-label="Close player options" @onclick="ClosePlayerTools"><MusicIcon Name="close" /></button>
         <ListenTogetherPanel />
         <AudioOutputPicker />
@@ -368,7 +385,7 @@ else
             await JS.InvokeVoidAsync("familyhub.closeDialog", "add-song-dialog", "add-playlist-song");
         });
     }
-    private string view = "Library", server = "", filter = "", query = "", genre = "", profileName = "";
+    private string view = "Home", server = "", filter = "", query = "", genre = "", profileName = "";
     private string newName = "", selectedId = "", recommendationTitle = "";
     private string? error;
     private AppRelease? startupUpdate;
@@ -441,7 +458,26 @@ else
         await JS.InvokeVoidAsync("familyhub.beginPlaylistTransition", PlaylistKey(playlist), true);
         await Navigate("Playlists"); selectedId = PlaylistKey(playlist); playlistTransitionPending = true;
     }
-    private Task PlayerArea() => Player.Current is null ? QuickStart() : Navigate("Queue");
+    private static readonly HashSet<string> LibraryViews = ["Library", "Playlists", "Downloads"];
+    private async Task OpenSearchTab() { await Navigate("Search"); pendingFocus = "q"; }
+    // Home links to server pages that the phone navigation does not list.
+    private async Task HomeNavigate(string tab)
+    {
+        if (tab != "Leaderboard") { await Navigate(tab); return; }
+        await Navigate("Stats");
+        await JS.InvokeVoidAsync("familyhub.revealWhenReady", "stats-ranking-title");
+    }
+    // On a phone the mini player opens the full-screen Now Playing; on desktop it opens the queue.
+    private async Task PlayerArea()
+    {
+        if (Player.Current is null) { await QuickStart(); return; }
+        if (!playerExpanded && await JS.InvokeAsync<bool>("familyhub.isPhone")) { playerExpanded = true; pendingFocus = "player-collapse"; return; }
+        await OpenQueueFromPlayer();
+    }
+    private bool playerExpanded;
+    private void CollapsePlayer() { playerExpanded = false; pendingFocus = "show-queue"; }
+    private async Task OpenQueueFromPlayer() { playerExpanded = false; await Navigate("Queue"); }
+    private void PlayerKeyDown(KeyboardEventArgs e) { if (e.Key == "Escape" && playerExpanded) CollapsePlayer(); }
     private bool playerToolsOpen;
     private async Task TogglePlayerTools()
     {
@@ -532,7 +568,7 @@ else
     private Task ChooseProfile(string id) => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); ResetProfileView(); await Session.SelectProfileAsync(id); });
     private Task CreateProfile() => Run(async () => { await Session.CreateProfileAsync(profileName); await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); ResetProfileView(); await Session.SelectProfileAsync(Session.Profiles.Last().Id); });
     private Task SwitchProfile() => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); await Session.SwitchProfileAsync(); ResetProfileView(); });
-    private void ResetProfileView() { newImportTarget = null; CancelSearch(); backViews.Clear(); forwardViews.Clear(); view = "Library"; profileMenu = false; addingProfile = false; selectedId = ""; searchResults = []; recommendations = null; filter = ""; genre = ""; pendingFocus = "content"; }
+    private void ResetProfileView() { newImportTarget = null; CancelSearch(); backViews.Clear(); forwardViews.Clear(); view = "Home"; profileMenu = false; addingProfile = false; selectedId = ""; searchResults = []; recommendations = null; filter = ""; genre = ""; pendingFocus = "content"; }
     private async Task ToggleRepeat() { Player.RepeatMode = Player.RepeatMode switch { "off" => "all", "all" => "one", _ => "off" }; await SavePlaybackPreferences(); }
     private async Task ToggleShuffle() { Player.ToggleShuffle(); await SavePlaybackPreferences(); }
     private Task SavePlaybackPreferences() => Session.SavePreferencesAsync(Player.Volume, Player.FollowingHost ? Session.PlaybackPreferences.Shuffle : Player.Shuffle, repeatMode: Player.RepeatMode);
@@ -569,6 +605,7 @@ else
         await JS.InvokeVoidAsync("familyhub.syncChrome");
         await JS.InvokeVoidAsync("familyhub.observePanel");
         await JS.InvokeVoidAsync("familyhub.tintPlaylistHeader");
+        await JS.InvokeVoidAsync("familyhub.observePlaylistHero");
         if (resizeReference is null) { resizeReference = DotNetObjectReference.Create(this); await JS.InvokeVoidAsync("familyhub.bindUpdatePolling", resizeReference); }
         await JS.InvokeVoidAsync("familyhub.bindSidebarResize", resizeReference);
         if (hadSearchMore && nextSearchOffset is null && view == "Search") await JS.InvokeVoidAsync("familyhub.restoreFocus", "search-more", "results");

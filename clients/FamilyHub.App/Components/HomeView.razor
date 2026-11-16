@@ -1,0 +1,87 @@
+@inject MusicSession Session
+
+@* Home: quick picks from listening history, big playlist and album cards, and entry points to the
+   server pages that the phone navigation does not list. Everything comes from data already loaded. *@
+<div class="home-view">
+    <h1 id="view-title" tabindex="-1">@Greeting</h1>
+
+    @if (recent.Count > 0)
+    {
+        <section class="home-section" aria-labelledby="home-recent-title">
+            <h2 id="home-recent-title" class="sr">Recently played</h2>
+            <div class="home-shortcuts">
+                @foreach (var (track, index) in recent.Select((t, i) => (t, i)))
+                {
+                    <button class="home-shortcut" @key="track.Id" @onclick="() => PlayTracks.InvokeAsync(recent.Skip(index).ToList())" aria-label="Play @track.Title"><TrackCover Track="track" /><span>@track.Title</span></button>
+                }
+            </div>
+        </section>
+    }
+
+    @if (Session.Playlists.Count > 0)
+    {
+        <section class="home-section" aria-labelledby="home-playlists-title">
+            <h2 id="home-playlists-title">Your playlists</h2>
+            <div class="home-shelf">
+                @foreach (var playlist in Session.Playlists.Take(10))
+                {
+                    <button class="home-card" @key="playlist.OwnerId + ':' + playlist.Id" @onclick="() => OpenPlaylist.InvokeAsync(playlist)"><PlaylistCover Playlist="playlist" /><strong>@playlist.Name</strong><span>@(playlist.Shared ? "Shared" : "Private"), @playlist.Tracks.Count @(playlist.Tracks.Count == 1 ? "song" : "songs")</span></button>
+                }
+            </div>
+        </section>
+    }
+
+    @if (albums.Count > 0)
+    {
+        <section class="home-section" aria-labelledby="home-albums-title">
+            <h2 id="home-albums-title">Albums for you</h2>
+            <div class="home-shelf">
+                @foreach (var album in albums)
+                {
+                    <button class="home-card" @key="album.Key" @onclick="() => PlayTracks.InvokeAsync(album.Tracks)" aria-label="Play @album.Name by @album.Artist"><TrackCover Track="album.Tracks[0]" /><strong>@album.Name</strong><span>@album.Artist</span></button>
+                }
+            </div>
+        </section>
+    }
+
+    @if (recent.Count == 0 && Session.Playlists.Count == 0 && albums.Count == 0)
+    {
+        <p class="note">@(Session.Connected ? "Play a few songs and your picks will show up here." : "Connect to your server to load your music.")</p>
+    }
+
+    <section class="home-section" aria-labelledby="home-server-title">
+        <h2 id="home-server-title">Server</h2>
+        <div class="home-server-cards">
+            <button class="home-server-card glass-panel" @onclick='() => Navigate.InvokeAsync("Stats")'><MusicIcon Name="device" /><strong>Server stats</strong><span>Listening time, storage and server work</span></button>
+            <button class="home-server-card glass-panel" @onclick='() => Navigate.InvokeAsync("Leaderboard")'><MusicIcon Name="crown" /><strong>Leaderboard</strong><span>Who listened most this period</span></button>
+            <button class="home-server-card glass-panel" @onclick='() => Navigate.InvokeAsync("Review")'><MusicIcon Name="pencil" /><strong>Song review</strong><span>Fix titles, artists and genres</span></button>
+        </div>
+    </section>
+</div>
+
+@code {
+    [Parameter] public EventCallback<MusicPlaylist> OpenPlaylist { get; set; }
+    [Parameter] public EventCallback<string> Navigate { get; set; }
+    [Parameter] public EventCallback<List<MusicTrack>> PlayTracks { get; set; }
+
+    private sealed record Album(string Key, string Name, string Artist, List<MusicTrack> Tracks);
+    private List<MusicTrack> recent = [];
+    private List<Album> albums = [];
+
+    private static string Greeting => DateTime.Now.Hour switch { < 5 => "Good evening", < 12 => "Good morning", < 18 => "Good afternoon", _ => "Good evening" };
+
+    protected override void OnParametersSet()
+    {
+        recent = Session.RecentlyPlayed(6);
+        var played = Session.RecentlyPlayed(200).Select(t => t.Id).ToHashSet();
+        var source = Session.Connected ? Session.Library : Session.Downloads;
+        // Albums with recent plays come first, then the fullest albums.
+        albums = source.Where(t => t.LibraryAlbum is { Length: > 0 } name && name is not ("Selected recordings" or "Unknown album"))
+            .GroupBy(t => (t.LibraryAlbum, t.Channel))
+            .Where(g => g.Count() >= 2)
+            .OrderByDescending(g => g.Count(t => played.Contains(t.Id))).ThenByDescending(g => g.Count())
+            .Take(10)
+            .Select(g => new Album(g.Key.LibraryAlbum + "\n" + g.Key.Channel, g.Key.LibraryAlbum, g.Key.Channel, g.DistinctBy(t => t.Id).ToList()))
+            .ToList();
+    }
+}

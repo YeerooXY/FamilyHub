@@ -370,3 +370,22 @@ window.familyhub.animateLeaderboard = () => {
   if(Number.isFinite(delta)&&Math.abs(delta)>1)row.animate([{transform:`translateY(${delta}px)`},{transform:'translateY(0)'}],{duration:340,easing:'cubic-bezier(.2,.8,.2,1)'});
  }
 };
+// The collapsed playlist bar shows once the playlist header scrolls out of view.
+window.familyhub.observePlaylistHero = () => {
+ const hero=document.querySelector('.playlist-hero'), bar=document.querySelector('.playlist-sticky');
+ if(familyhub.heroObserver?.target===hero)return;
+ familyhub.heroObserver?.disconnect(); familyhub.heroObserver=null;
+ if(!hero||!bar)return;
+ const set=visible=>{ bar.classList.toggle('is-visible',visible); bar.inert=!visible; const play=bar.querySelector('button'); if(play)play.tabIndex=visible?0:-1; if(!visible&&bar.contains(document.activeElement))document.getElementById('play-playlist')?.focus({preventScroll:true}); };
+ const observer=new IntersectionObserver(([entry])=>set(!entry.isIntersecting&&entry.boundingClientRect.top<0),{root:document.getElementById('content'),rootMargin:'-56px 0px 0px 0px'});
+ observer.observe(hero); observer.target=hero; familyhub.heroObserver=observer;
+};
+// Scrolls to a section that renders after its data loads, such as the leaderboard.
+window.familyhub.revealWhenReady = id => {
+ const reveal=()=>{ const target=document.getElementById(id); if(!target)return false; target.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'}); return true; };
+ if(reveal())return;
+ const observer=new MutationObserver(()=>{ if(reveal())observer.disconnect(); });
+ observer.observe(document.getElementById('content')||document.body,{childList:true,subtree:true});
+ setTimeout(()=>observer.disconnect(),8000);
+};
+window.familyhub.isPhone = () => matchMedia('(max-width:720px)').matches;
