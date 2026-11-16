@@ -190,7 +190,7 @@ input[type=range]:disabled {
 
 .brand small {
   display:block;
-  font-size:11px;
+  font-size:12px;
   font-weight:400;
   color:var(--muted);
   margin-top:3px;
@@ -493,7 +493,7 @@ progress {
 .cover {
   width:40px;
   height:40px;
-  background:linear-gradient(135deg,#4d405a,#28232e);
+  background:linear-gradient(135deg in oklch,#4d405a,#28232e);
   border-radius:4px;
   display:grid;
   place-items:center;
@@ -582,7 +582,7 @@ fieldset {
 #queue li>button:last-child {
   min-height:40px;
   min-width:40px;
-  font-size:11px;
+  font-size:12px;
   padding:0 6px;
   color:var(--muted);
   border:0;
@@ -777,7 +777,7 @@ details p {
   min-height:28px;
   border:0;
   text-align:left;
-  font-size:11px;
+  font-size:12px;
   color:#cbbce0;
   font-weight:400;
 }
@@ -831,7 +831,7 @@ details p {
   align-items:center;
   gap:10px;
   color:var(--muted);
-  font-size:11px;
+  font-size:12px;
   font-variant-numeric:tabular-nums;
   margin-top:6px;
 }
@@ -845,7 +845,7 @@ details p {
 #playback-state {
   min-height:16px;
   color:var(--muted);
-  font-size:11px;
+  font-size:12px;
   text-align:center;
   margin:0;
 }
@@ -859,7 +859,7 @@ details p {
 }
 
 .player-tools label {
-  font-size:11px;
+  font-size:12px;
   margin:0;
 }
 
@@ -1079,7 +1079,7 @@ section:not([hidden]) {
     flex:1;
     flex-direction:column;
     gap:3px;
-    font-size:10px;
+    font-size:12px;
     min-height:56px;
     padding:4px;
   }
@@ -1110,7 +1110,7 @@ section:not([hidden]) {
     font-size:13px;
   }
   .song-text small {
-    font-size:11px;
+    font-size:12px;
   }
   #queue .song-primary {
     grid-template-columns:36px minmax(0,1fr) 32px;
@@ -1124,12 +1124,12 @@ section:not([hidden]) {
     width:12px;
   }
   #queue li>button:last-child {
-    font-size:10px;
+    font-size:12px;
     min-width:36px;
     padding:0 2px;
   }
   .library-heading button {
-    font-size:11px;
+    font-size:12px;
     padding:0 12px;
   }
   .library-heading h2 {
@@ -1158,12 +1158,12 @@ section:not([hidden]) {
     font-size:13px;
   }
   .now-playing #now-artist {
-    font-size:11px;
+    font-size:12px;
     margin:0;
   }
   #show-queue {
     min-height:24px;
-    font-size:10px;
+    font-size:12px;
   }
   .transport {
     width:100%;
@@ -1188,7 +1188,7 @@ section:not([hidden]) {
     right:16px;
     top:10px;
     max-width:70px;
-    font-size:10px;
+    font-size:12px;
     text-align:right;
   }
   #settings-view .check {
@@ -1224,7 +1224,7 @@ button.primary:hover:not(:disabled) {
 .song-primary.is-playing .song-playing i { animation:playing-pulse .7s ease-in-out infinite alternate; }
 .song-primary.is-playing .song-playing i:nth-child(2) { animation-delay:-.4s; }
 .song-primary.is-playing .song-playing i:nth-child(3) { animation-delay:-.2s; }
-.song-primary.is-next .song-next { display:inline; margin-left:8px; color:#cbb7ff; font-size:11px; }
+.song-primary.is-next .song-next { display:inline; margin-left:8px; color:#cbb7ff; font-size:12px; }
 .song-primary.is-next .song-text small { display:inline; }
 @keyframes playing-pulse { from { transform:scaleY(.25); } to { transform:scaleY(1); } }
 @media (prefers-reduced-motion:reduce) { .song-primary.is-playing .song-playing i { animation:none; } }
@@ -1467,7 +1467,7 @@ main, .sidebar, .workspace, .app-header, .player-bar { background:transparent; b
 #show-queue.now-playing:hover { background:#ffffff08; }
 .now-copy { display:block; min-width:0; }
 #now-title, #now-artist, #bar-next { display:block; }
-#bar-next { color:var(--lilac); font-size:11px; margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#bar-next { color:var(--lilac); font-size:12px; margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 #queue-view { max-width:1120px; margin-inline:auto; }
 #queue-current { margin-bottom:28px; }
 #queue-history { margin-top:32px; }

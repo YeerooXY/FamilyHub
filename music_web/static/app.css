@@ -105,7 +105,7 @@ nav { display:grid; gap:6px; }
 .sidebar-account { display:grid; grid-template-columns:36px minmax(0,1fr); gap:8px; align-items:center; margin-top:auto; overflow-wrap:anywhere; }
 .sidebar-account form { grid-column:2; }
 .avatar { border-radius:50%; width:34px; height:34px; display:grid; place-items:center; background:#354b3b; }
-main { max-width:1240px; margin:0 0 0 226px; padding:28px 40px 160px; min-height:100vh; background:linear-gradient(150deg,#1c2c22 0,#111713 350px); }
+main { max-width:1240px; margin:0 0 0 226px; padding:28px 40px 160px; min-height:100vh; min-height:100dvh; background:linear-gradient(150deg in oklch,#1c2c22 0,#111713 350px); }
 .page-header { display:flex; justify-content:space-between; align-items:center; gap:20px; padding-bottom:28px; }
 h1 { font-size:32px; letter-spacing:-.7px; margin:0; }
 h2 { font-size:22px; letter-spacing:-.35px; }
@@ -117,7 +117,7 @@ h2 { font-size:22px; letter-spacing:-.35px; }
 .library-record { display:grid; grid-template-columns:64px minmax(0,1fr) auto; gap:18px; align-items:center; padding:14px; border-bottom:1px solid var(--line); }
 .library-record h3 { font-size:17px; margin:0 0 4px; overflow-wrap:anywhere; }
 .library-record p { margin:0; overflow-wrap:anywhere; }
-.cover { width:64px; height:64px; background:linear-gradient(135deg,#3a6447,#203629); border-radius:8px; display:grid; place-items:center; font-size:28px; color:#d9f4df; flex-shrink:0; }
+.cover { width:64px; height:64px; background:linear-gradient(135deg in oklch,#3a6447,#203629); border-radius:8px; display:grid; place-items:center; font-size:28px; color:#d9f4df; flex-shrink:0; }
 .cover.small { width:50px; height:50px; font-size:24px; }
 .library-record .row { flex-wrap:wrap; justify-content:flex-end; }
 .check { display:flex; align-items:center; gap:10px; font-weight:400; margin:16px 0; }
@@ -164,7 +164,7 @@ h2 { font-size:22px; letter-spacing:-.35px; }
 .brand-symbol .icon { width:32px; height:32px; }
 .cover .icon { width:30px; height:30px; }
 .transport-buttons button { display:grid; place-items:center; }
-.login-page { background:radial-gradient(ellipse at top,#253c2c,#0c120e 75%); min-height:100vh; }
+.login-page { background:radial-gradient(ellipse at top in oklch,#253c2c,#0c120e 75%); min-height:100vh; min-height:100dvh; }
 .login-page .top { max-width:430px; padding-top:50px; }
 .login-page .brand { display:block; margin:0; }
 .login-page main { min-height:0; background:#17221b; max-width:430px; margin:24px auto; padding:32px; border:1px solid #3c5042; border-radius:16px; }
@@ -176,12 +176,12 @@ h2 { font-size:22px; letter-spacing:-.35px; }
  .sidebar { width:auto; height:70px; inset:0 0 auto; padding:8px 10px; background:#0d1510; z-index:6; border-right:0; border-bottom:1px solid var(--line); }
  .sidebar>.brand,.sidebar-account { display:none; }
  nav { display:flex; gap:2px; justify-content:space-around; }
- .nav-button { flex-direction:column; gap:0; padding:2px 7px; min-height:50px; font-size:11px; border-radius:8px; }
+ .nav-button { flex-direction:column; gap:0; padding:2px 7px; min-height:50px; font-size:12px; border-radius:8px; }
  .nav-button span { font-size:23px; height:27px; }
- main { margin:70px 0 0; padding:22px 16px 200px; min-height:calc(100vh - 70px); }
+ main { margin:70px 0 0; padding:22px 16px 200px; min-height:calc(100vh - 70px); min-height:calc(100dvh - 70px); }
  .page-header { padding-bottom:22px; gap:8px; }
  h1 { font-size:28px; } h2 { font-size:21px; }
- .server-state { font-size:11px; }
+ .server-state { font-size:12px; }
  .library-record { grid-template-columns:48px minmax(0,1fr); gap:12px; padding:14px 0; }
  .library-record>.row { grid-column:2; justify-content:flex-start; }
  .cover { width:48px; height:48px; font-size:24px; }
@@ -194,9 +194,9 @@ h2 { font-size:22px; letter-spacing:-.35px; }
  .transport-buttons button.round { min-height:40px; width:40px; }
  .player-tools { display:block; }
  .player-tools>label,.player-tools>input { display:none; }
- .player-tools summary { font-size:11px; min-height:38px; }
+ .player-tools summary { font-size:12px; min-height:38px; }
  .player-tools details[open] { bottom:100%; }
- .seek-row { gap:8px; } #playback-state { font-size:11px; }
+ .seek-row { gap:8px; } #playback-state { font-size:12px; }
  #queue li { flex-wrap:wrap; } #queue li>span { flex-basis:100%; }
  .login-page main { margin:24px 16px; padding:24px; min-height:0; } .login-page .top { padding:36px 20px 0; }
  .login-page .brand { display:block; }
