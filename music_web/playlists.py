@@ -164,6 +164,8 @@ class PlaylistStore:
         data["revision"]=previous.get("revision",0)+1
         data["shared"]=previous.get("shared", True)
         data["co_authors"]=previous.get("co_authors", [])
+        # An owner's choice not to download this playlist survives re-reading its source.
+        if previous.get("auto_download_paused"): data["auto_download_paused"]=True
         if 'cover_sha256' in previous: data['cover_sha256']=previous['cover_sha256']
         self.save(user,data)
         return data

@@ -2,19 +2,19 @@
 @inject MusicSession Session
 @inject IJSRuntime JS
 
-<button id="upload-songs-open" class="quiet upload-open" @onclick="Open" aria-label="Upload songs" title="Upload songs"><MusicIcon Name="upload" /><span>Upload songs</span></button>
-<dialog id="upload-songs-dialog" class="glass-dialog upload-songs-dialog" aria-labelledby="upload-songs-heading">
-    <div class="dialog-heading"><h2 id="upload-songs-heading">Upload songs</h2><button class="quiet" aria-label="Close upload" @onclick="Close"><MusicIcon Name="close" /></button></div>
+@if (ShowOpenButton) { <button id="@(Prefix + "-songs-open")" class="quiet upload-open" @onclick="Open" aria-label="Upload songs" title="Upload songs"><MusicIcon Name="upload" /><span>Upload songs</span></button> }
+<dialog id="@(Prefix + "-songs-dialog")" class="glass-dialog upload-songs-dialog" aria-labelledby="@(Prefix + "-songs-heading")">
+    <div class="dialog-heading"><h2 id="@(Prefix + "-songs-heading")">Upload songs</h2><button class="quiet" aria-label="Close upload" @onclick="Close"><MusicIcon Name="close" /></button></div>
     <div class="upload-choices">
-        <label class="upload-choice"><MusicIcon Name="music" /><strong>Choose songs</strong><small>One song or several</small><InputFile @key="fileInputGeneration" id="upload-audio-file" OnChange="Choose" accept="audio/*,.mp3,.flac,.m4a,.opus,.ogg,.oga,.wav,.aac,.webm,.mka,.wv,.aiff,.aif" multiple disabled="@(working || picking)" aria-label="Choose songs" /></label>
-        @if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid()) { <button id="upload-folder" type="button" class="upload-choice" @onclick="ChooseFolder" aria-disabled="@(working || picking ? "true" : "false")"><MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Include its subfolders</small></button> }
-        else { <label class="upload-choice"><MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Include its subfolders</small><InputFile @key="fileInputGeneration" id="upload-folder" OnChange="Choose" webkitdirectory="" directory="" multiple disabled="@(working || picking)" aria-label="Choose a folder" /></label> }
+        <label class="upload-choice"><MusicIcon Name="music" /><strong>Choose songs</strong><small>One song or several</small><InputFile @key="fileInputGeneration" id="@(Prefix + "-audio-file")" OnChange="Choose" accept="audio/*,.mp3,.flac,.m4a,.opus,.ogg,.oga,.wav,.aac,.webm,.mka,.wv,.aiff,.aif" multiple disabled="@(working || picking)" aria-label="Choose songs" /></label>
+        @if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid()) { <button id="@(Prefix + "-folder")" type="button" class="upload-choice" @onclick="ChooseFolder" aria-disabled="@(working || picking ? "true" : "false")"><MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Include its subfolders</small></button> }
+        else { <label class="upload-choice"><MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Include its subfolders</small><InputFile @key="fileInputGeneration" id="@(Prefix + "-folder")" OnChange="Choose" webkitdirectory="" directory="" multiple disabled="@(working || picking)" aria-label="Choose a folder" /></label> }
     </div>
     <p class="upload-guidance">Tags are filled in automatically. Missing details go to Song review.</p>
     <p class="upload-limits">Up to 500 songs at a time. 128 MB per song.</p>
     @if (picking) { <p role="status">Reading folder...</p> }
     @if (files.Count > 0) {
-        <section class="upload-selection" aria-labelledby="upload-selection-title"><div><strong id="upload-selection-title">@files.Count @(files.Count == 1 ? "song" : "songs")</strong><span>@((files.Sum(f => f.Size) / 1048576d).ToString("0.0")) MB</span></div>
+        <section class="upload-selection" aria-labelledby="@(Prefix + "-selection-title")"><div><strong id="@(Prefix + "-selection-title")">@files.Count @(files.Count == 1 ? "song" : "songs")</strong><span>@((files.Sum(f => f.Size) / 1048576d).ToString("0.0")) MB</span></div>
         <ul>@foreach (var song in files.Take(6)) { <li><MusicIcon Name="music" /><span>@song.Name</span>@if (completed.Contains(song)) { <MusicIcon Name="check-circle" /> }</li> }</ul>
         @if (files.Count > 6) { <small>and @(files.Count - 6) more</small> }
         </section>
@@ -23,10 +23,27 @@
     <label class="upload-target">Add to playlist<select @bind="playlistKey" disabled="@(working || picking)"><option value="">Library only</option>@if (folderName.Length > 0) { <option value="@NewPlaylist">New playlist: @folderName</option> }@foreach (var list in Session.Playlists.Where(p => p.CanEdit)) { <option value="@(list.OwnerId + ":" + list.Id)">@list.Name</option> }</select></label>
     @if (working || completed.Count > 0) { <div class="upload-status" role="status"><div><strong>@status</strong><span>@completed.Count / @files.Count saved</span></div>@if (currentName is not null) { <small>@currentName</small> }@if (uploading) { <progress aria-label="Uploading song" max="100" value="@percent"></progress> } else if (working) { <progress aria-label="Preparing song on server"></progress> }</div> }
     @if (error is not null) { <p class="entry-error" role="status">@error</p> }
-    <div class="actions"><button class="quiet" @onclick="Close">Close</button>@if (working) { <button id="upload-stop" class="quiet" @onclick="() => stopping = true" aria-disabled="@(stopping ? "true" : "false")">@(stopping ? "Stopping after this song..." : "Stop after this song")</button> }<button id="upload-start" class="primary" @onclick="Upload" aria-disabled="@(working || picking || Remaining == 0 || !Session.Connected ? "true" : "false")">@(working ? "Uploading..." : Remaining == 0 && files.Count > 0 ? "Uploaded" : Remaining == 0 ? "Upload" : $"Upload {Remaining} {(Remaining == 1 ? "song" : "songs")}")</button></div>
+    <div class="actions"><button class="quiet" @onclick="Close">Close</button>@if (working) { <button id="@(Prefix + "-stop")" class="quiet" @onclick="() => stopping = true" aria-disabled="@(stopping ? "true" : "false")">@(stopping ? "Stopping after this song..." : "Stop after this song")</button> }<button id="@(Prefix + "-start")" class="primary" @onclick="Upload" aria-disabled="@(working || picking || Remaining == 0 || !Session.Connected ? "true" : "false")">@(working ? "Uploading..." : Remaining == 0 && files.Count > 0 ? "Uploaded" : Remaining == 0 ? "Upload" : $"Upload {Remaining} {(Remaining == 1 ? "song" : "songs")}")</button></div>
 </dialog>
 
 @code {
+    /// <summary>Prefix for element ids, so the dialog can appear on more than one screen.</summary>
+    [Parameter] public string Prefix { get; set; } = "upload";
+    [Parameter] public bool ShowOpenButton { get; set; } = true;
+    /// <summary>Where focus returns when the dialog closes.</summary>
+    [Parameter] public string? ReturnFocus { get; set; }
+    // A name chosen on the Create playlist screen; it wins over the folder's own name.
+    private string presetName = "";
+    private bool shareNew = true;
+    /// <summary>Opens the dialog with a new playlist of this name selected, then the song or folder picker.</summary>
+    public async Task OpenForNewPlaylist(string name, bool folder, bool shared = true)
+    {
+        if (working || picking) { await Open(); return; }
+        shareNew = shared; ResetSelection(); presetName = name.Trim(); folderName = presetName; playlistKey = folderName.Length > 0 ? NewPlaylist : "";
+        await Open(); StateHasChanged();
+        if (folder && (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid())) await ChooseFolder();
+        else await JS.InvokeVoidAsync("familyhub.clickElement", Prefix + (folder ? "-folder" : "-audio-file"));
+    }
     private List<LocalAudioFile> files = [];
     private readonly HashSet<LocalAudioFile> completed = [];
     private readonly Dictionary<LocalAudioFile,string> acceptedJobs = [];
@@ -43,12 +60,12 @@
     private readonly CancellationTokenSource lifetime = new();
     private string Identity => Session.Server + "\n" + Session.User;
     protected override void OnInitialized() { sourceIdentity = Identity; Session.Changed += SessionChanged; }
-    private void ClearChangedIdentity() { ResetSelection(); playlistKey = ""; sourceIdentity = Identity; selectionInvalidated = false; fileInputGeneration++; pendingFocus = "upload-audio-file"; }
+    private void ClearChangedIdentity() { ResetSelection(); playlistKey = ""; sourceIdentity = Identity; selectionInvalidated = false; fileInputGeneration++; pendingFocus = (Prefix + "-audio-file"); }
     private void SessionChanged() { if (!disposed) _ = InvokeAsync(() => { if (sourceIdentity != Identity) { selectionInvalidated = true; stopping = true; if (!working && !picking) ClearChangedIdentity(); StateHasChanged(); } }); }
-    private Task Open() => JS.InvokeVoidAsync("familyhub.showDialog", "upload-songs-dialog", working ? "upload-stop" : "upload-audio-file").AsTask();
-    private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "upload-songs-dialog", "upload-songs-open").AsTask();
+    private Task Open() => JS.InvokeVoidAsync("familyhub.showDialog", (Prefix + "-songs-dialog"), working ? (Prefix + "-stop") : (Prefix + "-audio-file")).AsTask();
+    private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", (Prefix + "-songs-dialog"), ReturnFocus ?? (Prefix + "-songs-open")).AsTask();
     protected override async Task OnAfterRenderAsync(bool firstRender) { if (pendingFocus is { } id) { pendingFocus = null; await JS.InvokeVoidAsync("familyhub.focus", id); } }
-    private void ResetSelection() { files = []; folderName = ""; if (playlistKey == NewPlaylist) playlistKey = ""; completed.Clear(); acceptedJobs.Clear(); error = selectionNote = currentName = null; status = ""; }
+    private void ResetSelection() { files = []; folderName = presetName; if (playlistKey == NewPlaylist) playlistKey = ""; completed.Clear(); acceptedJobs.Clear(); error = selectionNote = currentName = null; status = ""; }
     private void Choose(InputFileChangeEventArgs args)
     {
         if (working || picking) return; ResetSelection();
@@ -65,15 +82,15 @@
         selectionNote = skipped > 0 ? $"Skipped {skipped} {(skipped == 1 ? "file" : "files")} that {(skipped == 1 ? "is" : "are")} empty, too large or unsupported." : null;
         if (limited) selectionNote = $"The folder is large. Selected {files.Count} songs; choose a smaller folder for the rest.";
         if (files.Count == 0) error = "No supported audio files found.";
-        pendingFocus = files.Count > 0 ? "upload-start" : "upload-audio-file";
+        pendingFocus = files.Count > 0 ? (Prefix + "-start") : (Prefix + "-audio-file");
     }
     private async Task ChooseFolder()
     {
         if (working || picking) return; picking = true; error = null;
-        try { var selected = await LocalAudioFolderPicker.PickAsync(lifetime.Token); if (selected is not null && !selectionInvalidated) { ResetSelection(); files = selected.Files.ToList(); folderName = selected.Name.Trim() is { Length: > 0 and <= 200 } name ? name : ""; if (folderName.Length > 0) playlistKey = NewPlaylist; SelectionReady(selected.Skipped, selected.LimitReached); } }
+        try { var selected = await LocalAudioFolderPicker.PickAsync(lifetime.Token); if (selected is not null && !selectionInvalidated) { ResetSelection(); files = selected.Files.ToList(); folderName = presetName.Length > 0 ? presetName : selected.Name.Trim() is { Length: > 0 and <= 200 } name ? name : ""; if (folderName.Length > 0) playlistKey = NewPlaylist; SelectionReady(selected.Skipped, selected.LimitReached); } }
         catch (OperationCanceledException) { }
         catch (Exception exception) { error = exception.Message; }
-        finally { picking = false; if (selectionInvalidated) ClearChangedIdentity(); pendingFocus ??= "upload-folder"; }
+        finally { picking = false; if (selectionInvalidated) ClearChangedIdentity(); pendingFocus ??= (Prefix + "-folder"); }
     }
     private async Task Upload()
     {
@@ -87,6 +104,7 @@
                 status = "Creating playlist..."; await InvokeAsync(StateHasChanged);
                 await Session.CreatePlaylistAsync(folderName);
                 var created = Session.Playlists.LastOrDefault(p => p.Name == folderName && p.CanEdit) ?? throw new InvalidOperationException("The playlist could not be created.");
+                if (!shareNew) await Session.EditPlaylistAsync(created, new { shared = false });
                 playlistKey = created.OwnerId + ":" + created.Id; folderName = "";
             }
             foreach (var file in files.Where(f => !completed.Contains(f)).ToArray()) {
@@ -126,7 +144,7 @@
             if (playlistFailures > 0) error = (error is null ? "" : error + " ") + $"{playlistFailures} songs were saved but could not be added to the playlist. Add them from your library.";
         } catch (OperationCanceledException) { }
         catch (Exception exception) { error = exception.Message; }
-        finally { working = uploading = false; currentName = null; if (selectionInvalidated) ClearChangedIdentity(); if (!disposed) { pendingFocus = Remaining > 0 ? "upload-start" : "upload-audio-file"; await InvokeAsync(StateHasChanged); } }
+        finally { working = uploading = false; currentName = null; if (selectionInvalidated) ClearChangedIdentity(); if (!disposed) { pendingFocus = Remaining > 0 ? (Prefix + "-start") : (Prefix + "-audio-file"); await InvokeAsync(StateHasChanged); } }
     }
     public void Dispose() { disposed = true; Session.Changed -= SessionChanged; lifetime.Cancel(); lifetime.Dispose(); }
 }

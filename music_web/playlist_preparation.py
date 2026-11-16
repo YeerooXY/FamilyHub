@@ -49,7 +49,7 @@ class _PlaylistOperation:
                 "found": 0, "saved": 0, "review": 0, "failed": 0,
                 "index": 0, "title": "", "message": "Reading playlist" if mode == "import" else "Starting", "recent": []}
 
-    def begin_import(self, user, pid, revision, provider, url):
+    def begin_import(self, user, pid, revision, provider, url, download=True):
         with self.lock:
             data = self.store.read(user, pid)
             if data["tracks"] or type(revision) is not int or revision != data["revision"]:
@@ -58,8 +58,9 @@ class _PlaylistOperation:
             # A new import downloads its matched songs straight away; re-importing keeps a
             # download the owner paused or cancelled.
             same = previous.get("import_url") == url and previous.get("provider") == provider
-            queued_download = (same and previous.get("download_after_matching") is True) or (
-                not data.get("auto_download_paused") and (not same or previous.get("state") not in ("paused", "error")))
+            queued_download = download is not False and ((same and previous.get("download_after_matching") is True) or (
+                not data.get("auto_download_paused") and (not same or previous.get("state") not in ("paused", "error"))))
+            if download is False: data["auto_download_paused"] = True
             self._claim(user, pid)
             data["preparation"] = {**self._status("import"), "provider": provider, "import_url": url,
                                    "download_after_matching": queued_download}
@@ -373,11 +374,11 @@ class PlaylistPreparation:
             result=operation.start(user,pid,mode); self.thread=operation.thread
             return result
 
-    def begin_import(self,user,pid,revision,provider,url):
+    def begin_import(self,user,pid,revision,provider,url,download=True):
         with self.lock:
             self._admit(user,pid)
             operation=self._operation(user,pid)
-            result=operation.begin_import(user,pid,revision,provider,url); self.thread=operation.thread
+            result=operation.begin_import(user,pid,revision,provider,url,download); self.thread=operation.thread
             return result
 
     def status(self,user,pid):

@@ -391,6 +391,8 @@ window.familyhub.revealWhenReady = id => {
 window.familyhub.isPhone = () => matchMedia('(max-width:720px)').matches;
 // Focuses the first of these controls that is on screen, after the next render.
 window.familyhub.focusVisible = (...ids) => requestAnimationFrame(() => { for(const id of ids){ const target=document.getElementById(id); if(target&&target.getClientRects().length){ target.focus(); return; } } });
+// Opens a file input from another control (the Create playlist screen's big buttons).
+window.familyhub.clickElement = id => document.getElementById(id)?.click();
 // Lyrics follow the song; scrolling by hand pauses following for a few seconds.
 window.familyhub.revealLyric = id => {
  const line=document.getElementById(id), list=line?.closest('.lyrics-view'); if(!line||!list)return;

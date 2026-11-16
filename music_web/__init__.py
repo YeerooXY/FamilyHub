@@ -28,6 +28,7 @@ from .catalogue_review import CatalogueReview, register as register_catalogue_re
 from .finished_audio import FinishedAudio, prepare_record
 from .playlist_artwork import PlaylistArtwork, ArtworkError
 from .lyrics import LyricsCache
+from . import link_playlists
 
 MAX_UPLOAD = 128 << 20
 SESSION_HOURS = 12
@@ -1208,6 +1209,8 @@ def create_app(test_config=None):
 
     def read_imported_playlist(provider, url, progress):
         if provider == "spotify": return fetch_playlist(url, progress=progress)
+        if provider == "soundcloud": return link_playlists.fetch_soundcloud_playlist(url, app.intake, progress)
+        if provider == "deezer": return link_playlists.fetch_deezer_playlist(url, progress)
         data = fetch_youtube_playlist(url, app.intake)
         progress(len(data["tracks"]), len(data["tracks"]))
         return data
@@ -1262,14 +1265,22 @@ def create_app(test_config=None):
     def import_playlist_background(pid):
         data = body()
         provider, url = data.get("provider"), data.get("url")
-        if provider not in ("spotify", "youtube") or not isinstance(url, str) or not 1 <= len(url) <= 2048:
-            raise ApiError("Choose Spotify or YouTube and enter a public playlist link.")
+        # The app may send the site it detected; the server checks the link itself.
+        if isinstance(url, str) and provider in (None, "auto"): provider = link_playlists.detect(url)
+        if provider not in link_playlists.SOURCES or not isinstance(url, str) or not 1 <= len(url) <= 2048:
+            raise ApiError("Paste a public Spotify, YouTube, SoundCloud or Deezer playlist link.")
+        if link_playlists.detect(url) != provider:
+            raise ApiError("This link does not match the chosen site.")
+        if data.get("download") not in (None, True, False):
+            raise ApiError("Download must be true or false.")
         if provider == "spotify":
             from .playlists import spotify_source
             spotify_source(url)
+        if provider == "soundcloud": link_playlists.soundcloud_link(url)
+        if provider == "deezer": link_playlists.deezer_link(url)
         if not allow("playlist-import:" + g.user, 10, 60):
             raise ApiError("Wait a minute before importing another playlist.", 429)
-        try: status = playlist_preparation.begin_import(g.user, pid, data.get("revision"), provider, url)
+        try: status = playlist_preparation.begin_import(g.user, pid, data.get("revision"), provider, url, data.get("download", True) is not False)
         except ValueError as error: raise ApiError(str(error), 409)
         return jsonify(status), 202
 

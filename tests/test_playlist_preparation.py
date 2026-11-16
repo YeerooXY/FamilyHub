@@ -460,6 +460,22 @@ class PreparationApiTests(Base):
         self.assertEqual((status["mode"], status["state"], status["total"]), ("download", "done", 1))
         self.assertEqual(search.call_count, 1)
 
+    def test_detected_deezer_link_imports_without_downloading_when_asked(self):
+        client, token = self.signed_in()
+        target = self.post(client, token, "/api/playlists", json={"name": "Empty"}).get_json()["playlist"]
+        url = "https://www.deezer.com/en/playlist/42"
+        mismatch = self.post(client, token, "/api/playlists/" + target["id"] + "/import", json={"provider": "spotify", "url": url, "revision": target["revision"]})
+        self.assertEqual(mismatch.status_code, 400, "the site comes from the link, not the request")
+        imported = {"id": "x" * 22, "name": "Deezer list", "tracks": [entry()]}
+        with patch("music_web.link_playlists.fetch_deezer_playlist", return_value=imported) as reader,                 patch.object(self.intake, "cmd_search", return_value={"results": [candidate()]}):
+            result = self.post(client, token, "/api/playlists/" + target["id"] + "/import", json={"provider": "auto", "url": url, "revision": target["revision"], "download": False})
+            self.assertEqual(result.status_code, 202)
+            self.wait_preparation()
+        self.assertEqual(reader.call_args[0][0], url)
+        stored = self.state.playlist_preparation.store.read("sample-a", target["id"])
+        self.assertTrue(stored.get("auto_download_paused"), "songs are matched but not downloaded")
+        self.assertFalse(stored["preparation"].get("download_after_matching"))
+
     def test_async_import_is_owner_scoped_and_rejects_invalid_source(self):
         client, token = self.signed_in()
         target = self.post(client, token, "/api/playlists", json={"name": "Empty"}).get_json()["playlist"]

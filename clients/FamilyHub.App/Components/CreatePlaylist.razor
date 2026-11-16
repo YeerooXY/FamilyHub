@@ -1,0 +1,131 @@
+@inject MusicSession Session
+@inject IJSRuntime JS
+
+@* Create playlist: one screen for an empty playlist, a pasted link from a supported site (detected
+   from the link itself), or songs and folders from this device through the upload dialog. *@
+<dialog id="create-playlist-dialog" class="glass-dialog create-playlist-screen" aria-labelledby="create-playlist-heading" @onclose="Reset">
+    <div class="dialog-heading"><h2 id="create-playlist-heading">Create playlist</h2><button class="quiet" aria-label="Close create playlist" @onclick="Close"><MusicIcon Name="close" /></button></div>
+    <form class="create-playlist-form inline-form" @onsubmit="Submit" @onsubmit:preventDefault>
+        <label class="create-field">
+            <span>Name</span>
+            <input id="new-playlist" @bind="name" @bind:event="oninput" placeholder="@(Source is null ? "My playlist" : "Uses the name from " + SiteName(Source))" maxlength="200" disabled="@(Source is not null)" autocomplete="off" />
+        </label>
+
+        <section class="create-section" aria-labelledby="create-link-title">
+            <h3 id="create-link-title">Import from a link</h3>
+            <div class="create-link @(Source is { } linkSite ? "is-" + linkSite : "") @(link.Length > 0 && Source is null ? "is-unknown" : "")">
+                <span class="create-link-icon" aria-hidden="true">@if (Source is { } detected) { @SiteIcon(detected) } else { <MusicIcon Name="link" /> }</span>
+                <label class="sr" for="new-playlist-url">Playlist link</label>
+                <input id="new-playlist-url" type="url" @bind="link" @bind:event="oninput" placeholder="Paste a playlist link" autocomplete="off" spellcheck="false" />
+                @if (link.Length > 0) { <button type="button" class="create-link-clear" aria-label="Clear link" @onclick="ClearLink"><MusicIcon Name="close" /></button> }
+            </div>
+            <p class="create-link-status" role="status">@LinkStatus</p>
+            <ul class="create-sites" aria-label="Supported sites">
+                @foreach (var site in Sites)
+                {
+                    <li class="@(Source == site ? "is-detected" : "")"><span class="create-site-icon" aria-hidden="true">@SiteIcon(site)</span><span>@SiteName(site)</span></li>
+                }
+            </ul>
+        </section>
+
+        <section class="create-section" aria-labelledby="create-files-title">
+            <h3 id="create-files-title">Add songs from this device</h3>
+            <div class="create-files">
+                <button type="button" id="create-from-songs" class="create-file-choice" @onclick="() => FromDevice(false)" aria-disabled="@Aria(busy || Source is not null)"><MusicIcon Name="music" /><strong>Choose songs</strong><small>One song or several</small></button>
+                <button type="button" id="create-from-folder" class="create-file-choice" @onclick="() => FromDevice(true)" aria-disabled="@Aria(busy || Source is not null)"><MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Includes its subfolders</small></button>
+            </div>
+        </section>
+
+        <section class="create-section create-options" aria-label="Playlist options">
+            <label class="create-toggle"><span><strong>Share with the family</strong><small>Everyone on this server can see and play it</small></span><input type="checkbox" role="switch" @bind="shared" /></label>
+            @if (Source is not null)
+            {
+                <label class="create-toggle"><span><strong>Download the songs to the server</strong><small>Starts after the songs are found; you can pause it later</small></span><input type="checkbox" role="switch" @bind="download" /></label>
+            }
+        </section>
+
+        <p class="entry-error" role="status">@error</p>
+        <div class="actions">
+            <button class="primary" type="submit" aria-disabled="@Aria(busy || (link.Length > 0 && Source is null))">@(busy ? "Working..." : Source is not null ? "Import playlist" : "Create empty playlist")</button>
+            <button type="button" @onclick="Close">Cancel</button>
+        </div>
+    </form>
+</dialog>
+<UploadSongs @ref="uploader" Prefix="create-upload" ShowOpenButton="false" ReturnFocus="create-playlist" />
+
+@code {
+    [Parameter] public EventCallback<MusicPlaylist> Created { get; set; }
+
+    private static readonly string[] Sites = ["spotify", "youtube", "soundcloud", "deezer"];
+    private UploadSongs? uploader;
+    private string name = "", link = "";
+    private bool shared = true, download = true, busy;
+    private string? error;
+
+    private static string Aria(bool value) => value ? "true" : "false";
+    private static string SiteName(string site) => site switch { "spotify" => "Spotify", "youtube" => "YouTube", "soundcloud" => "SoundCloud", _ => "Deezer" };
+
+    // Same rule as the server (music_web/link_playlists.detect); the server checks again.
+    private string? Source
+    {
+        get
+        {
+            if (!Uri.TryCreate(link.Trim(), UriKind.Absolute, out var uri) || uri.Scheme != "https" || uri.UserInfo.Length > 0 || !uri.IsDefaultPort) return null;
+            return uri.Host.ToLowerInvariant() switch
+            {
+                "open.spotify.com" => "spotify",
+                "www.youtube.com" or "youtube.com" or "music.youtube.com" => "youtube",
+                "soundcloud.com" or "www.soundcloud.com" or "m.soundcloud.com" => "soundcloud",
+                "www.deezer.com" or "deezer.com" => "deezer",
+                _ => null
+            };
+        }
+    }
+
+    private string LinkStatus => link.Length == 0 ? "" : Source is { } site
+        ? SiteName(site) + " link. The playlist keeps its name from " + SiteName(site) + "."
+        : "This site isn't supported. Use a Spotify, YouTube, SoundCloud or Deezer playlist link.";
+
+    private void ClearLink() { link = ""; error = null; }
+    private void Reset() { name = link = ""; shared = download = true; error = null; busy = false; }
+    private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "create-playlist-dialog", "create-playlist").AsTask();
+
+    private async Task Submit()
+    {
+        if (busy || (link.Length > 0 && Source is null)) return;
+        busy = true; error = null;
+        try
+        {
+            var source = Source;
+            await Session.CreatePlaylistAsync(source is null ? (name.Trim().Length > 0 ? name.Trim() : "New playlist") : "New playlist");
+            var playlist = Session.Playlists.Last();
+            if (!shared) { await Session.EditPlaylistAsync(playlist, new { shared = false }); playlist = Session.Playlists.FirstOrDefault(p => p.Id == playlist.Id && p.OwnerId == playlist.OwnerId) ?? playlist; }
+            if (source is not null)
+                await Session.Api!.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/playlists/" + playlist.Id + "/import",
+                    new { provider = source, url = link.Trim(), revision = playlist.Revision, download });
+            await JS.InvokeVoidAsync("familyhub.closeDialog", "create-playlist-dialog", "content");
+            await Created.InvokeAsync(playlist);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException) { error = exception.Message; }
+        finally { busy = false; }
+    }
+
+    // Songs and folders go through the upload dialog with the new playlist selected; the
+    // playlist is created when the upload starts, so cancelling leaves nothing behind.
+    private async Task FromDevice(bool folder)
+    {
+        if (busy || Source is not null || uploader is null) return;
+        // Without a name, a folder gives its own name; single songs go into "New playlist".
+        var chosen = name.Trim().Length > 0 ? name.Trim() : folder ? "" : "New playlist";
+        await JS.InvokeVoidAsync("familyhub.closeDialog", "create-playlist-dialog", "content");
+        await uploader.OpenForNewPlaylist(chosen, folder, shared);
+    }
+
+    private static RenderFragment SiteIcon(string site) => site switch
+    {
+        "spotify" => @<svg viewBox="0 0 24 24" class="site-icon"><circle cx="12" cy="12" r="11" fill="#1DB954" /><path d="M6.6 9.3c3.6-1.1 7.7-.8 10.9 1.1M7.2 12.4c3-.9 6.3-.6 9 .9M7.8 15.3c2.4-.6 4.9-.4 7 .7" fill="none" stroke="#0b0b0b" stroke-width="1.7" stroke-linecap="round" /></svg>,
+        "youtube" => @<svg viewBox="0 0 24 24" class="site-icon"><rect x="1.5" y="5" width="21" height="14" rx="4.5" fill="#FF0033" /><path d="M10 8.8v6.4l5.4-3.2z" fill="#fff" /></svg>,
+        "soundcloud" => @<svg viewBox="0 0 24 24" class="site-icon"><circle cx="12" cy="12" r="11" fill="#FF5500" /><path d="M9.6 9.6a3.6 3.6 0 0 1 6.6 1.3 2.3 2.3 0 0 1 .5 4.6H9.6z" fill="#fff" /><path d="M5.2 12.6v2.6M6.7 11.4v4.1M8.2 10.4v5.1" stroke="#fff" stroke-width="1.1" stroke-linecap="round" /></svg>,
+        _ => @<svg viewBox="0 0 24 24" class="site-icon"><circle cx="12" cy="12" r="11" fill="#A238FF" /><path d="M6 16.5h2M9.3 16.5h2M9.3 14.5h2M12.6 16.5h2M12.6 14.5h2M12.6 12.5h2M15.9 16.5h2M15.9 14.5h2M15.9 12.5h2M15.9 10.5h2M15.9 8.5h2" stroke="#fff" stroke-width="1.3" /></svg>
+    };
+}

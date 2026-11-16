@@ -306,15 +306,7 @@ else
     <p class="entry-error" role="status">@error</p>
     <div class="actions"><button id="spotify-yes" class="primary" aria-disabled="@Aria(busy)" @onclick="() => AnswerSpotify(true)">Yes</button><button aria-disabled="@Aria(busy)" @onclick="() => AnswerSpotify(false)">No</button></div>
 </dialog>
-<dialog id="create-playlist-dialog" class="glass-dialog" aria-labelledby="create-playlist-heading">
-    <h2 id="create-playlist-heading">Create playlist</h2>
-    <div class="new-playlist-sources" role="group" aria-label="Playlist source"><button class="quiet" aria-pressed="@Aria(newPlaylistProvider is null)" @onclick="() => ChooseNewPlaylistSource(null)">Empty playlist</button><button class="quiet" aria-pressed="@Aria(newPlaylistProvider == "spotify")" @onclick='() => ChooseNewPlaylistSource("spotify")'>Import from Spotify</button><button class="quiet" aria-pressed="@Aria(newPlaylistProvider == "youtube")" @onclick='() => ChooseNewPlaylistSource("youtube")'>Import from YouTube</button></div>
-    <form @onsubmit="SubmitNewPlaylist" @onsubmit:preventDefault>
-        @if (newPlaylistProvider is null) { <label for="new-playlist">Playlist name</label><input id="new-playlist" @bind="newName" placeholder="Name" maxlength="200" required /> }
-        else { <label for="new-playlist-url">@(newPlaylistProvider == "spotify" ? "Playlist or artist link" : "Public playlist link")</label><input id="new-playlist-url" type="url" @bind="newPlaylistUrl" required /> }
-        <p class="entry-error" role="status">@error</p><div class="actions"><button class="primary" type="submit" aria-disabled="@Aria(busy)">@(newPlaylistProvider is null ? "Create playlist" : "Import playlist")</button><button type="button" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "create-playlist-dialog", "create-playlist").AsTask()'>Cancel</button></div>
-    </form>
-</dialog>
+<CreatePlaylist Created="PlaylistCreated" />
 <dialog id="preload-dialog" class="glass-dialog preload-dialog" aria-labelledby="preload-heading">
     <h2 id="preload-heading">Keep on this device</h2>
     <p>@preloadTracks.Count songs ready on the server
@@ -410,7 +402,7 @@ else
         });
     }
     private string view = "Home", server = "", filter = "", query = "", genre = "", profileName = "";
-    private string newName = "", selectedId = "", recommendationTitle = "";
+    private string selectedId = "", recommendationTitle = "";
     private string? error;
     private AppRelease? startupUpdate;
     private readonly HashSet<string> updateChecks = [];
@@ -476,7 +468,7 @@ else
         catch (OperationCanceledException) { }
     }
     private async Task DismissUpdateNotice() { await JS.InvokeVoidAsync("familyhub.focus", "profile-toggle"); updateNoticeDismissed = true; }
-    private async Task NewPlaylist() { await Navigate("Playlists"); newImportTarget = null; newPlaylistProvider = null; newPlaylistUrl = ""; pendingFocus = "create-playlist"; createPlaylistOpen = true; }
+    private async Task NewPlaylist() { await Navigate("Playlists"); pendingFocus = "create-playlist"; createPlaylistOpen = true; }
     private async Task OpenPlaylist(MusicPlaylist playlist)
     {
         await JS.InvokeVoidAsync("familyhub.beginPlaylistTransition", PlaylistKey(playlist), true);
@@ -611,7 +603,7 @@ else
     private Task ChooseProfile(string id) => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); ResetProfileView(); await Session.SelectProfileAsync(id); });
     private Task CreateProfile() => Run(async () => { await Session.CreateProfileAsync(profileName); await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); ResetProfileView(); await Session.SelectProfileAsync(Session.Profiles.Last().Id); });
     private Task SwitchProfile() => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); await Session.SwitchProfileAsync(); ResetProfileView(); });
-    private void ResetProfileView() { newImportTarget = null; CancelSearch(); backViews.Clear(); forwardViews.Clear(); view = "Home"; profileMenu = false; addingProfile = false; selectedId = ""; searchResults = []; recommendations = null; filter = ""; genre = ""; pendingFocus = "content"; }
+    private void ResetProfileView() { CancelSearch(); backViews.Clear(); forwardViews.Clear(); view = "Home"; profileMenu = false; addingProfile = false; selectedId = ""; searchResults = []; recommendations = null; filter = ""; genre = ""; pendingFocus = "content"; }
     private async Task ToggleRepeat() { Player.RepeatMode = Player.RepeatMode switch { "off" => "all", "all" => "one", _ => "off" }; await SavePlaybackPreferences(); }
     private async Task ToggleShuffle() { Player.ToggleShuffle(); await SavePlaybackPreferences(); }
     private Task SavePlaybackPreferences() => Session.SavePreferencesAsync(Player.Volume, Player.FollowingHost ? Session.PlaybackPreferences.Shuffle : Player.Shuffle, repeatMode: Player.RepeatMode);
@@ -835,23 +827,7 @@ else
             throw new InvalidOperationException("The playing song changed. Press Similar songs again.");
         await Navigate("Similar songs");
     });
-    private MusicPlaylist? newImportTarget;
-    private string? newPlaylistProvider;
-    private string newPlaylistUrl = "";
-    private void ChooseNewPlaylistSource(string? provider) { newPlaylistProvider = provider; pendingFocus = provider is null ? "new-playlist" : "new-playlist-url"; }
-    private Task SubmitNewPlaylist() => newPlaylistProvider is null ? CreatePlaylist() : Run(async () =>
-    {
-        if (newImportTarget is null) { await Session.CreatePlaylistAsync("New playlist"); newImportTarget = Session.Playlists.Last(); }
-        var target = newImportTarget; selectedId = PlaylistKey(target);
-        await Session.Api!.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/playlists/" + target.Id + "/import", new { provider = newPlaylistProvider, url = newPlaylistUrl, revision = target.Revision });
-        await JS.InvokeVoidAsync("familyhub.closeDialog", "create-playlist-dialog", "content");
-        pendingFocus = "view-title";
-    });
-    private Task CreatePlaylist() => Run(async () =>
-    {
-        await Session.CreatePlaylistAsync(newName); selectedId = PlaylistKey(Session.Playlists.Last()); newName = "";
-        await JS.InvokeVoidAsync("familyhub.closeDialog", "create-playlist-dialog", "content"); pendingFocus = "view-title";
-    });
+    private void PlaylistCreated(MusicPlaylist playlist) { selectedId = PlaylistKey(playlist); pendingFocus = "view-title"; StateHasChanged(); }
     private Task RemoveEntry(MusicPlaylist playlist, int index) => Run(async () => { await JS.InvokeVoidAsync("familyhub.focus", "content"); await Session.EditPlaylistAsync(playlist, new { remove_index = index }); pendingFocus = "view-title"; });
     private Task PlayPlaylist(List<MusicTrack> tracks) => RunPlayback(async () =>
     {
