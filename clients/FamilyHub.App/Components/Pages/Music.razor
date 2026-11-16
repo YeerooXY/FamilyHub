@@ -85,7 +85,7 @@ else
     <button class="nav-button phone-nav" aria-label="Search" aria-current='@(view == "Search" ? "page" : null)' @onclick="OpenSearchTab"><MusicIcon Name="search" /><span class="nav-label">Search</span></button>
     <button class="nav-button phone-nav" aria-label="Playlists" aria-current='@(LibraryViews.Contains(view) ? "page" : null)' @onclick='() => Navigate("Playlists")'><MusicIcon Name="playlist" /><span class="nav-label">Playlists</span></button>
     <button id="open-library" class="nav-button desktop-nav" aria-label="Your library" title="Your library" aria-current='@(view == "Library" ? "page" : null)' @onclick='() => Navigate("Library")'><MusicIcon Name="library" /><span class="nav-label">Your library</span></button>
-    @foreach (var tab in new[] { "Downloads", "Playlists", "Review", "Stats" })
+    @foreach (var tab in new[] { "Downloads", "Playlists", "Review", "Leaderboard", "Stats" })
     { <button class="nav-button desktop-nav" aria-label="@NavLabel(tab)" title="@NavLabel(tab)" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" /><span class="nav-label">@NavLabel(tab)</span></button> }
     </nav>
     <div id="sidebar-resize" role="separator" tabindex="0" aria-label="Resize library sidebar" aria-orientation="vertical" aria-valuemin="72" aria-valuemax="420" aria-valuenow="@(sidebarCollapsed ? 72 : sidebarWidth)"></div>
@@ -220,6 +220,10 @@ else
     else if (view == "Stats")
     {
         <ServerStats />
+    }
+    else if (view == "Leaderboard")
+    {
+        <ServerStats Leaderboard="true" />
     }
     else if (view == "Queue")
     {
@@ -499,9 +503,7 @@ else
     // Home links to server pages that the phone navigation does not list.
     private async Task HomeNavigate(string tab)
     {
-        if (tab != "Leaderboard") { await Navigate(tab); return; }
-        // Scroll after the view switch, which resets the scroll position.
-        await Navigate("Stats"); pendingReveal = "stats-ranking-title";
+        await Navigate(tab);
     }
     // On a phone the mini player opens the full-screen Now Playing; on desktop it opens the queue.
     private async Task PlayerArea()
@@ -579,8 +581,8 @@ else
     private static string PlaylistAlbum(PlaylistTrack entry, MusicTrack? track) => !string.IsNullOrWhiteSpace(entry.Album) && entry.Album is not ("Selected recordings" or "Unknown album") ? entry.Album : track?.LibraryAlbum is { Length: > 0 } album && album != "Selected recordings" ? album : "";
     private MusicTrack? NextTrack => Player.QueueIndex + 1 < Player.Queue.Count ? Player.Queue[Player.QueueIndex + 1] : null;
     private static string Genre(MusicTrack track) => string.IsNullOrWhiteSpace(track.Genre) ? "Unsorted" : track.Genre;
-    private static string NavLabel(string tab) => tab switch { "Downloads" => "Cached", "Review" => "Song review", "Stats" => "Server stats", _ => tab };
-    private static string NavIcon(string tab) => tab switch { "Library" => "library", "Search" => "search", "Downloads" => "down", "Playlists" => "playlist", "Review" => "pencil", "Stats" => "device", _ => "queue" };
+    private static string NavLabel(string tab) => tab switch { "Downloads" => "Cached", "Review" => "Song review", "Stats" => "Server stats", "Leaderboard" => "Leaderboard", _ => tab };
+    private static string NavIcon(string tab) => tab switch { "Library" => "library", "Search" => "search", "Downloads" => "down", "Playlists" => "playlist", "Review" => "pencil", "Stats" => "device", "Leaderboard" => "crown", _ => "queue" };
     private Task VolumeChanged(ChangeEventArgs args)
     {
         if (!double.TryParse(args.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value)) return Task.CompletedTask;

@@ -352,7 +352,7 @@ window.familyhub.tintPlaylistHeader = () => {
 };
 window.familyhub.captureLeaderboard = () => {
  const table=document.querySelector('.stats-leaderboard');if(!table)return;
- table._rowPositions=new Map([...table.querySelectorAll('tbody tr')].map(row=>[row,row.getBoundingClientRect().top]));
+ table._rowPositions=new Map([...table.querySelectorAll('[data-profile-key]')].map(row=>[row,row.getBoundingClientRect().top]));
  table._rowFocus=table.contains(document.activeElement)?document.activeElement:null;
 };
 window.familyhub.animateLeaderboard = () => {
@@ -360,11 +360,11 @@ window.familyhub.animateLeaderboard = () => {
  const positions=table._rowPositions;
  if(document.activeElement===document.body&&table._rowFocus){const target=table._rowFocus; (target.isConnected?target:document.getElementById('server-stats-refresh'))?.focus({preventScroll:true});}
  table._rowFocus=null;
- const rows=[...table.querySelectorAll('tbody tr')],oldRows=[...positions.keys()];
+ const rows=[...table.querySelectorAll('[data-profile-key]')],oldRows=[...positions.keys()];
  if(rows.length===oldRows.length&&rows.every((row,i)=>row===oldRows[i]))return;
  table._rowPositions=null;
  if(matchMedia('(prefers-reduced-motion: reduce)').matches||document.body.dataset.effects==='off')return;
- for(const row of table.querySelectorAll('tbody tr')){
+ for(const row of table.querySelectorAll('[data-profile-key]')){
   const before=positions.get(row);row.getAnimations().forEach(a=>a.cancel());
   const delta=before-row.getBoundingClientRect().top;
   if(Number.isFinite(delta)&&Math.abs(delta)>1)row.animate([{transform:`translateY(${delta}px)`},{transform:'translateY(0)'}],{duration:340,easing:'cubic-bezier(.2,.8,.2,1)'});

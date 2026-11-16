@@ -3,72 +3,124 @@
 @inject MusicSession Session
 @inject IJSRuntime JS
 
-<div class="server-stats" aria-busy="@Aria(fetching && data is null)">
+<div class="server-stats @(Leaderboard ? "leaderboard-page" : "server-page")" aria-busy="@Aria(fetching && data is null)">
     <div class="stats-toolbar">
-        <div class="stats-server-status"><i class="stats-online-dot @(!Offline ? "is-online" : "")" aria-hidden="true"></i><span>@(Offline ? "Server offline" : "Server online")</span>@if (data is not null) { <span>@data.Profiles.Count(p => p.Listening) listening</span> }</div>
-
-        <button id="server-stats-refresh" class="quiet stats-refresh @(fetching ? "is-refreshing" : "")" aria-label="Refresh server stats" title="Refresh server stats" @onclick="RefreshNow" aria-disabled="@Aria(fetching || Offline)"><MusicIcon Name="refresh" /></button>
+        @if (Leaderboard)
+        {
+            <div class="lb-periods" role="group" aria-label="Listening period">
+                @foreach (var choice in new[] { ("week", "7 days"), ("month", "This month"), ("all", "All time") })
+                { <button class="lb-period" aria-pressed="@Aria(period == choice.Item1)" @onclick="() => SetPeriod(choice.Item1)">@choice.Item2</button> }
+            </div>
+        }
+        else
+        {
+            <div class="stats-server-status"><i class="stats-online-dot @(!Offline ? "is-online" : "")" aria-hidden="true"></i><span>@(Offline ? "Server offline" : "Server online")</span>@if (data is not null) { <span>@data.Profiles.Count(p => p.Listening) listening now</span> }</div>
+        }
+        <button id="server-stats-refresh" class="quiet stats-refresh @(fetching ? "is-refreshing" : "")" aria-label="@(Leaderboard ? "Refresh leaderboard" : "Refresh server stats")" title="Refresh" @onclick="RefreshNow" aria-disabled="@Aria(fetching || Offline)"><MusicIcon Name="refresh" /></button>
     </div>
     @if (error is not null || Offline || data is null) { <p class="stats-status" role="status">@StatusText</p> }
-    @if (data is { } stats)
+    @if (data is { } stats && Leaderboard)
     {
+        var ranking = Ranking.ToList();
+        var leader = Math.Max(1, ranking.Select(PeriodSeconds).DefaultIfEmpty(0).Max());
         var total = SelectedTotal;
         var days = Days;
         var peak = Math.Max(1, days.Select(d => d.Seconds).DefaultIfEmpty(0).Max());
-        <div class="stats-dashboard">
-            <section class="stats-overview" aria-label="Server overview">
-                <div class="stats-figures">
-                    <div class="stats-metric glass-panel"><MusicIcon Name="playlist" /><span>Total savings</span><strong>@Huf(stats.SavedHuf)<small>Ft</small></strong></div>
-                    <div class="stats-metric glass-panel"><MusicIcon Name="playlist" /><span>Saved / month</span><strong>@Huf(stats.MonthlySavedHuf)<small>Ft</small></strong></div>
-                    <div class="stats-metric stats-money glass-panel"><MusicIcon Name="music" /><span>Money withheld from streamers</span><strong>@Usd(stats.RoyaltyUsd)</strong><small>@stats.TotalQualifiedPlays plays</small></div>
+        var live = ranking.Where(p => p.Listening).ToList();
+        <section class="lb-podium stats-leaderboard" aria-label="@("Top listeners, " + PeriodLabel)">
+            @foreach (var place in new[] { 1, 0, 2 }.Where(i => i < ranking.Count))
+            {
+                var profile = ranking[place];
+                <div class="lb-place lb-place-@(place + 1)" data-profile-key="@profile.Id" @key="profile.Id">
+                    <div class="lb-avatar">
+                        @if (place == 0) { <span class="lb-crown"><MusicIcon Name="crown" /></span> }
+                        <ProfileAvatar Profile="ProfileFor(profile)" Size="@(place == 0 ? 84 : 64)" />
+                        @if (profile.Listening) { <span class="lb-live" title="Listening now"><span class="sr">Listening now</span></span> }
+                    </div>
+                    <strong>@profile.Name</strong>
+                    <span class="lb-time">@Duration(PeriodSeconds(profile))</span>
+                    <div class="lb-step"><span>@(place + 1)</span></div>
                 </div>
-                <section class="stats-listening glass-panel" aria-labelledby="stats-listening-title">
-                    <div class="stats-section-heading"><h2 id="stats-listening-title">Total listened</h2><button id="stats-period-toggle" class="quiet stats-period-picker" @onclick="OpenPeriod" aria-label="@("Listening period: " + PeriodLabel)" aria-haspopup="dialog">@PeriodLabel<MusicIcon Name="chevron-down" /></button></div>
-                    <strong class="stats-time">@Duration(total)</strong>
-                    <div id="stats-period-options" popover="auto" class="glass-dialog stats-period-options" role="dialog" aria-label="Listening period">
-                        @foreach (var choice in new[] { ("week", "7 days"), ("month", "This month"), ("all", "All time") }) { <button class="quiet" aria-pressed="@Aria(period == choice.Item1)" @onclick="() => SetPeriod(choice.Item1)">@choice.Item2</button> }
-                    </div>
-                    @if (days.Count > 0)
-                    {
-                        <svg @key="period" class="stats-line-chart" viewBox="0 0 560 156" preserveAspectRatio="none" role="img" aria-label="@($"Daily listening, {PeriodLabel}: {Duration(total)}")">
-                            <defs><linearGradient id="stats-chart-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent-blue)" stop-opacity=".28" /><stop offset="100%" stop-color="var(--accent-blue)" stop-opacity="0" /></linearGradient></defs>
-                            <path class="stats-chart-grid" d="M0 16H560M0 80H560M0 144H560" />
-                            @if (days.Count > 1) { <path class="stats-chart-area" d="@("M0,144 L" + Points(days,peak).Replace(" ", " L") + " L560,144 Z")" /><polyline class="stats-chart-line" points="@Points(days,peak)" vector-effect="non-scaling-stroke" /> }
-                            @for (var i = 0; i < days.Count; i++) { var day = days[i]; <circle class="stats-chart-point" cx="@X(i,days.Count)" cy="@Y(day.Seconds,peak)" r="@(days.Count > 60 ? "1.5" : "3")"><title>@DayLabel(day.Day): @Duration(day.Seconds)</title></circle> }
-                        </svg>
-                        <div class="stats-chart-labels"><span>@DayLabel(days[0].Day)</span><span>@DayLabel(days[^1].Day)</span></div>
-                    }
-                </section>
-
-
+            }
+        </section>
+        @if (ranking.Count > 3)
+        {
+            <ol class="lb-list stats-leaderboard" start="4" aria-label="Other listeners">
+                @for (var i = 3; i < ranking.Count; i++)
+                {
+                    var profile = ranking[i];
+                    <li class="lb-row" data-profile-key="@profile.Id" @key="profile.Id">
+                        <span class="lb-rank">@(i + 1)</span>
+                        <ProfileAvatar Profile="ProfileFor(profile)" Size="44" />
+                        <div class="lb-who">
+                            <strong>@profile.Name</strong>
+                            <small class="@(profile.Online ? "is-online" : "")">@if (profile.Listening && profile.CurrentTrack is { } song) { <span class="sr">Listening now: </span>@song.Title } else { @(profile.Listening ? "Listening now" : profile.Online ? "Online" : "Offline") }</small>
+                            <span class="lb-bar" aria-hidden="true"><i style="width:@((100 * PeriodSeconds(profile) / leader).ToString("0.#", Inv))%"></i></span>
+                        </div>
+                        <span class="lb-row-time">@Duration(PeriodSeconds(profile))</span>
+                        <ListenerMenu Profile="profile" />
+                    </li>
+                }
+            </ol>
+        }
+        <section class="lb-now glass-panel" aria-labelledby="lb-now-title">
+            <h2 id="lb-now-title">Who's here</h2>
+            @foreach (var profile in live.Concat(ranking.Where(p => !p.Listening && p.Online)))
+            {
+                <div class="lb-live-row" @key="profile.Id"><ProfileAvatar Profile="ProfileFor(profile)" Size="36" /><div><strong>@profile.Name</strong><small>@(profile.Listening ? profile.CurrentTrack is { } song ? song.Title + " · " + song.Channel : "Listening now" : "Online")</small></div>@if (profile.Listening) { <span class="listener-equalizer is-playing" aria-hidden="true">@for (var bar = 0; bar < 5; bar++) { <i style="--bar:@bar"></i> }</span> }<ListenerMenu Profile="profile" /></div>
+            }
+            @if (!ranking.Any(p => p.Listening || p.Online)) { <p class="lb-empty">Nobody is online right now.</p> }
+        </section>
+        <section class="stats-listening glass-panel" aria-labelledby="stats-listening-title">
+            <div class="stats-section-heading"><h2 id="stats-listening-title">Everyone together</h2><span>@PeriodLabel</span></div>
+            <strong class="stats-time">@Duration(total)</strong>
+            @if (days.Count > 0)
+            {
+                <svg @key="period" class="stats-line-chart" viewBox="0 0 560 156" preserveAspectRatio="none" role="img" aria-label="@($"Daily listening, {PeriodLabel}: {Duration(total)}")">
+                    <defs><linearGradient id="stats-chart-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent-blue)" stop-opacity=".28" /><stop offset="100%" stop-color="var(--accent-blue)" stop-opacity="0" /></linearGradient></defs>
+                    <path class="stats-chart-grid" d="M0 16H560M0 80H560M0 144H560" />
+                    @if (days.Count > 1) { <path class="stats-chart-area" d="@("M0,144 L" + Points(days,peak).Replace(" ", " L") + " L560,144 Z")" /><polyline class="stats-chart-line" points="@Points(days,peak)" vector-effect="non-scaling-stroke" /> }
+                    @for (var i = 0; i < days.Count; i++) { var day = days[i]; <circle class="stats-chart-point" cx="@X(i,days.Count)" cy="@Y(day.Seconds,peak)" r="@(days.Count > 60 ? "1.5" : "3")"><title>@DayLabel(day.Day): @Duration(day.Seconds)</title></circle> }
+                </svg>
+                <div class="stats-chart-labels"><span>@DayLabel(days[0].Day)</span><span>@DayLabel(days[^1].Day)</span></div>
+            }
+        </section>
+    }
+    else if (data is { } server)
+    {
+        var used = Math.Max(0, server.StorageTotalBytes - server.StorageFreeBytes);
+        var usedPercent = server.StorageTotalBytes > 0 ? Math.Clamp(100d * used / server.StorageTotalBytes, 0, 100) : 0;
+        <div class="srv-grid">
+            <section class="srv-savings glass-panel" aria-labelledby="srv-savings-title">
+                <h2 id="srv-savings-title">Savings</h2>
+                <div class="srv-figures">
+                    <div class="srv-figure"><span>Total saved</span><strong>@Huf(server.SavedHuf)<small> Ft</small></strong></div>
+                    <div class="srv-figure"><span>Per month</span><strong>@Huf(server.MonthlySavedHuf)<small> Ft</small></strong></div>
+                    <div class="srv-figure"><span>Withheld from streamers</span><strong>@Usd(server.RoyaltyUsd)</strong><small>@server.TotalQualifiedPlays.ToString("N0", Inv) plays</small></div>
+                </div>
             </section>
-            <section class="stats-ranking glass-panel" aria-labelledby="stats-ranking-title"><div class="stats-section-heading"><h2 id="stats-ranking-title">Leaderboard</h2></div><table class="stats-leaderboard"><thead><tr><th scope="col">#</th><th scope="col">Profile</th><th scope="col">Listened</th><th scope="col">Saved</th><th scope="col"><span class="sr">Options</span></th></tr></thead><tbody>
-                @{ var rank = 0; }
-                @foreach (var profile in Ranking)
-                { rank++; <tr data-profile-key="@profile.Id" @key="profile.Id" class="@($"stats-rank-{rank} " + (rank == 1 ? "stats-winner" : ""))"><td>@if (rank == 1) { <span class="winner-rank"><MusicIcon Name="crown" /><span>1</span></span> } else { @rank }</td><td><div class="stats-identity"><ProfileAvatar Profile="ProfileFor(profile)" Size="40" /><div><strong>@profile.Name</strong><small class="@(profile.Online ? "is-online" : "")">@if (profile.Listening && profile.CurrentTrack is { } song) { <span class="sr">Listening now: </span>@song.Title <span>&#183; @song.Channel</span> } else { @(profile.Listening ? "Listening now" : profile.Online ? "Online" : "Offline") }</small></div><span class="listener-equalizer @(profile.Listening ? "is-playing" : "")" aria-hidden="true">@for (var bar = 0; bar < 7; bar++) { <i style="--bar:@bar"></i> }</span></div></td><td>@Duration(PeriodSeconds(profile))</td><td class="listener-saved"><span>@Huf(profile.SavedHuf) Ft</span></td><td><ListenerMenu Profile="profile" /></td></tr> }
-            </tbody></table></section>
-                <section class="stats-work glass-panel" aria-labelledby="stats-work-title"><div class="stats-section-heading"><h2 id="stats-work-title">Server work</h2><span>@(stats.Jobs.Count == 0 ? "Idle" : stats.CataloguePaused ? "Prioritizing playback" : stats.Jobs.Count + " active")</span></div>
-                    <div class="stats-work-queue">
-                    @if (stats.Jobs.Count == 0) { <p class="stats-work-empty">No active work</p> }
-                    @foreach (var job in stats.Jobs)
-                    { var percent = Percent(job);
-                        <article class="stats-job">
-                            <div class="stats-job-heading"><strong>@job.Title</strong><span>@WorkKind(job.Kind)</span></div>
-                            @if (!string.IsNullOrWhiteSpace(job.CurrentTitle)) { <p class="stats-current-action">@job.CurrentTitle</p> }
-                            <small>@JobDetail(job)</small>
-                            @if (job.Total is > 0) { <div class="stats-job-count">@job.Processed / @job.Total<span>@job.Remaining left</span></div> }
-                            @if (percent is not null || ShowBar(job)) { <div class="stats-meter @(percent is null ? "is-indeterminate" : "")" role="progressbar" aria-label="@job.Title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@(percent?.ToString("0", Inv))"><i style="width:@((percent ?? 0).ToString("0.###", Inv))%"></i></div> }
-                            @foreach (var file in job.Files) { <div class="stats-work-file"><strong>@file.Title</strong><small>@file.Message</small>@if (file.DownloadBytes > 0) { <span>@Bytes(file.DownloadBytes)@(file.DownloadTotalBytes is > 0 ? " / " + Bytes(file.DownloadTotalBytes.Value) : " received")</span> }</div> }
-                            @if (job.Files.Count == 0 && job.DownloadBytes > 0) { <span class="stats-job-size">@SizeText(job)</span> }
-                            <div class="stats-job-requester"><ProfileAvatar Profile="WorkProfile(job)" Size="28" /><span>@job.User</span></div>
-                        </article>
-                    }
-                    </div>
-
-                </section>
-            <section class="stats-storage-panel glass-panel"><div class="stats-section-heading"><h2>Server storage</h2></div>
-                    <div class="stats-storage-meter" aria-label="Storage used"><i style="width:@((stats.StorageTotalBytes > 0 ? Math.Clamp(100d * (stats.StorageTotalBytes - stats.StorageFreeBytes) / stats.StorageTotalBytes, 0, 100) : 0).ToString("0.##", Inv))%"></i></div>
-                    <div class="stats-storage"><span>@Bytes(Math.Max(0, stats.StorageTotalBytes - stats.StorageFreeBytes)) used</span><span>@Bytes(stats.StorageFreeBytes) free</span><span>@Bytes(stats.StorageTotalBytes) total</span></div>
+            <section class="srv-storage glass-panel" aria-labelledby="srv-storage-title">
+                <h2 id="srv-storage-title">Storage</h2>
+                <div class="srv-ring" style="--used:@usedPercent.ToString("0.#", Inv)" role="img" aria-label="@($"{usedPercent:0} percent of storage used")"><span><strong>@usedPercent.ToString("0", Inv)%</strong><small>used</small></span></div>
+                <dl class="srv-storage-facts"><div><dt>Used</dt><dd>@Bytes(used)</dd></div><div><dt>Free</dt><dd>@Bytes(server.StorageFreeBytes)</dd></div><div><dt>Total</dt><dd>@Bytes(server.StorageTotalBytes)</dd></div></dl>
+            </section>
+            <section class="stats-work srv-work glass-panel" aria-labelledby="stats-work-title"><div class="stats-section-heading"><h2 id="stats-work-title">Server work</h2><span class="srv-work-state @(server.Jobs.Count > 0 ? "is-busy" : "")">@(server.Jobs.Count == 0 ? "Idle" : server.CataloguePaused ? "Prioritizing playback" : server.Jobs.Count + " active")</span></div>
+                <div class="stats-work-queue">
+                @if (server.Jobs.Count == 0) { <p class="stats-work-empty">No active work</p> }
+                @foreach (var job in server.Jobs)
+                { var percent = Percent(job);
+                    <article class="stats-job">
+                        <div class="stats-job-heading"><strong>@job.Title</strong><span>@WorkKind(job.Kind)</span></div>
+                        @if (!string.IsNullOrWhiteSpace(job.CurrentTitle)) { <p class="stats-current-action">@job.CurrentTitle</p> }
+                        <small>@JobDetail(job)</small>
+                        @if (job.Total is > 0) { <div class="stats-job-count">@job.Processed / @job.Total<span>@job.Remaining left</span></div> }
+                        @if (percent is not null || ShowBar(job)) { <div class="stats-meter @(percent is null ? "is-indeterminate" : "")" role="progressbar" aria-label="@job.Title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@(percent?.ToString("0", Inv))"><i style="width:@((percent ?? 0).ToString("0.###", Inv))%"></i></div> }
+                        @foreach (var file in job.Files) { <div class="stats-work-file"><strong>@file.Title</strong><small>@file.Message</small>@if (file.DownloadBytes > 0) { <span>@Bytes(file.DownloadBytes)@(file.DownloadTotalBytes is > 0 ? " / " + Bytes(file.DownloadTotalBytes.Value) : " received")</span> }</div> }
+                        @if (job.Files.Count == 0 && job.DownloadBytes > 0) { <span class="stats-job-size">@SizeText(job)</span> }
+                        <div class="stats-job-requester"><ProfileAvatar Profile="WorkProfile(job)" Size="28" /><span>@job.User</span></div>
+                    </article>
+                }
+                </div>
             </section>
         </div>
     }
@@ -83,8 +135,8 @@
     private IReadOnlyList<DailyListening> Days => (data?.Daily ?? []).Where(d => period == "all" || string.CompareOrdinal(d.Day,StartDay) >= 0).ToArray();
     private double SelectedTotal => period == "week" ? Days.Sum(d => d.Seconds) : data?.Profiles.Sum(PeriodSeconds) ?? 0;
     private double PeriodSeconds(ListenerStatistics profile) => period == "all" ? profile.Seconds : period == "month" ? profile.MonthSeconds : profile.Daily.Where(d => string.CompareOrdinal(d.Day,StartDay) >= 0).Sum(d => d.Seconds);
-    private Task OpenPeriod() => JS.InvokeVoidAsync("familyhub.showPanel", "stats-period-options", "stats-period-toggle", "").AsTask();
-    private async Task SetPeriod(string value) { await JS.InvokeVoidAsync("familyhub.captureLeaderboard"); period = value; await JS.InvokeVoidAsync("familyhub.closeDialog", "stats-period-options", "stats-period-toggle"); }
+    [Parameter] public bool Leaderboard { get; set; }
+    private async Task SetPeriod(string value) { if (period == value) return; await JS.InvokeVoidAsync("familyhub.captureLeaderboard"); period = value; }
     private static string X(int i,int count) => (count <= 1 ? 280d : i * 560d / (count - 1)).ToString("0.##",Inv);
     private static string Y(double seconds,double peak) => (144 - 128 * seconds / peak).ToString("0.##",Inv);
     private static string Points(IReadOnlyList<DailyListening> days,double peak) => string.Join(" ",days.Select((d,i) => X(i,days.Count) + "," + Y(d.Seconds,peak)));
