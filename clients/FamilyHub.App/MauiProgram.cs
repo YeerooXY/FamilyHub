@@ -11,7 +11,9 @@ public static class MauiProgram
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
-            .UseMauiCommunityToolkitMediaElement(isAndroidForegroundServiceEnabled: true)
+            // FamilyHub runs its own Android media session and playback service (PlaybackControls),
+            // which offers Next and Previous; the toolkit's one-song notification stays off.
+            .UseMauiCommunityToolkitMediaElement(isAndroidForegroundServiceEnabled: false)
 			.ConfigureFonts(fonts =>
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");

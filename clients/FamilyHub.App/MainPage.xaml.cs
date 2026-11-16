@@ -106,6 +106,9 @@ public partial class MainPage : ContentPage
         activityTimer.Tick += (_, _) => { session.ObserveListening(player.Preparing || player.Seeking ? null : player.Current, player.QueueIndex, player.Position, player.Playing); _ = session.ReportPlaybackActivityAsync(player.Playing); };
         activityTimer.Start();
         player.Attach(audio, audioNext);
+#if ANDROID
+        PlaybackControls.Start(Microsoft.Maui.ApplicationModel.Platform.AppContext, player, session);
+#endif
         player.Changed += PlaybackChanged; session.Changed += RestorePlayback;
         blazorWebView.UrlLoading += (_, args) => { if (args.Url.Host != "0.0.0.1") args.UrlLoadingStrategy = Microsoft.AspNetCore.Components.WebView.UrlLoadingStrategy.CancelLoad; };
 	}
