@@ -414,6 +414,19 @@ window.familyhub.fitTitle = () => {
  title.style.setProperty('--marquee-distance',`-${distance}px`);
  title.style.setProperty('--marquee-duration',`${(distance/32+2.5).toFixed(1)}s`);
 };
+// Mini player: swipe left for the next song, right for the previous one.
+window.familyhub.bindMiniSwipe = () => {
+ const area=document.querySelector('.player-bar #show-queue'); if(!area||area.dataset.swipeBound)return; area.dataset.swipeBound='1';
+ const bar=area.closest('.player-bar'); let start=null, dx=0, swipedAt=0;
+ const reset=()=>{ area.style.transition='transform .2s ease,opacity .2s ease'; area.style.transform=''; area.style.opacity=''; };
+ area.addEventListener('click',e=>{ if(Date.now()-swipedAt<350){ e.stopImmediatePropagation(); e.preventDefault(); } },true);
+ area.addEventListener('pointerdown',e=>{ if(bar.classList.contains('is-expanded')||!familyhub.isPhone())return; start={x:e.clientX,y:e.clientY}; dx=0; },{passive:true});
+ area.addEventListener('pointermove',e=>{ if(!start)return; const x=e.clientX-start.x, y=e.clientY-start.y; if(Math.abs(x)<10||Math.abs(x)<Math.abs(y))return; dx=x; area.style.transition='none'; area.style.transform=`translateX(${dx}px)`; area.style.opacity=String(Math.max(.35,1-Math.abs(dx)/220)); },{passive:true});
+ const end=()=>{ if(!start)return; start=null; if(Math.abs(dx)>10)swipedAt=Date.now();
+  const buttons=bar.querySelectorAll('.transport-buttons>button'); const target=dx<-64?buttons[3]:dx>64?buttons[1]:null;
+  reset(); if(target&&target.getAttribute('aria-disabled')!=='true')target.click(); dx=0; };
+ area.addEventListener('pointerup',end); area.addEventListener('pointercancel',end);
+};
 // The song options sheet closes when dragged down far enough.
 window.familyhub.bindSheet = (id, closeId) => {
  const sheet=document.getElementById(id); if(!sheet||sheet.dataset.dragBound)return; sheet.dataset.dragBound='1';

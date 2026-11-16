@@ -100,6 +100,7 @@
  .player-bar:not(.is-expanded) { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:60px; align-items:center; padding:6px 52px 6px 8px; margin:0 8px; border-radius:10px; background:linear-gradient(90deg,color-mix(in oklch,var(--accent-blue) 22%,#1b1f29),#1b1f29); }
  .player-bar:not(.is-expanded) .now-playing-group,.player-bar:not(.is-expanded):has(.local-pause-button) .now-playing-group { padding-right:0; }
  .player-bar:not(.is-expanded) #now-add-playlist { display:none; }
+ .player-bar:not(.is-expanded) #show-queue { touch-action:pan-y; }
  .player-bar:not(.is-expanded) .seek-row { display:none; }
  .player-bar:not(.is-expanded) .transport-buttons { gap:4px; }
  .player-bar:not(.is-expanded) .transport-buttons>button:not(#play):not(:nth-child(4)) { display:none; }
@@ -187,7 +188,7 @@
 @media(max-width:360px) {
  .playlist-hero .playlist-action-bar>.quiet,.playlist-hero .playlist-privacy { width:40px; height:40px; padding:9px; }
  .playlist-action-bar .playlist-play { width:52px; height:52px; min-width:52px; }
- .player-bar:not(.is-expanded) .transport-buttons>button:nth-child(4) { display:none; }
+
 }
 @media(prefers-reduced-motion:reduce) {
  .home-shortcut,.home-card,.home-server-card,.playlist-sticky,.library-switch button { transition:none; }

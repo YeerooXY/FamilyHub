@@ -689,7 +689,8 @@ body[data-view=preferences] #view-title { width:min(900px,100%); margin-inline:a
 .playlist-action-bar .playlist-play:hover { background:var(--accent-blue); filter:brightness(1.08); }
 .playlist-action-bar>.quiet,.playlist-privacy { display:grid; place-items:center; width:44px; height:44px; padding:10px; color:var(--muted); }
 .playlist-action-bar .icon { width:24px; height:24px; }
-.playlist-action-bar .playlist-play .icon { width:26px; height:26px; }
+.playlist-action-bar .playlist-play { display:grid; place-items:center; padding:0; }
+.playlist-action-bar .playlist-play .icon { width:26px; height:26px; margin:0; }
 .playlist-action-bar [aria-pressed=true] { color:var(--accent-blue); }
 .playlist-action-bar .playlist-shuffle[aria-pressed=true] { position:relative; }
 .playlist-shuffle[aria-pressed=true]::after { content:''; position:absolute; width:4px; height:4px; border-radius:50%; background:currentColor; bottom:1px; left:calc(50% - 2px); }

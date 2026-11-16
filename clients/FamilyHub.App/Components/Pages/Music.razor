@@ -641,6 +641,7 @@ else
         await JS.InvokeVoidAsync("familyhub.tintPlaylistHeader");
         await JS.InvokeVoidAsync("familyhub.observePlaylistHero");
         if (playerExpanded) await JS.InvokeVoidAsync("familyhub.fitTitle");
+        else await JS.InvokeVoidAsync("familyhub.bindMiniSwipe");
         if (playerToolsOpen) await JS.InvokeVoidAsync("familyhub.bindSheet", "player-options", "player-options-close");
         if (resizeReference is null) { resizeReference = DotNetObjectReference.Create(this); await JS.InvokeVoidAsync("familyhub.bindUpdatePolling", resizeReference); }
         await JS.InvokeVoidAsync("familyhub.bindSidebarResize", resizeReference);
