@@ -42,10 +42,25 @@ class ReviewStore(unittest.TestCase):
         with self.assertRaises(ReviewError):self.store.edit_metadata(FIRST,0,dict(album='Album'))
         self.store.process_one(lambda:True,lambda row:dict(values={}))
         self.assertEqual(self.store.snapshot()['metadata'][0]['state'],'review')
-    def test_lookup_failure_is_review_and_yields_to_playback(self):
+    def test_lookup_failure_retries_later_then_goes_to_review_and_yields_to_playback(self):
         self.observe();self.assertFalse(self.store.process_one(lambda:False))
-        self.store.process_one(lambda:True,lambda row:1)
-        self.assertEqual(self.store.snapshot()['metadata'][0]['state'],'review')
+        def fail(row):raise OSError('MusicBrainz busy')
+        for attempt in range(4):
+            self.store.process_one(lambda:True,fail)
+            row=self.store.snapshot()['metadata'][0]
+            self.assertEqual((row['state'],row['attempts']),('queued',attempt+1))
+            self.assertFalse(self.store.process_one(lambda:True,fail),'waits for its retry time')
+            for stored in self.store.data['metadata'].values():stored['retry_at']=0
+        self.store.process_one(lambda:True,fail)
+        row=self.store.snapshot()['metadata'][0]
+        self.assertEqual((row['state'],row['source']),('review','Lookup unavailable; review manually'))
+    def test_older_automatic_results_are_looked_up_again_once(self):
+        self.observe();self.store.process_one(lambda:True,lambda row:dict(values={},source='No unique title, artist and duration match'))
+        row=next(iter(self.store.data['metadata'].values()));row.pop('lookup_version',None);self.store.dirty=True;self.store.flush()
+        reopened=type(self.store)(self.store.path.parent)
+        self.assertEqual(next(iter(reopened.data['metadata'].values()))['state'],'queued')
+        reopened.process_one(lambda:True,lambda row:dict(values={},source='No unique title, artist and duration match'))
+        self.assertEqual(type(self.store)(self.store.path.parent).snapshot()['metadata'][0]['state'],'review','a current result is not looked up again')
     def test_observe_during_lookup_requeues(self):
         self.observe()
         self.store.process_one(lambda:True,lambda row:(self.observe(title='Corrected title') or {}))
@@ -58,7 +73,22 @@ class ReviewStore(unittest.TestCase):
             self.assertEqual(lookup(row)['values'],dict(album='Album',genre='punk'))
         for bad in ({**candidate,'length':210000},{**candidate,'title':'Song (Live)'}):
             with patch('music_web.catalogue_review.musicbrainz',return_value=dict(recordings=[bad])):self.assertEqual(lookup(row)['values'],{})
-        with patch('music_web.catalogue_review.musicbrainz',return_value=dict(recordings=[candidate,{**candidate,'id':'b'*8+'-bbbb-bbbb-bbbb-'+'b'*12}])):self.assertEqual(lookup(row)['values'],{})
+        other={**candidate,'id':'b'*8+'-bbbb-bbbb-bbbb-'+'b'*12}
+        # The same song released twice (single and album) is one match; different credits are not.
+        with patch('music_web.catalogue_review.musicbrainz',side_effect=[dict(recordings=[candidate,other]),details]):
+            self.assertEqual(lookup(row)['values'],dict(album='Album',genre='punk'))
+        with patch('music_web.catalogue_review.musicbrainz',return_value=dict(recordings=[candidate,{**other,'artist-credit':[{'artist':{'name':'Artist'}},{'artist':{'name':'Guest'}}]}])):self.assertEqual(lookup(row)['values'],{})
+        remaster={**candidate,'title':'Song (Remastered 2011)'}
+        with patch('music_web.catalogue_review.musicbrainz',side_effect=[dict(recordings=[remaster]),details]):
+            self.assertEqual(lookup(row)['values'],dict(album='Album',genre='punk'))
+    def test_missing_recording_genre_uses_the_artist(self):
+        self.observe();row=self.store.snapshot()['metadata'][0]
+        candidate=dict(id='a'*8+'-aaaa-aaaa-aaaa-'+'a'*12,title='Song',length=180000,score=100,**{'artist-credit':[{'artist':{'name':'Artist'}}]})
+        details={'artist-credit':[{'name':'Artist','artist':{'id':'c'*8+'-cccc-cccc-cccc-'+'c'*12}}],'releases':[],'genres':[]}
+        with patch('music_web.catalogue_review.musicbrainz',side_effect=[dict(recordings=[candidate]),details,dict(genres=[{'name':'synth-pop','count':4}])]):
+            self.assertEqual(lookup(row)['values'].get('genre'),'synth-pop')
+        with patch('music_web.catalogue_review.musicbrainz',side_effect=[dict(recordings=[]),dict(artists=[{'name':'Artist','tags':[{'name':'hard rock','count':3}]}])]):
+            self.assertEqual(lookup(row)['values'].get('genre'),'Rock')
         self.assertIn('Remix',seed({},dict(TRACK,title='Artist - Song (Official Remix)'))['title'])
     def test_snapshot_bounds_and_search(self):
         for i in range(105):self.store.flag_trim({**TRACK,'id':f'{i:011d}','title':f'Song {i}'},'a'*64,'one')

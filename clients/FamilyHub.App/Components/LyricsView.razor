@@ -13,6 +13,14 @@
             <header class="lyrics-header">
                 <button id="lyrics-close" class="quiet" aria-label="Close lyrics" title="Close lyrics" @onclick="Close"><MusicIcon Name="chevron-down" /></button>
                 <div><strong id="lyrics-title">@track.Title</strong><span>@track.Channel</span></div>
+                @if (current.State == "synced")
+                {
+                    <div class="lyrics-timing" role="group" aria-label="Lyrics timing">
+                        <button id="lyrics-earlier" class="quiet" @onclick="() => Nudge(.5)" aria-label="Show lyrics earlier">Earlier</button>
+                        <span aria-live="polite">@ShiftLabel</span>
+                        <button id="lyrics-later" class="quiet" @onclick="() => Nudge(-.5)" aria-label="Show lyrics later">Later</button>
+                    </div>
+                }
             </header>
             @if (current.State == "synced")
             {
@@ -21,7 +29,7 @@
                     {
                         var line = current.Lines[i]; var index = i;
                         <li @key="index"><button id="lyric-@index" class="lyric-line @(index == active ? "is-active" : index < active ? "is-past" : "")" aria-current="@(index == active ? "true" : null)"
-                                aria-disabled="@(SeekAllowed ? "false" : "true")" @onclick="() => Seek(line.Time)">@(string.IsNullOrWhiteSpace(line.Text) ? "♪" : line.Text)</button></li>
+                                aria-disabled="@(SeekAllowed ? "false" : "true")" @onclick="() => Seek(line.Time - shift)">@(string.IsNullOrWhiteSpace(line.Text) ? "♪" : line.Text)</button></li>
                     }
                 </ol>
             }
@@ -67,16 +75,40 @@
     private int ActiveLine()
     {
         if (lyrics is not { State: "synced" } synced) return -1;
-        var position = Player.Position + .25;
+        var position = Estimate() + .25 + shift;
         var index = -1;
         for (var i = 0; i < synced.Lines.Count && synced.Lines[i].Time <= position; i++) index = i;
         return index;
+    }
+
+    // The player reports its position in steps; between reports, count the time played.
+    private double lastPosition = -1;
+    private readonly System.Diagnostics.Stopwatch sincePosition = new();
+    private double Estimate()
+    {
+        var position = Player.Position;
+        if (position != lastPosition || !Player.Playing) { lastPosition = position; sincePosition.Restart(); return position; }
+        return position + Math.Min(1.5, sincePosition.Elapsed.TotalSeconds);
+    }
+
+    // Per-song timing nudge, kept on this device: LRCLIB times follow the studio release,
+    // and an upload can start slightly differently. Positive shows lines earlier.
+    private double shift;
+    private string ShiftLabel => shift == 0 ? "Original timing" : Math.Abs(shift).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + (shift > 0 ? " s earlier" : " s later");
+    private static string ShiftKey(string id) => "lyrics-shift:" + id;
+    private void Nudge(double seconds)
+    {
+        if (loadedFor is not { } id) return;
+        shift = Math.Clamp(shift + seconds, -10, 10);
+        Preferences.Default.Set(ShiftKey(id), shift);
+        active = ActiveLine(); revealed = -1;
     }
 
     private void Load()
     {
         loading?.Cancel();
         loadedFor = Player.Current?.Id; lyrics = null; active = revealed = -1;
+        shift = loadedFor is { } song ? Preferences.Default.Get(ShiftKey(song), 0d) : 0;
         if (loadedFor is not { } id || Session.Api is not { } api || !Session.Connected) { _ = Collapse(); return; }
         lock (cache) if (cache.TryGetValue(id, out var known)) { lyrics = known; active = ActiveLine(); return; }
         var cancel = loading = new CancellationTokenSource();

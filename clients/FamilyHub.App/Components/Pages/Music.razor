@@ -91,11 +91,11 @@ else
     <div id="sidebar-resize" role="separator" tabindex="0" aria-label="Resize library sidebar" aria-orientation="vertical" aria-valuemin="72" aria-valuemax="420" aria-valuenow="@(sidebarCollapsed ? 72 : sidebarWidth)"></div>
 </aside>
 <div class="workspace"><main id="content" tabindex="-1">
-    @if (view != "Playlists" && view != "Review" && view != "Home") { <h1 id="view-title">@(view == "Downloads" ? "Cached" : view == "Preferences" ? "Settings" : view == "Stats" ? "Server stats" : view)</h1> }
+    @if (view != "Playlists" && view != "Review" && view != "Home") { <h1 id="view-title">@(view == "Downloads" ? "Downloaded" : view == "Preferences" ? "Settings" : view == "Stats" ? "Server stats" : view)</h1> }
     <p id="feedback" class="operation-status @(error is not null ? "error" : "")" role="status">@(error ?? (Session.DownloadingId is null ? Session.Message : ""))</p>
     @if (LibraryViews.Contains(view) && (view != "Playlists" || Selected is null))
     {
-        <div class="library-switch" role="group" aria-label="Library sections">@foreach (var (tab, label) in new[] { ("Playlists", "Playlists"), ("Library", "Songs"), ("Downloads", "Cached") }) { <button aria-pressed="@Aria(view == tab)" @onclick="() => Navigate(tab)">@label</button> }</div>
+        <div class="library-switch" role="group" aria-label="Library sections">@foreach (var (tab, label) in new[] { ("Playlists", "Playlists"), ("Library", "Songs"), ("Downloads", "Downloaded") }) { <button aria-pressed="@Aria(view == tab)" @onclick="() => Navigate(tab)">@label</button> }</div>
     }
     @if (view == "Home")
     {
@@ -105,7 +105,9 @@ else
     {
         var source = (view == "Downloads" ? Session.DeviceTracks : Session.Library).ToList();
         var tracks = source.Where(t => Matches(t, filter) && (genre.Length == 0 || Genre(t) == genre)).ToList();
-        <div class="library-heading"><p class="note">@source.Count @(view == "Downloads" ? (source.Count == 1 ? "song on this device" : "songs on this device") : "recordings")@if (view == "Downloads") { <span>, @Size(Session.DeviceBytes)</span> }</p>@if (view == "Library") { <UploadSongs /> }</div>
+        var kept = view == "Downloads" ? source.Count(Session.KeptOnDevice) : 0;
+        <div class="library-heading">@if (view == "Downloads") { <dl class="device-sizes"><div><dt>Downloaded</dt><dd>@kept @(kept == 1 ? "song" : "songs"), @Size(Session.DownloadedBytes)</dd></div><div><dt>Cached while playing</dt><dd>@(source.Count - kept) @(source.Count - kept == 1 ? "song" : "songs"), @Size(Math.Max(0, Session.DeviceBytes - Session.DownloadedBytes))</dd></div></dl> }
+        else { <p class="note">@source.Count recordings</p> }@if (view == "Library") { <UploadSongs /> }</div>
         <div class="genre-pills" role="group" aria-label="Genres">
             <button aria-pressed="@Aria(genre.Length == 0)" @onclick='() => genre = ""'>All</button>
             @foreach (var item in source.Select(Genre).Distinct().OrderBy(g => g))
@@ -581,7 +583,7 @@ else
     private static string PlaylistAlbum(PlaylistTrack entry, MusicTrack? track) => !string.IsNullOrWhiteSpace(entry.Album) && entry.Album is not ("Selected recordings" or "Unknown album") ? entry.Album : track?.LibraryAlbum is { Length: > 0 } album && album != "Selected recordings" ? album : "";
     private MusicTrack? NextTrack => Player.QueueIndex + 1 < Player.Queue.Count ? Player.Queue[Player.QueueIndex + 1] : null;
     private static string Genre(MusicTrack track) => string.IsNullOrWhiteSpace(track.Genre) ? "Unsorted" : track.Genre;
-    private static string NavLabel(string tab) => tab switch { "Downloads" => "Cached", "Review" => "Song review", "Stats" => "Server stats", "Leaderboard" => "Leaderboard", _ => tab };
+    private static string NavLabel(string tab) => tab switch { "Downloads" => "Downloaded", "Review" => "Song review", "Stats" => "Server stats", "Leaderboard" => "Leaderboard", _ => tab };
     private static string NavIcon(string tab) => tab switch { "Library" => "library", "Search" => "search", "Downloads" => "down", "Playlists" => "playlist", "Review" => "pencil", "Stats" => "device", "Leaderboard" => "crown", _ => "queue" };
     private Task VolumeChanged(ChangeEventArgs args)
     {

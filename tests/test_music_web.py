@@ -380,6 +380,40 @@ class JobTests(Base):
             self.assertEqual(self.wait(c, jid)["state"], "done")
             self.assertEqual(len(calls), 2)
 
+    def test_listener_pauses_exactly_one_background_download(self):
+        self.fake_ok()
+        c, tok = self.signed_in()
+        started, release = threading.Semaphore(0), threading.Event()
+        yielded, calls = [], []
+        def fetch(args):
+            calls.append(args.url)
+            started.release()
+            while not release.is_set():
+                try: self.intake.CONTROL.budget()
+                except Exception: yielded.append(args.url); raise
+                time.sleep(.01)
+            return {"item": os.path.join(self.ws, "yt-item")}
+        with mock.patch.object(self.intake, "cmd_fetch", side_effect=fetch):
+            first = self.start(c, tok).json["job"]["id"]
+            self.assertTrue(started.acquire(timeout=1))
+            other, other_token = self.signed_in("sample-b")
+            second = self.start(other, other_token, url="https://www.youtube.com/watch?v=abcdefghijk").json["job"]["id"]
+            self.assertTrue(started.acquire(timeout=1))
+            for jid, progress in ((first, 5 << 20), (second, 1 << 20)):
+                self.state.jobs[jid].update(playlist_import=True, current=False, priority=20, download_bytes=progress)
+            self.state.jobs['urgent'] = dict(state='running', priority=0, current=True, owner='sample-b', cancel=threading.Event(), created=time.time())
+            deadline = time.monotonic() + 2
+            while not yielded and time.monotonic() < deadline: time.sleep(.01)
+            time.sleep(.3)
+            self.assertEqual(len(yielded), 1, "only one background download pauses")
+            self.assertTrue(yielded[0].endswith("abcdefghijk"), "the download with the least progress pauses")
+            self.assertEqual(self.state.jobs[first]["state"], "running")
+            self.assertEqual(self.state.jobs[second]["state"], "queued")
+            self.state.jobs['urgent']['state'] = 'done'
+            release.set()
+            self.assertEqual(self.wait(c, first)["state"], "done")
+            self.assertEqual(self.wait(other, second)["state"], "done", "the paused download resumes after the listener")
+
     def test_other_user_same_source_waits_without_409(self):
         self.fake_ok()
         gate = threading.Event()

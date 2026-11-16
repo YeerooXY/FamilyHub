@@ -142,7 +142,7 @@ body[data-stars=off] .workspace>.panel-sky,body[data-stars=off] .sidebar>.panel-
 .sidebar-top .header-icon { color:var(--muted); }
 .workspace>main { position:relative; z-index:1; grid-area:1 / 1; overflow:auto; background:transparent; border-radius:10px; padding:24px; scroll-padding-top:76px; }
 .workspace>main h1 { font-size:28px; }
-.genre-pills { position:sticky; top:-24px; z-index:5; margin:0 -24px 16px; padding:12px 24px; background:transparent; transition:background-color .18s ease; }
+.genre-pills { position:sticky; top:-24px; z-index:5; display:flex; flex-wrap:wrap; gap:8px; margin:0 -24px 16px; padding:12px 24px; background:transparent; transition:background-color .18s ease; }
 .genre-pills.is-stuck { background:var(--panel-hue); box-shadow:0 6px 12px #0002; }
 .genre-pills button { min-height:36px; padding:0 14px; }
 .theme-label { display:block; padding:10px 12px 4px; color:var(--muted); font-size:12px; }
@@ -160,7 +160,8 @@ body[data-stars=off] .workspace>.panel-sky,body[data-stars=off] .sidebar>.panel-
  .sidebar { border-radius:10px 10px 0 0; padding:4px 8px calc(4px + env(safe-area-inset-bottom)); }
  .workspace { margin:0 8px; }
  .workspace>main { margin:0; padding:16px; }
- .genre-pills { top:-16px; margin-inline:-16px; padding:10px 16px; }
+ .genre-pills { top:-16px; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; margin-inline:-16px; padding:10px 16px; }
+ .genre-pills button { flex:none; }
  .genre-pills button { min-height:44px; }
 }
 @media(prefers-reduced-motion:reduce) { .genre-pills { transition:none; } }
@@ -719,3 +720,9 @@ input:not([type=range]),textarea,[contenteditable=true] { -webkit-user-select:te
 @media(max-width:720px) { .playlist-identity { flex-direction:column; align-items:flex-start; gap:18px; }.playlist-identity>.cover,.playlist-identity>.playlist-image-picker { width:184px; height:184px; align-self:center; } }
 .new-playlist-sources { display:flex; flex-wrap:wrap; gap:8px; margin:20px 0; }.new-playlist-sources button { min-height:40px; border:1px solid #ffffff16; border-radius:20px; padding:8px 12px; font-size:12px; }.new-playlist-sources button[aria-pressed=true] { color:var(--accent-blue); border-color:var(--accent-blue); background:color-mix(in srgb,var(--accent-blue) 8%,transparent); }
 @media(max-width:720px) { .playlist-identity>.cover,.playlist-identity>.playlist-image-picker { align-self:flex-start; }.playlist-identity .image-picker-caption { opacity:0; }.playlist-identity .playlist-image-picker:focus-within .image-picker-caption { opacity:1; } }
+
+/* Downloaded view: kept songs and the playback cache are counted separately. */
+.device-sizes { display:flex; flex-wrap:wrap; gap:8px 24px; margin:0; }
+.device-sizes>div { display:grid; gap:2px; }
+.device-sizes dt { font-size:12px; color:var(--muted); }
+.device-sizes dd { margin:0; font-size:14px; font-weight:600; font-variant-numeric:tabular-nums; }

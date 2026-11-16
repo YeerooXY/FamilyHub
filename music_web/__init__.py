@@ -617,8 +617,26 @@ def create_app(test_config=None):
         result["jobs"] += [{**row, "user": names.get(row["owner"],row["owner"])} for row in playlist_preparation.work()]
         return jsonify(result)
 
+    def background_download(j):
+        return j.get("playlist_import") and not j.get("current") and not j.get("analyzing")
+
+    def yields_to_listener(job):
+        # A listener's song pauses exactly one background playlist download: the one with
+        # the least progress, so the least work is repeated. The others keep running.
+        if not background_download(job) or not playback_demand():
+            return False
+        with lock:
+            if any(j.get("yielded") and j["state"] == "queued" and not j["cancel"].is_set() for j in jobs.values()):
+                return False
+            running = [j for j in jobs.values() if j["state"] == "running" and background_download(j) and not j["cancel"].is_set()]
+            victim = min(running, key=lambda j: (j.get("download_bytes") or 0, -j["created"]), default=None)
+            if victim is not job:
+                return False
+            job["yielded"] = True
+            return True
+
     def job_budget(job):
-        if job.get("playlist_import") and not job.get("current") and playback_demand():
+        if yields_to_listener(job):
             raise PlaybackYield()
         budget()
 
@@ -785,7 +803,7 @@ def create_app(test_config=None):
             with suppress(OSError, intake.IntakeError):
                 remove_preview(job["id"])
             job["assets"].clear()
-            job.update(state="queued", message="Waiting for playback preparation", phase="queued",
+            job.update(state="queued", message="Paused so a listener's song goes first", phase="queued",
                        preview_state="pending", download_bytes=0, download_total_bytes=None)
             intake.CONTROL.cancel = None
             intake.CONTROL.budget = None
@@ -895,7 +913,7 @@ def create_app(test_config=None):
                             job["analyzing"] = True
                             future = pool.submit(analyze_job, job)
                         else:
-                            job["state"] = "running"
+                            job["state"] = "running"; job.pop("yielded", None)
                             future = pool.submit(work, job, job.get("url"), job.get("tmp"), job["meta"])
                         active[future] = (job, analyzing)
                         continue
@@ -1215,8 +1233,10 @@ def create_app(test_config=None):
                     if metadata_lookup:
                         library_tracks()
                         catalogue_review.flush()
-                        for _ in range(3):
-                            if not catalogue_review.process_one(lambda:not playback_demand()):break
+                        # Up to eight songs per cycle, within about 20 seconds (MusicBrainz allows one request a second).
+                        until = time.monotonic() + 20
+                        for _ in range(8):
+                            if time.monotonic() > until or not catalogue_review.process_one(lambda:not playback_demand()):break
                 except Exception as error:
                     log.warning("automatic playlist queue: %s", type(error).__name__)
         auto_thread = threading.Thread(target=automatic_playlists,name="playlist-idle-queue",daemon=True)

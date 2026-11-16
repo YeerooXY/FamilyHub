@@ -223,3 +223,9 @@
 .invite-status.is-visible { opacity:1; transform:none; }
 .invite-status .icon { width:16px; height:16px; }
 @media(prefers-reduced-motion:reduce) { .invite-choice,.invite-choice>.icon,.listening-dialog .session-action,.invite-status { transition:none; } .invite-choice.is-chosen>.icon { transform:none; } }
+
+/* Lyrics timing nudge, at the right of the lyrics header. */
+.lyrics-header>.lyrics-timing { display:flex; align-items:center; gap:4px; margin-left:auto; flex-shrink:0; }
+.lyrics-timing button { min-height:36px; padding:0 12px; border-radius:18px; font-size:13px; background:#ffffff14; }
+.lyrics-timing span { min-width:88px; font-size:12px; text-align:center; color:var(--muted); font-variant-numeric:tabular-nums; }
+@media(max-width:420px) { .lyrics-timing span { min-width:0; } .lyrics-timing button { padding:0 10px; } }

@@ -5,12 +5,19 @@ import json
 from pathlib import Path
 import re
 import threading
+import time
 import unicodedata
 from .musicbrainz import read as musicbrainz
+from .genres import group as genre_group
 
 ID=re.compile(r'(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})')
 UNKNOWN={'','unknown','unknown artist','unknown album','unsorted','selected recordings','youtube','local imports'}
 FIELDS=('artist','album','genre')
+# Raise when the lookup improves: automatic results from older versions are looked up again.
+LOOKUP_VERSION=2
+AUTOMATIC_SOURCES={'No unique title, artist and duration match','Lookup unavailable; review manually','MusicBrainz','File/source tags',''}
+# Failed lookups (MusicBrainz busy or unreachable) retry after 30 minutes, then 1, 2 and 4 hours.
+RETRY_SECONDS=(1800,3600,7200,14400)
 
 class ReviewError(ValueError):
     def __init__(self,message,status=400):super().__init__(message);self.status=status
@@ -25,6 +32,27 @@ def text(value,limit=120):
 def normal(value):
     value=''.join(c for c in unicodedata.normalize('NFKD',value or '') if not unicodedata.combining(c))
     return re.sub(r'[^\w]+',' ',value.casefold()).strip()
+
+def core_title(value):
+    # "Song (feat. X)", "Song [Remastered 2011]" and "Song - Radio Edit" name the same song for matching.
+    # Brackets naming a different performance (live, remix, acoustic...) stay part of the title.
+    value=re.sub(r'\s*[\[(][^\])]*[\])]',lambda m:m.group(0) if re.search(r'live|remix|acoustic|instrumental|slowed|sped|nightcore|cover|demo|karaoke|unplugged',m.group(0),re.I) else '',value or '')
+    value=re.sub(r'\s+(?:feat\.?|ft\.?|featuring)\s.*$','',value,flags=re.I)
+    value=re.sub(r'\s+-\s+(?:radio edit|remaster(?:ed)?(?: \d{4})?|single version|original mix)$','',value,flags=re.I)
+    return normal(value)
+
+def artist_genre(artist_id='',name=''):
+    # Recording genres are sparse on MusicBrainz; the artist's genres and tags cover most songs.
+    if artist_id and re.fullmatch(r'[0-9a-f-]{36}',artist_id):
+        artist=musicbrainz('artist/'+artist_id,inc='genres+tags')
+    else:
+        found=[a for a in musicbrainz('artist/',query='artist:"'+name.replace('"',' ')+'"',limit=3).get('artists',[]) if normal(a.get('name',''))==normal(name)]
+        if len(found)!=1:return ''
+        artist=found[0]
+    genres=sorted(artist.get('genres') or [],key=lambda g:g.get('count',0),reverse=True)
+    if genres and genres[0].get('count',0)>0:return str(genres[0]['name'])[:80]
+    label=genre_group(artist.get('tags') or [])
+    return '' if label=='Unsorted' else label
 
 def seed(source,track):
     title=source.get('track_title') or track['title']
@@ -44,17 +72,25 @@ def lookup(row):
     title,artist=seed_info['title'],seed_info['artist']
     if not title or missing(artist):return dict(values=values,suggested={},source_url='',source='No unambiguous artist')
     quote=lambda value:'"'+value.replace('\\',' ').replace('"',' ')+'"'
-    found=musicbrainz('recording/',query='recording:'+quote(title)+' AND artist:'+quote(artist),limit=8).get('recordings',[])
+    found=musicbrainz('recording/',query='recording:'+quote(core_title(title) or title)+' AND artist:'+quote(artist),limit=15).get('recordings',[])
     exact=[]
     for candidate in found:
         artists=[normal(c.get('artist',{}).get('name',c.get('name',''))) for c in candidate.get('artist-credit',[]) if isinstance(c,dict)]
         duration=candidate.get('length')
-        if (normal(candidate.get('title',''))==normal(title) and normal(artist) in artists
+        if (core_title(candidate.get('title',''))==core_title(title) and normal(artist) in artists
                 and type(duration) in (int,float) and seed_info['duration']>0 and abs(duration/1000-seed_info['duration'])<=3
-                and int(candidate.get('score',0))>=95):exact.append(candidate)
+                and int(candidate.get('score',0))>=90):exact.append(candidate)
     exact={c['id']:c for c in exact if re.fullmatch(r'[0-9a-f-]{36}',c.get('id',''))}
-    if len(exact)!=1:return dict(values=values,suggested={},source_url='',source='No unique title, artist and duration match')
-    identifier=next(iter(exact));record=musicbrainz('recording/'+identifier,inc='artists+releases+genres')
+    # The same song is often several MusicBrainz recordings (single, album, remaster). They count
+    # as one match when every candidate credits the same artists; the best-scored one is read.
+    credits={tuple(sorted(normal(c.get('artist',{}).get('name',c.get('name',''))) for c in r.get('artist-credit',[]) if isinstance(c,dict))) for r in exact.values()}
+    if not exact or len(credits)!=1:
+        if 'genre' in row['missing'] and 'genre' not in values:
+            genre=artist_genre(name=artist)
+            if genre:values['genre']=genre;suggested['genre']=genre
+        return dict(values=values,suggested=suggested,source_url='',source='No unique title, artist and duration match')
+    identifier=max(exact.values(),key=lambda r:(int(r.get('score',0)),len(r.get('releases') or [])))['id']
+    record=musicbrainz('recording/'+identifier,inc='artists+releases+genres')
     source_url='https://musicbrainz.org/recording/'+identifier
     credit=''.join(c.get('name',c.get('artist',{}).get('name',''))+c.get('joinphrase','') for c in record.get('artist-credit',[]) if isinstance(c,dict)).strip()
     if credit:suggested['artist']=credit[:120]
@@ -64,6 +100,10 @@ def lookup(row):
     if len(titles)==1:suggested['album']=next(iter(titles))[:120]
     genres=sorted(record.get('genres',[]),key=lambda g:g.get('count',0),reverse=True)
     if genres and genres[0].get('count',0)>0:suggested['genre']=str(genres[0]['name'])[:80]
+    elif 'genre' in row['missing']:
+        credited=next((c.get('artist',{}).get('id','') for c in record.get('artist-credit',[]) if isinstance(c,dict)),'')
+        genre=artist_genre(artist_id=credited,name=artist)
+        if genre:suggested['genre']=genre
     for key,value in suggested.items():
         if key in row['missing'] and not missing(value):values.setdefault(key,value)
     return dict(values=values,suggested=suggested,source_url=source_url,source='MusicBrainz')
@@ -79,6 +119,9 @@ class CatalogueReview:
             if not isinstance(self.data[section],dict) or len(self.data[section])>self.MAX_ROWS:raise ReviewError('Invalid catalogue review store.')
         for row in self.data['metadata'].values():
             if row.get('state')=='processing':row['state']='queued';self.dirty=True
+            # Automatic results from an older lookup get one more try; owner edits keep their fields.
+            if row.get('state')=='review' and row.get('lookup_version',1)<LOOKUP_VERSION and row.get('source','') in AUTOMATIC_SOURCES:
+                row.update(state='queued',lookup_version=LOOKUP_VERSION,attempts=0);row.pop('retry_at',None);self.dirty=True
 
     def flush(self):
         with self.lock:
@@ -149,16 +192,24 @@ class CatalogueReview:
     def process_one(self,allowed,resolver=lookup):
         if not allowed():return False
         with self.lock:
-            row=next((r for r in self.data['metadata'].values() if r['state']=='queued'),None)
+            now=time.time()
+            row=next((r for r in self.data['metadata'].values() if r['state']=='queued' and r.get('retry_at',0)<=now),None)
             if row is None:return False
             row.update(state='processing',revision=row['revision']+1);version=row['revision'];captured=copy.deepcopy(row);self.dirty=True;self.flush()
         try:
             result=resolver(captured)
             if not isinstance(result,dict) or not isinstance(result.get('values',{}),dict):raise ReviewError('Invalid metadata result.')
             result['values']={key:text(value,80 if key=='genre' else 120) for key,value in result.get('values',{}).items() if key in FIELDS}
-        except Exception:result=dict(values={},suggested={},source_url='',source='Lookup unavailable; review manually')
+        except Exception:result=None
         with self.lock:
             if row['revision']!=version or row['state']!='processing':return True
+            if result is None:
+                attempts=row.get('attempts',0)
+                if attempts<len(RETRY_SECONDS):
+                    row.update(state='queued',attempts=attempts+1,retry_at=time.time()+RETRY_SECONDS[attempts],revision=row['revision']+1)
+                    self.dirty=True;self.flush();return True
+                result=dict(values={},suggested={},source_url='',source='Lookup unavailable; review manually')
+            row['lookup_version']=LOOKUP_VERSION
             row.update(suggested=result.get('suggested',{}),source=result.get('source',''),source_url=result.get('source_url',''))
             self._apply(row,{k:v for k,v in result.get('values',{}).items() if k in row['missing']})
             self.flush()

@@ -4,7 +4,8 @@ namespace FamilyHub.App;
 
 public sealed record LocalAudioFile(string Name, long Size, Func<CancellationToken, Task<Stream>> OpenRead);
 
-public sealed record LocalAudioFolderSelection(IReadOnlyList<LocalAudioFile> Files, int Skipped, bool LimitReached);
+/// <param name="Name">The chosen folder's own name, offered as a playlist name.</param>
+public sealed record LocalAudioFolderSelection(IReadOnlyList<LocalAudioFile> Files, int Skipped, bool LimitReached, string Name = "");
 
 public static class LocalAudioFolderPicker
 {
@@ -159,7 +160,7 @@ public static class LocalAudioFolderPicker
         }
 
         await WalkAsync(root, 0);
-        return new LocalAudioFolderSelection(new ReadOnlyCollection<LocalAudioFile>(files), skipped, limitReached);
+        return new LocalAudioFolderSelection(new ReadOnlyCollection<LocalAudioFile>(files), skipped, limitReached, root.Name);
     }
 #endif
 
@@ -267,7 +268,7 @@ public static class LocalAudioFolderPicker
         }
 
         Walk(rootId, 0);
-        return new LocalAudioFolderSelection(new ReadOnlyCollection<LocalAudioFile>(files), skipped, limitReached);
+        return new LocalAudioFolderSelection(new ReadOnlyCollection<LocalAudioFile>(files), skipped, limitReached, rootId.Split(':').Last().Split('/').Last());
     }
 #endif
 }

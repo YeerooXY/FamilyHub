@@ -1,7 +1,7 @@
 /* Leaderboard and Server pages. Loaded last; the shared stats rules stay in server-stats.css. */
 
 /* Leaderboard */
-.leaderboard-page { display:grid; grid-template-columns:minmax(0,1fr); gap:20px; max-width:880px; }
+.leaderboard-page { display:grid; grid-template-columns:minmax(0,1fr); gap:20px; width:100%; max-width:880px; margin-inline:auto; }
 .leaderboard-page .stats-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0; }
 .lb-periods { display:inline-flex; gap:4px; padding:4px; border-radius:24px; background:#ffffff0d; }
 .lb-period { min-height:40px; padding:0 16px; border:0; border-radius:20px; font-size:14px; font-weight:600; color:var(--muted); background:transparent; transition:background-color .2s ease,color .2s ease; }
@@ -14,7 +14,9 @@
 .lb-place-3 { --place:var(--bronze); }
 .lb-place strong { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:15px; }
 .lb-place-1 strong { font-size:17px; }
-.lb-time { font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
+/* Listening time is the headline figure: large, in the place's medal colour. */
+.lb-time { font-size:20px; font-weight:800; letter-spacing:-.01em; color:color-mix(in oklch,var(--place) 70%,#fff); font-variant-numeric:tabular-nums; }
+.lb-place-1 .lb-time { font-size:26px; }
 .lb-avatar { position:relative; margin-bottom:4px; }
 .lb-avatar .profile-avatar { box-shadow:0 0 0 3px var(--place),0 10px 28px #0007; }
 .lb-crown { position:absolute; left:50%; top:-30px; transform:translateX(-50%); color:var(--gold); filter:drop-shadow(0 4px 10px #f3c55b66); }
@@ -49,7 +51,7 @@
 .lb-status.is-listening { color:var(--ink); }
 .lb-status.is-listening>i { background:var(--accent-blue); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent-blue) 30%,transparent); }
 .lb-figures { display:grid; justify-items:end; gap:2px; text-align:right; }
-.lb-figures strong { font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.lb-figures strong { font-size:17px; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .lb-figures small { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
 .lb-bar { display:block; height:4px; border-radius:2px; overflow:hidden; background:#ffffff14; }
 .lb-bar i { display:block; height:100%; border-radius:inherit; background:var(--accent-blue); transition:width .4s ease; }
@@ -65,7 +67,10 @@
 .lb-now,.leaderboard-page .stats-listening { padding:20px; border-radius:16px; }
 .lb-now h2,.leaderboard-page .stats-listening h2,.srv-grid h2 { margin:0 0 12px; font-size:18px; }
 .lb-live-row { display:grid; grid-template-columns:36px minmax(0,1fr) auto auto; align-items:center; gap:12px; min-height:52px; }
-.lb-live-row>div:not([popover]) { display:grid; gap:2px; min-width:0; }
+.lb-live-row>div:not([popover]) { grid-column:2; display:grid; gap:2px; min-width:0; }
+/* Fixed columns, so the menu lines up whether or not the equalizer shows. */
+.lb-live-row>.listener-equalizer { grid-column:3; }
+.lb-live-row>.listener-options { grid-column:4; }
 .lb-live-row strong { font-size:14px; }
 .lb-live-row small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--muted); }
 .lb-empty { margin:0; font-size:14px; color:var(--muted); }
@@ -75,7 +80,7 @@
 }
 
 /* Server */
-.server-page { display:grid; gap:20px; max-width:1100px; }
+.server-page { display:grid; gap:20px; width:100%; max-width:1100px; margin-inline:auto; }
 .server-page .stats-toolbar { display:flex; flex-wrap:nowrap; align-items:center; justify-content:space-between; gap:12px; margin:0; }
 .server-page .stats-server-status { flex-wrap:wrap; min-width:0; }
 .srv-work,.srv-work .stats-work-queue { min-height:0; }
@@ -120,3 +125,11 @@
  .srv-ring { width:104px; height:104px; }
 }
 @media(prefers-reduced-motion:reduce) { .lb-step { animation:none; } .lb-period,.lb-bar i { transition:none; } }
+
+/* Both pages sit in the middle of the workspace, title and period choice included. */
+body[data-view=leaderboard] #view-title,body[data-view=stats] #view-title { text-align:center; }
+@media(min-width:601px) {
+ .leaderboard-page .stats-toolbar { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); }
+ .leaderboard-page .stats-toolbar>.lb-periods { grid-column:2; }
+ .leaderboard-page .stats-toolbar>:not(.lb-periods) { grid-column:3; justify-self:end; }
+}
