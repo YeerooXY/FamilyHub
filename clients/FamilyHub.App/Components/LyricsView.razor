@@ -58,10 +58,10 @@
 
     private void Changed() => _ = InvokeAsync(() =>
     {
-        if (Player.Current?.Id != loadedFor) Load();
+        if (Player.Current?.Id != loadedFor) { Load(); StateHasChanged(); return; }
+        // Redraw only when the highlighted line moves, not on every progress update.
         var next = ActiveLine();
         if (next != active) { active = next; StateHasChanged(); }
-        else if (lyrics is null || !Expanded) StateHasChanged();
     });
 
     private int ActiveLine()

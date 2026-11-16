@@ -153,11 +153,10 @@
  .player-bar.is-expanded #now-title { display:flex; overflow:hidden; white-space:nowrap; }
  .player-bar.is-expanded #now-title .marquee-text { flex:none; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
  .player-bar.is-expanded #now-title.is-marquee { -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 24px),transparent); mask-image:linear-gradient(90deg,#000 calc(100% - 24px),transparent); }
- .player-bar.is-expanded #now-title.is-marquee .marquee-text { max-width:none; overflow:visible; padding-right:48px; animation:title-marquee var(--marquee-duration,10s) linear infinite; }
+ .player-bar.is-expanded #now-title.is-marquee .marquee-text { max-width:none; overflow:visible; padding-right:48px; will-change:transform; }
 }
 @keyframes now-playing-open { from { opacity:0; transform:translateY(24px); } }
 @keyframes sheet-open { from { transform:translateY(100%); } }
-@keyframes title-marquee { 0%,22% { transform:translateX(0); } 100% { transform:translateX(var(--marquee-distance,0)); } }
 .sheet-song,.sheet-only,.lyrics-preview { display:none; }
 
 /* Lyrics: a card under the Now Playing controls and a full view that follows the song. */

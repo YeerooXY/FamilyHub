@@ -400,19 +400,30 @@ window.familyhub.revealLyric = id => {
  list.scrollTo({top,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
 };
 // Long titles in Now Playing scroll sideways, pause, then come round again.
+// Measured once per song; the animation runs on the GPU with fixed pixel values.
 window.familyhub.fitTitle = () => {
- const title=document.querySelector('.player-bar.is-expanded #now-title'); if(!title)return;
- const text=title.querySelector('.marquee-text'); if(!text)return;
- const overflow=text.scrollWidth>title.clientWidth+2 && !matchMedia('(prefers-reduced-motion: reduce)').matches;
- if(title.dataset.fitted===text.textContent+overflow)return;
- title.dataset.fitted=text.textContent+overflow;
- title.classList.toggle('is-marquee',overflow);
+ // Full-screen Now Playing and lyrics cover the star background; stop drawing it meanwhile.
+ const covered=!!document.querySelector('.player-bar.is-expanded,.lyrics-view');
+ if((document.body.dataset.visualPaused==='true')!==covered){ if(covered)document.body.dataset.visualPaused='true'; else delete document.body.dataset.visualPaused; }
+ const title=document.getElementById('now-title'), text=title?.querySelector('.marquee-text'); if(!text)return;
+ const expanded=!!title.closest('.player-bar.is-expanded');
+ const key=expanded?text.textContent:'';
+ if(title.dataset.fitted===key)return;
+ title.dataset.fitted=key;
+ familyhub.titleAnimations?.forEach(a=>a.cancel()); familyhub.titleAnimations=[];
  title.querySelector('.marquee-copy')?.remove();
+ title.classList.remove('is-marquee');
+ if(!expanded)return;
+ const overflow=text.scrollWidth>title.clientWidth+2 && !matchMedia('(prefers-reduced-motion: reduce)').matches;
  if(!overflow)return;
+ title.classList.add('is-marquee');
  const copy=text.cloneNode(true); copy.classList.add('marquee-copy'); copy.setAttribute('aria-hidden','true'); title.appendChild(copy);
- const distance=text.scrollWidth+48;
- title.style.setProperty('--marquee-distance',`-${distance}px`);
- title.style.setProperty('--marquee-duration',`${(distance/32+2.5).toFixed(1)}s`);
+ const distance=text.getBoundingClientRect().width;
+ // 2.5 s still, then about 40 px a second until the copy takes the original's place.
+ const duration=Math.round(2500+distance/40*1000), hold=2500/duration;
+ const frames=[{transform:'translate3d(0,0,0)',offset:0},{transform:'translate3d(0,0,0)',offset:hold},{transform:`translate3d(${-distance}px,0,0)`,offset:1}];
+ const timing={duration,iterations:Infinity,easing:'linear'};
+ familyhub.titleAnimations=[text.animate(frames,timing),copy.animate(frames,timing)];
 };
 // Mini player: swipe left for the next song, right for the previous one.
 window.familyhub.bindMiniSwipe = () => {

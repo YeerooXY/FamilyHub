@@ -13,8 +13,8 @@
     <MauiXamlInflator>SourceGen</MauiXamlInflator>
     <ApplicationTitle>FamilyHub Music</ApplicationTitle>
     <ApplicationId>org.familyhub.music</ApplicationId>
-    <ApplicationDisplayVersion>0.1.39</ApplicationDisplayVersion>
-    <ApplicationVersion>40</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1.40</ApplicationDisplayVersion>
+    <ApplicationVersion>41</ApplicationVersion>
     <Version>$(ApplicationDisplayVersion)</Version>
     <WindowsPackageType>None</WindowsPackageType>
     <ApplicationIcon Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">Resources\AppIcon\appicon.ico</ApplicationIcon>

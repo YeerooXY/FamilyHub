@@ -608,7 +608,7 @@ else
     private async Task SetAutoDj(ChangeEventArgs args) { Player.AutoDj = args.Value is true; await Session.SavePreferencesAsync(Player.Volume, Player.Shuffle, Player.AutoDj); }
     protected override async Task OnInitializedAsync()
     {
-        Session.Changed += Changed; Player.Changed += Changed;
+        Session.Changed += Changed; Player.Changed += PlayerChanged;
         BackNavigation.Handler = async () => { var handled = false; await InvokeAsync(async () => handled = await StepBack()); return handled; };
         await Session.InitializeAsync(); server = Session.Server;
     }
@@ -640,8 +640,8 @@ else
         await JS.InvokeVoidAsync("familyhub.observePanel");
         await JS.InvokeVoidAsync("familyhub.tintPlaylistHeader");
         await JS.InvokeVoidAsync("familyhub.observePlaylistHero");
-        if (playerExpanded) await JS.InvokeVoidAsync("familyhub.fitTitle");
-        else await JS.InvokeVoidAsync("familyhub.bindMiniSwipe");
+        await JS.InvokeVoidAsync("familyhub.fitTitle");
+        if (!playerExpanded) await JS.InvokeVoidAsync("familyhub.bindMiniSwipe");
         if (playerToolsOpen) await JS.InvokeVoidAsync("familyhub.bindSheet", "player-options", "player-options-close");
         if (resizeReference is null) { resizeReference = DotNetObjectReference.Create(this); await JS.InvokeVoidAsync("familyhub.bindUpdatePolling", resizeReference); }
         await JS.InvokeVoidAsync("familyhub.bindSidebarResize", resizeReference);
@@ -689,6 +689,16 @@ else
         wasDownloading = Session.DownloadingId is not null;
     }
     private void Changed() => _ = InvokeAsync(StateHasChanged);
+    // The player reports progress five times a second. The seek bar and lyrics follow it
+    // themselves; this page redraws only when something it shows changes.
+    private object? playerState;
+    private void PlayerChanged() => _ = InvokeAsync(() =>
+    {
+        var state = (Player.Current?.Id, Player.Playing, Player.Seeking, Player.PlaybackRequested, Player.Preparing, Player.CanSeek, Player.FollowingHost,
+            Player.Queue.Count, Player.QueueIndex, NextTrack?.Id, Player.Shuffle, Player.RepeatMode, Player.Volume, Player.AudioOutputId, Together.LocallyPaused);
+        if (Equals(state, playerState)) return;
+        playerState = state; StateHasChanged();
+    });
     // Android Back: dialogs first, then Now Playing, menus, the open playlist, the previous view, then Home.
     private async Task<bool> StepBack()
     {
@@ -709,7 +719,7 @@ else
         StateHasChanged();
         return true;
     }
-    public void Dispose() { if (BackNavigation.Handler is not null) BackNavigation.Handler = null; updateChecksStopped = true; _ = JS.InvokeVoidAsync("familyhub.stopUpdatePolling"); resizeReference?.Dispose(); queueNoticeTimer?.Cancel(); queueNoticeTimer?.Dispose(); CancelSearch(); Session.Changed -= Changed; Player.Changed -= Changed; }
+    public void Dispose() { if (BackNavigation.Handler is not null) BackNavigation.Handler = null; updateChecksStopped = true; _ = JS.InvokeVoidAsync("familyhub.stopUpdatePolling"); resizeReference?.Dispose(); queueNoticeTimer?.Cancel(); queueNoticeTimer?.Dispose(); CancelSearch(); Session.Changed -= Changed; Player.Changed -= PlayerChanged; }
     private void RememberView(string tab)
     {
         if (view == tab) return;
