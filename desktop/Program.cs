@@ -13,7 +13,8 @@ internal record MusicLogin(string Username, string Password);
 
 internal static class Program
 {
-    internal static readonly Uri Origin = new("https://familyhub.example.ts.net:8444/");
+    // The server address is set per install (FAMILYHUB_ORIGIN), so the public source holds no private address.
+    internal static readonly Uri Origin = new(Environment.GetEnvironmentVariable("FAMILYHUB_ORIGIN") is { Length: > 0 } origin ? origin : "https://familyhub.example.ts.net:8444/");
     internal static readonly string StateDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FamilyHub", "Music");
     private static string LoginPath => Path.Combine(StateDirectory, "login.dpapi");
 
