@@ -183,6 +183,12 @@ public sealed class FamilyHubApi : IDisposable
     public Task<HttpResponseMessage> OpenAppUpdateAsync(AppRelease release, CancellationToken cancellationToken = default) =>
         SendAsync(HttpMethod.Get, release.DownloadUrl, null, cancellationToken);
 
+    public Task<SongLyrics> GetLyricsAsync(string id, CancellationToken cancellationToken = default)
+    {
+        if (!Regex.IsMatch(id, "^(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})$")) throw new ArgumentException("Invalid recording identifier.");
+        return RequestJsonAsync<SongLyrics>(HttpMethod.Get, "/api/library/" + id + "/lyrics", cancellationToken: cancellationToken);
+    }
+
     public async Task<string> GetArtworkAsync(string id, CancellationToken cancellationToken = default)
     {
         if (!Regex.IsMatch(id, "^[A-Za-z0-9_-]{11}$")) throw new ArgumentException("Invalid recording identifier.");

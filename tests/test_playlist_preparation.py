@@ -50,6 +50,21 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(sorted(called),['0','1','2','3'])
         self.assertEqual(coordinator.queue_idle(['alex'],lambda:True),[])
 
+    def test_idle_queue_refills_a_free_place_while_other_playlists_run(self):
+        release=threading.Event()
+        def prepare(user,track,progress):
+            if track['title']=='0': release.wait(2)
+            return dict(candidate(),saved=True)
+        coordinator=PlaylistPreparation(self.store,self.lock,prepare)
+        self.store.save('alex',dict(id='0'*22,name='0',revision=1,tracks=[dict(entry('0'),state='ready',source_id='abcdefghijk',match=candidate())]))
+        try:
+            self.assertEqual(coordinator.queue_idle(['alex'],lambda:True),[('alex','0'*22)])
+            self.store.save('alex',dict(id='1'*22,name='1',revision=1,tracks=[dict(entry('1'),state='ready',source_id='abcdefghijk',match=candidate())]))
+            self.assertEqual(coordinator.queue_idle(['alex'],lambda:True),[('alex','1'*22)])
+        finally:release.set()
+        for op in list(coordinator.operations.values()):
+            if op.thread:op.thread.join(3)
+
     def test_idle_matching_downloads_approved_choices_and_preserves_review_pool(self):
         tracks=[entry('New'),dict(entry('Review'),state='review',match=candidate()),dict(entry('Failed'),state='error')]
         self.store.save('alex',dict(id=PID,name='List',revision=1,tracks=tracks))
@@ -168,9 +183,11 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(observations, [(0, None, None), (0, None, None)])
         self.assertEqual((status["file_phase"], status["download_bytes"], status["download_total_bytes"], status["file_size_bytes"]), ("saved", 456, 456, 789))
 
-    def test_import_has_reading_then_per_track_matching_without_downloading(self):
+    def test_import_has_reading_then_per_track_matching_then_downloads_matches(self):
         read_entered, release = threading.Event(), threading.Event()
         downloads = []
+        def prepare(user, track, progress):
+            downloads.append(track["title"]); return {**candidate(), "saved": True}
         def read(provider, url, progress):
             progress(2, 2)
             read_entered.set()
@@ -179,7 +196,7 @@ class CoordinatorTests(unittest.TestCase):
         def match(user, track, progress):
             progress("Searching YouTube")
             return candidate() if track["title"] == "Song" else None
-        coordinator = PlaylistPreparation(self.store, self.lock, lambda *args: downloads.append(args), match, read)
+        coordinator = PlaylistPreparation(self.store, self.lock, prepare, match, read)
         coordinator.begin_import("alex", PID, 1, "spotify", "https://open.spotify.com/playlist/" + "x" * 22)
         self.assertTrue(read_entered.wait(1))
         status = coordinator.status("alex", PID)
@@ -187,11 +204,12 @@ class CoordinatorTests(unittest.TestCase):
         with self.assertRaises(ValueError): coordinator.start("alex", "z" * 22)
         release.set()
         status = self.finish(coordinator)
-        self.assertEqual((status["state"], status["processed"], status["found"], status["review"]), ("done", 2, 1, 1))
+        self.assertEqual((status["mode"], status["state"], status["saved"]), ("download", "done", 1))
         tracks = self.store.read("alex", PID)["tracks"]
-        self.assertEqual([t["state"] for t in tracks], ["ready", "review"])
+        self.assertEqual([t["state"] for t in tracks], ["saved", "review"])
         self.assertEqual(tracks[0]["source_id"], "abcdefghijk")
-        self.assertEqual(downloads, [])
+        # Only the confident match downloads; the song needing review waits for the owner.
+        self.assertEqual(downloads, ["Song"])
 
     def test_download_one_at_a_time_pause_and_resume(self):
         data = self.store.read("alex", PID); data["tracks"] = [entry("One"), entry("Two")]; self.store.save("alex", data)
@@ -430,7 +448,7 @@ class PreparationApiTests(Base):
         coordinator.thread.join(3)
         self.assertFalse(coordinator.thread.is_alive())
 
-    def test_import_accepts_valid_upload_choices_without_downloading(self):
+    def test_import_accepts_valid_upload_choices_then_downloads(self):
         client, token = self.signed_in()
         target = self.post(client, token, "/api/playlists", json={"name": "Empty"}).get_json()["playlist"]
         imported = {"id": "x" * 22, "name": "Imported", "tracks": [entry()]}
@@ -439,8 +457,7 @@ class PreparationApiTests(Base):
             self.assertEqual(result.status_code, 202)
             self.wait_preparation()
         status = self.go(client, "GET", "/api/playlists/" + target["id"] + "/prepare").get_json()
-        self.assertEqual((status["state"], status["found"], status["review"]), ("done", 1, 0))
-        self.assertEqual(self.state.jobs, {})
+        self.assertEqual((status["mode"], status["state"], status["total"]), ("download", "done", 1))
         self.assertEqual(search.call_count, 1)
 
     def test_async_import_is_owner_scoped_and_rejects_invalid_source(self):

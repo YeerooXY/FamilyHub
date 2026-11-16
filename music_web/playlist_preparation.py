@@ -55,8 +55,11 @@ class _PlaylistOperation:
             if data["tracks"] or type(revision) is not int or revision != data["revision"]:
                 raise ValueError("Import into an empty, unchanged playlist.")
             previous = data.get("preparation", {})
-            queued_download = (previous.get("state") in ("paused", "error") and previous.get("import_url") == url
-                               and previous.get("provider") == provider and previous.get("download_after_matching") is True)
+            # A new import downloads its matched songs straight away; re-importing keeps a
+            # download the owner paused or cancelled.
+            same = previous.get("import_url") == url and previous.get("provider") == provider
+            queued_download = (same and previous.get("download_after_matching") is True) or (
+                not data.get("auto_download_paused") and (not same or previous.get("state") not in ("paused", "error")))
             self._claim(user, pid)
             data["preparation"] = {**self._status("import"), "provider": provider, "import_url": url,
                                    "download_after_matching": queued_download}
@@ -403,13 +406,17 @@ class PlaylistPreparation:
 
 
     def queue_idle(self,owners,idle,limit=3):
-        """Admit an idle batch, preserving manual pauses and recording reviews."""
+        """Keep up to `limit` playlists preparing, preserving manual pauses and recording reviews.
+        A finished playlist frees its place for the next one at the following check."""
         if not idle() or not self.allow_background(): return []
         with self.lock:
-            if any(op.active is not None for op in self.operations.values()): return []
+            running={key for key,op in self.operations.items() if op.active is not None}
+            limit=min(limit,3)-len(running)
+            if limit<=0: return []
             candidates=[]
             for owner in owners:
                 for data in self.store.list(owner):
+                    if (owner,data['id']) in running: continue
                     prior=data.get('preparation',{})
                     if data.get('auto_download_paused') or prior.get('state')=='error': continue
                     if prior.get('state')=='paused' and not prior.get('automatic'): continue
@@ -421,13 +428,13 @@ class PlaylistPreparation:
                         key=(owner,data['id'])
                         candidates.append((self.auto_served.get(key,-1),key,'match' if unmatched else 'download'))
             selected=[]
-            for _,(owner,pid),mode in sorted(candidates)[:max(0,min(limit,3))]:
+            for _,(owner,pid),mode in sorted(candidates)[:limit]:
                 if not idle() or not self.allow_background(): break
                 self.start(owner,pid,mode)
                 operation=self._operation(owner,pid)
                 operation.update(owner,pid,automatic=True,matched_only=True,download_after_matching=mode=='match')
                 self.auto_served[(owner,pid)]=time.monotonic()
                 selected.append((owner,pid))
-            valid={key for _,key,_ in candidates}
+            valid={key for _,key,_ in candidates}|running
             self.auto_served={key:value for key,value in self.auto_served.items() if key in valid}
             return selected

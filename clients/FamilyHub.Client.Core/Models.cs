@@ -23,6 +23,20 @@ public sealed record MusicTrack
     [JsonPropertyName("listening_version")] public string ListeningVersion { get; init; } = "";
 }
 
+/// <summary>A song's lyrics: state is synced, plain, instrumental or none. Synced line times are playback seconds.</summary>
+public sealed record SongLyrics
+{
+    [JsonPropertyName("state")] public string State { get; init; } = "none";
+    [JsonPropertyName("lines")] public List<LyricLine> Lines { get; init; } = [];
+    [JsonPropertyName("text")] public string Text { get; init; } = "";
+}
+
+public sealed record LyricLine
+{
+    [JsonPropertyName("t")] public double Time { get; init; }
+    [JsonPropertyName("text")] public string Text { get; init; } = "";
+}
+
 public sealed record MusicPlaylist
 {
     [JsonPropertyName("description")] public string Description { get; init; } = "";

@@ -254,7 +254,7 @@ else
     }
     <div class="now-playing-group"><button id="show-queue" class="now-playing" @onclick="PlayerArea" aria-label='@(Player.Current is null ? "Quick play" : "Open playback queue")'>
         @if (Player.Current is null) { <span class="cover quick-play-art"><MusicIcon Name="play" /></span> } else { <TrackCover @key="Player.Current.Id" Track="Player.Current" /> }
-        <span class="now-copy"><strong id="now-title">@(Player.Current?.Title ?? "Quick play")</strong><span id="now-artist">@(Player.Preparing ? "Preparing song..." : Player.Current?.Channel ?? (Player.Queue.Count > 0 ? "Play your queue" : Session.HasListeningHistory ? "Based on your listening" : "Shuffle your library"))</span>@if (Player.Current is not null) { <span id="bar-next">@(NextTrack is { } next ? "Up next \u00b7 " + next.Title : "Open queue")</span> }</span>
+        <span class="now-copy"><strong id="now-title"><span class="marquee-text">@(Player.Current?.Title ?? "Quick play")</span></strong><span id="now-artist">@(Player.Preparing ? "Preparing song..." : Player.Current?.Channel ?? (Player.Queue.Count > 0 ? "Play your queue" : Session.HasListeningHistory ? "Based on your listening" : "Shuffle your library"))</span>@if (Player.Current is not null) { <span id="bar-next">@(NextTrack is { } next ? "Up next \u00b7 " + next.Title : "Open queue")</span> }</span>
     </button>
     @if (Player.Current is { } currentSong)
     { <button id="now-add-playlist" class="quiet row-action song-playlist-add @(Session.Playlists.Any(p => p.Tracks.Any(t => t.RecordingId == currentSong.Id)) ? "is-added" : "")" @onclick='() => OpenPlaylistPicker((currentSong, "now-add-playlist"))' aria-label="Add @currentSong.Title to playlist" title="Add to playlist" aria-haspopup="dialog"><MusicIcon Name="@(Session.Playlists.Any(p => p.Tracks.Any(t => t.RecordingId == currentSong.Id)) ? "check-circle" : "plus-circle")" /></button> }
@@ -266,10 +266,18 @@ else
         <button class="quiet" @onclick="() => RunPlayback(Player.NextAsync)" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Next song"><MusicIcon Name="next" /></button>
         <button id="repeat-toggle" class="quiet" @onclick="ToggleRepeat" aria-disabled="@Aria(Player.FollowingHost)" aria-pressed="@Aria(Player.RepeatMode != "off")" aria-label="@("Repeat " + Player.RepeatMode)" title="@("Repeat " + Player.RepeatMode)"><MusicIcon Name="@(Player.RepeatMode == "one" ? "repeat-one" : "repeat")" /></button>
     </div><SeekBar /></div>
+    @if (Player.Current is not null) { <LyricsView @bind-Expanded="lyricsOpen" AvailabilityChanged="available => lyricsAvailable = available" /> }
     <button id="player-more" class="quiet player-more" aria-label="Player options" aria-expanded="@Aria(playerToolsOpen)" aria-controls="player-options" @onclick="TogglePlayerTools"><MusicIcon Name="more" /></button>
     @if (playerToolsOpen) { <button class="player-tools-backdrop" aria-label="Close player options" @onclick="ClosePlayerTools"></button> }
     <div id="player-options" class="player-tools @(playerToolsOpen ? "is-open" : "")" @onkeydown="PlayerToolsKeyDown" @onkeydown:stopPropagation="true">
         <button id="player-options-close" class="quiet player-tools-close" aria-label="Close player options" @onclick="ClosePlayerTools"><MusicIcon Name="close" /></button>
+        @if (Player.Current is { } sheetSong)
+        {
+            <div class="sheet-song" aria-hidden="true"><TrackCover Track="sheetSong" /><span><strong>@sheetSong.Title</strong><small>@sheetSong.Channel</small></span></div>
+            @if (lyricsAvailable) { <button id="sheet-lyrics" class="quiet" aria-label="Lyrics" @onclick="OpenLyricsFromSheet"><MusicIcon Name="lyrics" /></button> }
+            <button id="sheet-add-playlist" class="quiet sheet-only" aria-label="Add to playlist" aria-haspopup="dialog" @onclick='() => { playerToolsOpen = false; OpenPlaylistPicker((sheetSong, "player-more")); }'><MusicIcon Name="plus-circle" /></button>
+            <button id="sheet-queue" class="quiet sheet-only" aria-label="Go to queue" @onclick="OpenQueueFromSheet"><MusicIcon Name="queue" /></button>
+        }
         <ListenTogetherPanel />
         <AudioOutputPicker />
         @if (Player.Current is { Saved: true } trimmingTrack) { <TrimRequest Track="trimmingTrack" /> }
@@ -497,7 +505,10 @@ else
         await OpenQueueFromPlayer();
     }
     private bool playerExpanded;
-    private void CollapsePlayer() { playerExpanded = false; pendingFocus = "show-queue"; }
+    private void CollapsePlayer() { playerExpanded = false; lyricsOpen = false; pendingFocus = "show-queue"; }
+    private bool lyricsOpen, lyricsAvailable;
+    private void OpenLyricsFromSheet() { playerToolsOpen = false; lyricsOpen = true; }
+    private async Task OpenQueueFromSheet() { playerToolsOpen = false; await OpenQueueFromPlayer(); }
     private async Task OpenQueueFromPlayer() { playerExpanded = false; await Navigate("Queue"); }
     private void PlayerKeyDown(KeyboardEventArgs e) { if (e.Key == "Escape" && playerExpanded) CollapsePlayer(); }
     private bool playerToolsOpen;
@@ -629,6 +640,8 @@ else
         await JS.InvokeVoidAsync("familyhub.observePanel");
         await JS.InvokeVoidAsync("familyhub.tintPlaylistHeader");
         await JS.InvokeVoidAsync("familyhub.observePlaylistHero");
+        if (playerExpanded) await JS.InvokeVoidAsync("familyhub.fitTitle");
+        if (playerToolsOpen) await JS.InvokeVoidAsync("familyhub.bindSheet", "player-options", "player-options-close");
         if (resizeReference is null) { resizeReference = DotNetObjectReference.Create(this); await JS.InvokeVoidAsync("familyhub.bindUpdatePolling", resizeReference); }
         await JS.InvokeVoidAsync("familyhub.bindSidebarResize", resizeReference);
         if (hadSearchMore && nextSearchOffset is null && view == "Search") await JS.InvokeVoidAsync("familyhub.restoreFocus", "search-more", "results");
@@ -684,8 +697,9 @@ else
             if (view != "Settings" || string.IsNullOrEmpty(Session.User) || Session.NeedsProfileSelection) return false;
             view = "Home"; StateHasChanged(); return true;
         }
-        if (playerExpanded) CollapsePlayer();
-        else if (playerToolsOpen) await ClosePlayerTools();
+        if (playerToolsOpen) await ClosePlayerTools();
+        else if (lyricsOpen) { lyricsOpen = false; pendingFocus = playerExpanded ? "lyrics-preview" : "player-more"; }
+        else if (playerExpanded) CollapsePlayer();
         else if (profileMenu) { profileMenu = false; pendingFocus = "profile-toggle"; }
         else if (view == "Playlists" && Selected is not null) await AllPlaylists();
         else if (backViews.Count > 0) GoBack();

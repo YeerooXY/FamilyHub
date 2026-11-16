@@ -1,0 +1,125 @@
+@implements IDisposable
+@inject MusicPlayer Player
+@inject MusicSession Session
+@inject IJSRuntime JS
+
+@* Lyrics for the playing song: a preview card under the controls and a full view that
+   follows the song. Songs without lyrics show nothing. *@
+@if (lyrics is { State: "synced" or "plain" } current && Player.Current is { } track)
+{
+    if (Expanded)
+    {
+        <section id="lyrics-view" class="lyrics-view" role="dialog" aria-modal="true" aria-labelledby="lyrics-title" @onkeydown="KeyDown">
+            <header class="lyrics-header">
+                <button id="lyrics-close" class="quiet" aria-label="Close lyrics" title="Close lyrics" @onclick="Close"><MusicIcon Name="chevron-down" /></button>
+                <div><strong id="lyrics-title">@track.Title</strong><span>@track.Channel</span></div>
+            </header>
+            @if (current.State == "synced")
+            {
+                <ol class="lyrics-lines">
+                    @for (var i = 0; i < current.Lines.Count; i++)
+                    {
+                        var line = current.Lines[i]; var index = i;
+                        <li @key="index"><button id="lyric-@index" class="lyric-line @(index == active ? "is-active" : index < active ? "is-past" : "")" aria-current="@(index == active ? "true" : null)"
+                                aria-disabled="@(SeekAllowed ? "false" : "true")" @onclick="() => Seek(line.Time)">@(string.IsNullOrWhiteSpace(line.Text) ? "♪" : line.Text)</button></li>
+                    }
+                </ol>
+            }
+            else { <p class="lyrics-plain">@current.Text</p> }
+        </section>
+    }
+    else
+    {
+        <button id="lyrics-preview" class="lyrics-preview" @onclick="Open" aria-label="Open lyrics">
+            <strong>Lyrics</strong>
+            @foreach (var text in PreviewLines(current)) { <span>@text</span> }
+        </button>
+    }
+}
+
+@code {
+    [Parameter] public bool Expanded { get; set; }
+    [Parameter] public EventCallback<bool> ExpandedChanged { get; set; }
+    [Parameter] public EventCallback<bool> AvailabilityChanged { get; set; }
+    private bool reported;
+    private void Report() { if (Available != reported) { reported = Available; _ = AvailabilityChanged.InvokeAsync(reported); } }
+
+    // Lyrics for recently played songs; small enough to keep for the session.
+    private static readonly Dictionary<string, SongLyrics> cache = [];
+    private SongLyrics? lyrics;
+    private string? loadedFor;
+    private int active = -1, revealed = -1;
+    private CancellationTokenSource? loading;
+
+    public bool Available => lyrics is { State: "synced" or "plain" };
+    private bool SeekAllowed => Player.CanSeek && !Player.FollowingHost;
+
+    protected override void OnInitialized() { Player.Changed += Changed; Load(); }
+
+    private void Changed() => _ = InvokeAsync(() =>
+    {
+        if (Player.Current?.Id != loadedFor) Load();
+        var next = ActiveLine();
+        if (next != active) { active = next; StateHasChanged(); }
+        else if (lyrics is null || !Expanded) StateHasChanged();
+    });
+
+    private int ActiveLine()
+    {
+        if (lyrics is not { State: "synced" } synced) return -1;
+        var position = Player.Position + .25;
+        var index = -1;
+        for (var i = 0; i < synced.Lines.Count && synced.Lines[i].Time <= position; i++) index = i;
+        return index;
+    }
+
+    private void Load()
+    {
+        loading?.Cancel();
+        loadedFor = Player.Current?.Id; lyrics = null; active = revealed = -1;
+        if (loadedFor is not { } id || Session.Api is not { } api || !Session.Connected) { _ = Collapse(); return; }
+        lock (cache) if (cache.TryGetValue(id, out var known)) { lyrics = known; active = ActiveLine(); return; }
+        var cancel = loading = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await api.GetLyricsAsync(id, cancel.Token);
+                lock (cache) { if (cache.Count >= 60) cache.Clear(); cache[id] = result; }
+                await InvokeAsync(() => { if (loadedFor != id) return; lyrics = result; active = ActiveLine(); StateHasChanged(); });
+            }
+            catch (Exception) { /* No lyrics card when the server cannot answer. */ }
+        });
+        _ = Collapse();
+    }
+
+    private async Task Collapse() { if (Expanded && lyrics is null) await ExpandedChanged.InvokeAsync(false); }
+
+    private IEnumerable<string> PreviewLines(SongLyrics current)
+    {
+        if (current.State == "plain") return current.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Take(3);
+        var start = Math.Max(0, active);
+        return current.Lines.Skip(start).Where(l => !string.IsNullOrWhiteSpace(l.Text)).Take(3).Select(l => l.Text);
+    }
+
+    private async Task Open() { await ExpandedChanged.InvokeAsync(true); revealed = -1; }
+    private async Task Close() { await ExpandedChanged.InvokeAsync(false); await JS.InvokeVoidAsync("familyhub.focusVisible", "lyrics-preview", "player-more"); }
+    private Task KeyDown(KeyboardEventArgs e) => e.Key == "Escape" ? Close() : Task.CompletedTask;
+
+    private async Task Seek(double time)
+    {
+        if (!SeekAllowed) return;
+        try { await Player.SeekAsync(Math.Max(0, time)); } catch (Exception) { /* Seeking unavailable for this song. */ }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        Report();
+        if (!Expanded || lyrics is null) { revealed = -1; return; }
+        if (revealed == -1) await JS.InvokeVoidAsync("familyhub.focus", "lyrics-close");
+        if (active >= 0 && active != revealed) { revealed = active; await JS.InvokeVoidAsync("familyhub.revealLyric", "lyric-" + active); }
+        else if (revealed == -1) revealed = -2;
+    }
+
+    public void Dispose() { Player.Changed -= Changed; loading?.Cancel(); }
+}

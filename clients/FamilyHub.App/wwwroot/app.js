@@ -389,6 +389,42 @@ window.familyhub.revealWhenReady = id => {
  setTimeout(()=>observer.disconnect(),8000);
 };
 window.familyhub.isPhone = () => matchMedia('(max-width:720px)').matches;
+// Focuses the first of these controls that is on screen, after the next render.
+window.familyhub.focusVisible = (...ids) => requestAnimationFrame(() => { for(const id of ids){ const target=document.getElementById(id); if(target&&target.getClientRects().length){ target.focus(); return; } } });
+// Lyrics follow the song; scrolling by hand pauses following for a few seconds.
+window.familyhub.revealLyric = id => {
+ const line=document.getElementById(id), list=line?.closest('.lyrics-view'); if(!line||!list)return;
+ if(!list.dataset.bound){ list.dataset.bound='1'; const hold=()=>{ list.dataset.heldUntil=Date.now()+4000; }; list.addEventListener('wheel',hold,{passive:true}); list.addEventListener('touchmove',hold,{passive:true}); }
+ if(Date.now()<Number(list.dataset.heldUntil||0))return;
+ const top=line.offsetTop-list.clientHeight*.38;
+ list.scrollTo({top,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+};
+// Long titles in Now Playing scroll sideways, pause, then come round again.
+window.familyhub.fitTitle = () => {
+ const title=document.querySelector('.player-bar.is-expanded #now-title'); if(!title)return;
+ const text=title.querySelector('.marquee-text'); if(!text)return;
+ const overflow=text.scrollWidth>title.clientWidth+2 && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+ if(title.dataset.fitted===text.textContent+overflow)return;
+ title.dataset.fitted=text.textContent+overflow;
+ title.classList.toggle('is-marquee',overflow);
+ title.querySelector('.marquee-copy')?.remove();
+ if(!overflow)return;
+ const copy=text.cloneNode(true); copy.classList.add('marquee-copy'); copy.setAttribute('aria-hidden','true'); title.appendChild(copy);
+ const distance=text.scrollWidth+48;
+ title.style.setProperty('--marquee-distance',`-${distance}px`);
+ title.style.setProperty('--marquee-duration',`${(distance/32+2.5).toFixed(1)}s`);
+};
+// The song options sheet closes when dragged down far enough.
+window.familyhub.bindSheet = (id, closeId) => {
+ const sheet=document.getElementById(id); if(!sheet||sheet.dataset.dragBound)return; sheet.dataset.dragBound='1';
+ let start=null, moved=0, draggedAt=0;
+ // A drag that springs back is not a tap on the row under the finger.
+ sheet.addEventListener('click',e=>{ if(Date.now()-draggedAt<350){ e.stopPropagation(); e.preventDefault(); } },true);
+ sheet.addEventListener('pointerdown',e=>{ if(!familyhub.isPhone()||!sheet.classList.contains('is-open')||sheet.scrollTop>0||e.target.closest('input,select,dialog'))return; start=e.clientY; moved=0; },{passive:true});
+ sheet.addEventListener('pointermove',e=>{ if(start===null)return; moved=Math.max(0,e.clientY-start); if(moved>6){ sheet.style.transition='none'; sheet.style.transform=`translateY(${moved}px)`; } },{passive:true});
+ const end=()=>{ if(start===null)return; start=null; sheet.style.transition=''; sheet.style.transform=''; if(moved>90){ document.getElementById(closeId)?.click(); } if(moved>6)draggedAt=Date.now(); };
+ sheet.addEventListener('pointerup',end); sheet.addEventListener('pointercancel',end);
+};
 // Android Back: close the topmost popup or dialog the same way Escape does.
 window.familyhub.closeTopLayer = () => {
  const popup=[...document.querySelectorAll(':popover-open')].pop();

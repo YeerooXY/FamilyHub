@@ -3,7 +3,7 @@
 Acquisition/import reuse scripts/music-intake.py. One coordinator schedules acquisition,
 HLS and bounded beat analysis; browser decks handle playback. See docs/MOBILE_MUSIC.md.
 """
-import gzip, hashlib, importlib.util, io, json, logging, os, re, secrets, shutil, sys, threading, time, urllib.parse, urllib.request
+import gzip, hashlib, importlib.util, io, json, logging, os, re, secrets, shutil, sys, threading, time, urllib.error, urllib.parse, urllib.request
 from collections import OrderedDict, deque
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from contextlib import suppress
@@ -27,6 +27,7 @@ from .listening_versions import ListeningVersions
 from .catalogue_review import CatalogueReview, register as register_catalogue_review
 from .finished_audio import FinishedAudio, prepare_record
 from .playlist_artwork import PlaylistArtwork, ArtworkError
+from .lyrics import LyricsCache
 
 MAX_UPLOAD = 128 << 20
 SESSION_HOURS = 12
@@ -1208,7 +1209,8 @@ def create_app(test_config=None):
             while not auto_stop.wait(30):
                 try:
                     owners = [p['id'] for p in profile_store.list()] if family_mode else sorted(allowed)
-                    idle=lambda:not listening_stats.playing() and not playback_demand()
+                    # Playlists prepare while people listen; a listener's own song still goes first.
+                    idle=lambda:not playback_demand()
                     if automatic_downloads:playlist_preparation.queue_idle(owners,idle)
                     if metadata_lookup:
                         library_tracks()
@@ -1593,6 +1595,33 @@ def create_app(test_config=None):
     def playback_info(source_id):
         track, _ = mobile_record(source_id)
         return jsonify(track)
+
+    lyrics_cache = LyricsCache(ws, cfg.get("LYRICS_LOOKUP"))
+    lyrics_enabled = cfg.get("LYRICS_LOOKUP") is not None or cfg["PUBLIC_ORIGIN"] != "https://music.test"
+    @app.get("/api/library/<source_id>/lyrics")
+    def song_lyrics(source_id):
+        if not re.fullmatch(r"(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})", source_id):
+            raise ApiError("Recording unavailable.", 404)
+        item = saved_source(source_id)
+        if not item:
+            raise ApiError("Recording unavailable.", 404)
+        if not lyrics_enabled: return jsonify(state="none")
+        track, _ = library_record(item)
+        record = item["manifest"]["import"]
+        reviewed = catalogue_review.overrides(source_id, record["library_sha256"]).get("artist", "")
+        try:
+            result = lyrics_cache.get(source_id, record["title"], track["channel"],
+                                      float(track.get("original_duration") or track["duration"]), reviewed)
+        except (OSError, ValueError, urllib.error.URLError, TimeoutError):
+            raise ApiError("Lyrics are unavailable right now. Try again later.", 503)
+        result = dict(result); result.pop("checked", None)
+        # Timings follow the original release; playback may start later after trimming silence.
+        offset = float(track.get("source_start") or 0)
+        if result.get("lines") and offset:
+            result["lines"] = [dict(line, t=round(line["t"] - offset, 2)) for line in result["lines"]]
+        response = jsonify(result)
+        response.headers["Cache-Control"] = "private, max-age=86400"
+        return response
 
     @app.route("/api/library/<source_id>/playback/<digest>/audio.opus", methods=["GET", "HEAD"])
     @app.route("/api/library/<source_id>/playback/<digest>/audio.m4a", methods=["GET", "HEAD"])
