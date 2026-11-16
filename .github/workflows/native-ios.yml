@@ -21,16 +21,23 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: '10.0.401'
-      - name: Select compatible Xcode
-        # .NET for iOS 26.0 requires Xcode 26.0; pick it when the runner has it.
-        run: |
-          ls -d /Applications/Xcode*.app
-          xcode=$(ls -d /Applications/Xcode_26.0*.app 2>/dev/null | sort -V | tail -1)
-          sudo xcode-select --switch "${xcode:-/Applications/Xcode_26.5.app}/Contents/Developer"
-          xcodebuild -version
+          dotnet-version: '10.0.x'
       - name: Install iOS workload
-        run: dotnet workload install maui-ios --skip-manifest-update
+        # The newest .NET for iOS matches the runner's current Xcode and its simulator runtimes,
+        # which the asset compiler needs; older pinned versions fail on newer runners.
+        run: |
+          dotnet workload install maui-ios
+          dotnet workload list
+      - name: Select the Xcode this .NET for iOS requires
+        run: |
+          ls -d /Applications/Xcode_*.app
+          sdk=$(ls -d ~/.dotnet/packs/Microsoft.iOS.Sdk.net10.0_*/* | sort -V | tail -1)
+          want=$(grep -ho 'requires Xcode [0-9.]*' -r "$sdk/targets" 2>/dev/null | head -1 | awk '{print $3}')
+          [ -z "$want" ] && want=$(basename "$(dirname "$sdk")" | sed 's/.*_//')
+          echo "SDK $sdk wants Xcode $want"
+          xcode=$(ls -d /Applications/Xcode_${want}*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$xcode" ]; then sudo xcode-select --switch "$xcode/Contents/Developer"; fi
+          xcodebuild -version
       - name: Build unsigned IPA
         run: bash scripts/build-ios-app.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
