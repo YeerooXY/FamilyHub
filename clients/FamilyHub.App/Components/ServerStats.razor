@@ -118,7 +118,7 @@
                         @if (percent is not null || ShowBar(job)) { <div class="stats-meter @(percent is null ? "is-indeterminate" : "")" role="progressbar" aria-label="@job.Title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@(percent?.ToString("0", Inv))"><i style="width:@((percent ?? 0).ToString("0.###", Inv))%"></i></div> }
                         @foreach (var file in job.Files) { <div class="stats-work-file"><strong>@file.Title</strong><small>@file.Message</small>@if (file.DownloadBytes > 0) { <span>@Bytes(file.DownloadBytes)@(file.DownloadTotalBytes is > 0 ? " / " + Bytes(file.DownloadTotalBytes.Value) : " received")</span> }</div> }
                         @if (job.Files.Count == 0 && job.DownloadBytes > 0) { <span class="stats-job-size">@SizeText(job)</span> }
-                        <div class="stats-job-requester"><ProfileAvatar Profile="WorkProfile(job)" Size="28" /><span>@job.User</span></div>
+                        @if (job.Owner.Length > 0) { <div class="stats-job-requester"><ProfileAvatar Profile="WorkProfile(job)" Size="28" /><span>@job.User</span></div> }
                     </article>
                 }
                 </div>
@@ -203,7 +203,7 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender) => await JS.InvokeVoidAsync("familyhub.animateLeaderboard");
     private ListenerProfile WorkProfile(ServerWork job) => Session.Profiles.FirstOrDefault(p => p.Id == job.Owner) ?? new() { Id = job.Owner, Name = job.User };
-    private static string WorkKind(string kind) => kind switch { "listening" => "Listening request", "upload" => "File upload", "playlist_download" => "Playlist download", "playlist_catalogue" => "Playlist catalogue", "playlist_import" => "Playlist import", _ => "Recording preparation" };
+    private static string WorkKind(string kind) => kind switch { "listening" => "Listening request", "upload" => "File upload", "playlist_download" => "Playlist download", "playlist_catalogue" => "Playlist catalogue", "playlist_import" => "Playlist import", "tagging" => "Song review", _ => "Recording preparation" };
     private static string Aria(bool value) => value ? "true" : "false";
     private static string Usd(double value) => "$" + value.ToString("N2", Inv);
     private static string Huf(double value) => value.ToString("N0", Inv);

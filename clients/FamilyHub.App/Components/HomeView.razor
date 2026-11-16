@@ -1,3 +1,4 @@
+@implements IDisposable
 @inject MusicSession Session
 
 @* Home: quick picks from listening history, big playlist and album cards, and entry points to the
@@ -38,9 +39,15 @@
             <div class="home-shelf">
                 @foreach (var album in albums)
                 {
-                    <button class="home-card" @key="album.Key" @onclick="() => PlayTracks.InvokeAsync(album.Tracks)" aria-label="Play @album.Name by @album.Artist"><TrackCover Track="album.Tracks[0]" /><strong>@album.Name</strong><span>@album.Artist</span></button>
+                    var saved = HasPlaylist(album); var busy = saving == album.Key;
+                    <div class="home-card-holder" @key="album.Key">
+                        <button class="home-card" @onclick="() => PlayTracks.InvokeAsync(album.Tracks)" aria-label="Play @album.Name by @album.Artist"><TrackCover Track="album.Tracks[0]" /><strong>@album.Name</strong><span>@album.Artist</span></button>
+                        <button class="home-card-save @(saved ? "is-saved" : "")" @onclick="() => SaveAlbum(album)" aria-disabled="@(saved || busy || saving is not null ? "true" : "false")"
+                                aria-label="@(saved ? album.Name + " is saved as a playlist" : "Save " + album.Name + " as a playlist")" title="@(saved ? "Saved as a playlist" : "Save as playlist")"><MusicIcon Name="@(saved ? "check" : "plus")" /></button>
+                    </div>
                 }
             </div>
+            @if (saveMessage is not null) { <p class="home-save-status" role="status">@saveMessage</p> }
         </section>
     }
 
@@ -70,8 +77,40 @@
 
     private static string Greeting => DateTime.Now.Hour switch { < 5 => "Good evening", < 12 => "Good morning", < 18 => "Good afternoon", _ => "Good evening" };
 
+    // Saving an album as a playlist: one at a time, named after the album.
+    private string? saving, saveMessage;
+    private bool HasPlaylist(Album album) => Session.Playlists.Any(p => p.CanEdit && p.OwnerId == Session.User && p.Name == album.Name);
+    private async Task SaveAlbum(Album album)
+    {
+        if (saving is not null || HasPlaylist(album) || !Session.Connected) return;
+        saving = album.Key; saveMessage = "Saving " + album.Name + "...";
+        try
+        {
+            await Session.CreatePlaylistAsync(album.Name);
+            var playlist = Session.Playlists.LastOrDefault(p => p.Name == album.Name && p.CanEdit) ?? throw new InvalidOperationException();
+            var failed = 0;
+            foreach (var track in album.Tracks)
+            {
+                try { await Session.EditPlaylistAsync(playlist, new { add_source_id = track.Id }); }
+                catch (Exception error) when (error is not OperationCanceledException) { failed++; }
+            }
+            saveMessage = failed == 0 ? $"Saved {album.Name} as a playlist." : $"Saved {album.Name}; {failed} {(failed == 1 ? "song" : "songs")} could not be added.";
+        }
+        catch (Exception error) when (error is not OperationCanceledException) { saveMessage = "The playlist could not be saved. Try again."; }
+        finally { saving = null; }
+    }
+
     private object? builtFrom;
     private bool builtConnected;
+
+    // The library often arrives after Home first renders; rebuild the shelves when it does.
+    protected override void OnInitialized() => Session.Changed += LibraryChanged;
+    private void LibraryChanged() => _ = InvokeAsync(() =>
+    {
+        if (ReferenceEquals(builtFrom, Session.Connected ? Session.Library : Session.Downloads) && builtConnected == Session.Connected) return;
+        OnParametersSet(); StateHasChanged();
+    });
+    public void Dispose() => Session.Changed -= LibraryChanged;
 
     protected override void OnParametersSet()
     {
@@ -86,7 +125,8 @@
         albums = source.Where(t => t.LibraryAlbum is { Length: > 0 } name && name is not ("Selected recordings" or "Unknown album"))
             .GroupBy(t => (t.LibraryAlbum, t.Channel))
             .Where(g => g.Count() >= 2)
-            .OrderByDescending(g => g.Count(t => played.Contains(t.Id))).ThenByDescending(g => g.Count())
+            // Uploaded albums come right after played ones, so a family member's new uploads show up.
+            .OrderByDescending(g => g.Count(t => played.Contains(t.Id))).ThenByDescending(g => g.Any(t => t.Id.StartsWith("local-", StringComparison.Ordinal))).ThenByDescending(g => g.Count())
             .Take(10)
             .Select(g => new Album(g.Key.LibraryAlbum + "\n" + g.Key.Channel, g.Key.LibraryAlbum, g.Key.Channel, g.DistinctBy(t => t.Id).ToList()))
             .ToList();

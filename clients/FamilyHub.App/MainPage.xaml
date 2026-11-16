@@ -4,7 +4,7 @@
              xmlns:local="clr-namespace:FamilyHub.App"
              xmlns:components="clr-namespace:FamilyHub.App.Components"
              xmlns:media="clr-namespace:CommunityToolkit.Maui.Views;assembly=CommunityToolkit.Maui.MediaElement"
-             BackgroundColor="#07101F" x:Class="FamilyHub.App.MainPage">
+             BackgroundColor="#05070C" x:Class="FamilyHub.App.MainPage">
 
     <Grid>
     <media:MediaElement x:Name="audio" HeightRequest="1" WidthRequest="1" Opacity="0" ShouldAutoPlay="True" ShouldShowPlaybackControls="False" ShouldKeepScreenOn="False" />

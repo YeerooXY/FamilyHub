@@ -56,6 +56,23 @@ public class MainActivity : MauiAppCompatActivity
         completion?.TrySetResult(resultCode == Result.Ok ? data?.Data : null);
     }
 
+    protected override void OnCreate(Bundle? savedInstanceState)
+    {
+        base.OnCreate(savedInstanceState);
+        // Status and navigation bars use the page background with light icons, not the template purple.
+        var background = Android.Graphics.Color.ParseColor("#05070C");
+#pragma warning disable CA1422 // Ignored from Android 15 edge-to-edge, where the page draws behind the bars.
+        Window?.SetStatusBarColor(background);
+        Window?.SetNavigationBarColor(background);
+#pragma warning restore CA1422
+        if (Window is { } window)
+        {
+            var bars = AndroidX.Core.View.WindowCompat.GetInsetsController(window, window.DecorView);
+            bars.AppearanceLightStatusBars = false;
+            bars.AppearanceLightNavigationBars = false;
+        }
+    }
+
     protected override void OnActivityResult(int requestCode, Result resultCode, Intent? data)
     {
         base.OnActivityResult(requestCode, resultCode, data);

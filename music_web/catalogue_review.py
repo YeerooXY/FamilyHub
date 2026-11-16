@@ -215,6 +215,18 @@ class CatalogueReview:
             self.flush()
         return True
 
+    def progress(self):
+        # Server work row for the tagger: this lookup pass's songs, done and left.
+        with self.lock:
+            rows=self.data['metadata'].values()
+            left=[r for r in rows if r['state'] in ('queued','processing')]
+            if not left:return None
+            done=sum(1 for r in rows if r.get('lookup_version')==LOOKUP_VERSION and r['state'] not in ('queued','processing'))
+            now=time.time()
+            waiting=sum(1 for r in left if r['state']=='queued' and r.get('retry_at',0)>now)
+            current=next((r['title'] for r in left if r['state']=='processing'),'')
+            return dict(processed=done,total=done+len(left),remaining=len(left),waiting=waiting,current_title=current)
+
     def snapshot(self,query=""):
         with self.lock:
             self.flush()

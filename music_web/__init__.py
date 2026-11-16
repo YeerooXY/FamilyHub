@@ -615,6 +615,13 @@ def create_app(test_config=None):
                            state=j["state"], download_bytes=j.get("download_bytes", 0), download_total_bytes=j.get("download_total_bytes"))
                       for j in jobs.values() if j["state"] in ("queued", "running") and (not j.get("playlist_id") or j.get("current"))])
         result["jobs"] += [{**row, "user": names.get(row["owner"],row["owner"])} for row in playlist_preparation.work()]
+        tagging = catalogue_review.progress() if metadata_lookup else None
+        if tagging:
+            paused = playback_demand()
+            result["jobs"].append(dict(title="Song tagging", owner="", user="", kind="tagging", state="queued" if paused else "running",
+                phase="Paused while a song is prepared" if paused else "Looking up tags on MusicBrainz",
+                processed=tagging["processed"], total=tagging["total"], remaining=tagging["remaining"],
+                current_title=tagging["current_title"], download_bytes=0, download_total_bytes=None))
         return jsonify(result)
 
     def background_download(j):
@@ -1233,12 +1240,19 @@ def create_app(test_config=None):
                     if metadata_lookup:
                         library_tracks()
                         catalogue_review.flush()
-                        # Up to eight songs per cycle, within about 20 seconds (MusicBrainz allows one request a second).
-                        until = time.monotonic() + 20
-                        for _ in range(8):
-                            if time.monotonic() > until or not catalogue_review.process_one(lambda:not playback_demand()):break
                 except Exception as error:
                     log.warning("automatic playlist queue: %s", type(error).__name__)
+        def tag_songs():
+            # One tagger works continuously while nobody needs a song prepared. MusicBrainz allows
+            # about one request a second per server, so more taggers would only get it blocked.
+            while not auto_stop.is_set():
+                try:
+                    if playback_demand(): auto_stop.wait(5); continue
+                    if not catalogue_review.process_one(lambda:not playback_demand()): auto_stop.wait(30)
+                except Exception as error:
+                    log.warning("song tagging: %s", type(error).__name__); auto_stop.wait(30)
+        if metadata_lookup:
+            threading.Thread(target=tag_songs,name="song-tagging",daemon=True).start()
         auto_thread = threading.Thread(target=automatic_playlists,name="playlist-idle-queue",daemon=True)
         app.extensions["music"].auto_playlist_stop = auto_stop
         app.extensions["music"].auto_playlist_thread = auto_thread

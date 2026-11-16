@@ -229,3 +229,13 @@
 .lyrics-timing button { min-height:36px; padding:0 12px; border-radius:18px; font-size:13px; background:#ffffff14; }
 .lyrics-timing span { min-width:88px; font-size:12px; text-align:center; color:var(--muted); font-variant-numeric:tabular-nums; }
 @media(max-width:420px) { .lyrics-timing span { min-width:0; } .lyrics-timing button { padding:0 10px; } }
+
+/* Album cards: a round save button on the cover's corner turns the album into a playlist. */
+.home-card-holder { position:relative; min-width:0; scroll-snap-align:start; }
+.home-card-holder>.home-card { width:100%; }
+.home-card-save { position:absolute; top:16px; right:16px; display:grid; place-items:center; width:36px; height:36px; padding:0; border:0; border-radius:50%; color:#10111b; background:#ffffffe6; box-shadow:0 4px 12px #0006; transition:transform .18s ease,background-color .18s ease; }
+.home-card-save .icon { width:20px; height:20px; }
+.home-card-save:hover:not([aria-disabled=true]) { transform:scale(1.08); }
+.home-card-save.is-saved { color:var(--on-accent,#10111b); background:var(--accent-blue); opacity:1; }
+.home-save-status { margin:4px 0 0; font-size:13px; color:var(--muted); }
+@media(prefers-reduced-motion:reduce) { .home-card-save { transition:none; } }

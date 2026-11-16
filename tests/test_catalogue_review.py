@@ -54,6 +54,11 @@ class ReviewStore(unittest.TestCase):
         self.store.process_one(lambda:True,fail)
         row=self.store.snapshot()['metadata'][0]
         self.assertEqual((row['state'],row['source']),('review','Lookup unavailable; review manually'))
+    def test_progress_counts_this_pass_and_ends_when_done(self):
+        self.observe()
+        self.assertEqual(self.store.progress(),dict(processed=0,total=1,remaining=1,waiting=0,current_title=''))
+        self.store.process_one(lambda:True,lambda row:dict(values={},source='No unique title, artist and duration match'))
+        self.assertIsNone(self.store.progress(),'no tagging row once every song was looked up')
     def test_older_automatic_results_are_looked_up_again_once(self):
         self.observe();self.store.process_one(lambda:True,lambda row:dict(values={},source='No unique title, artist and duration match'))
         row=next(iter(self.store.data['metadata'].values()));row.pop('lookup_version',None);self.store.dirty=True;self.store.flush()
