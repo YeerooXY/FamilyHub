@@ -82,13 +82,13 @@ else
 <aside class="sidebar">
     <nav id="music-navigation" aria-label="Music">
     <button id="open-library" class="nav-button" aria-label="Your library" title="Your library" aria-current='@(view == "Library" ? "page" : null)' @onclick='() => Navigate("Library")'><MusicIcon Name="library" /><span class="nav-label">Your library</span></button>
-    @foreach (var tab in new[] { "Downloads", "Playlists", "Stats" })
-    { <button class="nav-button" aria-label="@(tab == "Stats" ? "Server stats" : tab == "Downloads" ? "Cached" : tab)" title="@(tab == "Stats" ? "Server stats" : tab == "Downloads" ? "Cached" : tab)" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" /><span class="nav-label">@(tab == "Downloads" ? "Cached" : tab == "Stats" ? "Server stats" : tab == "Downloads" ? "Cached" : tab)</span></button> }
+    @foreach (var tab in new[] { "Downloads", "Playlists", "Review", "Stats" })
+    { <button class="nav-button" aria-label="@NavLabel(tab)" title="@NavLabel(tab)" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" /><span class="nav-label">@NavLabel(tab)</span></button> }
     </nav>
     <div id="sidebar-resize" role="separator" tabindex="0" aria-label="Resize library sidebar" aria-orientation="vertical" aria-valuemin="72" aria-valuemax="420" aria-valuenow="@(sidebarCollapsed ? 72 : sidebarWidth)"></div>
 </aside>
 <div class="workspace"><main id="content" tabindex="-1">
-    @if (view != "Playlists") { <h1 id="view-title">@(view == "Downloads" ? "Cached" : view == "Preferences" ? "Settings" : view == "Stats" ? "Server stats" : view)</h1> }
+    @if (view != "Playlists" && view != "Review") { <h1 id="view-title">@(view == "Downloads" ? "Cached" : view == "Preferences" ? "Settings" : view == "Stats" ? "Server stats" : view)</h1> }
     <p id="feedback" class="operation-status @(error is not null ? "error" : "")" role="status">@(error ?? (Session.DownloadingId is null ? Session.Message : ""))</p>
     @if (view == "Library" || view == "Downloads")
     {
@@ -197,6 +197,10 @@ else
             </Virtualize>
             </div>
         }
+    }
+    else if (view == "Review")
+    {
+        <CatalogueReviewPanel />
     }
     else if (view == "Stats")
     {
@@ -500,7 +504,8 @@ else
     private static string PlaylistAlbum(PlaylistTrack entry, MusicTrack? track) => !string.IsNullOrWhiteSpace(entry.Album) && entry.Album is not ("Selected recordings" or "Unknown album") ? entry.Album : track?.LibraryAlbum is { Length: > 0 } album && album != "Selected recordings" ? album : "";
     private MusicTrack? NextTrack => Player.QueueIndex + 1 < Player.Queue.Count ? Player.Queue[Player.QueueIndex + 1] : null;
     private static string Genre(MusicTrack track) => string.IsNullOrWhiteSpace(track.Genre) ? "Unsorted" : track.Genre;
-    private static string NavIcon(string tab) => tab switch { "Library" => "library", "Search" => "search", "Downloads" => "down", "Playlists" => "playlist", "Stats" => "device", _ => "queue" };
+    private static string NavLabel(string tab) => tab switch { "Downloads" => "Cached", "Review" => "Song review", "Stats" => "Server stats", _ => tab };
+    private static string NavIcon(string tab) => tab switch { "Library" => "library", "Search" => "search", "Downloads" => "down", "Playlists" => "playlist", "Review" => "pencil", "Stats" => "device", _ => "queue" };
     private Task VolumeChanged(ChangeEventArgs args)
     {
         if (!double.TryParse(args.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value)) return Task.CompletedTask;

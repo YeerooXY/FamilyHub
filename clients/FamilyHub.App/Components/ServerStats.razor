@@ -66,7 +66,6 @@
                     </div>
 
                 </section>
-            <CatalogueReviewPanel />
             <section class="stats-storage-panel glass-panel"><div class="stats-section-heading"><h2>Server storage</h2></div>
                     <div class="stats-storage-meter" aria-label="Storage used"><i style="width:@((stats.StorageTotalBytes > 0 ? Math.Clamp(100d * (stats.StorageTotalBytes - stats.StorageFreeBytes) / stats.StorageTotalBytes, 0, 100) : 0).ToString("0.##", Inv))%"></i></div>
                     <div class="stats-storage"><span>@Bytes(Math.Max(0, stats.StorageTotalBytes - stats.StorageFreeBytes)) used</span><span>@Bytes(stats.StorageFreeBytes) free</span><span>@Bytes(stats.StorageTotalBytes) total</span></div>
