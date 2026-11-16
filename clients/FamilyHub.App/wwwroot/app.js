@@ -389,3 +389,11 @@ window.familyhub.revealWhenReady = id => {
  setTimeout(()=>observer.disconnect(),8000);
 };
 window.familyhub.isPhone = () => matchMedia('(max-width:720px)').matches;
+// Android Back: close the topmost popup or dialog the same way Escape does.
+window.familyhub.closeTopLayer = () => {
+ const popup=[...document.querySelectorAll(':popover-open')].pop();
+ if(popup){ popup.hidePopover(); return true; }
+ const dialog=[...document.querySelectorAll('dialog[open]')].pop();
+ if(dialog){ if(dialog.requestClose)dialog.requestClose(); else dialog.close(); return true; }
+ return false;
+};

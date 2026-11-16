@@ -460,11 +460,14 @@ public sealed class MusicSession
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         try
         {
-            var library = await api.GetLibraryAsync(timeout.Token);
-            var playlists = await api.GetPlaylistsAsync(timeout.Token);
+            // Unchanged lists come back as null and cost a few hundred bytes instead of the full list.
+            var changedLibrary = await api.GetLibraryIfChangedAsync(timeout.Token);
+            var changedPlaylists = await api.GetPlaylistsIfChangedAsync(timeout.Token);
             if (version != accountVersion) return;
-            await offline.SaveLibraryAsync(library);
-            await offline.SavePlaylistsAsync(playlists);
+            if (changedLibrary is not null) await offline.SaveLibraryAsync(changedLibrary);
+            if (changedPlaylists is not null) await offline.SavePlaylistsAsync(changedPlaylists);
+            var library = changedLibrary ?? Library;
+            var playlists = changedPlaylists ?? Playlists;
             if (version != accountVersion) return;
             Library = library; Playlists = playlists; Connected = true; Message = "";
             await ReadDownloadsAsync();
@@ -510,7 +513,38 @@ public sealed class MusicSession
         string.IsNullOrEmpty(playlist.CoverUrl) ? Task.FromResult<string?>(null)
             : GetCachedImageAsync(playlist.CoverUrl, (api, token) => api.GetImageAsync(playlist.CoverUrl, token), cancellationToken);
 
+    // Recently shown covers stay in memory so scrolling back does not re-read and re-decode them.
+    private readonly Dictionary<string, LinkedListNode<(string Key, string Value)>> recentArtwork = [];
+    private readonly LinkedList<(string Key, string Value)> recentArtworkOrder = new();
+    private string? RecentArtwork(string key)
+    {
+        lock (recentArtwork)
+        {
+            if (!recentArtwork.TryGetValue(key, out var node)) return null;
+            recentArtworkOrder.Remove(node); recentArtworkOrder.AddFirst(node);
+            return node.Value.Value;
+        }
+    }
+    private void RememberArtwork(string key, string value)
+    {
+        lock (recentArtwork)
+        {
+            if (recentArtwork.Remove(key, out var old)) recentArtworkOrder.Remove(old);
+            recentArtwork[key] = recentArtworkOrder.AddFirst((key, value));
+            while (recentArtworkOrder.Count > 120) { recentArtwork.Remove(recentArtworkOrder.Last!.Value.Key); recentArtworkOrder.RemoveLast(); }
+        }
+    }
+
     private async Task<string?> GetCachedImageAsync(string identity, Func<FamilyHubApi, CancellationToken, Task<string>> fetch, CancellationToken cancellationToken)
+    {
+        var memoryKey = accountVersion + ":" + identity;
+        if (RecentArtwork(memoryKey) is { } remembered) return remembered;
+        var image = await LoadCachedImageAsync(identity, fetch, cancellationToken);
+        if (image is not null) RememberArtwork(memoryKey, image);
+        return image;
+    }
+
+    private async Task<string?> LoadCachedImageAsync(string identity, Func<FamilyHubApi, CancellationToken, Task<string>> fetch, CancellationToken cancellationToken)
     {
         var version = accountVersion;
         var offline = Offline;

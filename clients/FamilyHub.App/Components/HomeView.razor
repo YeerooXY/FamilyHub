@@ -70,9 +70,16 @@
 
     private static string Greeting => DateTime.Now.Hour switch { < 5 => "Good evening", < 12 => "Good morning", < 18 => "Good afternoon", _ => "Good evening" };
 
+    private object? builtFrom;
+    private bool builtConnected;
+
     protected override void OnParametersSet()
     {
         recent = Session.RecentlyPlayed(6);
+        // Grouping the whole library is costly on phones; redo it only when the library changes.
+        var source0 = Session.Connected ? Session.Library : Session.Downloads;
+        if (ReferenceEquals(builtFrom, source0) && builtConnected == Session.Connected) return;
+        builtFrom = source0; builtConnected = Session.Connected;
         var played = Session.RecentlyPlayed(200).Select(t => t.Id).ToHashSet();
         var source = Session.Connected ? Session.Library : Session.Downloads;
         // Albums with recent plays come first, then the fullest albums.

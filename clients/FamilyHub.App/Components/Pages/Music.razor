@@ -83,7 +83,7 @@ else
     <nav id="music-navigation" aria-label="Music">
     <button id="open-home" class="nav-button" aria-label="Home" title="Home" aria-current='@(view == "Home" ? "page" : null)' @onclick='() => Navigate("Home")'><MusicIcon Name="home" /><span class="nav-label">Home</span></button>
     <button class="nav-button phone-nav" aria-label="Search" aria-current='@(view == "Search" ? "page" : null)' @onclick="OpenSearchTab"><MusicIcon Name="search" /><span class="nav-label">Search</span></button>
-    <button class="nav-button phone-nav" aria-label="Your library" aria-current='@(LibraryViews.Contains(view) ? "page" : null)' @onclick='() => Navigate("Library")'><MusicIcon Name="library" /><span class="nav-label">Library</span></button>
+    <button class="nav-button phone-nav" aria-label="Playlists" aria-current='@(LibraryViews.Contains(view) ? "page" : null)' @onclick='() => Navigate("Playlists")'><MusicIcon Name="playlist" /><span class="nav-label">Playlists</span></button>
     <button id="open-library" class="nav-button desktop-nav" aria-label="Your library" title="Your library" aria-current='@(view == "Library" ? "page" : null)' @onclick='() => Navigate("Library")'><MusicIcon Name="library" /><span class="nav-label">Your library</span></button>
     @foreach (var tab in new[] { "Downloads", "Playlists", "Review", "Stats" })
     { <button class="nav-button desktop-nav" aria-label="@NavLabel(tab)" title="@NavLabel(tab)" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" /><span class="nav-label">@NavLabel(tab)</span></button> }
@@ -95,7 +95,7 @@ else
     <p id="feedback" class="operation-status @(error is not null ? "error" : "")" role="status">@(error ?? (Session.DownloadingId is null ? Session.Message : ""))</p>
     @if (LibraryViews.Contains(view) && (view != "Playlists" || Selected is null))
     {
-        <div class="library-switch" role="group" aria-label="Library sections">@foreach (var (tab, label) in new[] { ("Library", "Songs"), ("Playlists", "Playlists"), ("Downloads", "Cached") }) { <button aria-pressed="@Aria(view == tab)" @onclick="() => Navigate(tab)">@label</button> }</div>
+        <div class="library-switch" role="group" aria-label="Library sections">@foreach (var (tab, label) in new[] { ("Playlists", "Playlists"), ("Library", "Songs"), ("Downloads", "Cached") }) { <button aria-pressed="@Aria(view == tab)" @onclick="() => Navigate(tab)">@label</button> }</div>
     }
     @if (view == "Home")
     {
@@ -116,7 +116,8 @@ else
         { <p class="note">@(source.Count > 0 ? "No matching songs." : view == "Downloads" ? "No songs on this device. Download a song or playlist while connected." : "Connect and refresh to load your server library.")</p> }
         @if (source.Count == 0 && view == "Library" && string.IsNullOrEmpty(Session.Server))
         { <button class="primary" @onclick='() => Navigate("Settings")'>Connect server</button> }
-        <div class="library-list"><Virtualize Items="tracks" Context="track" ItemSize="84" OverscanCount="3">@TrackRow(track, tracks, view == "Downloads" && Session.KeptOnDevice(track))</Virtualize></div>
+        <div class="library-list">@foreach (var track in tracks.Take(Shown(view + filter + genre))) { @TrackRow(track, tracks, view == "Downloads" && Session.KeptOnDevice(track)) }</div>
+        @ShowMore(tracks.Count)
     }
     else if (view == "Preferences")
     {
@@ -195,8 +196,9 @@ else
             @if (selected.OwnerId == Session.User) { <PlaylistTransfer @key="PlaylistKey(selected)" Playlist="selected" /> }
             <div class="playlist-column-headings"><span>#</span><span>Title</span><span>Album</span><span>Date added</span><span aria-label="Duration"><MusicIcon Name="clock" /></span></div>
             <div class="library-list unified-song-list playlist-song-list">
-            <Virtualize Items="Enumerable.Range(0, selected.Tracks.Count).ToArray()" Context="position" ItemSize="84" OverscanCount="3">
-                @{ var entry = selected.Tracks[position]; var track = Session.Resolve(entry); }
+            @foreach (var position in Enumerable.Range(0, Math.Min(selected.Tracks.Count, Shown("playlist:" + selectedId))))
+            {
+                var entry = selected.Tracks[position]; var track = Session.Resolve(entry);
                 @if (track is not null)
                 {
                     <SongRow PlaylistColumns="true" Number="@(position + 1)" Album="@PlaylistAlbum(entry, track)" AddedAt="@entry.AddedAt" @key="(selected.Id, position)" Track="track" Current="@(Player.Current?.Id == track.Id)" Playing="ShowPause" Play="() => PlayEntry(selected, position)" AddToPlaylist="OpenPlaylistPicker" Queue="() => QueueTrack(track)" Keep="() => Download(track)" Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="Remove from playlist" />
@@ -206,8 +208,9 @@ else
                     var metadata = new MusicTrack { Id = entry.SpotifyUri, Title = entry.Title, Channel = entry.Artist, Duration = entry.Duration };
                     <SongRow PlaylistColumns="true" Number="@(position + 1)" Album="@PlaylistAlbum(entry, track)" AddedAt="@entry.AddedAt" @key="(selected.Id, position)" Track="metadata" FindRecording="true" Play="() => FindPlaylistRecording(entry)" Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="Remove from playlist" />
                 }
-            </Virtualize>
+            }
             </div>
+            @ShowMore(selected.Tracks.Count)
         }
     }
     else if (view == "Review")
@@ -223,10 +226,11 @@ else
         @if (Player.Queue.Count == 0) { <p>No songs queued. Use the queue icon on a song to add it.</p> }
         <div id="queue" class="library-list unified-song-list">
         @{ var queuedTracks = Player.Queue.ToList(); }
-        <Virtualize Items="Enumerable.Range(0, queuedTracks.Count).ToArray()" Context="position" ItemSize="84" OverscanCount="3">
-            @TrackRow(queuedTracks[position], queuedTracks, false, position)
-        </Virtualize>
+        @{ var queueStart = Math.Max(0, Player.QueueIndex - 3); }
+        @foreach (var position in Enumerable.Range(queueStart, Math.Max(0, Math.Min(queuedTracks.Count - queueStart, Shown("queue")))))
+        { @TrackRow(queuedTracks[position], queuedTracks, false, position) }
         </div>
+        @ShowMore(queuedTracks.Count - queueStart)
     }
     else if (view == "Search")
     {
@@ -458,14 +462,32 @@ else
         await JS.InvokeVoidAsync("familyhub.beginPlaylistTransition", PlaylistKey(playlist), true);
         await Navigate("Playlists"); selectedId = PlaylistKey(playlist); playlistTransitionPending = true;
     }
+    // Long lists render 50 songs at a time; phones slow down when every row is on the page.
+    private const int ListPage = 50;
+    private int shown = ListPage;
+    private string shownKey = "";
+    private int Shown(string key)
+    {
+        if (key != shownKey) { shownKey = key; shown = ListPage; }
+        return shown;
+    }
+    private RenderFragment ShowMore(int total) => __builder =>
+    {
+        if (total > shown)
+        {
+            <button id="show-more" class="quiet show-more" @onclick="() => ShowMoreSongs(total)">Show @Math.Min(ListPage, total - shown) more of @(total - shown)</button>
+        }
+    };
+    private void ShowMoreSongs(int total) { shown += ListPage; pendingFocus = total > shown ? "show-more" : "content"; }
+    private string? pendingReveal;
     private static readonly HashSet<string> LibraryViews = ["Library", "Playlists", "Downloads"];
     private async Task OpenSearchTab() { await Navigate("Search"); pendingFocus = "q"; }
     // Home links to server pages that the phone navigation does not list.
     private async Task HomeNavigate(string tab)
     {
         if (tab != "Leaderboard") { await Navigate(tab); return; }
-        await Navigate("Stats");
-        await JS.InvokeVoidAsync("familyhub.revealWhenReady", "stats-ranking-title");
+        // Scroll after the view switch, which resets the scroll position.
+        await Navigate("Stats"); pendingReveal = "stats-ranking-title";
     }
     // On a phone the mini player opens the full-screen Now Playing; on desktop it opens the queue.
     private async Task PlayerArea()
@@ -576,6 +598,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         Session.Changed += Changed; Player.Changed += Changed;
+        BackNavigation.Handler = async () => { var handled = false; await InvokeAsync(async () => handled = await StepBack()); return handled; };
         await Session.InitializeAsync(); server = Session.Server;
     }
     private string? renderedView, appliedProfile;
@@ -632,6 +655,7 @@ else
             renderedView = screen;
             await JS.InvokeVoidAsync("familyhub.view", screen);
         }
+        if (pendingReveal is { } reveal) { pendingReveal = null; await JS.InvokeVoidAsync("familyhub.revealWhenReady", reveal); }
         if (!string.IsNullOrEmpty(Session.User) && (appliedProfile != Session.Server + Session.User || appliedPreferences != Session.PlaybackPreferences))
         {
             if (appliedProfile != Session.Server + Session.User) unmutedVolume = Session.PlaybackPreferences.Volume > 0 ? Session.PlaybackPreferences.Volume : 1;
@@ -651,7 +675,26 @@ else
         wasDownloading = Session.DownloadingId is not null;
     }
     private void Changed() => _ = InvokeAsync(StateHasChanged);
-    public void Dispose() { updateChecksStopped = true; _ = JS.InvokeVoidAsync("familyhub.stopUpdatePolling"); resizeReference?.Dispose(); queueNoticeTimer?.Cancel(); queueNoticeTimer?.Dispose(); CancelSearch(); Session.Changed -= Changed; Player.Changed -= Changed; }
+    // Android Back: dialogs first, then Now Playing, menus, the open playlist, the previous view, then Home.
+    private async Task<bool> StepBack()
+    {
+        if (await JS.InvokeAsync<bool>("familyhub.closeTopLayer")) return true;
+        if (EntryScreen)
+        {
+            if (view != "Settings" || string.IsNullOrEmpty(Session.User) || Session.NeedsProfileSelection) return false;
+            view = "Home"; StateHasChanged(); return true;
+        }
+        if (playerExpanded) CollapsePlayer();
+        else if (playerToolsOpen) await ClosePlayerTools();
+        else if (profileMenu) { profileMenu = false; pendingFocus = "profile-toggle"; }
+        else if (view == "Playlists" && Selected is not null) await AllPlaylists();
+        else if (backViews.Count > 0) GoBack();
+        else if (view != "Home") await Navigate("Home");
+        else return false;
+        StateHasChanged();
+        return true;
+    }
+    public void Dispose() { if (BackNavigation.Handler is not null) BackNavigation.Handler = null; updateChecksStopped = true; _ = JS.InvokeVoidAsync("familyhub.stopUpdatePolling"); resizeReference?.Dispose(); queueNoticeTimer?.Cancel(); queueNoticeTimer?.Dispose(); CancelSearch(); Session.Changed -= Changed; Player.Changed -= Changed; }
     private void RememberView(string tab)
     {
         if (view == tab) return;

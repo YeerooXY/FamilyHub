@@ -3,7 +3,7 @@
 Acquisition/import reuse scripts/music-intake.py. One coordinator schedules acquisition,
 HLS and bounded beat analysis; browser decks handle playback. See docs/MOBILE_MUSIC.md.
 """
-import hashlib, importlib.util, io, json, logging, os, re, secrets, shutil, sys, threading, time, urllib.parse, urllib.request
+import gzip, hashlib, importlib.util, io, json, logging, os, re, secrets, shutil, sys, threading, time, urllib.parse, urllib.request
 from collections import OrderedDict, deque
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from contextlib import suppress
@@ -245,6 +245,17 @@ def create_app(test_config=None):
             "X-Content-Type-Options": "nosniff", "Referrer-Policy": "same-origin",
             "Permissions-Policy": "camera=(), microphone=(), geolocation=()", "Cache-Control": "no-store",
             "Strict-Transport-Security": "max-age=31536000"})
+        # The apps refresh these lists every few minutes. An unchanged list answers 304 with
+        # no body, and a changed one is gzip-compressed (about a fifth of the size).
+        if (request.method == "GET" and request.path in ("/api/library", "/api/playlists")
+                and resp.status_code == 200 and resp.mimetype == "application/json" and not resp.direct_passthrough):
+            resp.add_etag()
+            resp.make_conditional(request)
+            if (resp.status_code == 200 and "gzip" in request.headers.get("Accept-Encoding", "")
+                    and "Content-Encoding" not in resp.headers):
+                resp.set_data(gzip.compress(resp.get_data(), 6))
+                resp.headers["Content-Encoding"] = "gzip"
+                resp.headers["Vary"] = "Accept-Encoding"
         return resp
 
     @app.errorhandler(ApiError)

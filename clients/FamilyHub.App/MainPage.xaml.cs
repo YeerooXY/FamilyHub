@@ -109,6 +109,24 @@ public partial class MainPage : ContentPage
         player.Changed += PlaybackChanged; session.Changed += RestorePlayback;
         blazorWebView.UrlLoading += (_, args) => { if (args.Url.Host != "0.0.0.1") args.UrlLoadingStrategy = Microsoft.AspNetCore.Components.WebView.UrlLoadingStrategy.CancelLoad; };
 	}
+    protected override bool OnBackButtonPressed()
+    {
+#if ANDROID
+        _ = StepBack();
+        return true;
+#else
+        return base.OnBackButtonPressed();
+#endif
+    }
+    private static async Task StepBack()
+    {
+        var handled = false;
+        try { handled = Services.BackNavigation.Handler is { } handler && await handler(); }
+        catch { /* A closed view leaves Back to the system. */ }
+#if ANDROID
+        if (!handled) Microsoft.Maui.ApplicationModel.Platform.CurrentActivity?.MoveTaskToBack(true);
+#endif
+    }
 }
 
 public sealed record WindowChromeRect(double X, double Y, double Width, double Height);

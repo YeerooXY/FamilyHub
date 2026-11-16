@@ -14,7 +14,7 @@ public sealed class FamilyHubApi : IDisposable
     public string? UserName { get; private set; }
     public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public FamilyHubApi(Uri server) : this(server, new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false }) { }
+    public FamilyHubApi(Uri server) : this(server, new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Brotli }) { }
 
     // Supplied handlers must not follow redirects: each destination is checked before sending credentials.
     public FamilyHubApi(Uri server, HttpMessageHandler handler)
@@ -67,6 +67,31 @@ public sealed class FamilyHubApi : IDisposable
 
     public async Task<List<MusicTrack>> GetLibraryAsync(CancellationToken cancellationToken = default) =>
         (await RequestJsonAsync<LibraryResponse>(HttpMethod.Get, "/api/library", null, cancellationToken)).Results;
+
+    // Background refreshes: null when the list has not changed since this connection last read it.
+    public async Task<List<MusicTrack>?> GetLibraryIfChangedAsync(CancellationToken cancellationToken = default) =>
+        (await GetIfChangedAsync<LibraryResponse>("/api/library", cancellationToken))?.Results;
+
+    public async Task<List<MusicPlaylist>?> GetPlaylistsIfChangedAsync(CancellationToken cancellationToken = default) =>
+        (await GetIfChangedAsync<PlaylistsResponse>("/api/playlists", cancellationToken))?.Playlists;
+
+    private readonly Dictionary<string, string> listTags = [];
+    private async Task<T?> GetIfChangedAsync<T>(string path, CancellationToken cancellationToken) where T : class
+    {
+        string? tag;
+        lock (listTags) listTags.TryGetValue(path, out tag);
+        using var response = await SendAsync(HttpMethod.Get, path, null, cancellationToken, ifNoneMatch: tag);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotModified && tag is not null) return null;
+        await EnsureSuccessAsync(response, cancellationToken);
+        var value = await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken)
+            ?? throw new InvalidDataException("The server returned no data.");
+        lock (listTags)
+        {
+            if (response.Headers.ETag is { } etag) listTags[path] = etag.ToString();
+            else listTags.Remove(path);
+        }
+        return value;
+    }
 
     public Task LegacyLoginAsync(string user, string password, CancellationToken cancellationToken = default) => LoginAsync(user, password, cancellationToken);
 
@@ -203,7 +228,7 @@ public sealed class FamilyHubApi : IDisposable
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent? content,
-        CancellationToken cancellationToken, long rangeStart = 0, string? etag = null)
+        CancellationToken cancellationToken, long rangeStart = 0, string? etag = null, string? ifNoneMatch = null)
     {
         var uri = ResolveUri(path);
         for (var redirects = 0; redirects < 6; redirects++)
@@ -214,6 +239,7 @@ public sealed class FamilyHubApi : IDisposable
             if (cookieHeader.Length > 0) request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
             if (method != HttpMethod.Get && method != HttpMethod.Head && csrf is not null)
                 request.Headers.Add("X-CSRFToken", csrf);
+            if (ifNoneMatch is not null) request.Headers.TryAddWithoutValidation("If-None-Match", ifNoneMatch);
             if (rangeStart > 0)
             {
                 request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(rangeStart, null);
