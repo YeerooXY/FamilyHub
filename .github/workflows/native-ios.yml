@@ -26,16 +26,20 @@ jobs:
         run: |
           dotnet workload install maui-ios --skip-manifest-update
           dotnet workload list
-      - name: Use the runner's current Xcode
-        # .NET for iOS 26.0 asks for Xcode 26.0 exactly, but current runners only carry simulator
-        # runtimes for newer Xcode releases, which the asset compiler needs. Use the default Xcode
-        # and skip the exact-version check (see the build step).
+      - name: Build unsigned IPA with a working Xcode
+        # .NET for iOS 26.0 asks for Xcode 26.0 exactly, but runners carry simulator runtimes
+        # (needed by the asset compiler) only for newer releases, and some installs lack actool.
+        # Try each installed Xcode 26.x, newest first, until one builds.
         run: |
-          xcode=$(ls -d /Applications/Xcode_26.6*.app 2>/dev/null | sort -V | tail -1)
-          if [ -n "$xcode" ]; then sudo xcode-select --switch "$xcode/Contents/Developer"; fi
-          xcodebuild -version
-      - name: Build unsigned IPA
-        run: bash scripts/build-ios-app.sh -p:ValidateXcodeVersion=false
+          for xcode in $(ls -d /Applications/Xcode_26.*.app | sort -rV); do
+            dev="$xcode/Contents/Developer"
+            [ -x "$dev/usr/bin/actool" ] || { echo "skip $xcode: no actool"; continue; }
+            sudo xcode-select --switch "$dev"
+            echo "::group::Build with $xcode"; xcodebuild -version
+            if bash scripts/build-ios-app.sh -p:ValidateXcodeVersion=false; then echo "::endgroup::"; echo "Built with $xcode"; exit 0; fi
+            echo "::endgroup::"; rm -rf clients/FamilyHub.App/obj clients/FamilyHub.App/bin
+          done
+          echo "No installed Xcode could build the app." >&2; exit 1
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: FamilyHub-Music-unsigned
