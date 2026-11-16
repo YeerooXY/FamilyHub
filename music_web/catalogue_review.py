@@ -7,7 +7,7 @@ import re
 import threading
 import time
 import unicodedata
-from .musicbrainz import read as musicbrainz
+from .musicbrainz import read as musicbrainz, Throttled
 from .genres import group as genre_group
 
 ID=re.compile(r'(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})')
@@ -119,9 +119,13 @@ class CatalogueReview:
             if not isinstance(self.data[section],dict) or len(self.data[section])>self.MAX_ROWS:raise ReviewError('Invalid catalogue review store.')
         for row in self.data['metadata'].values():
             if row.get('state')=='processing':row['state']='queued';self.dirty=True
+            # Songs that ran out of attempts while MusicBrainz was throttling get them back once.
+            if self.data.get('throttle_reset')!=1 and row.get('state')=='queued' and row.get('attempts'):
+                row.update(attempts=0);row.pop('retry_at',None);self.dirty=True
             # Automatic results from an older lookup get one more try; owner edits keep their fields.
             if row.get('state')=='review' and row.get('lookup_version',1)<LOOKUP_VERSION and row.get('source','') in AUTOMATIC_SOURCES:
                 row.update(state='queued',lookup_version=LOOKUP_VERSION,attempts=0);row.pop('retry_at',None);self.dirty=True
+        if self.data.get('throttle_reset')!=1:self.data['throttle_reset']=1;self.dirty=True
 
     def flush(self):
         with self.lock:
@@ -200,9 +204,15 @@ class CatalogueReview:
             result=resolver(captured)
             if not isinstance(result,dict) or not isinstance(result.get('values',{}),dict):raise ReviewError('Invalid metadata result.')
             result['values']={key:text(value,80 if key=='genre' else 120) for key,value in result.get('values',{}).items() if key in FIELDS}
+        except Throttled:result='throttled'
         except Exception:result=None
         with self.lock:
             if row['revision']!=version or row['state']!='processing':return True
+            if result=='throttled':
+                # Being told to slow down is not the song's fault: try it again in two minutes
+                # without using one of its attempts.
+                row.update(state='queued',retry_at=time.time()+120,revision=row['revision']+1)
+                self.dirty=True;self.flush();return True
             if result is None:
                 attempts=row.get('attempts',0)
                 if attempts<len(RETRY_SECONDS):

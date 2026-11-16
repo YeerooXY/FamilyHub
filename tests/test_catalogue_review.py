@@ -59,6 +59,15 @@ class ReviewStore(unittest.TestCase):
         self.assertEqual(self.store.progress(),dict(processed=0,total=1,remaining=1,waiting=0,current_title=''))
         self.store.process_one(lambda:True,lambda row:dict(values={},source='No unique title, artist and duration match'))
         self.assertIsNone(self.store.progress(),'no tagging row once every song was looked up')
+    def test_throttling_requeues_without_using_an_attempt(self):
+        from music_web.musicbrainz import Throttled
+        self.observe()
+        def busy(row): raise Throttled('slow down')
+        self.store.process_one(lambda:True,busy)
+        row=next(iter(self.store.data['metadata'].values()))
+        self.assertEqual((row['state'],row.get('attempts',0)),('queued',0))
+        self.assertGreater(row['retry_at'],0)
+
     def test_older_automatic_results_are_looked_up_again_once(self):
         self.observe();self.store.process_one(lambda:True,lambda row:dict(values={},source='No unique title, artist and duration match'))
         row=next(iter(self.store.data['metadata'].values()));row.pop('lookup_version',None);self.store.dirty=True;self.store.flush()
