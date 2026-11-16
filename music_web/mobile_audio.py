@@ -5,10 +5,12 @@ import threading
 from .audio_profile import measure_loudness
 
 _encoding = threading.Lock()
+# A listener waiting for a song encodes in its own lane, never behind background playlist work.
+_listening = threading.Lock()
 VERSION = "opus96-v1"
 
 
-def prepare(intake, item, source, digest):
+def prepare(intake, item, source, digest, urgent=False):
     path = os.path.join(item, f".{VERSION}-{digest}.opus")
     # Published copies are immutable and appear through atomic replacement.
     # Playback of an existing copy must not wait behind another song's encoder.
@@ -16,7 +18,7 @@ def prepare(intake, item, source, digest):
         intake.regular_file(path, "mobile audio")
         return path
     # Serialize encodes so simultaneous listeners cannot exhaust the server.
-    with _encoding:
+    with (_listening if urgent else _encoding):
         if os.path.lexists(path):
             intake.regular_file(path, "mobile audio")
         else:

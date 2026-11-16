@@ -515,6 +515,9 @@ def stop_process(proc):
 
 
 def spawn(args, **kw):
+    # Work no listener is waiting on yields the CPU: niceness 10 on Linux.
+    if os.name != "nt" and getattr(CONTROL, "background", False) and shutil.which("nice"):
+        args = ["nice", "-n", "10", *args]
     proc = subprocess.Popen(args, start_new_session=os.name != "nt",
                             creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP | 4) if os.name == "nt" else 0, **kw)
     if os.name == "nt":

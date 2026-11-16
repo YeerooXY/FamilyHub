@@ -8,7 +8,7 @@
     <form class="create-playlist-form inline-form" @onsubmit="Submit" @onsubmit:preventDefault>
         <label class="create-field">
             <span>Name</span>
-            <input id="new-playlist" @bind="name" @bind:event="oninput" placeholder="@(Source is null ? "My playlist" : "Uses the name from " + SiteName(Source))" maxlength="200" disabled="@(Source is not null)" autocomplete="off" />
+            <input id="new-playlist" @bind="name" @bind:event="oninput" placeholder="@(Source is not null ? "Uses the name from " + SiteName(Source) : uploader?.FolderName is { Length: > 0 } folder ? folder : "My playlist")" maxlength="200" disabled="@(Source is not null)" autocomplete="off" />
         </label>
 
         <section class="create-section" aria-labelledby="create-link-title">
@@ -16,7 +16,7 @@
             <div class="create-link @(Source is { } linkSite ? "is-" + linkSite : "") @(link.Length > 0 && Source is null ? "is-unknown" : "")">
                 <span class="create-link-icon" aria-hidden="true">@if (Source is { } detected) { @SiteIcon(detected) } else { <MusicIcon Name="link" /> }</span>
                 <label class="sr" for="new-playlist-url">Playlist link</label>
-                <input id="new-playlist-url" type="url" @bind="link" @bind:event="oninput" placeholder="Paste a playlist link" autocomplete="off" spellcheck="false" />
+                <input id="new-playlist-url" type="url" @bind="link" @bind:event="oninput" placeholder="Paste a playlist link" autocomplete="off" spellcheck="false" disabled="@(Files > 0)" />
                 @if (link.Length > 0) { <button type="button" class="create-link-clear" aria-label="Clear link" @onclick="ClearLink"><MusicIcon Name="close" /></button> }
             </div>
             <p class="create-link-status" role="status">@LinkStatus</p>
@@ -31,9 +31,10 @@
         <section class="create-section" aria-labelledby="create-files-title">
             <h3 id="create-files-title">Add songs from this device</h3>
             <div class="create-files">
-                <button type="button" id="create-from-songs" class="create-file-choice" @onclick="() => FromDevice(false)" aria-disabled="@Aria(busy || Source is not null)"><MusicIcon Name="music" /><strong>Choose songs</strong><small>One song or several</small></button>
-                <button type="button" id="create-from-folder" class="create-file-choice" @onclick="() => FromDevice(true)" aria-disabled="@Aria(busy || Source is not null)"><MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Includes its subfolders</small></button>
+                <button type="button" id="create-from-songs" class="create-file-choice" @onclick="() => FromDevice(false)" aria-disabled="@Aria(DeviceLocked)"><MusicIcon Name="music" /><strong>Choose songs</strong><small>One song or several</small></button>
+                <button type="button" id="create-from-folder" class="create-file-choice" @onclick="() => FromDevice(true)" aria-disabled="@Aria(DeviceLocked)"><MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Includes its subfolders</small></button>
             </div>
+            <UploadSongs @ref="uploader" Inline="true" Prefix="create-upload" ShowOpenButton="false" Changed="StateHasChanged" />
         </section>
 
         <section class="create-section create-options" aria-label="Playlist options">
@@ -46,12 +47,11 @@
 
         <p class="entry-error" role="status">@error</p>
         <div class="actions">
-            <button class="primary" type="submit" aria-disabled="@Aria(busy || (link.Length > 0 && Source is null))">@(busy ? "Working..." : Source is not null ? "Import playlist" : "Create empty playlist")</button>
+            <button id="create-playlist-submit" class="primary" type="submit" aria-disabled="@Aria(busy || uploader?.Busy == true || (link.Length > 0 && Source is null))">@SubmitLabel</button>
             <button type="button" @onclick="Close">Cancel</button>
         </div>
     </form>
 </dialog>
-<UploadSongs @ref="uploader" Prefix="create-upload" ShowOpenButton="false" ReturnFocus="create-playlist" />
 
 @code {
     [Parameter] public EventCallback<MusicPlaylist> Created { get; set; }
@@ -87,12 +87,27 @@
         : "This site isn't supported. Use a Spotify, YouTube, SoundCloud or Deezer playlist link.";
 
     private void ClearLink() { link = ""; error = null; }
-    private void Reset() { name = link = ""; shared = download = true; error = null; busy = false; }
+    private void Reset() { name = link = ""; shared = download = true; error = null; busy = false; uploader?.Clear(); }
+    private int Files => uploader?.SelectedCount ?? 0;
+    private bool DeviceLocked => busy || Source is not null || uploader?.Busy == true;
+    private string SubmitLabel => busy ? "Working..." : Source is not null ? "Import playlist"
+        : Files > 0 ? uploader!.Busy ? "Uploading..." : uploader.Finished ? "Done" : $"Upload {Files} {(Files == 1 ? "song" : "songs")}"
+        : "Create empty playlist";
     private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "create-playlist-dialog", "create-playlist").AsTask();
 
     private async Task Submit()
     {
         if (busy || (link.Length > 0 && Source is null)) return;
+        if (Source is null && uploader is { SelectedCount: > 0 } files)
+        {
+            if (files.Busy) return;
+            // Songs from this device: upload into the new playlist here, then Done opens it.
+            if (!files.Finished) { await files.UploadInto(name.Trim().Length > 0 ? name.Trim() : files.FolderName.Length > 0 ? files.FolderName : "New playlist", shared); return; }
+            var key = files.CreatedPlaylistKey;
+            await JS.InvokeVoidAsync("familyhub.closeDialog", "create-playlist-dialog", "content");
+            if (Session.Playlists.FirstOrDefault(p => p.OwnerId + ":" + p.Id == key) is { } made) await Created.InvokeAsync(made);
+            return;
+        }
         busy = true; error = null;
         try
         {
@@ -110,15 +125,11 @@
         finally { busy = false; }
     }
 
-    // Songs and folders go through the upload dialog with the new playlist selected; the
-    // playlist is created when the upload starts, so cancelling leaves nothing behind.
+    // Songs and folders are picked and uploaded right here; the playlist is made when the upload starts.
     private async Task FromDevice(bool folder)
     {
-        if (busy || Source is not null || uploader is null) return;
-        // Without a name, a folder gives its own name; single songs go into "New playlist".
-        var chosen = name.Trim().Length > 0 ? name.Trim() : folder ? "" : "New playlist";
-        await JS.InvokeVoidAsync("familyhub.closeDialog", "create-playlist-dialog", "content");
-        await uploader.OpenForNewPlaylist(chosen, folder, shared);
+        if (DeviceLocked || uploader is null) return;
+        if (folder) await uploader.PickFolder(); else await uploader.PickSongs();
     }
 
     private static RenderFragment SiteIcon(string site) => site switch

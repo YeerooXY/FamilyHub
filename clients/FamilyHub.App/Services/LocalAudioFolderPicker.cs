@@ -5,7 +5,10 @@ namespace FamilyHub.App;
 public sealed record LocalAudioFile(string Name, long Size, Func<CancellationToken, Task<Stream>> OpenRead);
 
 /// <param name="Name">The chosen folder's own name, offered as a playlist name.</param>
-public sealed record LocalAudioFolderSelection(IReadOnlyList<LocalAudioFile> Files, int Skipped, bool LimitReached, string Name = "");
+public sealed record LocalAudioFolderSelection(IReadOnlyList<LocalAudioFile> Files, int Skipped, bool LimitReached, string Name = "", IReadOnlyList<LocalAudioSkip>? SkippedFiles = null);
+
+/// <summary>A file left out of an upload and why: "empty", "too-large" or "not-audio".</summary>
+public sealed record LocalAudioSkip(string Name, string Reason);
 
 public static class LocalAudioFolderPicker
 {
@@ -18,6 +21,9 @@ public static class LocalAudioFolderPicker
     {
         ".flac", ".mp3", ".m4a", ".opus", ".ogg", ".oga", ".wav", ".aac", ".webm", ".mka", ".wv", ".aiff", ".aif"
     };
+
+    // Names of left-out files, kept to a readable length for the upload dialog.
+    private static void Skip(List<LocalAudioSkip> skips, string name, string reason) { if (skips.Count < 500) skips.Add(new(name, reason)); }
 
     public static bool IsSupported(string name) => AudioExtensions.Contains(Path.GetExtension(name));
 
@@ -82,7 +88,7 @@ public static class LocalAudioFolderPicker
     private static async Task<LocalAudioFolderSelection> EnumerateWindowsAsync(Windows.Storage.StorageFolder root, CancellationToken cancellationToken)
     {
         var files = new List<LocalAudioFile>();
-        var skipped = 0;
+        var skipped = 0; var skips = new List<LocalAudioSkip>();
         var visited = 0;
         var limitReached = false;
 
@@ -133,14 +139,14 @@ public static class LocalAudioFolderPicker
                         continue;
                     if (!IsSupported(file.Name))
                     {
-                        skipped++;
+                        skipped++; Skip(skips, file.Name, "not-audio");
                         continue;
                     }
 
                     var size = (long)(await file.GetBasicPropertiesAsync()).Size;
                     if (size < 1 || size > MaxFileBytes)
                     {
-                        skipped++;
+                        skipped++; Skip(skips, file.Name, size < 1 ? "empty" : "too-large");
                         continue;
                     }
 
@@ -160,7 +166,7 @@ public static class LocalAudioFolderPicker
         }
 
         await WalkAsync(root, 0);
-        return new LocalAudioFolderSelection(new ReadOnlyCollection<LocalAudioFile>(files), skipped, limitReached, root.Name);
+        return new LocalAudioFolderSelection(new ReadOnlyCollection<LocalAudioFile>(files), skipped, limitReached, root.Name, skips);
     }
 #endif
 
@@ -186,7 +192,7 @@ public static class LocalAudioFolderPicker
         var rootId = Android.Provider.DocumentsContract.GetTreeDocumentId(treeUri)
             ?? throw new IOException("The selected folder has no document ID.");
         var files = new List<LocalAudioFile>();
-        var skipped = 0;
+        var skipped = 0; var skips = new List<LocalAudioSkip>();
         var visited = 0;
         var limitReached = false;
 
@@ -235,14 +241,14 @@ public static class LocalAudioFolderPicker
 
                 if (!IsSupported(name))
                 {
-                    skipped++;
+                    skipped++; Skip(skips, name, "not-audio");
                     continue;
                 }
 
                 var size = cursor.IsNull(sizeColumn) ? -1 : cursor.GetLong(sizeColumn);
                 if (size < 1 || size > MaxFileBytes)
                 {
-                    skipped++;
+                    skipped++; Skip(skips, name, size < 1 ? "empty" : "too-large");
                     continue;
                 }
 
@@ -268,7 +274,7 @@ public static class LocalAudioFolderPicker
         }
 
         Walk(rootId, 0);
-        return new LocalAudioFolderSelection(new ReadOnlyCollection<LocalAudioFile>(files), skipped, limitReached, rootId.Split(':').Last().Split('/').Last());
+        return new LocalAudioFolderSelection(new ReadOnlyCollection<LocalAudioFile>(files), skipped, limitReached, rootId.Split(':').Last().Split('/').Last(), skips);
     }
 #endif
 }

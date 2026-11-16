@@ -515,6 +515,19 @@ class UploadTests(Base):
         self.assertEqual(self.leftovers(), [])
         self.assertNotIn(self.ws, str(job))
 
+    def test_upload_failure_names_the_reason_without_paths(self):
+        self.fake_ok()
+        c, tok = self.signed_in()
+        for error, message, label in (
+                ("audio does not decode cleanly (corrupt or truncated): /srv/secret/x.mp3", "This file is damaged or cut off partway, so it can't be played reliably.", "damaged"),
+                ("file contains a video stream; only audio files are accepted", "This is a video file. Upload the audio only.", "video"),
+                ("something new /srv/secret", "This file could not be read as audio.", None)):
+            with mock.patch.object(self.intake, "cmd_stage", side_effect=self.intake.IntakeError(error)),                     self.assertLogs("music_web", "WARNING") as logs:
+                job = self.wait(c, self.upload(c, tok).get_json()["job"]["id"])
+            self.assertEqual((job["state"], job["message"]), ("error", message))
+            self.assertNotIn("/srv/secret", "".join(logs.output))
+            if label: self.assertIn(f"({label})", "".join(logs.output))
+
     def test_native_upload_uses_tags_and_falls_back_for_missing_metadata(self):
         self.fake_ok()
         item = os.path.join(self.ws, "local-0123456789abcdef")

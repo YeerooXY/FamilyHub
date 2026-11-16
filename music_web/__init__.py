@@ -99,6 +99,21 @@ DEFAULTS = {
 }
 STEP_TEXT = {"fetch": "Downloading audio", "stage": "Checking the audio file", "import": "Importing to the library",
              "prepare": "Preparing listening audio"}
+# Known upload failures: (log label, message for the person who uploaded). Matched on the intake's
+# own wording, so no path or URL from the error text reaches the log or the app.
+UPLOAD_FAILURES = (
+    ("not-audio", "cannot read this file as audio", "This file isn't an audio file the server can read."),
+    ("video", "contains a video stream", "This is a video file. Upload the audio only."),
+    ("several-tracks", "expected exactly one audio stream", "This file has more than one audio track."),
+    ("damaged", "does not decode cleanly", "This file is damaged or cut off partway, so it can't be played reliably."),
+    ("no-length", "no usable duration", "The server couldn't tell how long this song is. The file may be damaged."),
+    ("timeout", "cancelled or timed out", "The server took too long with this file. Try it again when the server is less busy."),
+)
+
+def upload_failure(error):
+    text = str(error)
+    return next(((label, message) for label, needle, message in UPLOAD_FAILURES if needle in text), None)
+
 FAIL_TEXT = {"fetch": "Download failed. Check the link and try again.",
              "stage": "This file could not be read as audio.",
              "import": "Import failed. Try a different album or title, or ask the administrator.",
@@ -701,6 +716,8 @@ def create_app(test_config=None):
     def work(job, url, tmp, m):
         step, intake, outcome = "fetch" if url else "stage", app.intake, ("done", DONE_TEXT)
         intake.CONTROL.cancel = job["cancel"]
+        # Background work runs at lower CPU priority so a listener's song is served first.
+        intake.CONTROL.background = analyzing_job(job)
         intake.CONTROL.budget = lambda: job_budget(job)
         intake.CONTROL.publish = job["publish"]
         intake.CONTROL.committed = lambda: job.update(committed=True)
@@ -814,14 +831,18 @@ def create_app(test_config=None):
             job.update(state="queued", message="Paused so a listener's song goes first", phase="queued",
                        preview_state="pending", download_bytes=0, download_total_bytes=None)
             intake.CONTROL.cancel = None
+            intake.CONTROL.background = False
             intake.CONTROL.budget = None
             intake.CONTROL.publish = None
             intake.CONTROL.committed = None
             return
-        except Exception as e:  # the browser gets a fixed message; the log omits str(e), which can hold signed URLs or paths
-            log.warning("job %s failed at %s: %s", job["id"], step, type(e).__name__)
+        except Exception as e:  # the browser gets a fixed message; the log keeps only a known reason, never URLs or paths
+            reason = upload_failure(e) if isinstance(e, intake.IntakeError) else None
+            log.warning("job %s failed at %s: %s%s", job["id"], step, type(e).__name__, f" ({reason[0]})" if reason else "")
             outcome = (("cancelled", "Cancelled") if job["cancel"].is_set() and not job.get("committed") else
                        ("error", FAIL_TEXT[step] if isinstance(e, intake.IntakeError) or step == "prepare" else "Import failed unexpectedly."))
+            if outcome[0] == "error" and reason and step == "stage":
+                outcome = ("error", reason[1])
             if str(e) == "scratch capacity exceeded":
                 outcome = ("error", "The server needs more processing space. Ask the server owner to free space.")
         if tmp:
@@ -834,6 +855,7 @@ def create_app(test_config=None):
             job["preview_state"] = "expired"
         settle(job, *outcome)
         intake.CONTROL.cancel = None
+        intake.CONTROL.background = False
         intake.CONTROL.budget = None
         intake.CONTROL.publish = None
         intake.CONTROL.committed = None
@@ -842,6 +864,8 @@ def create_app(test_config=None):
         intake = app.intake
         wav = os.path.join(ws, ".preview-" + job["id"], "analysis.wav")
         intake.CONTROL.cancel = job["cancel"]
+        # Background work runs at lower CPU priority so a listener's song is served first.
+        intake.CONTROL.background = analyzing_job(job)
         def analysis_budget():
             if playback_demand(): raise PlaybackYield()
             budget()
@@ -876,13 +900,23 @@ def create_app(test_config=None):
             with lock:
                 job.update(analysis_state="pending" if retry else "done", analyzing=False)
             intake.CONTROL.cancel = None
+            intake.CONTROL.background = False
             intake.CONTROL.budget = None
+
+    def analyzing_job(job):
+        # True for work nobody is waiting on: beat analysis and background playlist songs.
+        return bool(job.get("analyzing")) or not foreground(job)
+
+    # Background work (playlist songs, analysis) scales with the server's cores, leaving half of
+    # them for songs someone is waiting to hear; never fewer than eight slots in total.
+    background_workers = cfg.get("BACKGROUND_WORKERS") or (3 if cfg["PUBLIC_ORIGIN"] == "https://music.test" else max(2, min(8, (os.cpu_count() or 4) // 2)))
+    workers = max(8, background_workers + 4)
 
     def foreground(job, analyzing=False):
         return not analyzing and job["priority"] == 0 and (not job.get("playlist_import") or job.get("current"))
 
     def drain():
-        with worker_lock, ThreadPoolExecutor(max_workers=8, thread_name_prefix="music-acquire") as pool:
+        with worker_lock, ThreadPoolExecutor(max_workers=workers, thread_name_prefix="music-acquire") as pool:
             active, last_served = {}, {}
             dispatch_number = 0
             while True:
@@ -908,9 +942,9 @@ def create_app(test_config=None):
                                 and not j["cancel"].is_set() and j.get("source_id") not in sources]
                     listening = playback_demand()
                     pending = [(j, a) for j, a in pending
-                               if (background < 3 or foreground(j,a))
+                               if (background < background_workers or foreground(j,a))
                                and (not listening or (not a and (not j.get("playlist_import") or j.get("current"))))]
-                    if pending and len(active) < 8:
+                    if pending and len(active) < workers:
                         job, analyzing = min(pending, key=lambda pair: (
                             pair[0]["priority"] + (20 if pair[1] else 0),
                             last_served.get((pair[0]["priority"] + (20 if pair[1] else 0), pair[0]["owner"], pair[0].get("playlist_id")), -1),
@@ -1208,7 +1242,12 @@ def create_app(test_config=None):
             return ready
 
     def read_imported_playlist(provider, url, progress):
-        if provider == "spotify": return fetch_playlist(url, progress=progress)
+        if provider == "spotify":
+            # Spotify's web player sometimes loads too slowly under load; one more try usually works.
+            try: return fetch_playlist(url, progress=progress)
+            except PlaylistError:
+                time.sleep(5)
+                return fetch_playlist(url, progress=progress)
         if provider == "soundcloud": return link_playlists.fetch_soundcloud_playlist(url, app.intake, progress)
         if provider == "deezer": return link_playlists.fetch_deezer_playlist(url, progress)
         data = fetch_youtube_playlist(url, app.intake)
@@ -1216,7 +1255,7 @@ def create_app(test_config=None):
         return data
 
     playlist_preparation = PlaylistPreparation(playlist_store, lock, prepare_playlist_recording,
-                                               match_playlist_recording, read_imported_playlist, download_workers=3,
+                                               match_playlist_recording, read_imported_playlist, download_workers=background_workers,
                                                allow_background=lambda: not playback_demand())
     app.extensions["music"].playlist_preparation = playlist_preparation
     app.extensions["music"].catalogue_review = catalogue_review
@@ -1623,7 +1662,7 @@ def create_app(test_config=None):
         if digest is not None and digest != source_hash:
             raise ApiError("Recording changed. Refresh the library.", 409)
         try:
-            path = mobile_audio.prepare(app.intake, item["item"], original, source_hash)
+            path = mobile_audio.prepare(app.intake, item["item"], original, source_hash, urgent=True)
         except (OSError, ValueError, app.intake.IntakeError):
             raise ApiError("Could not prepare mobile audio. Try again.", 503)
         if os.path.getsize(path) >= track["download_size"]:
