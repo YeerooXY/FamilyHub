@@ -513,6 +513,46 @@ public sealed class MusicSession
         string.IsNullOrEmpty(playlist.CoverUrl) ? Task.FromResult<string?>(null)
             : GetCachedImageAsync(playlist.CoverUrl, (api, token) => api.GetImageAsync(playlist.CoverUrl, token), cancellationToken);
 
+    // Covers reach the page as short app addresses (fh-art/...), so the web view loads, decodes and
+    // caches them itself instead of receiving every image as text through Blazor.
+    private (string Account, string Scope) artworkScope = ("", "");
+    public string ArtworkScope
+    {
+        get
+        {
+            var account = Server + "\n" + User;
+            var known = artworkScope;
+            if (known.Account == account && known.Scope.Length > 0) return known.Scope;
+            var scope = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(account)))[..12].ToLowerInvariant();
+            artworkScope = (account, scope);
+            return scope;
+        }
+    }
+    public static string TrackArtworkUrl(string scope, string trackId) => $"fh-art/t/{trackId}?s={scope}";
+    public static string PlaylistArtworkUrl(string scope, MusicPlaylist playlist) =>
+        $"fh-art/p?u={Uri.EscapeDataString(playlist.CoverUrl)}&v={Uri.EscapeDataString(playlist.CoverSha256)}&s={scope}";
+
+    /// <summary>Image bytes and type for an fh-art address, from the disk cache or the server; null when unavailable.</summary>
+    public async Task<(byte[] Data, string Type)?> OpenArtworkAsync(Uri address, CancellationToken cancellationToken = default)
+    {
+        var path = address.AbsolutePath;
+        var query = System.Web.HttpUtility.ParseQueryString(address.Query);
+        string? image = null;
+        if (path.StartsWith("/fh-art/t/", StringComparison.Ordinal))
+        {
+            var id = path["/fh-art/t/".Length..];
+            if (System.Text.RegularExpressions.Regex.IsMatch(id, "^[A-Za-z0-9_-]{11}$"))
+                image = await LoadCachedImageAsync(id, (api, token) => api.GetArtworkAsync(id, token), cancellationToken);
+        }
+        else if (path == "/fh-art/p" && query["u"] is { } cover && cover.StartsWith("/api/", StringComparison.Ordinal))
+            image = await LoadCachedImageAsync(cover, (api, token) => api.GetImageAsync(cover, token), cancellationToken);
+        if (image is null) return null;
+        var comma = image.IndexOf(',');
+        if (comma < 0 || !image.StartsWith("data:", StringComparison.Ordinal)) return null;
+        var type = image[5..image.IndexOf(';')];
+        return (Convert.FromBase64String(image[(comma + 1)..]), type);
+    }
+
     // Recently shown covers stay in memory so scrolling back does not re-read and re-decode them.
     private readonly Dictionary<string, LinkedListNode<(string Key, string Value)>> recentArtwork = [];
     private readonly LinkedList<(string Key, string Value)> recentArtworkOrder = new();

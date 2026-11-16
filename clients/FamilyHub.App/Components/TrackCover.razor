@@ -1,14 +1,13 @@
 @implements IDisposable
 @inject MusicSession Session
 
+@* Covers load as short app addresses the web view decodes and caches itself. If that fails,
+   the cover falls back to an inline image from the same cache. *@
 <span class="cover" aria-hidden="true">
+    <span class="cover-letter">@(string.IsNullOrWhiteSpace(Track?.Title) ? "♪" : Track.Title[..1].ToUpperInvariant())</span>
     @if (artwork is not null)
     {
-        <img src="@artwork" alt="" />
-    }
-    else
-    {
-        @(string.IsNullOrWhiteSpace(Track?.Title) ? "♪" : Track.Title[..1].ToUpperInvariant())
+        <img src="@artwork" alt="" loading="lazy" decoding="async" @onerror="UseFallback" />
     }
 </span>
 
@@ -16,17 +15,25 @@
     [Parameter] public MusicTrack? Track { get; set; }
     private string? artwork;
     private string? requestKey;
+    private bool inline;
     private CancellationTokenSource? cancellation;
 
-    protected override async Task OnParametersSetAsync()
+    private static bool HasArtwork(MusicTrack? track) => track is not null && System.Text.RegularExpressions.Regex.IsMatch(track.Id, "^[A-Za-z0-9_-]{11}$");
+
+    protected override void OnParametersSet()
     {
         var key = Session.Server + "\n" + Session.User + "\n" + Track?.Id + "\n" + Session.Connected;
         if (key == requestKey) return;
-        requestKey = key;
-        cancellation?.Cancel(); cancellation?.Dispose();
+        requestKey = key; inline = false;
+        cancellation?.Cancel(); cancellation?.Dispose(); cancellation = null;
+        artwork = HasArtwork(Track) && Session.Offline is not null ? MusicSession.TrackArtworkUrl(Session.ArtworkScope, Track!.Id) : null;
+    }
+
+    private async Task UseFallback()
+    {
+        if (inline || Track is null) { artwork = null; return; }
+        inline = true; artwork = null;
         var pending = cancellation = new CancellationTokenSource();
-        artwork = null;
-        if (Track is null) return;
         try
         {
             var result = await Session.GetArtworkAsync(Track, pending.Token);

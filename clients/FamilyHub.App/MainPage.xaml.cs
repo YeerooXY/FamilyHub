@@ -87,12 +87,26 @@ public partial class MainPage : ContentPage
 #endif
     }
 
+    // Song and playlist covers: answered from the app's cover cache. The address carries the
+    // account scope and cover version, so the web view may keep each one for a long time.
+    private void ServeArtwork(object? sender, WebViewWebResourceRequestedEventArgs args)
+    {
+        if (!args.Uri.AbsolutePath.StartsWith("/fh-art/", StringComparison.Ordinal)) return;
+        args.Handled = true;
+        var image = session.OpenArtworkAsync(args.Uri);
+        var notFound = new Dictionary<string, string> { ["Cache-Control"] = "no-store" };
+        if (image.IsCompleted && image.Result is null) { args.SetResponse(404, "Not Found", notFound, Stream.Null); return; }
+        args.SetResponse(200, "OK", new Dictionary<string, string> { ["Content-Type"] = "image/jpeg", ["Cache-Control"] = "private, max-age=2592000, immutable" },
+            Task.Run<Stream>(async () => await image is { } found ? new MemoryStream(found.Data, false) : throw new FileNotFoundException()));
+    }
+
 	public MainPage(Services.MusicPlayer player, Services.MusicSession session)
 	{
 		InitializeComponent();
         this.session = session;
         this.player = player;
         current = new(this);
+        blazorWebView.WebResourceRequested += ServeArtwork;
 #if WINDOWS
         blazorWebView.BlazorWebViewInitialized += (_, args) =>
         { args.WebView.CoreWebView2.Settings.IsZoomControlEnabled = false; };

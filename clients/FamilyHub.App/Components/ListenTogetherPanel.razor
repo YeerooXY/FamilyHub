@@ -18,9 +18,27 @@
         @if (room.Queue is { Count: 0 }) { <p class="setting-help">@(room.IsHost ? "Choose a song or playlist when you're ready." : "Waiting for the host to choose a song.")</p> }
         @if (room.IsHost)
         {
-            <div class="session-invite"><label for="invite-listener">Invite a listener</label><select id="invite-listener" @bind="inviteUser"><option value="">Choose a profile</option>@foreach (var profile in Session.Profiles.Where(p => p.Id != Session.User)) { <option value="@profile.Id">@profile.Name</option> }</select><button class="quiet" @onclick="Invite" aria-disabled="@(busy || inviteUser.Length == 0 ? "true" : "false")">Send invitation</button><span role="status">@inviteStatus</span></div>
+            var guests = Session.Profiles.Where(p => p.Id != Session.User).ToList();
+            <div class="session-invite">
+                <h3 id="invite-heading">Invite a listener</h3>
+                @if (guests.Count == 0) { <p class="setting-help">No other profiles on this server yet.</p> }
+                else
+                {
+                    <div class="invite-list" role="radiogroup" aria-labelledby="invite-heading">
+                        @foreach (var profile in guests)
+                        {
+                            var chosen = inviteUser == profile.Id;
+                            <button class="invite-choice @(chosen ? "is-chosen" : "")" @key="profile.Id" role="radio" aria-checked="@(chosen ? "true" : "false")" @onclick="() => Choose(profile.Id)">
+                                <ProfileAvatar Profile="profile" Size="36" /><span>@profile.Name</span><MusicIcon Name="@(chosen ? "check-circle" : "plus-circle")" />
+                            </button>
+                        }
+                    </div>
+                    <button id="send-invitation" class="primary session-action" @onclick="Invite" aria-disabled="@(busy || inviteUser.Length == 0 ? "true" : "false")">@(inviteUser.Length == 0 ? "Choose someone to invite" : "Invite " + guests.FirstOrDefault(p => p.Id == inviteUser)?.Name)</button>
+                    <p class="invite-status @(inviteStatus.Length > 0 ? "is-visible" : "")" role="status">@if (inviteStatus.Length > 0) { <MusicIcon Name="check" /> }@inviteStatus</p>
+                }
+            </div>
         }
-        <button id="leave-listening" class="primary" @onclick="Leave" aria-disabled="@(busy ? "true" : "false")">@(room.IsHost ? "End session" : "Leave session")</button>
+        <button id="leave-listening" class="session-action session-leave" @onclick="Leave" aria-disabled="@(busy ? "true" : "false")">@(room.IsHost ? "End session" : "Leave session")</button>
     }
     else
     {
@@ -41,11 +59,17 @@
 
 @code {
     private string inviteUser = "", inviteStatus = "";
+    private void Choose(string id) { inviteUser = inviteUser == id ? "" : id; inviteStatus = ""; }
     private async Task Invite()
     {
         if (busy || inviteUser.Length == 0) return;
         busy = true; error = null; inviteStatus = "";
-        try { await Together.InviteAsync(inviteUser); inviteStatus = "Invitation sent"; }
+        try
+        {
+            await Together.InviteAsync(inviteUser);
+            inviteStatus = "Invitation sent to " + (Session.Profiles.FirstOrDefault(p => p.Id == inviteUser)?.Name ?? "listener");
+            inviteUser = "";
+        }
         catch (Exception exception) { error = exception.Message; }
         finally { busy = false; }
     }

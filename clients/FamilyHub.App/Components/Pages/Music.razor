@@ -282,7 +282,7 @@ else
         <AudioOutputPicker />
         @if (Player.Current is { Saved: true } trimmingTrack) { <TrimRequest Track="trimmingTrack" /> }
 
-        <button id="recommend-similar" class="quiet discover-button" @onclick="Recommend" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Play similar songs next" title="Play similar songs next"><span class="similar-emoji" aria-hidden="true">&#x2728;</span></button>
+        <button id="recommend-similar" class="quiet discover-button" @onclick="Recommend" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Play similar songs next" title="Play similar songs next"><MusicIcon Name="sparkle" /></button>
         <label class="sr" for="volume">Volume</label><button id="mute-toggle" class="quiet" @onclick="ToggleMute" aria-label="@(Player.Volume == 0 ? "Unmute" : "Mute")" title="@(Player.Volume == 0 ? "Unmute" : "Mute")" aria-pressed="@Aria(Player.Volume == 0)"><MusicIcon Name="@(Player.Volume == 0 ? "volume-off" : "volume")" /></button><span class="volume-meter" style="--volume-level:@((Player.Volume * 100).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture))%"><span class="volume-bars" aria-hidden="true"><span></span></span><input id="volume" type="range" min="0" max="1" step="0.01" value="@Player.Volume" @oninput="VolumeChanged" @onchange="SavePlaybackPreferences" /></span>
     </div>
     @if (Session.DownloadingId is not null)
@@ -321,14 +321,20 @@ else
     <p class="entry-error" role="status">@error</p>
     <div class="actions"><button class="primary" @onclick="StartPreload" aria-disabled="@Aria(preloadTracks.Count == 0 || busy)">Keep @preloadTracks.Count songs</button><button @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "preload-dialog", "keep-playlist").AsTask()'>Cancel</button></div>
 </dialog>
-<dialog id="add-song-dialog" class="glass-dialog song-picker-dialog" aria-labelledby="add-song-heading">
+<dialog id="add-song-dialog" class="glass-dialog song-picker-dialog" aria-labelledby="add-song-heading" @onclose="() => songPickerShown = false">
     <div class="dialog-heading"><h2 id="add-song-heading">Add a song</h2><button class="quiet" aria-label="Close song picker" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "add-song-dialog", "add-playlist-song").AsTask()'><MusicIcon Name="close" /></button></div>
     <label class="sr" for="add-song-filter">Filter saved songs</label><input id="add-song-filter" type="search" placeholder="Find a saved song" value="@songFilter" @oninput='args => songFilter = args.Value?.ToString() ?? ""' />
     <p class="entry-error" role="status">@error</p>
     <div class="song-picker-results">
-        @foreach (var song in Session.Library.Where(t => string.IsNullOrWhiteSpace(songFilter) || (t.Title + " " + t.Channel).Contains(songFilter, StringComparison.OrdinalIgnoreCase)))
+        @* Rows exist only while the picker is open, and at most 60 at a time. *@
+        @if (songPickerShown)
+        {
+        var matches = Session.Library.Where(t => string.IsNullOrWhiteSpace(songFilter) || (t.Title + " " + t.Channel).Contains(songFilter, StringComparison.OrdinalIgnoreCase)).Take(61).ToList();
+        @foreach (var song in matches.Take(60))
         {
             <button class="song-picker-row" @onclick="() => AddPickedSong(song)" aria-disabled="@Aria(busy)"><TrackCover Track="song" /><span><strong>@song.Title</strong><small>@song.Channel</small></span><MusicIcon Name="plus" /></button>
+        }
+        @if (matches.Count > 60) { <p class="song-picker-more">Type to find more songs.</p> }
         }
         @if (Session.Library.Count == 0) { <p>No saved songs yet. Search for a recording first.</p> }
     </div>
@@ -386,9 +392,9 @@ else
         await JS.InvokeVoidAsync("familyhub.closeDialog", "preload-dialog", "keep-playlist");
         await Run(() => Session.DownloadAsync(preloadTracks));
     }
-    private bool songPickerOpen, playlistTransitionPending;
+    private bool songPickerOpen, songPickerShown, playlistTransitionPending;
     private string songFilter = "";
-    private void OpenSongPicker() { songFilter = ""; error = null; songPickerOpen = true; }
+    private void OpenSongPicker() { songFilter = ""; error = null; songPickerOpen = songPickerShown = true; }
     private async Task AddPickedSong(MusicTrack song)
     {
         if (busy || Selected is not { } playlist) return;

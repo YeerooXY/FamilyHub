@@ -123,6 +123,7 @@
  .sheet-song small { font-size:14px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
  .player-tools.is-open>button:not(.player-tools-close),.player-tools.is-open .listen-together-button,.player-tools.is-open #connect-device,.player-tools.is-open .trim-request { gap:18px; min-height:56px; padding:0 20px!important; border-radius:0; font-size:16px; color:var(--ink); background:transparent; }
  .player-tools.is-open>button:not(.player-tools-close)::after { font-size:16px; }
+ .player-tools.is-open>button:not(.player-tools-close) { justify-content:flex-start!important; height:auto!important; }
  .player-tools.is-open button .icon { width:24px; height:24px; flex-shrink:0; }
  .player-tools.is-open .volume-meter,.player-tools.is-open #mute-toggle { display:none!important; }
 
@@ -201,3 +202,24 @@
 .show-more { display:block; margin:12px auto 24px; min-height:44px; padding:0 20px; border:1px solid #ffffff1f; border-radius:22px; font-size:13px; transition:background-color .18s ease; }
 .show-more:hover { background:#ffffff0f; }
 @media(prefers-reduced-motion:reduce) { .show-more { transition:none; } }
+
+/* Listen Together: pick a listener from a list, then one rounded invite button. */
+.listening-dialog .session-invite { gap:10px; margin:20px 0 4px; }
+.session-invite h3 { margin:0; font-size:14px; font-weight:600; color:var(--muted); }
+.invite-list { display:grid; gap:4px; max-height:min(40dvh,280px); overflow-y:auto; overscroll-behavior:contain; }
+.invite-choice { display:flex; align-items:center; gap:12px; width:100%; min-height:56px; padding:8px 12px; border:1px solid transparent; border-radius:14px; text-align:left;
+  font-size:15px; color:var(--ink); background:#ffffff08; transition:background-color .18s ease,border-color .18s ease,transform .12s ease; }
+.invite-choice>span:not(.profile-avatar) { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.invite-choice>.icon { width:22px; height:22px; flex-shrink:0; color:var(--muted); transition:color .18s ease,transform .18s cubic-bezier(.2,.8,.2,1); }
+.invite-choice.is-chosen { border-color:color-mix(in srgb,var(--accent-blue) 55%,transparent); background:color-mix(in srgb,var(--accent-blue) 16%,#ffffff08); }
+.invite-choice.is-chosen>.icon { color:var(--accent-blue); transform:scale(1.12); }
+.invite-choice:active { transform:scale(.98)!important; }
+.listening-dialog .session-action { display:flex; align-items:center; justify-content:center; width:100%; min-height:48px; margin-top:6px; border-radius:24px; font-size:15px; font-weight:600;
+  transition:background-color .2s ease,color .2s ease,opacity .2s ease,transform .12s ease; }
+.listening-dialog #send-invitation[aria-disabled=true] { opacity:.45; }
+.listening-dialog .session-leave { margin-top:18px; border:1px solid #ffffff2e; color:var(--ink); background:transparent; }
+.listening-dialog .session-leave:hover { background:#ffffff0f; }
+.invite-status { display:flex; align-items:center; gap:8px; min-height:20px; margin:2px 0 0; font-size:13px; color:#56d58e; opacity:0; transform:translateY(-4px); transition:opacity .2s ease,transform .2s ease; }
+.invite-status.is-visible { opacity:1; transform:none; }
+.invite-status .icon { width:16px; height:16px; }
+@media(prefers-reduced-motion:reduce) { .invite-choice,.invite-choice>.icon,.listening-dialog .session-action,.invite-status { transition:none; } .invite-choice.is-chosen>.icon { transform:none; } }

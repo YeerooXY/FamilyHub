@@ -3,7 +3,7 @@
 
 @if (artwork is not null)
 {
-    <span class="cover playlist-cover" aria-hidden="true"><img src="@artwork" alt="" /></span>
+    <span class="cover playlist-cover" aria-hidden="true"><img src="@artwork" alt="" loading="lazy" decoding="async" @onerror="UseFallback" /></span>
 }
 else if (fallback is not null)
 {
@@ -17,20 +17,31 @@ else
 @code {
     [Parameter, EditorRequired] public MusicPlaylist Playlist { get; set; } = null!;
     private string? artwork, requestKey;
+    private bool inline;
     private MusicTrack? fallback;
     private CancellationTokenSource? cancellation;
-    protected override async Task OnParametersSetAsync()
+
+    protected override void OnParametersSet()
     {
         fallback = Playlist.Tracks.Select(Session.Resolve).OfType<MusicTrack>().FirstOrDefault();
-        var key = Session.Server + Session.User + Playlist.Id + Playlist.CoverUrl + Session.Connected;
+        var key = Session.Server + Session.User + Playlist.Id + Playlist.CoverUrl + Playlist.CoverSha256 + Session.Connected;
         if (key == requestKey) return;
-        requestKey = key; artwork = null;
-        cancellation?.Cancel(); cancellation?.Dispose();
+        requestKey = key; inline = false;
+        cancellation?.Cancel(); cancellation?.Dispose(); cancellation = null;
+        artwork = !string.IsNullOrEmpty(Playlist.CoverUrl) && Session.Offline is not null ? MusicSession.PlaylistArtworkUrl(Session.ArtworkScope, Playlist) : null;
+    }
+
+    // The app address failed: read the cover inline instead, once.
+    private async Task UseFallback()
+    {
+        if (inline) { artwork = null; return; }
+        inline = true; artwork = null;
         var pending = cancellation = new();
         try { var result = await Session.GetPlaylistArtworkAsync(Playlist, pending.Token); if (!pending.IsCancellationRequested) artwork = result; }
         catch (OperationCanceledException) { }
         catch (InvalidDataException) { }
         catch (ObjectDisposedException) { }
     }
+
     public void Dispose() { cancellation?.Cancel(); cancellation?.Dispose(); }
 }
