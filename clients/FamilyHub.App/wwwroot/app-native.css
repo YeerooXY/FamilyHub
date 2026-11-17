@@ -170,7 +170,7 @@ body[data-stars=off] .workspace>.panel-sky,body[data-stars=off] .sidebar>.panel-
 button { transition:background-color .18s ease,color .18s ease,transform .18s cubic-bezier(.2,.8,.2,1),box-shadow .18s ease,filter .18s ease; }
 @media(hover:hover) {
  button:hover:not(:disabled):not([aria-disabled=true]) { filter:brightness(1.15); }
- .header-icon:hover:not([aria-disabled=true]),.genre-pills button:hover,.queue-add:hover,#profile-toggle:hover,.transport-buttons button:hover,#mute-toggle:hover,#recommend-similar:hover { transform:translateY(-1px) scale(1.05); box-shadow:0 4px 12px #0003; }
+ .header-icon:hover:not([aria-disabled=true]),.genre-pills button:hover,.queue-add:hover,#profile-toggle:hover,.transport-buttons button:hover { transform:translateY(-1px) scale(1.05); box-shadow:0 4px 12px #0003; }
  .sidebar .nav-button:hover { transform:translateX(3px); }
  .song-primary:hover { transform:translateX(2px); }
 }
@@ -412,7 +412,7 @@ select option { background:#12141a; color:#f3f4f7; }
 .song-row .song-primary:hover,.song-row .song-primary:active { background:transparent; transform:none; filter:none; box-shadow:none; }
 .song-row:hover,.song-row:focus-within { background:#ffffff04; }
 .song-row.is-current { background:color-mix(in srgb,var(--accent-blue) 4%,transparent); }
-#recommend-similar.discover-button { display:inline-flex; width:auto; min-width:44px; padding:8px; gap:8px; flex-shrink:0; }
+#recommend-similar.discover-button { display:inline-flex; width:auto; min-width:44px; padding:0; gap:8px; flex-shrink:0; }
 #recommend-similar.discover-button span { font-size:12px; line-height:1.3; }
 .player-tools { max-width:none; }
 .glass-panel { background:linear-gradient(135deg,#11131ac9,#090b10d9); border-color:#ffffff12; }
@@ -778,11 +778,14 @@ body[data-view=preferences] #view-title { width:min(900px,100%); margin-inline:a
 .playlist-options>button:hover { background:#ffffff0d; }
 .playlist-options>button .icon { width:19px; height:19px; flex-shrink:0; }
 .playlist-options .playlist-delete { color:#ff929a; }
-#create-playlist { border-color:#5f88ef; background:linear-gradient(145deg,#193b6c,#352459); }
-#create-playlist .create-cover { display:grid; place-items:center; background:linear-gradient(135deg,#206dd9,#8745cf); color:#fff; }
+#create-playlist { border-color:color-mix(in srgb,var(--accent-blue) 60%,transparent); background:linear-gradient(145deg,color-mix(in srgb,var(--accent-blue) 24%,var(--panel-bg)),var(--panel-bg)); }
+#create-playlist>strong { font-size:20px; font-weight:800; line-height:1.25; }
+#create-playlist .create-cover { display:grid; place-items:center; background:linear-gradient(125deg,color-mix(in srgb,var(--accent-blue) 80%,#206dd9),color-mix(in srgb,var(--frame-a,var(--accent-blue)) 65%,#8745cf),var(--accent-blue)); background-size:220% 220%; color:var(--ink); animation:create-cover-shift 12s ease-in-out infinite alternate; }
+#create-playlist:hover .create-cover,#create-playlist:focus-visible .create-cover { animation-duration:3s; }
+@keyframes create-cover-shift { from { background-position:0% 35%; } to { background-position:100% 65%; } }
 #create-playlist .create-cover>.icon { position:static; width:38%; height:38%; padding:8%; border-radius:50%; color:#fff; background:#ffffff24; transition:transform .2s ease,background-color .2s ease; }
 #create-playlist:hover .create-cover>.icon,#create-playlist:focus-visible .create-cover>.icon { transform:scale(1.1) rotate(90deg); background:#ffffff38; }
-@media(prefers-reduced-motion:reduce) { #create-playlist .create-cover>.icon { transition:none; } #create-playlist:hover .create-cover>.icon,#create-playlist:focus-visible .create-cover>.icon { transform:none; } }
+@media(prefers-reduced-motion:reduce) { #create-playlist .create-cover { animation:none; } #create-playlist .create-cover>.icon { transition:none; } #create-playlist:hover .create-cover>.icon,#create-playlist:focus-visible .create-cover>.icon { transform:none; } }
 @media(max-width:720px) {
  .playlist-hero { padding:20px; align-items:flex-start; gap:18px; }
  .playlist-hero>.cover,.playlist-hero>.playlist-image-picker { width:184px; height:184px; align-self:center; }

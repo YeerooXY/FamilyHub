@@ -1,9 +1,32 @@
 @implements IDisposable
 @inject MusicSession Session
+@inject IJSRuntime JS
 
 @* Home uses the listening history and catalogue already loaded by the session. *@
 <div class="home-view">
     <h1 id="view-title" class="sr" tabindex="-1">Home</h1>
+
+    <section class="home-section" aria-labelledby="home-radio-title">
+        <h2 id="home-radio-title">Radio</h2>
+        @if (radioSeeds.Count > 0)
+        {
+            <div class="home-radio-row">
+                @for (var i = 0; i < radioSeeds.Count; i++)
+                {
+                    var seed = radioSeeds[i];
+                    <button id="@("home-radio-" + i)" class="home-radio @(i == 0 ? "home-radio-current" : "")" @onclick="() => StartRadio.InvokeAsync(seed)"
+                            aria-disabled="@(!Session.Connected || RadioBusy || FollowingHost ? "true" : "false")" aria-label="Start radio from @seed.Title">
+                        <TrackCover Track="seed" /><span><strong>@seed.Title Radio</strong><small>@seed.Channel</small></span><MusicIcon Name="radio" />
+                    </button>
+                }
+            </div>
+            <p class="home-save-status" role="status">@(RadioBusy ? "Finding songs for radio..." : !Session.Connected ? "Connect to start radio." : FollowingHost ? "Leave the listening session to start radio." : "")</p>
+        }
+        else
+        {
+            <p class="note">@(Session.Connected ? "Play a song to start radio." : "Connect to your server to start radio.")</p>
+        }
+    </section>
 
     @if (recent.Count > 0)
     {
@@ -38,11 +61,11 @@
             <div class="home-shelf">
                 @foreach (var album in albums)
                 {
-                    var saved = HasPlaylist(album); var busy = saving == album.Key;
+                    var busy = saving == album.Key; var saved = !busy && HasPlaylist(album);
                     <div class="home-card-holder" @key="album.Key">
                         <button class="home-card" @onclick="() => PlayTracks.InvokeAsync(album.Tracks)" aria-label="Play @album.Name by @album.Artist"><TrackCover Track="album.Tracks[0]" /><strong>@album.Name</strong><span>@album.Artist</span></button>
-                        <button class="home-card-save @(saved ? "is-saved" : "")" @onclick="() => SaveAlbum(album)" aria-disabled="@(saved || busy || saving is not null ? "true" : "false")"
-                                aria-label="@(saved ? album.Name + " is saved as a playlist" : "Save " + album.Name + " as a playlist")" title="@(saved ? "Saved as a playlist" : "Save as playlist")"><MusicIcon Name="@(saved ? "check" : "plus")" /></button>
+                        <button class="home-card-save @(saved ? "is-saved" : "")" @onclick="() => SaveAlbum(album)" aria-disabled="@(saved || busy || saving is not null || !Session.Connected ? "true" : "false")"
+                                aria-busy="@(busy ? "true" : "false")" aria-label="Save album as playlist" title="@(saved ? "Saved as a playlist" : "Save " + album.Name + " as playlist")"><MusicIcon Name="@(saved ? "check" : "plus")" /><span class="sr">@(saved ? "Saved" : album.Name)</span></button>
                     </div>
                 }
             </div>
@@ -50,20 +73,28 @@
         </section>
     }
 
-    @if (recent.Count == 0 && Session.Playlists.Count == 0 && albums.Count == 0)
-    {
-        <p class="note">@(Session.Connected ? "Play a few songs and your picks will show up here." : "Connect to your server to load your music.")</p>
-    }
-
 </div>
 
 @code {
     [Parameter] public EventCallback<MusicPlaylist> OpenPlaylist { get; set; }
     [Parameter] public EventCallback<List<MusicTrack>> PlayTracks { get; set; }
+    [Parameter] public EventCallback<MusicTrack> StartRadio { get; set; }
+    [Parameter] public MusicTrack? CurrentTrack { get; set; }
+    [Parameter] public bool RadioBusy { get; set; }
+    [Parameter] public bool FollowingHost { get; set; }
 
     private sealed record Album(string Key, string Name, string Artist, List<MusicTrack> Tracks);
     private List<MusicTrack> recent = [];
     private List<Album> albums = [];
+    private List<MusicTrack> radioSeeds = [];
+    private int renderedRadioCount;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        for (var i = radioSeeds.Count; i < renderedRadioCount; i++)
+            await JS.InvokeVoidAsync("familyhub.restoreFocus", "home-radio-" + i, radioSeeds.Count > 0 ? "home-radio-0" : "view-title");
+        renderedRadioCount = radioSeeds.Count;
+    }
 
 
     // Saving an album as a playlist: one at a time, named after the album.
@@ -104,6 +135,11 @@
     protected override void OnParametersSet()
     {
         recent = Session.RecentlyPlayed(6);
+        var history = Session.RecentlyPlayed(200);
+        var anchor = CurrentTrack ?? history.FirstOrDefault();
+        radioSeeds = anchor is null ? [] : [anchor, .. history
+            .Where(t => Similarity.Artist(t).Length > 0 && Similarity.Artist(t) != Similarity.Artist(anchor))
+            .GroupBy(Similarity.Artist).OrderByDescending(g => g.Count()).Take(3).Select(g => g.First())];
         // Grouping the whole library is costly on phones; redo it only when the library changes.
         var source0 = Session.Connected ? Session.Library : Session.Downloads;
         if (ReferenceEquals(builtFrom, source0) && builtConnected == Session.Connected) return;

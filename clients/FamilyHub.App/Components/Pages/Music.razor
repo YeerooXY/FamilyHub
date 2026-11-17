@@ -92,14 +92,14 @@ else
 </aside>
 <div class="workspace"><main id="content" tabindex="-1">
     @if (view != "Playlists" && view != "Review" && view != "Home") { <h1 id="view-title">@(view == "Downloads" ? "Downloaded" : view == "Preferences" ? "Settings" : view == "Stats" ? "Server stats" : view)</h1> }
-    <p id="feedback" class="operation-status @(error is not null ? "error" : "")" role="status">@(error ?? (Session.DownloadingId is null ? Session.Message : ""))</p>
+    <p id="feedback" class="operation-status @(error is not null ? "error" : "")" role="status">@(error ?? radioProgress ?? (Session.DownloadingId is null ? Session.Message : ""))</p>
     @if (LibraryViews.Contains(view) && (view != "Playlists" || Selected is null))
     {
         <div class="library-switch" role="group" aria-label="Library sections">@foreach (var (tab, label) in new[] { ("Playlists", "Playlists"), ("Library", "Songs"), ("Downloads", "Downloaded") }) { <button aria-pressed="@Aria(view == tab)" @onclick="() => Navigate(tab)">@label</button> }</div>
     }
     @if (view == "Home")
     {
-        <HomeView OpenPlaylist="OpenPlaylist" PlayTracks="PlayPlaylist" />
+        <HomeView OpenPlaylist="OpenPlaylist" PlayTracks="PlayPlaylist" StartRadio="StartSongRadio" CurrentTrack="Player.Current" RadioBusy="busy" FollowingHost="Player.FollowingHost" />
     }
     else if (view == "Library" || view == "Downloads")
     {
@@ -325,7 +325,7 @@ else
         <button class="quiet" @onclick="() => RunPlayback(Player.NextAsync)" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Next song"><MusicIcon Name="next" /></button>
         <button id="repeat-toggle" class="quiet" @onclick="ToggleRepeat" aria-disabled="@Aria(Player.FollowingHost)" aria-pressed="@Aria(Player.RepeatMode != "off")" aria-label="@("Repeat " + Player.RepeatMode)" title="@("Repeat " + Player.RepeatMode)"><MusicIcon Name="@(Player.RepeatMode == "one" ? "repeat-one" : "repeat")" /></button>
     </div><SeekBar /></div>
-    @if (Player.Current is not null) { <LyricsView @bind-Expanded="lyricsOpen" AvailabilityChanged="available => lyricsAvailable = available" /> }
+    @if (Player.Current is not null) { <LyricsView @bind-Expanded="lyricsOpen" AvailabilityChanged="LyricsAvailabilityChanged" /> }
     <button id="player-more" class="quiet player-more" aria-label="Player options" aria-expanded="@Aria(playerToolsOpen)" aria-controls="player-options" @onclick="TogglePlayerTools"><MusicIcon Name="more" /></button>
     @if (playerToolsOpen) { <button class="player-tools-backdrop" aria-label="Close player options" @onclick="ClosePlayerTools"></button> }
     <div id="player-options" class="player-tools @(playerToolsOpen ? "is-open" : "")" @onkeydown="PlayerToolsKeyDown" @onkeydown:stopPropagation="true">
@@ -341,7 +341,6 @@ else
         <AudioOutputPicker />
         @if (Player.Current is { Saved: true } trimmingTrack) { <TrimRequest Track="trimmingTrack" /> }
 
-        <button id="song-radio" class="quiet discover-button" @onclick="StartSongRadio" aria-disabled="@Aria(Player.Current is null || busy)" aria-label="Go to song radio" title="Go to song radio"><MusicIcon Name="radio" /></button>
         <button id="recommend-similar" class="quiet discover-button" @onclick="Recommend" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Play similar songs next" title="Play similar songs next"><MusicIcon Name="sparkle" /></button>
         <label class="sr" for="volume">Volume</label><button id="mute-toggle" class="quiet" @onclick="ToggleMute" aria-label="@(Player.Volume == 0 ? "Unmute" : "Mute")" title="@(Player.Volume == 0 ? "Unmute" : "Mute")" aria-pressed="@Aria(Player.Volume == 0)"><MusicIcon Name="@(Player.Volume == 0 ? "volume-off" : "volume")" /></button><span class="volume-meter" style="--volume-level:@((Player.Volume * 100).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture))%"><span class="volume-bars" aria-hidden="true"><span></span></span><input id="volume" type="range" min="0" max="1" step="0.01" value="@Player.Volume" @oninput="VolumeChanged" @onchange="SavePlaybackPreferences" /></span>
     </div>
@@ -640,6 +639,11 @@ else
     private bool playerExpanded;
     private void CollapsePlayer() { playerExpanded = false; lyricsOpen = false; pendingFocus = "show-queue"; }
     private bool lyricsOpen, lyricsAvailable;
+    private async Task LyricsAvailabilityChanged(bool available)
+    {
+        if (!available) await JS.InvokeVoidAsync("familyhub.focusIfWithin", "#sheet-lyrics", "listen-together");
+        lyricsAvailable = available;
+    }
     private void OpenLyricsFromSheet() { playerToolsOpen = false; lyricsOpen = true; }
     private async Task OpenQueueFromSheet() { playerToolsOpen = false; await OpenQueueFromPlayer(); }
     private async Task OpenQueueFromPlayer() { playerExpanded = false; await Navigate("Queue"); }
@@ -851,11 +855,15 @@ else
     // The player reports progress five times a second. The seek bar and lyrics follow it
     // themselves; this page redraws only when something it shows changes.
     private object? playerState;
-    private void PlayerChanged() => _ = InvokeAsync(() =>
+    private void PlayerChanged() => _ = InvokeAsync(async () =>
     {
         var state = (Player.Current?.Id, Player.Playing, Player.Seeking, Player.PlaybackRequested, Player.Preparing, Player.CanSeek, Player.FollowingHost,
             Player.Queue.Count, Player.QueueIndex, NextTrack?.Id, Player.Shuffle, Player.RepeatMode, Player.Volume, Player.AudioOutputId, Together.LocallyPaused);
         if (Equals(state, playerState)) return;
+        if (Player.Current is not { Saved: true })
+            await JS.InvokeVoidAsync("familyhub.focusIfWithin", ".player-tools .trim-request", "recommend-similar");
+        if (Player.Current is null)
+            await JS.InvokeVoidAsync("familyhub.focusIfWithin", "#sheet-add-playlist,#sheet-queue,#sheet-lyrics", "listen-together");
         playerState = state; StateHasChanged();
     });
     // Android Back: dialogs first, then Now Playing, menus, the open playlist, the previous view, then Home.
@@ -878,7 +886,7 @@ else
         StateHasChanged();
         return true;
     }
-    public void Dispose() { if (BackNavigation.Handler is not null) BackNavigation.Handler = null; updateChecksStopped = true; _ = JS.InvokeVoidAsync("familyhub.stopUpdatePolling"); resizeReference?.Dispose(); queueNoticeTimer?.Cancel(); queueNoticeTimer?.Dispose(); CancelSearch(); Session.Changed -= Changed; Player.Changed -= PlayerChanged; }
+    public void Dispose() { if (BackNavigation.Handler is not null) BackNavigation.Handler = null; updateChecksStopped = true; _ = JS.InvokeVoidAsync("familyhub.stopUpdatePolling"); resizeReference?.Dispose(); queueNoticeTimer?.Cancel(); queueNoticeTimer?.Dispose(); radioCancellation?.Cancel(); radioCancellation?.Dispose(); CancelSearch(); Session.Changed -= Changed; Player.Changed -= PlayerChanged; }
     private void RememberView(string tab)
     {
         if (view == tab) return;
@@ -975,12 +983,67 @@ else
     }
     private Task PlayRow(MusicTrack track, List<MusicTrack> sequence, int? position) => view == "Search" ? PlaySearchResult(track) : RunPlayback(() => Player.PlayAsync(track, sequence, position));
     private Task PlaySearchResult(MusicTrack track) => RunPlayback(() => Player.PlayAsync(track, Session.AutoplayQueue(track)));
-    // Song radio: about 50 similar songs as a new playlist; it opens while the server finds them.
-    private Task StartSongRadio() => Player.Current is not { } seed || busy ? Task.CompletedTask : Run(async () =>
+    private CancellationTokenSource? radioCancellation;
+    private string? radioProgress;
+    // The normal library refresh is every three minutes; radio needs each new recording now.
+    private async Task FillRadioQueue(MusicPlaylist radio, MusicTrack seed, string identity, CancellationToken token)
     {
+        var api = Session.Api!;
+        var queued = new HashSet<string> { seed.Id };
+        var songs = new HashSet<string> { Similarity.SongKey(seed) };
+        var paused = false;
+        bool Current() => !token.IsCancellationRequested && identity == AppearanceKey && Session.Connected && !Player.FollowingHost && !Player.RemoteActive
+            && Player.Current is { } current && queued.Contains(current.Id) && Player.Queue.All(t => queued.Contains(t.Id));
+        try
+        {
+            while (Current())
+            {
+                var status = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Get, "/api/playlists/" + radio.Id + "/prepare", cancellationToken: token);
+                if (!Current()) return;
+                await Session.RefreshAsync();
+                if (!Current()) return;
+                var playlist = Session.Playlists.FirstOrDefault(p => PlaylistKey(p) == PlaylistKey(radio));
+                if (playlist is null) return;
+                foreach (var entry in playlist.Tracks)
+                    if (Session.Resolve(entry) is { } track && songs.Add(Similarity.SongKey(track)) && queued.Add(track.Id)
+                        && !Player.Queue.Any(t => t.Id == track.Id)) Player.AddToQueue(track);
+                var ready = playlist.Tracks.Count(t => Session.Resolve(t) is not null);
+                var state = status.GetProperty("state").GetString();
+                if (state == "error") throw new InvalidOperationException("Radio could not find songs. Try another radio.");
+                paused = state is "paused" or "pausing";
+                radioProgress = paused ? "Radio preparation paused. Resume in the playlist."
+                    : playlist.Tracks.Count == 0 ? "Finding radio songs..."
+                    : $"Radio: {ready} of {playlist.Tracks.Count} songs ready.";
+                await InvokeAsync(StateHasChanged);
+                var downloadQueued = status.TryGetProperty("download_after_matching", out var download) && download.ValueKind == System.Text.Json.JsonValueKind.True;
+                if (paused || state == "done" && !downloadQueued) return;
+                await Task.Delay(1500, token);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception exception) { if (Current()) { error = "Radio progress interrupted. Reopen the playlist to check preparation. " + exception.Message; await InvokeAsync(StateHasChanged); } }
+        finally { if (!token.IsCancellationRequested && identity == AppearanceKey) { if (!paused || !Current()) radioProgress = null; await InvokeAsync(StateHasChanged); } }
+    }
+    private Task StartSongRadio(MusicTrack seed) => !Session.Connected || Player.FollowingHost || busy ? Task.CompletedTask : Run(async () =>
+    {
+        radioCancellation?.Cancel(); radioCancellation?.Dispose(); radioProgress = null;
+        var identity = AppearanceKey;
+        var revision = Player.ControlRevision;
         var radio = await Session.StartRadioAsync(Similarity.Artist(seed), seed.Title);
-        playerToolsOpen = false;
+        if (identity != AppearanceKey) return;
+        // Now Playing covered the destination, and opening a playlist never requested playback.
+        await JS.InvokeVoidAsync("familyhub.focus", "content");
+        playerToolsOpen = false; playerExpanded = false; lyricsOpen = false;
         await OpenPlaylist(radio);
+        pendingFocus = "view-title";
+        radioProgress = "Preparing " + seed.Title + ". Finding radio songs...";
+        await InvokeAsync(StateHasChanged);
+        if (revision != Player.ControlRevision || Player.FollowingHost) { radioProgress = null; return; }
+        try { await Player.PlayAsync(seed, [seed]); }
+        finally { radioProgress = null; }
+        if (identity != AppearanceKey || Player.Current?.Id != seed.Id) return;
+        radioCancellation = new();
+        _ = FillRadioQueue(radio, seed, identity, radioCancellation.Token);
     });
     private Task Recommend() => Run(async () =>
     {
