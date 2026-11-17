@@ -184,7 +184,8 @@ else
         else
         {
             <button class="quiet playlist-back" @onclick="AllPlaylists"><MusicIcon Name="back" />All playlists</button>
-            <div class="playlist-sticky" inert><PlaylistCover Playlist="selected" /><strong>@selected.Name</strong><button class="primary round" tabindex="-1" @onclick="() => PlayPlaylist(selected.Tracks.Select(Session.Resolve).OfType<MusicTrack>().ToList())" aria-label="Play playlist" aria-disabled="@Aria(selected.Tracks.Count == 0 || Player.FollowingHost)"><MusicIcon Name="play" /></button></div>
+            var playlistPositions = VisiblePlaylistPositions(selected);
+            <div class="playlist-sticky" inert><PlaylistCover Playlist="selected" /><strong>@selected.Name</strong><button class="primary round" tabindex="-1" @onclick="() => PlayVisiblePlaylist(selected)" aria-label="Play playlist" aria-disabled="@Aria(playlistPositions.Count == 0 || Player.FollowingHost)"><MusicIcon Name="play" /></button></div>
             <section class="playlist-hero glass-panel">
                 <div class="playlist-identity">
                 @if (selected.CanEdit)
@@ -196,11 +197,11 @@ else
                     <span class="playlist-kind">@(selected.Shared ? "Shared playlist" : "Private playlist")</span>
                     <h1 id="view-title" tabindex="-1">@selected.Name</h1>
                     @if (!string.IsNullOrWhiteSpace(selected.Description)) { <p class="playlist-description">@selected.Description</p> }
-                    <div class="playlist-summary"><ProfileAvatar Profile="PlaylistOwner(selected)" Size="28" /><strong>@PlaylistOwner(selected).Name</strong><span>&#183; @selected.Tracks.Count songs</span><span>&#183; @PlaylistLength(selected)</span></div>
+                    <div class="playlist-summary"><ProfileAvatar Profile="PlaylistOwner(selected)" Size="28" /><strong>@PlaylistOwner(selected).Name</strong><span>@selected.Tracks.Count songs</span><span>@PlaylistLength(selected)</span></div>
                 </div>
                 </div>
             <div class="playlist-action-bar">
-                <button id="play-playlist" class="primary round playlist-play" @onclick="() => PlayPlaylist(selected.Tracks.Select(Session.Resolve).OfType<MusicTrack>().ToList())" aria-label="Play playlist" title="Play playlist" aria-disabled="@Aria(selected.Tracks.Count == 0 || Player.FollowingHost)"><MusicIcon Name="play" /></button>
+                <button id="play-playlist" class="primary round playlist-play" @onclick="() => PlayVisiblePlaylist(selected)" aria-label="Play playlist" title="Play playlist" aria-disabled="@Aria(playlistPositions.Count == 0 || Player.FollowingHost)"><MusicIcon Name="play" /></button>
                 <button id="shuffle-playlist" class="quiet playlist-shuffle" @onclick="ToggleShuffle" aria-label="Shuffle playlist" title="Shuffle playlist" aria-pressed="@Aria(Player.Shuffle)" aria-disabled="@Aria(Player.FollowingHost)"><MusicIcon Name="shuffle" /></button>
                 <button id="keep-playlist" class="quiet playlist-download" @onclick="OpenPreload" aria-label="Download playlist to this device" title="Download to this device" aria-disabled="@Aria(!Session.Connected || busy || selected.Tracks.Count == 0)"><MusicIcon Name="download" /></button>
                 @if (selected.CanManageAuthors)
@@ -219,23 +220,41 @@ else
             <PlaylistDetails @ref="playlistDetails" Playlist="selected" ReturnFocusId="playlist-menu-toggle" HideTrigger="true" />
             <PlaylistCoAuthors @ref="playlistAuthors" Playlist="selected" ReturnFocusId="playlist-menu-toggle" HideTrigger="true" />
             @if (selected.OwnerId == Session.User) { <PlaylistTransfer @key="PlaylistKey(selected)" Playlist="selected" /> }
-            <div class="playlist-column-headings"><span>#</span><span>Title</span><span>Album</span><span>Date added</span><span aria-label="Duration"><MusicIcon Name="clock" /></span></div>
+            <div class="playlist-tools playlist-song-tools">
+                <div class="playlist-song-search @(songSearchOpen ? "is-open" : "")">
+                    <button id="playlist-song-search-toggle" class="quiet" aria-label="Search in playlist" aria-expanded="@Aria(songSearchOpen)" aria-controls="playlist-song-search" @onclick="ToggleSongSearch"><MusicIcon Name="search" /></button>
+                    <input id="playlist-song-search" type="search" aria-label="Search in playlist" placeholder="Search in playlist" disabled="@(!songSearchOpen)" @bind="songSearch" @bind:event="oninput" @bind:after="PlaylistSearchChanged" @onkeydown="PlaylistSearchKey" />
+                </div>
+                <button id="playlist-mixes" class="quiet mix-filter" aria-pressed="@Aria(mixesOnly)" @onclick="ToggleMixFilter">Mixes with current song</button>
+                <button id="playlist-song-sort" class="quiet" aria-label="@($"Sort songs: {songSort}")" aria-haspopup="dialog" aria-controls="playlist-song-sort-options" @onclick="OpenSongSort">@songSort<MusicIcon Name="chevron-down" /></button>
+                <div id="playlist-song-sort-options" popover="auto" role="dialog" aria-label="Sort songs" class="glass-dialog playlist-options playlist-sort-options">
+                    @foreach (var order in new[] { "Custom order", "Title", "Artist", "Album", "Date added", "Duration", "BPM", "Key" })
+                    { <button id="@(order == "Custom order" ? "playlist-song-sort-custom" : null)" class="quiet" aria-pressed="@Aria(songSort == order)" @onclick="() => SortPlaylistSongs(order)">@order</button> }
+                </div>
+            </div>
+            <span class="sr" role="status">@playlistPositions.Count songs</span>
+            @if (mixesOnly && !PlaylistSongs.MixesWith(CurrentMixSong, CurrentMixSong))
+            { <p class="note">Play a song with BPM and key to find compatible songs.</p> }
+            else if (playlistPositions.Count == 0)
+            { <p class="note">@(selected.Tracks.Count == 0 ? "No songs in this playlist." : "No matching songs.")</p> }
+            <div class="playlist-column-headings"><span>#</span><span>Title</span><span>Album</span><span>Date added</span><span class="playlist-track-bpm">BPM</span><span class="playlist-track-key">Key</span><span aria-label="Duration"><MusicIcon Name="clock" /></span></div>
             <div class="library-list unified-song-list playlist-song-list">
-            @foreach (var position in Enumerable.Range(0, Math.Min(selected.Tracks.Count, Shown("playlist:" + selectedId))))
+            @for (var visibleIndex = 0; visibleIndex < Math.Min(playlistPositions.Count, Shown("playlist:" + selectedId)); visibleIndex++)
             {
+                var position = playlistPositions[visibleIndex];
                 var entry = selected.Tracks[position]; var track = Session.Resolve(entry);
                 @if (track is not null)
                 {
-                    <SongRow PlaylistColumns="true" Number="@(position + 1)" Album="@PlaylistAlbum(entry, track)" AddedAt="@entry.AddedAt" @key="(selected.Id, position)" Track="track" Current="@(Player.Current?.Id == track.Id)" Playing="ShowPause" Play="() => PlayEntry(selected, position)" AddToPlaylist="OpenPlaylistPicker" Queue="() => QueueTrack(track)" Keep="() => Download(track)" Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="Remove from playlist" />
+                    <SongRow PlaylistColumns="true" Number="@(visibleIndex + 1)" Album="@PlaylistAlbum(entry, track)" AddedAt="@entry.AddedAt" @key="(selected.Id, position)" Track="track" Current="@(Player.Current?.Id == track.Id)" Playing="ShowPause" Play="() => PlayEntry(selected, position)" AddToPlaylist="OpenPlaylistPicker" Queue="() => QueueTrack(track)" Keep="() => Download(track)" Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="Remove from playlist" />
                 }
                 else
                 {
                     var metadata = new MusicTrack { Id = entry.SpotifyUri, Title = entry.Title, Channel = entry.Artist, Duration = entry.Duration };
-                    <SongRow PlaylistColumns="true" Number="@(position + 1)" Album="@PlaylistAlbum(entry, track)" AddedAt="@entry.AddedAt" @key="(selected.Id, position)" Track="metadata" FindRecording="true" Play="() => FindPlaylistRecording(entry)" Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="Remove from playlist" />
+                    <SongRow PlaylistColumns="true" Number="@(visibleIndex + 1)" Album="@PlaylistAlbum(entry, track)" AddedAt="@entry.AddedAt" @key="(selected.Id, position)" Track="metadata" FindRecording="true" Play="() => FindPlaylistRecording(entry)" Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="Remove from playlist" />
                 }
             }
             </div>
-            @ShowMore(selected.Tracks.Count)
+            @ShowMore(playlistPositions.Count)
         }
     }
     else if (view == "Review")
@@ -428,6 +447,32 @@ else
     private string view = "Home", server = "", filter = "", query = "", genre = "", profileName = "";
     private string selectedId = "", recommendationTitle = "";
     private string playlistFilter = "All", playlistSearch = "", playlistSort = "Recent";
+    private string songSearch = "", songSort = "Custom order";
+    private bool songSearchOpen, mixesOnly;
+    private MusicTrack? CurrentMixSong => Player.Current is { } current
+        ? Session.CurrentRecording(current) : null;
+    private List<int> VisiblePlaylistPositions(MusicPlaylist playlist) =>
+        PlaylistSongs.Positions(playlist, Session.Resolve, songSearch, songSort, mixesOnly, CurrentMixSong);
+    private void PlaylistSearchChanged() => shown = ListPage;
+    private void ToggleSongSearch()
+    {
+        songSearchOpen = !songSearchOpen;
+        if (!songSearchOpen) { songSearch = ""; shown = ListPage; }
+        pendingFocus = songSearchOpen ? "playlist-song-search" : "playlist-song-search-toggle";
+    }
+    private void PlaylistSearchKey(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape") { songSearch = ""; shown = ListPage; pendingFocus = "playlist-song-search"; }
+    }
+    private void ToggleMixFilter() { mixesOnly = !mixesOnly; shown = ListPage; pendingFocus = "playlist-mixes"; }
+    private Task OpenSongSort() => JS.InvokeVoidAsync("familyhub.showPanel", "playlist-song-sort-options", "playlist-song-sort", "playlist-song-sort-custom").AsTask();
+    private async Task SortPlaylistSongs(string order)
+    {
+        songSort = order; shown = ListPage;
+        await JS.InvokeVoidAsync("familyhub.closeDialog", "playlist-song-sort-options", "playlist-song-sort");
+    }
+    private Task PlayVisiblePlaylist(MusicPlaylist playlist) =>
+        PlayPlaylist(VisiblePlaylistPositions(playlist).Select(i => Session.Resolve(playlist.Tracks[i])).OfType<MusicTrack>().ToList());
     private IEnumerable<MusicPlaylist> FilteredPlaylists()
     {
         var playlists = Session.Playlists.Where(p =>
@@ -527,6 +572,7 @@ else
     {
         await JS.InvokeVoidAsync("familyhub.beginPlaylistTransition", PlaylistKey(playlist), true);
         await Navigate("Playlists"); selectedId = PlaylistKey(playlist); playlistTransitionPending = true;
+        songSearch = ""; songSort = "Custom order"; songSearchOpen = false; mixesOnly = false;
     }
     // Long lists render 50 songs at a time; phones slow down when every row is on the page.
     private const int ListPage = 50;
@@ -626,7 +672,7 @@ else
     private bool EntryScreen => view == "Settings" || string.IsNullOrEmpty(Session.User) || Session.NeedsProfileSelection;
     private List<MusicTrack> searchResults = [];
     private List<MusicTrack>? recommendations;
-    private static string PlaylistAlbum(PlaylistTrack entry, MusicTrack? track) => !string.IsNullOrWhiteSpace(entry.Album) && entry.Album is not ("Selected recordings" or "Unknown album") ? entry.Album : track?.LibraryAlbum is { Length: > 0 } album && album != "Selected recordings" ? album : "";
+    private static string PlaylistAlbum(PlaylistTrack entry, MusicTrack? track) => PlaylistSongs.Album(entry, track);
     private MusicTrack? NextTrack => Player.QueueIndex + 1 < Player.Queue.Count ? Player.Queue[Player.QueueIndex + 1] : null;
     private static string Genre(MusicTrack track) => string.IsNullOrWhiteSpace(track.Genre) ? "Unsorted" : track.Genre;
     private static string NavLabel(string tab) => tab switch { "Downloads" => "Downloaded", "Review" => "Song review", "Stats" => "Server stats", "Leaderboard" => "Leaderboard", _ => tab };
@@ -927,7 +973,7 @@ else
     });
     private Task PlayEntry(MusicPlaylist playlist, int position) => RunPlayback(async () =>
     {
-        var entries = playlist.Tracks.Select((entry, i) => (Track: Session.Resolve(entry), Position: i))
+        var entries = VisiblePlaylistPositions(playlist).Select(i => (Track: Session.Resolve(playlist.Tracks[i]), Position: i))
             .Where(item => item.Track is not null && (Session.Connected || Session.LocalPath(item.Track) is not null)).ToList();
         var start = entries.FindIndex(item => item.Position == position);
         if (start < 0) throw new InvalidOperationException("Download this song while connected to play it offline.");

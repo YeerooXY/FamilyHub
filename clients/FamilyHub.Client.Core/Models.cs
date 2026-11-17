@@ -12,6 +12,9 @@ public sealed record MusicTrack
     [JsonPropertyName("genre")] public string Genre { get; init; } = "";
     [JsonPropertyName("playback_gain_db")] public double? PlaybackGainDb { get; init; }
     [JsonPropertyName("duration")] public double Duration { get; init; }
+    [JsonPropertyName("bpm")] public int? Bpm { get; init; }
+    [JsonPropertyName("key")] public string? Key { get; init; }
+    [JsonPropertyName("key_name")] public string? KeyName { get; init; }
     [JsonPropertyName("saved")] public bool Saved { get; init; }
     [JsonPropertyName("download_url")] public string DownloadUrl { get; init; } = "";
     [JsonPropertyName("download_size")] public long DownloadSize { get; init; }

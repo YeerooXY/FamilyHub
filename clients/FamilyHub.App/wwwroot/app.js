@@ -297,13 +297,15 @@ window.familyhub.observeSearch = (reference, version) => {
     searchPageObserver.observe(sentinel);
 };
 
-// A virtual row can leave the DOM while scrolled; keep keyboard focus in its list.
+// Rows can move or leave the DOM during filtering, sorting and paging.
 let focusedSongControl;
 document.addEventListener('focusin',event=>{focusedSongControl=event.target.closest?.('.song-row')?event.target:null;});
 new MutationObserver(()=>{
-    if(document.activeElement===document.body && focusedSongControl && !focusedSongControl.isConnected) {
+    if(document.activeElement===document.body && focusedSongControl) {
+        const target=focusedSongControl.isConnected && focusedSongControl.getClientRects().length ? focusedSongControl
+            : document.getElementById('playlist-song-search-toggle') || (document.body.dataset.view==='search'?document.getElementById('results'):document.getElementById('content'));
         focusedSongControl=null;
-        (document.body.dataset.view==='search'?document.getElementById('results'):document.getElementById('content'))?.focus({preventScroll:true});
+        target?.focus({preventScroll:true});
     }
 }).observe(document.getElementById('app'),{childList:true,subtree:true});
 

@@ -673,6 +673,26 @@ body[data-view=preferences] #view-title { width:min(900px,100%); margin-inline:a
 .has-playlist-columns .storage-state { grid-column:5; grid-row:1; }
 .playlist-song-list .has-playlist-columns .row-actions { grid-column:6; grid-row:1; }
 .has-playlist-columns .playlist-track-duration { grid-column:7; grid-row:1; text-align:right; font-variant-numeric:tabular-nums; font-size:12px; color:var(--muted); }
+.playlist-track-bpm,.playlist-track-key { display:none; }
+.playlist-song-tools { margin-top:20px; margin-bottom:0; gap:8px; }
+.playlist-song-search { display:flex; align-items:center; width:38px; max-width:100%; overflow:hidden; transition:width 180ms ease-out; }
+.playlist-song-search.is-open { width:250px; }
+.playlist-song-search:focus-within { outline:2px solid var(--focus,var(--accent-blue)); outline-offset:2px; border-radius:6px; }
+.playlist-song-search button { flex:none; width:38px; padding:8px; }
+.playlist-song-search input { flex:1; min-width:0; width:0; margin:0; visibility:hidden; opacity:0; transition:opacity 180ms ease-out; }
+.playlist-song-search.is-open input { visibility:visible; opacity:1; }
+.playlist-song-tools .mix-filter { border-radius:999px; }
+.playlist-song-tools .mix-filter[aria-pressed=true] { color:var(--accent-blue); border-color:var(--accent-blue); }
+#playlist-song-sort { display:flex; align-items:center; gap:8px; margin-left:auto; }
+@media(min-width:1100px) {
+    .playlist-column-headings,.playlist-song-list .song-row.has-playlist-columns { grid-template-columns:32px minmax(0,1.5fr) minmax(0,.7fr) 100px 46px 42px 24px 92px 50px; }
+    .playlist-track-bpm,.playlist-track-key { display:block; grid-row:1; font-variant-numeric:tabular-nums; font-size:12px; color:var(--muted); }
+    .playlist-track-bpm { grid-column:5; }.playlist-track-key { grid-column:6; }
+    .has-playlist-columns .storage-state { grid-column:7; }
+    .playlist-song-list .has-playlist-columns .row-actions { grid-column:8; }
+    .playlist-column-headings > span:last-child,.has-playlist-columns .playlist-track-duration { grid-column:9; }
+}
+@media(prefers-reduced-motion:reduce) { .playlist-song-search,.playlist-song-search input { transition:none; } }
 .playlist-description { color:var(--muted); white-space:pre-wrap; overflow-wrap:anywhere; max-width:700px; }
 .playlist-details-open { display:inline-flex; align-items:center; gap:8px; margin-top:16px; }
 .playlist-details-dialog { width:min(560px,calc(100vw - 32px)); }

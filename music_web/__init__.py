@@ -26,6 +26,7 @@ from . import profile_artwork
 from .listening_versions import ListeningVersions
 from .catalogue_review import CatalogueReview, register as register_catalogue_review
 from .source_quality import register as register_source_quality
+from .song_analysis import register as register_song_analysis
 from .finished_audio import FinishedAudio, prepare_record
 from .playlist_artwork import PlaylistArtwork, ArtworkError
 from .lyrics import LyricsCache
@@ -1296,6 +1297,11 @@ def create_app(test_config=None):
         if not allow('catalogue-review:'+g.user,20,60):raise ApiError("Wait before flagging more songs.",429)
     register_catalogue_review(app,body,catalogue_review,review_recording,lambda:g.user in cfg['ADMIN_USERS'],review_rate)
     register_source_quality(app, ws, app.intake, lambda: not playback_demand(), lambda: g.user in cfg['ADMIN_USERS'], catalogue_review, cfg.get('SOURCE_QUALITY_SCAN', cfg['PUBLIC_ORIGIN'] != 'https://music.test'))
+    def song_analysis_idle():
+        with lock:
+            return not playback_demand() and not any(j['state'] in ('queued', 'running') or j.get('analyzing') for j in jobs.values())
+    song_analysis = register_song_analysis(app, ws, lib, app.intake, song_analysis_idle,
+        cfg.get('SONG_ANALYSIS_SCAN', cfg['PUBLIC_ORIGIN'] != 'https://music.test'))
 
     automatic_downloads=cfg.get("AUTO_PLAYLIST_DOWNLOADS",cfg["PUBLIC_ORIGIN"] != "https://music.test")
     metadata_lookup=cfg.get("METADATA_LOOKUP",cfg["PUBLIC_ORIGIN"] != "https://music.test")
@@ -1699,6 +1705,7 @@ def create_app(test_config=None):
                          loudness_lufs=version["lufs"], true_peak_db=version["true_peak"])
         # Both quality choices already contain their server-side level correction.
         track["playback_gain_db"] = 0
+        track.update(song_analysis.metadata(recording_id, record['library_sha256']))
         catalogue_review.observe(track,source,record["library_sha256"])
         metadata=catalogue_review.overrides(recording_id,record["library_sha256"])
         track.update(channel=metadata.get('artist',track['channel']),library_album=metadata.get('album',track['library_album']),genre=metadata.get('genre',track['genre']))
