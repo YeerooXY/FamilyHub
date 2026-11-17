@@ -44,8 +44,8 @@
     @if (Session.Playlists.Count > 0)
     {
         <section class="home-section" aria-labelledby="home-playlists-title">
-            <h2 id="home-playlists-title">Your playlists</h2>
-            <div class="home-shelf">
+            <div class="home-section-heading"><h2 id="home-playlists-title">Your playlists</h2><ShelfArrows Target="home-playlists-shelf" Label="your playlists" /></div>
+            <div class="home-shelf" id="home-playlists-shelf">
                 @foreach (var playlist in Session.Playlists.Take(10))
                 {
                     <button class="home-card" @key="playlist.OwnerId + ':' + playlist.Id" @onclick="() => OpenPlaylist.InvokeAsync(playlist)"><PlaylistCover Playlist="playlist" /><strong>@playlist.Name</strong><PlaylistAttribution Playlist="playlist" /><span>@playlist.Tracks.Count @(playlist.Tracks.Count == 1 ? "song" : "songs")</span></button>
@@ -57,8 +57,8 @@
     @if (albums.Count > 0)
     {
         <section class="home-section" aria-labelledby="home-albums-title">
-            <h2 id="home-albums-title">Albums for you</h2>
-            <div class="home-shelf">
+            <div class="home-section-heading"><h2 id="home-albums-title">Albums for you</h2><ShelfArrows Target="home-albums-shelf" Label="albums" /></div>
+            <div class="home-shelf" id="home-albums-shelf">
                 @foreach (var album in albums)
                 {
                     var busy = saving == album.Key; var saved = !busy && HasPlaylist(album);

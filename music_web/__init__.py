@@ -242,12 +242,14 @@ def create_app(test_config=None):
     @app.before_request
     def guard():
         if request.host != host:
+            app.logger.warning("Rejected %s %s: host %r", request.method, request.path, request.host[:80])
             abort(400)
         if not cfg["BROWSER_PLAYER"] and not request.path.startswith("/api/"):
             return app.response_class("Open the FamilyHub Music app.\n", status=410, mimetype="text/plain")
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             sent, ref = request.headers.get("Origin"), request.headers.get("Referer", "")
             if not (sent == origin if sent is not None else ref == origin or ref.startswith(origin + "/")):
+                app.logger.warning("Rejected %s %s: origin %r", request.method, request.path, (sent or "")[:80])
                 abort(403)
         if request.endpoint in ("login", "static", "family_connect", "create_family_profile", "select_family_profile", "app_update_manifest", "app_update_package", "profile_image"):
             return
@@ -287,6 +289,9 @@ def create_app(test_config=None):
 
     @app.errorhandler(HTTPException)
     def http_error(e):
+        if e.code == 400:
+            # Names the failed check (for example a missing CSRF session token); never logs token values.
+            app.logger.warning("Rejected %s %s: %s", request.method, request.path, (e.description or "")[:120])
         text = HTTP_TEXT.get(e.code, "Request failed.")
         return (jsonify(error=text) if request.path.startswith("/api/") else text), e.code
 

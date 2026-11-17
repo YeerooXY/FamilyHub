@@ -594,3 +594,25 @@ window.familyhub.cropCover = image => {
  });
 };
 document.addEventListener('load',event=>{ if(event.target instanceof HTMLImageElement && event.target.matches('.cover img'))familyhub.cropCover(event.target); },true);
+// Home shelves: arrow buttons step one view sideways and dim at either end.
+familyhub.updateShelf=id=>{
+ const shelf=document.getElementById(id); if(!shelf)return;
+ const max=shelf.scrollWidth-shelf.clientWidth-1;
+ document.querySelectorAll(`[data-shelf="${id}"]`).forEach(button=>{
+  const end=Number(button.dataset.dir)<0?shelf.scrollLeft<=1:shelf.scrollLeft>=max;
+  button.setAttribute('aria-disabled',String(end||max<=0));
+ });
+ shelf.closest('.home-section')?.classList.toggle('has-overflow',max>0);
+};
+familyhub.scrollShelf=(id,dir)=>{
+ const shelf=document.getElementById(id); if(!shelf)return;
+ const smooth=!matchMedia('(prefers-reduced-motion: reduce)').matches;
+ shelf.scrollBy({left:dir*Math.max(200,shelf.clientWidth*.8),behavior:smooth?'smooth':'auto'});
+};
+familyhub.watchShelf=id=>{
+ const shelf=document.getElementById(id); if(!shelf)return;
+ familyhub.updateShelf(id); if(shelf.dataset.watched)return;
+ shelf.dataset.watched='1';
+ shelf.addEventListener('scroll',()=>familyhub.updateShelf(id),{passive:true});
+ new ResizeObserver(()=>familyhub.updateShelf(id)).observe(shelf);
+};

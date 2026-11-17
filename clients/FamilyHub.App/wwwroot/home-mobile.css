@@ -8,6 +8,16 @@
 .home-section { margin-top:28px; }
 .home-section:first-of-type { margin-top:0; }
 .home-section h2 { margin:0 0 12px; font-size:20px; font-weight:700; }
+.home-section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+.home-section-heading h2 { margin:0; }
+/* Arrows only with a mouse and only when the shelf overflows; touch users swipe. */
+.shelf-arrows { display:none; gap:6px; }
+@media (hover:hover) and (pointer:fine) { .home-section.has-overflow .shelf-arrows { display:flex; } }
+.shelf-arrow { display:inline-grid; place-items:center; width:36px; height:36px; padding:0; border-radius:50%; color:var(--ink); background:rgb(255 255 255 / .08); transition:background-color .15s ease-out,opacity .15s ease-out; }
+.shelf-arrow:hover { background:rgb(255 255 255 / .16); }
+.shelf-arrow[aria-disabled=true] { opacity:.35; cursor:default; }
+.shelf-arrow .icon { width:16px; height:16px; }
+@media(prefers-reduced-motion:reduce) { .shelf-arrow { transition:none; } }
 .home-shortcuts { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; }
 .home-shortcut { display:flex; align-items:center; gap:12px; min-height:56px; padding:0 12px 0 0; border:0; border-radius:6px; overflow:hidden; text-align:left; font-size:13px; font-weight:700; color:var(--ink); background:#ffffff14; transition:background-color .18s ease; }
 .home-shortcut:hover { background:#ffffff22; }

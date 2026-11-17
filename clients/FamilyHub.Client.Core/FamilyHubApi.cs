@@ -14,7 +14,18 @@ public sealed class FamilyHubApi : IDisposable
     public string? UserName { get; private set; }
     public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public FamilyHubApi(Uri server) : this(server, new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Brotli }) { }
+    public FamilyHubApi(Uri server) : this(server, DefaultHandler()) { }
+
+    // Cookies are kept here, from Set-Cookie headers. On iOS HttpClientHandler wraps NSURLSession, which handles
+    // Set-Cookie itself and leaves the session cookie out of the response, so the server never sees its CSRF
+    // session again. The managed handler (as on Windows) passes every header through.
+    private static HttpMessageHandler DefaultHandler()
+    {
+        const System.Net.DecompressionMethods compression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Brotli;
+        if (OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst())
+            return new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false, AutomaticDecompression = compression };
+        return new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, AutomaticDecompression = compression };
+    }
 
     // Supplied handlers must not follow redirects: each destination is checked before sending credentials.
     public FamilyHubApi(Uri server, HttpMessageHandler handler)

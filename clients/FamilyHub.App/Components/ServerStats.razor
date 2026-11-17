@@ -122,20 +122,36 @@
             </section>
             <section class="stats-work srv-work glass-panel" aria-labelledby="stats-work-title"><div class="stats-section-heading"><h2 id="stats-work-title">Server work</h2><span class="srv-work-state @(server.Workers.Any(w => w.State == "working") ? "is-busy" : "")">@server.Workers.Count(w => w.State == "working") working / @server.Workers.Count slots</span></div>
                 <p class="stats-work-note">Acquisition slots share the audio encoding lanes. Lyrics are fetched when requested.</p>
-                <div class="stats-work-queue">
                 @if (server.Workers.Count == 0) { <p class="stats-work-empty">Worker status is unavailable. Update the server to report its slots.</p> }
-                @foreach (var job in server.Workers)
-                { var percent = job.Progress;
-                    <article class="stats-job stats-worker is-@job.State" @key="job.Id">
-                        <div class="stats-job-heading"><strong>@job.Title</strong><span>@Label(job.State)</span></div>
-                        @if (!string.IsNullOrWhiteSpace(job.CurrentTitle)) { <p class="stats-current-action">@job.CurrentTitle</p> }
-                        @if (job.Phase.Length > 0) { <small>@job.Phase</small> }
-                        @if (job.WaitingFor.Length > 0) { <small>Waiting for @(char.ToLowerInvariant(job.WaitingFor[0]) + job.WaitingFor[1..])</small> }
-                        @if (percent is not null) { <div class="stats-meter" role="progressbar" aria-label="@job.Title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@percent.Value.ToString("0", Inv)"><i style="width:@percent.Value.ToString("0.###", Inv)%"></i></div><small>@percent.Value.ToString("0", Inv)%</small> }
-                        @if (job.Owner.Length > 0) { <div class="stats-job-requester"><ProfileAvatar Profile="WorkProfile(job)" Size="28" /><span>@job.User</span></div> }
-                    </article>
+                @if (server.Workers.Count > 0)
+                {
+                    <div class="srv-slot-map" role="img" aria-label="@($"{server.Workers.Count(w => w.State == "working")} of {server.Workers.Count} slots busy")">
+                    @foreach (var slot in server.Workers) { <i class="@(slot.State == "working" ? "is-busy" : "is-free")" title="@slot.Title" @key="slot.Id"></i> }
+                    </div>
+                    <p class="srv-slot-legend"><span><i class="is-free"></i>Free</span><span><i class="is-busy"></i>Busy</span></p>
                 }
-                </div>
+                <ul class="srv-work-list">
+                @foreach (var group in WorkGroups(server.Workers))
+                { var working = group.Workers.Where(w => w.State == "working").ToList(); var first = group.Workers[0];
+                    <li class="srv-work-row is-@(working.Count > 0 ? "working" : first.State)" @key="group.Name">
+                        <div class="srv-work-line">
+                            <strong>@group.Name</strong>
+                            @if (group.Workers.Count > 1) { <span class="srv-slots" aria-hidden="true">@foreach (var slot in group.Workers) { <i class="@(slot.State == "working" ? "is-busy" : "is-free")"></i> }</span> }
+                            <span class="srv-work-status">@(group.Workers.Count > 1 ? $"{working.Count} of {group.Workers.Count} working" : Label(first.State))</span>
+                        </div>
+                        @if (working.Count == 0 && first.WaitingFor.Length > 0) { <small class="srv-work-wait">Waiting for @(char.ToLowerInvariant(first.WaitingFor[0]) + first.WaitingFor[1..])</small> }
+                        @foreach (var job in working)
+                        { var percent = job.Progress;
+                            <div class="srv-work-job" @key="job.Id">
+                                @if (!string.IsNullOrWhiteSpace(job.CurrentTitle)) { <span class="stats-current-action">@job.CurrentTitle</span> }
+                                @if (job.Phase.Length > 0) { <small>@job.Phase</small> }
+                                @if (percent is not null) { <div class="stats-meter" role="progressbar" aria-label="@job.Title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@percent.Value.ToString("0", Inv)"><i style="width:@percent.Value.ToString("0.###", Inv)%"></i></div> }
+                                @if (job.Owner.Length > 0) { <span class="stats-job-requester"><ProfileAvatar Profile="WorkProfile(job)" Size="24" /><span>@job.User</span></span> }
+                            </div>
+                        }
+                    </li>
+                }
+                </ul>
             </section>
         </div>
     }
@@ -143,18 +159,24 @@
     {
         <section class="stats-records" aria-labelledby="stats-records-title">
             <h2 id="stats-records-title">Records</h2>
-            <div class="stats-record-grid">
-            @foreach (var record in recordStats.Records)
-            {
-                <article class="stats-record glass-panel" @key="record.Id">
-                    @if (record.Owner.Length > 0) { <ProfileAvatar Profile="RecordProfile(record)" Size="48" /> }
-                    else { <span class="stats-record-family" aria-hidden="true"><MusicIcon Name="crown" /></span> }
-                    <div><h3>@record.Title</h3>
-                    @if (record.User.Length > 0) { <p>@record.User</p> }
-                    <strong>@(record.Days is { } count ? count + (count == 1 ? " day" : " days") : ExactDuration(record.Seconds ?? 0))</strong>
-                    <small>@ExactDay(record.Day)@(record.EndDay.Length > 0 && record.EndDay != record.Day ? " to " + ExactDay(record.EndDay) : "")</small></div>
-                </article>
-            }
+            <div class="stats-record-table glass-panel">
+            <table>
+                <thead><tr><th scope="col">Record</th><th scope="col">Held by</th><th scope="col" class="num">Result</th><th scope="col">When</th></tr></thead>
+                @foreach (var group in RecordGroups(recordStats.Records))
+                {
+                    <tbody @key="group.Key">
+                    @for (var i = 0; i < group.Rows.Count; i++)
+                    { var record = group.Rows[i];
+                        <tr @key="record.Id" class="@(i == 0 ? "is-first" : "")">
+                            @if (i == 0) { <th scope="rowgroup" rowspan="@group.Rows.Count">@group.Title</th> }
+                            <td><span class="stats-record-holder">@if (record.Owner.Length > 0) { <ProfileAvatar Profile="RecordProfile(record)" Size="28" /> } else { <span class="stats-record-family" aria-hidden="true"><MusicIcon Name="crown" /></span> }@(record.User.Length > 0 ? record.User : "Family")</span></td>
+                            <td class="num"><strong>@RecordValue(record)</strong></td>
+                            <td>@ExactDay(record.Day)@(record.EndDay.Length > 0 && record.EndDay != record.Day ? " to " + ExactDay(record.EndDay) : "")</td>
+                        </tr>
+                    }
+                    </tbody>
+                }
+            </table>
             </div>
         </section>
     }
@@ -251,6 +273,14 @@
         await JS.InvokeVoidAsync("familyhub.restoreStatsFocus");
         if (firstRender) _ = Poll(lifetime.Token);
     }
+    // Numbered slots of one kind ("Acquisition / preparation 1".."12") show as one row with a slot strip.
+    private static IEnumerable<(string Name, List<ServerWork> Workers)> WorkGroups(IEnumerable<ServerWork> workers) =>
+        workers.GroupBy(w => System.Text.RegularExpressions.Regex.Replace(w.Title, @"\s+\d+$", "")).Select(g => (g.Key, g.ToList()));
+    // One row group per record, family-wide records first; records held by several people (listening streaks) are ranked inside their group.
+    private static IEnumerable<(string Key, string Title, List<ListeningRecord> Rows)> RecordGroups(IReadOnlyList<ListeningRecord> records) =>
+        records.GroupBy(r => r.Title).OrderBy(g => g.Any(r => r.Owner.Length > 0)).ThenBy(g => g.Count())
+            .Select(g => ("record-" + g.Key.ToLowerInvariant().Replace(' ', '-'), g.Key, g.OrderByDescending(r => r.Days ?? 0).ThenByDescending(r => r.Seconds ?? 0).ThenBy(r => r.User).ToList()));
+    private static string RecordValue(ListeningRecord record) => record.Days is { } count ? count + (count == 1 ? " day" : " days") : ExactDuration(record.Seconds ?? 0);
     private ListenerProfile WorkProfile(ServerWork job) => Session.Profiles.FirstOrDefault(p => p.Id == job.Owner) ?? new() { Id = job.Owner, Name = job.User };
     private static string Aria(bool value) => value ? "true" : "false";
     private static string Usd(double value) => "$" + value.ToString("N2", Inv);
