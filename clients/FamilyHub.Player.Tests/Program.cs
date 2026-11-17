@@ -116,6 +116,7 @@ for (var run = 0; run < 100; run++)
     Check(player.Current is null && !primary.Playing && !secondary.Playing, "Stopping a fade left a deck audible");
 }
 Check(CrossfadeEnvelope.Duration(180) == 6 && CrossfadeEnvelope.Duration(12) == 4, "Old transition duration rules changed");
+Check(CrossfadeEnvelope.Duration(180, 12) == 12 && CrossfadeEnvelope.Duration(180, 0) == 0 && CrossfadeEnvelope.Duration(30, 12) == 10 && CrossfadeEnvelope.Duration(180, 40) == 12, "Crossfade setting is not applied within 0-12 s and a third of the song");
 Check(CrossfadeEnvelope.Fraction(3, 0, 6) == .5, "Old transition linear curve changed");
 Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000001, "Old transition 15 ms smoothing changed");
 {
@@ -292,6 +293,10 @@ namespace FamilyHub.App.Services
         public void PinPreparingPlayback(string? id) { }
         public void PinUpcomingPlayback(string? id) { }
         public void PinPreparingNextPlayback(string? id) { }
+        // Connect to a device: the player tests run without a server.
+        public string DeviceId => "0123456789abcdef0123456789abcdef";
+        public RemoteApi? Api => null;
+        public sealed class RemoteApi { public Task ControlPlaybackAsync(string from, string to, string action, double? position = null) => Task.CompletedTask; }
     }
     public sealed class WindowsAudioPlayer : IAudioDeck
     {

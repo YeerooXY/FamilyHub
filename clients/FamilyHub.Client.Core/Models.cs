@@ -85,6 +85,7 @@ public sealed record ListenerPreferences
     [JsonPropertyName("volume")] public double Volume { get; init; } = 1;
     [JsonPropertyName("shuffle")] public bool Shuffle { get; init; }
     [JsonPropertyName("auto_dj")] public bool AutoDj { get; init; } = true;
+    [JsonPropertyName("crossfade_seconds")] public int CrossfadeSeconds { get; init; } = 6;
     [JsonPropertyName("repeat_mode")] public string RepeatMode { get; init; } = "off";
     [JsonPropertyName("spotify_subscribed"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? SpotifySubscribed { get; init; }
 }

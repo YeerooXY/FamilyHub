@@ -423,14 +423,14 @@ public sealed class MusicSession
         finally { if (!ReferenceEquals(Api, candidate)) candidate?.Dispose(); connectionLock.Release(); }
     }
 
-    public async Task SavePreferencesAsync(double volume, bool shuffle, bool? autoDj = null, string? repeatMode = null)
+    public async Task SavePreferencesAsync(double volume, bool shuffle, bool? autoDj = null, string? repeatMode = null, int? crossfadeSeconds = null)
     {
         if (!double.IsFinite(volume) || volume is < 0 or > 1) throw new ArgumentException("Volume must be between zero and one.");
         await connectionLock.WaitAsync();
         try
         {
             if (string.IsNullOrEmpty(User)) return;
-            PlaybackPreferences = PlaybackPreferences with { Volume = volume, Shuffle = shuffle, AutoDj = autoDj ?? PlaybackPreferences.AutoDj, RepeatMode = repeatMode ?? PlaybackPreferences.RepeatMode };
+            PlaybackPreferences = PlaybackPreferences with { Volume = volume, Shuffle = shuffle, AutoDj = autoDj ?? PlaybackPreferences.AutoDj, RepeatMode = repeatMode ?? PlaybackPreferences.RepeatMode, CrossfadeSeconds = crossfadeSeconds ?? PlaybackPreferences.CrossfadeSeconds };
             StorePreferences(PlaybackPreferences, true); Changed?.Invoke();
             if (!Connected || Api is null) return;
             try

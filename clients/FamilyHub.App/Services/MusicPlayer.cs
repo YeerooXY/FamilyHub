@@ -45,9 +45,11 @@ public sealed class MusicPlayer(MusicSession session)
         }
     }
     public bool AutoDj { get; set; } = true;
+    /// <summary>Crossfade length in seconds while AutoDj is on (the "Crossfade songs" setting).</summary>
+    public double CrossfadeSeconds { get; set; } = CrossfadeEnvelope.Seconds;
     public bool Crossfading => blending;
     public double FadePosition => blending ? standby?.Position ?? 0 : 0;
-    public double FadeDuration => CrossfadeEnvelope.Duration(Duration);
+    public double FadeDuration => CrossfadeEnvelope.Duration(Duration, CrossfadeSeconds);
     public double FadeElapsed => blending ? blendGain * FadeDuration : 0;
     public bool FollowingHost { get; set; }
     /// <summary>The device this profile's playback was sent to from here; empty while playing here.</summary>
@@ -391,7 +393,7 @@ public sealed class MusicPlayer(MusicSession session)
     private void TryBlend()
     {
         if (RepeatMode == "one" || !AutoDj || FollowingHost || blending || preparing || !sourceReady || !Playing || !PlaybackRequested || !IncomingReady || Duration <= 0) return;
-        if (Position < Duration - CrossfadeEnvelope.Duration(Duration) || Duration - Position <= .15) return;
+        if (Position < Duration - FadeDuration || Duration - Position <= .15) return;
         _ = BlendAsync();
     }
     private async Task BlendAsync(double elapsed = 0, double? duration = null)
@@ -407,7 +409,7 @@ public sealed class MusicPlayer(MusicSession session)
         var version = requestVersion; var outgoing = deck; var incoming = standby;
         try
         {
-            await DeckCrossfade.RunAsync(outgoing, incoming, duration ?? CrossfadeEnvelope.Duration(Duration),
+            await DeckCrossfade.RunAsync(outgoing, incoming, duration ?? FadeDuration,
                 () => PlaybackRequested, gain => { blendGain = gain; ApplyVolumes(); }, cancellation.Token, () => incomingFailed, elapsed);
             if (version != requestVersion || !blending) return;
             deck = incoming; standby = outgoing;

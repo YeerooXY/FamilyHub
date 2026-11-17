@@ -127,8 +127,14 @@ else
             <section class="settings-panel glass-panel" aria-label="Profile"><ProfileImagePicker Profile="CurrentProfile" /><SpotifyProfilePreference /></section>
             <section class="settings-panel glass-panel" aria-labelledby="playback-settings-heading">
                 <h2 id="playback-settings-heading">Playback and storage</h2>
-                <label class="setting-toggle"><input type="checkbox" checked="@Session.PlaybackPreferences.AutoDj" @onchange="SetAutoDj" disabled="@Player.FollowingHost" /><span>Auto DJ</span></label>
-                <p class="setting-help">Blend songs with a six-second crossfade. Turn off to play each song to the end.</p>
+                <div class="setting-crossfade">
+                    <label for="crossfade-seconds">Crossfade songs</label>
+                    <output for="crossfade-seconds" aria-live="polite">@(CrossfadeShown == 0 ? "Off" : CrossfadeShown + " s")</output>
+                    <span class="crossfade-scale" aria-hidden="true">0 s</span>
+                    <input id="crossfade-seconds" type="range" min="0" max="12" step="1" value="@CrossfadeShown" @oninput="PreviewCrossfade" @onchange="SetCrossfade" disabled="@Player.FollowingHost" aria-valuetext="@(CrossfadeShown == 0 ? "Off" : CrossfadeShown + " seconds")" style="--crossfade-fill:@(CrossfadeShown * 100 / 12)%" />
+                    <span class="crossfade-scale" aria-hidden="true">12 s</span>
+                </div>
+                <p class="setting-help">The end of a song fades into the start of the next. At 0 each song plays to the end.</p>
                 <div class="setting-row"><label for="playback-quality">Audio quality</label><select id="playback-quality" value="@Session.PlaybackQuality" @onchange="SetPlaybackQuality" disabled="@Player.Preparing"><option value="max">Max (lossless)</option><option value="lower">Data saver (96 kbps)</option></select></div>
                 <div class="setting-row"><label for="cache-limit">Music cache</label><select id="cache-limit" value="@Session.CacheLimitGb" @onchange='args => Session.SetCacheLimit(int.Parse(args.Value?.ToString() ?? "3"))'><option value="1">1 GB</option><option value="3">3 GB</option><option value="5">5 GB</option><option value="10">10 GB</option></select></div>
                 <label class="setting-toggle"><input type="checkbox" checked="@Session.DownloadsWifiOnly" @onchange="args => Session.SetDownloadsWifiOnly(args.Value is true)" /><span>Wi-Fi-only downloads</span></label>
@@ -654,7 +660,19 @@ else
     private async Task ToggleRepeat() { Player.RepeatMode = Player.RepeatMode switch { "off" => "all", "all" => "one", _ => "off" }; await SavePlaybackPreferences(); }
     private async Task ToggleShuffle() { Player.ToggleShuffle(); await SavePlaybackPreferences(); }
     private Task SavePlaybackPreferences() => Session.SavePreferencesAsync(Player.Volume, Player.FollowingHost ? Session.PlaybackPreferences.Shuffle : Player.Shuffle, repeatMode: Player.RepeatMode);
-    private async Task SetAutoDj(ChangeEventArgs args) { Player.AutoDj = args.Value is true; await Session.SavePreferencesAsync(Player.Volume, Player.Shuffle, Player.AutoDj); }
+    // Crossfade 0 turns Auto DJ blending off; 1-12 seconds turns it on at that length.
+    private int? crossfadePreview;
+    private int CrossfadeShown => crossfadePreview ?? (Session.PlaybackPreferences.AutoDj ? Session.PlaybackPreferences.CrossfadeSeconds : 0);
+    private static int CrossfadeValue(ChangeEventArgs args) => int.TryParse(args.Value?.ToString(), out var seconds) ? Math.Clamp(seconds, 0, 12) : 0;
+    private void PreviewCrossfade(ChangeEventArgs args) => crossfadePreview = CrossfadeValue(args);
+    private async Task SetCrossfade(ChangeEventArgs args)
+    {
+        var seconds = CrossfadeValue(args);
+        Player.AutoDj = seconds > 0;
+        if (seconds > 0) Player.CrossfadeSeconds = seconds;
+        crossfadePreview = null;
+        await Session.SavePreferencesAsync(Player.Volume, Player.Shuffle, Player.AutoDj, crossfadeSeconds: seconds > 0 ? seconds : Session.PlaybackPreferences.CrossfadeSeconds);
+    }
     protected override async Task OnInitializedAsync()
     {
         Session.Changed += Changed; Player.Changed += PlayerChanged;
@@ -723,7 +741,7 @@ else
         {
             if (appliedProfile != Session.Server + Session.User) unmutedVolume = Session.PlaybackPreferences.Volume > 0 ? Session.PlaybackPreferences.Volume : 1;
             appliedProfile = Session.Server + Session.User; appliedPreferences = Session.PlaybackPreferences;
-            if (!Player.FollowingHost) { Player.AutoDj = appliedPreferences.AutoDj; Player.RepeatMode = appliedPreferences.RepeatMode; }
+            if (!Player.FollowingHost) { Player.AutoDj = appliedPreferences.AutoDj; Player.CrossfadeSeconds = appliedPreferences.CrossfadeSeconds; Player.RepeatMode = appliedPreferences.RepeatMode; }
             await Player.SetVolumeAsync(appliedPreferences.Volume);
             if (!Player.FollowingHost && Player.Shuffle != appliedPreferences.Shuffle) Player.ToggleShuffle();
         }

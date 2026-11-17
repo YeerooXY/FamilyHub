@@ -165,7 +165,7 @@ public sealed class ListenTogether(MusicSession session, MusicPlayer player)
         var following = Following;
         Room = null; player.FollowingHost = false; LocallyPaused = false;
         if (following) await player.StopAsync();
-        player.AutoDj = session.PlaybackPreferences.AutoDj;
+        player.AutoDj = session.PlaybackPreferences.AutoDj; player.CrossfadeSeconds = session.PlaybackPreferences.CrossfadeSeconds;
         if (player.Shuffle != session.PlaybackPreferences.Shuffle) player.ToggleShuffle();
         Message = message; Changed?.Invoke();
     }

@@ -140,7 +140,7 @@ public sealed class FamilyHubApi : IDisposable
     public async Task<ListenerPreferences> SavePreferencesAsync(ListenerPreferences preferences, CancellationToken cancellationToken = default)
     {
         if (!double.IsFinite(preferences.Volume) || preferences.Volume is < 0 or > 1) throw new ArgumentException("Volume must be between zero and one.");
-        return (await RequestJsonAsync<PreferencesResponse>(HttpMethod.Patch, "/api/profile/preferences", new { volume = preferences.Volume, shuffle = preferences.Shuffle, auto_dj = preferences.AutoDj, repeat_mode = preferences.RepeatMode }, cancellationToken)).Preferences;
+        return (await RequestJsonAsync<PreferencesResponse>(HttpMethod.Patch, "/api/profile/preferences", new { volume = preferences.Volume, shuffle = preferences.Shuffle, auto_dj = preferences.AutoDj, crossfade_seconds = preferences.CrossfadeSeconds, repeat_mode = preferences.RepeatMode }, cancellationToken)).Preferences;
     }
 
     public async Task<List<MusicPlaylist>> GetPlaylistsAsync(CancellationToken cancellationToken = default) =>
