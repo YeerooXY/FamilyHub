@@ -3,10 +3,13 @@ import os
 import secrets
 import threading
 from .audio_profile import measure_loudness
+from .worker_activity import WorkerActivity
 
 _encoding = threading.Lock()
 # A listener waiting for a song encodes in its own lane, never behind background playlist work.
 _listening = threading.Lock()
+background_activity = WorkerActivity('opus-background', 'Opus background copy')
+listening_activity = WorkerActivity('opus-listening', 'Opus listening copy')
 TIERS = {
     "low": (48, "opus48-v2"),
     "normal": (96, "opus96-v2"),
@@ -14,7 +17,7 @@ TIERS = {
 }
 
 
-def prepare(intake, item, source, digest, urgent=False, quality="normal"):
+def prepare(intake, item, source, digest, urgent=False, quality="normal", title=''):
     kbps, version = TIERS[quality]
     path = os.path.join(item, f".{version}-{digest}.opus")
     # Published copies are immutable and appear through atomic replacement.
@@ -23,7 +26,7 @@ def prepare(intake, item, source, digest, urgent=False, quality="normal"):
         intake.regular_file(path, "mobile audio")
         return path
     # Serialize encodes so simultaneous listeners cannot exhaust the server.
-    with (_listening if urgent else _encoding):
+    with (_listening if urgent else _encoding), (listening_activity if urgent else background_activity).track(title):
         if os.path.lexists(path):
             intake.regular_file(path, "mobile audio")
         else:

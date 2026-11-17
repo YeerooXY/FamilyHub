@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
-from music_web.listening_stats import ListeningStats
+from music_web.listening_stats import ListeningStats, listening_records, longest_streak
 
 
 class ListeningStatisticsTests(unittest.TestCase):
@@ -55,6 +55,31 @@ class ListeningStatisticsTests(unittest.TestCase):
     def row(self, index=0):
         return self.stats.snapshot(self.profiles)['profiles'][index]
 
+    def test_records_use_real_days_and_current_profiles(self):
+        daily = {'alex': {'2026-11-10': 60, '2026-11-11': 120, '2026-11-13': 600},
+                 'sam': {'2026-11-12': 90, '2026-11-13': 30, '2026-11-14': 0},
+                 'removed': {'2026-11-09': 90000}}
+        before = copy.deepcopy(daily)
+        records = {r['id']: r for r in listening_records(daily, self.profiles, self.utc.date())}
+        self.assertEqual((records['family-day']['day'], records['family-day']['seconds']), ('2026-11-13', 630))
+        self.assertEqual((records['personal-day']['owner'], records['personal-day']['seconds']), ('alex', 600))
+        self.assertEqual((records['family-streak']['day'], records['family-streak']['end_day'], records['family-streak']['days']),
+                         ('2026-11-10', '2026-11-13', 4))
+        self.assertEqual(records['streak-alex']['days'], 2)
+        self.assertEqual(records['streak-sam']['days'], 2)
+        self.assertEqual(records['first-day']['day'], '2026-11-10')
+        self.assertEqual(records['week-listener']['seconds'], 780)
+        self.assertEqual(daily, before)
+
+    def test_records_empty_future_zero_and_streak_ties(self):
+        self.assertEqual(listening_records({}, self.profiles, self.utc.date()), [])
+        self.assertEqual(listening_records({'alex': {'2026-11-14': 0, '2026-11-16': 100}}, self.profiles, self.utc.date()), [])
+        self.assertEqual(longest_streak({'2026-10-31': 1, '2026-11-01': 1, '2026-11-02': 0,
+                                        '2026-11-03': 1, '2026-11-04': 1}),
+                         dict(day='2026-10-31', end_day='2026-11-01', days=2))
+        records = listening_records({'sam': {'2026-11-14': 30}, 'alex': {'2026-11-13': 30}}, self.profiles, self.utc.date())
+        self.assertEqual(next(r for r in records if r['id'] == 'personal-day')['owner'], 'alex')
+
     def test_sync_is_cumulative_idempotent_and_out_of_order(self):
         dev = 'a' * 32
         self.assertEqual(self.stats.sync('alex', dev, [dict(day='2026-11-14', seconds=100, plays=2)]),
@@ -78,6 +103,8 @@ class ListeningStatisticsTests(unittest.TestCase):
         self.assertEqual((snapshot['total_seconds'], snapshot['total_qualified_plays']), (230.5, 5))
         self.assertEqual(snapshot['royalty_rate_usd'], 0.00341)
         self.assertEqual(snapshot['royalty_source'], 'https://report.duetti.co/')
+        record = next(row for row in snapshot['records'] if row['id'] == 'family-day')
+        self.assertEqual((record['day'], record['seconds']), ('2026-11-14', 190.5))
         self.assertEqual([d['day'] for d in snapshot['daily']][-3:], ['2026-11-13', '2026-11-14', '2026-11-15'])
         self.assertEqual(len(snapshot['daily']), 15)
         self.assertEqual([d['seconds'] for d in snapshot['daily']][-3:], [40, 190.5, 0])
@@ -89,6 +116,15 @@ class ListeningStatisticsTests(unittest.TestCase):
         self.assertEqual(sum(d['seconds'] for d in snapshot['daily']),120)
         self.assertEqual(snapshot['profiles'][0]['daily'],[dict(day='2026-10-05',seconds=90),dict(day='2026-11-14',seconds=30)])
         self.assertEqual(snapshot['profiles'][1]['daily'],[])
+
+    def test_empty_chart_covers_seven_days_across_month_boundary(self):
+        self.utc = datetime(2026, 11, 1, tzinfo=timezone.utc)
+        snapshot = self.stats.snapshot(self.profiles)
+        self.assertEqual([row['day'] for row in snapshot['daily']],
+                         ['2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29',
+                          '2026-10-30', '2026-10-31', '2026-11-01'])
+        self.assertTrue(all(row['seconds'] == 0 for row in snapshot['daily']))
+        self.assertEqual(snapshot['records'], [])
 
     def test_invalid_batch_changes_nothing(self):
         dev, good = 'a' * 32, dict(day='2026-11-14', seconds=10, plays=1)

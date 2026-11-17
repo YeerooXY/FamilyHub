@@ -27,9 +27,10 @@ from .listening_versions import ListeningVersions
 from .catalogue_review import CatalogueReview, register as register_catalogue_review
 from .source_quality import register as register_source_quality
 from .song_analysis import register as register_song_analysis
-from .finished_audio import FinishedAudio, prepare_record
+from .finished_audio import FinishedAudio, prepare_record, activity as finished_audio_activity
 from .playlist_artwork import PlaylistArtwork, ArtworkError
 from .lyrics import LyricsCache
+from .worker_activity import WorkerActivity
 from . import link_playlists
 from . import radio
 
@@ -645,7 +646,66 @@ def create_app(test_config=None):
                 phase="Paused while a song is prepared" if paused else "Looking up tags on MusicBrainz",
                 processed=tagging["processed"], total=tagging["total"], remaining=tagging["remaining"],
                 current_title=tagging["current_title"], download_bytes=0, download_total_bytes=None))
+        result['workers'] = worker_snapshot(names, tagging, result['jobs'])
         return jsonify(result)
+
+    def worker_snapshot(names, tagging, work):
+        paused = playback_demand()
+        rows = []
+        with lock:
+            for i, entry in enumerate(acquisition_slots):
+                row = dict(id=f'acquisition-{i}', title=f'Acquisition / preparation {i + 1}',
+                           state='idle', current_title='', waiting_for='A recording request')
+                if entry is not None:
+                    job, analyzing = entry
+                    total, received = job.get('download_total_bytes'), job.get('download_bytes', 0)
+                    row.update(state='working', current_title=job['title'], owner=job['owner'],
+                               phase='Beat analysis' if analyzing else job.get('message', job.get('phase', '')),
+                               progress=min(100, max(0, 100 * received / total)) if total and not analyzing and job.get('phase') == 'fetch' else None,
+                               waiting_for='Playback preparation' if analyzing and paused else '')
+                rows.append(row)
+        rows += playlist_preparation.activity.snapshot(paused, 'Playback preparation' if paused else 'Playlist work')
+        for row in rows:
+            if not row.get('playlist_id'):
+                continue
+            operation = next((job for job in work if job.get('playlist_id') == row['playlist_id'] and job.get('owner') == row['owner']), None)
+            if operation:
+                file = next((file for file in operation.get('files', []) if file['title'] == row['current_title']), operation)
+                row['phase'] = file.get('message', operation.get('phase', ''))
+                if row['phase'].startswith('Waiting'):
+                    row.update(state='paused', waiting_for=row['phase'].removeprefix('Waiting for '))
+                if file.get('file_phase') == 'downloading' and file.get('download_total_bytes'):
+                    row['progress'] = min(100, max(0, 100 * file.get('download_bytes', 0) / file['download_total_bytes']))
+        rows += finished_audio_activity.snapshot(waiting_for='A recording to prepare')
+        rows += mobile_audio.background_activity.snapshot(waiting_for='A recording needing an Opus copy')
+        rows += mobile_audio.listening_activity.snapshot(waiting_for='A listening request needing an Opus copy')
+        source = app.extensions['music'].source_quality
+        if cfg.get('SOURCE_QUALITY_SCAN', cfg['PUBLIC_ORIGIN'] != 'https://music.test'):
+            rows += source.activity.snapshot(paused, 'Playback preparation' if paused else 'Next library scan')
+        rows += source.replacement_activity.snapshot(paused and source.replace_lock.locked(),
+                    'Playback preparation' if paused and source.replace_lock.locked() else 'A source replacement request')
+        if cfg.get('SONG_ANALYSIS_SCAN', cfg['PUBLIC_ORIGIN'] != 'https://music.test'):
+            idle = song_analysis_idle()
+            rows += song_analysis.activity.snapshot(not idle, 'Acquisition and source-quality decoder' if not idle else 'Next library scan')
+        if metadata_lookup:
+            row = dict(id='tagging-0', title='Metadata tagging', state='idle', current_title='', waiting_for='Songs needing tags')
+            if tagging:
+                row.update(state='working' if tagging['current_title'] else 'paused' if paused or tagging['waiting'] == tagging['remaining'] else 'idle',
+                           current_title=tagging['current_title'],
+                           progress=100 * tagging['processed'] / tagging['total'] if tagging['total'] else None,
+                           waiting_for='' if tagging['current_title'] else 'Playback preparation' if paused else 'MusicBrainz retry / next lookup')
+            rows.append(row)
+        if genre_labels.enabled:
+            with genre_labels.lock:
+                artist = genre_labels.pending[0] if genre_labels.pending else ''
+            rows.append(dict(id='genre-0', title='Artist genres', current_title=artist,
+                             state='working' if artist else 'idle', waiting_for='MusicBrainz lookup / rate limit' if artist else 'An artist needing a genre'))
+        if automatic_downloads or metadata_lookup:
+            rows += automatic_activity.snapshot(waiting_for='Next playlist queue check')
+        for row in rows:
+            if row.get('owner'):
+                row['user'] = names.get(row['owner'], row['owner'])
+        return rows
 
     def background_download(j):
         return j.get("playlist_import") and not j.get("current") and not j.get("analyzing")
@@ -920,6 +980,7 @@ def create_app(test_config=None):
     # them for songs someone is waiting to hear; never fewer than eight slots in total.
     background_workers = cfg.get("BACKGROUND_WORKERS") or (3 if cfg["PUBLIC_ORIGIN"] == "https://music.test" else max(2, min(8, (os.cpu_count() or 4) // 2)))
     workers = max(8, background_workers + 4)
+    acquisition_slots = [None] * workers
 
     def foreground(job, analyzing=False):
         return not analyzing and job["priority"] == 0 and (not job.get("playlist_import") or job.get("current"))
@@ -932,7 +993,8 @@ def create_app(test_config=None):
                 with lock:
                     for future in list(active):
                         if future.done():
-                            job, analyzing = active.pop(future)
+                            job, analyzing, slot = active.pop(future)
+                            acquisition_slots[slot] = None
                             if future.exception() is not None:
                                 log.warning("job %s worker failed: %s", job["id"], type(future.exception()).__name__)
                                 if analyzing:
@@ -941,9 +1003,9 @@ def create_app(test_config=None):
                                     settle(job, "error", "Recording preparation failed.")
                     # Optional beat analysis reads a published recording and owns
                     # its own WAV; it must not delay another listener's playback.
-                    sources = {job.get("source_id") for job, analyzing in active.values()
+                    sources = {job.get("source_id") for job, analyzing, _ in active.values()
                                if job.get("source_id") and not analyzing}
-                    background = sum(not foreground(job, analyzing) for job, analyzing in active.values())
+                    background = sum(not foreground(job, analyzing) for job, analyzing, _ in active.values())
                     pending = [(j, False) for j in jobs.values() if j["state"] == "queued"
                                and not j["cancel"].is_set() and j.get("source_id") not in sources]
                     pending += [(j, True) for j in jobs.values() if j["state"] == "done"
@@ -966,7 +1028,9 @@ def create_app(test_config=None):
                         else:
                             job["state"] = "running"; job.pop("yielded", None)
                             future = pool.submit(work, job, job.get("url"), job.get("tmp"), job["meta"])
-                        active[future] = (job, analyzing)
+                        slot = acquisition_slots.index(None)
+                        acquisition_slots[slot] = (job, analyzing)
+                        active[future] = (job, analyzing, slot)
                         continue
                     if not active and not any(not j["cancel"].is_set() and
                             (j["state"] == "queued" or j.get("analysis_state") == "pending") for j in jobs.values()):
@@ -1328,6 +1392,7 @@ def create_app(test_config=None):
 
     automatic_downloads=cfg.get("AUTO_PLAYLIST_DOWNLOADS",cfg["PUBLIC_ORIGIN"] != "https://music.test")
     metadata_lookup=cfg.get("METADATA_LOOKUP",cfg["PUBLIC_ORIGIN"] != "https://music.test")
+    automatic_activity = WorkerActivity('playlist-queue', 'Playlist queue')
     if automatic_downloads or metadata_lookup:
         auto_stop = threading.Event()
         def automatic_playlists():
@@ -1336,10 +1401,11 @@ def create_app(test_config=None):
                     owners = [p['id'] for p in profile_store.list()] if family_mode else sorted(allowed)
                     # Playlists prepare while people listen; a listener's own song still goes first.
                     idle=lambda:not playback_demand()
-                    if automatic_downloads:playlist_preparation.queue_idle(owners,idle)
-                    if metadata_lookup:
-                        library_tracks()
-                        catalogue_review.flush()
+                    with automatic_activity.track('Family library'):
+                        if automatic_downloads:playlist_preparation.queue_idle(owners,idle)
+                        if metadata_lookup:
+                            library_tracks()
+                            catalogue_review.flush()
                 except Exception as error:
                     log.warning("automatic playlist queue: %s", type(error).__name__)
         def apply_metadata_votes():
@@ -1771,7 +1837,7 @@ def create_app(test_config=None):
         if digest is not None and digest != source_hash:
             raise ApiError("Recording changed. Refresh the library.", 409)
         try:
-            path = mobile_audio.prepare(app.intake, item["item"], original, source_hash, urgent=True, quality=quality)
+            path = mobile_audio.prepare(app.intake, item["item"], original, source_hash, urgent=True, quality=quality, title=track['title'])
         except (OSError, ValueError, app.intake.IntakeError):
             raise ApiError("Could not prepare mobile audio. Try again.", 503)
         track["playback_version"] = mobile_audio.TIERS[quality][1]

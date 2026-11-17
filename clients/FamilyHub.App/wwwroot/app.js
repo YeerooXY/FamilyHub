@@ -364,6 +364,7 @@ window.familyhub.bindSeekHover = input => {
         if (title) { active.dataset.tooltip = title; active.removeAttribute('title'); }
         const text = title || active.dataset.tooltip || active.getAttribute('aria-label');
         if (!text) return hide();
+        tip.classList.toggle('is-stats-point', active.classList.contains('stats-chart-point-button'));
         tip.textContent = text;
         const r = active.getBoundingClientRect(), t = tip.getBoundingClientRect();
         tip.style.left = Math.max(6, Math.min(innerWidth - t.width - 6, r.left + (r.width - t.width) / 2)) + 'px';
@@ -378,19 +379,36 @@ window.familyhub.bindSeekHover = input => {
         if (!tip) { tip = document.createElement('div'); tip.id = 'app-control-tooltip'; tip.className = 'app-tooltip'; tip.setAttribute('role','tooltip'); document.body.append(tip); }
         if (!button.hasAttribute('aria-describedby')) button.setAttribute('aria-describedby', tip.id);
         paint();
-        observer = new MutationObserver(paint); observer.observe(button, {attributes:true,attributeFilter:['title','aria-label']});
+        observer = new MutationObserver(paint); observer.observe(button, {attributes:true,attributeFilter:['title','aria-label','data-tooltip']});
     };
     document.addEventListener('pointerover', event => { if (event.pointerType !== 'touch') show(event.target); });
-    document.addEventListener('pointerout', event => { if (active?.contains(event.target) && !active.contains(event.relatedTarget)) hide(); });
+    document.addEventListener('pointerout', event => {
+        if (active?.contains(event.target) && !active.contains(event.relatedTarget)
+            && !(active.classList.contains('stats-chart-point-button') && active === document.activeElement)) hide();
+    });
     document.addEventListener('focusin', event => { if (event.target.matches?.(':focus-visible')) show(event.target); });
     document.addEventListener('focusout', event => { if (active?.contains(event.target)) hide(); });
     document.addEventListener('pointerdown', hide);
+    document.addEventListener('click', event => { if (event.target.closest?.('.stats-chart-point-button')) show(event.target); });
     document.addEventListener('keydown', event => { if (event.key === 'Escape') hide(); });
     document.addEventListener('scroll', hide, true);
     window.addEventListener('resize', hide);
 })();
 
 window.familyhub.focusIfWithin = (selector, successor) => { if (document.activeElement?.closest(selector)) document.getElementById(successor)?.focus({preventScroll:true}); };
+window.familyhub.statsVisible = () => !document.hidden && !!document.querySelector('.server-stats')?.getClientRects().length;
+window.familyhub.captureStatsFocus = () => {
+ const root=document.querySelector('.server-stats');
+ if(root)root._statsFocus=root.contains(document.activeElement)?document.activeElement:null;
+};
+window.familyhub.restoreStatsFocus = () => {
+ const root=document.querySelector('.server-stats'), previous=root?._statsFocus;
+ if(previous&&document.activeElement===document.body){
+  const successor=previous.isConnected?previous:document.getElementById(previous.id)||root.querySelector('.stats-chart-point-button')||document.getElementById('server-stats-refresh');
+  successor?.focus({preventScroll:true});
+ }
+ if(root)root._statsFocus=null;
+};
 window.familyhub.bindUpdatePolling = reference => {
     familyhub.stopUpdatePolling?.();
     const check = () => { if (!document.hidden) reference.invokeMethodAsync('CheckForBackgroundUpdate').catch(() => {}); };
@@ -440,7 +458,7 @@ window.familyhub.animateLeaderboard = () => {
  for(const row of table.querySelectorAll('[data-profile-key]')){
   const before=positions.get(row);row.getAnimations().forEach(a=>a.cancel());
   const delta=before-row.getBoundingClientRect().top;
-  if(Number.isFinite(delta)&&Math.abs(delta)>1)row.animate([{transform:`translateY(${delta}px)`},{transform:'translateY(0)'}],{duration:340,easing:'cubic-bezier(.2,.8,.2,1)'});
+  if(Number.isFinite(delta)&&Math.abs(delta)>1)row.animate([{transform:`translateY(${delta}px)`},{transform:'translateY(0)'}],{duration:240,easing:'cubic-bezier(.2,.8,.2,1)'});
  }
 };
 // The collapsed playlist bar shows once the playlist header scrolls out of view.
