@@ -111,14 +111,30 @@ def analyze_library(path, duration, ffmpeg='ffmpeg'):
         windows.append(analyze(samples))
         chromas.append(mean_chroma(samples, 22050))
     result = detect_key(np.mean(chromas, axis=0))
-    # A modulation or conflicting windows must not acquire a confident global key.
-    if result and any(detect_key(chroma).get('key') != result['key'] for chroma in chromas):
+    # A modulation must not acquire a global key: a window with a different confident key
+    # rules it out; a window without a clear key does not.
+    if result and any(detect_key(chroma).get('key') not in (None, result['key']) for chroma in chromas):
         result = {}
-    if all(w.get('reliable') for w in windows):
-        bpm = float(np.median([w['bpm'] for w in windows]))
-        if max(abs(w['bpm'] / bpm - 1) for w in windows) <= .06:
-            result['bpm'] = round(bpm)
+    bpm = library_bpm(windows)
+    if bpm: result['bpm'] = bpm
     return result
+
+
+def library_bpm(windows, minimum_confidence=.1, tolerance=.04):
+    """Tempo for the library: the transition analysis never marks a grid reliable without
+    downbeats, so use windows with some beat support and require at least two to agree.
+    Half and double time count as agreement; anything else leaves the BPM unknown."""
+    support = lambda w: w.get('confidence', 1 if w.get('reliable') else 0)
+    usable = sorted((w for w in windows if isinstance(w.get('bpm'), (int, float)) and w['bpm'] > 0
+                     and support(w) >= minimum_confidence), key=lambda w: -support(w))
+    if len(usable) < 2:
+        return None
+    reference = usable[0]['bpm']
+    folded = [min((w['bpm'] * f for f in (.5, 1, 2)), key=lambda v: abs(v / reference - 1)) for w in usable]
+    if max(abs(v / reference - 1) for v in folded) > tolerance:
+        return None
+    import statistics
+    return round(statistics.median(folded))
 
 
 if __name__ == "__main__":

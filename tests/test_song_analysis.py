@@ -181,3 +181,14 @@ class SongScannerTests(Base):
             scanner.scan_once()
             self.assertEqual(worker.call_count, 2)
         self.assertEqual(json.loads(scanner.path.read_text()), scanner.rows)
+
+
+class LibraryBpmTests(unittest.TestCase):
+    def test_agreeing_windows_give_a_tempo(self):
+        from music_web.analysis import library_bpm
+        w = lambda bpm, c: dict(bpm=bpm, confidence=c, reliable=False)
+        self.assertEqual(library_bpm([w(120.2, .45), w(120.2, .59), w(120.1, .36)]), 120)
+        self.assertEqual(library_bpm([w(174, .4), w(87.1, .3)]), 174)            # half time agrees
+        self.assertIsNone(library_bpm([w(114.8, .02), w(172.3, .29), w(117.5, .15)]))  # conflict
+        self.assertIsNone(library_bpm([w(120, .5), w(120, .05)]))               # one supported window
+
