@@ -273,7 +273,7 @@ class CatalogueReview:
             current=next((r['title'] for r in left if r['state']=='processing'),'')
             return dict(processed=done,total=done+len(left),remaining=len(left),waiting=waiting,current_title=current)
 
-    def snapshot(self,query=""):
+    def snapshot(self,query="",limit=100):
         with self.lock:
             self.flush()
             trim=[copy.deepcopy(r) for r in self.data['trimming'].values() if r['state']!='done']
@@ -281,7 +281,7 @@ class CatalogueReview:
             if query:
                 wanted=normal(query);trim=[r for r in trim if wanted in normal(r['title']+' '+r['artist'])];metadata=[r for r in metadata if wanted in normal(r['title']+' '+r['current']['artist'])]
             metadata.sort(key=lambda row:(row['state']!='review',row['title'].casefold()))
-            return dict(trimming=trim[:100],metadata=metadata[:100],trimming_total=len(trim),metadata_total=len(metadata))
+            return dict(trimming=trim[:limit],metadata=metadata[:limit],trimming_total=len(trim),metadata_total=len(metadata))
 
 
 def register(app,body,review,recording,admin,rate):
@@ -293,7 +293,10 @@ def register(app,body,review,recording,admin,rate):
     def review_queues():
         query=request.args.get('q','')
         if len(query)>120:raise ReviewError('Search up to 120 characters.')
-        return jsonify(**review.snapshot(query),can_edit=admin())
+        try:limit=int(request.args.get('limit','100'))
+        except ValueError:raise ReviewError('Choose a valid review page size.')
+        if not 1<=limit<=review.MAX_ROWS:raise ReviewError('Choose a valid review page size.')
+        return jsonify(**review.snapshot(query,limit),can_edit=admin())
 
     @app.post('/api/catalogue/trimming')
     def request_trimming():

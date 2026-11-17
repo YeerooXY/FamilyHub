@@ -25,6 +25,11 @@ MAX_UNTRIMMED_DIFFERENCE = 15
 BANDS = ((1000, 8000), (14000, 15500), (16000, 17000), (17500, 19000), (19000, 20500))
 
 
+def official_replacement(track, candidates, search=None):
+    return preferred_match([candidate for candidate in rank_matches(track, candidates, search=search)
+                            if candidate['source_tier'] <= 2 and candidate.get('id') != track['id']])
+
+
 class ScanPaused(Exception):
     pass
 
@@ -142,6 +147,8 @@ class SourceQuality:
         for row in self.rows.values():
             if row.get('replacing'):
                 row.update(replacing=False, replacement_error='Replacement interrupted. Check the replacement journal before retrying.')
+            if row.get('proposed_replacement') and not official_replacement(row, [row['proposed_replacement']]):
+                row.update(proposed_replacement=None, replacement_checked=False)
 
     def save(self, key, row):
         with self.lock:
@@ -193,9 +200,7 @@ class SourceQuality:
                         found = self.intake.cmd_search(SimpleNamespace(query=query, limit=30, offset=0))['results']
                         if not self.idle():
                             return
-                        candidates = rank_matches(row, found, search=self.intake.cmd_search)
-                        row['proposed_replacement'] = preferred_match([c for c in candidates
-                            if c['source_tier'] <= 2 and c.get('id') != identifier])
+                        row['proposed_replacement'] = official_replacement(row, found, search=self.intake.cmd_search)
                         row['replacement_checked'] = True
                         self.save(key, row)
                 except ScanPaused:
@@ -214,8 +219,17 @@ class SourceQuality:
         counts = {verdict: sum(r['verdict'] == verdict for r in rows) for verdict in ('clean', 'suspect', 'unknown')}
         counts['tier_3'] = sum(r['source_tier'] == 3 for r in rows)
         counts['total'] = len(rows)
-        return dict(counts=counts, songs=[r for r in rows if not r.get('dismissed') and not r.get('replaced_by')
-                                        and (r['verdict'] == 'suspect' or r['source_tier'] == 3)])
+        songs = []
+        for row in rows:
+            if row.get('dismissed') or row.get('replaced_by'):
+                continue
+            candidate = row.get('proposed_replacement')
+            row['proposed_replacement'] = official_replacement(row, [candidate]) if candidate else None
+            if row['verdict'] == 'suspect' or row['source_tier'] == 3 and row['proposed_replacement']:
+                songs.append(row)
+        counts['damaged'] = sum(row['verdict'] == 'suspect' for row in songs)
+        counts['unofficial'] = len(songs) - counts['damaged']
+        return dict(counts=counts, songs=songs)
 
 
 def replace_saved(workspace, library, old_id, candidate, saved_source, playlists, review, stats, intake, length=None):
@@ -334,7 +348,7 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
             if row.get('replacing'):
                 return jsonify(error='This song is being replaced.'), 409
             if action == 'dismiss':
-                scanner.save(key, dict(row, verdict='clean', dismissed=True))
+                scanner.save(key, dict(row, dismissed=True))
                 return jsonify(state='done')
             data = request.get_json(silent=True)
             candidate = row.get('proposed_replacement')
@@ -345,6 +359,9 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
                     or not all(type(d) in (int, float) and math.isfinite(d) and d > 0 for d in durations)
                     or abs(durations[0] - durations[1]) > MAX_UNTRIMMED_DIFFERENCE):
                 return jsonify(error='The official recording must be within 15 seconds of this song.'), 400
+            candidate = official_replacement(row, [candidate])
+            if not candidate:
+                return jsonify(error='Choose an official recording with a matching title, artist and duration.'), 400
             if replace is None or busy(candidate['id']) or not scanner.replace_lock.acquire(blocking=False):
                 return jsonify(error='A download or replacement is already running. Try again after it finishes.'), 409
             try:

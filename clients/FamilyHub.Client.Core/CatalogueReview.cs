@@ -9,6 +9,8 @@ public sealed record SourceQualitySong
     [JsonPropertyName("id")] public string Id { get; init; } = "";
     [JsonPropertyName("title")] public string Title { get; init; } = "";
     [JsonPropertyName("channel")] public string Channel { get; init; } = "";
+    [JsonPropertyName("artist")] public string Artist { get; init; } = "";
+    [JsonPropertyName("verdict")] public string Verdict { get; init; } = "";
     [JsonPropertyName("replacing")] public bool Replacing { get; init; }
     [JsonPropertyName("replacement_error")] public string? Error { get; init; }
     [JsonPropertyName("proposed_replacement")] public SourceQualityCandidate? Candidate { get; init; }
@@ -17,6 +19,7 @@ public sealed record SourceQualityCandidate
 {
     [JsonPropertyName("id")] public string Id { get; init; } = "";
     [JsonPropertyName("channel")] public string Channel { get; init; } = "";
+    [JsonPropertyName("url")] public string Url { get; init; } = "";
 }
 public sealed record CatalogueReviewSnapshot
 {
