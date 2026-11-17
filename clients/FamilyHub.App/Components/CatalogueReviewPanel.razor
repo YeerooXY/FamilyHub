@@ -15,8 +15,11 @@
             {
                 var rows = QualityRows(damaged);
                 var limit = damaged ? damagedLimit : unofficialLimit;
+                var replaceable = rows.Count(r => r.Candidate is not null && !r.Replacing);
             <section class="glass-panel catalogue-pool catalogue-quality" aria-labelledby="@QualityHeading(damaged)">
-                <div class="stats-section-heading"><h2 id="@QualityHeading(damaged)" tabindex="-1">@(damaged ? "Damaged audio" : "Unofficial upload, official version available")</h2><span>@rows.Count</span></div>
+                <div class="stats-section-heading"><h2 id="@QualityHeading(damaged)" tabindex="-1">@(damaged ? "Damaged audio" : "Unofficial upload, official version available")</h2><span>@rows.Count</span>
+                    @if (replaceable > 0) { <button id="@(damaged ? "damaged-replace-all" : "unofficial-replace-all")" class="primary catalogue-replace-all" aria-label="@($"Replace all {replaceable} {(damaged ? "damaged" : "unofficial")} songs that have an official version")" aria-disabled="@(qualitySaving ? "true" : "false")" @onclick="() => ReplaceAll(damaged)">Replace all (@replaceable)</button> }
+                </div>
                 <p class="catalogue-description">@(damaged ? "Measurements show a loss of high frequencies in these recordings." : "These fan uploads have a matching official recording.")</p>
                 <div class="catalogue-list">
                     @foreach (var row in rows.Take(limit))
@@ -25,7 +28,7 @@
                             <span class="song-artwork"><TrackCover Track="@ReviewTrack(row.Id, row.Title, row.Artist)" /></span>
                             <div class="song-text"><strong>@row.Title</strong><small>@row.Artist</small>
                                 <small>@(damaged ? "Sounds muffled in the high frequencies" : "Fan upload")@(row.Candidate is { } candidate ? " - official version on " + candidate.Channel : ". No matching official recording found.")</small>
-                                @if (row.Replacing) { <small class="catalogue-progress" role="status">Replacing recording…</small> }
+                                @if (row.Replacing) { <small class="catalogue-progress" role="status">@(row.Queued ? "Waiting to replace…" : "Replacing recording…")</small> }
                                 @if (row.Error is not null) { <small class="catalogue-error" role="alert">@row.Error</small> }
                             </div>
                             <div class="catalogue-actions">
@@ -219,6 +222,24 @@
                 if (before.Count > (damaged ? damagedLimit : unofficialLimit) && QualityRows(damaged).Count <= (damaged ? damagedLimit : unofficialLimit)) focusRestores.Add((damaged ? "damaged-more" : "unofficial-more", QualityHeading(damaged)));
                 announcement = "Kept " + row.Title + ". Removed from song review.";
             }
+        } catch (OperationCanceledException) when (disposed) { }
+        catch (Exception exception) { if (identity == Identity) error = exception.Message; }
+        finally { qualitySaving = false; }
+    }
+    private async Task ReplaceAll(bool damaged)
+    {
+        if (qualitySaving || Session.Api is null) return;
+        qualitySaving = true;
+        var identity = Identity;
+        try {
+            var result = await Session.Api.RequestJsonAsync<JsonElement>(HttpMethod.Post, "/api/catalogue/source-quality/replace-all",
+                new { group = damaged ? "damaged" : "unofficial" }, cancellationToken: lifetime.Token);
+            if (identity != Identity || disposed) return;
+            actionRevision++; error = null;
+            quality = quality.Select(r => (r.Verdict == "suspect") == damaged && r.Candidate is not null && !r.Replacing ? r with { Replacing = true, Queued = true, Error = null } : r).ToList();
+            // The button disappears once nothing is left to queue; keep focus on the section heading.
+            focusRestores.Add((damaged ? "damaged-replace-all" : "unofficial-replace-all", QualityHeading(damaged)));
+            announcement = $"{result.GetProperty("queued").GetInt32()} songs queued for replacement. They are replaced one at a time.";
         } catch (OperationCanceledException) when (disposed) { }
         catch (Exception exception) { if (identity == Identity) error = exception.Message; }
         finally { qualitySaving = false; }

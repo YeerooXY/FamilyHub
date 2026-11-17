@@ -69,6 +69,26 @@ class QualityScanTests(Base):
         self.state.source_quality.save(native.FIRST + ':' + row['sha256'], row)
         return item, target, manifest, candidate
 
+    def wait_replaced(self):
+        for _ in range(300):
+            if not any(row.get('replacing') for row in self.state.source_quality.rows.values()): break
+            time.sleep(.02)
+        self.assertFalse(any(row.get('replacing') for row in self.state.source_quality.rows.values()))
+        self.assertFalse(self.state.source_quality.replace_lock.locked())
+
+    def test_replace_all_queues_only_the_chosen_group(self):
+        _, _, _, candidate = self.proposal()
+        admin, token = self.signed_in()
+        response = self.post(admin, token, '/api/catalogue/source-quality/replace-all', json=dict(group='unofficial'))
+        self.assertEqual((response.status_code, response.json['queued']), (202, 0))
+        self.assertEqual(self.post(admin, token, '/api/catalogue/source-quality/replace-all', json=dict(group='x')).status_code, 400)
+        self.state.jobs['busy'] = dict(source_id=native.SECOND, state='running')
+        response = self.post(admin, token, '/api/catalogue/source-quality/replace-all', json=dict(group='damaged'))
+        self.assertEqual((response.status_code, response.json['queued']), (202, 1))
+        row = self.state.source_quality.snapshot()['songs'][0]
+        self.assertTrue(row['replacing'] and row['queued'])
+        self.assertEqual(self.post(admin, token, f'/api/catalogue/source-quality/{native.FIRST}/replace', json=dict(candidate_id=native.SECOND)).status_code, 409)
+
     def test_replacement_uses_acquisition_and_repoints_all_profiles(self):
         item, target, manifest, candidate = self.proposal()
         store = PlaylistStore(self.ws)
@@ -91,10 +111,7 @@ class QualityScanTests(Base):
         with patch.object(self.intake, 'cmd_fetch', side_effect=fetch) as acquisition, patch.object(self.intake, 'cmd_preview', side_effect=ValueError):
             response = self.post(admin, token, f'/api/catalogue/source-quality/{native.FIRST}/replace', json=dict(candidate_id=native.SECOND))
             self.assertEqual(response.status_code, 202, response.json)
-            for _ in range(300):
-                if not self.state.source_quality.replace_lock.locked(): break
-                time.sleep(.02)
-            self.assertFalse(self.state.source_quality.replace_lock.locked())
+            self.wait_replaced()
             acquisition.assert_called_once()
         self.assertEqual(self.state.source_quality.snapshot()['songs'], [])
         for user in ('sample-a', 'sample-b'):
@@ -188,10 +205,13 @@ class QualityScanTests(Base):
         response = self.post(admin, token, f'/api/catalogue/source-quality/{native.FIRST}/replace', json=dict(candidate_id=native.SECOND))
         self.assertEqual(response.status_code, 400)
         candidate['duration'] = .02
+        # A running download of the candidate queues the replacement until it finishes.
         self.state.jobs['busy'] = dict(source_id=native.SECOND, state='running')
         response = self.post(admin, token, f'/api/catalogue/source-quality/{native.FIRST}/replace', json=dict(candidate_id=native.SECOND))
-        self.assertEqual(response.status_code, 409)
-        self.state.jobs.pop('busy')
+        self.assertEqual(response.status_code, 202)
+        time.sleep(.1)
+        self.assertTrue(self.state.source_quality.snapshot()['songs'][0]['queued'])
+        self.assertFalse(self.state.source_quality.replace_lock.locked())
 
     def test_idle_cache_and_replacement_never_change_audio(self):
         native.NativeMusicApi.recording(self, title='Artist - First')

@@ -148,7 +148,9 @@ class SourceQuality:
         except (OSError, ValueError):
             self.rows = {}
         for row in self.rows.values():
-            if row.get('replacing'):
+            if row.get('replacing') and row.get('queued'):
+                row.update(replacing=False, queued=False)
+            elif row.get('replacing'):
                 row.update(replacing=False, replacement_error='Replacement interrupted. Check the replacement journal before retrying.')
             if row.get('proposed_replacement') and not official_replacement(row, [row['proposed_replacement']]):
                 row.update(proposed_replacement=None, replacement_checked=False)
@@ -337,6 +339,71 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
     scanner = SourceQuality(workspace, intake, idle, review)
     app.extensions['music'].source_quality = scanner
 
+    import queue
+    pending = queue.Queue()
+
+    def eligible(identifier, row):
+        """The proposed official recording if it may replace this row, else None."""
+        candidate = row.get('proposed_replacement')
+        durations = (row.get('duration'), candidate.get('duration')) if candidate else ()
+        if (not candidate or candidate['id'] == identifier or candidate.get('source_tier', 3) > 2
+                or not all(type(d) in (int, float) and math.isfinite(d) and d > 0 for d in durations)
+                or abs(durations[0] - durations[1]) > MAX_UNTRIMMED_DIFFERENCE):
+            return None
+        return official_replacement(row, [candidate])
+
+    def visible(key, row):
+        return (not row.get('dismissed') and not row.get('replaced_by')
+                and (scanner.active_keys is None or key in scanner.active_keys))
+
+    def enqueue(key, row, candidate, user):
+        scanner.save(key, dict(row, replacing=True, queued=True, replacement_error=None))
+        pending.put((key, row['id'], candidate, user))
+
+    def work():
+        # One replacement at a time; the rest wait here so "Replace all" can queue hundreds.
+        while True:
+            key, identifier, candidate, user = pending.get()
+            try:
+                while not idle() or busy(candidate['id']):
+                    time.sleep(.5)
+                with scanner.replace_lock:
+                    with scanner.lock:
+                        scanner.save(key, dict(scanner.rows[key], queued=False))
+                    with scanner.replacement_activity.track(candidate['title']):
+                        replace(user, identifier, candidate)
+                with scanner.lock:
+                    scanner.save(key, dict(scanner.rows[key], replacing=False, queued=False, replaced_by=candidate['id']))
+            except Exception as error:
+                app.logger.warning('Source replacement failed: %s', type(error).__name__)
+                with scanner.lock:
+                    scanner.save(key, dict(scanner.rows[key], replacing=False, queued=False,
+                                           replacement_error='Replacement failed. Review the saved recording and try again.'))
+
+    if replace is not None:
+        threading.Thread(target=work, name='source-replace', daemon=True).start()
+
+    @app.post('/api/catalogue/source-quality/replace-all')
+    def source_quality_replace_all():
+        if not admin():
+            return jsonify(error='Only the admin can review source quality.'), 403
+        data = request.get_json(silent=True)
+        group = data.get('group') if isinstance(data, dict) else None
+        if group not in ('damaged', 'unofficial'):
+            return jsonify(error='Choose damaged or unofficial songs.'), 400
+        if replace is None:
+            return jsonify(error='Replacement is not available on this server.'), 409
+        queued = 0
+        with scanner.lock:
+            for key, row in list(scanner.rows.items()):
+                if not visible(key, row) or row.get('replacing') or (row.get('verdict') == 'suspect') != (group == 'damaged'):
+                    continue
+                candidate = eligible(row['id'], row)
+                if candidate:
+                    enqueue(key, row, candidate, g.user)
+                    queued += 1
+        return jsonify(state='replacing', queued=queued), 202
+
     @app.post('/api/catalogue/source-quality/<identifier>/<action>')
     def source_quality_action(identifier, action):
         if not admin():
@@ -344,9 +411,7 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
         if action not in ('replace', 'dismiss'):
             return jsonify(error='Unknown source quality action.'), 404
         with scanner.lock:
-            found = next(((key, row) for key, row in scanner.rows.items() if row['id'] == identifier
-                          and not row.get('dismissed') and not row.get('replaced_by')
-                          and (scanner.active_keys is None or key in scanner.active_keys)), None)
+            found = next(((key, row) for key, row in scanner.rows.items() if row['id'] == identifier and visible(key, row)), None)
             if not found:
                 return jsonify(error='Song review not found.'), 404
             key, row = found
@@ -359,38 +424,12 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
             candidate = row.get('proposed_replacement')
             if not isinstance(data, dict) or not candidate or data.get('candidate_id') != candidate['id']:
                 return jsonify(error='Choose the proposed official recording.'), 400
-            durations = (row.get('duration'), candidate.get('duration'))
-            if (candidate['id'] == identifier or candidate.get('source_tier', 3) > 2
-                    or not all(type(d) in (int, float) and math.isfinite(d) and d > 0 for d in durations)
-                    or abs(durations[0] - durations[1]) > MAX_UNTRIMMED_DIFFERENCE):
-                return jsonify(error='The official recording must be within 15 seconds of this song.'), 400
-            candidate = official_replacement(row, [candidate])
+            candidate = eligible(identifier, row)
             if not candidate:
-                return jsonify(error='Choose an official recording with a matching title, artist and duration.'), 400
-            if replace is None or busy(candidate['id']) or not scanner.replace_lock.acquire(blocking=False):
-                return jsonify(error='A download or replacement is already running. Try again after it finishes.'), 409
-            try:
-                scanner.save(key, dict(row, replacing=True, replacement_error=None))
-            except Exception:
-                scanner.replace_lock.release()
-                raise
-            user = g.user
-
-        def run():
-            try:
-                while not idle():
-                    time.sleep(.2)
-                with scanner.replacement_activity.track(candidate['title']):
-                    replace(user, identifier, candidate)
-                with scanner.lock:
-                    scanner.save(key, dict(scanner.rows[key], replacing=False, replaced_by=candidate['id']))
-            except Exception as error:
-                app.logger.warning('Source replacement failed: %s', type(error).__name__)
-                with scanner.lock:
-                    scanner.save(key, dict(scanner.rows[key], replacing=False, replacement_error='Replacement failed. Review the saved recording and try again.'))
-            finally:
-                scanner.replace_lock.release()
-        threading.Thread(target=run, name='source-replace', daemon=True).start()
+                return jsonify(error='Choose an official recording with a matching title, artist and duration, within 15 seconds of this song.'), 400
+            if replace is None:
+                return jsonify(error='Replacement is not available on this server.'), 409
+            enqueue(key, row, candidate, g.user)
         return jsonify(state='replacing'), 202
 
     @app.get('/api/catalogue/source-quality')

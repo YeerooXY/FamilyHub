@@ -12,6 +12,7 @@ public sealed record SourceQualitySong
     [JsonPropertyName("artist")] public string Artist { get; init; } = "";
     [JsonPropertyName("verdict")] public string Verdict { get; init; } = "";
     [JsonPropertyName("replacing")] public bool Replacing { get; init; }
+    [JsonPropertyName("queued")] public bool Queued { get; init; }
     [JsonPropertyName("replacement_error")] public string? Error { get; init; }
     [JsonPropertyName("proposed_replacement")] public SourceQualityCandidate? Candidate { get; init; }
 }

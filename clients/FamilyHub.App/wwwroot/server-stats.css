@@ -193,6 +193,13 @@ body[data-effects=off] .listener-equalizer.is-playing i { animation:none; }
 .catalogue-row .catalogue-progress { color:var(--accent-blue); }
 .catalogue-row .catalogue-error { color:var(--ink); }
 .catalogue-more { margin-top:12px; min-height:44px; }
+.catalogue-pool .stats-section-heading { flex-wrap:wrap; }
+.catalogue-pool .stats-section-heading h2 { flex:1 1 12em; }
+.catalogue-replace-all { min-height:44px; padding:10px 14px; margin:0; font-size:13px; font-weight:700; border-radius:8px; white-space:nowrap; background:var(--accent-blue); color:var(--on-accent,#10111b); transition:filter .15s ease; }
+.catalogue-replace-all:hover { filter:brightness(1.08); }
+.catalogue-replace-all[aria-disabled=true] { opacity:.55; }
+.catalogue-replace-all:focus-visible { outline:2px solid var(--focus,var(--accent-blue)); outline-offset:2px; }
+@media(prefers-reduced-motion:reduce) { .catalogue-replace-all { transition:none; } }
 .catalogue-empty { margin:12px 8px; color:var(--muted); font-size:14px; }
 .metadata-review-dialog { width:min(460px,calc(100vw - 32px)); }.metadata-review-dialog form { display:grid; gap:10px; }.metadata-review-dialog input { width:100%; }.metadata-review-dialog label { font-size:13px; }.metadata-review-dialog>p { overflow-wrap:anywhere; }.trim-request .icon { width:22px;height:22px; }
 @container(max-width:640px) {
