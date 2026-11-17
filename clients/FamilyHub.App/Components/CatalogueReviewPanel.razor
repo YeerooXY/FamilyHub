@@ -31,7 +31,7 @@
                             <div class="catalogue-actions">
                                 @if (PreviewUrl(row.Candidate?.Url) is { } url) { <a id="@("quality-listen-" + row.Id)" class="quiet catalogue-listen" href="@url" target="_blank" rel="noopener noreferrer" aria-label="Listen to the official version of @row.Title (opens in a new tab)"><MusicIcon Name="play" />Listen</a> }
                                 else if (CanListen(row.Id)) { <button id="@("quality-listen-" + row.Id)" class="quiet" aria-label="Listen to @row.Title" aria-disabled="@(Player.FollowingHost ? "true" : "false")" @onclick="() => Play(row.Id)"><MusicIcon Name="play" />Listen</button> }
-                                <button id="@("quality-" + row.Id)" class="primary" aria-label="Replace @row.Title" aria-disabled="@(row.Replacing || qualitySaving || row.Candidate is null ? "true" : "false")" @onclick="() => QualityAction(row, true)">@(row.Replacing ? "Replacing…" : "Replace")</button>
+                                @if (row.Candidate is not null || row.Replacing) { <button id="@("quality-" + row.Id)" class="primary" aria-label="Replace @row.Title" aria-disabled="@(row.Replacing || qualitySaving || row.Candidate is null ? "true" : "false")" @onclick="() => QualityAction(row, true)">@(row.Replacing ? "Replacing…" : "Replace")</button> }
                                 <button id="@("quality-keep-" + row.Id)" class="quiet" aria-label="Keep @row.Title" aria-disabled="@(row.Replacing || qualitySaving ? "true" : "false")" @onclick="() => QualityAction(row, false)">Keep</button>
                             </div>
                         </article>

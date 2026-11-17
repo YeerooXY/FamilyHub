@@ -81,7 +81,7 @@
                 <div class="stats-chart-frame">
                     <div class="stats-chart-axis" aria-hidden="true"><span>@Duration(peak)</span><span>0 s</span></div>
                     <div class="stats-chart-scroll" role="region" aria-label="Daily listening chart, scroll for more dates" tabindex="0">
-                    <div class="stats-chart-plot" style="min-width:@(Math.Max(240, days.Count * 36))px">
+                    <div class="stats-chart-plot">
                     <div class="stats-chart-surface">
                 <svg class="stats-line-chart" viewBox="0 0 560 156" preserveAspectRatio="none" aria-hidden="true" focusable="false">
                     <defs><linearGradient id="stats-chart-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent-blue)" stop-opacity=".28" /><stop offset="100%" stop-color="var(--accent-blue)" stop-opacity="0" /></linearGradient></defs>
@@ -130,7 +130,7 @@
                         <div class="stats-job-heading"><strong>@job.Title</strong><span>@Label(job.State)</span></div>
                         @if (!string.IsNullOrWhiteSpace(job.CurrentTitle)) { <p class="stats-current-action">@job.CurrentTitle</p> }
                         @if (job.Phase.Length > 0) { <small>@job.Phase</small> }
-                        @if (job.WaitingFor.Length > 0) { <small>Waiting for @job.WaitingFor</small> }
+                        @if (job.WaitingFor.Length > 0) { <small>Waiting for @(char.ToLowerInvariant(job.WaitingFor[0]) + job.WaitingFor[1..])</small> }
                         @if (percent is not null) { <div class="stats-meter" role="progressbar" aria-label="@job.Title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@percent.Value.ToString("0", Inv)"><i style="width:@percent.Value.ToString("0.###", Inv)%"></i></div><small>@percent.Value.ToString("0", Inv)%</small> }
                         @if (job.Owner.Length > 0) { <div class="stats-job-requester"><ProfileAvatar Profile="WorkProfile(job)" Size="28" /><span>@job.User</span></div> }
                     </article>
@@ -183,8 +183,10 @@
     private static string ExactDay(string day) => DateTime.TryParse(day, Inv, DateTimeStyles.None, out var date) ? date.ToString("d MMM yyyy", Inv) : day;
     private static string ExactDuration(double seconds)
     {
-        seconds = Math.Round(Math.Max(0, seconds), 3);
-        return $"{(long)(seconds / 3600)} h {(long)(seconds % 3600 / 60)} min {(seconds % 60).ToString("0.###", Inv)} s";
+        // Whole minutes read well; seconds only matter below an hour.
+        var total = (long)Math.Round(Math.Max(0, seconds));
+        if (total >= 3600) return $"{total / 3600} h {total % 3600 / 60} min";
+        return total >= 60 ? $"{total / 60} min {total % 60} s" : $"{total} s";
     }
     private string? error;
     private DateTime? updated;
