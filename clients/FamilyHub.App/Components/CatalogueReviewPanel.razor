@@ -25,6 +25,7 @@
 <dialog id="metadata-review-dialog" class="glass-dialog metadata-review-dialog" aria-labelledby="metadata-review-title">
     <div class="dialog-heading"><h2 id="metadata-review-title">Song metadata</h2><button class="quiet" aria-label="Close metadata review" @onclick="Close"><MusicIcon Name="close" /></button></div>
     <p>@editing?.Title</p>
+    @if (editing is { Suggested.Count: > 0 } && editing.Missing.Any(editing.Suggested.ContainsKey)) { <p class="muted">Suggested by @(editing.Source.Length > 0 ? editing.Source : "lookup"). Check before saving.</p> }
     <form @onsubmit="Save" @onsubmit:preventDefault>
         <label for="metadata-artist">Artist</label><input id="metadata-artist" @bind="artist" maxlength="120" />
         <label for="metadata-album">Album</label><input id="metadata-album" @bind="album" maxlength="120" />
@@ -66,7 +67,7 @@
     }
     private async Task Open(MetadataRequest row)
     {
-        editing = row; editError = null; artist = row.Current.GetValueOrDefault("artist", ""); album = row.Current.GetValueOrDefault("album", ""); genre = row.Current.GetValueOrDefault("genre", "");
+        editing = row; editError = null; artist = row.Draft("artist"); album = row.Draft("album"); genre = row.Draft("genre");
         StateHasChanged(); await JS.InvokeVoidAsync("familyhub.showDialog", "metadata-review-dialog", "metadata-artist");
     }
     private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "metadata-review-dialog", editing is null ? "catalogue-review-title" : "metadata-" + editing.Id).AsTask();

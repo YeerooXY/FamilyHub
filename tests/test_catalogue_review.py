@@ -11,6 +11,7 @@ TRACK=dict(id=FIRST,title='Artist - Song (Official Audio)',channel='Artist',libr
 class ReviewStore(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.store=CatalogueReview(self.tmp.name)
+        search=patch('music_web.catalog_search.candidates',return_value=[]);search.start();self.addCleanup(search.stop)
     def observe(self,**kw):
         track={**TRACK,**kw};self.store.observe(track,{},'a'*64);return track
     def test_trim_deduplicates_users_positions_and_persists(self):
@@ -104,6 +105,30 @@ class ReviewStore(unittest.TestCase):
         with patch('music_web.catalogue_review.musicbrainz',side_effect=[dict(recordings=[]),dict(artists=[{'name':'Artist','tags':[{'name':'hard rock','count':3}]}])]):
             self.assertEqual(lookup(row)['values'].get('genre'),'Rock')
         self.assertIn('Remix',seed({},dict(TRACK,title='Artist - Song (Official Remix)'))['title'])
+    def test_store_matches_fill_an_agreed_album_and_are_kept(self):
+        self.observe();row=self.store.snapshot()['metadata'][0]
+        single=[dict(source='Deezer',artist='Artist',album='Song',album_type='single',genre='Dance',url='https://www.deezer.com/track/1'),
+                dict(source='iTunes',artist='Artist',album='Song - Single',album_type='single',genre='Electronic',url='https://music.apple.com/x')]
+        with patch('music_web.catalogue_review.musicbrainz',side_effect=[dict(recordings=[]),dict(artists=[])]):
+            result=lookup(row,lambda *a:single)
+        self.assertEqual(result['values'],dict(album='Song'));self.assertEqual(result['source'],'Deezer/iTunes');self.assertEqual(len(result['candidates']),2)
+        split=[single[0],{**single[1],'album':'Other album'}]
+        with patch('music_web.catalogue_review.musicbrainz',side_effect=[dict(recordings=[]),dict(artists=[])]):
+            self.assertEqual(lookup(row,lambda *a:split)['values'],{},'stores that disagree leave the album for review')
+        compiled=[single[0],{**single[1],'album':'Hits Vol. 4','album_type':'compile'}]
+        with patch('music_web.catalogue_review.musicbrainz',side_effect=[dict(recordings=[]),dict(artists=[])]):
+            self.assertEqual(lookup(row,lambda *a:compiled)['values'],dict(album='Song'),'compilations do not count')
+        self.store.process_one(lambda:True,lambda row:dict(values={},source='Deezer/iTunes',candidates=single))
+        self.assertEqual(self.store.snapshot()['metadata'][0]['candidates'][1]['album'],'Song - Single')
+    def test_votes_fill_agreed_fields_and_suggest_the_rest(self):
+        self.observe();self.store.process_one(lambda:True,lambda row:dict(values={},source='No unique title, artist and duration match'))
+        vote=dict(id=FIRST,sha256='a'*64,values=dict(genre='Drum and bass',artist='Ignored'),suggested=dict(album='Maybe album'))
+        self.assertEqual(self.store.apply_votes([vote,dict(vote,sha256='b'*64),'junk'],'AI vote (3 runs)'),1)
+        row=self.store.snapshot()['metadata'][0]
+        self.assertEqual(row['current']['genre'],'Drum and bass');self.assertEqual(row['suggested']['album'],'Maybe album')
+        self.assertEqual(row['missing'],['album']);self.assertEqual(row['source'],'AI vote (3 runs)')
+        self.assertEqual(self.store.overrides(FIRST,'a'*64),dict(genre='Drum and bass'))
+        self.assertEqual(self.store.apply_votes([dict(vote,values=dict(album='x'*200))],'AI vote'),0,'invalid values are skipped')
     def test_snapshot_bounds_and_search(self):
         for i in range(105):self.store.flag_trim({**TRACK,'id':f'{i:011d}','title':f'Song {i}'},'a'*64,'one')
         data=self.store.snapshot();self.assertEqual(data['trimming_total'],105);self.assertEqual(len(data['trimming']),100)

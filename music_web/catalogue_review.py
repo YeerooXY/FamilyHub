@@ -9,13 +9,15 @@ import time
 import unicodedata
 from .musicbrainz import read as musicbrainz, Throttled
 from .genres import group as genre_group
+from . import catalog_search
 
 ID=re.compile(r'(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})')
 UNKNOWN={'','unknown','unknown artist','unknown album','unsorted','selected recordings','youtube','local imports'}
 FIELDS=('artist','album','genre')
 # Raise when the lookup improves: automatic results from older versions are looked up again.
-LOOKUP_VERSION=2
-AUTOMATIC_SOURCES={'No unique title, artist and duration match','Lookup unavailable; review manually','MusicBrainz','File/source tags',''}
+# 3: Deezer and iTunes fill albums MusicBrainz lacks and keep their matches for the AI vote.
+LOOKUP_VERSION=3
+AUTOMATIC_SOURCES={'No unique title, artist and duration match','Deezer/iTunes','Lookup unavailable; review manually','MusicBrainz','File/source tags',''}
 # Failed lookups (MusicBrainz busy or unreachable) retry after 30 minutes, then 1, 2 and 4 hours.
 RETRY_SECONDS=(1800,3600,7200,14400)
 
@@ -64,7 +66,20 @@ def seed(source,track):
     artist=re.sub(r'\s*-?\s*Topic$|VEVO$','',artist,flags=re.I).strip()
     return dict(title=title[:200],artist=artist[:120],duration=track.get('original_duration') or track.get('duration') or 0)
 
-def lookup(row):
+def lookup(row,search=None):
+    result=musicbrainz_lookup(row)
+    still=[k for k in ('album','genre') if k in row['missing'] and k not in result['values']]
+    if not still or result['source'] in ('File/source tags','No unambiguous artist'):return result
+    found=(search or catalog_search.candidates)(row['seed'],core_title,normal)
+    result['candidates']=found
+    album=catalog_search.agreed_album(found,normal) if 'album' in still else ''
+    if album:
+        result['values']['album']=result['suggested']['album']=text(album)
+        if not result['source_url']:
+            result['source']='Deezer/iTunes';result['source_url']=next((c['url'] for c in found if c['url'].startswith('https://')),'')
+    return result
+
+def musicbrainz_lookup(row):
     values={};suggested={};source_url='';seed_info=row['seed'];embedded=row.get('embedded',{})
     for key in ('artist','album'):
         if key in row['missing'] and not missing(embedded.get(key)):values[key]=text(embedded[key])
@@ -221,9 +236,30 @@ class CatalogueReview:
                 result=dict(values={},suggested={},source_url='',source='Lookup unavailable; review manually')
             row['lookup_version']=LOOKUP_VERSION
             row.update(suggested=result.get('suggested',{}),source=result.get('source',''),source_url=result.get('source_url',''))
+            if result.get('candidates'):row['candidates']=[{k:str(c.get(k,''))[:200] for k in ('source','artist','album','album_type','genre','url')} for c in result['candidates'][:6]]
             self._apply(row,{k:v for k,v in result.get('values',{}).items() if k in row['missing']})
             self.flush()
         return True
+
+    def apply_votes(self,votes,label):
+        """Fills fields a model vote agreed on and shows the rest as suggestions; owner edits win."""
+        applied=0
+        with self.lock:
+            for vote in votes if isinstance(votes,list) else []:
+                row=self.data['metadata'].get(vote.get('id')) if isinstance(vote,dict) else None
+                if not row or row.get('sha256')!=vote.get('sha256') or row['state']!='review':continue
+                agreed={k:v for k,v in (vote.get('values') or {}).items() if k in row['missing'] and isinstance(v,str)}
+                hints={k:v for k,v in (vote.get('suggested') or {}).items() if k in row['missing'] and isinstance(v,str) and not missing(v)}
+                try:
+                    agreed={k:text(v,80 if k=='genre' else 120) for k,v in agreed.items()}
+                    hints={k:text(v,80 if k=='genre' else 120) for k,v in hints.items()}
+                except ReviewError:continue
+                row['suggested']={**row.get('suggested',{}),**hints,**agreed}
+                row['source']=label;row['ai_vote']=True
+                if agreed:self._apply(row,agreed);applied+=1
+                else:row['revision']+=1;self.dirty=True
+            self.flush()
+        return applied
 
     def progress(self):
         # Server work row for the tagger: this lookup pass's songs, done and left.

@@ -1284,12 +1284,24 @@ def create_app(test_config=None):
                         catalogue_review.flush()
                 except Exception as error:
                     log.warning("automatic playlist queue: %s", type(error).__name__)
+        def apply_metadata_votes():
+            # scripts/metadata-ai-vote.py drops model votes here; they are applied once and removed.
+            inbox = os.path.join(ws, ".metadata-votes.json")
+            if not os.path.exists(inbox): return
+            try:
+                with open(inbox, encoding="utf-8") as handle: data = json.loads(handle.read(4 << 20))
+                applied = catalogue_review.apply_votes(data.get("votes", []), str(data.get("label", "AI vote"))[:80])
+                log.info("metadata votes: %d songs filled", applied)
+            except (OSError, ValueError, AttributeError) as error:
+                log.warning("metadata votes: %s", type(error).__name__)
+            with suppress(OSError): os.remove(inbox)
         def tag_songs():
             # One tagger works continuously while nobody needs a song prepared. MusicBrainz allows
             # about one request a second per server, so more taggers would only get it blocked.
             while not auto_stop.is_set():
                 try:
                     if playback_demand(): auto_stop.wait(5); continue
+                    apply_metadata_votes()
                     if not catalogue_review.process_one(lambda:not playback_demand()): auto_stop.wait(30)
                 except Exception as error:
                     log.warning("song tagging: %s", type(error).__name__); auto_stop.wait(30)

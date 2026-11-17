@@ -25,4 +25,8 @@ public sealed record MetadataRequest
     [JsonPropertyName("missing")] public List<string> Missing { get; init; } = [];
     [JsonPropertyName("state")] public string State { get; init; } = "";
     [JsonPropertyName("source_url")] public string SourceUrl { get; init; } = "";
+    [JsonPropertyName("source")] public string Source { get; init; } = "";
+    [JsonPropertyName("suggested")] public Dictionary<string,string> Suggested { get; init; } = [];
+    /// <summary>The value to edit: a suggestion fills a field that is still missing.</summary>
+    public string Draft(string key) => Missing.Contains(key) && Suggested.TryGetValue(key, out var value) && value.Length > 0 ? value : Current.GetValueOrDefault(key, "");
 }
