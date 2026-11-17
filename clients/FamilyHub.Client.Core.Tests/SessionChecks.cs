@@ -19,6 +19,9 @@ internal static class SessionChecks
             DownloadUrl = "/api/library/abcdefghijk/download", DownloadExtension = ".m4a", DownloadSize = audio.Length,
             DownloadSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(audio)) };
         PlaybackResume? remotePlayback = null;
+        PlaybackHandover? activityCommand = null;
+        var activityReports = new List<JsonElement>();
+        Action? duringActivity = null;
         var searchOffsets = new List<int>();
         var audioRequests = 0;
         var originalAudioRequests = 0;
@@ -56,6 +59,14 @@ internal static class SessionChecks
                 }
                 return Json(System.Text.Json.JsonSerializer.Serialize(new { profile_id = "alex", playback = remotePlayback }, FamilyHubApi.JsonOptions));
             }
+            if (request.RequestUri.AbsolutePath == "/api/playback/activity")
+            {
+                using var body = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                activityReports.Add(body.RootElement.GetProperty("device_info").Clone());
+                var response = Json(JsonSerializer.Serialize(new { counters_accepted = true, command = activityCommand }, FamilyHubApi.JsonOptions));
+                var callback = duringActivity; duringActivity = null; callback?.Invoke();
+                return response;
+            }
             if (request.RequestUri!.AbsolutePath == "/api/search")
             {
                 var body = System.Text.Json.JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
@@ -79,6 +90,37 @@ internal static class SessionChecks
             Check(session.NeedsProfileSelection && session.Profiles.Count == 2, "Connected profile chooser missing");
             await session.SelectProfileAsync("alex");
             Check(session.Connected && session.ProfileName == "Alex", "Online profile selection failed");
+            var handedOver = 0;
+            session.PlaybackHandedOver += _ => handedOver++;
+            await session.ReportPlaybackActivityAsync(false);
+            Check(activityReports[^1].GetProperty("activation").GetInt64() == 0, "Startup check-in activated playback");
+            session.MarkLocalPlayback();
+            var localActivation = session.PlaybackActivation;
+            activityCommand = new() { Id = "phone-active", Action = "pause", DeviceId = new string('b', 32), FromName = "Pixel", Playing = true,
+                Activation = DateTime.UtcNow.AddDays(1).Ticks, Position = 12, Track = new() { Id = recording.Id } };
+            await session.ReportPlaybackActivityAsync(true, 3);
+            Check(handedOver == 1 && session.PlaybackActivation == localActivation, "Pause command was dropped or echoed a local activation");
+            await session.ReportPlaybackActivityAsync(false, 12, remoteDeviceId: new string('b', 32));
+            Check(handedOver == 1 && activityReports[^1].GetProperty("remote_device").GetString() == new string('b', 32), "Pause command was redelivered or remote target was omitted");
+            session.MarkLocalPlayback();
+            Check(session.PlaybackActivation > activityCommand.Activation, "Takeback did not advance beyond the remote activation watermark");
+            await session.ReportPlaybackActivityAsync(true, 12);
+            activityCommand = activityCommand with { Id = "follower-pause" };
+            await session.ReportPlaybackActivityAsync(false, followingHost: true);
+            Check(handedOver == 1 && activityReports[^1].GetProperty("following_host").GetBoolean(), "Follower received arbitration commands or omitted its exemption");
+            activityCommand = activityCommand with { Id = "stale-pause", Activation = activityCommand.Activation + 100 };
+            var staleActivation = activityCommand.Activation;
+            duringActivity = () =>
+            {
+                session.MarkLocalPlayback(); activityCommand = null;
+                _ = session.ReportPlaybackActivityAsync(true, 15);
+            };
+            session.MarkLocalPlayback();
+            var beforePending = activityReports.Count;
+            await session.ReportPlaybackActivityAsync(true, 14);
+            Check(handedOver == 1 && activityReports.Count == beforePending + 2, "Stale pause interrupted a newer local action or deferred activation waited for the timer");
+            Check(activityReports[^1].GetProperty("activation").GetInt64() > staleActivation, "Deferred local action did not advance past the stale response");
+            Check(activityReports.Select(r => r.GetProperty("sequence").GetInt64()).SequenceEqual(Enumerable.Range(1, activityReports.Count).Select(i => (long)i)), "Activity reports lost monotonic ordering");
             await session.SavePlaybackAsync(new() { TrackIds = [recording.Id], Index = 0, Position = 17 });
             Check(session.Offline!.GetPlayback()?.Position == 17 && remotePlayback?.Position == 17, "Playback checkpoint missing from device or server");
             remotePlayback = remotePlayback! with { Position = 42, UpdatedAt = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds() };

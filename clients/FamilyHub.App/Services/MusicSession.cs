@@ -85,39 +85,61 @@ public sealed class MusicSession
     public void FlushListening() => listeningJournal?.Flush();
     private DateTime lastActivity;
     private bool lastActivityPlaying, activityInFlight;
+    private (bool Playing, double? Position, bool FollowingHost, string RemoteDeviceId)? pendingActivity;
     private string lastActivityTrackId = "";
     private FamilyHubApi? lastActivityApi;
+    private long activitySequence, activationWatermark, lastActivityActivation;
+    public long PlaybackActivation { get; private set; }
+    public void MarkLocalPlayback() => PlaybackActivation = Math.Max(DateTime.UtcNow.Ticks, Math.Max(PlaybackActivation, activationWatermark) + 1);
     /// <summary>This app's id in "Connect to a device"; new on every start, like the activity device.</summary>
     public string DeviceId => activityDevice;
     public static string DeviceName => DeviceInfo.Current.Platform == DevicePlatform.WinUI ? Environment.MachineName : DeviceInfo.Current.Name is { Length: > 0 } name ? name : DeviceInfo.Current.Model;
     public static string DeviceKind => DeviceInfo.Current.Platform == DevicePlatform.WinUI ? "windows" : DeviceInfo.Current.Platform == DevicePlatform.Android ? "android"
         : DeviceInfo.Current.Platform == DevicePlatform.MacCatalyst ? "mac" : DeviceInfo.Current.Idiom == DeviceIdiom.Tablet ? "ipad" : DeviceInfo.Current.Platform == DevicePlatform.iOS ? "iphone" : "other";
-    /// <summary>Raised when another device of this profile hands its playback to this one.</summary>
+    /// <summary>Raised for playback transfers and another device becoming active.</summary>
     public event Action<PlaybackHandover>? PlaybackHandedOver;
     /// <summary>Raised for each play/pause/next/previous/seek the controlling device sends.</summary>
     public event Action<PlaybackControl>? RemoteControlReceived;
     private readonly HashSet<string> handovers = [], controlsSeen = [];
-    public async Task ReportPlaybackActivityAsync(bool playing, double? position = null)
+    public async Task ReportPlaybackActivityAsync(bool playing, double? position = null, bool followingHost = false, string remoteDeviceId = "")
     {
         var api = Api;
-        if (!Connected || api is null || activityInFlight) return;
+        if (!Connected || api is null) return;
+        if (activityInFlight) { pendingActivity = (playing, position, followingHost, remoteDeviceId); return; }
         var currentTrack = playing ? activityTrack : null;
         var trackId = currentTrack?.Id ?? "";
-        if (ReferenceEquals(api, lastActivityApi) && trackId == lastActivityTrackId && playing == lastActivityPlaying && DateTime.UtcNow - lastActivity < TimeSpan.FromSeconds(2)) return;
+        var activation = PlaybackActivation;
+        var profileVersion = accountVersion;
+        var activityAt = DateTime.UtcNow;
+        // Allow timer jitter around the 2 s activity interval.
+        if (ReferenceEquals(api, lastActivityApi) && activation == lastActivityActivation && trackId == lastActivityTrackId && playing == lastActivityPlaying && activityAt - lastActivity < TimeSpan.FromSeconds(1.9)) return;
         activityInFlight = true;
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
             var journal = listeningJournal;
             var counters = journal?.Pending();
-            var receipt = await api.ReportPlaybackActivityAsync(activityDevice, playing, timeout.Token, counters, journal?.DeviceId, currentTrack, DeviceName, DeviceKind, position);
+            var receipt = await api.ReportPlaybackActivityAsync(activityDevice, playing, timeout.Token, counters, journal?.DeviceId, currentTrack, DeviceName, DeviceKind, position, activation, ++activitySequence, followingHost, remoteDeviceId);
             if (receipt.CountersAccepted && journal is not null && counters is { Count: > 0 }) journal.Acknowledge(counters);
-            if (receipt.Command is { Action: "play", Resume.IsValid: true } handover && handovers.Add(handover.Id)) PlaybackHandedOver?.Invoke(handover);
-            foreach (var control in receipt.Controls) if (controlsSeen.Add(control.Id)) RemoteControlReceived?.Invoke(control);
-            lastActivity = DateTime.UtcNow; lastActivityPlaying = playing; lastActivityTrackId = trackId; lastActivityApi = api;
+            if (profileVersion != accountVersion || !ReferenceEquals(api, Api)) return;
+            if (receipt.Command is { } command) activationWatermark = Math.Max(activationWatermark, command.Activation);
+            if (activation == PlaybackActivation && !followingHost)
+            {
+                if (receipt.Command is { } handover && (handover is { Action: "play", Resume.IsValid: true } || handover is { Action: "pause", DeviceId.Length: 32 }) && handovers.Add(handover.Id))
+                    PlaybackHandedOver?.Invoke(handover);
+                foreach (var control in receipt.Controls) if (controlsSeen.Add(control.Id)) RemoteControlReceived?.Invoke(control);
+            }
+            else if (activation != PlaybackActivation) PlaybackActivation = Math.Max(PlaybackActivation, activationWatermark + 1);
+            lastActivity = activityAt; lastActivityPlaying = playing; lastActivityTrackId = trackId; lastActivityApi = api; lastActivityActivation = activation;
         }
         catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException or ObjectDisposedException) { }
-        finally { activityInFlight = false; }
+        finally
+        {
+            activityInFlight = false;
+            var pending = pendingActivity; pendingActivity = null;
+            if (profileVersion == accountVersion && pending is { } next)
+                await ReportPlaybackActivityAsync(next.Playing, next.Position, next.FollowingHost, next.RemoteDeviceId);
+        }
     }
 
     public async Task InitializeAsync()
@@ -169,6 +191,7 @@ public sealed class MusicSession
         accountVersion++; TopListenerId = null; topListenerChecked = default;
         if (!sameAccount)
         {
+            PlaybackActivation = 0; activationWatermark = 0; handovers.Clear(); controlsSeen.Clear();
             playbackCaches.Clear();
             cachedEditions.Clear();
             playbackRecords.Clear();

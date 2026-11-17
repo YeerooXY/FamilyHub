@@ -66,9 +66,14 @@ public sealed class MusicPlayer(MusicSession session)
     // its position, and the transport buttons send actions there instead of playing here.
     public void EnterRemote(string deviceId, string name, double position, bool playing)
     {
+        if (FollowingHost) return;
         RemoteDeviceId = deviceId; RemoteDeviceName = name; RemotePlaying = playing; remoteAt = DateTime.UtcNow;
-        if (deck is not null && sourceReady) deck.SetPlaying(false);
-        PlaybackRequested = false; sourceReady = false; resumePosition = Math.Max(0, position); ControlRevision++;
+        ++requestVersion; preparation?.Cancel(); preparation = null;
+        preparing = false; PlaybackRequested = false; sourceReady = false;
+        CancelUpcoming();
+        if (deck is not null) { deck.TransportEnabled = false; deck.SetPlaying(false); }
+        session.PinPreparingPlayback(null);
+        resumePosition = Math.Max(0, position); ControlRevision++;
         Changed?.Invoke();
     }
     public void ApplyRemoteState(string trackId, bool playing, double? position)
@@ -100,8 +105,9 @@ public sealed class MusicPlayer(MusicSession session)
     }
     private Task RemoteToggleAsync()
     {
-        resumePosition = Position; remoteAt = DateTime.UtcNow; RemotePlaying = !RemotePlaying; Changed?.Invoke();
-        return SendRemoteAsync(RemotePlaying ? "play" : "pause");
+        if (!RemotePlaying) { LeaveRemote(); return ToggleCoreAsync(true); }
+        resumePosition = Position; remoteAt = DateTime.UtcNow; RemotePlaying = false; Changed?.Invoke();
+        return SendRemoteAsync("pause");
     }
     public Task PauseLocallyAsync() => MainThread.InvokeOnMainThreadAsync(() =>
     {
@@ -177,7 +183,12 @@ public sealed class MusicPlayer(MusicSession session)
         {
             if (ReferenceEquals(deck, owner))
             {
-                if (!preparing && sourceReady && !blending) PlaybackRequested = owner.PlaybackRequested;
+                if (!preparing && sourceReady && !blending)
+                {
+                    // Native transport play changes the deck directly; app and remote actions set intent first.
+                    if (!PlaybackRequested && owner.PlaybackRequested && !FollowingHost && !RemoteActive) session.MarkLocalPlayback();
+                    PlaybackRequested = owner.PlaybackRequested;
+                }
                 _ = ApplyResumePositionAsync();
                 RecordListening();
                 if (Environment.TickCount64 - lastProgressNotice >= 200)
@@ -214,10 +225,13 @@ public sealed class MusicPlayer(MusicSession session)
     }
     public Task PlayAsync(MusicTrack track, IEnumerable<MusicTrack>? sequence = null, int? sequenceStartIndex = null)
     {
-        // Choosing a song here brings playback back from the other device.
-        if (RemoteActive) { _ = SendRemoteAsync("pause"); LeaveRemote(); }
         RequirePlaybackControl();
-        return MainThread.InvokeOnMainThreadAsync(() => PlayCoreAsync(track, sequence, sequenceStartIndex, true));
+        return MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            session.MarkLocalPlayback();
+            LeaveRemote();
+            return PlayCoreAsync(track, sequence, sequenceStartIndex, true);
+        });
     }
 
     public Task SynchronizeHostAsync(IReadOnlyList<MusicTrack> tracks, int targetIndex, double position, bool playing, bool autoDj, bool hostBlending,
@@ -489,10 +503,12 @@ public sealed class MusicPlayer(MusicSession session)
         Changed?.Invoke(); if (Playing && !blending) WarmNext();
         return true;
     }
-    public Task ToggleAsync() => RemoteActive ? RemoteToggleAsync() : MainThread.InvokeOnMainThreadAsync(async () =>
+    public Task ToggleAsync() => RemoteActive ? RemoteToggleAsync() : ToggleCoreAsync(true);
+    private Task ToggleCoreAsync(bool localUserAction) => MainThread.InvokeOnMainThreadAsync(async () =>
     {
         RequirePlaybackControl();
         if (deck is null || Current is null) return;
+        if (localUserAction && (!PlaybackRequested || !preparing && !sourceReady)) session.MarkLocalPlayback();
         if (!preparing && !sourceReady) { await PlayCoreAsync(Current, queue, index, true); return; }
         PlaybackRequested = !PlaybackRequested;
         ControlRevision++;
@@ -598,9 +614,31 @@ public sealed class MusicPlayer(MusicSession session)
         if (!recordings.Any(t => t.Id == state.TrackIds[state.Index])) return false;
         await StopAsync();
         await MainThread.InvokeOnMainThreadAsync(() => RestoreResume(state, recordings));
-        if (play && Current is not null) await ToggleAsync();
+        if (play && Current is not null) await ToggleCoreAsync(false);
         return Current is not null;
     }
+    public Task ApplyPlaybackCommandAsync(PlaybackHandover command, IEnumerable<MusicTrack> available) => MainThread.InvokeOnMainThreadAsync(async () =>
+    {
+        if (FollowingHost) return;
+        if (command.Action == "pause" && command.DeviceId.Length == 32 && command.DeviceId != session.DeviceId)
+        {
+            EnterRemote(command.DeviceId, command.FromName, command.Position ?? 0, command.Playing);
+            ApplyRemoteState(command.Track?.Id ?? "", command.Playing, command.Position);
+        }
+        else if (command is { Action: "play", Resume.IsValid: true }) await TakeOverAsync(command.Resume, available, command.Playing);
+    });
+    public Task ApplyRemoteControlAsync(PlaybackControl control) => MainThread.InvokeOnMainThreadAsync(async () =>
+    {
+        if (FollowingHost || RemoteActive || Current is null) return;
+        switch (control.Action)
+        {
+            case "play" when !PlaybackRequested: await ToggleCoreAsync(false); break;
+            case "pause" when PlaybackRequested: await ToggleCoreAsync(false); break;
+            case "next": await NextAsync(); break;
+            case "previous": await PreviousAsync(); break;
+            case "seek" when control.Position is { } seconds: await SeekAsync(seconds); break;
+        }
+    });
     public Task StopAsync() => MainThread.InvokeOnMainThreadAsync(() =>
     {
         ++requestVersion; preparation?.Cancel(); preparation = null;

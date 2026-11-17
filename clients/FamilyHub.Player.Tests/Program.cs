@@ -263,7 +263,67 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
     session.FailPlayback = false; await Task.Delay(10200); currentDeck.Tick(1);
     Check(nextDeck.Title == tracks[1].Title, "Failed upcoming preparation was never retried");
 }
-Console.WriteLine("PASS: shuffle, volume, playback races, history, Auto DJ, host controls and filtered drift correction.");
+{
+    var (session, player) = Setup();
+    player.RestoreResume(new() { TrackIds = [tracks[1].Id], Index = 0, Position = 7 }, tracks);
+    Check(session.LocalPlays == 0 && !player.Playing, "Restoring startup state activated playback");
+    await player.ToggleAsync();
+    Check(session.LocalPlays == 1 && player.Playing, "Local resume did not activate playback");
+    await player.ApplyPlaybackCommandAsync(new() { Action = "pause", DeviceId = new string('b', 32), FromName = "Pixel", Playing = true, Position = 12,
+        Track = new() { Id = tracks[1].Id } }, tracks);
+    Check(!player.Playing && !player.PlaybackRequested && player.RemoteActive && player.RemoteDeviceName == "Pixel" && player.RemotePlaying,
+        "Automatic pause did not enter remote mode");
+    Check(player.Queue.Count == 1 && player.Current?.Id == tracks[1].Id && player.Position >= 12 && session.LocalPlays == 1,
+        "Remote handover changed queue, lost position or echoed activation");
+    await player.ToggleAsync();
+    Check(player.RemoteActive && !player.RemotePlaying && !player.Playing && session.LocalPlays == 1,
+        "Pausing the remote player took playback back or echoed a local activation");
+    player.RemoteTick(); player.ApplyRemoteState(tracks[1].Id, false, 14);
+    Check(session.LocalPlays == 1, "Following remote state activated local playback");
+    await player.ToggleAsync();
+    Check(!player.RemoteActive && player.Playing && Math.Abs(player.Position - 14) < .01 && session.LocalPlays == 2,
+        "Pressing play did not take playback back locally");
+    await player.ApplyRemoteControlAsync(new() { Action = "pause" });
+    await player.ApplyRemoteControlAsync(new() { Action = "play" });
+    Check(player.Playing && session.LocalPlays == 2, "Remote play echoed a local activation");
+    await player.PauseLocallyAsync(); WindowsAudioPlayer.Last!.SetPlaying(true);
+    Check(player.PlaybackRequested && session.LocalPlays == 3, "Native transport play did not activate playback");
+    await player.ApplyPlaybackCommandAsync(new() { Action = "play", Resume = new() { TrackIds = [tracks[3].Id], Index = 0, Position = 8 }, Playing = true }, tracks);
+    Check(player.Current == tracks[3] && player.Playing && player.Position == 8 && session.LocalPlays == 3,
+        "Manual transfer echoed a local activation or lost its checkpoint");
+    player.EnterRemote(new string('b', 32), "Pixel", 9, true);
+    await player.PlayAsync(tracks[5], tracks);
+    Check(!player.RemoteActive && player.Playing && session.LocalPlays == 4, "Choosing a song did not take playback back");
+    var activations = session.LocalPlays;
+    WindowsAudioPlayer.Last!.RaiseEnded(); await Task.Yield();
+    Check(session.LocalPlays == activations, "Automatic queue advancement activated playback");
+}
+{
+    var (session, player) = Setup(); session.Delay = true;
+    var loading = player.PlayAsync(tracks[1], tracks);
+    await player.ApplyPlaybackCommandAsync(new() { Action = "pause", DeviceId = new string('b', 32), FromName = "Pixel", Playing = true }, tracks);
+    session.Complete(0); await loading;
+    Check(player.RemoteActive && !player.Playing && !player.PlaybackRequested && !player.Preparing && session.LocalPlays == 1,
+        "Preparation restarted local playback after an automatic pause");
+}
+{
+    var session = new MusicSession(); var primary = new WindowsAudioPlayer(); var secondary = new WindowsAudioPlayer();
+    var player = new MusicPlayer(session); player.AttachDecks(primary, secondary);
+    await player.PlayAsync(tracks[1], [tracks[1], tracks[3]]); primary.Tick(26); await Task.Delay(60);
+    Check(player.Crossfading && secondary.Playing, "Fixture did not start its crossfade");
+    await player.ApplyPlaybackCommandAsync(new() { Action = "pause", DeviceId = new string('b', 32), FromName = "Pixel", Playing = true }, tracks);
+    Check(!primary.Playing && !secondary.Playing && !player.Crossfading && player.RemoteActive,
+        "Automatic pause left a crossfade deck playing");
+}
+{
+    var (session, player) = Setup(); player.FollowingHost = true;
+    await player.SynchronizeHostAsync([tracks[1]], 0, 2, true, false, false);
+    await player.SynchronizeHostAsync([tracks[1]], 0, 3, true, false, false);
+    await player.ApplyPlaybackCommandAsync(new() { Action = "pause", DeviceId = new string('b', 32), FromName = "Pixel" }, tracks);
+    await player.ApplyRemoteControlAsync(new() { Action = "pause" });
+    Check(player.Playing && !player.RemoteActive && session.LocalPlays == 0, "Profile arbitration interrupted a Listen Together follower");
+}
+Console.WriteLine("PASS: shuffle, volume, playback races, history, Auto DJ, host controls, device handover and filtered drift correction.");
 
 public static class MainThread
 {
@@ -282,6 +342,14 @@ namespace FamilyHub.Client.Core
         public bool IsValid => TrackIds.Count > 0 && Index >= 0 && Index < TrackIds.Count && double.IsFinite(Position);
     }
     public sealed class FamilyHubApiException : Exception { }
+    public sealed record PlaybackDeviceTrack { public string Id { get; init; } = ""; }
+    public sealed record PlaybackHandover
+    {
+        public string Action { get; init; } = ""; public string DeviceId { get; init; } = ""; public string FromName { get; init; } = "";
+        public bool Playing { get; init; } public double? Position { get; init; } public PlaybackResume? Resume { get; init; }
+        public PlaybackDeviceTrack? Track { get; init; }
+    }
+    public sealed record PlaybackControl { public string Action { get; init; } = ""; public double? Position { get; init; } }
 }
 namespace FamilyHub.App.Services
 {
@@ -293,6 +361,8 @@ namespace FamilyHub.App.Services
         public List<string> Listened { get; } = [];
         public void RecordListen(MusicTrack track) => Listened.Add(track.Id);
         public bool Connected => true;
+        public int LocalPlays { get; private set; }
+        public void MarkLocalPlayback() => LocalPlays++;
         public void InvalidateListeningBaseline() { }
         public bool FailPlayback { get; set; }
         public bool Delay { get; set; }

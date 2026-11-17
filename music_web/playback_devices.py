@@ -40,6 +40,7 @@ class PlaybackDevices:
         self.devices = {}
         self.commands = {}
         self.controls = {}
+        self.active = {}
 
     def _expire(self, now):
         for key in [k for k, d in self.devices.items() if now - d['at'] > self.ONLINE_SECONDS * 4]: del self.devices[key]
@@ -47,12 +48,22 @@ class PlaybackDevices:
         for key in list(self.controls):
             self.controls[key] = [c for c in self.controls[key] if now - c['at'] <= self.COMMAND_SECONDS]
             if not self.controls[key]: del self.controls[key]
+        owners = {owner for owner, _ in self.devices}
+        for owner in list(self.active):
+            if owner not in owners: del self.active[owner]
 
     def report(self, user, device_id, info, playing, track=None, position=None):
-        """Record a check-in; returns (waiting transfer command or None, remote control actions)."""
+        """Record a check-in; returns (play/pause handover command or None, remote control actions)."""
         if not DEVICE.fullmatch(device_id or ''): raise DeviceError('Invalid device id.')
         # Apps older than "Connect to a device" send no device_info and cannot take playback over.
         if not isinstance(info, dict): return None, []
+        activation, sequence = info.get('activation', 0), info.get('sequence', 0)
+        if any(type(value) is not int or not 0 <= value < 2 ** 63 for value in (activation, sequence)):
+            raise DeviceError('Invalid playback activity ordering.')
+        following = info.get('following_host', False)
+        remote = info.get('remote_device', '')
+        if type(following) is not bool or not isinstance(remote, str) or remote and not DEVICE.fullmatch(remote):
+            raise DeviceError('Invalid playback device state.')
         kind = info.get('kind') if info.get('kind') in KINDS else 'other'
         position = position if type(position) in (int, float) and math.isfinite(position) and 0 <= position <= 86400 else None
         with self.lock:
@@ -60,10 +71,27 @@ class PlaybackDevices:
             self._expire(now)
             key = (user, device_id)
             if key not in self.devices and len(self.devices) >= self.MAX_DEVICES: raise DeviceError('Too many active players.', 429)
+            previous = self.devices.get(key, {})
+            if previous.get('sequence', 0) and sequence <= previous['sequence']: return None, []
             self.devices[key] = dict(id=device_id, name=clean_name(info.get('name')) or 'Unnamed device', kind=kind,
-                                     playing=bool(playing), track=track if playing else None, position=position, at=now)
+                                     playing=bool(playing), track=track if playing else None, position=position, at=now,
+                                     sequence=sequence, activation=max(activation, previous.get('activation', 0)), following=following)
+            active = self.active.get(user)
+            # Heartbeats repeat the last local play timestamp; only a newer user action can win.
+            if not following and activation > previous.get('activation', 0) and (not active or activation > active['activation']):
+                active = self.active[user] = dict(id=device_id, activation=activation)
+                # A queued transfer must not override a newer local choice on either device.
+                for pending in [k for k in self.commands if k[0] == user]: del self.commands[pending]
+                self.controls.pop(key, None)
             command = self.commands.pop(key, None)
             controls = [{k: v for k, v in c.items() if k != 'at'} for c in self.controls.pop(key, [])]
+            target = self.devices.get((user, active['id'])) if active else None
+            if (not following and target and not target['following'] and active['id'] != device_id
+                    and now - target['at'] <= self.ONLINE_SECONDS and (playing or remote and remote != active['id'])):
+                command = dict(id='active-' + str(active['activation']), action='pause', device_id=target['id'],
+                               from_name=target['name'], playing=target['playing'], position=target['position'],
+                               track=target['track'], activation=active['activation'])
+                controls = []
             return ({k: v for k, v in command.items() if k != 'at'} if command else None), controls
 
     def list(self, user, device_id=''):
@@ -92,9 +120,13 @@ class PlaybackDevices:
             self._expire(now)
             device = self.devices.get((user, target))
             if not device or now - device['at'] > self.ONLINE_SECONDS: raise DeviceError('That device is offline. Open FamilyHub on it and try again.', 409)
+            if device['following']: raise DeviceError('Leave Listen Together on that device first.', 409)
             sender = self.devices.get((user, source))
+            activation = max(time.time_ns() // 100 + 621355968000000000, self.active.get(user, {}).get('activation', 0) + 1)
+            self.active[user] = dict(id=target, activation=activation)
+            for pending in [k for k in self.commands if k[0] == user]: del self.commands[pending]
             command = dict(id=secrets.token_hex(8), action='play', from_name=sender['name'] if sender else '',
-                           resume=dict(track_ids=list(ids), index=index, position=float(position)), playing=playing, at=now)
+                           resume=dict(track_ids=list(ids), index=index, position=float(position)), playing=playing, activation=activation, at=now)
             self.commands[(user, target)] = command
             return dict(id=command['id'], target=device['name'])
 

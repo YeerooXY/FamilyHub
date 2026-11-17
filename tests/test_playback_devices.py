@@ -66,6 +66,83 @@ class Registry(unittest.TestCase):
         with self.assertRaises(DeviceError) as offline: self.devices.transfer('me', PHONE, OTHER, RESUME, True)
         self.assertEqual(offline.exception.status, 409, "another profile's device is not reachable")
 
+    def test_local_play_pauses_other_devices_and_takeback_does_not_ping_pong(self):
+        pc = dict(name='Desk PC', activation=10, sequence=1)
+        phone = dict(name='Pixel', activation=20, sequence=1)
+        self.devices.report('me', PC, pc, True)
+        self.assertIsNone(self.devices.report('me', PHONE, phone, True, position=42)[0])
+        command, controls = self.devices.report('me', PC, {**pc, 'sequence': 2}, True)
+        self.assertEqual((command['action'], command['device_id'], command['from_name'], command['position']), ('pause', PHONE, 'Pixel', 42))
+        self.assertEqual(controls, [])
+        self.assertIsNone(self.devices.report('me', PHONE, {**phone, 'sequence': 2}, True)[0])
+        self.assertIsNone(self.devices.report('me', PC, {**pc, 'sequence': 3}, False)[0])
+        self.assertIsNone(self.devices.report('me', PC, {**pc, 'activation': 30, 'sequence': 4}, True)[0])
+        command, _ = self.devices.report('me', PHONE, {**phone, 'sequence': 3}, True)
+        self.assertEqual((command['action'], command['device_id']), ('pause', PC))
+        self.assertIsNone(self.devices.report('me', PC, {**pc, 'activation': 30, 'sequence': 5}, True)[0])
+
+    def test_delayed_activation_cannot_replace_a_newer_local_action(self):
+        self.devices.report('me', PC, dict(name='Desk PC', activation=30, sequence=2), True, position=50)
+        command, _ = self.devices.report('me', PHONE, dict(name='Pixel', activation=20, sequence=1), True)
+        self.assertEqual(command['device_id'], PC)
+        self.assertEqual(self.devices.report('me', PC, dict(name='Old PC', activation=40, sequence=1), False), (None, []))
+        self.assertEqual(self.devices.list('me', PC)[0]['name'], 'Desk PC')
+        self.assertEqual(self.devices.list('me', PC)[0]['position'], 50)
+        self.assertTrue(self.devices.list('me', PC)[0]['playing'])
+        self.devices.control('me', PHONE, PC, 'next')
+        self.assertEqual(self.devices.report('me', PC, dict(name='Old PC', activation=100, sequence=2), False), (None, []))
+        _, controls = self.devices.report('me', PC, dict(name='Desk PC', activation=30, sequence=3), True)
+        self.assertEqual([c['action'] for c in controls], ['next'], 'stale reports must not consume commands')
+
+    def test_local_play_supersedes_queued_controls_for_that_device_only(self):
+        self.devices.report('me', PC, dict(name='Desk PC', activation=10, sequence=1), True)
+        self.devices.report('me', PHONE, dict(name='Pixel'), False)
+        self.devices.report('other', OTHER, dict(name='Other'), True)
+        self.devices.control('me', PHONE, PC, 'pause')
+        self.devices.control('other', PHONE, OTHER, 'pause')
+        self.assertEqual(self.devices.report('me', PC, dict(name='Desk PC', activation=20, sequence=2), True), (None, []))
+        self.assertTrue(self.devices.list('me', PC)[0]['playing'])
+        _, controls = self.devices.report('other', OTHER, dict(name='Other'), True)
+        self.assertEqual([c['action'] for c in controls], ['pause'], 'another profile keeps its queued controls')
+        self.devices.control('me', PHONE, PC, 'pause')
+        _, controls = self.devices.report('me', PC, dict(name='Desk PC', activation=20, sequence=3), True)
+        self.assertEqual([c['action'] for c in controls], ['pause'], 'normal heartbeats preserve remote controls')
+
+    def test_automatic_play_followers_and_other_profiles_do_not_activate(self):
+        self.devices.report('me', PC, dict(name='Desk PC'), True)
+        self.assertIsNone(self.devices.report('me', PHONE, dict(name='Pixel'), True)[0], 'startup playback is not a local action')
+        self.devices.report('other', OTHER, dict(name='Other', activation=100), True)
+        self.devices.report('me', OTHER, dict(name='Guest', activation=100, following_host=True), True)
+        self.assertIsNone(self.devices.report('me', PC, dict(name='Desk PC', activation=10), True)[0])
+        self.assertIsNone(self.devices.report('me', OTHER, dict(name='Guest', activation=100, following_host=True), True)[0])
+        self.assertIsNone(self.devices.report('other', OTHER, dict(name='Other', activation=100), True)[0])
+        command, _ = self.devices.report('me', PHONE, dict(name='Pixel'), True)
+        self.assertEqual(command['device_id'], PC)
+        self.assertEqual(self.devices.report('me', PHONE, None, True), (None, []), 'old clients keep checking in')
+        with self.assertRaises(DeviceError): self.devices.transfer('me', PC, OTHER, RESUME, True)
+
+    def test_stale_transfer_is_superseded_and_remote_devices_follow_the_new_winner(self):
+        self.devices.report('me', PC, dict(name='Desk PC', activation=10), True)
+        self.devices.report('me', PHONE, dict(name='Pixel'), False)
+        self.devices.transfer('me', PC, PHONE, RESUME, True)
+        transferred = self.devices.active['me']['activation']
+        self.devices.report('me', PC, dict(name='Desk PC', activation=transferred + 1), True)
+        command, _ = self.devices.report('me', PHONE, dict(name='Pixel'), True)
+        self.assertEqual((command['action'], command['device_id']), ('pause', PC), 'queued play must not override takeback')
+        self.devices.report('me', OTHER, dict(name='Tablet', activation=transferred + 2), True)
+        command, _ = self.devices.report('me', PHONE, dict(name='Pixel', remote_device=PC), False)
+        self.assertEqual(command['device_id'], OTHER, 'a paused controller follows the active device')
+
+    def test_offline_active_device_does_not_pause_another_player(self):
+        self.devices.report('me', PC, dict(name='Desk PC', activation=10), True)
+        self.clock.now = 16
+        self.assertIsNone(self.devices.report('me', PHONE, dict(name='Pixel'), True)[0])
+
+    def test_invalid_ordering_and_follower_fields_are_rejected(self):
+        for info in (dict(activation=True), dict(activation=-1), dict(activation=1.5), dict(sequence='1'),
+                     dict(sequence=2 ** 63), dict(following_host='yes'), dict(remote_device='../other')):
+            with self.subTest(info=info), self.assertRaises(DeviceError): self.devices.report('me', PC, info, True)
+
 
 class Routes(Base):
     extra = {'FAMILY_PROFILES': True}
@@ -85,3 +162,15 @@ class Routes(Base):
         self.assertEqual(self.post(client, token, '/api/playback/control', json={'from': PHONE, 'to': PC, 'action': 'next'}).status_code, 202)
         self.assertEqual([c['action'] for c in check_in(PC, 'Desk PC').json['controls']], ['next'])
         self.assertEqual(self.post(client, token, '/api/playback/transfer', json={'from': PHONE, 'to': OTHER, 'resume': RESUME}).status_code, 409)
+
+    def test_activity_route_delivers_automatic_pause(self):
+        client, token = self.select()
+        def report(device, activation, sequence):
+            return self.post(client, token, '/api/playback/activity', json=dict(device_id=device, playing=True,
+                device_info=dict(name=device, activation=activation, sequence=sequence)))
+        self.assertIsNone(report(PC, 10, 1).json['command'])
+        self.assertIsNone(report(PHONE, 20, 1).json['command'])
+        command = report(PC, 10, 2).json['command']
+        self.assertEqual((command['action'], command['device_id'], command['activation']), ('pause', PHONE, 20))
+        self.assertIsNone(report(PC, 30, 3).json['command'])
+        self.assertEqual(report(PHONE, 20, 2).json['command']['device_id'], PC)
