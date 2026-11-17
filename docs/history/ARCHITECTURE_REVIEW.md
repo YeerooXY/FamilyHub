@@ -2,7 +2,7 @@
 
 Version 0.5. 8 November 2026. The owner authorized the first development-host/storage milestone; later application modules remain proposed.
 
-Current owner direction supersedes the earlier acquisition-first proposal: establish the storage foundation, verify sample playback, then add acquisition components one at a time. The first storage milestone is implemented and verified; see [the storage guide](docs/STORAGE.md) and [verification record](docs/STORAGE_VERIFICATION.md). Shopping and Mealie are later work; references elsewhere describe the eventual platform rather than the initial deployment.
+Current owner direction supersedes the earlier acquisition-first proposal: establish the storage foundation, verify sample playback, then add acquisition components one at a time. The first storage milestone is implemented and verified; see [the storage guide](../STORAGE.md) and [verification record](STORAGE_VERIFICATION.md). Shopping and Mealie are later work; references elsewhere describe the eventual platform rather than the initial deployment.
 
 Independent reviews are complete: [Astra](REVIEW_ASTRA.md) and [Opus](REVIEW_OPUS.md), both at medium effort. Read [the comparison and proposed revisions](REVIEW_COMPARISON.md) for agreements, disagreements and corrections. The smaller diagrams below replace the original combined graph. Service substitutions remain proposals requiring owner selection.
 

@@ -1,8 +1,10 @@
 # Music intake
 
+> **17 November 2026:** Navidrome and Lidarr have been removed. FamilyHub Music reads the same library directly, so imports appear without a scan. Passages about them describe the earlier setup.
+
 `scripts/music-intake.py` is the administrator's command line for audio that Lidarr does not handle: a specific YouTube video, a local recording, a single track, or an edited version with the intro or a spoken section removed. It stages each file in a workspace outside the library, records what is known about it, and copies reviewed items into `Local Imports` in the music library that Navidrome reads.
 
-Lidarr and the torrent path stay as described in [Music import](MUSIC_IMPORT.md). This tool does not call them and does not touch their files.
+Lidarr and the torrent path stay as described in [Music import](history/MUSIC_IMPORT.md). This tool does not call them and does not touch their files.
 
 ## Status
 
@@ -13,7 +15,7 @@ Lidarr and the torrent path stay as described in [Music import](MUSIC_IMPORT.md)
 | YouTube | Public search and a Creative Commons video audio download passed on Windows and Debian; source AAC was preserved |
 | VM writer role and Navidrome | A 3.5-second trimmed tone imported with tags, appeared once after scanning and streamed as the exact library bytes; reader ACL checks passed |
 
-Verified 10 November 2026. See [the verification record](MUSIC_VERIFICATION.md). The editing interface is currently a command-line tool for the administrator.
+Verified 10 November 2026. See [the verification record](history/MUSIC_VERIFICATION.md). The editing interface is currently a command-line tool for the administrator.
 
 The Topic-first search update below is installed in the development VM. After Pi hit its bounded tool-call limit, the owner explicitly chose to skip that review. All 24 Debian tests passed before installation, and a live writer-role search returned Topic tracks first afterward. The existing URL-to-folder fetch, staging, trimming and import commands are unchanged.
 

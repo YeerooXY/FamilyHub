@@ -1,29 +1,44 @@
 # FamilyHub
 
-Planning a modular, self-hosted family server for 4–6 users, with a later public FOSS release.
+A self-hosted server for one family: music today, movies and file sharing next.
 
-The project integrates existing applications for movies, television, music, files and photos. Optional automatic downloads are included in the proposed architecture.
+## What runs today: FamilyHub Music
 
-Read [the architecture review](ARCHITECTURE_REVIEW.md) for the service map, tradeoffs, storage and security boundaries, resource estimates, recovery design and decisions awaiting approval.
+A private music service for the family, with apps for Windows, Android and iPhone.
 
-The independent [Astra](REVIEW_ASTRA.md) and [Opus](REVIEW_OPUS.md) reviews are complete. Read [their comparison](REVIEW_COMPARISON.md) for agreements, differing recommendations and the proposed simplifications.
+- **Server** (`music_web/`): a Flask app on the family's Debian server, reached over a private Tailscale connection. It stores the library, finds and downloads songs (YouTube search, uploads, playlist links from Spotify, YouTube, Deezer and SoundCloud), cleans and levels the audio, measures BPM and key, and serves playback and downloads.
+- **Apps** (`clients/`): one .NET MAUI Blazor app for Windows, Android and iPhone. Family profiles without passwords, playlists with collaborators, offline downloads, crossfade, song radio, remote control between devices, Listen Together, stats and a song review for the administrator.
 
-Status: the first storage foundation is implemented and verified in the Debian development VM. Jellyfin and Navidrome pass sample playback checks inside the VM and through private localhost access on Windows; TV, phone and recovery checks remain pending. The project license is not yet selected.
+Guides:
 
-See the [storage guide](docs/STORAGE.md) for the storage scripts and development VM helper.
+- [Native apps](docs/NATIVE_APPS.md): building, installing and updating the apps.
+- [Private iPhone installation](docs/IOS_PRIVATE_INSTALL.md): the unsigned build and how to install it.
+- [Music server](docs/MOBILE_MUSIC.md): configuration and the server API.
+- [Music intake](docs/MUSIC_INTAKE.md): the administrator's command line for downloads, local files and trimming.
+- [Windows app](docs/DESKTOP_MUSIC.md) and the [shared effects package](docs/SHARED_EFFECTS.md).
 
-Sample playback (Jellyfin and Navidrome with synthetic fixtures): see [the playback guide](docs/PLAYBACK.md).
+Releases are on the [GitHub releases page](https://github.com/YeerooXY/FamilyHub/releases). `scripts/publish-native-release.ps1` packages the apps, publishes the release and updates the server; `scripts/deploy-native-updates.py` installs the server code.
 
-Read the [verification record](docs/STORAGE_VERIFICATION.md) for completed checks and remaining limits. Shopping is deferred.
+## Planned
 
-Read the [sample playback verification record](docs/PLAYBACK_VERIFICATION.md) for evidence and remaining checks.
+- **Movies and TV for the whole family.** Jellyfin (`compose.playback.yaml`) is the watching platform and already runs. The download source and method are still open; qBittorrent and Prowlarr (`compose.acquisition.yaml`) are configured as candidates, and a VPN would be needed for torrenting. Setup: [playback](docs/PLAYBACK.md) and [acquisition](docs/ACQUISITION.md).
+- **File sharing between family members.**
+- **One-off share links for people outside the family**, for example a 160 MB file a colleague downloads through a link.
 
-The optional [acquisition guide](docs/ACQUISITION.md) covers the private qBittorrent/Prowlarr foundation and its current automation limits.
+## Server foundation
 
-The [music import guide](docs/MUSIC_IMPORT.md) covers the deployed Lidarr connections and the remaining matched-album check. The [music intake guide](docs/MUSIC_INTAKE.md) covers YouTube search, source-audio downloads, local files, tagged imports and trimming. Read the [music verification record](docs/MUSIC_VERIFICATION.md) for tested behavior and limits.
+The [storage guide](docs/STORAGE.md) covers the disk layout, permissions and the development VM helper that everything above runs on.
 
-The [mobile music interface](docs/MOBILE_MUSIC.md) adds the selected search-list layout and local-file uploads. Its private Tailscale connection is active; HTTPS sign-in, search, generated-audio import and delivery through the music player passed on 11 November 2026. Actual phone and offline playback remain owner checks.
+The family server machine runs Debian 13. [New server: first steps](docs/NEW_SERVER.md) prepares it for remote setup.
 
-The [native music clients](docs/NATIVE_APPS.md) provide Windows and Android builds with configured-server access, device downloads, playlists and a visible queue. Windows offline playback has been checked after restart. The [private iPhone build and signing guide](docs/IOS_PRIVATE_INSTALL.md) records the remaining macOS build and device checks.
+## Development
 
-The [Spotify offline audio research](docs/SPOTIFY_OFFLINE_RESEARCH.md) records decryption and license-expiry findings, remaining unknowns and a proposed download-comparison experiment.
+- Server tests: `python -m unittest discover -s tests`
+- App checks: `dotnet run --project clients/FamilyHub.Client.Core.Tests` and `dotnet run --project clients/FamilyHub.Player.Tests`
+- Windows build: `dotnet build clients/FamilyHub.App -f net10.0-windows10.0.19041.0`
+
+## History
+
+Earlier planning reviews, dated verification records and research notes are in [docs/history](docs/history/). They describe the setup at the time they were written: Navidrome and Lidarr were part of it then and have since been removed.
+
+The project license is not yet selected.

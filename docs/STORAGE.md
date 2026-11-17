@@ -1,6 +1,6 @@
 # Storage foundation
 
-Status: **verified in the FamilyHub Debian development VM**, including a guest reboot. Docker Engine and Compose are installed; no playback, download, file or photo application is deployed. See [the verification record](STORAGE_VERIFICATION.md).
+Status: **verified in the FamilyHub Debian development VM**, including a guest reboot. Docker Engine and Compose are installed; no playback, download, file or photo application is deployed. See [the verification record](history/STORAGE_VERIFICATION.md).
 
 ## Layout (Debian host)
 

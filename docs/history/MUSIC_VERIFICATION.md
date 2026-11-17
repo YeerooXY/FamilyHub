@@ -75,7 +75,7 @@ Different remuxed container hashes across the two environments are expected; no 
 - Run one suitable real MusicBrainz-matched album through Lidarr and verify identity, track count, hardlinks, unchanged download bytes, torrent recheck, repeated import behavior and Navidrome scan/playback. Synthetic files cannot satisfy that acceptance check.
 - The current search, intake and trimming interface is an administrator CLI. A family-facing search/import/trimming interface is a later feature. No website visual change was made in this milestone.
 - Original source audio is the current download default. Automatic lossy fallback and always-MP3 conversion were not approved. Search results require explicit selection before fetching.
-- No actual macOS, Android or iPhone playback was verified here. The detailed CLI limits, including direct-child timeouts, interrupted publication and administrator directory assumptions, are in [Music intake](MUSIC_INTAKE.md).
+- No actual macOS, Android or iPhone playback was verified here. The detailed CLI limits, including direct-child timeouts, interrupted publication and administrator directory assumptions, are in [Music intake](../MUSIC_INTAKE.md).
 - No Spotify cache conversion was performed. Earlier Spotify research files were preserved.
 
 ## Implementation and review
@@ -108,4 +108,4 @@ After these checks, the owner explicitly chose to skip Pi's review. The lead ins
 
 A live search as `familyhub-writer` for `Scott Joplin Maple Leaf Rag`, limit five, returned five Topic-class results first. This also demonstrated why manual selection remains necessary: results included several recordings and performers. No recording was downloaded during this check. Search returns candidates; fetching the selected URL and importing its staged audio remain explicit separate commands. No mobile UI or automatic first-match downloading was added. This was deterministic deployment of already tested code, completed directly without another worker or review retry.
 
-The later [mobile music interface](MOBILE_MUSIC.md) wraps these commands with the owner's selected search-list layout. Its private connection was activated on 11 November after the owner explicitly requested it; real HTTPS sign-in, search, generated-audio import and player delivery passed. See the separate [mobile verification record](MOBILE_MUSIC_VERIFICATION.md).
+The later [mobile music interface](../MOBILE_MUSIC.md) wraps these commands with the owner's selected search-list layout. Its private connection was activated on 11 November after the owner explicitly requested it; real HTTPS sign-in, search, generated-audio import and player delivery passed. See the separate [mobile verification record](MOBILE_MUSIC_VERIFICATION.md).

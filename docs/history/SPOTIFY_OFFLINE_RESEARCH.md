@@ -41,7 +41,7 @@ This is an investigation proposal, not an implemented download or conversion wor
 
 ## FamilyHub implications and reuse
 
-Spotify cache conversion is an unverified acquisition route. FamilyHub's existing music flow still needs ordinary, validated audio files before library import. Reuse the candidate directory `/srv/familyhub/data/quarantine/music`, the existing media-probing checks and the Navidrome playback checks described in [Acquisition](ACQUISITION.md), [Playback](PLAYBACK.md) and [Playback verification](PLAYBACK_VERIFICATION.md).
+Spotify cache conversion is an unverified acquisition route. FamilyHub's existing music flow still needs ordinary, validated audio files before library import. Reuse the candidate directory `/srv/familyhub/data/quarantine/music`, the existing media-probing checks and the Navidrome playback checks described in [Acquisition](../ACQUISITION.md), [Playback](../PLAYBACK.md) and [Playback verification](PLAYBACK_VERIFICATION.md).
 
 Keep source provenance and actual codec/bitrate findings with any candidate. Encoding lossy audio as FLAC does not restore lost information; producing an MP3 can introduce further loss. This research does not select a lossy fallback, alter the owner's quality requirements or establish original-quality delivery from Spotify.
 

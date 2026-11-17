@@ -48,7 +48,7 @@ Actual LG webOS, Android and iPhone playback; offline music; 4K decoding and pro
 
 Two bounded implementation jobs completed through the included `claude:default` account using Sonnet at medium effort: sample Compose/fixtures (`62443266-9b26-4bad-91e7-4f7a386b78b4`) and native API verification (`7609f9f2-6a5b-45e7-ae9e-b1bd02e37747`). Workers used ponytail. The coordinator applied pstack and performed integration fixes and runtime checks. Local Strata was offline; the included Sonnet route followed a prior free-worker tool-limit failure and explicit owner continuation. No metered fallback or token-savings claim is made.
 
-See [the playback guide](PLAYBACK.md) and [API checker instructions](API_PLAYBACK_CHECK.md) for reproduction. Sample accounts are development-only. The remaining client and recovery gates keep this milestone short of production acceptance.
+See [the playback guide](../PLAYBACK.md) and [API checker instructions](API_PLAYBACK_CHECK.md) for reproduction. Sample accounts are development-only. The remaining client and recovery gates keep this milestone short of production acceptance.
 
 This follow-up used direct runtime checks and small factual documentation edits; no additional implementation worker was needed.
 

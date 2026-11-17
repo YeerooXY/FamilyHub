@@ -83,7 +83,7 @@ Two questions stay separate, and Lidarr answers neither completely.
 
 ## Other intake
 
-Lidarr works with MusicBrainz release groups: albums, EPs and singles. YouTube rips, single tracks without a release, local recordings and edited audio do not fit that model. They go through the separate, reviewed [music intake](MUSIC_INTAKE.md) tool, which writes tagged copies under `/data/media/music/Local Imports`, outside Lidarr's root folder. Navidrome reads both.
+Lidarr works with MusicBrainz release groups: albums, EPs and singles. YouTube rips, single tracks without a release, local recordings and edited audio do not fit that model. They go through the separate, reviewed [music intake](../MUSIC_INTAKE.md) tool, which writes tagged copies under `/data/media/music/Local Imports`, outside Lidarr's root folder. Navidrome reads both.
 
 ## Acceptance checks
 
@@ -115,5 +115,5 @@ Check 7 proves the mount layout only. Checks 8 to 14 need a real album; a genera
 
 - [LinuxServer Lidarr container documentation](https://docs.linuxserver.io/images/docker-lidarr/)
 - [Lidarr quick start guide](https://github.com/Servarr/Wiki/blob/master/lidarr/quick-start-guide.md)
-- [Acquisition foundation](ACQUISITION.md) and its [verification record](ACQUISITION_VERIFICATION.md)
-- [Storage foundation](STORAGE.md)
+- [Acquisition foundation](../ACQUISITION.md) and its [verification record](ACQUISITION_VERIFICATION.md)
+- [Storage foundation](../STORAGE.md)
