@@ -125,7 +125,7 @@
  .sheet-song>span { display:grid; gap:4px; min-width:0; }
  .sheet-song strong { font-size:16px; line-height:1.3; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
  .sheet-song small { font-size:14px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
- .player-tools.is-open>button:not(.player-tools-close),.player-tools.is-open .listen-together-button,.player-tools.is-open #connect-device,.player-tools.is-open .trim-request { gap:18px; min-height:56px; padding:0 20px!important; border-radius:0; font-size:16px; color:var(--ink); background:transparent; }
+ .player-tools.is-open>button:not(.player-tools-close),.player-tools.is-open .listen-together-button,.player-tools.is-open #connect-device,.player-tools.is-open .trim-request { gap:18px; min-height:56px!important; padding:0 20px!important; border-radius:0; font-size:16px; color:var(--ink); background:transparent; }
  .player-tools.is-open>button:not(.player-tools-close)::after { font-size:16px; }
  .player-tools.is-open>button:not(.player-tools-close) { justify-content:flex-start!important; height:auto!important; }
  .player-tools.is-open button .icon { width:24px; height:24px; flex-shrink:0; }
