@@ -17,7 +17,8 @@ class PlaylistRankingTests(unittest.TestCase):
         track = dict(title='Dynamite', artist='Taio Cruz', duration=203)
         for channel, tier in [('Taio Cruz - Topic', 1), ('TaioCruzVEVO', 2),
                               ('Taio Cruz', 2), ('TaioCruz', 2), ('Taio Cruz Official', 2),
-                              ('Island Records', 2), ('Universal Music', 2), ('ArenBLady', 3)]:
+                              ('Island Records', 2), ('Universal Music', 2), ('ArenBLady', 3),
+                              ('taiocruzfanmusic', 3), ('Taio Cruz Lyrics', 3), ('Taio Cruz Fans', 3)]:
             self.assertEqual(source_tier(dict(channel=channel), track['artist']), tier)
         fan = dict(id='fan', title='Taio Cruz - Dynamite', channel='ArenBLady', duration=203)
         official = dict(fan, id='official', channel='TaioCruzVEVO')

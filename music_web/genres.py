@@ -6,7 +6,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from .musicbrainz import read as musicbrainz
+from .musicbrainz import Throttled, read as musicbrainz
 
 GROUPS = {
     'Hip-hop': ('hip hop', 'hip-hop', 'rap'),
@@ -71,6 +71,9 @@ class GenreLabels:
                 exact.sort(key=votes, reverse=True)
                 if len(exact) == 1 or len(exact) > 1 and votes(exact[0]) >= max(5, votes(exact[1]) * 3):
                     genre = group(exact[0].get('tags', [])); artist_id = exact[0]['id']
+            except Throttled:
+                # MusicBrainz asked to slow down: keep the artist queued and try again later.
+                time.sleep(30); continue
             except (OSError, ValueError, KeyError): pass
             with self.lock:
                 self.cache[artist.casefold()] = {'genre': genre, 'musicbrainz_id': artist_id}

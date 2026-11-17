@@ -109,6 +109,9 @@ def source_tier(candidate, artist):
     artist = normalized(artist.split(",")[0])
     if candidate.get("kind") == "topic" or channel.endswith(" topic"):
         return 1
+    # Fan, lyrics and tribute channels often carry the artist's name ("pendulumfanmusic").
+    if re.search(r"fan(s|music|channel|page)?\b|unofficial|lyrics?\b|tribute", channel):
+        return 3
     if (channel.endswith(("vevo", "official", "records"))
             or artist and artist.replace(" ", "") in channel.replace(" ", "")
             or re.search(r"\b(universal|sony music|warner music|atlantic|columbia|polydor|parlophone|republic|def jam|interscope|spinnin|armada|monstercat)\b", channel)):
