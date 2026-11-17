@@ -14,6 +14,14 @@ public sealed record ActivityReceipt
     [JsonPropertyName("counters_accepted")] public bool CountersAccepted { get; init; }
     /// <summary>Playback another device of this profile sent here ("Connect to a device").</summary>
     [JsonPropertyName("command")] public PlaybackHandover? Command { get; init; }
+    /// <summary>Play, pause, next, previous or seek sent by the device that handed playback here.</summary>
+    [JsonPropertyName("controls")] public List<PlaybackControl> Controls { get; init; } = [];
+}
+public sealed record PlaybackControl
+{
+    [JsonPropertyName("id")] public string Id { get; init; } = "";
+    [JsonPropertyName("action")] public string Action { get; init; } = "";
+    [JsonPropertyName("position")] public double? Position { get; init; }
 }
 public sealed record PlaybackHandover
 {
@@ -30,10 +38,14 @@ public sealed record PlaybackDevice
     [JsonPropertyName("kind")] public string Kind { get; init; } = "";
     [JsonPropertyName("playing")] public bool Playing { get; init; }
     [JsonPropertyName("track")] public PlaybackDeviceTrack? Track { get; init; }
+    [JsonPropertyName("position")] public double? Position { get; init; }
+    /// <summary>Seconds since the device last checked in.</summary>
+    [JsonPropertyName("age")] public double Age { get; init; }
     [JsonPropertyName("this")] public bool This { get; init; }
 }
 public sealed record PlaybackDeviceTrack
 {
+    [JsonPropertyName("id")] public string Id { get; init; } = "";
     [JsonPropertyName("title")] public string Title { get; init; } = "";
     [JsonPropertyName("channel")] public string Channel { get; init; } = "";
 }

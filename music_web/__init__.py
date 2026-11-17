@@ -618,8 +618,8 @@ def create_app(test_config=None):
         try: listening_stats.heartbeat(g.user, device, data["playing"], count_time=counters is None, track=track)
         except ValueError as error: raise ApiError(str(error), 429)
         # The same check-in lists this device for "Connect to a device" and collects a transfer sent to it.
-        command = playback_devices.report(g.user, device, data.get("device_info"), data["playing"], track, data.get("position"))
-        return jsonify(ok=True, counters_accepted=counters is not None, command=command)
+        command, controls = playback_devices.report(g.user, device, data.get("device_info"), data["playing"], track, data.get("position"))
+        return jsonify(ok=True, counters_accepted=counters is not None, command=command, controls=controls)
 
     @app.get("/api/server/stats")
     def server_stats():

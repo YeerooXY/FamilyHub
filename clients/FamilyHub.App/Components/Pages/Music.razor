@@ -150,13 +150,30 @@ else
     {
         @if (Selected is not { } selected)
         {
+            var playlists = FilteredPlaylists().ToList();
+            <div class="playlist-tools">
+                <div class="genre-pills playlist-filters" role="group" aria-label="Filter playlists">
+                    @foreach (var chip in new[] { "All", "Yours", "Shared with you", "Downloaded" })
+                    { <button id="@(chip == "All" ? "playlist-filter-all" : null)" aria-pressed="@Aria(playlistFilter == chip)" @onclick="() => playlistFilter = chip">@chip</button> }
+                </div>
+                <label class="sr" for="playlist-search">Find in playlists</label>
+                <input id="playlist-search" type="search" placeholder="Find in playlists" @bind="playlistSearch" @bind:event="oninput" />
+                <button id="playlist-sort" class="quiet" aria-label="@($"Sort playlists: {playlistSort}")" aria-haspopup="dialog" aria-controls="playlist-sort-options" @onclick="OpenPlaylistSort">@playlistSort<MusicIcon Name="chevron-down" /></button>
+                <div id="playlist-sort-options" popover="auto" role="dialog" aria-label="Sort playlists" class="glass-dialog playlist-options playlist-sort-options">
+                    @foreach (var order in new[] { "Recent", "Alphabetical", "Most songs" })
+                    { <button id="@(order == "Recent" ? "playlist-sort-recent" : null)" class="quiet" aria-pressed="@Aria(playlistSort == order)" @onclick="() => SortPlaylists(order)">@order</button> }
+                </div>
+            </div>
+            <span class="sr" role="status">@playlists.Count playlists</span>
             <div class="playlist-grid" aria-label="Playlists">
             <button id="create-playlist" class="playlist-card glass-panel" @onclick="NewPlaylist"><span class="cover generated-cover create-cover"><span class="record-art" aria-hidden="true"></span><MusicIcon Name="plus" /></span><strong>Create playlist</strong></button>
-            @foreach (var playlist in Session.Playlists)
+            @foreach (var playlist in playlists)
             {
-                <button id="@("playlist-card-" + PlaylistKey(playlist))" data-playlist-key="@PlaylistKey(playlist)" class="playlist-card glass-panel" @key="PlaylistKey(playlist)" @onclick="() => OpenPlaylist(playlist)"><PlaylistCover Playlist="playlist" /><strong>@playlist.Name</strong><span>@playlist.Tracks.Count songs</span></button>
+                <button id="@("playlist-card-" + PlaylistKey(playlist))" data-playlist-key="@PlaylistKey(playlist)" class="playlist-card glass-panel" @key="PlaylistKey(playlist)" @onclick="() => OpenPlaylist(playlist)"><PlaylistCover Playlist="playlist" /><strong>@playlist.Name</strong><span>@(playlist.OwnerId != Session.User ? $"Shared by {playlist.OwnerName} \u00b7 " : "")@playlist.Tracks.Count songs</span></button>
             }
             </div>
+            @if (playlists.Count == 0)
+            { <p class="playlist-empty">No playlists match. <button class="quiet" @onclick="ClearPlaylistFilters">Clear filters</button></p> }
         }
         else
         {
@@ -360,7 +377,7 @@ else
     private readonly HashSet<string> spotifyAsked = [];
     private Task AnswerSpotify(bool value) => Run(async () => { await Session.SaveSpotifyStatusAsync(value); await JS.InvokeVoidAsync("familyhub.closeDialog", "spotify-question-dialog", view == "Preferences" ? "spotify-premium" : "profile-toggle"); });
     // Pause appears only once audio is playing; preparing a song keeps the play icon with a loading state.
-    private bool ShowPause => (Player.Playing || Player.Seeking) && Player.PlaybackRequested && !Player.Preparing;
+    private bool ShowPause => Player.RemoteActive ? Player.RemotePlaying : (Player.Playing || Player.Seeking) && Player.PlaybackRequested && !Player.Preparing;
     private void OpenPlaylistPicker((MusicTrack Track, string Opener) value) => playlistPicker?.Open(value.Track, value.Opener);
     private bool deletePlaylistOpen;
     private void OpenDeletePlaylist() { if (Session.Connected && !busy) { error = ""; deletePlaylistOpen = true; } }
@@ -403,6 +420,36 @@ else
     }
     private string view = "Home", server = "", filter = "", query = "", genre = "", profileName = "";
     private string selectedId = "", recommendationTitle = "";
+    private string playlistFilter = "All", playlistSearch = "", playlistSort = "Recent";
+    private IEnumerable<MusicPlaylist> FilteredPlaylists()
+    {
+        var playlists = Session.Playlists.Where(p =>
+            (playlistFilter switch
+            {
+                "Yours" => p.CanEdit,
+                "Shared with you" => !p.CanEdit,
+                "Downloaded" => p.Tracks.Count > 0 && p.Tracks.All(t => Session.Resolve(t) is { } track && Session.KeptOnDevice(track)),
+                _ => true
+            }) && System.Globalization.CultureInfo.CurrentCulture.CompareInfo.IndexOf(p.Name, playlistSearch,
+                System.Globalization.CompareOptions.IgnoreCase | System.Globalization.CompareOptions.IgnoreNonSpace) >= 0);
+        return playlistSort switch
+        {
+            "Alphabetical" => playlists.OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase),
+            "Most songs" => playlists.OrderByDescending(p => p.Tracks.Count),
+            _ => playlists
+        };
+    }
+    private void ClearPlaylistFilters()
+    {
+        playlistFilter = "All"; playlistSearch = ""; playlistSort = "Recent";
+        pendingFocus = "playlist-filter-all";
+    }
+    private Task OpenPlaylistSort() => JS.InvokeVoidAsync("familyhub.showPanel", "playlist-sort-options", "playlist-sort", "playlist-sort-recent").AsTask();
+    private async Task SortPlaylists(string order)
+    {
+        playlistSort = order;
+        await JS.InvokeVoidAsync("familyhub.closeDialog", "playlist-sort-options", "playlist-sort");
+    }
     private string? error;
     private AppRelease? startupUpdate;
     private readonly HashSet<string> updateChecks = [];

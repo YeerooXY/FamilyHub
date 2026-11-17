@@ -41,6 +41,27 @@ public partial class MainPage : ContentPage
         if (identity != lastPlaybackIdentity || !player.Playing && Math.Abs(player.Position - lastPlaybackPosition) > .25 || player.Playing && DateTime.UtcNow - lastPlaybackSave > TimeSpan.FromSeconds(5))
         { lastPlaybackIdentity = identity; SavePlayback(); }
     }
+    // While this device's music plays elsewhere, mirror that device's song, position and state.
+    private int remoteMisses;
+    private readonly IDispatcherTimer remoteTimer;
+    private bool followingRemote;
+    private async Task FollowRemoteAsync()
+    {
+        if (!player.RemoteActive || followingRemote || session.Api is not { } api) { remoteMisses = 0; return; }
+        followingRemote = true;
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+            var target = player.RemoteDeviceId;
+            var device = (await api.GetPlaybackDevicesAsync(session.DeviceId, timeout.Token)).Devices.FirstOrDefault(d => d.Id == target);
+            if (device is null) { if (++remoteMisses >= 3) player.LeaveRemote(); return; }
+            remoteMisses = 0;
+            var position = device.Position is { } seconds ? seconds + (device.Playing ? device.Age : 0) : (double?)null;
+            player.ApplyRemoteState(device.Track?.Id ?? "", device.Playing, position);
+        }
+        catch (Exception error) when (error is HttpRequestException or FamilyHub.Client.Core.FamilyHubApiException or OperationCanceledException) { }
+        finally { followingRemote = false; }
+    }
     private async void RestorePlayback()
     {
         if (Dispatcher.IsDispatchRequired) { Dispatcher.Dispatch(RestorePlayback); return; }
@@ -118,13 +139,33 @@ public partial class MainPage : ContentPage
         activityTimer = Dispatcher.CreateTimer();
         // Every 2 s: the same check-in lists this device and collects playback sent from another one.
         activityTimer.Interval = TimeSpan.FromSeconds(2);
-        activityTimer.Tick += (_, _) => { session.ObserveListening(player.Preparing || player.Seeking ? null : player.Current, player.QueueIndex, player.Position, player.Playing); _ = session.ReportPlaybackActivityAsync(player.Playing, player.Position); };
+        activityTimer.Tick += (_, _) => { session.ObserveListening(player.Preparing || player.Seeking ? null : player.Current, player.QueueIndex, player.Position, player.Playing); _ = session.ReportPlaybackActivityAsync(player.Playing, player.Position); _ = FollowRemoteAsync(); };
         activityTimer.Start();
+        remoteTimer = Dispatcher.CreateTimer();
+        remoteTimer.Interval = TimeSpan.FromMilliseconds(500);
+        remoteTimer.Tick += (_, _) => player.RemoteTick();
+        remoteTimer.Start();
         player.Attach(audio, audioNext);
 #if ANDROID
         PlaybackControls.Start(Microsoft.Maui.ApplicationModel.Platform.AppContext, player, session);
 #endif
         player.Changed += PlaybackChanged; session.Changed += RestorePlayback;
+        session.RemoteControlReceived += control => Dispatcher.Dispatch(async () =>
+        {
+            if (player.FollowingHost || player.RemoteActive || player.Current is null) return;
+            try
+            {
+                switch (control.Action)
+                {
+                    case "play" when !player.PlaybackRequested: await player.ToggleAsync(); break;
+                    case "pause" when player.PlaybackRequested: await player.ToggleAsync(); break;
+                    case "next": await player.NextAsync(); break;
+                    case "previous": await player.PreviousAsync(); break;
+                    case "seek" when control.Position is { } seconds: await player.SeekAsync(seconds); break;
+                }
+            }
+            catch (Exception error) when (error is InvalidOperationException or IOException) { }
+        });
         session.PlaybackHandedOver += handover => Dispatcher.Dispatch(async () =>
         {
             try { await player.TakeOverAsync(handover.Resume!, session.Library.Concat(session.Downloads), handover.Playing); }

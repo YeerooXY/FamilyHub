@@ -90,7 +90,9 @@ public sealed class MusicSession
         : DeviceInfo.Current.Platform == DevicePlatform.MacCatalyst ? "mac" : DeviceInfo.Current.Idiom == DeviceIdiom.Tablet ? "ipad" : DeviceInfo.Current.Platform == DevicePlatform.iOS ? "iphone" : "other";
     /// <summary>Raised when another device of this profile hands its playback to this one.</summary>
     public event Action<PlaybackHandover>? PlaybackHandedOver;
-    private readonly HashSet<string> handovers = [];
+    /// <summary>Raised for each play/pause/next/previous/seek the controlling device sends.</summary>
+    public event Action<PlaybackControl>? RemoteControlReceived;
+    private readonly HashSet<string> handovers = [], controlsSeen = [];
     public async Task ReportPlaybackActivityAsync(bool playing, double? position = null)
     {
         var api = Api;
@@ -107,6 +109,7 @@ public sealed class MusicSession
             var receipt = await api.ReportPlaybackActivityAsync(activityDevice, playing, timeout.Token, counters, journal?.DeviceId, currentTrack, DeviceName, DeviceKind, position);
             if (receipt.CountersAccepted && journal is not null && counters is { Count: > 0 }) journal.Acknowledge(counters);
             if (receipt.Command is { Action: "play", Resume.IsValid: true } handover && handovers.Add(handover.Id)) PlaybackHandedOver?.Invoke(handover);
+            foreach (var control in receipt.Controls) if (controlsSeen.Add(control.Id)) RemoteControlReceived?.Invoke(control);
             lastActivity = DateTime.UtcNow; lastActivityPlaying = playing; lastActivityTrackId = trackId; lastActivityApi = api;
         }
         catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException or ObjectDisposedException) { }
