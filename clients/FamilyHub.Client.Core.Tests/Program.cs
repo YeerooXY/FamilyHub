@@ -380,6 +380,7 @@ finally { Directory.Delete(folder, true); }
     Check(pending.Find([new ListeningRoom { Id = "wrong", HostUser = "other" }, new ListeningRoom { Id = "right", HostUser = "target" }])?.Id == "right", "Poke joined the wrong host");
 }
 checks += ListeningChecks.Run();
+checks += PlaylistSongChecks.Run();
 checks += await SessionChecks.RunAsync();
 checks += await EditionChecks.RunAsync();
 checks += await ProfileImageChecks.RunAsync();
