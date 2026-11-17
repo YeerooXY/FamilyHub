@@ -161,6 +161,15 @@ class PlaylistStore:
             return data
         except (OSError,ValueError): raise PlaylistError("Playlist not found.")
     def save(self,user,data):
+        journal = self.root.parent / '.replacements.json'
+        if journal.exists():
+            replacements = json.loads(journal.read_text(encoding='utf-8'))
+            for track in data['tracks']:
+                for _ in range(len(replacements)):
+                    replacement = replacements.get(track.get('source_id') or (track.get('match') or {}).get('id'), {})
+                    if replacement.get('state') != 'done': break
+                    track.update(source_id=replacement['new_id'], match=replacement['match'], state='saved')
+                    track.pop('job_id', None)
         folder=self.directory(user);folder.mkdir(parents=True,exist_ok=True)
         target=folder/(data["id"]+".json");temporary=target.with_suffix(".tmp")
         temporary.write_text(json.dumps(data,ensure_ascii=False),encoding="utf-8");temporary.replace(target)
@@ -175,9 +184,12 @@ class PlaylistStore:
             if matches:
                 old=matches.popleft()
                 track["added_at"]=old.get("added_at")
+                track["added_by"]=old.get("added_by")
                 for field in ("candidates","state","match","job_id","source_id"):
                     if field in old: track[field]=old[field]
-            else: track["added_at"]=datetime.now(timezone.utc).isoformat()
+            else:
+                track["added_at"]=datetime.now(timezone.utc).isoformat()
+                track["added_by"]=user
         data["description"]=previous.get("description", "")
         data["revision"]=previous.get("revision",0)+1
         data["shared"]=previous.get("shared", True)

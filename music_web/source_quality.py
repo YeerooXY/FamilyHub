@@ -1,4 +1,4 @@
-"""Read-only source checks and replacement proposals for saved recordings."""
+"""Source checks and recoverable official recording replacements."""
 import array
 import cmath
 import copy
@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from types import SimpleNamespace
 
 from .catalogue_review import seed
@@ -127,6 +128,7 @@ class SourceQuality:
         self.intake, self.idle, self.review = intake, idle, review
         self.lock = threading.RLock()
         self.scan_lock = threading.Lock()
+        self.replace_lock = threading.Lock()
         self.active_keys = None
         self.stop = threading.Event()
         try:
@@ -135,6 +137,9 @@ class SourceQuality:
                 self.rows = {}
         except (OSError, ValueError):
             self.rows = {}
+        for row in self.rows.values():
+            if row.get('replacing'):
+                row.update(replacing=False, replacement_error='Replacement interrupted. Check the replacement journal before retrying.')
 
     def save(self, key, row):
         with self.lock:
@@ -164,6 +169,11 @@ class SourceQuality:
                     active_keys.add(key)
                     with self.lock:
                         row = copy.deepcopy(self.rows.get(key))
+                    if row is not None and any(row.get(flag) for flag in ('dismissed', 'replaced_by', 'replacing')):
+                        continue
+                    if row is not None and not row.get('channel'):
+                        row['channel'] = source.get('channel') or manifest['import']['artist']
+                        self.save(key, row)
                     if row is None:
                         record = manifest['import']
                         metadata = self.review.overrides(identifier, record['library_sha256']) if self.review else {}
@@ -171,7 +181,7 @@ class SourceQuality:
                                                   duration=manifest['audio']['duration']))
                         tier = source_tier(source, track['artist']) if source['kind'] == 'youtube' else None
                         result = analyze(audio, manifest['audio']['duration'], self.idle)
-                        row = dict(id=identifier, sha256=digest, **track, **result, source_tier=tier,
+                        row = dict(id=identifier, sha256=digest, channel=source.get('channel', record['artist']), **track, **result, source_tier=tier,
                                    proposed_replacement=None, replacement_checked=False)
                         self.save(key, row)
                     if (row['verdict'] == 'suspect' or row['source_tier'] == 3) and not row['replacement_checked']:
@@ -202,13 +212,159 @@ class SourceQuality:
         counts = {verdict: sum(r['verdict'] == verdict for r in rows) for verdict in ('clean', 'suspect', 'unknown')}
         counts['tier_3'] = sum(r['source_tier'] == 3 for r in rows)
         counts['total'] = len(rows)
-        return dict(counts=counts, songs=[r for r in rows if r['verdict'] == 'suspect' or r['source_tier'] == 3])
+        return dict(counts=counts, songs=[r for r in rows if not r.get('dismissed') and not r.get('replaced_by')
+                                        and (r['verdict'] == 'suspect' or r['source_tier'] == 3)])
 
 
-def register(app, workspace, intake, idle, admin, review, enabled=True):
-    from flask import jsonify
+def replace_saved(workspace, library, old_id, candidate, saved_source, playlists, review, stats, intake):
+    """Archive originals and retain metadata snapshots for manual undo and crash recovery."""
+    workspace, library = Path(workspace), Path(library)
+    old, new = saved_source(old_id), saved_source(candidate['id'])
+    if not old or not new:
+        raise ValueError('Both recordings must be saved before replacement.')
+    old_record, new_record = old['manifest']['import'], new['manifest']['import']
+    if abs(old['manifest']['audio']['duration'] - new['manifest']['audio']['duration']) > 3:
+        raise ValueError('The downloaded recording differs by more than 3 seconds.')
+    item = Path(old['item'])
+    target = library.joinpath(*old_record['path'].split('/'))
+    new_target = library.joinpath(*new_record['path'].split('/'))
+    if (item.parent.resolve() != workspace.resolve() or not intake.inside(str(target), str(library))
+            or target.resolve() == new_target.resolve()):
+        raise ValueError('The original recording cannot be safely archived.')
+    archive = workspace / '.replaced' / old_id
+    journal = workspace / '.replacements.json'
+    records = json.loads(journal.read_text(encoding='utf-8')) if journal.exists() else {}
+    if archive.exists() and records.get(old_id, {}).get('state') != 'rolled_back':
+        raise ValueError('A previous replacement archive needs review before retrying.')
+    archive.mkdir(parents=True, exist_ok=True)
+    entry = dict(new_id=candidate['id'], match=dict(candidate), state='pending', item=str(item), library_file=str(target), backups=[])
+    records[old_id] = entry
+
+    def write(path, value):
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
+        temporary.replace(path)
+
+    def backup(path):
+        if path.exists():
+            destination = archive / ('metadata-' + str(len(entry['backups'])) + '.json')
+            shutil.copy2(path, destination)
+            entry['backups'].append(dict(path=str(path), backup=str(destination)))
+
+    changes = []
+    for path in playlists.root.glob('*/*.json'):
+        data = json.loads(path.read_text(encoding='utf-8'))
+        changed = False
+        for row in data['tracks']:
+            if row.get('source_id') == old_id or (row.get('match') or {}).get('id') == old_id:
+                row.update(source_id=candidate['id'], match=dict(candidate), state='saved')
+                row.pop('job_id', None)
+                changed = True
+        if changed:
+            data['revision'] = data.get('revision', 0) + 1
+            backup(path)
+            changes.append((path, data))
+    review.flush()
+    backup(review.path)
+    lyrics = workspace / '.lyrics' / (old_id + '.json')
+    new_lyrics = lyrics.with_name(candidate['id'] + '.json')
+    backup(new_lyrics)
+    entry['lyrics_created'] = str(new_lyrics) if lyrics.exists() and not new_lyrics.exists() else None
+    write(journal, records)
+    old_review, old_devices = copy.deepcopy(review.data), copy.deepcopy(stats.devices)
+    moved = []
+    try:
+        values = review.overrides(old_id, old_record['library_sha256'])
+        if values:
+            review.data['overrides'][candidate['id']] = dict(sha256=new_record['library_sha256'], values=values)
+            review.dirty = True
+            review.flush()
+        for device in stats.devices.values():
+            track = device.get('track')
+            if isinstance(track, dict) and track.get('id') == old_id:
+                track.update(id=candidate['id'])
+        # Statistics contain aggregate counters, so their persisted totals need no conversion.
+        for path, data in changes:
+            write(path, data)
+        if lyrics.exists() and not new_lyrics.exists():
+            shutil.copy2(lyrics, new_lyrics)
+        for source, destination in ((target, archive / 'library' / target.name), (item, archive / item.name)):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source), str(destination))
+            moved.append((source, destination))
+        entry['state'] = 'done'
+        write(journal, records)
+    except Exception:
+        for source, destination in reversed(moved):
+            shutil.move(str(destination), str(source))
+        for row in entry['backups']:
+            shutil.copy2(row['backup'], row['path'])
+        if entry['lyrics_created']:
+            Path(entry['lyrics_created']).unlink(missing_ok=True)
+        review.data, stats.devices = old_review, old_devices
+        review.dirty = True
+        review.flush()
+        entry['state'] = 'rolled_back'
+        write(journal, records)
+        raise
+
+
+def register(app, workspace, intake, idle, admin, review, enabled=True, replace=None, busy=lambda identifier: False):
+    from flask import jsonify, request, g
     scanner = SourceQuality(workspace, intake, idle, review)
     app.extensions['music'].source_quality = scanner
+
+    @app.post('/api/catalogue/source-quality/<identifier>/<action>')
+    def source_quality_action(identifier, action):
+        if not admin():
+            return jsonify(error='Only the admin can review source quality.'), 403
+        if action not in ('replace', 'dismiss'):
+            return jsonify(error='Unknown source quality action.'), 404
+        with scanner.lock:
+            found = next(((key, row) for key, row in scanner.rows.items() if row['id'] == identifier
+                          and not row.get('dismissed') and not row.get('replaced_by')
+                          and (scanner.active_keys is None or key in scanner.active_keys)), None)
+            if not found:
+                return jsonify(error='Song review not found.'), 404
+            key, row = found
+            if row.get('replacing'):
+                return jsonify(error='This song is being replaced.'), 409
+            if action == 'dismiss':
+                scanner.save(key, dict(row, verdict='clean', dismissed=True))
+                return jsonify(state='done')
+            data = request.get_json(silent=True)
+            candidate = row.get('proposed_replacement')
+            if not isinstance(data, dict) or not candidate or data.get('candidate_id') != candidate['id']:
+                return jsonify(error='Choose the proposed official recording.'), 400
+            durations = (row.get('duration'), candidate.get('duration'))
+            if (candidate['id'] == identifier or candidate.get('source_tier', 3) > 2
+                    or not all(type(d) in (int, float) and math.isfinite(d) and d > 0 for d in durations)
+                    or abs(durations[0] - durations[1]) > 3):
+                return jsonify(error='The official recording must be within 3 seconds of this song.'), 400
+            if replace is None or busy(candidate['id']) or not scanner.replace_lock.acquire(blocking=False):
+                return jsonify(error='A download or replacement is already running. Try again after it finishes.'), 409
+            try:
+                scanner.save(key, dict(row, replacing=True, replacement_error=None))
+            except Exception:
+                scanner.replace_lock.release()
+                raise
+            user = g.user
+
+        def run():
+            try:
+                while not idle():
+                    time.sleep(.2)
+                replace(user, identifier, candidate)
+                with scanner.lock:
+                    scanner.save(key, dict(scanner.rows[key], replacing=False, replaced_by=candidate['id']))
+            except Exception as error:
+                app.logger.warning('Source replacement failed: %s', type(error).__name__)
+                with scanner.lock:
+                    scanner.save(key, dict(scanner.rows[key], replacing=False, replacement_error='Replacement failed. Review the saved recording and try again.'))
+            finally:
+                scanner.replace_lock.release()
+        threading.Thread(target=run, name='source-replace', daemon=True).start()
+        return jsonify(state='replacing'), 202
 
     @app.get('/api/catalogue/source-quality')
     def source_quality():

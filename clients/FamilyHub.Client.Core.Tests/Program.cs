@@ -8,6 +8,23 @@ using FamilyHub.Client.Core;
 var origin = new Uri("https://music.test:8444/");
 var checks = 0;
 void Check(bool value, string message) { if (!value) throw new Exception(message); checks++; }
+var discordSnapshot = new DiscordSnapshot("Song", "Artist - Topic", "Album", "abcdefghijk", true, 12, 100, false);
+using (var activity = JsonDocument.Parse(JsonSerializer.Serialize(DiscordActivity.Build(discordSnapshot, 100000))))
+{
+    var root = activity.RootElement;
+    Check(root.GetProperty("state").GetString() == "Artist", "Discord artist should remove Topic suffix");
+    Check(root.GetProperty("timestamps").GetProperty("start").GetInt64() == 88000 && root.GetProperty("timestamps").GetProperty("end").GetInt64() == 188000, "Discord timestamps should reflect playback position");
+    Check(root.GetProperty("assets").GetProperty("large_image").GetString() == "https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg", "Discord cover should use YouTube ID");
+}
+var pausedDiscord = JsonSerializer.Serialize(DiscordActivity.Build(discordSnapshot with { Playing = false, RecordingId = "http://private-server/cover", Album = "ftp://private-server/album" }, 100000));
+using (var paused = JsonDocument.Parse(pausedDiscord))
+{
+    Check(paused.RootElement.GetProperty("timestamps").ValueKind == JsonValueKind.Null, "Paused Discord activity must not have timestamps");
+    Check(paused.RootElement.GetProperty("state").GetString() == "Paused · Artist", "Paused Discord activity must say paused");
+    Check(paused.RootElement.GetProperty("assets").GetProperty("large_image").ValueKind == JsonValueKind.Null && !pausedDiscord.Contains("private-server"), "Discord activity must not expose private URLs");
+}
+var discordFrame = DiscordFrame.EncodeBytes(1, Encoding.UTF8.GetBytes("{}"));
+Check(discordFrame.SequenceEqual(new byte[] { 1, 0, 0, 0, 2, 0, 0, 0, 123, 125 }), "Discord frame layout must use little-endian header");
 async Task Throws<T>(Func<Task> action, string message) where T : Exception
 {
     try { await action(); } catch (T) { checks++; return; }
@@ -90,6 +107,9 @@ foreach (var (seconds, expected) in new (double, string)[] { (0,"Just now"), (59
     Check(RelativeDate.Describe(relativeNow.AddSeconds(-seconds), relativeNow) == expected, "Relative date boundary: " + seconds);
 Check(RelativeDate.Describe((string?)null, relativeNow) == "" && RelativeDate.Describe("invalid", relativeNow) == "", "Unknown date must stay blank");
 Check(RelativeDate.Exact("2026-11-14T12:00:00Z") is { Length: > 0 } && RelativeDate.Exact("invalid") is null, "Exact date tooltip missing/invalid");
+var attributedPlaylist = JsonSerializer.Deserialize<MusicPlaylist>("{\"owner_id\":\"alex\",\"tracks\":[{\"title\":\"New\",\"added_by\":\"sam\"},{\"title\":\"Older\"}]}", FamilyHubApi.JsonOptions)!;
+var cachedPlaylist = JsonSerializer.Deserialize<MusicPlaylist>(JsonSerializer.Serialize(attributedPlaylist, FamilyHubApi.JsonOptions), FamilyHubApi.JsonOptions)!;
+Check(cachedPlaylist.Tracks[0].AddedBy == "sam" && cachedPlaylist.Tracks[1].AddedBy is null, "Playlist author attribution was lost in the device cache");
 
 var workSnapshot = JsonSerializer.Deserialize<ServerStatistics>("{\"jobs\":[{\"owner\":\"alex\",\"kind\":\"playlist_download\",\"processed\":1,\"total\":4,\"remaining\":3,\"current_title\":\"Song\",\"files\":[{\"index\":2,\"title\":\"Song\",\"message\":\"Purifying audio\",\"download_bytes\":20,\"download_total_bytes\":40}]}]}", FamilyHubApi.JsonOptions)!;
 Check(workSnapshot.Jobs[0].Owner == "alex" && workSnapshot.Jobs[0].Remaining == 3 && workSnapshot.Jobs[0].Files[0].DownloadTotalBytes == 40, "Server work lost requester, remaining count or file progress");
@@ -116,15 +136,19 @@ using (var api = new FamilyHubApi(origin, new Handler(async request =>
     if (request.RequestUri.AbsolutePath == "/api/profiles")
         return Json("{\"profile\":{\"id\":\"newprofile\",\"name\":\"Sam\",\"color\":\"#eeeeee\"}}");
     Check(request.Method == HttpMethod.Patch, "Preferences must use PATCH");
-    return Json("{\"preferences\":{\"volume\":0.25,\"shuffle\":false}}");
+    var saved = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+    Check(saved.RootElement.GetProperty("volume_level").GetString() == "quiet", "Volume level missing from preference update");
+    return Json("{\"preferences\":{\"volume\":0.25,\"shuffle\":false,\"volume_level\":\"quiet\"}}");
 })))
 {
     Check((await api.ConnectAsync()).Profiles.Single().Name == "Alex", "Family profile bootstrap failed");
     var selected = await api.SelectProfileAsync("olduser");
     Check(api.UserName == "olduser" && selected.Preferences.Volume == 0.6 && selected.Preferences.Shuffle, "Selected identity/preferences failed");
-    Check((await api.SavePreferencesAsync(new() { Volume = 0.25 })).Volume == 0.25, "Preference update failed");
+    var preferences = await api.SavePreferencesAsync(new() { Volume = 0.25, VolumeLevel = "quiet" });
+    Check(preferences.Volume == 0.25 && preferences.VolumeLevel == "quiet", "Preference update failed");
     Check((await api.CreateProfileAsync("Sam")).Name == "Sam", "Profile creation failed");
     await Throws<ArgumentException>(() => api.SavePreferencesAsync(new() { Volume = double.NaN }), "Nonfinite volume accepted");
+    await Throws<ArgumentException>(() => api.SavePreferencesAsync(new() { VolumeLevel = "invalid" }), "Invalid volume level accepted");
     Check(profileRequests == 4, "Invalid preferences reached server");
 }
 using (var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict)))))
@@ -271,6 +295,21 @@ try
     Check(restarted.GetDownloadedPath(track.Id) is null, "Hash failure published audio");
     Check(!Directory.EnumerateFiles(restarted.RootDirectory, "*.part").Any(), "Corrupt partial retained for repeated hash failures");
     await Throws<InvalidDataException>(() => restarted.DownloadAsync(track with { DownloadUrl = "https://evil.test/file" }, api), "External media URL accepted");
+    foreach (var quality in new[] { "low", "normal", "high" })
+    {
+        var tier = track with { PlaybackSourceSha256 = track.DownloadSha256,
+            DownloadUrl = $"/api/library/{track.Id}/playback/{track.DownloadSha256}/audio.m4a?quality={quality}" };
+        var tierLibrary = new OfflineLibrary(Path.Combine(folder, quality), origin, "user");
+        using var tierApi = new FamilyHubApi(origin, new Handler(request =>
+        {
+            Check(request.RequestUri!.PathAndQuery == tier.DownloadUrl, "Download lost quality query");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(data) });
+        }));
+        var tierPath = await tierLibrary.DownloadAsync(tier, tierApi);
+        Check(File.ReadAllBytes(tierPath).SequenceEqual(data), "Quality download changed bytes");
+        await Throws<InvalidDataException>(() => tierLibrary.DownloadAsync(tier with { DownloadUrl = tier.DownloadUrl + "&redirect=external" }, tierApi), "Unexpected query accepted");
+        await Throws<InvalidDataException>(() => tierLibrary.DownloadAsync(tier with { DownloadUrl = tier.DownloadUrl.Replace(quality, "invalid") }, tierApi), "Unknown quality accepted");
+    }
     await Throws<ArgumentException>(() => restarted.DownloadAsync(track with { Id = "../outside" }, api), "Unsafe file identifier accepted");
     await Throws<InvalidDataException>(() => restarted.DownloadAsync(track with { DownloadExtension = "/../bad" }, api), "Unsafe extension accepted");
 

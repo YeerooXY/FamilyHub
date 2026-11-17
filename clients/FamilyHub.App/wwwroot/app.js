@@ -318,8 +318,11 @@ window.familyhub.bindSeekHover = input => {
         const value = Math.max(0, Math.min(Number(input.max), lastValue));
         const percent = (100 * value / Math.max(1, Number(input.max))) + '%';
         if (control.style.getPropertyValue('--seek-position') !== percent) control.style.setProperty('--seek-position', percent);
-        if (elapsed.textContent !== time(value)) elapsed.textContent = time(value);
-        const badge = control.querySelector('.seek-tooltip'); if (badge.textContent !== time(value)) badge.textContent = time(value);
+        // Change the text node Blazor rendered; replacing it (textContent) detaches Blazor's node
+        // and the time then stops following playback.
+        const write = (element, text) => { const node = element.firstChild; if (node && node.nodeType === 3 && !node.nextSibling) { if (node.nodeValue !== text) node.nodeValue = text; } else if (element.textContent !== text) element.textContent = text; };
+        write(elapsed, time(value));
+        write(control.querySelector('.seek-tooltip'), time(value));
         if (dragging && Number(input.value) !== value) input.value = String(value);
     };
     const paint = event => {
@@ -365,7 +368,7 @@ window.familyhub.bindSeekHover = input => {
         tip.classList.add('is-visible');
     };
     const show = target => {
-        const button = target.closest?.('button[title],button[data-tooltip],button[aria-label],.storage-state[title],.storage-state[data-tooltip]');
+        const button = target.closest?.('button[title],button[data-tooltip],button[aria-label],.storage-state[title],.storage-state[data-tooltip],.playlist-column-label,.playlist-track-album,.playlist-track-date');
         if (!button || (!button.hasAttribute('title') && !button.dataset.tooltip && button.textContent.trim())) return;
         if (active === button) return;
         hide(); active = button;
@@ -403,8 +406,15 @@ window.familyhub.tintPlaylistHeader = () => {
    const canvas=document.createElement('canvas');canvas.width=canvas.height=16;
    const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,16,16);
    const pixels=ctx.getImageData(0,0,16,16).data;let r=0,g=0,b=0,n=0;
-   for(let i=0;i<pixels.length;i+=4){if(pixels[i+3]<128)continue;r+=pixels[i];g+=pixels[i+1];b+=pixels[i+2];n++;}
-   if(n){panel.style.setProperty('--playlist-tint',`${Math.round(r/n)} ${Math.round(g/n)} ${Math.round(b/n)}`);panel.dataset.tintSource=img.currentSrc;}
+   for(let i=0;i<pixels.length;i+=4){if(pixels[i+3]<128)continue;const w=.04+(Math.max(pixels[i],pixels[i+1],pixels[i+2])-Math.min(pixels[i],pixels[i+1],pixels[i+2]))/255;r+=pixels[i]*w;g+=pixels[i+1]*w;b+=pixels[i+2]*w;n+=w;}
+   if(n){
+    // Like Spotify: the cover's average hue, kept saturated and mid-dark so white text stays readable.
+    r/=n*255;g/=n*255;b/=n*255;const max=Math.max(r,g,b),min=Math.min(r,g,b),l=(max+min)/2,d=max-min;
+    let h=0,s=d===0?0:d/(1-Math.abs(2*l-1));
+    if(d){h=max===r?((g-b)/d)%6:max===g?(b-r)/d+2:(r-g)/d+4;h*=60;if(h<0)h+=360;}
+    s=s<.02?s:Math.min(.62,Math.max(.34,s));const L=Math.min(.42,Math.max(.3,l)),c=(1-Math.abs(2*L-1))*s,x=c*(1-Math.abs((h/60)%2-1)),m=L-c/2;
+    const [R,G,B]=h<60?[c,x,0]:h<120?[x,c,0]:h<180?[0,c,x]:h<240?[0,x,c]:h<300?[x,0,c]:[c,0,x];
+    const tint=[R,G,B].map(v=>Math.round((v+m)*255)).join(' ');panel.style.setProperty('--playlist-tint',tint);panel.parentElement?.style.setProperty('--playlist-tint',tint);panel.dataset.tintSource=img.currentSrc;}
   }catch{panel.style.removeProperty('--playlist-tint');}
  };
  if(!panel._tintObserver){panel._tintObserver=new MutationObserver(sample);panel._tintObserver.observe(panel,{childList:true,subtree:true,attributes:true,attributeFilter:['src']});panel.addEventListener('load',sample,true);}
@@ -519,3 +529,47 @@ window.familyhub.closeTopLayer = () => {
  if(dialog){ if(dialog.requestClose)dialog.requestClose(); else dialog.close(); return true; }
  return false;
 };
+
+// Trim paired dark letterbox bands for display; the cached original stays unchanged.
+const coverCropCache = new Map();
+window.familyhub.cropCover = image => {
+ if (!image.naturalWidth || !image.parentElement) return;
+ const key = image.currentSrc || image.src;
+ let crop = coverCropCache.get(key);
+ if (crop === undefined) {
+  crop = null;
+  try {
+   const canvas = document.createElement('canvas'), ratio = Math.min(1,160 / Math.max(image.naturalWidth,image.naturalHeight));
+   const w = canvas.width = Math.max(1,Math.round(image.naturalWidth*ratio)), h = canvas.height = Math.max(1,Math.round(image.naturalHeight*ratio));
+   const context = canvas.getContext('2d',{willReadFrequently:true});
+   context.drawImage(image,0,0,w,h);
+   const pixels = context.getImageData(0,0,w,h).data;
+   const dark = (x,y) => { const i=(y*w+x)*4; return pixels[i+3]>250 && Math.max(pixels[i],pixels[i+1],pixels[i+2])<=28; };
+   const darkRow = y => { let count=0; for(let x=0;x<w;x++) if(dark(x,y))count++; return count>=w*.98; };
+   let top=0,bottom=h,left=0,right=w;
+   while(top<h && darkRow(top))top++;
+   while(bottom>top && darkRow(bottom-1))bottom--;
+   if(top<2 || h-bottom<2 || Math.abs(top-(h-bottom))>Math.max(3,h*.08) || bottom-top<h*.35) { top=0;bottom=h; }
+   const darkColumn = x => { let count=0; for(let y=top;y<bottom;y++) if(dark(x,y))count++; return count>=(bottom-top)*.98; };
+   while(left<w && darkColumn(left))left++;
+   while(right>left && darkColumn(right-1))right--;
+   if(left<2 || w-right<2 || Math.abs(left-(w-right))>Math.max(3,w*.08) || right-left<w*.35) { left=0;right=w; }
+   if(top || left || bottom<h || right<w) crop={x:left/w,y:top/h,width:(right-left)/w,height:(bottom-top)/h};
+  } catch { /* Cross-origin or undecodable pictures keep their normal cover fit. */ }
+  coverCropCache.set(key,crop);
+  if(coverCropCache.size>256)coverCropCache.delete(coverCropCache.keys().next().value);
+ }
+ for(const property of ['width','height','left','top','right','bottom','object-fit'])image.style.removeProperty(property);
+ if(!crop)return;
+ const frame=image.parentElement, width=frame.clientWidth, height=frame.clientHeight;
+ if(!width || !height)return;
+ const croppedWidth=image.naturalWidth*crop.width, croppedHeight=image.naturalHeight*crop.height;
+ const scale=Math.max(width/croppedWidth,height/croppedHeight);
+ Object.assign(image.style,{
+  width:`${image.naturalWidth*scale/width*100}%`,height:`${image.naturalHeight*scale/height*100}%`,
+  left:`${((width-croppedWidth*scale)/2-image.naturalWidth*crop.x*scale)/width*100}%`,
+  top:`${((height-croppedHeight*scale)/2-image.naturalHeight*crop.y*scale)/height*100}%`,
+  right:'auto',bottom:'auto',objectFit:'fill'
+ });
+};
+document.addEventListener('load',event=>{ if(event.target instanceof HTMLImageElement && event.target.matches('.cover img'))familyhub.cropCover(event.target); },true);

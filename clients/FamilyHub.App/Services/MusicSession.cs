@@ -46,7 +46,11 @@ public sealed class MusicSession
     private int accountVersion;
     private readonly Dictionary<string, OfflineLibrary> playbackCaches = [];
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> cachedEditions = new();
-    public string PlaybackQuality { get; private set; } = "max";
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, MusicTrack> playbackRecords = new();
+    public string StreamingQualityWifi { get; private set; } = "max";
+    public string StreamingQualityMobile { get; private set; } = "high";
+    public string DownloadQuality { get; private set; } = "max";
+    public string ActiveStreamingQuality => HomeConnection ? StreamingQualityWifi : StreamingQualityMobile;
     public int CacheLimitGb { get; private set; } = 3;
     public bool DownloadsWifiOnly { get; private set; } = true;
     private static bool HomeConnection => Microsoft.Maui.Networking.Connectivity.Current.ConnectionProfiles.Any(
@@ -167,6 +171,7 @@ public sealed class MusicSession
         {
             playbackCaches.Clear();
             cachedEditions.Clear();
+            playbackRecords.Clear();
             Volatile.Write(ref cachedHashes, []);
             Volatile.Write(ref cachedTracks, []);
             Interlocked.Exchange(ref cachedBytes, 0);
@@ -174,11 +179,39 @@ public sealed class MusicSession
             PinUpcomingPlayback(null); PinPreparingNextPlayback(null);
         }
         Connected = false;
-        PlaybackQuality = Preferences.Default.Get(PreferenceKey(Server, User) + ":quality", "max") == "lower" ? "lower" : "max";
-        CacheLimitGb = int.TryParse(Preferences.Default.Get(PreferenceKey(Server, User) + ":cache-gb", "3"), out var limit)
+        var prefPrefix = PreferenceKey(Server, User);
+        if (Preferences.Default.ContainsKey(prefPrefix + ":quality-wifi"))
+        {
+            var wifi = Preferences.Default.Get(prefPrefix + ":quality-wifi", "max");
+            var mobile = Preferences.Default.Get(prefPrefix + ":quality-mobile", "high");
+            var download = Preferences.Default.Get(prefPrefix + ":quality-download", "max");
+            StreamingQualityWifi = IsValidQuality(wifi) ? wifi : "max";
+            StreamingQualityMobile = IsValidQuality(mobile) ? mobile : "high";
+            DownloadQuality = IsValidQuality(download) ? download : "max";
+        }
+        else
+        {
+            var oldQuality = Preferences.Default.Get(prefPrefix + ":quality", "max");
+            if (oldQuality == "lower")
+            {
+                StreamingQualityWifi = "normal";
+                StreamingQualityMobile = "normal";
+                DownloadQuality = "max";
+            }
+            else
+            {
+                StreamingQualityWifi = "max";
+                StreamingQualityMobile = "high";
+                DownloadQuality = "max";
+            }
+            Preferences.Default.Set(prefPrefix + ":quality-wifi", StreamingQualityWifi);
+            Preferences.Default.Set(prefPrefix + ":quality-mobile", StreamingQualityMobile);
+            Preferences.Default.Set(prefPrefix + ":quality-download", DownloadQuality);
+        }
+        CacheLimitGb = int.TryParse(Preferences.Default.Get(prefPrefix + ":cache-gb", "3"), out var limit)
             && limit is 1 or 3 or 5 or 10 ? limit : 3;
-        DownloadsWifiOnly = Preferences.Default.Get(PreferenceKey(Server, User) + ":downloads-wifi", "true") != "false";
-        _ = PlaybackCache;
+        DownloadsWifiOnly = Preferences.Default.Get(prefPrefix + ":downloads-wifi", "true") != "false";
+        EnsurePlaybackCaches();
         var cacheVersion = accountVersion;
         var caches = playbackCaches.Values.ToArray();
         _ = Task.Run(() => ReadPlaybackAvailabilityAsync(cacheVersion, caches));
@@ -206,11 +239,29 @@ public sealed class MusicSession
     public bool OnThisDevice(MusicTrack track) => KeptOnDevice(track) ||
         Volatile.Read(ref cachedHashes).TryGetValue(track.Id, out var editions) && (!Connected || editions.Contains(CurrentRecording(track).DownloadSha256));
 
-    public void SetPlaybackQuality(string quality)
+    private static bool IsValidQuality(string quality) => quality is "low" or "normal" or "high" or "max";
+
+    public void SetStreamingQualityWifi(string quality)
     {
-        if (quality is not ("max" or "lower")) throw new ArgumentException("Choose Lower or Max quality.");
-        PlaybackQuality = quality;
-        Preferences.Default.Set(PreferenceKey(Server, User) + ":quality", quality);
+        if (!IsValidQuality(quality)) throw new ArgumentException("Choose Low, Normal, High or Max quality.");
+        StreamingQualityWifi = quality;
+        Preferences.Default.Set(PreferenceKey(Server, User) + ":quality-wifi", quality);
+        Changed?.Invoke();
+    }
+
+    public void SetStreamingQualityMobile(string quality)
+    {
+        if (!IsValidQuality(quality)) throw new ArgumentException("Choose Low, Normal, High or Max quality.");
+        StreamingQualityMobile = quality;
+        Preferences.Default.Set(PreferenceKey(Server, User) + ":quality-mobile", quality);
+        Changed?.Invoke();
+    }
+
+    public void SetDownloadQuality(string quality)
+    {
+        if (!IsValidQuality(quality)) throw new ArgumentException("Choose Low, Normal, High or Max quality.");
+        DownloadQuality = quality;
+        Preferences.Default.Set(PreferenceKey(Server, User) + ":quality-download", quality);
         Changed?.Invoke();
     }
 
@@ -423,14 +474,15 @@ public sealed class MusicSession
         finally { if (!ReferenceEquals(Api, candidate)) candidate?.Dispose(); connectionLock.Release(); }
     }
 
-    public async Task SavePreferencesAsync(double volume, bool shuffle, bool? autoDj = null, string? repeatMode = null, int? crossfadeSeconds = null)
+    public async Task SavePreferencesAsync(double volume, bool shuffle, bool? autoDj = null, string? repeatMode = null, int? crossfadeSeconds = null, string? volumeLevel = null)
     {
         if (!double.IsFinite(volume) || volume is < 0 or > 1) throw new ArgumentException("Volume must be between zero and one.");
+        if (volumeLevel is not (null or "loud" or "normal" or "quiet")) throw new ArgumentException("Choose Loud, Normal or Quiet volume level.");
         await connectionLock.WaitAsync();
         try
         {
             if (string.IsNullOrEmpty(User)) return;
-            PlaybackPreferences = PlaybackPreferences with { Volume = volume, Shuffle = shuffle, AutoDj = autoDj ?? PlaybackPreferences.AutoDj, RepeatMode = repeatMode ?? PlaybackPreferences.RepeatMode, CrossfadeSeconds = crossfadeSeconds ?? PlaybackPreferences.CrossfadeSeconds };
+            PlaybackPreferences = PlaybackPreferences with { Volume = volume, Shuffle = shuffle, AutoDj = autoDj ?? PlaybackPreferences.AutoDj, RepeatMode = repeatMode ?? PlaybackPreferences.RepeatMode, CrossfadeSeconds = crossfadeSeconds ?? PlaybackPreferences.CrossfadeSeconds, VolumeLevel = volumeLevel ?? PlaybackPreferences.VolumeLevel };
             StorePreferences(PlaybackPreferences, true); Changed?.Invoke();
             if (!Connected || Api is null) return;
             try
@@ -528,14 +580,21 @@ public sealed class MusicSession
     public MusicTrack CurrentRecording(MusicTrack track) =>
         libraryById.TryGetValue(track.Id, out var current) && (Connected || current.DownloadSha256 == track.DownloadSha256) ? current : track;
 
+    public MusicTrack PlaybackRecording(MusicTrack track, string path) =>
+        Offline?.GetDownloadedPath(track.Id) == path && downloadsById.TryGetValue(track.Id, out var saved) ? saved :
+        playbackRecords.GetValueOrDefault(path, track);
+
     public string? LocalPath(MusicTrack track)
     {
         track = CurrentRecording(track);
         var path = Offline?.GetDownloadedPath(track.Id);
         if (path is null || !Connected || string.IsNullOrEmpty(track.DownloadSha256)) return path;
         var saved = Downloads.FirstOrDefault(t => t.Id == track.Id);
-        if (PlaybackQuality == "lower" && saved is not null && saved.PlaybackSourceSha256 == track.DownloadSha256
-            && saved.PlaybackVersion == track.PlaybackVersion) return path;
+        if (saved is not null)
+        {
+            var sourceHash = string.IsNullOrEmpty(saved.PlaybackSourceSha256) ? saved.DownloadSha256 : saved.PlaybackSourceSha256;
+            if (sourceHash == track.DownloadSha256) return path;
+        }
         // Keep old offline downloads, but fetch the current edition when connected.
         return path.EndsWith("." + track.DownloadSha256 + track.DownloadExtension,
             StringComparison.OrdinalIgnoreCase) ? path : null;
@@ -687,7 +746,7 @@ public sealed class MusicSession
         }
         finally { connectionLock.Release(); }
         using var cancellationScope = cancellation;
-        var quality = PlaybackQuality;
+        var quality = DownloadQuality;
         var networkPaused = false;
         void NetworkChanged(object? sender, Microsoft.Maui.Networking.ConnectivityChangedEventArgs args)
         {
@@ -696,6 +755,7 @@ public sealed class MusicSession
         Microsoft.Maui.Networking.Connectivity.Current.ConnectivityChanged += NetworkChanged;
         try
         {
+            EnsurePlaybackCaches();
             var selected = tracks.Select(CurrentRecording).DistinctBy(t => t.Id).ToList();
             var completed = 0;
             foreach (var original in selected)
@@ -738,20 +798,41 @@ public sealed class MusicSession
         SetMessage("Removed from this device. The server copy is unchanged.");
     }
 
+    private static readonly (string Quality, string Folder)[] PlaybackCacheTiers =
+    [
+        ("max", "playback"),
+        ("normal", "playback-lower"),
+        ("low", "playback-low"),
+        ("high", "playback-high"),
+    ];
+
+    private void EnsurePlaybackCaches()
+    {
+        if (string.IsNullOrEmpty(User) || string.IsNullOrEmpty(Server)) return;
+        if (playbackCaches.Count == 0)
+        {
+            var uri = new Uri(Server);
+            foreach (var (quality, folder) in PlaybackCacheTiers)
+                playbackCaches[quality] = new OfflineLibrary(Path.Combine(FileSystem.CacheDirectory, folder), uri, User);
+        }
+    }
+
     private OfflineLibrary? PlaybackCache
     {
         get
         {
-            if (string.IsNullOrEmpty(User) || string.IsNullOrEmpty(Server)) return null;
-            if (playbackCaches.Count == 0)
-            {
-                foreach (var quality in new[] { "max", "lower" })
-                    playbackCaches[quality] = new OfflineLibrary(Path.Combine(FileSystem.CacheDirectory,
-                        quality == "max" ? "playback" : "playback-lower"), new Uri(Server), User);
-            }
-            return playbackCaches[PlaybackQuality];
+            EnsurePlaybackCaches();
+            return playbackCaches.GetValueOrDefault(ActiveStreamingQuality);
         }
     }
+
+    public static string TierVersion(string quality) => quality switch
+    {
+        "low" => "opus48-v2",
+        "normal" => "opus96-v2",
+        "high" => "opus160-v2",
+        _ => throw new ArgumentException("Choose Low, Normal or High quality.")
+    };
 
     public void PinPlayback(string? trackId) => Volatile.Write(ref playingCacheId, trackId);
     public void PinPreparingPlayback(string? trackId) => Volatile.Write(ref preparingCacheId, trackId);
@@ -765,20 +846,22 @@ public sealed class MusicSession
     {
         cancellationToken.ThrowIfCancellationRequested();
         var version = accountVersion;
+        var quality = ActiveStreamingQuality;
         var cache = PlaybackCache;
         if (cache is null || !track.Saved || string.IsNullOrEmpty(track.DownloadSha256)) return null;
-        if (PlaybackQuality == "lower")
+        if (quality != "max")
         {
+            var expectedVersion = TierVersion(quality);
             var compressed = (await cache.ListDownloadsAsync(cancellationToken)).FirstOrDefault(t =>
                 t.Id == track.Id && t.PlaybackSourceSha256 == track.DownloadSha256
-                    && (!Connected || t.PlaybackVersion == track.PlaybackVersion));
+                    && (!Connected || t.PlaybackVersion == expectedVersion));
             if (compressed is not null) track = compressed;
         }
         string? path;
         try { path = await cache.GetVerifiedDownloadedPathAsync(track, cancellationToken); }
         catch (InvalidDataException) { return null; }
         EnsureCurrent(version);
-        if (path is not null) TouchPlayback(path);
+        if (path is not null) { playbackRecords[path] = track; TouchPlayback(path); }
         return path;
     }
 
@@ -790,12 +873,15 @@ public sealed class MusicSession
         if (local is not null) return local;
         var api = OnlineApi();
         var version = accountVersion;
-        var cache = PlaybackCache!;
-        track = await PlaybackEditionAsync(track, api, PlaybackQuality, cancellationToken);
+        var quality = ActiveStreamingQuality;
+        EnsurePlaybackCaches();
+        var cache = playbackCaches[quality];
+        track = await PlaybackEditionAsync(track, api, quality, cancellationToken);
         EnsureCurrent(version);
         var path = await cache.DownloadAsync(track, api, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         EnsureCurrent(version);
+        playbackRecords[path] = track;
         TouchPlayback(path);
         cachedEditions[track.Id] = string.IsNullOrEmpty(track.PlaybackSourceSha256) ? track.DownloadSha256 : track.PlaybackSourceSha256;
         // Cache maintenance must not delay handing verified audio to the player.
@@ -806,10 +892,11 @@ public sealed class MusicSession
 
     private static async Task<MusicTrack> PlaybackEditionAsync(MusicTrack track, FamilyHubApi api, string quality, CancellationToken token)
     {
-        if (quality != "lower") return track;
+        if (quality == "max") return track;
         if (track.PlaybackInfoUrl != $"/api/library/{track.Id}/playback-info")
-            throw new InvalidDataException("Data saver is unavailable for this recording. Refresh the library and try again.");
-        var compressed = await api.RequestJsonAsync<MusicTrack>(HttpMethod.Get, track.PlaybackInfoUrl, cancellationToken: token);
+            throw new InvalidDataException("Audio quality is unavailable for this recording. Refresh the library and try again.");
+        var url = quality == "normal" ? track.PlaybackInfoUrl : $"{track.PlaybackInfoUrl}?quality={quality}";
+        var compressed = await api.RequestJsonAsync<MusicTrack>(HttpMethod.Get, url, cancellationToken: token);
         if (compressed.Id != track.Id || compressed.PlaybackSourceSha256 != track.DownloadSha256)
             throw new InvalidDataException("The playback copy does not match this recording.");
         return compressed;
@@ -835,6 +922,7 @@ public sealed class MusicSession
                 try
                 {
                     await item.Cache.RemoveDownloadAsync(item.Track.Id, canRemove: () => !PlaybackPinned(item.Track.Id));
+                    playbackRecords.TryRemove(item.Path, out _);
                     if (version == accountVersion && caches.All(cache => cache.GetDownloadedPath(item.Track.Id) is null))
                         cachedEditions.TryRemove(item.Track.Id, out _);
                 }

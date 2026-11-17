@@ -1,0 +1,9 @@
+@inject MusicSession Session
+
+<span class="playlist-attribution"><ProfileAvatar Profile="Owner" Size="24" ShowCrown="false" /><span>@(Playlist.Shared ? "Shared by " : "By ")@(Playlist.OwnerId == Session.User ? "me" : Owner.Name)</span></span>
+
+@code {
+    [Parameter, EditorRequired] public MusicPlaylist Playlist { get; set; } = null!;
+    private ListenerProfile Owner => Session.Profiles.FirstOrDefault(p => p.Id == Playlist.OwnerId)
+        ?? new() { Id = Playlist.OwnerId, Name = Playlist.OwnerName };
+}

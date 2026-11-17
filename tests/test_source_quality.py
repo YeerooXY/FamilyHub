@@ -4,10 +4,14 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
-from music_web.source_quality import SourceQuality, analyze, classify, spectrum, SIZE, RATE, ScanPaused
+from music_web.source_quality import SourceQuality, analyze, classify, spectrum, SIZE, RATE, ScanPaused, replace_saved
+from music_web.playlists import PlaylistStore
+from music_web.listening_stats import ListeningStats
+from music_web.listening_stats import ListeningStats
 from test_music_web import Base
 import test_native_music_api as native
 
@@ -55,6 +59,109 @@ class SpectrumTests(unittest.TestCase):
 
 class QualityScanTests(Base):
     extra = {'ADMIN_USERS': ['sample-a']}
+
+    def proposal(self):
+        item, target, manifest, audio = native.NativeMusicApi.recording(self)
+        candidate = dict(id=native.SECOND, url='https://www.youtube.com/watch?v=' + native.SECOND,
+                         title='First', channel='Artist - Topic', duration=.02, source_tier=1)
+        row = dict(id=native.FIRST, sha256=manifest['audio']['sha256'], title='First', artist='Artist',
+                   duration=.02, verdict='suspect', source_tier=3, proposed_replacement=candidate)
+        self.state.source_quality.save(native.FIRST + ':' + row['sha256'], row)
+        return item, target, manifest, candidate
+
+    def test_replacement_uses_acquisition_and_repoints_all_profiles(self):
+        item, target, manifest, candidate = self.proposal()
+        store = PlaylistStore(self.ws)
+        for user in ('sample-a', 'sample-b'):
+            store.save(user, dict(id='p' * 22, tracks=[dict(source_id=native.FIRST, match=dict(id=native.FIRST))]))
+        review = self.state.catalogue_review
+        values = dict(artist='Reviewed artist', album='Reviewed album', genre='Pop')
+        review.data['overrides'][native.FIRST] = dict(sha256=manifest['import']['library_sha256'], values=values)
+        review.dirty = True
+        review.flush()
+        lyrics = Path(self.ws) / '.lyrics'
+        lyrics.mkdir()
+        (lyrics / (native.FIRST + '.json')).write_text('{"state":"plain","text":"words"}')
+
+        def fetch(args):
+            new_item, _, new_manifest, _ = native.NativeMusicApi.recording(self, source_id=native.SECOND, samples=b'\x03\x04' * 160)
+            return dict(item=str(new_item), manifest=new_manifest)
+
+        admin, token = self.signed_in()
+        with patch.object(self.intake, 'cmd_fetch', side_effect=fetch) as acquisition, patch.object(self.intake, 'cmd_preview', side_effect=ValueError):
+            response = self.post(admin, token, f'/api/catalogue/source-quality/{native.FIRST}/replace', json=dict(candidate_id=native.SECOND))
+            self.assertEqual(response.status_code, 202, response.json)
+            for _ in range(300):
+                if not self.state.source_quality.replace_lock.locked(): break
+                time.sleep(.02)
+            self.assertFalse(self.state.source_quality.replace_lock.locked())
+            acquisition.assert_called_once()
+        self.assertEqual(self.state.source_quality.snapshot()['songs'], [])
+        for user in ('sample-a', 'sample-b'):
+            row = store.read(user, 'p' * 22)['tracks'][0]
+            self.assertEqual((row['source_id'], row['match']['id']), (native.SECOND, native.SECOND))
+        new_item = next(Path(self.ws).glob('yt-' + native.SECOND + '-*'))
+        _, new_manifest, _ = self.intake.load_item(str(new_item))
+        self.assertNotEqual(new_manifest['import']['library_sha256'], manifest['import']['library_sha256'])
+        self.assertEqual(review.overrides(native.SECOND, new_manifest['import']['library_sha256']), values)
+        self.assertEqual(review.overrides(native.SECOND, manifest['import']['library_sha256']), {})
+        archive = Path(self.ws) / '.replaced' / native.FIRST
+        self.assertFalse(item.exists())
+        self.assertFalse(target.exists())
+        self.assertTrue((archive / item.name / 'audio.wav').exists())
+        self.assertTrue((archive / 'library' / target.name).exists())
+        self.assertTrue((lyrics / (native.SECOND + '.json')).exists())
+        journal = json.loads((Path(self.ws) / '.replacements.json').read_text())
+        self.assertEqual(journal[native.FIRST]['state'], 'done')
+        # An in-flight playlist preparation must not write the archived ID back later.
+        store.save('sample-a', dict(id='q' * 22, tracks=[dict(source_id=native.FIRST, match=dict(id=native.FIRST))]))
+        self.assertEqual(store.read('sample-a', 'q' * 22)['tracks'][0]['source_id'], native.SECOND)
+
+    def test_failed_archive_restores_review_in_memory_and_on_disk(self):
+        item, target, manifest, candidate = self.proposal()
+        new_item, _, new_manifest, _ = native.NativeMusicApi.recording(
+            self, source_id=native.SECOND, samples=b'\x03\x04' * 160)
+        review = self.state.catalogue_review
+        values = dict(artist='Reviewed artist')
+        review.data['overrides'][native.FIRST] = dict(sha256=manifest['import']['library_sha256'], values=values)
+        review.dirty = True
+        review.flush()
+        before = json.loads(review.path.read_text(encoding='utf-8'))
+        saved = {
+            native.FIRST: dict(item=str(item), manifest=manifest),
+            native.SECOND: dict(item=str(new_item), manifest=new_manifest),
+        }
+        with patch('music_web.source_quality.shutil.move', side_effect=OSError('Archive unavailable')):
+            with self.assertRaises(OSError):
+                replace_saved(self.ws, self.lib, native.FIRST, candidate, saved.get,
+                              PlaylistStore(self.ws), review, ListeningStats(self.ws), self.intake)
+        self.assertEqual(review.data, before)
+        self.assertEqual(json.loads(review.path.read_text(encoding='utf-8')), before)
+        self.assertFalse(review.dirty)
+        self.assertTrue(item.exists())
+        self.assertTrue(target.exists())
+
+    def test_dismiss_and_non_admin_mutations(self):
+        self.proposal()
+        member, token = self.signed_in('sample-b')
+        for action in ('dismiss', 'replace'):
+            self.assertEqual(self.post(member, token, f'/api/catalogue/source-quality/{native.FIRST}/{action}', json={}).status_code, 403)
+        admin, token = self.signed_in()
+        response = self.post(admin, token, f'/api/catalogue/source-quality/{native.FIRST}/dismiss', json={})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(SourceQuality(self.ws, self.intake).snapshot()['songs'], [])
+
+    def test_duration_and_running_download_are_refused(self):
+        _, _, _, candidate = self.proposal()
+        admin, token = self.signed_in()
+        candidate['duration'] = 10
+        response = self.post(admin, token, f'/api/catalogue/source-quality/{native.FIRST}/replace', json=dict(candidate_id=native.SECOND))
+        self.assertEqual(response.status_code, 400)
+        candidate['duration'] = .02
+        self.state.jobs['busy'] = dict(source_id=native.SECOND, state='running')
+        response = self.post(admin, token, f'/api/catalogue/source-quality/{native.FIRST}/replace', json=dict(candidate_id=native.SECOND))
+        self.assertEqual(response.status_code, 409)
+        self.state.jobs.pop('busy')
 
     def test_idle_cache_and_replacement_never_change_audio(self):
         native.NativeMusicApi.recording(self, title='Artist - First')

@@ -25,8 +25,8 @@ internal static class SessionChecks
         var compressedAudio = Encoding.UTF8.GetBytes("Smaller playback fixture");
         var playbackInfoRequests = 0;
         recording = recording with { PlaybackInfoUrl = "/api/library/abcdefghijk/playback-info" };
-        var compressed = recording with {
-            PlaybackSourceSha256 = recording.DownloadSha256,
+        var compressed = recording with { Lufs = -14, TruePeak = -5,
+            PlaybackSourceSha256 = recording.DownloadSha256, PlaybackVersion = "opus96-v2",
             DownloadUrl = $"/api/library/abcdefghijk/playback/{recording.DownloadSha256.ToLowerInvariant()}/audio.m4a",
             DownloadSize = compressedAudio.Length,
             DownloadSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(compressedAudio)).ToLowerInvariant()
@@ -96,7 +96,7 @@ internal static class SessionChecks
             publishLibrary = false;
             await session.RefreshLibraryAutomaticallyAsync();
             var originalRoot = session.Offline!.RootDirectory;
-            Check(session.PlaybackQuality == "max", "Playback must default to the server original");
+            Check(session.StreamingQualityWifi == "max", "Playback must default to the server original");
             var deviceUpdated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             void DeviceChanged() { if (session.DeviceTracks.Any(t => t.Id == recording.Id)) deviceUpdated.TrySetResult(); }
             session.Changed += DeviceChanged;
@@ -107,25 +107,28 @@ internal static class SessionChecks
             Check(session.DeviceBytes == audio.Length && session.DeviceTracks.Count == 1, "Device view missed freshly cached bytes or songs");
             Check(originalAudioRequests == 1 && playbackInfoRequests == 0 && File.ReadAllBytes(maxPlayback).SequenceEqual(audio),
                 "Max playback transcoded or changed the original audio");
-            try { session.SetPlaybackQuality("invalid"); throw new Exception("Invalid quality accepted"); }
+            try { session.SetStreamingQualityWifi("invalid"); throw new Exception("Invalid quality accepted"); }
             catch (ArgumentException) { checks++; }
-            session.SetPlaybackQuality("lower");
+            session.SetStreamingQualityWifi("normal");
             var cachedPlayback = await session.CachePlaybackAsync(recording, CancellationToken.None);
             Check(cachedPlayback != maxPlayback && File.ReadAllBytes(cachedPlayback).SequenceEqual(compressedAudio),
-                "Lower playback reused or overwrote the original cache");
+                "Normal playback reused or overwrote the original cache");
             Check(audioRequests == 1 && File.Exists(cachedPlayback), "Playback did not prepare verified cache");
+            Check(session.PlaybackRecording(recording, cachedPlayback).Lufs == -14, "Player used source loudness for a cached copy");
             Check(playbackInfoRequests == 1 && cachedPlayback.EndsWith(".m4a"), "Playback did not request the compressed copy");
             Check(session.CacheLimitGb == 3 && session.DownloadsWifiOnly, "Cache or network defaults changed");
             session.SetCacheLimit(5);
             try { session.SetCacheLimit(2); throw new Exception("Invalid cache limit accepted"); }
             catch (ArgumentOutOfRangeException) { checks++; }
+            session.SetDownloadQuality("normal");
             await session.DownloadAsync([recording]);
             Check(audioRequests == 1 && originalAudioRequests == 1, "Keeping a cached song downloaded the audio again");
             Check(session.Downloads.Single().DownloadSha256 == compressed.DownloadSha256, "Offline download ignored selected quality");
-            Check(session.LocalPath(recording) is not null, "Saved Data saver copy unavailable for online playback");
-            session.SetPlaybackQuality("max");
-            Check(session.LocalPath(recording) is null, "Max reused a compressed download online");
-            session.SetPlaybackQuality("lower");
+            Check(session.LocalPath(recording) is not null, "Saved Normal quality copy unavailable for online playback");
+            Check(session.PlaybackRecording(recording, session.LocalPath(recording)!).TruePeak == -5, "Kept copy lost its peak measurement");
+            session.SetStreamingQualityWifi("max");
+            Check(session.LocalPath(recording) is not null, "Streaming quality overrode a kept download");
+            session.SetStreamingQualityWifi("normal");
             Microsoft.Maui.Networking.Connectivity.Current.ConnectionProfiles = [Microsoft.Maui.Networking.ConnectionProfile.Cellular];
             try { await session.DownloadAsync([recording]); throw new Exception("Wi-Fi-only download used mobile data"); }
             catch (InvalidOperationException) { checks++; }
@@ -137,15 +140,23 @@ internal static class SessionChecks
             Check(await session.GetCachedPlaybackPathAsync(recording) == cachedPlayback, "Offline warm playback cache was unavailable");
             Check(await session.CachePlaybackAsync(recording, CancellationToken.None) == cachedPlayback && audioRequests == 1,
                 "Repeated playback unnecessarily downloaded audio");
-            session.SetPlaybackQuality("max");
+            session.SetStreamingQualityWifi("max");
             Check(await session.GetCachedPlaybackPathAsync(recording) == maxPlayback && originalAudioRequests == 1,
-                "Max quality reused lower-quality audio or re-downloaded a cached original");
+                "Max quality reused compressed audio or re-downloaded a cached original");
             File.Delete(maxPlayback);
             Check(await session.GetCachedPlaybackPathAsync(recording) is null,
-                "Max quality silently fell back to a lower-quality cache");
+                "Max quality silently fell back to a compressed cache");
             File.WriteAllBytes(maxPlayback, audio);
-            session.SetPlaybackQuality("lower");
-            await session.SavePreferencesAsync(0.25, true, false);
+            session.SetStreamingQualityWifi("normal");
+            session.SetStreamingQualityMobile("low");
+            session.SetDownloadQuality("high");
+            try { session.SetDownloadQuality("invalid"); throw new Exception("Invalid download quality accepted"); }
+            catch (ArgumentException) { checks++; }
+            try { session.SetStreamingQualityMobile("invalid"); throw new Exception("Invalid mobile quality accepted"); }
+            catch (ArgumentException) { checks++; }
+            try { MusicSession.TierVersion("invalid"); throw new Exception("Invalid tier accepted"); }
+            catch (ArgumentException) { checks++; }
+            await session.SavePreferencesAsync(0.25, true, false, volumeLevel: "quiet");
             await session.SwitchProfileAsync();
             Check(session.NeedsProfileSelection && session.Profiles.Count == 2, "Offline switch lost profiles");
             var restarted = new MusicSession(Api);
@@ -157,9 +168,11 @@ internal static class SessionChecks
             Check(restarted.PlaybackPreferences.Volume == 0.25 && restarted.PlaybackPreferences.Shuffle, "Offline selection lost preferences");
             Check(!restarted.PlaybackPreferences.AutoDj, "Restart lost Auto DJ preference");
             Check(restarted.CacheLimitGb == 5, "Restart lost cache preference");
-            Check(restarted.PlaybackQuality == "lower", "Restart lost the device quality setting");
+            Check(restarted.StreamingQualityWifi == "normal" && restarted.StreamingQualityMobile == "low" && restarted.DownloadQuality == "high", "Restart lost quality settings");
+            Check(restarted.PlaybackPreferences.VolumeLevel == "quiet", "Restart lost volume level");
             await restarted.SelectProfileAsync("sam");
-            Check(restarted.PlaybackQuality == "max", "Quality setting leaked into another profile");
+            Check(restarted.StreamingQualityWifi == "max" && restarted.StreamingQualityMobile == "high" && restarted.DownloadQuality == "max", "Quality setting leaked into another profile");
+            Check(restarted.PlaybackPreferences.VolumeLevel == "normal", "Volume level leaked into another profile");
             Check(restarted.User == "sam" && restarted.Library.Count == 0 && restarted.PlaybackPreferences.Volume == 1, "Profile data leaked to another listener");
             try { await restarted.SelectProfileAsync("unknown"); throw new Exception("Unknown offline profile accepted"); }
             catch (InvalidOperationException) { checks++; }
@@ -201,6 +214,17 @@ internal sealed class Preferences
 {
     public static Preferences Default { get; } = new();
     private readonly Dictionary<string, string> values = [];
+    public bool ContainsKey(string key) => values.ContainsKey(key);
     public string Get(string key, string fallback) => values.GetValueOrDefault(key, fallback);
     public void Set(string key, string value) => values[key] = value;
+}
+internal enum DevicePlatform { WinUI, Android, MacCatalyst, iOS }
+internal enum DeviceIdiom { Desktop, Tablet }
+internal sealed class DeviceInfo
+{
+    public static DeviceInfo Current { get; } = new();
+    public DevicePlatform Platform => DevicePlatform.WinUI;
+    public DeviceIdiom Idiom => DeviceIdiom.Desktop;
+    public string Name => "Test device";
+    public string Model => "Test";
 }

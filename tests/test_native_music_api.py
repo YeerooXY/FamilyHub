@@ -48,13 +48,13 @@ class NativeMusicApi(Base):
             self.assertEqual(len(self.go(client, 'GET', '/api/library').json['results']), 300)
             self.assertEqual(hashing.call_count, 0, 'Refreshing a large library rehashed unchanged audio')
 
-    def recording(self, source_id=FIRST, title='First', imported=True):
+    def recording(self, source_id=FIRST, title='First', imported=True, samples=b'\x01\x02' * 160):
         stream = io.BytesIO()
         with wave.open(stream, 'wb') as audio:
             audio.setnchannels(1)
             audio.setsampwidth(2)
             audio.setframerate(8000)
-            audio.writeframes(b'\x01\x02' * 160)
+            audio.writeframes(samples)
         data = stream.getvalue()
         digest = hashlib.sha256(data).hexdigest()
         item_id = 'yt-' + source_id + '-' + digest[:12]
@@ -100,14 +100,17 @@ class NativeMusicApi(Base):
         self.assertEqual(result.status_code,200,result.json)
         self.assertEqual(result.json['playlist']['tracks'][0]['source_id'],local_id)
 
-    def test_library_does_not_request_client_loudness_processing(self):
+    def test_library_includes_original_measurements_and_legacy_gain(self):
         item, _, manifest, _ = self.recording()
         measurement = {'duration': .02, 'start': 0, 'end': .02, 'lufs': -8.76, 'true_peak': 2.12, 'gain_db': -7.24}
         client, _ = self.signed_in()
         with patch('music_web.profile', return_value=measurement):
             response = self.go(client, 'GET', '/api/library')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json['results'][0]['playback_gain_db'], 0)
+        track = response.json['results'][0]
+        self.assertEqual(track['playback_gain_db'], -7.24)
+        self.assertEqual(track['lufs'], -8.76)
+        self.assertEqual(track['true_peak'], 2.12)
 
     def test_scratch_quota_counts_pending_audio_but_not_published_assets(self):
         item, target, _, _ = self.recording()
@@ -142,6 +145,8 @@ class NativeMusicApi(Base):
         self.assertEqual(track['download_extension'], '.flac')
         self.assertEqual(track['download_sha256'], row['sha256'])
         self.assertEqual(track['playback_gain_db'], 0)
+        self.assertEqual(track['lufs'], row['lufs'])
+        self.assertEqual(track['true_peak'], row['true_peak'])
         with self.go(client, 'GET', track['download_url'], headers={'Range':'bytes=0-7'}) as response:
             self.assertEqual(response.status_code, 206)
             self.assertEqual(response.data, data[:8])

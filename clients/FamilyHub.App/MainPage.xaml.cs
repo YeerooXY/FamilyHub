@@ -5,6 +5,19 @@ public partial class MainPage : ContentPage
     private static WeakReference<MainPage>? current;
     private readonly Services.MusicSession session;
     private readonly Services.MusicPlayer player;
+#if WINDOWS
+    private readonly Services.DiscordPresence discord;
+    private void UpdateDiscord()
+    {
+        if (Dispatcher.IsDispatchRequired) { Dispatcher.Dispatch(UpdateDiscord); return; }
+        var track = player.Current;
+        if (!Services.DiscordPresence.Enabled || track is null) { discord.Update(null); return; }
+        track = session.CurrentRecording(track);
+        discord.Update(new FamilyHub.Client.Core.DiscordSnapshot(track.Title, track.Channel, track.LibraryAlbum, track.Id,
+            player.Playing, player.Position, player.Duration, player.RemoteActive));
+    }
+    public void CloseDiscord() => discord.Close();
+#endif
     private IDispatcherTimer? refreshTimer;
     private readonly IDispatcherTimer activityTimer;
     private DateTime lastRefresh;
@@ -121,11 +134,22 @@ public partial class MainPage : ContentPage
             Task.Run<Stream>(async () => await image is { } found ? new MemoryStream(found.Data, false) : throw new FileNotFoundException()));
     }
 
-	public MainPage(Services.MusicPlayer player, Services.MusicSession session)
+	public MainPage(Services.MusicPlayer player, Services.MusicSession session
+#if WINDOWS
+        , Services.DiscordPresence discord
+#endif
+        )
 	{
 		InitializeComponent();
         this.session = session;
         this.player = player;
+#if WINDOWS
+        this.discord = discord;
+        player.Changed += UpdateDiscord;
+        session.Changed += UpdateDiscord;
+        Services.DiscordPresence.SettingChanged += UpdateDiscord;
+        UpdateDiscord();
+#endif
         current = new(this);
         blazorWebView.WebResourceRequested += ServeArtwork;
 #if WINDOWS

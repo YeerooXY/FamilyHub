@@ -654,6 +654,8 @@ def create_app(test_config=None):
         # the least progress, so the least work is repeated. The others keep running.
         if not background_download(job) or not playback_demand():
             return False
+        if job.get('source_replacement'):
+            return True
         with lock:
             if any(j.get("yielded") and j["state"] == "queued" and not j["cancel"].is_set() for j in jobs.values()):
                 return False
@@ -1188,7 +1190,7 @@ def create_app(test_config=None):
                 if not item:
                     raise ApiError("Save this recording to the server library first.", 404)
                 track, _ = library_record(item)
-                tracks.append({"added_at": datetime.now(timezone.utc).isoformat(), "album": track.get("library_album", ""), "title": track["title"], "artist": track["channel"], "duration": track["duration"],
+                tracks.append({"added_at": datetime.now(timezone.utc).isoformat(), "added_by": g.user, "album": track.get("library_album", ""), "title": track["title"], "artist": track["channel"], "duration": track["duration"],
                                "source_id": source_id, "spotify_uri": "", "match": track,
                                "candidates": [track], "state": "saved"})
             elif operation in ({"remove_index"}, {"move_from", "move_to"}):
@@ -1247,6 +1249,8 @@ def create_app(test_config=None):
             with lock:
                 job = new_job(user, "fetch", metadata, source, 20, True)
                 job["playlist_import"] = True
+                if getattr(progress, 'source_replacement', False):
+                    job['source_replacement'] = True
                 job["playlist_id"] = getattr(progress,"playlist_id",None)
                 job.setdefault("automatic_meta", True)
                 if job["state"] == "done": job.update(state="queued", message=STEP_TEXT["import"])
@@ -1295,7 +1299,25 @@ def create_app(test_config=None):
     def review_rate():
         if not allow('catalogue-review:'+g.user,20,60):raise ApiError("Wait before flagging more songs.",429)
     register_catalogue_review(app,body,catalogue_review,review_recording,lambda:g.user in cfg['ADMIN_USERS'],review_rate)
-    register_source_quality(app, ws, app.intake, lambda: not playback_demand(), lambda: g.user in cfg['ADMIN_USERS'], catalogue_review, cfg.get('SOURCE_QUALITY_SCAN', cfg['PUBLIC_ORIGIN'] != 'https://music.test'))
+    def replacement_busy(identifier):
+        with lock:
+            return any(j.get('source_id') == identifier and j['state'] in ('queued', 'running') for j in jobs.values())
+
+    def replace_source(user, identifier, candidate):
+        from .source_quality import replace_saved
+        def progress(*args, **kwargs): pass
+        progress.source_replacement = True
+        prepare_playlist_recording(user, dict(source_id=candidate['id'], match=candidate), progress)
+        while playback_demand(): time.sleep(.2)
+        with app.app_context():
+            g.user = user
+            with app.extensions['music'].source_quality.scan_lock, lock, catalogue_review.lock, listening_stats.lock:
+                replace_saved(ws, lib, identifier, candidate, saved_source, playlist_store,
+                              catalogue_review, listening_stats, app.intake)
+
+    register_source_quality(app, ws, app.intake, lambda: not playback_demand(), lambda: g.user in cfg['ADMIN_USERS'], catalogue_review,
+                            cfg.get('SOURCE_QUALITY_SCAN', cfg['PUBLIC_ORIGIN'] != 'https://music.test'),
+                            replace=replace_source, busy=replacement_busy)
 
     automatic_downloads=cfg.get("AUTO_PLAYLIST_DOWNLOADS",cfg["PUBLIC_ORIGIN"] != "https://music.test")
     metadata_lookup=cfg.get("METADATA_LOOKUP",cfg["PUBLIC_ORIGIN"] != "https://music.test")
@@ -1678,7 +1700,7 @@ def create_app(test_config=None):
                  "download_size": stat.st_size, "download_sha256": record["library_sha256"],
                  "download_extension": os.path.splitext(target)[1].lower()}
         track["playback_info_url"] = "/api/library/" + recording_id + "/playback-info"
-        track["playback_version"] = mobile_audio.VERSION
+        track["playback_version"] = mobile_audio.TIERS["normal"][1]
         edition = listening_versions.select(recording_id, record["library_sha256"])
         if edition:
             version, target = edition
@@ -1697,14 +1719,19 @@ def create_app(test_config=None):
                          listening_version="finished", original_duration=manifest["audio"]["duration"],
                          source_start=offset + version["start"], source_end=offset + version["end"],
                          loudness_lufs=version["lufs"], true_peak_db=version["true_peak"])
-        # Both quality choices already contain their server-side level correction.
-        track["playback_gain_db"] = 0
+        measured = version if finished else profile(app.intake, result["item"], {
+            "audio": {"sha256": track["download_sha256"], "duration": track["duration"], "file": target}})
+        track.update(lufs=measured.get("lufs"), true_peak=measured.get("true_peak"))
+        # Preserve the legacy gain for installed clients.
+        track["playback_gain_db"] = 0 if finished else measured.get("gain_db", 0)
         catalogue_review.observe(track,source,record["library_sha256"])
         metadata=catalogue_review.overrides(recording_id,record["library_sha256"])
         track.update(channel=metadata.get('artist',track['channel']),library_album=metadata.get('album',track['library_album']),genre=metadata.get('genre',track['genre']))
         return track, target
 
-    def mobile_record(source_id, digest=None):
+    def mobile_record(source_id, digest=None, quality="normal"):
+        if quality not in mobile_audio.TIERS:
+            raise ApiError("Invalid audio quality.", 400)
         if not re.fullmatch(r"(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})", source_id):
             raise ApiError("Recording unavailable.", 404)
         item = saved_source(source_id)
@@ -1715,22 +1742,35 @@ def create_app(test_config=None):
         if digest is not None and digest != source_hash:
             raise ApiError("Recording changed. Refresh the library.", 409)
         try:
-            path = mobile_audio.prepare(app.intake, item["item"], original, source_hash, urgent=True)
+            path = mobile_audio.prepare(app.intake, item["item"], original, source_hash, urgent=True, quality=quality)
         except (OSError, ValueError, app.intake.IntakeError):
             raise ApiError("Could not prepare mobile audio. Try again.", 503)
+        track["playback_version"] = mobile_audio.TIERS[quality][1]
         if os.path.getsize(path) >= track["download_size"]:
             track["playback_source_sha256"] = source_hash
             return track, original
         # Installed clients validate this legacy route name. The metadata and MIME
         # type identify the actual Opus file; keeping the URL preserves compatibility.
-        track.update(download_url=f"/api/library/{source_id}/playback/{source_hash}/audio.m4a",
+        download_url = f"/api/library/{source_id}/playback/{source_hash}/audio.m4a"
+        if quality != "normal":
+            download_url += f"?quality={quality}"
+        track.update(download_url=download_url,
                      download_size=os.path.getsize(path), download_sha256=app.intake.sha256_file(path),
-                     download_extension=".opus", playback_source_sha256=source_hash)
+                     download_extension=".opus", playback_source_sha256=source_hash,
+                     playback_version=mobile_audio.TIERS[quality][1])
+        try:
+            measured = profile(app.intake, item["item"], {"audio": {
+                "sha256": track["download_sha256"], "duration": track["duration"], "file": path}}, measure=True)
+        except (OSError, ValueError, app.intake.IntakeError):
+            raise ApiError("Could not measure mobile audio. Try again.", 503)
+        track.update(lufs=measured["lufs"], true_peak=measured["true_peak"],
+                     playback_gain_db=min(12, -16 - measured["lufs"], -1.5 - measured["true_peak"]))
         return track, path
 
     @app.get("/api/library/<source_id>/playback-info")
     def playback_info(source_id):
-        track, _ = mobile_record(source_id)
+        quality = request.args.get("quality", "normal")
+        track, _ = mobile_record(source_id, quality=quality)
         return jsonify(track)
 
     lyrics_cache = LyricsCache(ws, cfg.get("LYRICS_LOOKUP"))
@@ -1763,7 +1803,8 @@ def create_app(test_config=None):
     @app.route("/api/library/<source_id>/playback/<digest>/audio.opus", methods=["GET", "HEAD"])
     @app.route("/api/library/<source_id>/playback/<digest>/audio.m4a", methods=["GET", "HEAD"])
     def playback_audio(source_id, digest):
-        track, path = mobile_record(source_id, digest)
+        quality = request.args.get("quality", "normal")
+        track, path = mobile_record(source_id, digest, quality=quality)
         return send_file(path, conditional=True,
                          etag=track["download_sha256"], max_age=0)
 

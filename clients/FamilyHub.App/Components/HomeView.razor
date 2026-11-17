@@ -1,10 +1,9 @@
 @implements IDisposable
 @inject MusicSession Session
 
-@* Home: quick picks from listening history, big playlist and album cards, and entry points to the
-   server pages that the phone navigation does not list. Everything comes from data already loaded. *@
+@* Home uses the listening history and catalogue already loaded by the session. *@
 <div class="home-view">
-    <h1 id="view-title" tabindex="-1">@Greeting</h1>
+    <h1 id="view-title" class="sr" tabindex="-1">Home</h1>
 
     @if (recent.Count > 0)
     {
@@ -26,7 +25,7 @@
             <div class="home-shelf">
                 @foreach (var playlist in Session.Playlists.Take(10))
                 {
-                    <button class="home-card" @key="playlist.OwnerId + ':' + playlist.Id" @onclick="() => OpenPlaylist.InvokeAsync(playlist)"><PlaylistCover Playlist="playlist" /><strong>@playlist.Name</strong><span>@(playlist.Shared ? "Shared" : "Private"), @playlist.Tracks.Count @(playlist.Tracks.Count == 1 ? "song" : "songs")</span></button>
+                    <button class="home-card" @key="playlist.OwnerId + ':' + playlist.Id" @onclick="() => OpenPlaylist.InvokeAsync(playlist)"><PlaylistCover Playlist="playlist" /><strong>@playlist.Name</strong><PlaylistAttribution Playlist="playlist" /><span>@playlist.Tracks.Count @(playlist.Tracks.Count == 1 ? "song" : "songs")</span></button>
                 }
             </div>
         </section>
@@ -56,26 +55,16 @@
         <p class="note">@(Session.Connected ? "Play a few songs and your picks will show up here." : "Connect to your server to load your music.")</p>
     }
 
-    <section class="home-section" aria-labelledby="home-server-title">
-        <h2 id="home-server-title">Server</h2>
-        <div class="home-server-cards">
-            <button class="home-server-card glass-panel" @onclick='() => Navigate.InvokeAsync("Stats")'><MusicIcon Name="device" /><strong>Server stats</strong><span>Listening time, storage and server work</span></button>
-            <button class="home-server-card glass-panel" @onclick='() => Navigate.InvokeAsync("Leaderboard")'><MusicIcon Name="crown" /><strong>Leaderboard</strong><span>Who listened most this period</span></button>
-            <button class="home-server-card glass-panel" @onclick='() => Navigate.InvokeAsync("Review")'><MusicIcon Name="pencil" /><strong>Song review</strong><span>Fix titles, artists and genres</span></button>
-        </div>
-    </section>
 </div>
 
 @code {
     [Parameter] public EventCallback<MusicPlaylist> OpenPlaylist { get; set; }
-    [Parameter] public EventCallback<string> Navigate { get; set; }
     [Parameter] public EventCallback<List<MusicTrack>> PlayTracks { get; set; }
 
     private sealed record Album(string Key, string Name, string Artist, List<MusicTrack> Tracks);
     private List<MusicTrack> recent = [];
     private List<Album> albums = [];
 
-    private static string Greeting => DateTime.Now.Hour switch { < 5 => "Good evening", < 12 => "Good morning", < 18 => "Good afternoon", _ => "Good evening" };
 
     // Saving an album as a playlist: one at a time, named after the album.
     private string? saving, saveMessage;

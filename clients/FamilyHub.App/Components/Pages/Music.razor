@@ -99,7 +99,7 @@ else
     }
     @if (view == "Home")
     {
-        <HomeView OpenPlaylist="OpenPlaylist" Navigate="HomeNavigate" PlayTracks="PlayPlaylist" />
+        <HomeView OpenPlaylist="OpenPlaylist" PlayTracks="PlayPlaylist" />
     }
     else if (view == "Library" || view == "Downloads")
     {
@@ -135,10 +135,20 @@ else
                     <span class="crossfade-scale" aria-hidden="true">12 s</span>
                 </div>
                 <p class="setting-help">The end of a song fades into the start of the next. At 0 each song plays to the end.</p>
-                <div class="setting-row"><label for="playback-quality">Audio quality</label><select id="playback-quality" value="@Session.PlaybackQuality" @onchange="SetPlaybackQuality" disabled="@Player.Preparing"><option value="max">Max (lossless)</option><option value="lower">Data saver (96 kbps)</option></select></div>
+                <div class="setting-row"><label for="volume-level">Volume level</label><select id="volume-level" value="@Session.PlaybackPreferences.VolumeLevel" @onchange='args => Session.SavePreferencesAsync(Player.Volume, Session.PlaybackPreferences.Shuffle, volumeLevel: args.Value?.ToString() ?? "normal")'><option value="loud">Loud</option><option value="normal">Normal</option><option value="quiet">Quiet</option></select></div>
+                <p class="setting-help">Evens out volume between songs. Normal matches Spotify.</p>
+                <div class="setting-row"><label for="streaming-wifi">Streaming on Wi-Fi</label><select id="streaming-wifi" value="@Session.StreamingQualityWifi" @onchange="SetStreamingQualityWifi" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
+                <div class="setting-row"><label for="streaming-mobile">Streaming on mobile data</label><select id="streaming-mobile" value="@Session.StreamingQualityMobile" @onchange="SetStreamingQualityMobile" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
+                <div class="setting-row"><label for="downloads-quality">Downloads</label><select id="downloads-quality" value="@Session.DownloadQuality" @onchange="SetDownloadQuality" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
+                <p class="setting-help">Max uses the original file, lossless when available. Downloaded songs always play from the device.</p>
                 <div class="setting-row"><label for="cache-limit">Music cache</label><select id="cache-limit" value="@Session.CacheLimitGb" @onchange='args => Session.SetCacheLimit(int.Parse(args.Value?.ToString() ?? "3"))'><option value="1">1 GB</option><option value="3">3 GB</option><option value="5">5 GB</option><option value="10">10 GB</option></select></div>
                 <label class="setting-toggle"><input type="checkbox" checked="@Session.DownloadsWifiOnly" @onchange="args => Session.SetDownloadsWifiOnly(args.Value is true)" /><span>Wi-Fi-only downloads</span></label>
-                <p class="setting-help">Kept songs use the selected audio quality and stay outside the cache limit.</p>
+                <p class="setting-help">Kept songs stay outside the cache limit.</p>
+                @if (OperatingSystem.IsWindows() && DiscordPresence.ApplicationId.Length > 0)
+                {
+                    <label class="setting-toggle"><input type="checkbox" checked="@DiscordPresence.Enabled" @onchange="args => DiscordPresence.SetEnabled(args.Value is true)" /><span>Show what I'm listening to on Discord</span></label>
+                    <p class="setting-help">Friends on Discord see the song and artist while the Discord app is open.</p>
+                }
             </section>
             <section class="settings-panel glass-panel" aria-labelledby="appearance-settings-heading">
                 <h2 id="appearance-settings-heading">Appearance</h2>
@@ -162,8 +172,7 @@ else
                     @foreach (var chip in new[] { "All", "Yours", "Shared with you", "Downloaded" })
                     { <button id="@(chip == "All" ? "playlist-filter-all" : null)" aria-pressed="@Aria(playlistFilter == chip)" @onclick="() => playlistFilter = chip">@chip</button> }
                 </div>
-                <label class="sr" for="playlist-search">Find in playlists</label>
-                <input id="playlist-search" type="search" placeholder="Find in playlists" @bind="playlistSearch" @bind:event="oninput" />
+                <label class="playlist-search"><MusicIcon Name="search" /><span class="sr">Find in playlists</span><input id="playlist-search" type="search" placeholder="Find in playlists" @bind="playlistSearch" @bind:event="oninput" /></label>
                 <button id="playlist-sort" class="quiet" aria-label="@($"Sort playlists: {playlistSort}")" aria-haspopup="dialog" aria-controls="playlist-sort-options" @onclick="OpenPlaylistSort">@playlistSort<MusicIcon Name="chevron-down" /></button>
                 <div id="playlist-sort-options" popover="auto" role="dialog" aria-label="Sort playlists" class="glass-dialog playlist-options playlist-sort-options">
                     @foreach (var order in new[] { "Recent", "Alphabetical", "Most songs" })
@@ -172,10 +181,10 @@ else
             </div>
             <span class="sr" role="status">@playlists.Count playlists</span>
             <div class="playlist-grid" aria-label="Playlists">
-            <button id="create-playlist" class="playlist-card glass-panel" @onclick="NewPlaylist"><span class="cover generated-cover create-cover"><span class="record-art" aria-hidden="true"></span><MusicIcon Name="plus" /></span><strong>Create playlist</strong></button>
+            <button id="create-playlist" class="playlist-card glass-panel" @onclick="NewPlaylist"><span class="cover generated-cover create-cover" aria-hidden="true"><MusicIcon Name="plus" /></span><strong>Create playlist</strong></button>
             @foreach (var playlist in playlists)
             {
-                <button id="@("playlist-card-" + PlaylistKey(playlist))" data-playlist-key="@PlaylistKey(playlist)" class="playlist-card glass-panel" @key="PlaylistKey(playlist)" @onclick="() => OpenPlaylist(playlist)"><PlaylistCover Playlist="playlist" /><strong>@playlist.Name</strong><span>@(playlist.OwnerId != Session.User ? $"Shared by {playlist.OwnerName} \u00b7 " : "")@playlist.Tracks.Count songs</span></button>
+                <button id="@("playlist-card-" + PlaylistKey(playlist))" data-playlist-key="@PlaylistKey(playlist)" class="playlist-card glass-panel" @key="PlaylistKey(playlist)" @onclick="() => OpenPlaylist(playlist)"><PlaylistCover Playlist="playlist" /><strong>@playlist.Name</strong><PlaylistAttribution Playlist="playlist" /><span>@playlist.Tracks.Count songs</span></button>
             }
             </div>
             @if (playlists.Count == 0)
@@ -183,9 +192,10 @@ else
         }
         else
         {
-            <button class="quiet playlist-back" @onclick="AllPlaylists"><MusicIcon Name="back" />All playlists</button>
             <div class="playlist-sticky" inert><PlaylistCover Playlist="selected" /><strong>@selected.Name</strong><button class="primary round" tabindex="-1" @onclick="() => PlayPlaylist(selected.Tracks.Select(Session.Resolve).OfType<MusicTrack>().ToList())" aria-label="Play playlist" aria-disabled="@Aria(selected.Tracks.Count == 0 || Player.FollowingHost)"><MusicIcon Name="play" /></button></div>
             <section class="playlist-hero glass-panel">
+                <div class="playlist-band">
+                <button class="quiet playlist-back" @onclick="AllPlaylists"><MusicIcon Name="back" />All playlists</button>
                 <div class="playlist-identity">
                 @if (selected.CanEdit)
                 {
@@ -197,6 +207,7 @@ else
                     <h1 id="view-title" tabindex="-1">@selected.Name</h1>
                     @if (!string.IsNullOrWhiteSpace(selected.Description)) { <p class="playlist-description">@selected.Description</p> }
                     <div class="playlist-summary"><ProfileAvatar Profile="PlaylistOwner(selected)" Size="28" /><strong>@PlaylistOwner(selected).Name</strong><span>&#183; @selected.Tracks.Count songs</span><span>&#183; @PlaylistLength(selected)</span></div>
+                </div>
                 </div>
                 </div>
             <div class="playlist-action-bar">
@@ -219,19 +230,19 @@ else
             <PlaylistDetails @ref="playlistDetails" Playlist="selected" ReturnFocusId="playlist-menu-toggle" HideTrigger="true" />
             <PlaylistCoAuthors @ref="playlistAuthors" Playlist="selected" ReturnFocusId="playlist-menu-toggle" HideTrigger="true" />
             @if (selected.OwnerId == Session.User) { <PlaylistTransfer @key="PlaylistKey(selected)" Playlist="selected" /> }
-            <div class="playlist-column-headings"><span>#</span><span>Title</span><span>Album</span><span>Date added</span><span aria-label="Duration"><MusicIcon Name="clock" /></span></div>
+            <div class="playlist-column-headings"><span>#</span><span>Title</span><span class="playlist-column-label" title="Album">Album</span><span class="playlist-added-heading"><span class="playlist-column-label" title="Date added">Date added</span><span>Added by</span></span><span aria-label="Duration"><MusicIcon Name="clock" /></span></div>
             <div class="library-list unified-song-list playlist-song-list">
             @foreach (var position in Enumerable.Range(0, Math.Min(selected.Tracks.Count, Shown("playlist:" + selectedId))))
             {
                 var entry = selected.Tracks[position]; var track = Session.Resolve(entry);
                 @if (track is not null)
                 {
-                    <SongRow PlaylistColumns="true" Number="@(position + 1)" Album="@PlaylistAlbum(entry, track)" AddedAt="@entry.AddedAt" @key="(selected.Id, position)" Track="track" Current="@(Player.Current?.Id == track.Id)" Playing="ShowPause" Play="() => PlayEntry(selected, position)" AddToPlaylist="OpenPlaylistPicker" Queue="() => QueueTrack(track)" Keep="() => Download(track)" Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="Remove from playlist" />
+                    <SongRow PlaylistColumns="true" Number="@(position + 1)" Album="@PlaylistAlbum(entry, track)" AddedAt="@entry.AddedAt" AddedBy="@PlaylistContributor(selected, entry)" @key="(selected.Id, position)" Track="track" Current="@(Player.Current?.Id == track.Id)" Playing="ShowPause" Play="() => PlayEntry(selected, position)" AddToPlaylist="OpenPlaylistPicker" Queue="() => QueueTrack(track)" Keep="() => Download(track)" Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="Remove from playlist" />
                 }
                 else
                 {
                     var metadata = new MusicTrack { Id = entry.SpotifyUri, Title = entry.Title, Channel = entry.Artist, Duration = entry.Duration };
-                    <SongRow PlaylistColumns="true" Number="@(position + 1)" Album="@PlaylistAlbum(entry, track)" AddedAt="@entry.AddedAt" @key="(selected.Id, position)" Track="metadata" FindRecording="true" Play="() => FindPlaylistRecording(entry)" Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="Remove from playlist" />
+                    <SongRow PlaylistColumns="true" Number="@(position + 1)" Album="@PlaylistAlbum(entry, track)" AddedAt="@entry.AddedAt" AddedBy="@PlaylistContributor(selected, entry)" @key="(selected.Id, position)" Track="metadata" FindRecording="true" Play="() => FindPlaylistRecording(entry)" Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="Remove from playlist" />
                 }
             }
             </div>
@@ -336,8 +347,10 @@ else
     <p>@preloadTracks.Count songs ready on the server
     @if (preloadMissing > 0) { <span> &middot; @preloadMissing still need a recording</span> }</p>
     <div class="preload-qualities" role="group" aria-label="Download quality">
-        <button id="preload-lower" aria-pressed="@Aria(preloadQuality == "lower")" @onclick='() => preloadQuality = "lower"'><strong>Data saver</strong><span>96 kbps &middot; about @Size((long)(preloadTracks.Sum(t => t.Duration) * 12000))</span></button>
-        <button aria-pressed="@Aria(preloadQuality == "max")" @onclick='() => preloadQuality = "max"'><strong>Max</strong><span>Lossless &middot; @Size(preloadTracks.Sum(t => t.DownloadSize))</span></button>
+        <button id="preload-low" aria-pressed="@Aria(preloadQuality == "low")" @onclick='() => preloadQuality = "low"'><strong>Low</strong><span>Opus 48 kbps</span></button>
+        <button id="preload-normal" aria-pressed="@Aria(preloadQuality == "normal")" @onclick='() => preloadQuality = "normal"'><strong>Normal</strong><span>Opus 96 kbps</span></button>
+        <button id="preload-high" aria-pressed="@Aria(preloadQuality == "high")" @onclick='() => preloadQuality = "high"'><strong>High</strong><span>Opus 160 kbps</span></button>
+        <button id="preload-max" aria-pressed="@Aria(preloadQuality == "max")" @onclick='() => preloadQuality = "max"'><strong>Max</strong><span>Original &middot; @Size(preloadTracks.Sum(t => t.DownloadSize))</span></button>
     </div>
     <p class="setting-help">@(Session.DownloadsWifiOnly ? "Downloads use Wi-Fi or Ethernet. Keep the app open until they finish." : "Mobile data is allowed for downloads. Keep the app open until they finish.")</p>
     <p class="entry-error" role="status">@error</p>
@@ -397,7 +410,7 @@ else
         pendingFocus = "create-playlist";
     });
     private bool preloadOpen;
-    private string preloadQuality = "lower";
+    private string preloadQuality = "max";
     private List<MusicTrack> preloadTracks = [];
     private int preloadMissing;
     private void OpenPreload()
@@ -405,12 +418,12 @@ else
         if (!Session.Connected || busy || Selected is not { } playlist) return;
         preloadTracks = playlist.Tracks.Select(Session.Resolve).OfType<MusicTrack>().DistinctBy(t => t.Id).ToList();
         preloadMissing = playlist.Tracks.Count(t => Session.Resolve(t) is null);
-        preloadQuality = Session.PlaybackQuality; error = null; preloadOpen = true;
+        preloadQuality = Session.DownloadQuality; error = null; preloadOpen = true;
     }
     private async Task StartPreload()
     {
         if (busy || preloadTracks.Count == 0) return;
-        Session.SetPlaybackQuality(preloadQuality);
+        Session.SetDownloadQuality(preloadQuality);
         await JS.InvokeVoidAsync("familyhub.closeDialog", "preload-dialog", "keep-playlist");
         await Run(() => Session.DownloadAsync(preloadTracks));
     }
@@ -548,11 +561,6 @@ else
     private string? pendingReveal;
     private static readonly HashSet<string> LibraryViews = ["Library", "Playlists", "Downloads"];
     private async Task OpenSearchTab() { await Navigate("Search"); pendingFocus = "q"; }
-    // Home links to server pages that the phone navigation does not list.
-    private async Task HomeNavigate(string tab)
-    {
-        await Navigate(tab);
-    }
     // On a phone the mini player opens the full-screen Now Playing; on desktop it opens the queue.
     private async Task PlayerArea()
     {
@@ -607,10 +615,20 @@ else
         theme = themes.Any(option => option.Id == args.Value?.ToString()) ? args.Value!.ToString()! : "classic";
         await JS.InvokeVoidAsync("familyhub.saveAppearance", AppearanceKey, theme, sidebarCollapsed, themeEffects, sidebarWidth);
     }
-    private void SetPlaybackQuality(ChangeEventArgs args)
+    private void SetStreamingQualityWifi(ChangeEventArgs args)
     {
         if (Player.Preparing) return;
-        Session.SetPlaybackQuality(args.Value?.ToString() ?? "max");
+        Session.SetStreamingQualityWifi(args.Value?.ToString() ?? "max");
+    }
+    private void SetStreamingQualityMobile(ChangeEventArgs args)
+    {
+        if (Player.Preparing) return;
+        Session.SetStreamingQualityMobile(args.Value?.ToString() ?? "high");
+    }
+    private void SetDownloadQuality(ChangeEventArgs args)
+    {
+        if (Player.Preparing) return;
+        Session.SetDownloadQuality(args.Value?.ToString() ?? "max");
     }
     private async Task SetEffects(ChangeEventArgs args)
     {
@@ -702,7 +720,7 @@ else
         { updateDialogOpened = true; await JS.InvokeVoidAsync("familyhub.showDialog", "update-dialog", "dialog-update"); }
         if (deletePlaylistOpen) { deletePlaylistOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "delete-playlist-dialog", "cancel-delete-playlist"); }
         if (createPlaylistOpen) { createPlaylistOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "create-playlist-dialog", "new-playlist"); }
-        if (preloadOpen) { preloadOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "preload-dialog", "preload-lower"); }
+        if (preloadOpen) { preloadOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "preload-dialog", "preload-" + preloadQuality); }
         if (songPickerOpen) { songPickerOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "add-song-dialog", "add-song-filter"); }
         await JS.InvokeVoidAsync("familyhub.syncChrome");
         await JS.InvokeVoidAsync("familyhub.observePanel");
@@ -906,10 +924,16 @@ else
     {
         var available = Session.Connected ? tracks : tracks.Where(t => Session.LocalPath(t) is not null).ToList();
         if (available.Count == 0) throw new InvalidOperationException("No playable recordings are available. Download songs while connected.");
-        if (Player.Shuffle) { var shuffled = available.ToArray(); Random.Shared.Shuffle(shuffled); available = shuffled.ToList(); }
+        // Shuffle starts at a random song but keeps the list's order; the player picks each next song
+        // at random, so turning shuffle off continues in playlist order from the current song.
+        if (Player.Shuffle) { var start = Random.Shared.Next(available.Count); available = available.Skip(start).Concat(available.Take(start)).ToList(); }
         await Player.PlayAsync(available[0], available);
     });
     private ListenerProfile PlaylistOwner(MusicPlaylist playlist) => Session.Profiles.FirstOrDefault(p => p.Id == playlist.OwnerId) ?? new() { Id = playlist.OwnerId, Name = playlist.OwnerName };
+    private ListenerProfile PlaylistContributor(MusicPlaylist playlist, PlaylistTrack entry) => string.IsNullOrEmpty(entry.AddedBy)
+        ? PlaylistOwner(playlist)
+        : Session.Profiles.FirstOrDefault(p => p.Id == entry.AddedBy)
+            ?? new() { Id = entry.AddedBy, Name = entry.AddedBy == playlist.OwnerId ? playlist.OwnerName : "Unknown" };
     private static string PlaylistLength(MusicPlaylist playlist)
     {
         var seconds = (long)Math.Max(0, playlist.Tracks.Sum(t => t.Duration));

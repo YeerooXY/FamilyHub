@@ -22,13 +22,13 @@ class ListenerLaneTests(unittest.TestCase):
                 Path(args[-1]).write_bytes(b"opus"); return 0, b"", ""
             intake.run.side_effect = run
             done = threading.Event()
-            with mock.patch.object(mobile_audio, "measure_loudness", return_value={"input_i": -16, "input_tp": -2}):
+            with mock.patch.object(mobile_audio, "measure_loudness", return_value={"input_i": -14, "input_tp": -2}):
                 with mobile_audio._encoding:  # a background playlist encode is running
                     worker = threading.Thread(target=lambda: (mobile_audio.prepare(intake, item, source, "a" * 64, urgent=True), done.set()))
                     worker.start()
                     self.assertTrue(done.wait(2), "the listener's encode waited for background work")
                 worker.join(2)
-            self.assertTrue(os.path.exists(os.path.join(item, f".{mobile_audio.VERSION}-{'a' * 64}.opus")))
+            self.assertTrue(os.path.exists(os.path.join(item, f".{mobile_audio.TIERS['normal'][1]}-{'a' * 64}.opus")))
 
 
 def load_intake():

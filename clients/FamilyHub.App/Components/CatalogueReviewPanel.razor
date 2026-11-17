@@ -6,6 +6,24 @@
     <div class="catalogue-toolbar"><h1 id="catalogue-review-title" tabindex="-1">Song review</h1></div>
     <p class="entry-error" role="status">@error</p>
     <div class="catalogue-columns">
+        @if (data?.CanEdit == true && quality.Count > 0)
+        {
+            <section class="glass-panel catalogue-pool" aria-labelledby="quality-title">
+                <div class="stats-section-heading"><h2 id="quality-title" tabindex="-1">Low-quality audio</h2><span>@quality.Count</span></div>
+                <div class="catalogue-list">
+                    @foreach (var row in quality)
+                    {
+                        <article @key="row.Id" class="catalogue-row">
+                            <div><strong>@row.Title</strong><small>Current channel: @row.Channel</small><small>Official channel: @(row.Candidate?.Channel ?? "No match found")</small><small role="status">@row.Error</small></div>
+                            <div class="catalogue-actions">
+                                <button id="@("quality-" + row.Id)" class="quiet" aria-disabled="@(row.Replacing || qualitySaving || row.Candidate is null ? "true" : "false")" @onclick="() => QualityAction(row, true)">@(row.Replacing ? "Replacing..." : "Replace with official version")</button>
+                                <button class="quiet" aria-disabled="@(row.Replacing || qualitySaving ? "true" : "false")" @onclick="() => QualityAction(row, false)">Keep</button>
+                            </div>
+                        </article>
+                    }
+                </div>
+            </section>
+        }
         <section class="glass-panel catalogue-pool" aria-labelledby="trimming-title"><div class="stats-section-heading"><h2 id="trimming-title">Trimming</h2><span>@(data?.TrimmingTotal ?? 0)</span></div>
             <div class="catalogue-list">
                 @foreach (var row in data?.Trimming ?? []) { <article @key="row.Id" class="catalogue-row"><div><strong>@row.Title</strong><small>@row.Artist</small><small>@string.Join(", ", row.Positions.Select(Time))</small><small>@string.Join(", ", row.RequestedBy.Select(ProfileName))</small></div><div class="catalogue-actions"><button class="quiet" aria-label="Play @row.Title" aria-disabled="@(Player.FollowingHost ? "true" : "false")" @onclick="() => Play(row.Id)"><MusicIcon Name="play" /></button>@if (data!.CanEdit) { <button class="quiet" aria-disabled="@(saving ? "true" : "false")" @onclick="() => Resolve(row.Id)">Mark resolved</button> }</div></article> }
@@ -36,6 +54,8 @@
 </dialog>
 @code {
     private CatalogueReviewSnapshot? data;
+    private List<SourceQualitySong> quality = [];
+    private bool qualitySaving;
     private MetadataRequest? editing;
     private string artist = "", album = "", genre = "";
     private string? error, editError, sourceIdentity, pendingFocus;
@@ -44,19 +64,46 @@
     private string Identity => Session.Server + "\n" + Session.User;
     protected override void OnInitialized() { Session.Changed += Changed; _ = Poll(); }
     protected override async Task OnAfterRenderAsync(bool firstRender) { if (pendingFocus is { } id) { pendingFocus = null; await JS.InvokeVoidAsync("familyhub.focus", id); } }
-    private void Changed() { if (!disposed) _ = InvokeAsync(async () => { if (sourceIdentity is not null && sourceIdentity != Identity) { data = null; editing = null; await JS.InvokeVoidAsync("familyhub.closeDialog", "metadata-review-dialog", "catalogue-review-title"); } StateHasChanged(); }); }
+    private void Changed() { if (!disposed) _ = InvokeAsync(async () => { if (sourceIdentity is not null && sourceIdentity != Identity) { data = null; quality = []; editing = null; await JS.InvokeVoidAsync("familyhub.closeDialog", "metadata-review-dialog", "catalogue-review-title"); } StateHasChanged(); }); }
     private async Task Poll() { try { while (!lifetime.IsCancellationRequested) { await Refresh(); await Task.Delay(15000, lifetime.Token); } } catch (OperationCanceledException) { } }
     private async Task Refresh()
     {
         if (fetching || disposed || Session.Api is null || !Session.Connected) return;
         fetching = true;
         var identity = Identity;
-        try { var result = await Session.Api.RequestJsonAsync<CatalogueReviewSnapshot>(HttpMethod.Get, "/api/catalogue/review", cancellationToken: lifetime.Token); if (identity == Identity && !disposed) { data = result; sourceIdentity = identity; error = null; } }
+        try {
+            var result = await Session.Api.RequestJsonAsync<CatalogueReviewSnapshot>(HttpMethod.Get, "/api/catalogue/review", cancellationToken: lifetime.Token);
+            List<SourceQualitySong> songs = result.CanEdit ? (await Session.Api.RequestJsonAsync<SourceQualitySnapshot>(HttpMethod.Get, "/api/catalogue/source-quality", cancellationToken: lifetime.Token)).Songs : [];
+            if (identity == Identity && !disposed) {
+                var removed = quality.FindIndex(r => r.Replacing && !songs.Any(s => s.Id == r.Id));
+                if (removed >= 0) pendingFocus = removed < songs.Count ? "quality-" + songs[removed].Id : songs.Count > 0 ? "quality-title" : "catalogue-review-title";
+                quality = songs; data = result; sourceIdentity = identity; error = null;
+            }
+        }
         catch (OperationCanceledException) when (disposed) { }
         catch (Exception exception) { if (identity == Identity) error = exception.Message; }
         finally { fetching = false; if (!disposed) await InvokeAsync(StateHasChanged); }
     }
     private static string Time(double seconds) => $"{(int)seconds / 60}:{(int)seconds % 60:00}";
+    private async Task QualityAction(SourceQualitySong row, bool replace)
+    {
+        if (qualitySaving || row.Replacing || Session.Api is null || replace && row.Candidate is null) return;
+        qualitySaving = true;
+        var identity = Identity;
+        try {
+            await Session.Api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post,
+                "/api/catalogue/source-quality/" + row.Id + (replace ? "/replace" : "/dismiss"), new { candidate_id = row.Candidate?.Id }, cancellationToken: lifetime.Token);
+            if (identity != Identity || disposed) return;
+            var index = quality.FindIndex(r => r.Id == row.Id);
+            if (replace) { if (index >= 0) quality[index] = row with { Replacing = true, Error = null }; }
+            else {
+                quality.RemoveAll(r => r.Id == row.Id);
+                pendingFocus = index >= 0 && index < quality.Count ? "quality-" + quality[index].Id : quality.Count > 0 ? "quality-title" : "catalogue-review-title";
+            }
+        } catch (OperationCanceledException) when (disposed) { }
+        catch (Exception exception) { if (identity == Identity) error = exception.Message; }
+        finally { qualitySaving = false; }
+    }
     private string ProfileName(string id) => Session.Profiles.FirstOrDefault(p => p.Id == id)?.Name ?? id;
     private async Task Play(string id) { try { if (!Player.FollowingHost && Session.Library.FirstOrDefault(t => t.Id == id) is { } track) await Player.PlayAsync(track); } catch (Exception exception) { error = exception.Message; } }
     private async Task Resolve(string id)

@@ -9,6 +9,8 @@ public sealed class MusicPlayer(MusicSession session)
     private CancellationTokenSource? preparation, upcomingPreparation;
     private readonly List<MusicTrack> queue = [];
     private readonly HashSet<MusicTrack> manualQueue = new(ReferenceEqualityComparer.Instance);
+    // The chosen list's own order; shuffle only reorders the queue, so turning it off restores this.
+    private List<MusicTrack> order = [];
     private int index = -1, blendTarget = -1;
     private long requestVersion;
     private bool preparing, sourceReady, blending, warming, incomingFailed;
@@ -142,6 +144,7 @@ public sealed class MusicPlayer(MusicSession session)
         if (!recordings.ContainsKey(state.TrackIds[state.Index])) return;
         var restored = state.TrackIds.Select((id, at) => (id, at)).Where(row => recordings.ContainsKey(row.id)).ToList();
         queue.Clear(); queue.AddRange(restored.Select(row => recordings[row.id]));
+        order = queue.ToList();
         index = restored.FindIndex(row => row.at == state.Index); Current = queue[index];
         resumePosition = Math.Clamp(state.Position, 0, Math.Max(0, Current.Duration));
         sourceReady = false; PlaybackRequested = false; Changed?.Invoke();
@@ -299,6 +302,7 @@ public sealed class MusicPlayer(MusicSession session)
         preparation = cancellation;
         preparing = true; PlaybackRequested = play; sourceReady = false;
         queue.Clear(); queue.AddRange(selected); index = selectedIndex;
+        if (!advance) order = selected.ToList();
         if (!advance) manualQueue.Clear(); else manualQueue.Remove(selected[selectedIndex]);
         track = session.CurrentRecording(track);
         Current = track; listenRecorded = false; listenedSeconds = lastListeningPosition = 0;
@@ -315,7 +319,7 @@ public sealed class MusicPlayer(MusicSession session)
             var path = await PrepareFile(track, cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
             if (version != requestVersion) return;
-            track = session.CurrentRecording(track);
+            track = session.PlaybackRecording(session.CurrentRecording(track), path);
             Current = track; queue[index] = track; session.PinPlayback(track.Id);
             preparing = false; sourceReady = true; deck.TransportEnabled = !FollowingHost; ApplyVolumes();
             deck.PlayFile(path, track.Title, track.Channel, PlaybackRequested);
@@ -367,7 +371,7 @@ public sealed class MusicPlayer(MusicSession session)
             var path = await PrepareFile(track, token);
             token.ThrowIfCancellationRequested();
             if (version != requestVersion || next >= queue.Count || !ReferenceEquals(queue[next], original) || standby is null) return;
-            track = session.CurrentRecording(track);
+            track = session.PlaybackRecording(session.CurrentRecording(track), path);
             if (manualQueue.Remove(original)) { track = track with { }; manualQueue.Add(track); }
             queue[next] = track;
             preparedTrack = null; incomingFailed = false;
@@ -451,10 +455,24 @@ public sealed class MusicPlayer(MusicSession session)
     }
     private double TrackVolume(MusicTrack? track)
     {
-        var db = track?.PlaybackGainDb ?? 0;
-        if (!double.IsFinite(db)) db = 0;
-        // Native deck volume cannot exceed unity; quiet recordings retain peak headroom.
-        return Math.Clamp(volume * Math.Pow(10, Math.Clamp(db, -60, 12) / 20), 0, 1);
+        var db = NormalizationGainDb(track, session.PlaybackPreferences.VolumeLevel);
+        // Windows MediaPlayer and MAUI MediaElement support attenuation only.
+        return volume * Math.Pow(10, Math.Min(0, db) / 20);
+    }
+    public static double NormalizationGainDb(MusicTrack? track, string level)
+    {
+        var target = level switch
+        {
+            "loud" => -11,
+            "normal" => -14,
+            "quiet" => -19,
+            _ => throw new ArgumentException("Choose Loud, Normal or Quiet volume level.")
+        };
+        if (track?.Lufs is { } lufs && double.IsFinite(lufs) &&
+            track.TruePeak is { } peak && double.IsFinite(peak))
+            return Math.Min(6, Math.Min(target - lufs, -1 - peak));
+        var legacy = track?.PlaybackGainDb ?? 0;
+        return double.IsFinite(legacy) ? Math.Clamp(legacy, -60, 6) : 0;
     }
     public bool ReplaceUpcoming(string seedId, IEnumerable<MusicTrack> tracks)
     {
@@ -487,7 +505,7 @@ public sealed class MusicPlayer(MusicSession session)
         if (!double.IsFinite(value)) throw new ArgumentOutOfRangeException(nameof(value));
         volume = Math.Clamp(value, 0, 1); ApplyVolumes(); Changed?.Invoke();
     });
-    public void ToggleShuffle() { RequirePlaybackControl(); Shuffle = !Shuffle; if (!blending) CancelUpcoming(true); Changed?.Invoke(); if (Playing) WarmNext(); }
+    public void ToggleShuffle() { RequirePlaybackControl(); Shuffle = !Shuffle; if (!Shuffle && !blending) RestoreOrder(); if (!blending) CancelUpcoming(true); Changed?.Invoke(); if (Playing) WarmNext(); }
     private async Task SeekDeckAsync(double seconds)
     {
         if (deck is null || Seeking) return;
@@ -535,6 +553,17 @@ public sealed class MusicPlayer(MusicSession session)
         if (!Preparing && Position > 3) return SeekAsync(0);
         return index <= 0 ? Task.CompletedTask : PlayCoreAsync(queue[index - 1], queue, index - 1, PlaybackRequested);
     });
+    /// <summary>Shuffle off: the songs after the current one follow the list's own order again
+    /// (queued songs stay first), like Spotify.</summary>
+    private void RestoreOrder()
+    {
+        if (FollowingHost || Current is null || index < 0 || index >= queue.Count) return;
+        var at = order.FindIndex(t => t.Id == queue[index].Id);
+        if (at < 0) return;
+        var manual = queue.Skip(index + 1).Where(manualQueue.Contains).ToList();
+        queue.RemoveRange(index + 1, queue.Count - index - 1);
+        queue.AddRange(manual); queue.AddRange(order.Skip(at + 1));
+    }
     public int AddToQueue(MusicTrack track)
     {
         RequirePlaybackControl();

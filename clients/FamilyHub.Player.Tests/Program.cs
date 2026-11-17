@@ -134,8 +134,13 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
     cancellation.Cancel(); await ticker; outgoing.Stop(); incoming.Stop();
 }
 {
-    var (_, player) = Setup();
-    var loud = tracks[0] with { PlaybackGainDb = -6 };
+    var (session, player) = Setup();
+    Check(MusicPlayer.NormalizationGainDb(tracks[0] with { Lufs = -8, TruePeak = -1 }, "normal") == -6, "Loud master target incorrect");
+    Check(MusicPlayer.NormalizationGainDb(tracks[0] with { Lufs = -30, TruePeak = -20 }, "normal") == 6, "Quiet gain exceeded +6 dB");
+    Check(MusicPlayer.NormalizationGainDb(tracks[0] with { Lufs = -24, TruePeak = -3 }, "normal") == 2, "Quiet gain exceeded peak limit");
+    Check(MusicPlayer.NormalizationGainDb(tracks[0] with { Lufs = -14, TruePeak = -8 }, "quiet") == -5, "Quiet target incorrect");
+    Check(MusicPlayer.NormalizationGainDb(tracks[0] with { Lufs = -14, TruePeak = -8 }, "loud") == 3, "Loud target incorrect");
+    var loud = tracks[0] with { Lufs = -8, TruePeak = -1 };
     await player.PlayAsync(loud, tracks.Prepend(loud));
     Check(Math.Abs(WindowsAudioPlayer.Last!.Volume - Math.Pow(10, -.3)) < .00001, "Measured loudness attenuation missing");
     var current = player.Current;
@@ -144,6 +149,15 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
     Check(!player.ReplaceUpcoming("old seed", [tracks[7]]), "Stale recommendation replaced queue");
     await player.NextAsync(); Check(WindowsAudioPlayer.Last.Volume == 1, "Loudness gain leaked between songs");
     await player.PlayAsync(tracks[0] with { PlaybackGainDb = 12 }); Check(WindowsAudioPlayer.Last.Volume == 1, "Native gain exceeded unity");
+    await player.PlayAsync(tracks[0] with { Lufs = -30, TruePeak = -20 });
+    await player.SetVolumeAsync(.5);
+    Check(WindowsAudioPlayer.Last.Volume == .5, "Native player boosted a quiet track");
+    session.PlaybackPreferences = new() { VolumeLevel = "quiet" };
+    var quiet = tracks[1] with { Lufs = -14, TruePeak = -8 };
+    await player.PlayAsync(quiet, [quiet, tracks[3]]);
+    Check(Math.Abs(WindowsAudioPlayer.Last.Volume - .5 * Math.Pow(10, -.25)) < .00001, "Volume level ignored");
+    await player.NextAsync();
+    Check(WindowsAudioPlayer.Last.Volume == .5, "Measured gain leaked between songs");
     await player.SetVolumeAsync(0); Check(WindowsAudioPlayer.Last.Volume == 0, "Normalization overrode mute");
 }
 {
@@ -260,7 +274,8 @@ public static class MainThread
 namespace CommunityToolkit.Maui.Views { public sealed class MediaElement { } }
 namespace FamilyHub.Client.Core
 {
-    public sealed record MusicTrack(string Id, string Title, string Channel) { public double? PlaybackGainDb { get; init; } public double Duration { get; init; } = 30; }
+    public sealed record MusicTrack(string Id, string Title, string Channel) { public double? PlaybackGainDb { get; init; } public double? Lufs { get; init; } public double? TruePeak { get; init; } public double Duration { get; init; } = 30; }
+    public sealed record ListenerPreferences { public string VolumeLevel { get; init; } = "normal"; }
     public sealed record PlaybackResume
     {
         public List<string> TrackIds { get; init; } = []; public int Index { get; init; } public double Position { get; init; }
@@ -272,7 +287,9 @@ namespace FamilyHub.App.Services
 {
     public sealed class MusicSession
     {
+        public ListenerPreferences PlaybackPreferences { get; set; } = new();
         public MusicTrack CurrentRecording(MusicTrack track) => track;
+        public MusicTrack PlaybackRecording(MusicTrack track, string path) => track;
         public List<string> Listened { get; } = [];
         public void RecordListen(MusicTrack track) => Listened.Add(track.Id);
         public bool Connected => true;

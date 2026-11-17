@@ -11,6 +11,8 @@ public sealed record MusicTrack
     [JsonPropertyName("library_album")] public string LibraryAlbum { get; init; } = "";
     [JsonPropertyName("genre")] public string Genre { get; init; } = "";
     [JsonPropertyName("playback_gain_db")] public double? PlaybackGainDb { get; init; }
+    [JsonPropertyName("lufs")] public double? Lufs { get; init; }
+    [JsonPropertyName("true_peak")] public double? TruePeak { get; init; }
     [JsonPropertyName("duration")] public double Duration { get; init; }
     [JsonPropertyName("saved")] public bool Saved { get; init; }
     [JsonPropertyName("download_url")] public string DownloadUrl { get; init; } = "";
@@ -59,6 +61,7 @@ public sealed record PlaylistTrack
 {
     [JsonPropertyName("album")] public string Album { get; init; } = "";
     [JsonPropertyName("added_at")] public string? AddedAt { get; init; }
+    [JsonPropertyName("added_by")] public string? AddedBy { get; init; }
     [JsonPropertyName("title")] public string Title { get; init; } = "";
     [JsonPropertyName("artist")] public string Artist { get; init; } = "";
     [JsonPropertyName("duration")] public double Duration { get; init; }
@@ -85,6 +88,7 @@ public sealed record ListenerPreferences
     [JsonPropertyName("volume")] public double Volume { get; init; } = 1;
     [JsonPropertyName("shuffle")] public bool Shuffle { get; init; }
     [JsonPropertyName("auto_dj")] public bool AutoDj { get; init; } = true;
+    [JsonPropertyName("volume_level")] public string VolumeLevel { get; init; } = "normal";
     [JsonPropertyName("crossfade_seconds")] public int CrossfadeSeconds { get; init; } = 6;
     [JsonPropertyName("repeat_mode")] public string RepeatMode { get; init; } = "off";
     [JsonPropertyName("spotify_subscribed"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? SpotifySubscribed { get; init; }

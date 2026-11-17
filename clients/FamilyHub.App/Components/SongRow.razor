@@ -7,7 +7,15 @@
         <span class="song-artwork"><TrackCover Track="Track" /><span class="artwork-play" aria-hidden="true"><MusicIcon Name="@(FindRecording ? "search" : "play")" /></span></span>
         <span class="song-text"><strong>@Track.Title</strong><small>@Track.Channel</small></span>
     </button>
-    @if (PlaylistColumns) { <span class="playlist-track-album" title="@Album">@Album</span><span class="playlist-track-date" title="@AddedExact">@AddedAgo</span><span class="playlist-track-duration">@(Track.Duration > 0 ? $"{(int)Track.Duration / 60}:{(int)Track.Duration % 60:00}" : "")</span> }
+    @if (PlaylistColumns)
+    {
+        <span class="playlist-track-album" title="@Album">@Album</span>
+        <span class="playlist-track-added">
+            <span class="playlist-track-date" title="@AddedExact">@AddedAgo</span>
+            <span class="playlist-track-author" title="@AddedBy?.Name"><span class="sr">Added by </span><ProfileAvatar Profile="AddedBy" Size="24" ShowCrown="false" /><span>@(AddedBy?.Name ?? "Unknown")</span></span>
+        </span>
+        <span class="playlist-track-duration">@(Track.Duration > 0 ? $"{(int)Track.Duration / 60}:{(int)Track.Duration % 60:00}" : "")</span>
+    }
     <span class="storage-state @StateClass" role="img" aria-label="@StateLabel" title="@StateLabel"><MusicIcon Name="@StateIcon" /></span>
     @* Fixed columns preserve action alignment across every row. *@
     <div class="row-actions">
@@ -35,6 +43,7 @@
     [Parameter] public int Number { get; set; }
     [Parameter] public string Album { get; set; } = "";
     [Parameter] public string? AddedAt { get; set; }
+    [Parameter] public ListenerProfile? AddedBy { get; set; }
     private string AddedAgo => RelativeDate.Describe(AddedAt, DateTimeOffset.Now);
     private string? AddedExact => RelativeDate.Exact(AddedAt);
     [Parameter, EditorRequired] public MusicTrack Track { get; set; } = null!;

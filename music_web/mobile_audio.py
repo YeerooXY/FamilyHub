@@ -7,11 +7,16 @@ from .audio_profile import measure_loudness
 _encoding = threading.Lock()
 # A listener waiting for a song encodes in its own lane, never behind background playlist work.
 _listening = threading.Lock()
-VERSION = "opus96-v1"
+TIERS = {
+    "low": (48, "opus48-v2"),
+    "normal": (96, "opus96-v2"),
+    "high": (160, "opus160-v2"),
+}
 
 
-def prepare(intake, item, source, digest, urgent=False):
-    path = os.path.join(item, f".{VERSION}-{digest}.opus")
+def prepare(intake, item, source, digest, urgent=False, quality="normal"):
+    kbps, version = TIERS[quality]
+    path = os.path.join(item, f".{version}-{digest}.opus")
     # Published copies are immutable and appear through atomic replacement.
     # Playback of an existing copy must not wait behind another song's encoder.
     if os.path.lexists(path):
@@ -27,23 +32,22 @@ def prepare(intake, item, source, digest, urgent=False):
                 # Lossy encoding can create intersample peaks above its input.
                 # Limit transient peaks, then verify the decoded delivery file itself.
                 ceiling_db = -4
-                requested_lufs = -16
-                for attempt in range(4):
-                    filters = [] if attempt == 0 else ["-af", f"loudnorm=I={requested_lufs:.2f}:TP={ceiling_db:.2f}:LRA=50"]
+                requested_lufs = -14
+                for _ in range(4):
+                    filters = ["-af", f"loudnorm=I={requested_lufs:.2f}:TP={ceiling_db:.2f}:LRA=50"]
                     rc, _, _ = intake.run([intake.tool("ffmpeg"), "-nostdin", "-v", "error", "-y",
                         *intake.SAFE_INPUT, "-i", source, "-map", "0:a:0", "-vn",
-                        *filters, "-ar", "48000", "-c:a", "libopus", "-b:a", "96k", "-ac", "2", "-vbr", "constrained", "-application", "audio",
+                        *filters, "-ar", "48000", "-c:a", "libopus", "-b:a", f"{kbps}k", "-ac", "2", "-vbr", "constrained", "-application", "audio",
                         "-fs", str(64 << 20), temporary], 180, "mobile audio")
                     if rc or not os.path.getsize(temporary):
                         raise ValueError("Mobile audio preparation failed")
                     measured = measure_loudness(intake, temporary)
-                    if abs(measured["input_i"] + 16) <= 1.5 and measured["input_tp"] <= -1:
+                    if abs(measured["input_i"] + 14) <= 1.5 and measured["input_tp"] <= -1:
                         break
-                    if attempt > 0:
-                        requested_lufs += -16 - measured["input_i"]
-                        if measured["input_tp"] > -1:
-                            ceiling_db -= measured["input_tp"] + 1.5
-                    if ceiling_db < -9 or not -18 <= requested_lufs <= -12:
+                    requested_lufs += -14 - measured["input_i"]
+                    if measured["input_tp"] > -1:
+                        ceiling_db -= measured["input_tp"] + 1.5
+                    if ceiling_db < -9 or not -16 <= requested_lufs <= -10:
                         raise ValueError("Mobile audio requires excessive peak limiting")
                 else:
                     raise ValueError("Mobile audio failed loudness or peak verification")

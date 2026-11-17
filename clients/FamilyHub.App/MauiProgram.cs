@@ -22,6 +22,9 @@ public static class MauiProgram
 		builder.Services.AddMauiBlazorWebView();
         builder.Services.AddSingleton<MusicSession>();
         builder.Services.AddSingleton<MusicPlayer>();
+#if WINDOWS
+        builder.Services.AddSingleton<DiscordPresence>();
+#endif
         builder.Services.AddSingleton<ListenTogether>();
         builder.Services.AddSingleton<MainPage>();
 

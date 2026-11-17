@@ -15,7 +15,12 @@ public partial class App : Application
         window.Activated += (_, _) => mainPage.SetActive(true);
         window.Deactivated += (_, _) => mainPage.SetActive(false);
         window.Stopped += (_, _) => mainPage.SetActive(false);
-        window.Destroying += (_, _) => mainPage.SetActive(false);
+        window.Destroying += (_, _) => {
+            mainPage.SetActive(false);
+#if WINDOWS
+            mainPage.CloseDiscord();
+#endif
+        };
 #if WINDOWS || MACCATALYST
         window.MinimumWidth = 850;
         window.MinimumHeight = 640;

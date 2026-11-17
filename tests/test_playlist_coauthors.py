@@ -2,6 +2,7 @@
 import test_family_profiles as family
 from test_music_web import Base
 from music_web.playlists import PlaylistStore
+import test_native_music_api as native
 
 class PlaylistCoAuthors(Base):
     extra = {'FAMILY_PROFILES': True, 'ADMIN_USERS': ['sample-a']}
@@ -66,3 +67,31 @@ class PlaylistCoAuthors(Base):
         stamp=imported['tracks'][0]['added_at']
         again=store.import_playlist('sample-a',{'id':pid,'name':'Again','tracks':[{'title':'One','artist':'A','duration':1,'spotify_uri':'spotify:track:one'}]})
         self.assertEqual(again['tracks'][0]['added_at'],stamp)
+
+    def test_entries_record_the_actor_and_keep_attribution_when_reordered(self):
+        native.NativeMusicApi.recording(self, native.FIRST)
+        native.NativeMusicApi.recording(self, native.SECOND, title='Second')
+        owner, token = self.select('sample-a'); other, ot = self.select('sample-b')
+        p = self.post(owner, token, '/api/playlists', json={'name': 'Shared mix'}).json['playlist']
+        pid = p['id']
+        p = self.patch(owner, token, pid, revision=p['revision'], co_authors=['sample-b']).json['playlist']
+        p = self.patch(other, ot, pid, owner_id='sample-a', revision=p['revision'], add_source_id=native.FIRST).json['playlist']
+        self.assertEqual(p['tracks'][0]['added_by'], 'sample-b')
+        self.assertTrue(p['tracks'][0]['added_at'])
+        p = self.patch(owner, token, pid, revision=p['revision'], add_source_id=native.SECOND).json['playlist']
+        p = self.patch(owner, token, pid, revision=p['revision'], move_from=0, move_to=1).json['playlist']
+        self.assertEqual([t['added_by'] for t in p['tracks']], ['sample-a', 'sample-b'])
+        self.assertEqual(PlaylistStore(self.ws).read('sample-a', pid)['tracks'], p['tracks'])
+        forged = self.patch(other, ot, pid, owner_id='sample-a', revision=p['revision'], add_source_id=native.FIRST, added_by='sample-a')
+        self.assertEqual(forged.status_code, 400)
+
+    def test_reimport_keeps_each_occurrences_author_and_ignores_supplied_authors(self):
+        store = PlaylistStore(self.ws); pid = 'A' * 22
+        track = dict(title='One', artist='Artist', duration=1, spotify_uri='spotify:track:one')
+        store.save('sample-a', dict(id=pid, name='Mix', tracks=[
+            dict(track, added_by='sample-b', added_at='2026-11-15T12:00:00Z'), dict(track)]))
+        imported = store.import_playlist('sample-a', dict(id=pid, name='Mix', tracks=[
+            dict(track, added_by='forged'), dict(track, added_by='forged'),
+            dict(track, spotify_uri='spotify:track:new', added_by='forged')]))
+        self.assertEqual([t.get('added_by') for t in imported['tracks']], ['sample-b', None, 'sample-a'])
+        self.assertEqual(imported['tracks'][0]['added_at'], '2026-11-15T12:00:00Z')

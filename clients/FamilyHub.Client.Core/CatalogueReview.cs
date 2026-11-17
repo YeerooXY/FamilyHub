@@ -1,5 +1,23 @@
 ﻿using System.Text.Json.Serialization;
 namespace FamilyHub.Client.Core;
+public sealed record SourceQualitySnapshot
+{
+    [JsonPropertyName("songs")] public List<SourceQualitySong> Songs { get; init; } = [];
+}
+public sealed record SourceQualitySong
+{
+    [JsonPropertyName("id")] public string Id { get; init; } = "";
+    [JsonPropertyName("title")] public string Title { get; init; } = "";
+    [JsonPropertyName("channel")] public string Channel { get; init; } = "";
+    [JsonPropertyName("replacing")] public bool Replacing { get; init; }
+    [JsonPropertyName("replacement_error")] public string? Error { get; init; }
+    [JsonPropertyName("proposed_replacement")] public SourceQualityCandidate? Candidate { get; init; }
+}
+public sealed record SourceQualityCandidate
+{
+    [JsonPropertyName("id")] public string Id { get; init; } = "";
+    [JsonPropertyName("channel")] public string Channel { get; init; } = "";
+}
 public sealed record CatalogueReviewSnapshot
 {
     [JsonPropertyName("trimming")] public List<TrimmingRequest> Trimming { get; init; } = [];

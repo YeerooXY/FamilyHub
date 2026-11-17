@@ -231,7 +231,9 @@ public sealed class OfflineLibrary
             || !Extensions.Contains(track.DownloadExtension.ToLowerInvariant())
             || (track.DownloadUrl != "/api/library/" + track.Id + "/download"
                 && !(Regex.IsMatch(track.PlaybackSourceSha256, "^[a-f0-9]{64}$")
-                    && track.DownloadUrl == $"/api/library/{track.Id}/playback/{track.PlaybackSourceSha256}/audio.m4a")))
+                    && (track.DownloadUrl == $"/api/library/{track.Id}/playback/{track.PlaybackSourceSha256}/audio.m4a"
+                        || new[] { "low", "normal", "high" }.Any(quality => track.DownloadUrl ==
+                            $"/api/library/{track.Id}/playback/{track.PlaybackSourceSha256}/audio.m4a?quality={quality}")))))
             throw new InvalidDataException("This recording does not have valid saved-audio metadata.");
     }
     private async Task<bool> HasExpectedHashAsync(string path, MusicTrack track, CancellationToken cancellationToken)
