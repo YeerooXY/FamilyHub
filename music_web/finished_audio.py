@@ -9,11 +9,13 @@ import shutil
 import threading
 from .audio_profile import profile, measure_loudness as measurement
 from . import mobile_audio
+from .worker_activity import WorkerActivity
 
 VERSION = "loudness-flac-v1"
 TARGET = -16
 PEAK = -1.5
 _encoding = threading.Lock()
+activity = WorkerActivity('finished-audio', 'Finished audio')
 
 
 def prepare_record(store, editions, library, item, manifest=None):
@@ -27,16 +29,16 @@ def prepare_record(store, editions, library, item, manifest=None):
     edition = editions.select(manifest["source"].get("id", manifest["id"]), digest)
     if edition:
         version, source = edition
-        finished = store.prepare(source, version["sha256"])
+        finished = store.prepare(source, version["sha256"], title=record['title'])
     else:
         finished = store.select(digest)
         if not finished:
             # Reviewed cuts take priority. For new recordings only remove boundary silence;
             # speech, effects and ambiguous fades still need a reviewed edition.
             boundaries = profile(store.intake, item, manifest, measure=True)
-            finished = store.prepare(source, digest, boundaries["start"], boundaries["end"])
+            finished = store.prepare(source, digest, boundaries["start"], boundaries["end"], title=record['title'])
     row, path = finished
-    mobile_audio.prepare(store.intake, item, path, row["sha256"])
+    mobile_audio.prepare(store.intake, item, path, row["sha256"], title=record['title'])
     return finished
 
 
@@ -82,8 +84,8 @@ class FinishedAudio:
             self.checked[path] = stamp
         return row, path
 
-    def prepare(self, source, digest, start=0, end=None):
-        with _encoding:
+    def prepare(self, source, digest, start=0, end=None, title=''):
+        with _encoding, activity.track(title):
             existing = self.select(digest)
             if existing:
                 return existing

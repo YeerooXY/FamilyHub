@@ -113,6 +113,9 @@ Check(cachedPlaylist.Tracks[0].AddedBy == "sam" && cachedPlaylist.Tracks[1].Adde
 
 var workSnapshot = JsonSerializer.Deserialize<ServerStatistics>("{\"jobs\":[{\"owner\":\"alex\",\"kind\":\"playlist_download\",\"processed\":1,\"total\":4,\"remaining\":3,\"current_title\":\"Song\",\"files\":[{\"index\":2,\"title\":\"Song\",\"message\":\"Purifying audio\",\"download_bytes\":20,\"download_total_bytes\":40}]}]}", FamilyHubApi.JsonOptions)!;
 Check(workSnapshot.Jobs[0].Owner == "alex" && workSnapshot.Jobs[0].Remaining == 3 && workSnapshot.Jobs[0].Files[0].DownloadTotalBytes == 40, "Server work lost requester, remaining count or file progress");
+var recordSnapshot = JsonSerializer.Deserialize<ServerStatistics>("""{"workers":[{"id":"acquisition-0","title":"Acquisition / preparation 1","state":"working","current_title":"Song","progress":25.5,"waiting_for":""},{"id":"opus-background-0","state":"idle","waiting_for":"A recording"}],"records":[{"id":"streak-alex","title":"Longest listening streak","owner":"alex","user":"Alex","day":"2026-11-10","end_day":"2026-11-12","days":3},{"id":"family-day","day":"2026-11-12","seconds":3600.5}]}""", FamilyHubApi.JsonOptions)!;
+Check(recordSnapshot.Workers[0].Id == "acquisition-0" && recordSnapshot.Workers[0].CurrentTitle == "Song" && recordSnapshot.Workers[0].Progress == 25.5 && recordSnapshot.Workers[1].Progress is null && recordSnapshot.Workers[1].WaitingFor == "A recording", "Worker slot identity, unknown progress or wait reason was lost");
+Check(recordSnapshot.Records[0].Owner == "alex" && recordSnapshot.Records[0].EndDay == "2026-11-12" && recordSnapshot.Records[0].Days == 3 && recordSnapshot.Records[0].Seconds is null && recordSnapshot.Records[1].Seconds == 3600.5, "Listening record owner, date range or units were lost");
 
 var redirectRequests = 0;
 var profileRequests = 0;

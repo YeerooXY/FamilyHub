@@ -4,6 +4,7 @@ import time
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from .playlists import rank_matches, preferred_match
+from .worker_activity import WorkerActivity
 
 
 class _PlaylistOperation:
@@ -294,6 +295,7 @@ class _PlaylistOperation:
 class PlaylistPreparation:
     """Bounded independent operations sharing three fair background slots."""
     MAX_ACTIVE = 8
+    WORKERS = 3
 
     def __init__(self, store, lock, prepare, match=None, read=None, download_workers=1, allow_background=lambda: True):
         self.store, self.lock = store, lock
@@ -304,6 +306,7 @@ class PlaylistPreparation:
         self.condition = threading.Condition()
         self.waiters, self.served, self.inflight, self.dispatch = [], {}, 0, 0
         self.auto_served = {}
+        self.activity = WorkerActivity('playlist', 'Playlist matching / preparation', self.WORKERS)
 
     def _execute(self, key, operation, callback):
         ticket = object()
@@ -317,7 +320,7 @@ class PlaylistPreparation:
                 with self.condition:
                     if operation.stop.is_set(): raise InterruptedError()
                     chosen = min(self.waiters,key=lambda row:self.served.get(row[1],-1))
-                    if self.inflight < 3 and chosen[0] is ticket and allowed:
+                    if self.inflight < self.WORKERS and chosen[0] is ticket and allowed:
                         self.waiters.remove((ticket,key))
                         self.inflight += 1; self.dispatch += 1; self.served[key] = self.dispatch
                         self.condition.notify_all()
@@ -345,15 +348,19 @@ class PlaylistPreparation:
                     progress.playlist_id = pid
                     progress("Waiting for background slot" if self.allow_background() else "Waiting for playback preparation")
                     def execute():
-                        progress("Preparing recording" if callback is self.prepare else "Finding recording")
-                        return callback(owner,track,progress)
+                        with self.activity.track(track['title'], owner=owner, playlist_id=pid):
+                            progress("Preparing recording" if callback is self.prepare else "Finding recording")
+                            return callback(owner,track,progress)
                     return self._execute(key, operation, execute)
                 return run
             def read(provider,url,progress):
                 operation.update(user,pid,message="Waiting for background slot" if self.allow_background() else "Waiting for playback preparation")
                 def execute():
-                    operation.update(user,pid,message="Reading playlist")
-                    return self.read(provider,url,progress)
+                    with self.lock:
+                        title = self.store.read(user, pid)['name']
+                    with self.activity.track(title, owner=user, playlist_id=pid):
+                        operation.update(user,pid,message="Reading playlist")
+                        return self.read(provider,url,progress)
                 return self._execute(key, operation, execute)
             operation = _PlaylistOperation(self.store,self.lock,wrap(self.prepare),wrap(self.match),read if self.read else None,self.download_workers)
             self.operations[key] = operation

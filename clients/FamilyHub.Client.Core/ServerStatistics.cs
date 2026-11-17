@@ -13,6 +13,8 @@ public sealed record ServerStatistics
     public List<DailyListening> Daily { get; init; } = [];
     public List<ListenerStatistics> Profiles { get; init; } = [];
     public List<ServerWork> Jobs { get; init; } = [];
+    public List<ServerWork> Workers { get; init; } = [];
+    public List<ListeningRecord> Records { get; init; } = [];
     [JsonPropertyName("catalogue_paused")] public bool CataloguePaused { get; init; }
     [JsonPropertyName("storage_total_bytes")] public long StorageTotalBytes { get; init; }
     [JsonPropertyName("storage_free_bytes")] public long StorageFreeBytes { get; init; }
@@ -36,6 +38,9 @@ public sealed record ListenerStatistics
 }
 public sealed record ServerWork
 {
+    public string Id { get; init; } = "";
+    public double? Progress { get; init; }
+    [JsonPropertyName("waiting_for")] public string WaitingFor { get; init; } = "";
     public string Owner { get; init; } = "";
     public string Kind { get; init; } = "";
     public int? Processed { get; init; }
@@ -49,6 +54,18 @@ public sealed record ServerWork
     public string State { get; init; } = "";
     [JsonPropertyName("download_bytes")] public long DownloadBytes { get; init; }
     [JsonPropertyName("download_total_bytes")] public long? DownloadTotalBytes { get; init; }
+}
+
+public sealed record ListeningRecord
+{
+    public string Id { get; init; } = "";
+    public string Title { get; init; } = "";
+    public string Owner { get; init; } = "";
+    public string User { get; init; } = "";
+    public string Day { get; init; } = "";
+    [JsonPropertyName("end_day")] public string EndDay { get; init; } = "";
+    public double? Seconds { get; init; }
+    public int? Days { get; init; }
 }
 
 public sealed record DailyListening { public string Day { get; init; } = ""; public double Seconds { get; init; } }

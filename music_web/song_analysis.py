@@ -12,6 +12,7 @@ import threading
 from contextlib import suppress
 
 from .source_quality import FFMPEG_LOCK, ScanPaused
+from .worker_activity import WorkerActivity
 
 
 def measure(path, duration, idle, ffmpeg):
@@ -67,6 +68,7 @@ class SongAnalysis:
         self.intake, self.idle = intake, idle
         self.stop = threading.Event()
         self.lock, self.scan_lock = threading.RLock(), threading.Lock()
+        self.activity = WorkerActivity('song-analysis', 'Song analysis: BPM and key')
         try:
             self.rows = json.loads(self.path.read_text(encoding='utf-8'))
             if not isinstance(self.rows, dict):
@@ -116,7 +118,8 @@ class SongAnalysis:
                     duration = manifest['audio']['duration']
                     if not math.isfinite(duration) or duration <= 0:
                         continue
-                    result = measure(audio, duration, lambda: self.idle() and not self.stop.is_set(), self.intake.tool('ffmpeg'))
+                    with self.activity.track(record.get('title', '')):
+                        result = measure(audio, duration, lambda: self.idle() and not self.stop.is_set(), self.intake.tool('ffmpeg'))
                     if not isinstance(result, dict):
                         raise ValueError('Invalid song analysis')
                     with self.lock:

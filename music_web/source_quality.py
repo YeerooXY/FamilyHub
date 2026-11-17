@@ -16,6 +16,7 @@ from types import SimpleNamespace
 
 from .catalogue_review import seed
 from .playlists import preferred_match, rank_matches, source_tier
+from .worker_activity import WorkerActivity
 
 FFMPEG_LOCK = threading.Lock()
 SIZE = 4096
@@ -131,6 +132,8 @@ class SourceQuality:
         self.lock = threading.RLock()
         self.scan_lock = threading.Lock()
         self.replace_lock = threading.Lock()
+        self.activity = WorkerActivity('source-quality', 'Source-quality scan')
+        self.replacement_activity = WorkerActivity('source-replace', 'Source replacement')
         self.active_keys = None
         self.stop = threading.Event()
         try:
@@ -182,7 +185,8 @@ class SourceQuality:
                         track = seed(source, dict(title=record['title'], channel=metadata.get('artist', record['artist']),
                                                   duration=manifest['audio']['duration']))
                         tier = source_tier(source, track['artist']) if source['kind'] == 'youtube' else None
-                        result = analyze(audio, manifest['audio']['duration'], self.idle)
+                        with self.activity.track(record['title']):
+                            result = analyze(audio, manifest['audio']['duration'], self.idle)
                         row = dict(id=identifier, sha256=digest, channel=source.get('channel', record['artist']), **track, **result, source_tier=tier,
                                    proposed_replacement=None, replacement_checked=False)
                         self.save(key, row)
@@ -190,10 +194,11 @@ class SourceQuality:
                         if not self.idle():
                             return
                         query = (row['artist'].split(',')[0] + ' ' + row['title'])[:200]
-                        found = self.intake.cmd_search(SimpleNamespace(query=query, limit=30, offset=0))['results']
-                        if not self.idle():
-                            return
-                        candidates = rank_matches(row, found, search=self.intake.cmd_search)
+                        with self.activity.track(row['title']):
+                            found = self.intake.cmd_search(SimpleNamespace(query=query, limit=30, offset=0))['results']
+                            if not self.idle():
+                                return
+                            candidates = rank_matches(row, found, search=self.intake.cmd_search)
                         row['proposed_replacement'] = preferred_match([c for c in candidates
                             if c['source_tier'] <= 2 and c.get('id') != identifier])
                         row['replacement_checked'] = True
@@ -358,7 +363,8 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
             try:
                 while not idle():
                     time.sleep(.2)
-                replace(user, identifier, candidate)
+                with scanner.replacement_activity.track(candidate['title']):
+                    replace(user, identifier, candidate)
                 with scanner.lock:
                     scanner.save(key, dict(scanner.rows[key], replacing=False, replaced_by=candidate['id']))
             except Exception as error:

@@ -25,6 +25,54 @@ def _boundary(year, month):
     return datetime(year, month, 1, tzinfo=zone)
 
 
+def longest_streak(daily):
+    """Longest run of positive listening days; equal runs keep the earliest."""
+    best, start, previous, length = None, None, None, 0
+    for day, seconds in sorted(daily.items()):
+        if seconds <= 0:
+            continue
+        current = date.fromisoformat(day)
+        length = length + 1 if previous and current == previous + timedelta(days=1) else 1
+        if length == 1:
+            start = day
+        if best is None or length > best['days']:
+            best = dict(day=start, end_day=day, days=length)
+        previous = current
+    return best
+
+
+def listening_records(daily, profiles, today):
+    """Records from recorded daily totals only, restricted to existing profiles."""
+    people = {p['id']: p['name'] for p in profiles}
+    totals, personal = {}, []
+    for user in sorted(people):
+        for day, seconds in sorted(daily.get(user, {}).items()):
+            if seconds > 0 and day <= today.isoformat():
+                totals[day] = totals.get(day, 0) + seconds
+                personal.append(dict(owner=user, user=people[user], day=day, seconds=seconds))
+    if not personal:
+        return []
+    busiest = min(totals, key=lambda day: (-totals[day], day))
+    solo = min(personal, key=lambda row: (-row['seconds'], row['day'], row['owner']))
+    records = [dict(id='family-day', title='Busiest family day', day=busiest, seconds=totals[busiest]),
+               dict(id='personal-day', title='Biggest solo day', **solo),
+               dict(id='family-streak', title='Longest family streak', **longest_streak(totals))]
+    for user in sorted(people):
+        streak = longest_streak({row['day']: row['seconds'] for row in personal if row['owner'] == user})
+        if streak:
+            records.append(dict(id='streak-' + user, title='Longest listening streak', owner=user, user=people[user], **streak))
+    first = min(totals)
+    records.append(dict(id='first-day', title='First recorded listening day', day=first, seconds=totals[first]))
+    week_start = (today - timedelta(days=today.weekday())).isoformat()
+    week = {user: sum(row['seconds'] for row in personal if row['owner'] == user and row['day'] >= week_start)
+            for user in people}
+    winner = min(week, key=lambda user: (-week[user], user))
+    if week[winner] > 0:
+        records.append(dict(id='week-listener', title='Top listener this week', owner=winner, user=people[winner],
+                            day=week_start, end_day=today.isoformat(), seconds=week[winner]))
+    return records
+
+
 class ListeningStats:
     LEASE = 20
     DEVICE = re.compile(r'[0-9a-f]{32}')
@@ -205,7 +253,8 @@ class ListeningStats:
                     pass  # stays dirty and is written with the next change
             today = now.date()
             daily = []
-            earliest = min([today.replace(day=1), *[date.fromisoformat(day) for p in profiles for day in self.data['daily'].get(p['id'], {})]])
+            earliest = min([today.replace(day=1), today - timedelta(days=6),
+                            *[date.fromisoformat(day) for p in profiles for day in self.data['daily'].get(p['id'], {})]])
             earliest = max(date(2020, 1, 1), earliest)
             for back in range((today - earliest).days, -1, -1):
                 day = (today - timedelta(days=back)).isoformat()
@@ -215,4 +264,5 @@ class ListeningStats:
                         total_seconds=sum(row['seconds'] for row in rows), total_qualified_plays=plays,
                         royalty_usd=round(plays * ROYALTY_RATE_USD, 5), royalty_rate_usd=ROYALTY_RATE_USD,
                         royalty_source=ROYALTY_SOURCE, saved_huf=sum(row['saved_huf'] for row in rows),
-                        monthly_saved_huf=sum(row['monthly_saved_huf'] for row in rows), daily=daily)
+                        monthly_saved_huf=sum(row['monthly_saved_huf'] for row in rows), daily=daily,
+                        records=listening_records(self.data['daily'], profiles, today))
