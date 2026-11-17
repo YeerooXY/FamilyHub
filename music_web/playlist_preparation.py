@@ -3,7 +3,7 @@ import threading
 import time
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
-from .playlists import rank_matches, preferred_match
+from .playlists import PlaylistError, rank_matches, preferred_match
 
 
 class _PlaylistOperation:
@@ -24,14 +24,15 @@ class _PlaylistOperation:
                 data["preparation"] = status
                 self.store.save(user, data)
             if status["state"] == "done" and self.active != (user, pid):
-                tracks = data["tracks"]
+                start_index = status.get("start_index", 0) if status.get("playlist_revision") == data["revision"] else 0
+                tracks = data["tracks"][start_index:]
                 status = {**status, "total": len(tracks),
                           "processed": sum(t.get("state") in ("ready", "saved", "review", "error", "preparing") for t in tracks),
                           "found": sum(t.get("state") in ("ready", "saved") for t in tracks),
                           "saved": sum(t.get("state") == "saved" for t in tracks),
                           "review": sum(t.get("state") == "review" for t in tracks),
                           "failed": sum(t.get("state") == "error" for t in tracks)}
-                status["recent"] = [{"index": i + 1, "title": t["title"], "artist": t["artist"], "state": t["state"]}
+                status["recent"] = [{"index": start_index + i + 1, "title": t["title"], "artist": t["artist"], "state": t["state"]}
                                     for i, t in list(enumerate(tracks))[-8:]]
             return deepcopy(status)
 
@@ -49,21 +50,22 @@ class _PlaylistOperation:
                 "found": 0, "saved": 0, "review": 0, "failed": 0,
                 "index": 0, "title": "", "message": "Reading playlist" if mode == "import" else "Starting", "recent": []}
 
-    def begin_import(self, user, pid, revision, provider, url, download=True, name=None):
+    def begin_import(self, user, pid, revision, provider, url, download=True, name=None, append=False, actor=None):
         with self.lock:
             data = self.store.read(user, pid)
-            if data["tracks"] or type(revision) is not int or revision != data["revision"]:
-                raise ValueError("Import into an empty, unchanged playlist.")
+            if (data["tracks"] and not append) or type(revision) is not int or revision != data["revision"]:
+                raise ValueError("Refresh this playlist before adding songs." if append else "Import into an empty, unchanged playlist.")
             previous = data.get("preparation", {})
             # A new import downloads its matched songs straight away; re-importing keeps a
             # download the owner paused or cancelled.
             same = previous.get("import_url") == url and previous.get("provider") == provider
-            queued_download = download is not False and ((same and previous.get("download_after_matching") is True) or (
+            queued_download = download is not False and (append or (same and previous.get("download_after_matching") is True) or (
                 not data.get("auto_download_paused") and (not same or previous.get("state") not in ("paused", "error"))))
             if download is False: data["auto_download_paused"] = True
+            elif append: data["auto_download_paused"] = False
             self._claim(user, pid)
             data["preparation"] = {**self._status("import"), "provider": provider, "import_url": url,
-                                   "download_after_matching": queued_download}
+                                   "download_after_matching": queued_download, "append": append, "actor": actor or user}
             # A name typed in Create playlist wins over the source's name.
             if name: data["preparation"]["name"] = name
             try:
@@ -102,6 +104,10 @@ class _PlaylistOperation:
             data["preparation"] = ({**previous, "state": "running", "mode": mode, "message": "Resuming"}
                                    if resume else self._status(mode, len(data["tracks"])))
             data["preparation"]["playlist_revision"] = data["revision"]
+            if (previous.get("append") and previous.get("playlist_revision") == data["revision"]
+                    and (previous.get("state") == "paused" or mode == "download" and previous.get("mode") in ("import", "match"))):
+                first_index = previous.get("start_index", 0)
+                data["preparation"].update(append=True, start_index=first_index, total=len(data["tracks"]) - first_index)
             data["preparation"]["download_after_matching"] = queued_download if mode != "download" else False
             if mode == "download" and previous.get("state") == "done" and previous.get("mode") in ("import", "match"):
                 data["preparation"]["matched_only"] = True
@@ -138,14 +144,20 @@ class _PlaylistOperation:
             if self.stop.is_set(): raise InterruptedError()
             with self.lock:
                 original = self.store.read(user, pid)
+                append = original["preparation"].get("append", False)
+                start_index = len(original["tracks"]) if append else 0
                 imported["id"] = pid
                 if original["preparation"].get("name"): imported["name"] = original["preparation"]["name"]
                 imported["preparation"] = {**original["preparation"], "phase": "matching", "total": len(imported["tracks"]), "playlist_revision": original["revision"] + 1}
-                self.store.import_playlist(user, imported)
+                imported = self.store.import_playlist(user, imported, append=append, actor=original["preparation"].get("actor"))
+                imported["preparation"].update(total=len(imported["tracks"]) - start_index, start_index=start_index)
+                self.store.save(user, imported)
             delegated = True
             self._run(user, pid, "import")
         except InterruptedError:
             self.update(user, pid, state="paused", message="Reading paused. Import the playlist again to continue.")
+        except PlaylistError as error:
+            self.update(user, pid, state="error", message=str(error))
         except Exception:
             self.update(user, pid, state="error", message="Could not read the public playlist. Check its link and try again.")
         finally:
@@ -160,13 +172,15 @@ class _PlaylistOperation:
                 data = self.store.read(user, pid)
                 tracks = deepcopy(data["tracks"])
                 prior = data["preparation"]
+            first_index = prior.get("start_index", 0)
+            start_index = max(start_index, first_index)
             found, saved, review, failed = (prior.get(k, 0) for k in ("found", "saved", "review", "failed"))
             recent = deepcopy(prior.get("recent", []))
             cursor = start_index
             completed_after = {i for i in prior.get("completed_after", []) if type(i) is int and cursor <= i < len(tracks)}
             if mode != "download":
                 rescued = []
-                for index in sorted(set(range(cursor)) | completed_after):
+                for index in sorted(set(range(first_index, cursor)) | completed_after):
                     track = tracks[index]
                     if track.get("state") != "review" or track.get("source_id") or track.get("match") or not track.get("candidates"):
                         continue
@@ -261,7 +275,7 @@ class _PlaylistOperation:
                             data = self.store.read(user, pid)
                             data["tracks"][index] = track
                             # Save each finished search immediately; the cursor only crosses contiguous results.
-                            data["preparation"].update(processed=cursor + len(completed_after), cursor=cursor,
+                            data["preparation"].update(processed=cursor - first_index + len(completed_after), cursor=cursor,
                                 completed_after=sorted(completed_after), found=found, saved=saved, review=review,
                                 failed=failed, recent=recent, active_searches=len(pending) if mode != "download" else 0)
                             self.store.save(user, data)
@@ -277,8 +291,10 @@ class _PlaylistOperation:
                     data = self.store.read(user, pid)
                     if (phase_succeeded and mode != "download" and not self.stop.is_set()
                             and data["preparation"].get("download_after_matching") is True):
-                        data["preparation"] = {**self._status("download", len(data["tracks"])),
+                        data["preparation"] = {**self._status("download", len(data["tracks"]) - data["preparation"].get("start_index",0)),
                                                "automatic": data["preparation"].get("automatic",False),
+                                               "append": data["preparation"].get("append",False),
+                                               "start_index": data["preparation"].get("start_index",0),
                                                "playlist_revision": data["revision"], "matched_only": True}
                         self.store.save(user, data)
                         download_next = True
@@ -373,15 +389,17 @@ class PlaylistPreparation:
             self._admit(user,pid)
             operation=self._operation(user,pid)
             data=self.store.read(user,pid)
+            if data.get("preparation", {}).get("append") and data["preparation"].get("phase") == "reading" and operation.active is None:
+                raise ValueError("Import the playlist link again to continue adding songs.")
             data["auto_download_paused"]=False; self.store.save(user,data)
             result=operation.start(user,pid,mode); self.thread=operation.thread
             return result
 
-    def begin_import(self,user,pid,revision,provider,url,download=True,name=None):
+    def begin_import(self,user,pid,revision,provider,url,download=True,name=None,append=False,actor=None):
         with self.lock:
             self._admit(user,pid)
             operation=self._operation(user,pid)
-            result=operation.begin_import(user,pid,revision,provider,url,download,name); self.thread=operation.thread
+            result=operation.begin_import(user,pid,revision,provider,url,download,name,append,actor); self.thread=operation.thread
             return result
 
     def status(self,user,pid):

@@ -161,9 +161,19 @@ class PlaylistStore:
         try:
             data=json.loads((self.directory(user)/(pid+".json")).read_text(encoding="utf-8"))
             data.setdefault("revision",0)
+            if self._backfill_added_at(data): self.save(user, data)
             return data
         except (OSError,ValueError): raise PlaylistError("Playlist not found.")
+    @staticmethod
+    def _backfill_added_at(data):
+        stamp = None
+        for track in data["tracks"]:
+            if not track.get("added_at"):
+                if stamp is None: stamp = datetime.now(timezone.utc).isoformat()
+                track["added_at"] = stamp
+        return stamp is not None
     def save(self,user,data):
+        self._backfill_added_at(data)
         journal = self.root.parent / '.replacements.json'
         if journal.exists():
             replacements = json.loads(journal.read_text(encoding='utf-8'))
@@ -176,9 +186,39 @@ class PlaylistStore:
         folder=self.directory(user);folder.mkdir(parents=True,exist_ok=True)
         target=folder/(data["id"]+".json");temporary=target.with_suffix(".tmp")
         temporary.write_text(json.dumps(data,ensure_ascii=False),encoding="utf-8");temporary.replace(target)
-    def import_playlist(self,user,data):
+    def import_playlist(self,user,data,append=False,actor=None):
         try: previous=self.read(user,data["id"])
-        except PlaylistError: previous={"tracks":[]}
+        except PlaylistError:
+            if append: raise
+            previous={"tracks":[]}
+        if append:
+            def keys(track):
+                source = track.get("source_id") or (track.get("match") or {}).get("id")
+                uri = track.get("spotify_uri")
+                result = {("source", source)} if source else set()
+                if uri: result.add(("uri", uri))
+                # Duplicate checks must retain non-Latin titles that search normalization strips.
+                title, artist = (re.sub(r"[^\w]+", " ", unicodedata.normalize("NFKC", value).casefold()).strip()
+                                 for value in (track["title"], track["artist"]))
+                if title and artist: result.add(("song", title, artist))
+                return result
+            seen = {key for track in previous["tracks"] for key in keys(track)}
+            fresh = []
+            for track in data["tracks"]:
+                identities = keys(track)
+                duplicate = bool(identities & seen)
+                seen.update(identities)
+                if not duplicate: fresh.append(track)
+            if len(previous["tracks"]) + len(fresh) > 10000:
+                raise PlaylistError("A playlist can contain up to 10,000 entries.")
+            for track in fresh:
+                track["added_at"] = datetime.now(timezone.utc).isoformat()
+                track["added_by"] = actor or user
+            data = {**previous, "tracks": previous["tracks"] + fresh,
+                    "preparation": data.get("preparation", previous.get("preparation", {}))}
+            data["revision"] = previous.get("revision", 0) + 1
+            self.save(user, data)
+            return data
         occurrences=defaultdict(deque)
         for track in previous["tracks"]:
             if track.get("spotify_uri"): occurrences[track["spotify_uri"]].append(track)
@@ -192,7 +232,7 @@ class PlaylistStore:
                     if field in old: track[field]=old[field]
             else:
                 track["added_at"]=datetime.now(timezone.utc).isoformat()
-                track["added_by"]=user
+                track["added_by"]=actor or user
         data["description"]=previous.get("description", "")
         data["revision"]=previous.get("revision",0)+1
         data["shared"]=previous.get("shared", True)

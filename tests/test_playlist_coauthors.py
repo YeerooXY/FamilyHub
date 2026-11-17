@@ -3,6 +3,7 @@ import test_family_profiles as family
 from test_music_web import Base
 from music_web.playlists import PlaylistStore
 import test_native_music_api as native
+from unittest.mock import patch
 
 class PlaylistCoAuthors(Base):
     extra = {'FAMILY_PROFILES': True, 'ADMIN_USERS': ['sample-a']}
@@ -11,6 +12,48 @@ class PlaylistCoAuthors(Base):
 
     def patch(self, client, token, pid, **data):
         return self.go(client, 'PATCH', '/api/playlists/' + pid, json=data, headers={'X-CSRFToken': token})
+
+    def test_editor_append_import_is_owner_scoped_and_records_the_actor(self):
+        owner, token = self.select('sample-a'); editor, et = self.select('sample-b')
+        native.NativeMusicApi.recording(self, native.FIRST)
+        playlist = self.post(owner, token, '/api/playlists', json={'name': 'Family mix'}).json['playlist']
+        pid = playlist['id']; path = '/api/playlists/' + pid
+        playlist = self.patch(owner, token, pid, revision=1, add_source_id=native.FIRST).json['playlist']
+        playlist = self.patch(owner, token, pid, revision=playlist['revision'], co_authors=['sample-b']).json['playlist']
+        data = dict(owner_id='sample-a', revision=playlist['revision'], append=True, download=False,
+                    url='https://www.deezer.com/en/playlist/42')
+        response = self.post(editor, et, path + '/import', json={**data, 'revision': 1})
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.post(editor, et, path + '/import', json={**data, 'append': 'true'}).status_code, 400)
+        imported = dict(id='x' * 22, name='Source name', tracks=[dict(title='New', artist='Artist', duration=200,
+                        spotify_uri='deezer:new', state='unmatched', candidates=[])])
+        recording = dict(id=native.SECOND, url='https://www.youtube.com/watch?v=' + native.SECOND,
+                         title='Artist - New', channel='Artist', duration=200)
+        with patch('music_web.link_playlists.fetch_deezer_playlist', return_value=imported), \
+                patch.object(self.intake, 'cmd_search', return_value={'results': [recording]}):
+            response = self.post(editor, et, path + '/import', json=data)
+            self.assertEqual(response.status_code, 202, response.json)
+            self.state.playlist_preparation.thread.join(3)
+            self.assertFalse(self.state.playlist_preparation.thread.is_alive())
+        stored = PlaylistStore(self.ws).read('sample-a', pid)
+        self.assertEqual(stored['name'], 'Family mix')
+        self.assertEqual(stored['tracks'][0], playlist['tracks'][0])
+        self.assertEqual(stored['tracks'][1]['added_by'], 'sample-b')
+        self.assertTrue(stored['tracks'][1]['added_at'])
+        self.assertEqual(PlaylistStore(self.ws).list('sample-b'), [])
+        status = self.go(editor, 'GET', path + '/prepare?owner_id=sample-a')
+        self.assertEqual(status.status_code, 200, status.json)
+        choices = self.go(editor, 'GET', path + '/match?owner_id=sample-a&index=1')
+        self.assertEqual(choices.status_code, 200, choices.json)
+        selected = self.post(editor, et, path + '/recording', json=dict(owner_id='sample-a',
+            revision=stored['revision'], index=1, choice=0, source_id=native.SECOND))
+        self.assertEqual(selected.status_code, 200, selected.json)
+        self.assertEqual(selected.json['playlist']['owner_id'], 'sample-a')
+        stored = PlaylistStore(self.ws).read('sample-a', pid)
+        self.patch(owner, token, pid, revision=stored['revision'], co_authors=[])
+        self.assertEqual(self.go(editor, 'GET', path + '/prepare?owner_id=sample-a').status_code, 403)
+        self.assertEqual(self.post(editor, et, path + '/import', json={**data, 'revision': stored['revision'] + 1}).status_code, 403)
+        self.assertEqual(self.post(editor, et, path + '/prepare', json={'owner_id': 'sample-a'}).status_code, 403)
 
     def test_invite_edit_revoke_and_owner_storage(self):
         owner, token = self.select('sample-a')
