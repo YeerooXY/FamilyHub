@@ -62,9 +62,9 @@ public sealed class FamilyHubApi : IDisposable
     public Task<ServerStatistics> GetServerStatsAsync(CancellationToken cancellationToken = default) =>
         RequestJsonAsync<ServerStatistics>(HttpMethod.Get, "/api/server/stats", cancellationToken: cancellationToken);
 
-    public Task<ActivityReceipt> ReportPlaybackActivityAsync(string deviceId, bool playing, CancellationToken cancellationToken = default, IReadOnlyList<ListeningCounter>? counters = null, string? counterDeviceId = null, MusicTrack? track = null, string? deviceName = null, string? deviceKind = null, double? position = null) =>
+    public Task<ActivityReceipt> ReportPlaybackActivityAsync(string deviceId, bool playing, CancellationToken cancellationToken = default, IReadOnlyList<ListeningCounter>? counters = null, string? counterDeviceId = null, MusicTrack? track = null, string? deviceName = null, string? deviceKind = null, double? position = null, long activation = 0, long sequence = 0, bool followingHost = false, string remoteDeviceId = "") =>
         RequestJsonAsync<ActivityReceipt>(HttpMethod.Post, "/api/playback/activity", new { device_id = deviceId, playing, counters, counter_device_id = counterDeviceId, track = track is null ? null : new { id = track.Id, title = track.Title, channel = track.Channel },
-            device_info = deviceName is null ? null : new { name = deviceName, kind = deviceKind }, position }, cancellationToken);
+            device_info = deviceName is null ? null : new { name = deviceName, kind = deviceKind, activation, sequence, following_host = followingHost, remote_device = remoteDeviceId }, position }, cancellationToken);
 
     public Task<PlaybackDevicesResponse> GetPlaybackDevicesAsync(string deviceId, CancellationToken cancellationToken = default) =>
         RequestJsonAsync<PlaybackDevicesResponse>(HttpMethod.Get, "/api/playback/devices?device_id=" + Uri.EscapeDataString(deviceId), cancellationToken: cancellationToken);

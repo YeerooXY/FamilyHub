@@ -12,7 +12,7 @@ public sealed record ListeningCounter(
 public sealed record ActivityReceipt
 {
     [JsonPropertyName("counters_accepted")] public bool CountersAccepted { get; init; }
-    /// <summary>Playback another device of this profile sent here ("Connect to a device").</summary>
+    /// <summary>A playback transfer or pause when another device of this profile becomes active.</summary>
     [JsonPropertyName("command")] public PlaybackHandover? Command { get; init; }
     /// <summary>Play, pause, next, previous or seek sent by the device that handed playback here.</summary>
     [JsonPropertyName("controls")] public List<PlaybackControl> Controls { get; init; } = [];
@@ -30,6 +30,10 @@ public sealed record PlaybackHandover
     [JsonPropertyName("from_name")] public string FromName { get; init; } = "";
     [JsonPropertyName("resume")] public PlaybackResume? Resume { get; init; }
     [JsonPropertyName("playing")] public bool Playing { get; init; }
+    [JsonPropertyName("device_id")] public string DeviceId { get; init; } = "";
+    [JsonPropertyName("activation")] public long Activation { get; init; }
+    [JsonPropertyName("position")] public double? Position { get; init; }
+    [JsonPropertyName("track")] public PlaybackDeviceTrack? Track { get; init; }
 }
 public sealed record PlaybackDevice
 {
