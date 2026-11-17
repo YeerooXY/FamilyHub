@@ -20,6 +20,8 @@ from .playlists import preferred_match, rank_matches, source_tier
 FFMPEG_LOCK = threading.Lock()
 SIZE = 4096
 RATE = 48000
+# Before download only: silence at either end can add this much; trimmed lengths must match within 3 s.
+MAX_UNTRIMMED_DIFFERENCE = 15
 BANDS = ((1000, 8000), (14000, 15500), (16000, 17000), (17500, 19000), (19000, 20500))
 
 
@@ -216,15 +218,17 @@ class SourceQuality:
                                         and (r['verdict'] == 'suspect' or r['source_tier'] == 3)])
 
 
-def replace_saved(workspace, library, old_id, candidate, saved_source, playlists, review, stats, intake):
+def replace_saved(workspace, library, old_id, candidate, saved_source, playlists, review, stats, intake, length=None):
     """Archive originals and retain metadata snapshots for manual undo and crash recovery."""
     workspace, library = Path(workspace), Path(library)
     old, new = saved_source(old_id), saved_source(candidate['id'])
     if not old or not new:
         raise ValueError('Both recordings must be saved before replacement.')
     old_record, new_record = old['manifest']['import'], new['manifest']['import']
-    if abs(old['manifest']['audio']['duration'] - new['manifest']['audio']['duration']) > 3:
-        raise ValueError('The downloaded recording differs by more than 3 seconds.')
+    # Compare the lengths people hear: uploads often carry extra silence that is trimmed away.
+    measure = length or (lambda saved: saved['manifest']['audio']['duration'])
+    if abs(measure(old) - measure(new)) > 3:
+        raise ValueError('After trimming silence, the downloaded recording differs by more than 3 seconds.')
     item = Path(old['item'])
     target = library.joinpath(*old_record['path'].split('/'))
     new_target = library.joinpath(*new_record['path'].split('/'))
@@ -339,8 +343,8 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
             durations = (row.get('duration'), candidate.get('duration'))
             if (candidate['id'] == identifier or candidate.get('source_tier', 3) > 2
                     or not all(type(d) in (int, float) and math.isfinite(d) and d > 0 for d in durations)
-                    or abs(durations[0] - durations[1]) > 3):
-                return jsonify(error='The official recording must be within 3 seconds of this song.'), 400
+                    or abs(durations[0] - durations[1]) > MAX_UNTRIMMED_DIFFERENCE):
+                return jsonify(error='The official recording must be within 15 seconds of this song.'), 400
             if replace is None or busy(candidate['id']) or not scanner.replace_lock.acquire(blocking=False):
                 return jsonify(error='A download or replacement is already running. Try again after it finishes.'), 409
             try:

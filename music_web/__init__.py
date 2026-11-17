@@ -1313,7 +1313,8 @@ def create_app(test_config=None):
             g.user = user
             with app.extensions['music'].source_quality.scan_lock, lock, catalogue_review.lock, listening_stats.lock:
                 replace_saved(ws, lib, identifier, candidate, saved_source, playlist_store,
-                              catalogue_review, listening_stats, app.intake)
+                              catalogue_review, listening_stats, app.intake,
+                              length=lambda saved: library_record(saved)[0]['duration'])
 
     register_source_quality(app, ws, app.intake, lambda: not playback_demand(), lambda: g.user in cfg['ADMIN_USERS'], catalogue_review,
                             cfg.get('SOURCE_QUALITY_SCAN', cfg['PUBLIC_ORIGIN'] != 'https://music.test'),

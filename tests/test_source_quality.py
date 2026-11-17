@@ -117,6 +117,20 @@ class QualityScanTests(Base):
         store.save('sample-a', dict(id='q' * 22, tracks=[dict(source_id=native.FIRST, match=dict(id=native.FIRST))]))
         self.assertEqual(store.read('sample-a', 'q' * 22)['tracks'][0]['source_id'], native.SECOND)
 
+    def test_lengths_are_compared_after_trimming(self):
+        item, _, manifest, candidate = self.proposal()
+        new_item, _, new_manifest, _ = native.NativeMusicApi.recording(
+            self, source_id=native.SECOND, samples=b'' * 160)
+        new_manifest = dict(new_manifest, audio=dict(new_manifest['audio'], duration=manifest['audio']['duration'] + 9))
+        saved = {native.FIRST: dict(item=str(item), manifest=manifest), native.SECOND: dict(item=str(new_item), manifest=new_manifest)}
+        args = (self.ws, self.lib, native.FIRST, candidate, saved.get, PlaylistStore(self.ws),
+                self.state.catalogue_review, ListeningStats(self.ws), self.intake)
+        with self.assertRaisesRegex(ValueError, 'After trimming silence'):
+            replace_saved(*args)
+        with patch('music_web.source_quality.shutil.move', side_effect=OSError('Archive unavailable')):
+            with self.assertRaises(OSError):
+                replace_saved(*args, length=lambda saved: 100.0)
+
     def test_failed_archive_restores_review_in_memory_and_on_disk(self):
         item, target, manifest, candidate = self.proposal()
         new_item, _, new_manifest, _ = native.NativeMusicApi.recording(
@@ -154,7 +168,7 @@ class QualityScanTests(Base):
     def test_duration_and_running_download_are_refused(self):
         _, _, _, candidate = self.proposal()
         admin, token = self.signed_in()
-        candidate['duration'] = 10
+        candidate['duration'] = 30
         response = self.post(admin, token, f'/api/catalogue/source-quality/{native.FIRST}/replace', json=dict(candidate_id=native.SECOND))
         self.assertEqual(response.status_code, 400)
         candidate['duration'] = .02
