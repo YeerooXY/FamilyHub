@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from music_web.source_quality import SourceQuality, analyze, classify, spectrum, SIZE, RATE, ScanPaused, replace_saved
+from music_web.source_quality import SourceQuality, analyze, classify, spectrum, SIZE, RATE, ScanPaused, replace_saved, official_replacement
 from music_web.playlists import PlaylistStore
 from music_web.listening_stats import ListeningStats
 from music_web.listening_stats import ListeningStats
@@ -164,6 +164,22 @@ class QualityScanTests(Base):
         response = self.post(admin, token, f'/api/catalogue/source-quality/{native.FIRST}/dismiss', json={})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(SourceQuality(self.ws, self.intake).snapshot()['songs'], [])
+        self.assertEqual(next(iter(self.state.source_quality.rows.values()))['verdict'], 'suspect')
+        snapshot = self.go(admin, 'GET', '/api/catalogue/source-quality').json
+        self.assertEqual(snapshot['songs'], [])
+        self.assertEqual((snapshot['counts']['damaged'], snapshot['counts']['unofficial']), (0, 0))
+        self.assertEqual((snapshot['counts']['suspect'], snapshot['counts']['total']), (1, 1))
+
+    def test_cached_mismatched_proposal_is_hidden_and_cannot_replace(self):
+        _, _, _, candidate = self.proposal()
+        candidate.update(title='Other Animusic Songs', channel='Other Animusic Songs', recommended=True)
+        snapshot = self.state.source_quality.snapshot()
+        self.assertIsNone(snapshot['songs'][0]['proposed_replacement'])
+        self.assertEqual(snapshot['counts']['damaged'], 1)
+        admin, token = self.signed_in()
+        response = self.post(admin, token, f'/api/catalogue/source-quality/{native.FIRST}/replace', json=dict(candidate_id=native.SECOND))
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(self.state.source_quality.replace_lock.locked())
 
     def test_duration_and_running_download_are_refused(self):
         _, _, _, candidate = self.proposal()
@@ -211,3 +227,64 @@ class QualityScanTests(Base):
         self.assertEqual(result.status_code, 200)
         self.assertEqual(result.json['counts']['total'], 0)
         self.assertEqual(result.json['songs'], [])
+
+
+class QualitySnapshotTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.scanner = SourceQuality(temporary.name, None)
+        self.candidate = dict(id='official', title='Pipe Dream', channel='Animusic - Topic',
+                              duration=180, source_tier=1)
+
+    def row(self, identifier, verdict='clean', tier=3, candidate=None, **flags):
+        row = dict(id=identifier, title='Pipe Dream', artist='Animusic', duration=180,
+                   verdict=verdict, source_tier=tier, proposed_replacement=candidate, **flags)
+        self.scanner.save(identifier, row)
+        return row
+
+    def test_problem_categories_counts_and_retained_measurements(self):
+        self.row('damage-official', verdict='suspect', tier=1)
+        self.row('damage-fan', verdict='suspect', candidate=self.candidate, replacing=True)
+        self.row('fan-clean', candidate=self.candidate)
+        self.row('fan-unknown', verdict='unknown', candidate=self.candidate)
+        self.row('fan-no-match')
+        self.row('unknown-no-match', verdict='unknown')
+        self.row('official-clean', tier=1, candidate=self.candidate)
+        self.row('dismissed', verdict='suspect', candidate=self.candidate, dismissed=True)
+        self.row('replaced', verdict='suspect', candidate=self.candidate, replaced_by='official')
+        snapshot = self.scanner.snapshot()
+        self.assertEqual([r['id'] for r in snapshot['songs']],
+                         ['damage-official', 'damage-fan', 'fan-clean', 'fan-unknown'])
+        self.assertEqual(snapshot['counts']['damaged'], 2)
+        self.assertEqual(snapshot['counts']['unofficial'], 2)
+        self.assertEqual(snapshot['counts']['damaged'] + snapshot['counts']['unofficial'], len(snapshot['songs']))
+        self.assertTrue(snapshot['songs'][1]['replacing'])
+        self.assertEqual(snapshot['counts']['total'], 9)
+        self.assertEqual(snapshot['counts']['tier_3'], 7)
+        self.assertIn('fan-no-match', self.scanner.rows)
+        self.assertEqual(self.scanner.rows['dismissed']['verdict'], 'suspect')
+        self.scanner.active_keys = {'damage-official', 'fan-clean', 'fan-no-match'}
+        snapshot = self.scanner.snapshot()
+        self.assertEqual((snapshot['counts']['damaged'], snapshot['counts']['unofficial']), (1, 1))
+        self.assertEqual(snapshot['counts']['total'], 3)
+
+    def test_official_matching_rechecks_title_artist_version_and_source(self):
+        track = self.row('original')
+        for changes in (dict(title='Other Animusic Songs'), dict(title='Pipe Dream (Live)'),
+                        dict(channel='Animusic fan'), dict(channel='Another Artist - Topic')):
+            with self.subTest(changes=changes):
+                candidate = {**self.candidate, **changes, 'recommended': True}
+                self.assertIsNone(official_replacement(track, [candidate]))
+                track['proposed_replacement'] = candidate
+                self.assertEqual(self.scanner.snapshot()['songs'], [])
+        candidate = {**self.candidate, 'title': 'Animusic - Pipe Dream (Official Audio)'}
+        self.assertEqual(official_replacement(track, [candidate])['id'], 'official')
+
+    def test_invalid_cached_proposal_is_researched_after_restart(self):
+        self.row('original', verdict='suspect', candidate={**self.candidate, 'title': 'Other Animusic Songs'},
+                 replacement_checked=True)
+        restored = SourceQuality(self.scanner.workspace, None)
+        self.assertIsNone(restored.rows['original']['proposed_replacement'])
+        self.assertFalse(restored.rows['original']['replacement_checked'])
+        self.assertIsNone(restored.snapshot()['songs'][0]['proposed_replacement'])

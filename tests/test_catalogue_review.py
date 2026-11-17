@@ -130,12 +130,31 @@ class ReviewStore(unittest.TestCase):
         self.assertEqual(self.store.overrides(FIRST,'a'*64),dict(genre='Drum and bass'))
         self.assertEqual(self.store.apply_votes([dict(vote,values=dict(album='x'*200))],'AI vote'),0,'invalid values are skipped')
     def test_snapshot_bounds_and_search(self):
-        for i in range(105):self.store.flag_trim({**TRACK,'id':f'{i:011d}','title':f'Song {i}'},'a'*64,'one')
+        for i in range(105):
+            track={**TRACK,'id':f'{i:011d}','title':f'Song {i}'}
+            self.store.flag_trim(track,'a'*64,'one')
+            self.store.observe(track,{},'a'*64)
         data=self.store.snapshot();self.assertEqual(data['trimming_total'],105);self.assertEqual(len(data['trimming']),100)
+        self.assertEqual((data['metadata_total'],len(data['metadata'])),(105,100))
         self.assertEqual(self.store.snapshot('Song 104')['trimming_total'],1)
+        expanded=self.store.snapshot(limit=200)
+        self.assertEqual((len(expanded['trimming']),len(expanded['metadata'])),(105,105))
+        self.assertEqual((expanded['trimming_total'],expanded['metadata_total']),(105,105))
+        self.assertEqual(len(self.store.snapshot()['trimming']),100)
+        self.assertEqual(self.store.snapshot('Song 104',limit=200)['metadata_total'],1)
 
 class ReviewApi(Base):
     extra={'ADMIN_USERS':['sample-a']}
+    def test_review_page_size_is_bounded(self):
+        admin,_=self.signed_in()
+        for limit in ('0','-1','10001','many','1.5'):
+            self.assertEqual(self.go(admin,'GET','/api/catalogue/review?limit='+limit).status_code,400)
+        for i in range(3):
+            self.state.catalogue_review.flag_trim({**TRACK,'id':f'{i:011d}'},'a'*64,'one')
+        result=self.go(admin,'GET','/api/catalogue/review?limit=2')
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(len(result.json['trimming']),2)
+        self.assertEqual(result.json['trimming_total'],3)
     def test_flag_metadata_update_permissions_and_csrf(self):
         native.NativeMusicApi.recording(self)
         admin,token=self.signed_in();member,member_token=self.signed_in('sample-b')

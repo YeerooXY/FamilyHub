@@ -122,7 +122,7 @@ window.familyhub.observePanel = () => {
 window.familyhub.showDialog = (id, focusId) => {
     const dialog = document.getElementById(id);
     if (!dialog || dialog.open) return;
-    const fallback = () => document.getElementById('profile-toggle') || document.getElementById('server') || document.getElementById('content');
+    const fallback = () => document.getElementById(dialog.dataset.returnFocus) || document.getElementById('profile-toggle') || document.getElementById('server') || document.getElementById('content');
     const previous = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : fallback();
     if (document.activeElement === document.body) previous?.focus({preventScroll:true});
     dialog._returnFocus = previous;
@@ -299,7 +299,8 @@ window.familyhub.observeSearch = (reference, version) => {
 
 // Rows can move or leave the DOM during filtering, sorting and paging.
 let focusedSongControl;
-document.addEventListener('focusin',event=>{focusedSongControl=event.target.closest?.('.song-row')?event.target:null;});
+// Catalogue review restores removed controls to the next action after its render.
+document.addEventListener('focusin',event=>{focusedSongControl=event.target.closest?.('.song-row:not(.catalogue-row)')?event.target:null;});
 new MutationObserver(()=>{
     if(document.activeElement===document.body && focusedSongControl) {
         const target=focusedSongControl.isConnected && focusedSongControl.getClientRects().length ? focusedSongControl
