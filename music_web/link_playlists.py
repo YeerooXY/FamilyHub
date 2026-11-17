@@ -117,3 +117,38 @@ def fetch_deezer_playlist(url, progress=None, read=_deezer):
     return {"id": hashlib.sha256(f"deezer:{kind}:{identifier}".encode()).hexdigest()[:22],
             "name": str(about.get("title") or "Deezer playlist")[:200],
             "url": f"https://www.deezer.com/{kind}/{identifier}", "tracks": tracks, "notice": ""}
+
+
+OEMBED = {"spotify": "https://open.spotify.com/oembed?url=", "youtube": "https://www.youtube.com/oembed?format=json&url=",
+          "soundcloud": "https://soundcloud.com/oembed?format=json&url="}
+
+
+def _json(address):
+    request = urllib.request.Request(address, headers={"Accept": "application/json", "User-Agent": "FamilyHubMusic/0.1"})
+    with urllib.request.build_opener(NoRedirect).open(request, timeout=8) as response:
+        data = response.read(256 << 10)
+    value = json.loads(data)
+    if not isinstance(value, dict): raise ValueError("Unexpected response.")
+    return value
+
+
+def link_name(url, read=_json):
+    """The playlist's name from a public link, for the Create playlist name field. '' when unknown."""
+    from urllib.parse import quote
+    provider = detect(url)
+    if provider is None: raise PlaylistError("Paste a public Spotify, YouTube, SoundCloud or Deezer playlist link.")
+    try:
+        if provider == "deezer":
+            kind, identifier = deezer_link(url)
+            title = read("https://api.deezer.com/" + kind + "/" + identifier).get("title", "")
+        else:
+            about = read(OEMBED[provider] + quote(url, safe=""))
+            title = about.get("title", "")
+            author = about.get("author_name", "")
+            # SoundCloud names sets "Name by Artist"; the import itself keeps only "Name".
+            if provider == "soundcloud" and author and isinstance(title, str) and title.endswith(" by " + author):
+                title = title[: -len(" by " + author)]
+    except (OSError, ValueError, PlaylistError):
+        return provider, ""
+    title = re.sub(r"[\x00-\x1f\x7f]", " ", title if isinstance(title, str) else "").strip()
+    return provider, title[:200]

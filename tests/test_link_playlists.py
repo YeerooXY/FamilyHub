@@ -49,3 +49,23 @@ class LinkPlaylistTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LinkNameTests(unittest.TestCase):
+    def test_reads_names_without_fetching_tracks(self):
+        seen = []
+        def read(address):
+            seen.append(address)
+            if "deezer" in address: return {"title": "Road trip"}
+            if "soundcloud" in address: return {"title": "Uncaged Vol. 1 by Monstercat", "author_name": "Monstercat"}
+            return {"title": "DnB\n"}
+        self.assertEqual(links.link_name("https://open.spotify.com/playlist/" + "a" * 22, read), ("spotify", "DnB"))
+        self.assertIn("open.spotify.com/oembed?url=https%3A%2F%2Fopen.spotify.com", seen[-1])
+        self.assertEqual(links.link_name("https://soundcloud.com/monstercat/sets/uncaged", read), ("soundcloud", "Uncaged Vol. 1"))
+        self.assertEqual(links.link_name("https://www.deezer.com/en/playlist/42", read), ("deezer", "Road trip"))
+        self.assertEqual(seen[-1], "https://api.deezer.com/playlist/42")
+
+    def test_unknown_names_are_blank_and_other_sites_are_refused(self):
+        def fail(address): raise OSError("offline")
+        self.assertEqual(links.link_name("https://www.youtube.com/playlist?list=PL1", fail), ("youtube", ""))
+        with self.assertRaises(PlaylistError): links.link_name("https://evil.test/playlist/1", fail)

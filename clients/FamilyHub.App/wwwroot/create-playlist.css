@@ -2,7 +2,7 @@
    buttons and switches. Loaded after stats-pages.css. */
 .create-playlist-screen { width:min(860px,calc(100vw - 48px)); max-height:calc(100dvh - 48px); padding:32px 36px; }
 .create-playlist-screen .dialog-heading h2 { font-size:28px; }
-.create-playlist-form { display:grid; gap:24px; max-width:none; margin:0; }
+.create-playlist-form { display:grid; align-content:start; gap:24px; max-width:none; margin:0; }
 .create-field { display:grid; gap:8px; }
 .create-field>span,.create-section h3 { margin:0; font-size:14px; font-weight:700; color:var(--muted); }
 .create-field input { height:52px; padding:0 20px; border:1px solid transparent; border-radius:14px; font-size:17px; background:#242424; }
@@ -14,18 +14,31 @@
 .create-link input { width:100%; height:56px; padding:0 54px 0 58px; border:1px solid transparent; border-radius:28px; font-size:16px; background:#242424; transition:border-color .18s ease,background-color .18s ease; }
 .create-link input:hover { border-color:#555; background:#2a2a2a; }
 .create-link input:focus-visible { outline:2px solid #fff; outline-offset:0; }
+/* The shared .glass-dialog input rule adds a 10px top margin that lifts the field off its icon. */
+#create-playlist-dialog .create-link input { margin:0; }
+#create-playlist-dialog .entry-error:empty { display:none; }
 .create-link-icon { position:absolute; left:16px; display:grid; place-items:center; width:28px; height:28px; color:var(--muted); pointer-events:none; }
 .create-link-icon .icon,.create-link-icon .site-icon { width:26px; height:26px; }
 .create-link-clear { position:absolute; right:8px; display:grid; place-items:center; width:40px; height:40px; min-height:40px; padding:0; border:0; border-radius:50%; background:transparent; }
 .create-link-clear .icon { width:18px; height:18px; }
 .create-link.is-unknown input { border-color:#e36a6a88; }
-.create-link-status { min-height:18px; margin:-4px 0 0 20px; font-size:13px; color:var(--muted); }
+.create-link-status { margin:-4px 0 0 20px; font-size:13px; color:var(--muted); }
+.create-link-status:empty { display:none; }
 .create-link.is-unknown+.create-link-status { color:#ff9b9b; }
 
-.create-sites { display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; list-style:none; }
-.create-sites li { display:flex; align-items:center; gap:8px; padding:6px 14px 6px 6px; border-radius:20px; font-size:13px; font-weight:600; color:var(--muted); background:#ffffff0a; transition:background-color .2s ease,color .2s ease,transform .2s ease; }
+.create-sites { display:flex; flex-wrap:wrap; row-gap:8px; margin:0; padding:0; list-style:none; }
+/* Sites close in on the detected one: the others shrink to nothing instead of disappearing. */
+.create-sites li { display:flex; align-items:center; gap:8px; max-width:200px; margin-right:8px; padding:6px 14px 6px 6px; overflow:hidden; white-space:nowrap; border-radius:20px; font-size:13px; font-weight:600; color:var(--muted); background:#ffffff0a; transform-origin:left center;
+  transition:background-color .2s ease,color .2s ease,transform .25s cubic-bezier(.2,.8,.2,1),max-width .32s cubic-bezier(.2,.8,.2,1),padding .32s cubic-bezier(.2,.8,.2,1),margin .32s cubic-bezier(.2,.8,.2,1),opacity .2s ease; }
 .create-sites li.is-detected { color:var(--ink); background:#ffffff1f; transform:scale(1.04); }
+.create-sites li.is-hidden { max-width:0; margin-right:0; padding-left:0; padding-right:0; opacity:0; transform:scale(.6); }
 .create-site-icon .site-icon { display:block; width:26px; height:26px; }
+
+/* Folding section: grid rows animate from the content's height to zero. The form's 24px gap
+   is taken back with a negative margin so nothing is left behind. */
+.create-collapse { grid-template-rows:1fr; transition:grid-template-rows .32s cubic-bezier(.2,.8,.2,1),opacity .22s ease,margin-top .32s cubic-bezier(.2,.8,.2,1); }
+.create-collapse>div { display:grid; gap:12px; min-height:0; overflow:hidden; }
+.create-collapse.is-collapsed { grid-template-rows:0fr; margin-top:-24px; opacity:0; }
 
 /* Big device buttons, the same choices as the upload dialog. */
 .create-files { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
@@ -48,7 +61,7 @@
 #create-playlist-dialog .create-toggle input[role=switch]:checked::after { transform:translateX(20px); }
 #create-playlist-dialog .create-toggle input[role=switch]:focus-visible { outline:2px solid #fff; outline-offset:2px; }
 
-.create-playlist-form .actions { display:flex; gap:12px; margin:0; }
+.create-playlist-form .actions { display:flex; justify-content:space-between; gap:12px; margin:0; }
 .create-playlist-form .actions .primary { min-height:48px; padding:0 28px; border-radius:24px; font-size:15px; }
 
 @media(max-width:720px) {
@@ -59,4 +72,10 @@
  .create-playlist-form .actions { position:sticky; bottom:0; padding-top:12px; background:linear-gradient(transparent,#11151d 30%); }
  .create-playlist-form .actions .primary { flex:1; }
 }
-@media(prefers-reduced-motion:reduce) { .create-sites li,.create-file-choice,#create-playlist-dialog .create-toggle input[role=switch],#create-playlist-dialog .create-toggle input[role=switch]::after,.create-link input { transition:none; } }
+/* Closing mirrors the shared dialog-enter animation; app.js closes the dialog when it ends. */
+.animated-dialog.is-closing { animation:dialog-leave .2s cubic-bezier(.4,0,1,1) forwards; }
+.animated-dialog.is-closing::backdrop { animation:backdrop-leave .2s ease forwards; }
+@keyframes dialog-leave { to { opacity:0; transform:translateY(8px) scale(.98); } }
+@keyframes backdrop-leave { to { opacity:0; } }
+
+@media(prefers-reduced-motion:reduce) { .create-collapse,.animated-dialog.is-closing,.animated-dialog.is-closing::backdrop,.create-sites li,.create-file-choice,#create-playlist-dialog .create-toggle input[role=switch],#create-playlist-dialog .create-toggle input[role=switch]::after,.create-link input { transition:none; } }

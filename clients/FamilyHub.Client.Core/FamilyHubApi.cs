@@ -62,8 +62,15 @@ public sealed class FamilyHubApi : IDisposable
     public Task<ServerStatistics> GetServerStatsAsync(CancellationToken cancellationToken = default) =>
         RequestJsonAsync<ServerStatistics>(HttpMethod.Get, "/api/server/stats", cancellationToken: cancellationToken);
 
-    public Task<ActivityReceipt> ReportPlaybackActivityAsync(string deviceId, bool playing, CancellationToken cancellationToken = default, IReadOnlyList<ListeningCounter>? counters = null, string? counterDeviceId = null, MusicTrack? track = null) =>
-        RequestJsonAsync<ActivityReceipt>(HttpMethod.Post, "/api/playback/activity", new { device_id = deviceId, playing, counters, counter_device_id = counterDeviceId, track = track is null ? null : new { id = track.Id, title = track.Title, channel = track.Channel } }, cancellationToken);
+    public Task<ActivityReceipt> ReportPlaybackActivityAsync(string deviceId, bool playing, CancellationToken cancellationToken = default, IReadOnlyList<ListeningCounter>? counters = null, string? counterDeviceId = null, MusicTrack? track = null, string? deviceName = null, string? deviceKind = null, double? position = null) =>
+        RequestJsonAsync<ActivityReceipt>(HttpMethod.Post, "/api/playback/activity", new { device_id = deviceId, playing, counters, counter_device_id = counterDeviceId, track = track is null ? null : new { id = track.Id, title = track.Title, channel = track.Channel },
+            device_info = deviceName is null ? null : new { name = deviceName, kind = deviceKind }, position }, cancellationToken);
+
+    public Task<PlaybackDevicesResponse> GetPlaybackDevicesAsync(string deviceId, CancellationToken cancellationToken = default) =>
+        RequestJsonAsync<PlaybackDevicesResponse>(HttpMethod.Get, "/api/playback/devices?device_id=" + Uri.EscapeDataString(deviceId), cancellationToken: cancellationToken);
+
+    public Task<PlaybackTransferReceipt> TransferPlaybackAsync(string fromDevice, string toDevice, PlaybackResume resume, bool playing, CancellationToken cancellationToken = default) =>
+        RequestJsonAsync<PlaybackTransferReceipt>(HttpMethod.Post, "/api/playback/transfer", new { from = fromDevice, to = toDevice, resume, playing }, cancellationToken);
 
     public async Task<List<MusicTrack>> GetLibraryAsync(CancellationToken cancellationToken = default) =>
         (await RequestJsonAsync<LibraryResponse>(HttpMethod.Get, "/api/library", null, cancellationToken)).Results;

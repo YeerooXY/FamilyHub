@@ -36,7 +36,7 @@ public partial class MainPage : ContentPage
     private void PlaybackChanged()
     {
         session.ObserveListening(player.Preparing || player.Seeking ? null : player.Current, player.QueueIndex, player.Position, player.Playing);
-        _ = session.ReportPlaybackActivityAsync(player.Playing);
+        _ = session.ReportPlaybackActivityAsync(player.Playing, player.Position);
         var identity = player.Current?.Id + ":" + player.QueueIndex + ":" + player.Queue.Count + ":" + player.PlaybackRequested;
         if (identity != lastPlaybackIdentity || !player.Playing && Math.Abs(player.Position - lastPlaybackPosition) > .25 || player.Playing && DateTime.UtcNow - lastPlaybackSave > TimeSpan.FromSeconds(5))
         { lastPlaybackIdentity = identity; SavePlayback(); }
@@ -116,14 +116,20 @@ public partial class MainPage : ContentPage
             blazorWebView.Handler?.PlatformView as Microsoft.UI.Xaml.FrameworkElement, 48, [], 1);
 #endif
         activityTimer = Dispatcher.CreateTimer();
-        activityTimer.Interval = TimeSpan.FromSeconds(5);
-        activityTimer.Tick += (_, _) => { session.ObserveListening(player.Preparing || player.Seeking ? null : player.Current, player.QueueIndex, player.Position, player.Playing); _ = session.ReportPlaybackActivityAsync(player.Playing); };
+        // Every 2 s: the same check-in lists this device and collects playback sent from another one.
+        activityTimer.Interval = TimeSpan.FromSeconds(2);
+        activityTimer.Tick += (_, _) => { session.ObserveListening(player.Preparing || player.Seeking ? null : player.Current, player.QueueIndex, player.Position, player.Playing); _ = session.ReportPlaybackActivityAsync(player.Playing, player.Position); };
         activityTimer.Start();
         player.Attach(audio, audioNext);
 #if ANDROID
         PlaybackControls.Start(Microsoft.Maui.ApplicationModel.Platform.AppContext, player, session);
 #endif
         player.Changed += PlaybackChanged; session.Changed += RestorePlayback;
+        session.PlaybackHandedOver += handover => Dispatcher.Dispatch(async () =>
+        {
+            try { await player.TakeOverAsync(handover.Resume!, session.Library.Concat(session.Downloads), handover.Playing); }
+            catch (Exception error) when (error is InvalidOperationException or IOException) { }
+        });
         blazorWebView.UrlLoading += (_, args) => { if (args.Url.Host != "0.0.0.1") args.UrlLoadingStrategy = Microsoft.AspNetCore.Components.WebView.UrlLoadingStrategy.CancelLoad; };
 	}
     protected override bool OnBackButtonPressed()

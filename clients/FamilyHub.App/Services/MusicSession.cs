@@ -83,21 +83,30 @@ public sealed class MusicSession
     private bool lastActivityPlaying, activityInFlight;
     private string lastActivityTrackId = "";
     private FamilyHubApi? lastActivityApi;
-    public async Task ReportPlaybackActivityAsync(bool playing)
+    /// <summary>This app's id in "Connect to a device"; new on every start, like the activity device.</summary>
+    public string DeviceId => activityDevice;
+    public static string DeviceName => DeviceInfo.Current.Platform == DevicePlatform.WinUI ? Environment.MachineName : DeviceInfo.Current.Name is { Length: > 0 } name ? name : DeviceInfo.Current.Model;
+    public static string DeviceKind => DeviceInfo.Current.Platform == DevicePlatform.WinUI ? "windows" : DeviceInfo.Current.Platform == DevicePlatform.Android ? "android"
+        : DeviceInfo.Current.Platform == DevicePlatform.MacCatalyst ? "mac" : DeviceInfo.Current.Idiom == DeviceIdiom.Tablet ? "ipad" : DeviceInfo.Current.Platform == DevicePlatform.iOS ? "iphone" : "other";
+    /// <summary>Raised when another device of this profile hands its playback to this one.</summary>
+    public event Action<PlaybackHandover>? PlaybackHandedOver;
+    private readonly HashSet<string> handovers = [];
+    public async Task ReportPlaybackActivityAsync(bool playing, double? position = null)
     {
         var api = Api;
         if (!Connected || api is null || activityInFlight) return;
         var currentTrack = playing ? activityTrack : null;
         var trackId = currentTrack?.Id ?? "";
-        if (ReferenceEquals(api, lastActivityApi) && trackId == lastActivityTrackId && playing == lastActivityPlaying && DateTime.UtcNow - lastActivity < TimeSpan.FromSeconds(5)) return;
+        if (ReferenceEquals(api, lastActivityApi) && trackId == lastActivityTrackId && playing == lastActivityPlaying && DateTime.UtcNow - lastActivity < TimeSpan.FromSeconds(2)) return;
         activityInFlight = true;
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
             var journal = listeningJournal;
             var counters = journal?.Pending();
-            var receipt = await api.ReportPlaybackActivityAsync(activityDevice, playing, timeout.Token, counters, journal?.DeviceId, currentTrack);
+            var receipt = await api.ReportPlaybackActivityAsync(activityDevice, playing, timeout.Token, counters, journal?.DeviceId, currentTrack, DeviceName, DeviceKind, position);
             if (receipt.CountersAccepted && journal is not null && counters is { Count: > 0 }) journal.Acknowledge(counters);
+            if (receipt.Command is { Action: "play", Resume.IsValid: true } handover && handovers.Add(handover.Id)) PlaybackHandedOver?.Invoke(handover);
             lastActivity = DateTime.UtcNow; lastActivityPlaying = playing; lastActivityTrackId = trackId; lastActivityApi = api;
         }
         catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException or ObjectDisposedException) { }

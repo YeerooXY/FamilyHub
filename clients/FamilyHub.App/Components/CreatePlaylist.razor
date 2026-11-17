@@ -3,12 +3,12 @@
 
 @* Create playlist: one screen for an empty playlist, a pasted link from a supported site (detected
    from the link itself), or songs and folders from this device through the upload dialog. *@
-<dialog id="create-playlist-dialog" class="glass-dialog create-playlist-screen" aria-labelledby="create-playlist-heading" @onclose="Reset">
+<dialog id="create-playlist-dialog" class="glass-dialog create-playlist-screen animated-dialog" aria-labelledby="create-playlist-heading" @onclose="Reset">
     <div class="dialog-heading"><h2 id="create-playlist-heading">Create playlist</h2><button class="quiet" aria-label="Close create playlist" @onclick="Close"><MusicIcon Name="close" /></button></div>
     <form class="create-playlist-form inline-form" @onsubmit="Submit" @onsubmit:preventDefault>
         <label class="create-field">
             <span>Name</span>
-            <input id="new-playlist" @bind="name" @bind:event="oninput" placeholder="@(Source is not null ? "Uses the name from " + SiteName(Source) : uploader?.FolderName is { Length: > 0 } folder ? folder : "My playlist")" maxlength="200" disabled="@(Source is not null)" autocomplete="off" />
+            <input id="new-playlist" @bind="name" @bind:event="oninput" placeholder="@NamePlaceholder" maxlength="200" autocomplete="off" />
         </label>
 
         <section class="create-section" aria-labelledby="create-link-title">
@@ -16,26 +16,27 @@
             <div class="create-link @(Source is { } linkSite ? "is-" + linkSite : "") @(link.Length > 0 && Source is null ? "is-unknown" : "")">
                 <span class="create-link-icon" aria-hidden="true">@if (Source is { } detected) { @SiteIcon(detected) } else { <MusicIcon Name="link" /> }</span>
                 <label class="sr" for="new-playlist-url">Playlist link</label>
-                <input id="new-playlist-url" type="url" @bind="link" @bind:event="oninput" placeholder="Paste a playlist link" autocomplete="off" spellcheck="false" disabled="@(Files > 0)" />
+                <input id="new-playlist-url" type="url" @bind="link" @bind:event="oninput" @bind:after="LinkChanged" placeholder="Paste a playlist link" autocomplete="off" spellcheck="false" disabled="@(Files > 0)" />
                 @if (link.Length > 0) { <button type="button" class="create-link-clear" aria-label="Clear link" @onclick="ClearLink"><MusicIcon Name="close" /></button> }
             </div>
             <p class="create-link-status" role="status">@LinkStatus</p>
-            <ul class="create-sites" aria-label="Supported sites">
+            <ul class="create-sites @(Source is not null ? "has-detected" : "")" aria-label="Supported sites">
                 @foreach (var site in Sites)
                 {
-                    <li class="@(Source == site ? "is-detected" : "")"><span class="create-site-icon" aria-hidden="true">@SiteIcon(site)</span><span>@SiteName(site)</span></li>
+                    <li class="@(Source == site ? "is-detected" : Source is not null ? "is-hidden" : "")" aria-hidden="@(Source is not null && Source != site ? "true" : null)"><span class="create-site-icon" aria-hidden="true">@SiteIcon(site)</span><span>@SiteName(site)</span></li>
                 }
             </ul>
         </section>
 
-        <section class="create-section" aria-labelledby="create-files-title">
+        @* A pasted link replaces the device choices; they fold away and come back when the link is cleared. *@
+        <section class="create-section create-collapse @(Source is not null ? "is-collapsed" : "")" aria-labelledby="create-files-title" inert="@(Source is not null)"><div>
             <h3 id="create-files-title">Add songs from this device</h3>
             <div class="create-files">
                 <button type="button" id="create-from-songs" class="create-file-choice" @onclick="() => FromDevice(false)" aria-disabled="@Aria(DeviceLocked)"><MusicIcon Name="music" /><strong>Choose songs</strong><small>One song or several</small></button>
                 <button type="button" id="create-from-folder" class="create-file-choice" @onclick="() => FromDevice(true)" aria-disabled="@Aria(DeviceLocked)"><MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Includes its subfolders</small></button>
             </div>
             <UploadSongs @ref="uploader" Inline="true" Prefix="create-upload" ShowOpenButton="false" Changed="StateHasChanged" />
-        </section>
+        </div></section>
 
         <section class="create-section create-options" aria-label="Playlist options">
             <label class="create-toggle"><span><strong>Share with the family</strong><small>Everyone on this server can see and play it</small></span><input type="checkbox" role="switch" @bind="shared" /></label>
@@ -47,8 +48,8 @@
 
         <p class="entry-error" role="status">@error</p>
         <div class="actions">
-            <button id="create-playlist-submit" class="primary" type="submit" aria-disabled="@Aria(busy || uploader?.Busy == true || (link.Length > 0 && Source is null))">@SubmitLabel</button>
             <button type="button" @onclick="Close">Cancel</button>
+            <button id="create-playlist-submit" class="primary" type="submit" aria-disabled="@Aria(busy || uploader?.Busy == true || (link.Length > 0 && Source is null))">@SubmitLabel</button>
         </div>
     </form>
 </dialog>
@@ -58,7 +59,9 @@
 
     private static readonly string[] Sites = ["spotify", "youtube", "soundcloud", "deezer"];
     private UploadSongs? uploader;
-    private string name = "", link = "";
+    private string name = "", link = "", autoName = "";
+    private bool findingName;
+    private CancellationTokenSource? nameLookup;
     private bool shared = true, download = true, busy;
     private string? error;
 
@@ -82,12 +85,36 @@
         }
     }
 
-    private string LinkStatus => link.Length == 0 ? "" : Source is { } site
-        ? SiteName(site) + " link. The playlist keeps its name from " + SiteName(site) + "."
+    private string LinkStatus => link.Length == 0 || Source is not null ? ""
         : "This site isn't supported. Use a Spotify, YouTube, SoundCloud or Deezer playlist link.";
+    private string NamePlaceholder => Source is { } site ? findingName ? "Finding the name on " + SiteName(site) + "..." : "Name from " + SiteName(site)
+        : uploader?.FolderName is { Length: > 0 } folder ? folder : "My playlist";
 
-    private void ClearLink() { link = ""; error = null; }
-    private void Reset() { name = link = ""; shared = download = true; error = null; busy = false; uploader?.Clear(); }
+    // The clear button disappears with the link, so focus moves back to the link field.
+    private async Task ClearLink() { link = ""; error = null; var changed = LinkChanged(); await JS.InvokeVoidAsync("familyhub.focus", "new-playlist-url"); await changed; }
+    private void Reset() { nameLookup?.Cancel(); name = link = autoName = ""; findingName = false; shared = download = true; error = null; busy = false; uploader?.Clear(); }
+
+    // A pasted link fills the name field from the site; a name the owner typed is kept.
+    private async Task LinkChanged()
+    {
+        nameLookup?.Cancel(); nameLookup = null; findingName = false;
+        if (name == autoName) name = "";
+        autoName = "";
+        if (Source is null || Session.Api is null) return;
+        var lookup = nameLookup = new CancellationTokenSource();
+        var url = link.Trim();
+        findingName = true;
+        try
+        {
+            await Task.Delay(300, lookup.Token);
+            var found = await Session.Api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Get, "/api/playlists/link-name?url=" + Uri.EscapeDataString(url), cancellationToken: lookup.Token);
+            var resolved = found.TryGetProperty("name", out var value) ? value.GetString() ?? "" : "";
+            if (lookup.IsCancellationRequested) return;
+            if (resolved.Length > 0 && name.Length == 0) name = autoName = resolved;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { }
+        finally { if (nameLookup == lookup) { findingName = false; StateHasChanged(); } }
+    }
     private int Files => uploader?.SelectedCount ?? 0;
     private bool DeviceLocked => busy || Source is not null || uploader?.Busy == true;
     private string SubmitLabel => busy ? "Working..." : Source is not null ? "Import playlist"
@@ -112,12 +139,13 @@
         try
         {
             var source = Source;
-            await Session.CreatePlaylistAsync(source is null ? (name.Trim().Length > 0 ? name.Trim() : "New playlist") : "New playlist");
+            var typed = name.Trim();
+            await Session.CreatePlaylistAsync(typed.Length > 0 ? typed : "New playlist");
             var playlist = Session.Playlists.Last();
             if (!shared) { await Session.EditPlaylistAsync(playlist, new { shared = false }); playlist = Session.Playlists.FirstOrDefault(p => p.Id == playlist.Id && p.OwnerId == playlist.OwnerId) ?? playlist; }
             if (source is not null)
                 await Session.Api!.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/playlists/" + playlist.Id + "/import",
-                    new { provider = source, url = link.Trim(), revision = playlist.Revision, download });
+                    new { provider = source, url = link.Trim(), revision = playlist.Revision, download, name = typed.Length > 0 ? typed : null });
             await JS.InvokeVoidAsync("familyhub.closeDialog", "create-playlist-dialog", "content");
             await Created.InvokeAsync(playlist);
         }
@@ -134,7 +162,7 @@
 
     private static RenderFragment SiteIcon(string site) => site switch
     {
-        "spotify" => @<svg viewBox="0 0 24 24" class="site-icon"><circle cx="12" cy="12" r="11" fill="#1DB954" /><path d="M6.6 9.3c3.6-1.1 7.7-.8 10.9 1.1M7.2 12.4c3-.9 6.3-.6 9 .9M7.8 15.3c2.4-.6 4.9-.4 7 .7" fill="none" stroke="#0b0b0b" stroke-width="1.7" stroke-linecap="round" /></svg>,
+        "spotify" => @<svg viewBox="0 0 24 24" class="site-icon"><circle cx="12" cy="12" r="11" fill="#1DB954" /><path d="M6.2 9.4Q12 6.8 17.8 9.8M6.9 12.6Q12 10.5 17.1 13M7.6 15.6Q11.9 13.9 16.2 16.1" fill="none" stroke="#0b0b0b" stroke-width="1.7" stroke-linecap="round" /></svg>,
         "youtube" => @<svg viewBox="0 0 24 24" class="site-icon"><rect x="1.5" y="5" width="21" height="14" rx="4.5" fill="#FF0033" /><path d="M10 8.8v6.4l5.4-3.2z" fill="#fff" /></svg>,
         "soundcloud" => @<svg viewBox="0 0 24 24" class="site-icon"><circle cx="12" cy="12" r="11" fill="#FF5500" /><path d="M9.6 9.6a3.6 3.6 0 0 1 6.6 1.3 2.3 2.3 0 0 1 .5 4.6H9.6z" fill="#fff" /><path d="M5.2 12.6v2.6M6.7 11.4v4.1M8.2 10.4v5.1" stroke="#fff" stroke-width="1.1" stroke-linecap="round" /></svg>,
         _ => @<svg viewBox="0 0 24 24" class="site-icon"><circle cx="12" cy="12" r="11" fill="#A238FF" /><path d="M6 16.5h2M9.3 16.5h2M9.3 14.5h2M12.6 16.5h2M12.6 14.5h2M12.6 12.5h2M15.9 16.5h2M15.9 14.5h2M15.9 12.5h2M15.9 10.5h2M15.9 8.5h2" stroke="#fff" stroke-width="1.3" /></svg>

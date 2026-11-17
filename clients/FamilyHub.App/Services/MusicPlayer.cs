@@ -50,6 +50,9 @@ public sealed class MusicPlayer(MusicSession session)
     public double FadeDuration => CrossfadeEnvelope.Duration(Duration);
     public double FadeElapsed => blending ? blendGain * FadeDuration : 0;
     public bool FollowingHost { get; set; }
+    /// <summary>The device this profile's playback was sent to from here; empty while playing here.</summary>
+    public string RemoteDeviceName { get; set; } = "";
+    public string RemoteDeviceId { get; set; } = "";
     public Task PauseLocallyAsync() => MainThread.InvokeOnMainThreadAsync(() =>
     {
         PlaybackRequested = false; deck?.SetPlaying(false); standby?.SetPlaying(false);
@@ -499,6 +502,18 @@ public sealed class MusicPlayer(MusicSession session)
         if (standby is not null) await standby.SetOutputAsync(id);
         AudioOutputId = id; Changed?.Invoke();
     });
+    /// <summary>Another device handed its playback here: this device's queue is replaced and
+    /// continues at the sender's song and position. Ignored while following a Listen Together host.</summary>
+    public async Task<bool> TakeOverAsync(PlaybackResume state, IEnumerable<MusicTrack> available, bool play)
+    {
+        if (FollowingHost || !state.IsValid) return false;
+        var recordings = available.ToList();
+        if (!recordings.Any(t => t.Id == state.TrackIds[state.Index])) return false;
+        await StopAsync();
+        await MainThread.InvokeOnMainThreadAsync(() => RestoreResume(state, recordings));
+        if (play && Current is not null) await ToggleAsync();
+        return Current is not null;
+    }
     public Task StopAsync() => MainThread.InvokeOnMainThreadAsync(() =>
     {
         ++requestVersion; preparation?.Cancel(); preparation = null;

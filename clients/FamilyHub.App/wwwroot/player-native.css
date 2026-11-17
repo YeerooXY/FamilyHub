@@ -100,6 +100,27 @@
 .audio-output-option:hover,.audio-output-option:focus-visible { background:#ffffff0a; }
 .audio-output-option[aria-pressed=true] { color:var(--accent-blue); }
 .audio-output-option .icon { width:20px; height:20px; flex-shrink:0; }
+/* Connect to a device: other open apps first, then this device's speakers. */
+.connect-device-dialog { width:min(400px,calc(100vw - 32px)); }
+.connect-section { display:grid; gap:2px; margin-top:16px; }
+.connect-section h3 { margin:0 0 6px; font-size:13px; font-weight:700; color:var(--muted); }
+.device-option { display:flex; align-items:center; gap:14px; width:100%; min-height:60px; padding:10px 12px; border:0; border-radius:10px; text-align:left; color:var(--ink); background:transparent; }
+button.device-option:hover:not([aria-disabled=true]),button.device-option:focus-visible { background:#ffffff0d; }
+.device-option.is-active { color:#56d58e; }
+.device-icon { display:grid; place-items:center; width:40px; height:40px; flex-shrink:0; border-radius:8px; background:#ffffff0d; }
+.device-icon .icon { width:22px; height:22px; }
+.device-text { display:grid; gap:3px; min-width:0; flex:1; }
+.device-text strong,.device-text small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.device-text strong { font-size:15px; }
+.device-text small { font-size:13px; color:var(--muted); }
+.device-option.is-active small { color:#56d58ecc; }
+.connect-empty { margin:4px 12px 0; font-size:13px; }
+.device-playing { display:flex; align-items:flex-end; gap:2px; height:14px; }
+.device-playing span { width:3px; height:100%; border-radius:1px; background:#56d58e; animation:device-eq 1s ease-in-out infinite; transform-origin:bottom; }
+.device-playing span:nth-child(2) { animation-delay:-.4s; }.device-playing span:nth-child(3) { animation-delay:-.7s; }
+@keyframes device-eq { 0%,100% { transform:scaleY(.35); } 50% { transform:scaleY(1); } }
+#connect-device.is-remote { color:#56d58e; }
+@media(prefers-reduced-motion:reduce) { .device-playing span { animation:none; } }
 @media(max-width:720px) { .player-tools { width:148px; } .player-tools #mute-toggle { display:none; } .player-tools .app-update { display:none; } .player-bar:has(.local-pause-button) .player-tools { width:200px; } .player-bar:has(.local-pause-button) .now-playing-group { padding-right:208px; } }
 
 @media(min-width:901px) { .player-bar { grid-template-columns:minmax(180px,1fr) minmax(240px,2fr) minmax(300px,1fr); }.player-tools { max-width:360px; } }

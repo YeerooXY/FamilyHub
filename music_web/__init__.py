@@ -181,6 +181,8 @@ def create_app(test_config=None):
         WTF_CSRF_TIME_LIMIT=None, WTF_CSRF_SSL_STRICT=False)  # origin is checked in guard()
     app.intake = load_intake(cfg["CLI_PATH"])
     catalogue_review = CatalogueReview(ws)
+    from .playback_devices import PlaybackDevices
+    playback_devices = PlaybackDevices()
     listening_versions = ListeningVersions(ws, app.intake)
     finished_audio = FinishedAudio(ws, app.intake)
     genre_labels = GenreLabels(ws, enabled=cfg.get("GENRE_LOOKUP", cfg["PUBLIC_ORIGIN"] != "https://music.test"))
@@ -615,7 +617,9 @@ def create_app(test_config=None):
             except ValueError as error: raise ApiError(str(error), 400)
         try: listening_stats.heartbeat(g.user, device, data["playing"], count_time=counters is None, track=track)
         except ValueError as error: raise ApiError(str(error), 429)
-        return jsonify(ok=True, counters_accepted=counters is not None)
+        # The same check-in lists this device for "Connect to a device" and collects a transfer sent to it.
+        command = playback_devices.report(g.user, device, data.get("device_info"), data["playing"], track, data.get("position"))
+        return jsonify(ok=True, counters_accepted=counters is not None, command=command)
 
     @app.get("/api/server/stats")
     def server_stats():
@@ -1312,6 +1316,15 @@ def create_app(test_config=None):
         app.extensions["music"].auto_playlist_thread = auto_thread
         auto_thread.start()
 
+    @app.get("/api/playlists/link-name")
+    def playlist_link_name():
+        url = request.args.get("url", "")
+        if not 1 <= len(url) <= 2048: raise ApiError("Paste a playlist link.")
+        if not allow("link-name:" + g.user, 30, 60): raise ApiError("Wait a moment before checking another link.", 429)
+        try: provider, name = link_playlists.link_name(url)
+        except PlaylistError as error: raise ApiError(str(error))
+        return jsonify(provider=provider, name=name)
+
     @app.post("/api/playlists/<pid>/import")
     def import_playlist_background(pid):
         data = body()
@@ -1324,6 +1337,9 @@ def create_app(test_config=None):
             raise ApiError("This link does not match the chosen site.")
         if data.get("download") not in (None, True, False):
             raise ApiError("Download must be true or false.")
+        name = data.get("name")
+        if name is not None and (not isinstance(name, str) or not 1 <= len(name.strip()) <= 200 or any(ord(c) < 32 for c in name)):
+            raise ApiError("Enter a playlist name up to 200 characters.")
         if provider == "spotify":
             from .playlists import spotify_source
             spotify_source(url)
@@ -1331,7 +1347,7 @@ def create_app(test_config=None):
         if provider == "deezer": link_playlists.deezer_link(url)
         if not allow("playlist-import:" + g.user, 10, 60):
             raise ApiError("Wait a minute before importing another playlist.", 429)
-        try: status = playlist_preparation.begin_import(g.user, pid, data.get("revision"), provider, url, data.get("download", True) is not False)
+        try: status = playlist_preparation.begin_import(g.user, pid, data.get("revision"), provider, url, data.get("download", True) is not False, name.strip() if name else None)
         except ValueError as error: raise ApiError(str(error), 409)
         return jsonify(status), 202
 
@@ -1919,4 +1935,6 @@ def create_app(test_config=None):
 
     from .listening_rooms import register_listening_rooms
     register_listening_rooms(app, body, profile_store)
+    from .playback_devices import register_playback_devices
+    register_playback_devices(app, body, playback_devices)
     return app

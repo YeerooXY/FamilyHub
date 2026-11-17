@@ -128,6 +128,12 @@ window.familyhub.showDialog = (id, focusId) => {
     dialog._returnFocus = previous;
     if (!dialog._focusBound) {
         dialog._focusBound = true;
+        // Escape on an animated dialog closes it through closeDialog so it animates too.
+        dialog.addEventListener('cancel', event => {
+            if (!dialog.classList.contains('animated-dialog')) return;
+            event.preventDefault();
+            window.familyhub.closeDialog(dialog.id);
+        });
         dialog.addEventListener('close', () => {
             const target = dialog._returnFocus;
             if (target?.isConnected && target.getClientRects().length) target.focus({preventScroll:true});
@@ -142,10 +148,64 @@ window.familyhub.closeDialog = (id, successorId) => {
     if (!dialog) return;
     const successor = document.getElementById(successorId);
     if (successor) dialog._returnFocus = successor;
+    // Dialogs marked animated-dialog play their closing animation first, unless motion is reduced.
+    if (dialog.classList.contains('animated-dialog') && dialog.open && !dialog._closing
+        && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        dialog._closing = true;
+        dialog.classList.add('is-closing');
+        let done = false;
+        const ended = event => { if (event.target === dialog) finish(); };
+        const finish = () => {
+            if (done) return;
+            done = true; dialog._closing = false;
+            dialog.removeEventListener('animationend', ended);
+            dialog.classList.remove('is-closing');
+            if (dialog.open) dialog.close();
+            const target = dialog._returnFocus;
+            if (target?.isConnected) target.focus({preventScroll:true});
+        };
+        dialog.addEventListener('animationend', ended);
+        setTimeout(finish, 260);
+        return;
+    }
+    if (dialog._closing) return;
     if (dialog.matches(':popover-open')) dialog.hidePopover();
     else if (dialog instanceof HTMLDialogElement) dialog.close();
     const target = dialog._returnFocus;
     if (target?.isConnected) target.focus({preventScroll:true});
+};
+
+// Playlist covers from the clipboard: shrunk to fit 512 px and sent to .NET as a JPEG data URL.
+window.familyhub.imageToJpeg = async blob => {
+    const bitmap = await createImageBitmap(blob);
+    const scale = Math.min(1, 512 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    return canvas.toDataURL('image/jpeg', .88);
+};
+window.familyhub.clipboardImage = async () => {
+    try {
+        for (const item of await navigator.clipboard.read()) {
+            const type = item.types.find(t => t.startsWith('image/'));
+            if (type) return await window.familyhub.imageToJpeg(await item.getType(type));
+        }
+    } catch { }
+    return null;
+};
+window.familyhub.bindImagePaste = (id, reference) => {
+    const dialog = document.getElementById(id);
+    if (!dialog) return;
+    dialog._pasteReference = reference;
+    if (dialog._pasteBound) return;
+    dialog._pasteBound = true;
+    dialog.addEventListener('paste', async event => {
+        const file = [...(event.clipboardData?.items || [])].find(item => item.kind === 'file' && item.type.startsWith('image/'))?.getAsFile();
+        if (!file) return;
+        event.preventDefault();
+        try { await dialog._pasteReference?.invokeMethodAsync('PasteImage', await window.familyhub.imageToJpeg(file)); } catch { }
+    });
 };
 
 window.familyhub.bindSidebarResize = reference => {

@@ -1,33 +1,119 @@
 @inject MusicPlayer Player
+@inject MusicSession Session
 @inject IJSRuntime JS
+@implements IDisposable
 
-@if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid())
-{
-    <button id="connect-device" class="quiet" aria-label="Connect to a device" title="Connect to a device" @onclick="Open"><MusicIcon Name="device" /></button>
-    <dialog id="audio-output-dialog" class="glass-dialog" aria-labelledby="audio-output-title">
-        <div class="dialog-heading"><h2 id="audio-output-title">Audio output</h2><button id="audio-output-close" class="quiet" aria-label="Close audio output" @onclick="Close"><MusicIcon Name="close" /></button></div>
-        @if (loading) { <p role="status">Loading audio outputs...</p> }
-        @foreach (var output in outputs)
-        { <button class="audio-output-option" @key="output.Id" aria-pressed="@(Player.AudioOutputId == output.Id ? "true" : "false")" @onclick="() => Select(output.Id)"><MusicIcon Name="@(Player.AudioOutputId == output.Id ? "check-circle" : "volume")" /><span>@output.Name</span></button> }
-        @if (OperatingSystem.IsAndroid()) { <button class="audio-output-option" @onclick="SystemPicker"><MusicIcon Name="volume" /><span>Choose audio output</span></button> }
-        <button class="audio-output-option" @onclick="Bluetooth"><MusicIcon Name="device" /><span>Bluetooth settings</span></button>
-        @if (error is not null) { <p class="entry-error" role="status">@error</p> }
-    </dialog>
-}
+@* Connect to a device: your other open FamilyHub apps first (playback moves there and pauses
+   here), then this device's speakers and Bluetooth. *@
+<button id="connect-device" class="quiet @(Player.RemoteDeviceName.Length > 0 ? "is-remote" : "")" aria-label="@ButtonLabel" title="@ButtonLabel" aria-haspopup="dialog" @onclick="Open"><MusicIcon Name="device" /></button>
+<dialog id="audio-output-dialog" class="glass-dialog connect-device-dialog" aria-labelledby="audio-output-title" @onclose="StopRefreshing">
+    <div class="dialog-heading"><h2 id="audio-output-title">Connect to a device</h2><button id="audio-output-close" class="quiet" aria-label="Close" @onclick="Close"><MusicIcon Name="close" /></button></div>
+    <section class="connect-section" aria-labelledby="connect-devices-title">
+        <h3 id="connect-devices-title">Devices</h3>
+        <div class="device-option @(Player.RemoteDeviceId.Length == 0 ? "is-active" : "")" aria-current="@(Player.RemoteDeviceId.Length == 0 ? "true" : null)">
+            <span class="device-icon"><MusicIcon Name="@KindIcon(MusicSession.DeviceKind)" /></span>
+            <span class="device-text"><strong>This device</strong><small>@(Player.RemoteDeviceName.Length > 0 ? "Playing on " + Player.RemoteDeviceName : MusicSession.DeviceName)</small></span>
+        </div>
+        @foreach (var device in devices.Where(d => !d.This))
+        {
+            <button class="device-option @(device.Id == Player.RemoteDeviceId ? "is-active" : "")" aria-current="@(device.Id == Player.RemoteDeviceId ? "true" : null)" @key="device.Id" id="@("device-" + device.Id)" aria-disabled="@(transferring is not null ? "true" : "false")" @onclick="() => Transfer(device)">
+                <span class="device-icon"><MusicIcon Name="@KindIcon(device.Kind)" /></span>
+                <span class="device-text"><strong>@device.Name</strong><small>@(transferring == device.Id ? "Connecting..." : device.Id == Player.RemoteDeviceId && !device.Playing ? "Paused" : device.Playing && device.Track is { } track ? track.Title + " · " + track.Channel : "Ready to play")</small></span>
+                @if (device.Playing) { <span class="device-playing" aria-label="Playing now"><span></span><span></span><span></span></span> }
+            </button>
+        }
+        @if (loadedDevices && !devices.Any(d => !d.This)) { <p class="muted connect-empty">Open FamilyHub on another computer or phone with this profile to play there.</p> }
+    </section>
+    @if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid())
+    {
+        <section class="connect-section" aria-labelledby="connect-outputs-title">
+            <h3 id="connect-outputs-title">Speakers on this device</h3>
+            @if (loading) { <p role="status" class="muted">Loading audio outputs...</p> }
+            @foreach (var output in outputs)
+            { <button class="audio-output-option" @key="output.Id" aria-pressed="@(Player.AudioOutputId == output.Id ? "true" : "false")" @onclick="() => Select(output.Id)"><MusicIcon Name="@(Player.AudioOutputId == output.Id ? "check-circle" : "volume")" /><span>@output.Name</span></button> }
+            @if (OperatingSystem.IsAndroid()) { <button class="audio-output-option" @onclick="SystemPicker"><MusicIcon Name="volume" /><span>Choose audio output</span></button> }
+            <button class="audio-output-option" @onclick="Bluetooth"><MusicIcon Name="device" /><span>Bluetooth settings</span></button>
+        </section>
+    }
+    @if (error is not null) { <p class="entry-error" role="status">@error</p> }
+</dialog>
 
 @code {
     private List<AudioOutput> outputs = [];
-    private bool loading;
-    private string? error;
+    private List<PlaybackDevice> devices = [];
+    private bool loading, loadedDevices;
+    private string? error, transferring;
+    private CancellationTokenSource? refreshing;
+
+    private string ButtonLabel => Player.RemoteDeviceName.Length > 0 ? "Playing on " + Player.RemoteDeviceName : "Connect to a device";
+    private static string KindIcon(string kind) => kind is "android" or "iphone" ? "phone" : "device";
+
+    protected override void OnInitialized() => Player.Changed += PlayerChanged;
+    // Playing here again ends "Playing on ...".
+    private void PlayerChanged()
+    {
+        if (Player.PlaybackRequested && Player.RemoteDeviceName.Length > 0) { Player.RemoteDeviceName = ""; Player.RemoteDeviceId = ""; }
+        _ = InvokeAsync(StateHasChanged);
+    }
+
     private async Task Open()
     {
-        error = null; loading = true;
+        error = null; loading = true; loadedDevices = false; transferring = null;
         await JS.InvokeVoidAsync("familyhub.showDialog", "audio-output-dialog", "audio-output-close");
-        try { outputs = await AudioOutputs.ListAsync(); }
-        catch (Exception exception) { error = exception.Message; }
-        finally { loading = false; }
+        StartRefreshing();
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid())
+        {
+            try { outputs = await AudioOutputs.ListAsync(); }
+            catch (Exception exception) { error = exception.Message; }
+        }
+        loading = false;
     }
-    private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "audio-output-dialog", "connect-device").AsTask();
+
+    // The device list stays current while the dialog is open: devices come online and go away.
+    private void StartRefreshing()
+    {
+        StopRefreshing();
+        var token = (refreshing = new CancellationTokenSource()).Token;
+        _ = Task.Run(async () =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    if (Session.Api is { } api)
+                    {
+                        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(5));
+                        var found = (await api.GetPlaybackDevicesAsync(Session.DeviceId, timeout.Token)).Devices;
+                        await InvokeAsync(() => { devices = found; loadedDevices = true; StateHasChanged(); });
+                    }
+                }
+                catch (Exception exception) when (exception is HttpRequestException or FamilyHubApiException or OperationCanceledException) { }
+                try { await Task.Delay(3000, token); } catch (OperationCanceledException) { }
+            }
+        });
+    }
+    private void StopRefreshing() { refreshing?.Cancel(); refreshing?.Dispose(); refreshing = null; }
+
+    private Task Close() { StopRefreshing(); return JS.InvokeVoidAsync("familyhub.closeDialog", "audio-output-dialog", "connect-device").AsTask(); }
+
+    private async Task Transfer(PlaybackDevice device)
+    {
+        if (transferring is not null || Session.Api is null) return;
+        if (Player.FollowingHost) { error = "Leave Listen Together first, then choose where to listen."; return; }
+        if (Player.CaptureResume() is not { } resume) { error = "Play a song first, then choose where to listen."; return; }
+        transferring = device.Id; error = null;
+        try
+        {
+            var playing = Player.PlaybackRequested;
+            var receipt = await Session.Api.TransferPlaybackAsync(Session.DeviceId, device.Id, resume, playing);
+            if (Player.PlaybackRequested) await Player.ToggleAsync();
+            Player.RemoteDeviceName = receipt.Target; Player.RemoteDeviceId = device.Id;
+            await Close();
+        }
+        catch (Exception exception) when (exception is HttpRequestException or FamilyHubApiException or OperationCanceledException) { error = exception.Message; }
+        finally { transferring = null; }
+    }
+
     private async Task Select(string id)
     {
         try { await Player.SetAudioOutputAsync(id); await Close(); }
@@ -35,4 +121,6 @@
     }
     private async Task SystemPicker() { try { await AudioOutputs.OpenSystemPickerAsync(); await Close(); } catch (Exception exception) { error = exception.Message; } }
     private async Task Bluetooth() { try { await AudioOutputs.OpenBluetoothAsync(); await Close(); } catch (Exception exception) { error = exception.Message; } }
+
+    public void Dispose() { Player.Changed -= PlayerChanged; StopRefreshing(); }
 }

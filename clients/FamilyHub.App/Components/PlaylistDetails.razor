@@ -1,5 +1,6 @@
 ﻿@inject MusicSession Session
 @inject IJSRuntime JS
+@implements IDisposable
 @if (Playlist.CanEdit)
 {
     @if (!HideTrigger) { <button id="playlist-details-open" class="quiet playlist-details-open" @onclick="Open"><MusicIcon Name="pencil" />Edit details</button> }
@@ -7,7 +8,10 @@
         <div class="dialog-heading"><h2 id="playlist-details-heading">Edit details</h2><button class="quiet" aria-label="Close playlist details" @onclick="Close"><MusicIcon Name="close" /></button></div>
         <form @onsubmit="Save" @onsubmit:preventDefault>
             <div class="playlist-details-fields">
-                <label class="details-cover"><span class="sr">Choose playlist image</span>@if (cover is not null) { <img src="@cover" alt="Playlist cover preview" /> } else { <PlaylistCover Playlist="Playlist" /> }<span class="details-cover-caption">Choose image</span><InputFile OnChange="ChooseCover" accept="image/jpeg,image/png" /></label>
+                <div class="details-cover-column">
+                    <label class="details-cover"><span class="sr">Choose playlist image</span>@if (cover is not null) { <img src="@cover" alt="Playlist cover preview" /> } else { <PlaylistCover Playlist="Playlist" /> }<span class="details-cover-caption">Choose image</span><InputFile OnChange="ChooseCover" accept="image/jpeg,image/png" /></label>
+                    <button type="button" class="quiet details-cover-paste" @onclick="PasteFromClipboard"><MusicIcon Name="image" />Paste image</button>
+                </div>
                 <div class="details-text"><label class="sr" for="details-name">Playlist name</label><input id="details-name" @bind="name" maxlength="200" required /><label class="sr" for="details-description">Description</label><textarea id="details-description" @bind="description" maxlength="2000" placeholder="Add a description"></textarea></div>
             </div>
             <p class="entry-error" role="status">@error</p>
@@ -22,7 +26,8 @@
     private string name = "", description = "";
     private string? cover, error;
     private bool shared, saving;
-    public async Task Open() { if (ReturnFocusId == "playlist-menu-toggle") await JS.InvokeVoidAsync("familyhub.closeDialog", "playlist-options", ReturnFocusId); name = Playlist.Name; description = Playlist.Description; shared = Playlist.Shared; cover = error = null; await JS.InvokeVoidAsync("familyhub.showDialog", "playlist-details-dialog", "details-name"); }
+    private DotNetObjectReference<PlaylistDetails>? self;
+    public async Task Open() { self ??= DotNetObjectReference.Create(this); await JS.InvokeVoidAsync("familyhub.bindImagePaste", "playlist-details-dialog", self); if (ReturnFocusId == "playlist-menu-toggle") await JS.InvokeVoidAsync("familyhub.closeDialog", "playlist-options", ReturnFocusId); name = Playlist.Name; description = Playlist.Description; shared = Playlist.Shared; cover = error = null; await JS.InvokeVoidAsync("familyhub.showDialog", "playlist-details-dialog", "details-name"); }
     private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "playlist-details-dialog", ReturnFocusId).AsTask();
     private async Task ChooseCover(InputFileChangeEventArgs args)
     {
@@ -33,6 +38,19 @@
             cover = "data:image/jpeg;base64," + Convert.ToBase64String(output.ToArray()); error = null;
         } catch (Exception exception) { error = exception.Message; }
     }
+    // An image copied anywhere (a browser, a screenshot) works as the cover: the button or Ctrl+V.
+    private async Task PasteFromClipboard()
+    {
+        var image = await JS.InvokeAsync<string?>("familyhub.clipboardImage");
+        if (image is null) error = "Copy an image first, then paste it here.";
+        else PasteImage(image);
+    }
+    [JSInvokable] public void PasteImage(string image)
+    {
+        if (!image.StartsWith("data:image/jpeg;base64,", StringComparison.Ordinal) || image.Length > 1_400_000) { error = "That image couldn't be used. Try another one."; StateHasChanged(); return; }
+        cover = image; error = null; StateHasChanged();
+    }
+    public void Dispose() => self?.Dispose();
     private async Task Save()
     {
         if (saving) return; saving = true; error = null;

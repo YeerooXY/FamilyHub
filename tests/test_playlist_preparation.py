@@ -197,7 +197,7 @@ class CoordinatorTests(unittest.TestCase):
             progress("Searching YouTube")
             return candidate() if track["title"] == "Song" else None
         coordinator = PlaylistPreparation(self.store, self.lock, prepare, match, read)
-        coordinator.begin_import("alex", PID, 1, "spotify", "https://open.spotify.com/playlist/" + "x" * 22)
+        coordinator.begin_import("alex", PID, 1, "spotify", "https://open.spotify.com/playlist/" + "x" * 22, name="Road trip")
         self.assertTrue(read_entered.wait(1))
         status = coordinator.status("alex", PID)
         self.assertEqual((status["phase"], status["loaded"], status["total"]), ("reading", 2, 2))
@@ -210,6 +210,7 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(tracks[0]["source_id"], "abcdefghijk")
         # Only the confident match downloads; the song needing review waits for the owner.
         self.assertEqual(downloads, ["Song"])
+        self.assertEqual(self.store.read("alex", PID)["name"], "Road trip", "a typed name wins over the source name")
 
     def test_download_one_at_a_time_pause_and_resume(self):
         data = self.store.read("alex", PID); data["tracks"] = [entry("One"), entry("Two")]; self.store.save("alex", data)

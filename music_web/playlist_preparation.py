@@ -49,7 +49,7 @@ class _PlaylistOperation:
                 "found": 0, "saved": 0, "review": 0, "failed": 0,
                 "index": 0, "title": "", "message": "Reading playlist" if mode == "import" else "Starting", "recent": []}
 
-    def begin_import(self, user, pid, revision, provider, url, download=True):
+    def begin_import(self, user, pid, revision, provider, url, download=True, name=None):
         with self.lock:
             data = self.store.read(user, pid)
             if data["tracks"] or type(revision) is not int or revision != data["revision"]:
@@ -64,6 +64,8 @@ class _PlaylistOperation:
             self._claim(user, pid)
             data["preparation"] = {**self._status("import"), "provider": provider, "import_url": url,
                                    "download_after_matching": queued_download}
+            # A name typed in Create playlist wins over the source's name.
+            if name: data["preparation"]["name"] = name
             try:
                 self.store.save(user, data)
                 self.thread = threading.Thread(target=self._import, args=(user, pid, provider, url), daemon=True)
@@ -137,6 +139,7 @@ class _PlaylistOperation:
             with self.lock:
                 original = self.store.read(user, pid)
                 imported["id"] = pid
+                if original["preparation"].get("name"): imported["name"] = original["preparation"]["name"]
                 imported["preparation"] = {**original["preparation"], "phase": "matching", "total": len(imported["tracks"]), "playlist_revision": original["revision"] + 1}
                 self.store.import_playlist(user, imported)
             delegated = True
@@ -374,11 +377,11 @@ class PlaylistPreparation:
             result=operation.start(user,pid,mode); self.thread=operation.thread
             return result
 
-    def begin_import(self,user,pid,revision,provider,url,download=True):
+    def begin_import(self,user,pid,revision,provider,url,download=True,name=None):
         with self.lock:
             self._admit(user,pid)
             operation=self._operation(user,pid)
-            result=operation.begin_import(user,pid,revision,provider,url,download); self.thread=operation.thread
+            result=operation.begin_import(user,pid,revision,provider,url,download,name); self.thread=operation.thread
             return result
 
     def status(self,user,pid):

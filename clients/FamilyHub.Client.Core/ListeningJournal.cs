@@ -12,7 +12,33 @@ public sealed record ListeningCounter(
 public sealed record ActivityReceipt
 {
     [JsonPropertyName("counters_accepted")] public bool CountersAccepted { get; init; }
+    /// <summary>Playback another device of this profile sent here ("Connect to a device").</summary>
+    [JsonPropertyName("command")] public PlaybackHandover? Command { get; init; }
 }
+public sealed record PlaybackHandover
+{
+    [JsonPropertyName("id")] public string Id { get; init; } = "";
+    [JsonPropertyName("action")] public string Action { get; init; } = "";
+    [JsonPropertyName("from_name")] public string FromName { get; init; } = "";
+    [JsonPropertyName("resume")] public PlaybackResume? Resume { get; init; }
+    [JsonPropertyName("playing")] public bool Playing { get; init; }
+}
+public sealed record PlaybackDevice
+{
+    [JsonPropertyName("id")] public string Id { get; init; } = "";
+    [JsonPropertyName("name")] public string Name { get; init; } = "";
+    [JsonPropertyName("kind")] public string Kind { get; init; } = "";
+    [JsonPropertyName("playing")] public bool Playing { get; init; }
+    [JsonPropertyName("track")] public PlaybackDeviceTrack? Track { get; init; }
+    [JsonPropertyName("this")] public bool This { get; init; }
+}
+public sealed record PlaybackDeviceTrack
+{
+    [JsonPropertyName("title")] public string Title { get; init; } = "";
+    [JsonPropertyName("channel")] public string Channel { get; init; } = "";
+}
+public sealed record PlaybackDevicesResponse { [JsonPropertyName("devices")] public List<PlaybackDevice> Devices { get; init; } = []; }
+public sealed record PlaybackTransferReceipt { [JsonPropertyName("target")] public string Target { get; init; } = ""; }
 
 // Daily counters survive closing the app; the server credits only their growth.
 public sealed class ListeningJournal
