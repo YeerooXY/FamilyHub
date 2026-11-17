@@ -855,6 +855,16 @@ public sealed class MusicSession
     private FamilyHubApi OnlineApi() => Connected && Api is not null ? Api : throw new InvalidOperationException("Connect to edit playlists or search.");
     private void EnsureCurrent(int version)
     { if (version != accountVersion) throw new OperationCanceledException("The server account changed."); }
+    private sealed record RadioResponse(MusicPlaylist Playlist);
+    /// <summary>"Song Radio": a new playlist of similar songs the server finds and downloads.</summary>
+    public async Task<MusicPlaylist> StartRadioAsync(string artist, string title = "")
+    {
+        var version = accountVersion;
+        var created = await OnlineApi().RequestJsonAsync<RadioResponse>(HttpMethod.Post, "/api/radio", new { artist, title });
+        EnsureCurrent(version);
+        Playlists.Add(created.Playlist); await SavePlaylistsAsync();
+        return created.Playlist;
+    }
     public async Task CreatePlaylistAsync(string name)
     {
         var version = accountVersion;

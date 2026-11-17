@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from difflib import SequenceMatcher
 import unicodedata
+from types import SimpleNamespace
 from collections import defaultdict, deque
 
 class PlaylistError(ValueError):
@@ -100,12 +101,26 @@ def matching_title(value):
 
 def preferred_match(candidates):
     eligible = [row for row in candidates if row.get("recommended")]
-    # Ranked catalogue results win; otherwise use the first matching upload.
-    topics = [row for row in eligible if row.get("kind") == "topic"]
-    return next(iter(topics or eligible), None)
+    return min(eligible, key=lambda row: row.get("source_tier", 1 if row.get("kind") == "topic" else 3), default=None)
 
 
-def rank_matches(track, candidates):
+def source_tier(candidate, artist):
+    channel = normalized(candidate.get("channel") or "")
+    artist = normalized(artist.split(",")[0])
+    if candidate.get("kind") == "topic" or channel.endswith(" topic"):
+        return 1
+    if (channel.endswith(("vevo", "official", "records"))
+            or artist and artist.replace(" ", "") in channel.replace(" ", "")
+            or re.search(r"\b(universal|sony music|warner music|atlantic|columbia|polydor|parlophone|republic|def jam|interscope|spinnin|armada|monstercat)\b", channel)):
+        return 2
+    return 3
+
+
+def rank_matches(track, candidates, search=None):
+    candidates = list(candidates)
+    if search is not None and not any(source_tier(row, track["artist"]) <= 2 for row in candidates):
+        query = (track["artist"].split(",")[0] + " - Topic " + track["title"])[:200]
+        candidates.extend(search(SimpleNamespace(query=query, limit=30, offset=0))["results"])
     title = matching_title(track["title"])
     artist = normalized(track["artist"].split(",")[0])
     variants = r"\b(remix|nightcore|slowed|cover|live|sped|speedup|spedup|8d|boosted|reverb|rebass|mashup|bootleg|edit|version|reversed|instrumental|karaoke|acoustic)\b"
@@ -123,12 +138,15 @@ def rank_matches(track, candidates):
         # Try artist-prefixed and bare titles without throwing away remix names after a dash.
         titles = [matching_title(" - ".join(parts[i:])) for i in range(len(parts))]
         title_match = bool(title) and title in titles
-        artist_match = bool(artist) and all(word in text.split() for word in artist.split())
+        channel_artist = re.sub(r"(?:\s*-\s*Topic|VEVO|Official)$", "", row.get("channel") or "", flags=re.I)
+        artist_match = bool(artist) and (all(word in text.split() for word in artist.split())
+            or normalized(channel_artist).replace(" ", "") == artist.replace(" ", ""))
         close = duration_matches(track, row)
         altered = set(re.findall(variants, normalized(raw_title))) != expected_versions
         candidate["recommended"] = bool(title_match and artist_match and close and not altered)
+        candidate["source_tier"] = source_tier(row, track["artist"])
         score = title_match * 5 + artist_match * 4 + close * 3 - altered * 10 + SequenceMatcher(None, title, normalized(raw_title)).ratio()
-        ranked.append((candidate["recommended"], candidate["recommended"] and candidate.get("kind") == "topic", score, candidate))
+        ranked.append((candidate["recommended"], -candidate["source_tier"], score, candidate))
     return [row for _, _, _, row in sorted(ranked, key=lambda item: item[:3], reverse=True)[:5]]
 
 class PlaylistStore:

@@ -25,10 +25,12 @@ from . import app_updates
 from . import profile_artwork
 from .listening_versions import ListeningVersions
 from .catalogue_review import CatalogueReview, register as register_catalogue_review
+from .source_quality import register as register_source_quality
 from .finished_audio import FinishedAudio, prepare_record
 from .playlist_artwork import PlaylistArtwork, ArtworkError
 from .lyrics import LyricsCache
 from . import link_playlists
+from . import radio
 
 MAX_UPLOAD = 128 << 20
 SESSION_HOURS = 12
@@ -1099,6 +1101,27 @@ def create_app(test_config=None):
             playlist_store.save(g.user, playlist)
         return jsonify(playlist=visible_playlist(playlist, g.user)), 201
 
+    @app.post("/api/radio")
+    def start_radio():
+        # "<song> Radio" or "<artist> Radio": a new playlist of similar songs that is matched
+        # and downloaded like an imported playlist.
+        data = body(4096)
+        artist, title = data.get("artist"), data.get("title", "")
+        if not isinstance(artist, str) or not isinstance(title, str): raise ApiError("Choose a song or an artist for the radio.")
+        if not allow("radio:" + g.user, 10, 60): raise ApiError("Wait a minute before starting another radio.", 429)
+        try: url, name = radio.seed(artist, title)
+        except (OSError, ValueError): raise ApiError("Radio is unavailable right now. Try again later.", 503)
+        with lock:
+            if len(playlist_store.list(g.user)) >= 100:
+                raise ApiError("You can save up to 100 playlists.")
+            pid = "".join(secrets.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789") for _ in range(22))
+            playlist = {"id": pid, "name": name[:200], "revision": 1, "tracks": [], "notice": "", "url": "", "shared": True,
+                        "description": "Songs like " + name.removesuffix(" Radio")[:180], "radio": True}
+            playlist_store.save(g.user, playlist)
+        try: playlist_preparation.begin_import(g.user, pid, 1, "radio", url, True, name[:200])
+        except ValueError as error: raise ApiError(str(error), 409)
+        return jsonify(playlist=visible_playlist(playlist_store.read(g.user, pid), g.user)), 201
+
     @app.route("/api/playlists/<pid>", methods=["PATCH", "DELETE"])
     def edit_playlist(pid):
         data = body(751024 if request.method == "PATCH" else 8192)
@@ -1199,14 +1222,14 @@ def create_app(test_config=None):
             return library_record(saved_source(ready["id"]))[0]
         # Re-evaluate persisted choices before making another network request.
         if track.get("candidates"):
-            track["candidates"] = rank_matches(track, track["candidates"])
+            track["candidates"] = rank_matches(track, track["candidates"], search=app.intake.cmd_search)
             cached = preferred_match(track["candidates"])
             if cached is not None:
                 return cached
         progress("Searching YouTube")
         query = (track["artist"].split(",")[0] + " " + track["title"])[:200]
         found = app.intake.cmd_search(SimpleNamespace(query=query, limit=30, offset=0))["results"]
-        track["candidates"] = rank_matches(track, found)
+        track["candidates"] = rank_matches(track, found, search=app.intake.cmd_search)
         return preferred_match(track["candidates"])
 
     def prepare_playlist_recording(user, track, progress):
@@ -1254,6 +1277,7 @@ def create_app(test_config=None):
                 return fetch_playlist(url, progress=progress)
         if provider == "soundcloud": return link_playlists.fetch_soundcloud_playlist(url, app.intake, progress)
         if provider == "deezer": return link_playlists.fetch_deezer_playlist(url, progress)
+        if provider == "radio": return radio.read_radio(url, "Radio", progress)
         data = fetch_youtube_playlist(url, app.intake)
         progress(len(data["tracks"]), len(data["tracks"]))
         return data
@@ -1271,6 +1295,7 @@ def create_app(test_config=None):
     def review_rate():
         if not allow('catalogue-review:'+g.user,20,60):raise ApiError("Wait before flagging more songs.",429)
     register_catalogue_review(app,body,catalogue_review,review_recording,lambda:g.user in cfg['ADMIN_USERS'],review_rate)
+    register_source_quality(app, ws, app.intake, lambda: not playback_demand(), lambda: g.user in cfg['ADMIN_USERS'], catalogue_review, cfg.get('SOURCE_QUALITY_SCAN', cfg['PUBLIC_ORIGIN'] != 'https://music.test'))
 
     automatic_downloads=cfg.get("AUTO_PLAYLIST_DOWNLOADS",cfg["PUBLIC_ORIGIN"] != "https://music.test")
     metadata_lookup=cfg.get("METADATA_LOOKUP",cfg["PUBLIC_ORIGIN"] != "https://music.test")
@@ -1436,7 +1461,7 @@ def create_app(test_config=None):
         query = (track["artist"].split(",")[0] + " " + track["title"])[:200]
         try: found = app.intake.cmd_search(SimpleNamespace(query=query, limit=30, offset=0))["results"]
         except Exception: raise ApiError("Could not find recordings. Try again.", 502)
-        candidates = rank_matches(track, found)
+        candidates = rank_matches(track, found, search=app.intake.cmd_search)
         with lock:
             playlist = playlist_store.read(g.user, pid)
             if playlist["revision"] != revision:

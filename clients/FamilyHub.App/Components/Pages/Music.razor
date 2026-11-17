@@ -311,6 +311,7 @@ else
         <AudioOutputPicker />
         @if (Player.Current is { Saved: true } trimmingTrack) { <TrimRequest Track="trimmingTrack" /> }
 
+        <button id="song-radio" class="quiet discover-button" @onclick="StartSongRadio" aria-disabled="@Aria(Player.Current is null || busy)" aria-label="Go to song radio" title="Go to song radio"><MusicIcon Name="radio" /></button>
         <button id="recommend-similar" class="quiet discover-button" @onclick="Recommend" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Play similar songs next" title="Play similar songs next"><MusicIcon Name="sparkle" /></button>
         <label class="sr" for="volume">Volume</label><button id="mute-toggle" class="quiet" @onclick="ToggleMute" aria-label="@(Player.Volume == 0 ? "Unmute" : "Mute")" title="@(Player.Volume == 0 ? "Unmute" : "Mute")" aria-pressed="@Aria(Player.Volume == 0)"><MusicIcon Name="@(Player.Volume == 0 ? "volume-off" : "volume")" /></button><span class="volume-meter" style="--volume-level:@((Player.Volume * 100).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture))%"><span class="volume-bars" aria-hidden="true"><span></span></span><input id="volume" type="range" min="0" max="1" step="0.01" value="@Player.Volume" @oninput="VolumeChanged" @onchange="SavePlaybackPreferences" /></span>
     </div>
@@ -883,6 +884,13 @@ else
     }
     private Task PlayRow(MusicTrack track, List<MusicTrack> sequence, int? position) => view == "Search" ? PlaySearchResult(track) : RunPlayback(() => Player.PlayAsync(track, sequence, position));
     private Task PlaySearchResult(MusicTrack track) => RunPlayback(() => Player.PlayAsync(track, Session.AutoplayQueue(track)));
+    // Song radio: about 50 similar songs as a new playlist; it opens while the server finds them.
+    private Task StartSongRadio() => Player.Current is not { } seed || busy ? Task.CompletedTask : Run(async () =>
+    {
+        var radio = await Session.StartRadioAsync(Similarity.Artist(seed), seed.Title);
+        playerToolsOpen = false;
+        await OpenPlaylist(radio);
+    });
     private Task Recommend() => Run(async () =>
     {
         if (Player.Current is null) throw new InvalidOperationException("Play a song first.");
