@@ -207,7 +207,7 @@ else
                     <span class="playlist-kind">@(selected.Shared ? "Shared playlist" : "Private playlist")</span>
                     <h1 id="view-title" tabindex="-1">@selected.Name</h1>
                     @if (!string.IsNullOrWhiteSpace(selected.Description)) { <p class="playlist-description">@selected.Description</p> }
-                    <div class="playlist-summary"><ProfileAvatar Profile="PlaylistOwner(selected)" Size="28" /><strong>@PlaylistOwner(selected).Name</strong><span>&#183; @selected.Tracks.Count songs</span><span>&#183; @PlaylistLength(selected)</span></div>
+                    <div class="playlist-summary"><ProfileAvatar Profile="PlaylistOwner(selected)" Size="28" /><strong>@PlaylistOwner(selected).Name</strong><span>@selected.Tracks.Count songs</span><span>@PlaylistLength(selected)</span></div>
                 </div>
                 </div>
                 </div>
@@ -230,7 +230,7 @@ else
             </div>
             <PlaylistDetails @ref="playlistDetails" Playlist="selected" ReturnFocusId="playlist-menu-toggle" HideTrigger="true" />
             <PlaylistCoAuthors @ref="playlistAuthors" Playlist="selected" ReturnFocusId="playlist-menu-toggle" HideTrigger="true" />
-            @if (selected.OwnerId == Session.User) { <PlaylistTransfer @key="PlaylistKey(selected)" Playlist="selected" /> }
+            @if (selected.CanEdit) { <PlaylistTransfer @ref="playlistTransfer" @key="PlaylistKey(selected)" Playlist="selected" /> }
             <div class="playlist-tools playlist-song-tools">
                 <div class="playlist-song-search @(songSearchOpen ? "is-open" : "")">
                     <button id="playlist-song-search-toggle" class="quiet" aria-label="Search in playlist" aria-expanded="@Aria(songSearchOpen)" aria-controls="playlist-song-search" @onclick="ToggleSongSearch"><MusicIcon Name="search" /></button>
@@ -376,23 +376,30 @@ else
     <div class="actions"><button class="primary" @onclick="StartPreload" aria-disabled="@Aria(preloadTracks.Count == 0 || busy)">Keep @preloadTracks.Count songs</button><button @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "preload-dialog", "keep-playlist").AsTask()'>Cancel</button></div>
 </dialog>
 <dialog id="add-song-dialog" class="glass-dialog song-picker-dialog" aria-labelledby="add-song-heading" @onclose="() => songPickerShown = false">
-    <div class="dialog-heading"><h2 id="add-song-heading">Add a song</h2><button class="quiet" aria-label="Close song picker" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "add-song-dialog", "add-playlist-song").AsTask()'><MusicIcon Name="close" /></button></div>
-    <label class="sr" for="add-song-filter">Filter saved songs</label><input id="add-song-filter" type="search" placeholder="Find a saved song" value="@songFilter" @oninput='args => songFilter = args.Value?.ToString() ?? ""' />
+    <div class="dialog-heading"><h2 id="add-song-heading">Add songs</h2><button class="quiet" aria-label="Close song picker" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "add-song-dialog", "add-playlist-song").AsTask()'><MusicIcon Name="close" /></button></div>
+    <div class="playlist-add-choices" aria-label="Add songs from">
+        <button class="quiet" @onclick="() => UploadPlaylistSongs(false)" aria-disabled="@Aria(busy || playlistUploader?.Busy == true)"><MusicIcon Name="upload" />Upload songs</button>
+        <button class="quiet" @onclick="() => UploadPlaylistSongs(true)" aria-disabled="@Aria(busy || playlistUploader?.Busy == true)"><MusicIcon Name="folder" />Upload a folder</button>
+        <button class="quiet" @onclick="AppendPlaylistLink" aria-disabled="@Aria(busy)"><MusicIcon Name="link" />Import playlist link</button>
+    </div>
+    <label for="add-song-filter">Find a saved song</label><input id="add-song-filter" type="search" placeholder="Search saved songs" value="@songFilter" @oninput='args => songFilter = args.Value?.ToString() ?? ""' />
     <p class="entry-error" role="status">@error</p>
     <div class="song-picker-results">
         @* Rows exist only while the picker is open, and at most 60 at a time. *@
         @if (songPickerShown)
         {
-        var matches = Session.Library.Where(t => string.IsNullOrWhiteSpace(songFilter) || (t.Title + " " + t.Channel).Contains(songFilter, StringComparison.OrdinalIgnoreCase)).Take(61).ToList();
+        var matches = SongPickerMatches;
         @foreach (var song in matches.Take(60))
         {
-            <button class="song-picker-row" @onclick="() => AddPickedSong(song)" aria-disabled="@Aria(busy)"><TrackCover Track="song" /><span><strong>@song.Title</strong><small>@song.Channel</small></span><MusicIcon Name="plus" /></button>
+            <button id="@("add-saved-song-" + song.Id)" class="song-picker-row" @key="song.Id" @onclick="() => AddPickedSong(song)" aria-disabled="@Aria(busy)"><TrackCover Track="song" /><span><strong>@song.Title</strong><small>@song.Channel</small></span><MusicIcon Name="plus" /></button>
         }
         @if (matches.Count > 60) { <p class="song-picker-more">Type to find more songs.</p> }
+        @if (matches.Count == 0 && Session.Library.Count > 0) { <p role="status">No saved songs match this search.</p> }
         }
-        @if (Session.Library.Count == 0) { <p>No saved songs yet. Search for a recording first.</p> }
+        @if (Session.Library.Count == 0) { <p role="status">No saved songs.</p> }
     </div>
 </dialog>
+<UploadSongs @ref="playlistUploader" Prefix="playlist-upload" ShowOpenButton="false" ReturnFocus="add-playlist-song" />
 
 @if (queueNotice is { } notice)
 {
@@ -447,8 +454,24 @@ else
         await Run(() => Session.DownloadAsync(preloadTracks));
     }
     private bool songPickerOpen, songPickerShown, playlistTransitionPending;
+    private UploadSongs? playlistUploader;
+    private PlaylistTransfer? playlistTransfer;
     private string songFilter = "";
+    private List<MusicTrack> SongPickerMatches => Session.Library.Where(t => string.IsNullOrWhiteSpace(songFilter) || (t.Title + " " + t.Channel).Contains(songFilter, StringComparison.OrdinalIgnoreCase)).Take(61).ToList();
+    private HashSet<string> songPickerRows = [];
     private void OpenSongPicker() { songFilter = ""; error = null; songPickerOpen = songPickerShown = true; }
+    private async Task UploadPlaylistSongs(bool folder)
+    {
+        if (busy || playlistUploader is null || playlistUploader.Busy || Selected is not { CanEdit: true } playlist) return;
+        await JS.InvokeVoidAsync("familyhub.closeDialog", "add-song-dialog", "add-playlist-song");
+        await playlistUploader.OpenForPlaylist(playlist, folder);
+    }
+    private async Task AppendPlaylistLink()
+    {
+        if (busy || playlistTransfer is null || Selected is not { CanEdit: true }) return;
+        await JS.InvokeVoidAsync("familyhub.closeDialog", "add-song-dialog", "add-playlist-song");
+        await playlistTransfer.OpenAppendImport();
+    }
     private async Task AddPickedSong(MusicTrack song)
     {
         if (busy || Selected is not { } playlist) return;
@@ -768,6 +791,10 @@ else
         if (createPlaylistOpen) { createPlaylistOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "create-playlist-dialog", "new-playlist"); }
         if (preloadOpen) { preloadOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "preload-dialog", "preload-" + preloadQuality); }
         if (songPickerOpen) { songPickerOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "add-song-dialog", "add-song-filter"); }
+        HashSet<string> pickerRows = songPickerShown ? SongPickerMatches.Take(60).Select(song => "add-saved-song-" + song.Id).ToHashSet() : [];
+        foreach (var removed in songPickerRows.Except(pickerRows))
+            await JS.InvokeVoidAsync("familyhub.restoreFocus", removed, songPickerShown ? "add-song-filter" : "add-playlist-song");
+        songPickerRows = pickerRows;
         await JS.InvokeVoidAsync("familyhub.syncChrome");
         await JS.InvokeVoidAsync("familyhub.observePanel");
         await JS.InvokeVoidAsync("familyhub.tintPlaylistHeader");

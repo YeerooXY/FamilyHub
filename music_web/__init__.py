@@ -1382,6 +1382,8 @@ def create_app(test_config=None):
     @app.post("/api/playlists/<pid>/import")
     def import_playlist_background(pid):
         data = body()
+        if "append" in data and type(data["append"]) is not bool:
+            raise ApiError("Append must be true or false.")
         provider, url = data.get("provider"), data.get("url")
         # The app may send the site it detected; the server checks the link itself.
         if isinstance(url, str) and provider in (None, "auto"): provider = link_playlists.detect(url)
@@ -1401,16 +1403,31 @@ def create_app(test_config=None):
         if provider == "deezer": link_playlists.deezer_link(url)
         if not allow("playlist-import:" + g.user, 10, 60):
             raise ApiError("Wait a minute before importing another playlist.", 429)
-        try: status = playlist_preparation.begin_import(g.user, pid, data.get("revision"), provider, url, data.get("download", True) is not False, name.strip() if name else None)
+        try:
+            with lock:
+                owner = editable_playlist_owner(pid, data)
+                status = playlist_preparation.begin_import(owner, pid, data.get("revision"), provider, url, data.get("download", True) is not False, name.strip() if name else None, append=data.get("append", False), actor=g.user)
         except ValueError as error: raise ApiError(str(error), 409)
         return jsonify(status), 202
+
+    def editable_playlist_owner(pid, data):
+        owner = data.get("owner_id", request.args.get("owner_id", g.user))
+        if not isinstance(owner, str): raise ApiError("Choose a valid playlist owner.")
+        if owner != g.user:
+            playlist = playlist_store.read(owner, pid)
+            if not family_mode or g.user not in playlist.get("co_authors", []):
+                raise ApiError("Only the owner or a co-author can edit this playlist.", 403)
+        return owner
 
     @app.route("/api/playlists/<pid>/prepare", methods=["GET", "POST", "DELETE"])
     def prepare_playlist(pid):
         try:
-            if request.method == "POST": status = playlist_preparation.start(g.user, pid, body().get("mode", "download"))
-            elif request.method == "DELETE": status = playlist_preparation.pause(g.user, pid)
-            else: status = playlist_preparation.status(g.user, pid)
+            data = body() if request.method != "GET" else {}
+            with lock:
+                owner = editable_playlist_owner(pid, data)
+                if request.method == "POST": status = playlist_preparation.start(owner, pid, data.get("mode", "download"))
+                elif request.method == "DELETE": status = playlist_preparation.pause(owner, pid)
+                else: status = playlist_preparation.status(owner, pid)
         except ValueError as error: raise ApiError(str(error), 409)
         return jsonify(status)
 
@@ -1418,7 +1435,8 @@ def create_app(test_config=None):
     def playlist_candidates(pid):
         index = request.args.get("index", type=int)
         with lock:
-            playlist = playlist_store.read(g.user, pid)
+            owner = editable_playlist_owner(pid, {})
+            playlist = playlist_store.read(owner, pid)
             if "revision" in request.args and request.args.get("revision", type=int) != playlist["revision"]:
                 raise ApiError("This playlist changed. Reopen its recording choices.", 409)
             if type(index) is not int or not 0 <= index < len(playlist["tracks"]):
@@ -1443,8 +1461,9 @@ def create_app(test_config=None):
     def choose_playlist_recording(pid):
         data = body()
         with lock:
-            playlist = playlist_store.read(g.user, pid)
-            if playlist_preparation.is_active(g.user, pid):
+            owner = editable_playlist_owner(pid, data)
+            playlist = playlist_store.read(owner, pid)
+            if playlist_preparation.is_active(owner, pid):
                 raise ApiError("Pause playlist preparation before choosing a recording.", 409)
             if type(data.get("revision")) is not int or data["revision"] != playlist["revision"]:
                 raise ApiError("This playlist changed. Reopen its recording choices.", 409)
@@ -1470,16 +1489,17 @@ def create_app(test_config=None):
             track.update(source_id=source, match=selected, state=state)
             track.pop("job_id", None)
             playlist["revision"] += 1
-            playlist_store.save(g.user, playlist)
-        return jsonify(playlist=visible_playlist(playlist, g.user))
+            playlist_store.save(owner, playlist)
+        return jsonify(playlist=visible_playlist(playlist, owner))
 
     @app.post("/api/playlists/<pid>/match")
     def match_playlist_track(pid):
         data = body()
         index = data.get("index")
         with lock:
-            playlist = playlist_store.read(g.user, pid)
-            if playlist_preparation.is_active(g.user, pid):
+            owner = editable_playlist_owner(pid, data)
+            playlist = playlist_store.read(owner, pid)
+            if playlist_preparation.is_active(owner, pid):
                 raise ApiError("Pause playlist matching before choosing a recording.", 409)
             if "revision" in data and (type(data["revision"]) is not int or data["revision"] != playlist["revision"]):
                 raise ApiError("This playlist changed. Reopen its recording choices.", 409)
@@ -1492,12 +1512,13 @@ def create_app(test_config=None):
         except Exception: raise ApiError("Could not find recordings. Try again.", 502)
         candidates = rank_matches(track, found, search=app.intake.cmd_search)
         with lock:
-            playlist = playlist_store.read(g.user, pid)
+            owner = editable_playlist_owner(pid, data)
+            playlist = playlist_store.read(owner, pid)
             if playlist["revision"] != revision:
                 raise ApiError("This playlist changed. Refresh it before matching.", 409)
             playlist["tracks"][index]["candidates"] = candidates
             if playlist["tracks"][index]["state"] == "unmatched": playlist["tracks"][index]["state"] = "ready"
-            playlist_store.save(g.user, playlist)
+            playlist_store.save(owner, playlist)
         return jsonify(track=playlist["tracks"][index])
 
     @app.post("/api/playlists/<pid>/download")

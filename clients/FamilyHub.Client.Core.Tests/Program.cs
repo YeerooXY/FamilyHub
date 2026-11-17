@@ -85,11 +85,20 @@ using (var api = new FamilyHubApi(origin, new Handler(async request =>
 {
     if (request.RequestUri!.AbsolutePath == "/login") return request.Method == HttpMethod.Get ? Html("<input name='csrf_token' value='token'>") : Html("<meta name='csrf-token' content='token'>");
     if (request.RequestUri.AbsolutePath == "/") return Html("<meta name='csrf-token' content='token'>");
+    if (request.Method == HttpMethod.Patch)
+    {
+        Check(request.RequestUri.AbsolutePath == "/api/playlists/1234567890123456789012", "Upload targeted another playlist");
+        using var document = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+        var mutation = document.RootElement;
+        Check(mutation.GetProperty("owner_id").GetString() == "other-user" && mutation.GetProperty("revision").GetInt32() == 7
+            && mutation.GetProperty("add_source_id").GetString() == "local-0123456789abcdef", "Uploaded song lost its playlist owner, revision or source");
+        return Json("{\"playlist\":{\"id\":\"1234567890123456789012\",\"owner_id\":\"other-user\",\"revision\":8,\"tracks\":[{\"title\":\"Existing\"},{\"source_id\":\"local-0123456789abcdef\",\"added_at\":\"2026-11-17T12:00:00Z\"}]}}");
+    }
     Check(request.Method == HttpMethod.Post && request.RequestUri.AbsolutePath == "/api/uploads", "Wrong upload route");
     Check(request.Headers.GetValues("X-CSRFToken").Single() == "token", "Upload missed CSRF");
     var body = await request.Content!.ReadAsStringAsync();
     Check(body.Contains("audio fixture") && body.Contains("read_tags") && body.Contains("true"), "Upload omitted audio or metadata mode");
-    return Json("{\"job\":{\"id\":\"uploaded\"}}");
+    return Json("{\"job\":{\"id\":\"uploaded\",\"state\":\"done\",\"source_id\":\"local-0123456789abcdef\"}}");
 })))
 {
     await api.LoginAsync("user", "password");
@@ -97,6 +106,10 @@ using (var api = new FamilyHubApi(origin, new Handler(async request =>
     var uploadBytes = Encoding.UTF8.GetBytes("audio fixture");
     var response = await api.UploadAudioAsync(new MemoryStream(uploadBytes), uploadBytes.Length, "song.flac", "", "", "", new ImmediateProgress(p => received = p.Received));
     Check(received == uploadBytes.Length && response.GetProperty("job").GetProperty("id").GetString() == "uploaded", "Upload progress/result mismatch");
+    var updated = await api.UpdatePlaylistAsync("1234567890123456789012", 7,
+        new { add_source_id = response.GetProperty("job").GetProperty("source_id").GetString() }, ownerId: "other-user");
+    Check(updated.Revision == 8 && updated.Tracks.Count == 2 && updated.Tracks[0].Title == "Existing"
+        && updated.Tracks[1].AddedAt == "2026-11-17T12:00:00Z", "Upload append lost existing entries or the date added");
     Check(api.CreateMediaRequest("/api/library/local-0123456789abcdef/download").Uri.AbsolutePath.EndsWith("/download"), "Local media path rejected");
     Check(new PlaybackResume { TrackIds = ["local-0123456789abcdef"], Index = 0, Position = 10 }.IsValid, "Local recording resume rejected");
     await Throws<ArgumentException>(() => api.UploadAudioAsync(new MemoryStream(), 134217729, "large.flac", "", "", ""), "Oversized file accepted");
