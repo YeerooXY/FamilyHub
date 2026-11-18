@@ -1489,3 +1489,9 @@ main, .sidebar, .workspace, .app-header, .player-bar { background:transparent; b
 #playlist-feedback { min-height:24px; }
 
 #spotify-playlist-url { min-height:44px; padding:10px 14px; border:1px solid #ffffff24; border-radius:8px; background:#ffffff0b; color:var(--ink); }
+
+#library-genre-form { position:relative; max-width:360px; }
+#library-genre-form input { width:100%; min-height:44px; padding-inline:44px 48px; border-radius:24px; background:#ffffff0b; border-color:#ffffff24; }
+#library-genre-form > .icon { top:12px; }
+#clear-library-genre { position:absolute; inset-inline-end:0; top:0; min-width:44px; min-height:44px; }
+#clear-library-genre[hidden], #library-genres[hidden] { display:none; }

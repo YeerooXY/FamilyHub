@@ -15,11 +15,19 @@ public sealed record ServerStatistics
     public List<ServerWork> Jobs { get; init; } = [];
     public List<ServerWork> Workers { get; init; } = [];
     [JsonPropertyName("worker_stages")] public List<WorkerStage>? WorkerStages { get; init; }
+    [JsonPropertyName("playlist_backlog")] public PlaylistBacklog? PlaylistBacklog { get; init; }
     public List<ListeningRecord> Records { get; init; } = [];
     [JsonPropertyName("wrapped_year")] public int? WrappedYear { get; init; }
     [JsonPropertyName("catalogue_paused")] public bool CataloguePaused { get; init; }
     [JsonPropertyName("storage_total_bytes")] public long StorageTotalBytes { get; init; }
     [JsonPropertyName("storage_free_bytes")] public long StorageFreeBytes { get; init; }
+}
+
+public sealed record PlaylistBacklog
+{
+    [JsonPropertyName("backlog_pending")] public int Pending { get; init; }
+    [JsonPropertyName("backlog_backing_off")] public int WaitingToRetry { get; init; }
+    [JsonPropertyName("backlog_running")] public int Running { get; init; }
 }
 
 public sealed record WorkerStage

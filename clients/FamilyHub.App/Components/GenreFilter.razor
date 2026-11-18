@@ -1,0 +1,141 @@
+@inject IJSRuntime JS
+@inject MusicSession Session
+
+<div class="genre-filter">
+    <div class="genre-search">
+        <label class="sr" for="genre-search">Filter by genre</label>
+        <MusicIcon Name="search" />
+        <input id="genre-search" role="combobox" type="text" autocomplete="off" spellcheck="false"
+               placeholder="Search genres" aria-autocomplete="list" aria-controls="genre-options"
+               aria-expanded="@Aria(Expanded)" aria-activedescendant="@(Expanded && active >= 0 ? OptionId(active) : null)"
+               value="@query" @oninput="Search" @onfocus="Focus" @onblur="Dismiss" @onkeydown="KeyDown" />
+        @if (Value.Length > 0 || query.Length > 0)
+        {
+            <button type="button" class="quiet genre-clear" aria-label="Clear genre filter" @onclick="Clear"><MusicIcon Name="close" /></button>
+        }
+        <ul id="genre-options" role="listbox" aria-label="Genres" hidden="@(!Expanded)">
+            @for (var i = 0; i < suggestions.Count; i++)
+            {
+                var option = suggestions[i];
+                <li id="@OptionId(i)" @key="option.Key" role="option" aria-selected="@Aria(i == active)"
+                    @onmousedown:preventDefault @onclick="() => Choose(option.Key)">@option.Label</li>
+            }
+        </ul>
+        @if (editing && query.Length > 0 && suggestions.Count == 0) { <p class="genre-no-results" role="status">No matching genres.</p> }
+    </div>
+    @if (top.Count > 0)
+    {
+        <div class="genre-pills genre-top" role="group" aria-label="Most played genres">
+            @foreach (var option in top)
+            {
+                <button type="button" @key="option.Key" id="@ChipId(option.Key)" aria-pressed="@Aria(Value == option.Key)"
+                        @onclick='() => Select(Value == option.Key ? "" : option.Key)'>@option.Label</button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<MusicTrack> Tracks { get; set; } = [];
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    private sealed record Genre(string Key, string Label);
+    private List<Genre> genres = [], top = [], suggestions = [];
+    private readonly HashSet<string> removedChips = [];
+    private string query = "", selection = "";
+    private bool editing;
+    private int active = -1;
+    private long historyRevision = -1;
+    private IReadOnlyList<MusicTrack>? previousTracks;
+    private bool Expanded => editing && suggestions.Count > 0;
+    private string SelectedLabel => genres.FirstOrDefault(option => option.Key == Value)?.Label ?? "";
+    private static string Aria(bool value) => value ? "true" : "false";
+    private static string OptionId(int index) => $"genre-option-{index}";
+    private static string ChipId(string key) => "genre-chip-" + key;
+
+    protected override void OnParametersSet()
+    {
+        var priorLabel = SelectedLabel;
+        if (!ReferenceEquals(previousTracks, Tracks) || historyRevision != Session.HistoryRevision)
+        {
+            previousTracks = Tracks;
+            historyRevision = Session.HistoryRevision;
+            genres = Tracks.GroupBy(track => GenreNames.Key(track.Genre))
+                .Select(group => new Genre(group.Key, GenreNames.MostCommon(group.Select(track => GenreNames.Label(track.Genre)))))
+                .OrderBy(option => option.Label, StringComparer.CurrentCultureIgnoreCase).ToList();
+            var plays = Session.GenrePlayCounts();
+            var newTop = genres.Where(option => option.Key != "unsorted" && plays.GetValueOrDefault(option.Key) > 0)
+                .OrderByDescending(option => plays[option.Key]).Take(8).ToList();
+            foreach (var option in top.Where(option => !newTop.Any(next => next.Key == option.Key))) removedChips.Add(ChipId(option.Key));
+            top = newTop;
+            UpdateSuggestions();
+        }
+        if (Value != selection || !editing && query == priorLabel && SelectedLabel != priorLabel)
+        {
+            selection = Value;
+            query = SelectedLabel;
+            UpdateSuggestions();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await JS.InvokeVoidAsync("familyhub.bindGenreSearch");
+        if (removedChips.Count > 0)
+        {
+            var removed = removedChips.ToArray();
+            removedChips.Clear();
+            await JS.InvokeVoidAsync("familyhub.restoreGenreFocus", (object)removed);
+        }
+        if (Expanded && active >= 0) await JS.InvokeVoidAsync("familyhub.revealGenreOption", OptionId(active));
+    }
+    private void UpdateSuggestions()
+    {
+        var key = string.IsNullOrWhiteSpace(query) ? "" : GenreNames.Key(query);
+        suggestions = genres.Where(option => string.IsNullOrWhiteSpace(query) || option.Key.Contains(key, StringComparison.Ordinal)
+            || option.Label.Contains(query.Trim(), StringComparison.CurrentCultureIgnoreCase))
+            .OrderByDescending(option => option.Key == key).ToList();
+        active = -1;
+    }
+
+    private void Focus() { editing = true; UpdateSuggestions(); }
+    private void Search(ChangeEventArgs args) { editing = true; query = args.Value?.ToString() ?? ""; UpdateSuggestions(); }
+    private void Dismiss() { editing = false; active = -1; }
+    private async Task Select(string key)
+    {
+        Dismiss();
+        query = genres.FirstOrDefault(option => option.Key == key)?.Label ?? "";
+        await ValueChanged.InvokeAsync(key);
+    }
+    private async Task Choose(string key)
+    {
+        await Select(key);
+        await JS.InvokeVoidAsync("familyhub.dismissKeyboard", "genre-search", "view-title");
+    }
+    private async Task Clear()
+    {
+        await JS.InvokeVoidAsync("familyhub.focus", "genre-search");
+        await Select("");
+    }
+
+    private async Task KeyDown(KeyboardEventArgs args)
+    {
+        switch (args.Key)
+        {
+            case "ArrowDown":
+            case "ArrowUp":
+                if (!editing) { editing = true; query = ""; UpdateSuggestions(); }
+                if (suggestions.Count == 0) return;
+                active = args.Key == "ArrowDown" ? (active + 1) % suggestions.Count
+                    : active <= 0 ? suggestions.Count - 1 : active - 1;
+                break;
+            case "Escape" when editing:
+                Dismiss();
+                query = SelectedLabel;
+                break;
+            case "Enter" when Expanded:
+                await Choose(suggestions[Math.Max(0, active)].Key);
+                break;
+        }
+    }
+}

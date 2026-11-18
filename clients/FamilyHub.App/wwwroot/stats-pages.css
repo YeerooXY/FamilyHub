@@ -102,6 +102,7 @@
 .server-page .stats-toolbar { display:flex; flex-wrap:nowrap; align-items:center; justify-content:space-between; gap:12px; margin:0; }
 .server-page .stats-server-status { flex-wrap:wrap; min-width:0; }
 .srv-work { min-height:0; }
+.srv-review-slot { grid-column:1 / -1; min-width:0; padding-block:8px; }
 .srv-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; }
 .srv-grid>section { padding:20px; border-radius:16px; }
 .srv-figures { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }

@@ -17,11 +17,16 @@ public sealed record DiscoveryQuery { public string Query { get; init; } = ""; }
 public sealed record LibraryAddition
 {
     public string Id { get; init; } = "";
-    [JsonPropertyName("source_id")] public string SourceId { get; init; } = "";
+    [JsonPropertyName("source_id")] public string? SourceId { get; init; }
     public string Title { get; init; } = "";
     public string State { get; init; } = "";
+    public string Message { get; init; } = "";
+    [JsonPropertyName("playlist_error")] public string? PlaylistError { get; init; }
     public bool Saved { get; init; }
+    [JsonIgnore] public bool Pending => State is "queued" or "running";
+    [JsonIgnore] public string Key => SourceId is { Length: 11 } ? SourceId : Id;
 }
+public sealed record LibraryAdditionStatus(LibraryAddition Job);
 public sealed record LibraryAdditionPage { public List<LibraryAddition> Jobs { get; init; } = []; }
 public sealed record ArtistMapping
 {

@@ -330,6 +330,20 @@ public sealed class MusicSession
     public List<MusicTrack> RankRecommendations(IEnumerable<MusicTrack> candidates) => ListeningRecommendations.Rank(
         candidates, ReadHistory<ListeningSummary?>(":summary", null), ListeningHistory(), DateTimeOffset.UtcNow);
 
+    internal event Action<LibraryAddition>? LibraryAdditionUpdated;
+    internal void ReportLibraryAddition(LibraryAddition job) => LibraryAdditionUpdated?.Invoke(job);
+
+    public Dictionary<string, int> GenrePlayCounts()
+    {
+        var summary = ReadHistory<ListeningSummary?>(":summary", null);
+        if (summary is not null)
+            return summary.Genres.GroupBy(row => GenreNames.Key(row.Key))
+                .ToDictionary(group => group.Key, group => group.Sum(row => row.Value.Plays));
+        var tracks = Library.Concat(DeviceTracks).DistinctBy(track => track.Id).ToDictionary(track => track.Id);
+        return ListeningHistory().Where(tracks.ContainsKey).GroupBy(id => GenreNames.Key(tracks[id].Genre))
+            .ToDictionary(group => group.Key, group => group.Count());
+    }
+
     public void QueueListeningEvent(MusicTrack track, DateTimeOffset started, double seconds, double duration, double position, string outcome, string source, string owner)
     {
         if (owner != HistoryOwner || string.IsNullOrEmpty(User) || PlaybackPreferences.ListeningHistoryPaused || !double.IsFinite(seconds) || !double.IsFinite(duration) || !double.IsFinite(position) || (seconds <= 0 && outcome == "stopped") || duration <= 0 || duration > 86400) return;

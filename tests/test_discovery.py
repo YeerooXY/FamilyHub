@@ -1,5 +1,6 @@
 """Offline provider fixtures, cache guarantees and authenticated endpoint coverage."""
 import copy
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -11,6 +12,7 @@ import urllib.error
 
 from test_music_web import Base, URL
 from music_web.discovery import Discovery, recent_release
+from music_web.playlists import PlaylistStore
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -151,13 +153,16 @@ class DiscoveryApiTests(Base):
 class LibraryAdditionTests(Base):
     def test_pending_addition_resumes_with_same_job_id_after_restart(self):
         import music_web
+        from test_native_music_api import NativeMusicApi
 
         client, token = self.signed_in()
+        playlist = self.post(client, token, '/api/playlists', json={'name': 'Additions'}).json['playlist']
+        target = dict(id=playlist['id'], owner_id='sample-a')
         self.state.resources.room('fixture', time.monotonic() + 30)
-        added = self.post(client, token, '/api/library/additions', json={'urls': [URL]}).json['jobs'][0]
+        added = self.post(client, token, '/api/library/additions', json={'urls': [URL], 'playlist': target}).json['jobs'][0]
         self.assertEqual(added['state'], 'queued')
         self.stop_worker()
-        self.fake_ok()
+        NativeMusicApi.recording(self)
         with patch('music_web.load_intake', return_value=self.intake), \
                 patch.object(self.intake, 'cmd_preview', side_effect=self.intake.IntakeError('fixture')):
             restarted = music_web.create_app(self.settings)
@@ -165,7 +170,51 @@ class LibraryAdditionTests(Base):
             self.state = restarted.extensions['music']
             client, token = self.signed_in()
             self.assertEqual(self.wait(client, added['id'])['state'], 'done')
+        self.assertEqual([row['source_id'] for row in PlaylistStore(self.ws).read('sample-a', playlist['id'])['tracks']],
+                         [added['source_id']])
         self.assertEqual(json.loads(Path(self.ws, '.library-additions.json').read_text(encoding='utf-8')), [])
+
+    def test_existing_recording_adds_once_and_respects_playlist_access(self):
+        from test_native_music_api import NativeMusicApi
+
+        NativeMusicApi.recording(self)
+        client, token = self.signed_in()
+        playlist = self.post(client, token, '/api/playlists', json={'name': 'Additions'}).json['playlist']
+        target = dict(id=playlist['id'], owner_id='sample-a')
+        other, other_token = self.signed_in('sample-b')
+        data = dict(urls=[URL], playlist=target)
+        self.assertEqual(self.post(other, other_token, '/api/library/additions', json=data).status_code, 403)
+        for _ in range(2):
+            result = self.post(client, token, '/api/library/additions', json=data)
+            self.assertTrue(result.json['jobs'][0]['saved'])
+        entries = PlaylistStore(self.ws).read('sample-a', playlist['id'])['tracks']
+        self.assertEqual([(row['title'], row['added_by']) for row in entries], [('First', 'sample-a')])
+
+    def test_upload_and_job_status_stream_use_the_selected_playlist(self):
+        from test_native_music_api import NativeMusicApi
+
+        item, _, manifest, audio = NativeMusicApi.recording(self)
+        local_id = 'local-' + manifest['audio']['sha256'][:16]
+        local = item.with_name(local_id)
+        item.rename(local)
+        manifest.update(id=local_id, source=dict(kind='local', original_name='Song.wav', lossy=None))
+        self.intake.write_manifest(str(local), manifest)
+        client, token = self.signed_in()
+        playlist = self.post(client, token, '/api/playlists', json={'name': 'Uploads'}).json['playlist']
+        with patch.object(self.intake, 'cmd_stage', return_value=dict(item=str(local), manifest=manifest)):
+            result = self.post(client, token, '/api/uploads',
+                               data=dict(file=(io.BytesIO(audio), 'Song.wav'), read_tags='true', show_in_additions='true',
+                                         playlist_id=playlist['id'], playlist_owner='sample-a'))
+            self.assertEqual(result.status_code, 202, result.json)
+            identifier = result.json['job']['id']
+            with self.go(client, 'GET', f'/api/jobs/{identifier}?watch=1', buffered=True) as status:
+                updates = [json.loads(line)['job'] for line in status.data.splitlines() if line]
+                self.assertEqual(status.mimetype, 'application/x-ndjson')
+                self.assertEqual((updates[-1]['state'], updates[-1]['source_id']), ('done', local_id))
+        self.assertEqual(self.go(client, 'GET', '/api/library/additions').json['jobs'][0]['id'], identifier)
+        self.assertEqual(PlaylistStore(self.ws).read('sample-a', playlist['id'])['tracks'][0]['source_id'], local_id)
+        other, _ = self.signed_in('sample-b')
+        self.assertEqual(self.go(other, 'GET', f'/api/jobs/{identifier}?watch=1').status_code, 404)
 
     def test_validates_entire_batch_and_deduplicates_while_background(self):
         c, token = self.signed_in()

@@ -3,10 +3,12 @@ import json
 import re
 import threading
 import unicodedata
+from collections import Counter, defaultdict
 from datetime import timedelta
 from pathlib import Path
 
 from .link_playlists import _deezer
+from .genres import genre_key, genre_label, most_common_genre
 from .listening_stats import longest_streak
 
 
@@ -61,6 +63,7 @@ def top(rows):
 def yearly_summary(years, year, *, full=False):
     data = years.get(str(year), {})
     songs, artists, albums, genres = [], {}, {}, {}
+    genre_labels = defaultdict(Counter)
     skipped, replayed = [], []
     for identifier, row in data.get('songs', {}).items():
         artist, album, genre = (row.get(key, '') for key in ('channel', 'library_album', 'genre'))
@@ -71,12 +74,14 @@ def yearly_summary(years, year, *, full=False):
             songs.append(song)
             for rows, name, key in ((artists, artist, artist.casefold()),
                                     (albums, album, (artist.casefold(), album.casefold())),
-                                    (genres, genre, genre.casefold())):
+                                    (genres, genre, genre_key(genre))):
                 if name:
                     group = rows.setdefault(key, dict(name=name))
                     count(group, row['seconds'], row['plays'])
                     if rows is albums:
                         group['artist'] = artist
+                    if rows is genres:
+                        genre_labels[key][genre_label(name)] += 1
         if song['skips']:
             skipped.append(song)
         if song['replays']:
@@ -86,6 +91,8 @@ def yearly_summary(years, year, *, full=False):
     hours, plays = data.get('hours', [0] * 24), data.get('hourly_plays', [0] * 24)
     streak = longest_streak(daily)
     seconds = sum(hours)
+    for key, group in genres.items():
+        group['name'] = most_common_genre(genre_labels[key])
     songs, artists, genres = top(songs), top(artists.values()), top(genres.values())
     replay = most(replayed, 'replays')
     if replay and not full:

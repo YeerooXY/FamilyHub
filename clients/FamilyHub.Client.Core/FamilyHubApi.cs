@@ -187,12 +187,35 @@ public sealed class FamilyHubApi : IDisposable
             ?? throw new InvalidDataException("The server returned no data.");
     }
 
-    public async Task<JsonElement> UploadAudioAsync(Stream file, long size, string filename, string title, string artist, string album, IProgress<DownloadProgress>? progress = null, CancellationToken cancellationToken = default)
+    public async IAsyncEnumerable<T> WatchJobStatusAsync<T>(string path,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token = default)
+    {
+        using var response = await SendAsync(HttpMethod.Get, path + "?watch=1", null, token, background: true);
+        await EnsureSuccessAsync(response, token);
+        if (response.Content.Headers.ContentType?.MediaType != "application/x-ndjson")
+        {
+            yield return await response.Content.ReadFromJsonAsync<T>(JsonOptions, token)
+                ?? throw new InvalidDataException("The server returned no job status.");
+            yield break;
+        }
+        using var reader = new StreamReader(await response.Content.ReadAsStreamAsync(token));
+        while (await reader.ReadLineAsync(token) is { } line)
+            if (line.Length > 0 && JsonSerializer.Deserialize<T>(line, JsonOptions) is { } value)
+                yield return value;
+    }
+
+    public async Task<JsonElement> UploadAudioAsync(Stream file, long size, string filename, string title, string artist, string album, IProgress<DownloadProgress>? progress = null, CancellationToken cancellationToken = default, MusicPlaylist? playlist = null, bool showInAdditions = false)
     {
         if (size is <= 0 or > 134217728) throw new ArgumentException("Choose an audio file smaller than 128 MB.");
         using var form = new MultipartFormDataContent();
         form.Add(new AudioUploadContent(file, size, progress), "file", Path.GetFileName(filename));
         form.Add(new StringContent("true"), "read_tags");
+        if (playlist is not null)
+        {
+            form.Add(new StringContent(playlist.Id), "playlist_id");
+            form.Add(new StringContent(playlist.OwnerId), "playlist_owner");
+        }
+        if (showInAdditions) form.Add(new StringContent("true"), "show_in_additions");
         form.Add(new StringContent(title), "title"); form.Add(new StringContent(artist), "artist"); form.Add(new StringContent(album), "album");
         using var response = await SendAsync(HttpMethod.Post, "/api/uploads", form, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);

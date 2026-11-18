@@ -283,7 +283,7 @@
         OpenImport("auto"); appendImport = true;
         await InvokeAsync(StateHasChanged);
     }
-    private Task CloseImport() => JS.InvokeVoidAsync("familyhub.closeDialog", "transfer-import-dialog", appendImport ? "add-playlist-song" : "transfer-" + provider).AsTask();
+    private Task CloseImport() => JS.InvokeVoidAsync("familyhub.closeDialog", "transfer-import-dialog", appendImport ? "playlist-menu-toggle" : "transfer-" + provider).AsTask();
     private async Task Import()
     {
         if (requesting || Working) return;

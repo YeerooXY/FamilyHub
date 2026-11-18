@@ -119,11 +119,12 @@ window.familyhub.observePanel = () => {
     updatePanel();
 };
 
-window.familyhub.showDialog = (id, focusId) => {
+window.familyhub.showDialog = (id, focusId, openerId) => {
     const dialog = document.getElementById(id);
     if (!dialog || dialog.open) return;
     const fallback = () => document.getElementById(dialog.dataset.returnFocus) || document.getElementById('profile-toggle') || document.getElementById('server') || document.getElementById('content');
-    const previous = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : fallback();
+    const previous = document.getElementById(openerId)
+        || (document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : fallback());
     if (document.activeElement === document.body) previous?.focus({preventScroll:true});
     dialog._returnFocus = previous;
     if (!dialog._focusBound) {
@@ -479,15 +480,41 @@ window.familyhub.revealWhenReady = id => {
  setTimeout(()=>observer.disconnect(),8000);
 };
 window.familyhub.isPhone = () => matchMedia('(max-width:720px)').matches;
-window.familyhub.searchSubmitted = () => {
+window.familyhub.dismissKeyboard = (input, successor) => {
     if (!familyhub.isPhone()) return;
-    document.getElementById('q')?.blur();
-    familyhub.focus('view-title');
+    document.getElementById(input)?.blur();
+    familyhub.focus(successor);
 };
+window.familyhub.searchSubmitted = () => familyhub.dismissKeyboard('q', 'view-title');
+window.familyhub.bindGenreSearch = () => {
+    const input = document.getElementById('genre-search');
+    input?.addEventListener('keydown', event => {
+        const expanded = input.getAttribute('aria-expanded') === 'true';
+        if (['ArrowDown', 'ArrowUp'].includes(event.key) || expanded && ['Enter', 'Escape'].includes(event.key)) event.preventDefault();
+    });
+};
+window.familyhub.revealGenreOption = id => {
+    const option = document.getElementById(id);
+    if (!option) return;
+    const list = option.parentElement;
+    if (option.offsetTop < list.scrollTop) list.scrollTop = option.offsetTop;
+    const bottom = option.offsetTop + option.offsetHeight;
+    if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+};
+window.familyhub.restoreGenreFocus = removed => {
+    if (document.activeElement === document.body && removed.includes(lastFocusId))
+        familyhub.focus(familyhub.isPhone() ? 'view-title' : 'genre-search');
+};
+window.familyhub.focusInOpenDialog = id => {
+    const target = document.getElementById(id);
+    if (target?.closest('dialog[open]')) target.focus();
+};
+window.familyhub.restoreUploadFocus = (removed, successor) => requestAnimationFrame(() => {
+    const target = document.getElementById(successor);
+    if (target?.closest('dialog[open]')) familyhub.restoreFocus(removed, successor);
+});
 // Focuses the first of these controls that is on screen, after the next render.
 window.familyhub.focusVisible = (...ids) => requestAnimationFrame(() => { for(const id of ids){ const target=document.getElementById(id); if(target&&target.getClientRects().length){ target.focus(); return; } } });
-// Opens a file input from another control (the Create playlist screen's big buttons).
-window.familyhub.clickElement = id => document.getElementById(id)?.click();
 // Lyrics follow the song; scrolling by hand pauses following for a few seconds.
 window.familyhub.revealLyric = id => {
  const line=document.getElementById(id), list=line?.closest('.lyrics-view'); if(!line||!list)return;

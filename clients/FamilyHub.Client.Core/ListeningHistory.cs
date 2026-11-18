@@ -46,6 +46,8 @@ public static class ListeningRecommendations
         var tracks = candidates.DistinctBy(t => t.Id).ToList();
         var artists = (summary?.Artists ?? []).GroupBy(p => Similarity.Artist(new MusicTrack { Channel = p.Key }))
             .ToDictionary(g => g.Key, g => g.Sum(p => p.Value.Score + Math.Log2(1 + p.Value.Completes)));
+        var genres = (summary?.Genres ?? []).GroupBy(p => GenreNames.Key(p.Key))
+            .ToDictionary(g => g.Key, g => g.Sum(p => p.Value.Score));
         if (summary is null || summary.Artists.Count == 0)
         {
             var byId = tracks.ToDictionary(t => t.Id);
@@ -59,7 +61,7 @@ public static class ListeningRecommendations
         var remaining = tracks.Where(t => !recent.Contains(t.Id)
             && !(summary?.Recordings.GetValueOrDefault(t.Id)?.LastEarlySkip is { } at && now - at < TimeSpan.FromDays(7)))
             .Select(t => (Track: t, Artist: Similarity.Artist(t), Score: artists.GetValueOrDefault(Similarity.Artist(t))
-                + (summary?.Genres.GetValueOrDefault(t.Genre)?.Score ?? 0)))
+                + genres.GetValueOrDefault(GenreNames.Key(t.Genre))))
             .OrderByDescending(t => t.Score).ThenBy(t => t.Track.Id, StringComparer.Ordinal).ToList();
         var result = new List<MusicTrack>();
         var used = new Dictionary<string, int>();

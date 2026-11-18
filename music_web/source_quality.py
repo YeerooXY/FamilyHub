@@ -424,7 +424,7 @@ def undo_saved(workspace, old_id, records, playlists):
     """Resume a restore from its journal, changing only entries still using this replacement."""
     entry = records.get(old_id, {})
     if not entry.get('automatic') or entry.get('state') not in ('done', 'undoing', 'undone'):
-        raise ValueError('This automatic replacement is unavailable. Refresh Song review.')
+        raise ValueError('This automatic replacement is unavailable. Refresh the review in Server work.')
     if entry['state'] == 'undone':
         return entry['old_sha256']
     root = Path(workspace)

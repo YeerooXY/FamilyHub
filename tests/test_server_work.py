@@ -79,6 +79,8 @@ class ServerWorkTests(Base):
         self.post(client,token,'/api/profile/select',json={'profile_id':'sample-a'})
         get=lambda:self.go(client,'GET','/api/server/stats').json
         first=get()
+        self.assertEqual(first['playlist_backlog'],
+                         {'backlog_pending': 0, 'backlog_backing_off': 0, 'backlog_running': 0})
         slots=first['workers']
         self.assertEqual(len([r for r in slots if r['id'].startswith('acquisition-')]),9)
         self.assertEqual(len([r for r in slots if r['id'].startswith('playlist-')]),6)

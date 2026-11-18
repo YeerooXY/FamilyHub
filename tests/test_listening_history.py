@@ -98,6 +98,14 @@ class HistoryStoreTests(unittest.TestCase):
         self.now += timedelta(seconds=1)
         self.assertEqual(self.store.append('alex', [self.event()])['added'], 1)
 
+    def test_genre_variants_share_counts_and_use_the_most_common_spelling(self):
+        genres = ['hip hop', 'Hip-hop', 'Hip-hop', 'r&b', 'R&B / Soul',
+                  'drum and bass', 'Drum & Bass', 'DNB', 'dance', 'Dance']
+        self.store.append('alex', [self.event(recording_id=f'{i:011d}') for i in range(len(genres))])
+        summary = self.store.summary('alex', {f'{i:011d}': {'genre': genre} for i, genre in enumerate(genres)})
+        self.assertEqual({label: row['plays'] for label, row in summary['genres'].items()},
+                         {'Hip-hop': 3, 'R&B / Soul': 2, 'DNB': 3, 'Dance': 2})
+
     def test_cache_invalidates_and_inactive_profiles_are_pruned(self):
         event = self.event()
         self.store.append('alex', [event])

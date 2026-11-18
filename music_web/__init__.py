@@ -4,17 +4,17 @@ Acquisition/import reuse scripts/music-intake.py. One coordinator schedules acqu
 HLS and bounded beat analysis; browser decks handle playback. See docs/MOBILE_MUSIC.md.
 """
 import gzip, hashlib, hmac, importlib.util, io, json, logging, os, random, re, secrets, shutil, sys, threading, time, urllib.error, urllib.parse, urllib.request
-from collections import OrderedDict, deque
+from collections import Counter, OrderedDict, defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
-from flask import Flask, abort, g, jsonify, redirect, render_template, request, session, send_file
+from flask import Flask, Response, abort, g, jsonify, redirect, render_template, request, session, send_file
 from flask_wtf.csrf import CSRFProtect, generate_csrf
 from werkzeug.exceptions import HTTPException
-from .genres import GenreLabels, artist_name
+from .genres import GenreLabels, artist_name, genre_key, genre_label, most_common_genre
 from .playlist_preparation import PlaylistPreparation
 from .listening_stats import ListeningStats
 from .wrapped import DeezerChart
@@ -615,15 +615,17 @@ def create_app(test_config=None):
                 del jobs[k]
             return job
 
-    def public(job):
+    def public(job, *, include_media=True):
         out = {k: job[k] for k in ("id", "state", "message", "artist", "title", "phase", "preview_state")}
         out.update(source_id=job.get("source_id"), priority=job.get("priority", 0), saved=bool(job.get("committed") or job.get("already_saved")))
+        if job.get("playlist_error"):
+            out["playlist_error"] = job["playlist_error"]
         if job.get("playback"):
             out["playback"] = job["playback"]
         if job.get("analysis"):
             out["analysis"] = {k: job["analysis"][k] for k in ("bpm", "reliable", "confidence", "reason")
                                if k in job["analysis"]}
-        if job["preview_state"] == "ready":
+        if include_media and job["preview_state"] == "ready":
             out["media_url"] = f"/api/jobs/{job['id']}/media/index.m3u8"
             out["stream_url"] = stream_url(out["media_url"])
         return out
@@ -793,6 +795,8 @@ def create_app(test_config=None):
                 current_title=tagging["current_title"], download_bytes=0, download_total_bytes=None))
         result['workers'] = worker_snapshot(names, tagging, result['jobs'])
         result['worker_stages'] = stage_summary(resources, deferred_fetches)
+        with lock:
+            result['playlist_backlog'] = dict(playlist_preparation.backlog_counts)
         return jsonify(result)
 
     def worker_snapshot(names, tagging, work):
@@ -920,7 +924,7 @@ def create_app(test_config=None):
                 backlog_wake.set()
 
     def save_bulk_queue():
-        rows = [{key: j[key] for key in ("id", "owner", "source_id", "meta", "created", "retry_at", "retries") if key in j}
+        rows = [{key: j[key] for key in ("id", "owner", "source_id", "meta", "created", "retry_at", "retries", "addition_playlists") if key in j}
                 for j in jobs.values() if j.get("library_addition") and j["state"] in ("queued", "running")
                 and not j["cancel"].is_set()]
         temporary = bulk_path + ".tmp"
@@ -1142,7 +1146,12 @@ def create_app(test_config=None):
                 remove_preview(job["id"])
             job["assets"].clear()
             job["preview_state"] = "expired"
-        settle(job, *outcome)
+        with lock:
+            if job.get("committed") and job.get("addition_playlists"):
+                messages = [append_library_song(job["owner"], target, job["source_id"])
+                            for target in job["addition_playlists"]]
+                job["playlist_error"] = next((message for message in messages if message), None)
+            settle(job, *outcome)
 
     def analyze_job(job):
         intake = app.intake
@@ -1577,10 +1586,7 @@ def create_app(test_config=None):
                 item = saved_source(source_id)
                 if not item:
                     raise ApiError("Save this recording to the server library first.", 404)
-                track, _ = library_record(item)
-                tracks.append({"added_at": datetime.now(timezone.utc).isoformat(), "added_by": g.user, "album": track.get("library_album", ""), "title": track["title"], "artist": track["channel"], "duration": track["duration"],
-                               "source_id": source_id, "spotify_uri": "", "match": track,
-                               "candidates": [track], "state": "saved"})
+                append_saved_entry(tracks, g.user, source_id, item)
             elif operation in ({"remove_index"}, {"move_from", "move_to"}):
                 if any(type(data[key]) is not int or not 0 <= data[key] < len(tracks) for key in operation):
                     raise ApiError("Invalid playlist entry.")
@@ -2250,11 +2256,89 @@ def create_app(test_config=None):
                 job.update(state="queued", message=STEP_TEXT["import"])
             return start(job, app.intake.WATCH + vid, None, m)
 
+    def addition_playlist(user, target):
+        if target is None:
+            return None
+        if not isinstance(target, dict) or set(target) != {"owner_id", "id"} or any(
+                not isinstance(value, str) for value in target.values()):
+            raise ApiError("Choose a playlist to add songs to.")
+        owner, pid = target["owner_id"], target["id"]
+        if not owner:
+            owner = user
+        playlist = playlist_store.read(owner, pid)
+        if owner != user and (not family_mode or user not in playlist.get("co_authors", [])):
+            raise ApiError("Only the owner or a co-author can add songs to this playlist.", 403)
+        return owner, pid, playlist
+
+    def append_library_song(user, target, source):
+        # Workers recheck current access. Retrying an addition after a restart can reuse the saved entry.
+        try:
+            owner, pid, playlist = addition_playlist(user, target)
+            if any((row.get("source_id") or (row.get("match") or {}).get("id")) == source
+                   for row in playlist["tracks"]):
+                return None
+            if playlist_preparation.is_active(owner, pid):
+                return "Pause playlist preparation, then add the saved song from your library."
+            item = saved_source(source)
+            if not item or len(playlist["tracks"]) >= 10000:
+                return "Could not add the saved song to the playlist. Check the playlist and try again."
+            append_saved_entry(playlist["tracks"], user, source, item)
+            playlist["revision"] += 1
+            playlist_store.save(owner, playlist)
+        except (ApiError, ValueError, OSError, app.intake.IntakeError):
+            return "Could not add the saved song to the playlist. Check the playlist and try again."
+        return None
+
+    def watch_job_status(snapshot):
+        sid = session.get("sid")
+        previous = None
+        deadline = time.monotonic() + 15 * 60
+
+        def updates():
+            nonlocal previous
+            while time.monotonic() < deadline:
+                with job_changed:
+                    value, active = None, False
+
+                    def updated():
+                        nonlocal value, active
+                        if not (identity := sessions.get(sid)) or identity["expiry"] <= time.time():
+                            value, active = None, False
+                            return True
+                        value, active = snapshot()
+                        return value != previous or not active
+
+                    job_changed.wait_for(updated, timeout=15)
+                    if value is None:
+                        return
+                    changed = value != previous
+                    previous = value
+                if changed:
+                    yield json.dumps(value) + "\n"
+                elif active:
+                    yield "\n"
+                if not active:
+                    return
+
+        return Response(updates(), mimetype="application/x-ndjson", headers={"X-Accel-Buffering": "no"})
+
     @app.get("/api/library/additions")
     def library_additions():
+        user = g.user
+        watching = request.args.get("watch") == "1"
+
+        def snapshot():
+            rows = {}
+            for job in jobs.values():
+                if job["owner"] == user and (job.get("library_addition") or job.get("show_in_additions")):
+                    key = job.get("source_id") if job.get("library_addition") else job["id"]
+                    rows[key] = public(job, include_media=not watching)
+            return dict(jobs=list(rows.values())), any(row["state"] in ("queued", "running") for row in rows.values())
+
+        if watching:
+            return watch_job_status(snapshot)
         with lock:
-            return jsonify(jobs=[public(j) for j in jobs.values()
-                                 if j["owner"] == g.user and j.get("library_addition")])
+            return jsonify(snapshot()[0])
 
     @app.post("/api/library/additions")
     def library_add():
@@ -2268,11 +2352,14 @@ def create_app(test_config=None):
                 if not isinstance(url, str) or len(url) > 200: raise app.intake.IntakeError("Invalid link")
                 source = app.intake.video_id(url)
             except app.intake.IntakeError:
-                raise ApiError("Enter one YouTube video link per line.")
+                raise ApiError("Enter YouTube video links separated by spaces or new lines.")
             if source not in sources: sources.append(source)
         result = []
         with lock:
+            target = data.get("playlist")
+            addition_playlist(g.user, target)
             modified = []
+            saved = []
             pending = sum(j["owner"] == g.user and j.get("library_addition") and j["state"] in ("queued", "running") for j in jobs.values())
             active_sources = {j.get("source_id") for j in jobs.values() if j["owner"] == g.user
                               and j["state"] in ("queued", "running") and not j["cancel"].is_set()}
@@ -2280,8 +2367,11 @@ def create_app(test_config=None):
             if pending + additions > 200:
                 raise ApiError("Your library queue is full. Wait for songs to finish before adding more.", 429)
             for source in sources:
-                if saved_source(source):
-                    result.append(dict(source_id=source, state="done", saved=True, title=source, message="Saved"))
+                if item := saved_source(source):
+                    track, _ = library_record(item)
+                    row = dict(source_id=source, state="done", saved=True, title=track["title"], message="Saved")
+                    result.append(row)
+                    saved.append(row)
                     continue
                 job = next((j for j in jobs.values() if j["owner"] == g.user and j.get("source_id") == source
                             and j["state"] in ("queued", "running") and not j["cancel"].is_set()), None)
@@ -2297,22 +2387,31 @@ def create_app(test_config=None):
                         job.update(state="queued", message=STEP_TEXT["import"])
                     if "url" not in job:
                         job.update(url=app.intake.WATCH + source, tmp=None, state="queued")
-                    modified.append((job, True))
+                    modified.append((job, None))
                 else:
-                    if not job.get("library_addition"):
-                        modified.append((job, False))
+                    modified.append((job, {key: job[key] for key in ("save", "library_addition", "addition_playlists") if key in job}))
                     job["save"] = True
                     job["library_addition"] = True
+                if target is not None and target not in job.get("addition_playlists", []):
+                    job["addition_playlists"] = [*job.get("addition_playlists", []), target]
                 result.append(public(job))
             if modified:
                 if not save_bulk_queue():
-                    for job, created in modified:
-                        if created:
+                    for job, previous in modified:
+                        if previous is None:
                             jobs.pop(job["id"], None)
                         else:
-                            job.pop("library_addition", None)
+                            for key in ("save", "library_addition", "addition_playlists"):
+                                job.pop(key, None)
+                            job.update(previous)
                     raise ApiError("Could not save the library queue. Try again.", 503)
                 wake_dispatch()
+            if target is not None:
+                for row in saved:
+                    error = append_library_song(g.user, target, row["source_id"])
+                    if error:
+                        row["playlist_error"] = error
+            job_changed.notify_all()
         return jsonify(jobs=result), 202
 
     @app.post("/api/jobs/<job_id>/cancel")
@@ -2554,7 +2653,19 @@ def create_app(test_config=None):
 
     @app.get("/api/library")
     def library():
-        return jsonify(results=library_tracks())
+        tracks = library_tracks()
+        if request.args.get("genre_filters") != "1":
+            return jsonify(results=tracks)
+        keys, votes = {}, defaultdict(Counter)
+        for raw, count in Counter(track.get("genre") or "" for track in tracks).items():
+            key = keys[raw] = genre_key(raw)
+            votes[key][genre_label(raw)] += count
+        history = listening_history.summary(g.user, {t["id"]: {"genre": t.get("genre"), "channel": t.get("channel", "")}
+                                                     for t in tracks})
+        plays = {genre_key(label): row["plays"] for label, row in history["genres"].items()}
+        genres = [dict(key=key, label=most_common_genre(group), plays=plays.get(key, 0))
+                  for key, group in votes.items()]
+        return jsonify(results=tracks, genre_keys=keys, genres=genres)
 
     @app.post("/api/queue")
     def prepare_queue():
@@ -2635,6 +2746,13 @@ def create_app(test_config=None):
                                        manifest["audio"]["duration"], fade, d["dj"], rate,
                                        pair[0].get("playback"), pair[1].get("playback")))
 
+    def append_saved_entry(tracks, user, source_id, item):
+        track, _ = library_record(item)
+        tracks.append({"added_at": datetime.now(timezone.utc).isoformat(), "added_by": user,
+                       "album": track.get("library_album", ""), "title": track["title"], "artist": track["channel"],
+                       "duration": track["duration"], "source_id": source_id, "spotify_uri": "",
+                       "match": track, "candidates": [track], "state": "saved"})
+
     @app.post("/api/uploads")
     def create_upload():
         f = request.files.get("file")
@@ -2653,7 +2771,16 @@ def create_app(test_config=None):
             except app.intake.IntakeError: pass
             m = meta({key: value or fallback[key] for key, value in fields.items()})
         else: m = meta(request.form)
+        target_id = request.form.get("playlist_id")
+        if target_id is not None:
+            target = dict(id=target_id, owner_id=request.form.get("playlist_owner", g.user))
+            with lock:
+                addition_playlist(g.user, target)
         job = new_job(g.user, "stage", m)
+        if request.form.get("show_in_additions") == "true":
+            job["show_in_additions"] = True
+        if target_id is not None:
+            job["addition_playlists"] = [target]
         if automatic: job.update(read_local_tags=True, local_fields=fields, playlist_import=True, message="Queued for server preparation")
         tmp = os.path.join(ws, f".upload-{secrets.token_hex(16)}.{ext}")
         try:
@@ -2667,7 +2794,10 @@ def create_app(test_config=None):
                 os.unlink(tmp)
             settle(job, "error", "Upload failed.")
             raise e if isinstance(e, ApiError) else ApiError("Upload failed.", 500)
-        return start(job, None, tmp, m)
+        with job_changed:
+            response = start(job, None, tmp, m)
+            job_changed.notify_all()
+            return response
 
     @app.get("/api/jobs")
     def list_jobs():
@@ -2680,6 +2810,9 @@ def create_app(test_config=None):
             job = jobs.get(job_id)
             if not job or job["owner"] != g.user:
                 raise ApiError(HTTP_TEXT[404], 404)
+            if request.args.get("watch") == "1":
+                return watch_job_status(lambda: (dict(job=public(job, include_media=False)),
+                                                 job["state"] in ("queued", "running")))
             return jsonify(job=public(job))
 
     @app.route("/api/jobs/<job_id>/media/<asset>", methods=["GET", "HEAD"])
@@ -2751,7 +2884,7 @@ def create_app(test_config=None):
                 job.update(id=row["id"], created=row["created"], retry_at=row.get("retry_at", 0),
                            retries=row.get("retries", 0), state="queued", phase="queued", message="Waiting for background slot",
                            url=app.intake.WATCH + source, tmp=None, library_addition=True, playlist_import=True,
-                           automatic_meta=True)
+                           automatic_meta=True, addition_playlists=row.get("addition_playlists", []))
                 jobs[job["id"]] = job
             if jobs:
                 wake_dispatch()

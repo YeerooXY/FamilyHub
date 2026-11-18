@@ -88,3 +88,11 @@
 @media(prefers-reduced-motion:reduce) {
   .artist-mappings button { transition:none; }
 }
+
+.server-work-page { display:grid; gap:24px; width:100%; max-width:1100px; margin-inline:auto; }
+.server-work-mappings { padding:0 16px; }
+.server-work-mappings > summary { display:flex; align-items:center; gap:8px; min-height:48px; list-style:none; font-weight:700; cursor:pointer; }
+.server-work-mappings > summary::-webkit-details-marker { display:none; }
+.server-work-mappings > summary > .icon { width:18px; height:18px; transform:rotate(-90deg); }
+.server-work-mappings[open] > summary > .icon { transform:none; }
+.server-work-mappings > .artist-mappings { padding:4px 0 16px; }

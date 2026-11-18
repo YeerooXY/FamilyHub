@@ -6,11 +6,13 @@ import json
 import math
 import re
 import threading
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
 
 from .wrapped import add_event, compare, write_json, yearly_summary, first_artists
+from .genres import genre_key, genre_label, most_common_genre
 
 class ListeningHistory:
     MAX_BATCH = 100
@@ -214,6 +216,7 @@ class ListeningHistory:
 
     def _summary(self, events, metadata):
         recordings, artists, genres = {}, {}, {}
+        genre_labels = defaultdict(Counter)
         hours, weekdays = [0] * 24, [0] * 7
         for event in events:
             at = self.timestamp(event['started_at'])
@@ -221,7 +224,10 @@ class ListeningHistory:
             early = skip and (event['position'] < 30 or event['position'] / event['duration'] < .25)
             weight = .5 ** (max(0, (self.utc() - at).total_seconds()) / (30 * 86400))
             track = {**event.get('track', {}), **metadata.get(event['recording_id'], {})}
-            for bucket, key in ((recordings, event['recording_id']), (artists, track.get('channel', '')), (genres, track.get('genre', 'Unsorted'))):
+            genre = genre_label(track.get('genre'))
+            key = genre_key(genre)
+            genre_labels[key][genre] += 1
+            for bucket, key in ((recordings, event['recording_id']), (artists, track.get('channel', '')), (genres, key)):
                 if not key:
                     continue
                 row = bucket.setdefault(key, dict(plays=0, completes=0, skips=0, early_skips=0, total_seconds=0, seconds=0, last_played=None, last_early_skip=None, score=0))
@@ -237,7 +243,9 @@ class ListeningHistory:
                 row['score'] += weight * (1 + 2 * complete - 2 * early)
             hours[at.hour] += event['listened_seconds']
             weekdays[at.weekday()] += event['listened_seconds']
-        return dict(recordings=recordings, artists=artists, genres=genres, hours=hours, weekdays=weekdays, timezone='UTC',
+        return dict(recordings=recordings, artists=artists,
+                    genres={most_common_genre(genre_labels[key]): row for key, row in genres.items()},
+                    hours=hours, weekdays=weekdays, timezone='UTC',
                     recent_history=[e['recording_id'] for e in events[-200:]])
 
 

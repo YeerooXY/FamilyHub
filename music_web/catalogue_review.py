@@ -286,7 +286,7 @@ class CatalogueReview:
             row = self.data['metadata'].get(identifier)
             saved = self.data['overrides'].get(identifier, {})
             if not fixed or not row or digest != fixed['sha256'] or row['sha256'] != digest or saved.get('sha256') != digest:
-                raise ReviewError('This metadata fix is unavailable. Refresh Song review.', 409)
+                raise ReviewError('This metadata fix is unavailable. Refresh the review in Server work.', 409)
             values = saved['values']
             for key, applied in fixed['applied'].items():
                 if values.get(key) == applied and row['current'].get(key) == applied:

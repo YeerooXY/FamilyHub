@@ -636,7 +636,7 @@ $("previous").addEventListener("click", () => {
 });
 $("library").addEventListener("click", async () => {
   try {
-    const { results } = await api("/api/library"); pool = results;
+    const { results, genres = [], genre_keys = {} } = await api("/api/library?genre_filters=1"); pool = results;
     const additions = results.filter((r) => r.url !== currentTrack?.url).slice(0, Math.max(0, 30 - queue.length));
     additions.forEach(track=>manualQueue.add(sourceKey(track)));
     queue.push(...additions);
@@ -758,6 +758,53 @@ $("find-music").addEventListener("click",()=>{setView("search");$("q").focus();}
 $("show-queue").addEventListener("click",()=>{renderQueue();setView("queue");$("content").scrollTop=0;$("queue-h").focus({preventScroll:true});});
 let libraryFingerprint = "";
 let libraryGenre = "", searchDirty = false;
+let genreOptions = [], genreAliases = new Map();
+const genreSearch = $("library-genre-search");
+function chooseLibraryGenre(key, syncInput = true) {
+  libraryGenre = key;
+  if (syncInput) genreSearch.value = genreOptions.find(genre => genre.key === key)?.label || "";
+  $("clear-library-genre").hidden = !genreSearch.value && !libraryGenre;
+  filterLibrary();
+}
+function updateGenreControls(genres) {
+  genres.sort((a,b) => a.label.localeCompare(b.label));
+  if (JSON.stringify(genres) === JSON.stringify(genreOptions)) return;
+  genreOptions = genres;
+  const controls = $("library-genres");
+  const focused = controls.contains(document.activeElement) ? document.activeElement.dataset.genre : null;
+  const preserveText = [genreSearch, $("clear-library-genre")].includes(document.activeElement);
+  $("library-genre-options").replaceChildren(...genres.map(genre => el("option", {value:genre.label})));
+  const top = genres.filter(genre => genre.key !== "unsorted" && genre.plays > 0).sort((a,b) => b.plays - a.plays).slice(0, 8);
+  controls.hidden = top.length === 0;
+  controls.replaceChildren(...top.map(genre => {
+    const button = el("button", {type:"button", "data-genre":genre.key, "aria-pressed":String(genre.key === libraryGenre)}, genre.label);
+    button.addEventListener("click", () => chooseLibraryGenre(libraryGenre === genre.key ? "" : genre.key));
+    return button;
+  }));
+  chooseLibraryGenre(genres.some(genre => genre.key === libraryGenre) ? libraryGenre : "", !preserveText);
+  if (focused !== null) ([...controls.children].find(button => button.dataset.genre === focused) || genreSearch).focus();
+}
+
+function pickTypedGenre(allowAlias = false) {
+  const input = genreSearch.value.trim().toLocaleLowerCase();
+  if (!input) return chooseLibraryGenre("");
+  const match = genreOptions.find(genre => genre.label.toLocaleLowerCase() === input);
+  const key = match?.key ?? (allowAlias ? genreAliases.get(input) : null);
+  if (key) chooseLibraryGenre(key);
+}
+genreSearch.addEventListener("input", () => {
+  $("clear-library-genre").hidden = !genreSearch.value && !libraryGenre;
+  pickTypedGenre();
+});
+$("library-genre-form").addEventListener("submit", event => {
+  event.preventDefault();
+  pickTypedGenre(true);
+  if (matchMedia("(max-width:720px)").matches) $("view-title").focus();
+});
+$("clear-library-genre").addEventListener("click", () => {
+  genreSearch.focus();
+  chooseLibraryGenre("");
+});
 async function loadLibrary() {
   $("library-error").textContent = "";
   try {
@@ -768,9 +815,11 @@ async function loadLibrary() {
     const index = [...list.children].findIndex((row) => row.contains(active));
     const fingerprint = JSON.stringify(results);
     updateSongStates();
+    genreAliases = new Map(Object.entries(genre_keys).map(([label, key]) => [label.trim().toLocaleLowerCase(), key]));
+    updateGenreControls(genres);
     if(fingerprint === libraryFingerprint) return;
     libraryFingerprint = fingerprint;
-    list.replaceChildren(...results.map(track => el("article", {class:"library-record", "data-artist":track.channel || track.artist || "Unknown artist", "data-genre":track.genre || "Unsorted"}, songButton(track, "library"))));
+    list.replaceChildren(...results.map(track => el("article", {class:"library-record", "data-artist":track.channel || track.artist || "Unknown artist", "data-genre":genre_keys[track.genre || ""] || "unsorted"}, songButton(track, "library"))));
     updateSongStates();
     if (index >= 0) (list.children[Math.min(index, list.children.length - 1)]?.querySelector("button") || $("refresh-library")).focus();
     $("library-count").textContent = results.length + (results.length === 1 ? " recording" : " recordings");
@@ -779,17 +828,6 @@ async function loadLibrary() {
     const artists = [...new Set(results.map(t => t.channel || t.artist || "Unknown artist"))].sort((a,b) => a.localeCompare(b));
     $("library-artist").replaceChildren(el("option", {value:""}, "All artists"), ...artists.map(a => el("option", {value:a}, a)));
     $("library-artist").value = artists.includes(selected) ? selected : "";
-    const genres = [...new Set(results.map(t => t.genre || "Unsorted"))].sort();
-    const controls = $("library-genres"), focusedGenre = controls.contains(document.activeElement);
-    if (!genres.includes(libraryGenre)) libraryGenre = "";
-    if (controls.dataset.genres !== genres.join("|")) {
-      controls.dataset.genres = genres.join("|");
-      controls.replaceChildren(...["", ...genres].map(genre => {
-        const button = el("button", {type:"button", "data-genre":genre, "aria-pressed":String(genre === libraryGenre)}, genre || "All");
-        button.addEventListener("click", () => { libraryGenre = genre; filterLibrary(); }); return button;
-      }));
-      if (focusedGenre) controls.querySelector('[aria-pressed="true"]').focus();
-    }
     filterLibrary();
     if (!currentTrack && !queue.length) { await fillQueue(); renderQueue(); prepare(); }
   } catch (err) {

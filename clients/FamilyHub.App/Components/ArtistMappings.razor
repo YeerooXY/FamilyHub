@@ -3,12 +3,9 @@
 @inject MusicSession Session
 @inject IJSRuntime JS
 
-<section class="music-admin artist-mappings" aria-labelledby="artist-mappings-title" aria-busy="@(loading && mappings is null ? "true" : "false")">
+<div class="music-admin artist-mappings" aria-busy="@(loading && mappings is null ? "true" : "false")">
     <header class="music-admin-heading">
-        <div>
-            <h1 id="artist-mappings-title" tabindex="-1">Artist mappings</h1>
-            <p class="muted">Discovery uses each mapping to find the artist’s new releases on Deezer.</p>
-        </div>
+        <p class="muted">Discovery uses these mappings to find new releases on Deezer.</p>
         <div class="artist-mapping-actions">
             <button class="quiet" @onclick="Load" disabled="@(Offline || loading || saving)"><MusicIcon Name="refresh" />Refresh</button>
             @if (mappings is not null)
@@ -66,7 +63,7 @@
             </ul>
         </section>
     }
-</section>
+</div>
 
 @code {
     private sealed record SavedMapping(ArtistMapping Artist);

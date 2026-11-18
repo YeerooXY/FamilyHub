@@ -5,9 +5,9 @@
 @inject MusicPlayer Player
 @inject IJSRuntime JS
 
-<div class="music-admin catalogue-review" aria-busy="@Aria(loading && data is null)">
+<section aria-labelledby="catalogue-review-title" class="music-admin catalogue-review" aria-busy="@Aria(loading && data is null)">
     <header class="music-admin-heading catalogue-toolbar">
-        <h1 id="catalogue-review-title" tabindex="-1">Song review</h1>
+        <h2 id="catalogue-review-title" tabindex="-1">Songs that need work</h2>
         <button class="quiet catalogue-control" aria-disabled="@Aria(Unavailable)" @onclick="Refresh">
             <MusicIcon Name="refresh" />@(loading ? "Refreshing…" : "Refresh review")
         </button>
@@ -18,7 +18,7 @@
     else if (data is null && error is null) { <p class="muted" role="status">Loading song review…</p> }
     @if (data is { } snapshot)
     {
-        <nav class="catalogue-categories" aria-label="Song review categories">
+        <div class="catalogue-categories" role="group" aria-label="Review categories">
             @foreach (var category in Categories.Where(c => snapshot.CanEdit || !c.AdminOnly))
             {
                 <button class="quiet catalogue-category" aria-pressed="@Aria(active == category.Id)"
@@ -26,13 +26,13 @@
                     @category.Label <span class="music-admin-count">@Count(category.Id)</span>
                 </button>
             }
-        </nav>
+        </div>
         var section = Categories.First(c => c.Id == active);
         var limit = Limit(active);
         <section id="catalogue-category-panel" class="glass-panel catalogue-pool" aria-labelledby="catalogue-category-title">
             <header class="music-admin-heading catalogue-section-heading">
                 <div>
-                    <h2 id="catalogue-category-title" tabindex="-1">@section.Label</h2>
+                    <h3 id="catalogue-category-title" tabindex="-1">@section.Label</h3>
                     <p class="catalogue-description">@section.Description</p>
                 </div>
                 @if (snapshot.CanEdit)
@@ -228,7 +228,7 @@
             }
         </section>
     }
-</div>
+</section>
 
 <dialog id="metadata-review-dialog" class="glass-dialog metadata-review-dialog" aria-labelledby="metadata-review-title" data-return-focus="catalogue-category-title">
     <div class="dialog-heading"><h2 id="metadata-review-title">Song metadata</h2><button class="quiet" aria-label="Close metadata review" @onclick="Close"><MusicIcon Name="close" /></button></div>

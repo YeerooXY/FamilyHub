@@ -5,18 +5,18 @@
 .create-playlist-form { display:grid; align-content:start; gap:24px; max-width:none; margin:0; }
 .create-field { display:grid; gap:8px; }
 .create-field>span,.create-section h3 { margin:0; font-size:14px; font-weight:700; color:var(--muted); }
-.create-field input { height:52px; padding:0 20px; border:1px solid transparent; border-radius:14px; font-size:17px; background:#242424; }
-.create-field input:disabled { opacity:.6; }
+.create-field :is(input,select) { height:52px; padding:0 20px; border:1px solid transparent; border-radius:14px; font-size:17px; background:#242424; }
+.create-field :is(input,select):disabled { opacity:.6; }
 .create-section { display:grid; gap:12px; }
 
 /* The link field matches the header search: a dark pill with an icon on the left. */
 .create-link { position:relative; display:flex; align-items:center; }
-.create-link input { width:100%; height:56px; padding:0 54px 0 58px; border:1px solid transparent; border-radius:28px; font-size:16px; background:#242424; transition:border-color .18s ease,background-color .18s ease; }
-.create-link input:hover { border-color:#555; background:#2a2a2a; }
-.create-link input:focus-visible { outline:2px solid #fff; outline-offset:0; }
+.create-link :is(input,textarea) { width:100%; height:56px; padding:0 54px 0 58px; border:1px solid transparent; border-radius:28px; font-size:16px; background:#242424; transition:border-color .18s ease,background-color .18s ease; }
+.create-link :is(input,textarea):hover { border-color:#555; background:#2a2a2a; }
+.create-link :is(input,textarea):focus-visible { outline:2px solid #fff; outline-offset:0; }
 /* The shared .glass-dialog input rule adds a 10px top margin that lifts the field off its icon. */
-#create-playlist-dialog .create-link input { margin:0; }
-#create-playlist-dialog .entry-error:empty { display:none; }
+.create-playlist-screen .create-link :is(input,textarea) { margin:0; }
+.create-playlist-screen .entry-error:empty { display:none; }
 .create-link-icon { position:absolute; left:16px; display:grid; place-items:center; width:28px; height:28px; color:var(--muted); pointer-events:none; }
 .create-link-icon .icon,.create-link-icon .site-icon { width:26px; height:26px; }
 .create-link-clear { position:absolute; right:8px; display:grid; place-items:center; width:40px; height:40px; min-height:40px; padding:0; border:0; border-radius:50%; background:transparent; }
@@ -42,24 +42,32 @@
 
 /* Big device buttons, the same choices as the upload dialog. */
 .create-files { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-.create-file-choice { display:grid; justify-items:start; gap:4px; min-height:112px; padding:18px 20px; border:1px solid #ffffff14; border-radius:16px; text-align:left; color:var(--ink); background:#ffffff08; transition:background-color .18s ease,border-color .18s ease,transform .18s ease; }
-.create-file-choice .icon { width:28px; height:28px; margin-bottom:6px; color:var(--accent-blue); }
+.create-file-choice { position:relative; display:grid; justify-items:start; gap:4px; min-height:112px; padding:18px 20px; border:1px solid #ffffff14; border-radius:16px; text-align:left; color:var(--ink); background:#ffffff08; transition:background-color .18s ease,border-color .18s ease,transform .18s ease; }
+.create-file-choice .icon { width:24px; height:24px; margin-bottom:6px; color:var(--ink); }
+.create-playlist-screen .create-file-choice input[type=file] { position:absolute; inset:0; width:100%; height:100%; opacity:0; margin:0; cursor:pointer; }
+.create-file-choice:focus-within { outline:2px solid var(--focus); outline-offset:2px; }
+.create-file-choice[aria-disabled=true] { opacity:.6; }
+.create-link textarea { min-height:72px; resize:vertical; padding-block:14px; border-radius:20px; }
+.create-link textarea + .create-link-clear { top:8px; }
+.create-link:has(textarea) .create-link-icon { top:13px; }
+.create-field select { width:100%; color:var(--ink); }
+.upload-stop { justify-self:start; }
 .create-file-choice strong { font-size:16px; }
 .create-file-choice small { font-size:13px; color:var(--muted); }
 .create-file-choice:hover:not([aria-disabled=true]) { background:#ffffff12; border-color:#ffffff29; transform:translateY(-2px); }
 
 /* Switches */
 .create-options { gap:4px; }
-#create-playlist-dialog .create-toggle { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:64px; padding:10px 4px; border-bottom:1px solid #ffffff0f; cursor:pointer; }
-#create-playlist-dialog .create-toggle:last-child { border-bottom:0; }
-#create-playlist-dialog .create-toggle>span { display:grid; gap:2px; }
-#create-playlist-dialog .create-toggle strong { font-size:15px; }
-#create-playlist-dialog .create-toggle small { font-size:13px; color:var(--muted); }
-#create-playlist-dialog .create-toggle input[role=switch] { appearance:none; min-width:0; padding:0; border:0; min-height:0; max-width:none; accent-color:auto; -webkit-appearance:none; position:relative; flex:none; width:48px; height:28px; margin:0; border-radius:14px; background:#ffffff26; cursor:pointer; transition:background-color .2s ease; }
-#create-playlist-dialog .create-toggle input[role=switch]::after { content:""; position:absolute; top:3px; left:3px; width:22px; height:22px; border-radius:50%; background:#fff; box-shadow:0 2px 6px #0006; transition:transform .2s cubic-bezier(.2,.8,.2,1); }
-#create-playlist-dialog .create-toggle input[role=switch]:checked { background:var(--accent-blue); }
-#create-playlist-dialog .create-toggle input[role=switch]:checked::after { transform:translateX(20px); }
-#create-playlist-dialog .create-toggle input[role=switch]:focus-visible { outline:2px solid #fff; outline-offset:2px; }
+.create-playlist-screen .create-toggle { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:64px; padding:10px 4px; border-bottom:1px solid #ffffff0f; cursor:pointer; }
+.create-playlist-screen .create-toggle:last-child { border-bottom:0; }
+.create-playlist-screen .create-toggle>span { display:grid; gap:2px; }
+.create-playlist-screen .create-toggle strong { font-size:15px; }
+.create-playlist-screen .create-toggle small { font-size:13px; color:var(--muted); }
+.create-playlist-screen .create-toggle input[role=switch] { appearance:none; min-width:0; padding:0; border:0; min-height:0; max-width:none; accent-color:auto; -webkit-appearance:none; position:relative; flex:none; width:48px; height:28px; margin:0; border-radius:14px; background:#ffffff26; cursor:pointer; transition:background-color .2s ease; }
+.create-playlist-screen .create-toggle input[role=switch]::after { content:""; position:absolute; top:3px; left:3px; width:22px; height:22px; border-radius:50%; background:#fff; box-shadow:0 2px 6px #0006; transition:transform .2s cubic-bezier(.2,.8,.2,1); }
+.create-playlist-screen .create-toggle input[role=switch]:checked { background:var(--accent-blue); }
+.create-playlist-screen .create-toggle input[role=switch]:checked::after { transform:translateX(20px); }
+.create-playlist-screen .create-toggle input[role=switch]:focus-visible { outline:2px solid #fff; outline-offset:2px; }
 
 .create-playlist-form .actions { display:flex; justify-content:space-between; gap:12px; margin:0; }
 .create-playlist-form .actions .primary { min-height:48px; padding:0 28px; border-radius:24px; font-size:15px; }
@@ -78,4 +86,4 @@
 @keyframes dialog-leave { to { opacity:0; transform:translateY(8px) scale(.98); } }
 @keyframes backdrop-leave { to { opacity:0; } }
 
-@media(prefers-reduced-motion:reduce) { .create-collapse,.animated-dialog.is-closing,.animated-dialog.is-closing::backdrop,.create-sites li,.create-file-choice,#create-playlist-dialog .create-toggle input[role=switch],#create-playlist-dialog .create-toggle input[role=switch]::after,.create-link input { transition:none; } }
+@media(prefers-reduced-motion:reduce) { .create-collapse,.animated-dialog.is-closing,.animated-dialog.is-closing::backdrop,.create-sites li,.create-file-choice,.create-playlist-screen .create-toggle input[role=switch],.create-playlist-screen .create-toggle input[role=switch]::after,.create-link :is(input,textarea) { transition:none; } }

@@ -1,11 +1,13 @@
 """Cached artist genre labels; metadata requests never block library or audio playback."""
 import json
+from collections import Counter
 from pathlib import Path
 import re
 import threading
 import time
 import urllib.parse
 import urllib.request
+import unicodedata
 from .musicbrainz import Throttled, read as musicbrainz
 
 GROUPS = {
@@ -16,6 +18,21 @@ GROUPS = {
     'Pop': ('pop',), 'Jazz': ('jazz',), 'Classical': ('classical', 'orchestra'),
     'Country / Folk': ('country', 'folk', 'americana'), 'Reggae': ('reggae', 'dancehall'),
 }
+
+def genre_label(value):
+    return (value or '').strip() or 'Unsorted'
+
+def genre_key(value):
+    words = re.sub(r'\band\b', '&', genre_label(value).lower())
+    key = ''.join(c for c in words if not c.isspace() and c != '&' and unicodedata.category(c) != 'Pd')
+    if key in ('rnb', 'rnb/soul', 'rb/soul', 'rhythmblues'):
+        return 'rb'
+    if key in ('db', 'dnb', 'drumnbass', "drum'n'bass", 'drum’n’bass'):
+        return 'drumbass'
+    return key
+
+def most_common_genre(votes: Counter):
+    return min(votes, key=lambda label: (-votes[label], not label[0].isupper(), label))
 
 def group(tags):
     for tag in sorted(tags, key=lambda t: t.get('count', 0), reverse=True):

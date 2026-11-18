@@ -1,0 +1,240 @@
+@implements IDisposable
+@inject MusicSession Session
+@inject IJSRuntime JS
+
+<dialog id="add-songs-dialog" class="glass-dialog create-playlist-screen animated-dialog" aria-labelledby="add-songs-heading"
+        data-return-focus="content" @onclose="Closed">
+    <div class="dialog-heading"><h2 id="add-songs-heading" tabindex="-1">Add songs</h2>
+        <button class="quiet" aria-label="Close Add songs" @onclick="Close"><MusicIcon Name="close" /></button>
+    </div>
+    <form class="create-playlist-form inline-form" @onsubmit="Submit" @onsubmit:preventDefault>
+        <section class="create-section" aria-labelledby="add-songs-link-title">
+            <h3 id="add-songs-link-title"><label for="add-songs-links">YouTube video links</label></h3>
+            <div class="create-link">
+                <span class="create-link-icon" aria-hidden="true"><MusicIcon Name="link" /></span>
+                <textarea id="add-songs-links" rows="2" maxlength="40200" placeholder="Paste YouTube links"
+                          aria-describedby="add-songs-link-help" autocomplete="off" spellcheck="false"
+                          @bind="links" @bind:event="oninput" disabled="@Busy"></textarea>
+                @if (links.Length > 0)
+                {
+                    <button type="button" class="create-link-clear" aria-label="Clear YouTube links" @onclick="ClearLinks" disabled="@Busy"><MusicIcon Name="close" /></button>
+                }
+            </div>
+            <p class="create-link-status" id="add-songs-link-help">Up to 200 links, separated by spaces or new lines.</p>
+            <MusicProviders Sites="YouTube" />
+        </section>
+
+        <section class="create-section" aria-labelledby="add-songs-files-title">
+            <h3 id="add-songs-files-title">Add songs from this device</h3>
+            <UploadSongs @ref="uploader" Prefix="add-songs-upload" SubmitId="add-songs-submit" Disabled="posting"
+                         Changed="StateHasChanged" JobChanged="ReceiveUpload" />
+        </section>
+
+        <section class="create-section create-options" aria-label="Where to save">
+            <label class="create-toggle"><span><strong>Add to a playlist</strong></span>
+                <input type="checkbox" role="switch" @bind="addToPlaylist" disabled="@Busy" />
+            </label>
+            @if (addToPlaylist)
+            {
+                <label class="create-field"><span>Playlist</span>
+                    <select @bind="playlistKey" disabled="@Busy">
+                        <option value="">@(Session.Playlists.Any(list => list.CanEdit) ? "Choose a playlist" : "No editable playlists")</option>
+                        @foreach (var list in Session.Playlists.Where(list => list.CanEdit))
+                        {
+                            <option value="@Key(list)" @key="Key(list)">@list.Name</option>
+                        }
+                    </select>
+                </label>
+            }
+        </section>
+
+        @if (jobs.Count > 0) { <LibraryAdditions Jobs="jobs" Retry="Retry" Busy="Busy" /> }
+        <p class="entry-error" role="status">@(Session.Connected ? message : "Connect to the server to add songs.")</p>
+        <div class="actions">
+            <button type="button" @onclick="Close">Close</button>
+            <button id="add-songs-submit" type="submit" class="primary" aria-disabled="@(CanSubmit ? "false" : "true")">
+                @(posting ? "Queuing..." : uploader?.Busy == true ? "Uploading..." : addToPlaylist ? "Add to playlist" : "Add to library")
+            </button>
+        </div>
+    </form>
+</dialog>
+
+@code {
+    [Parameter] public bool InLibrary { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<LibraryAddition>> JobsChanged { get; set; }
+    private static readonly string[] YouTube = ["youtube"];
+    private readonly CancellationTokenSource lifetime = new();
+    private readonly Dictionary<string, MusicPlaylist?> destinations = [];
+    private readonly List<LibraryAddition> jobs = [];
+    private UploadSongs? uploader;
+    private CancellationTokenSource? watch;
+    private string links = "", playlistKey = "", opener = "content";
+    private string? message;
+    private bool addToPlaylist, posting, requestedOpen, open, wasInLibrary, loadedLibrary, disposed;
+    private bool Busy => posting || uploader?.Busy == true;
+    private bool HasFiles => uploader is { SelectedCount: > 0, Finished: false };
+    private bool CanSubmit => !Busy && Session.Connected && (!addToPlaylist || Destination is not null)
+        && (!string.IsNullOrWhiteSpace(links) || HasFiles);
+    private static string Key(MusicPlaylist list) => list.OwnerId + ":" + list.Id;
+    private MusicPlaylist? Destination => addToPlaylist
+        ? Session.Playlists.FirstOrDefault(list => list.CanEdit && Key(list) == playlistKey) : null;
+
+    public void Open(string returnFocus, MusicPlaylist? playlist = null)
+    {
+        opener = returnFocus;
+        if (!Busy)
+        {
+            addToPlaylist = playlist is not null;
+            playlistKey = playlist is null ? "" : Key(playlist);
+        }
+        requestedOpen = open = true;
+        StateHasChanged();
+    }
+    protected override void OnInitialized() => Session.LibraryAdditionUpdated += ObserveSongRow;
+
+    private void ObserveSongRow(LibraryAddition job) => _ = InvokeAsync(async () =>
+    {
+        if (disposed || jobs.Any(row => row == job)) return;
+        await Merge([job]);
+        StartWatch();
+    });
+
+    private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "add-songs-dialog", opener).AsTask();
+    private void Closed()
+    {
+        open = false;
+        if (!Busy && uploader?.Finished == true) uploader.Clear();
+        if (!InLibrary) watch?.Cancel();
+    }
+    protected override void OnParametersSet()
+    {
+        if (!InLibrary) loadedLibrary = false;
+        if (wasInLibrary && !InLibrary && !open) watch?.Cancel();
+        wasInLibrary = InLibrary;
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (requestedOpen)
+        {
+            requestedOpen = false;
+            await JS.InvokeVoidAsync("familyhub.showDialog", "add-songs-dialog", "add-songs-heading", opener);
+            StartWatch();
+        }
+        else if (InLibrary && !loadedLibrary && Session.Connected)
+        {
+            loadedLibrary = true;
+            StartWatch();
+        }
+    }
+    private async Task ClearLinks()
+    {
+        await JS.InvokeVoidAsync("familyhub.focus", "add-songs-links");
+        links = "";
+        message = null;
+    }
+    private async Task Submit()
+    {
+        if (!CanSubmit) return;
+        var target = Destination;
+        var urls = links.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (urls.Length > 200)
+        {
+            message = "Paste up to 200 YouTube video links at a time.";
+            return;
+        }
+        if (urls.Length > 0 && !await QueueLinks(urls, target, clearInput: true)) return;
+        if (HasFiles) await uploader!.UploadTo(target);
+    }
+    private Task Retry(LibraryAddition job) => job.SourceId is { } source
+        ? QueueLinks(["https://www.youtube.com/watch?v=" + source], destinations.TryGetValue(job.Key, out var target) ? target : Destination)
+        : Task.CompletedTask;
+    private async Task<bool> QueueLinks(string[] urls, MusicPlaylist? target, bool clearInput = false)
+    {
+        if (Busy || !Session.Connected || Session.Api is not { } api) return false;
+        posting = true;
+        watch?.Cancel();
+        message = null;
+        try
+        {
+            var result = await api.RequestJsonAsync<LibraryAdditionPage>(HttpMethod.Post, "/api/library/additions",
+                new { urls, playlist = target is null ? null : new { id = target.Id, owner_id = target.OwnerId } }, lifetime.Token);
+            if (disposed) return false;
+            foreach (var job in result.Jobs) destinations[job.Key] = target;
+            await Merge(result.Jobs);
+            if (clearInput) links = "";
+            if (result.Jobs.Any(job => !job.Pending && job.Saved)) await Session.RefreshAsync(background: true);
+            return true;
+        }
+        catch (OperationCanceledException) { return false; }
+        catch (FamilyHubApiException ex) { message = ex.Message; return false; }
+        catch (Exception) { message = "Could not queue the songs. Check the connection and try again."; return false; }
+        finally { posting = false; StartWatch(); }
+    }
+
+    private Task ReceiveUpload(LibraryAddition job) => Merge([job]);
+    private async Task Merge(IEnumerable<LibraryAddition> updates, bool fromWatch = false)
+    {
+        var changed = false;
+        foreach (var job in updates)
+        {
+            var index = jobs.FindIndex(row => row.Key == job.Key || job.Id.Length > 0 && row.Id == job.Id);
+            if (index < 0) { jobs.Insert(0, job); changed = true; }
+            else if (jobs[index] != job && !(fromWatch && jobs[index] is { Id.Length: 0, Saved: true }))
+            {
+                jobs[index] = job;
+                changed = true;
+            }
+            else continue;
+            if (fromWatch && job.SourceId is { Length: 11 }) Session.ReportLibraryAddition(job);
+        }
+        if (changed) await JobsChanged.InvokeAsync(jobs.ToArray());
+    }
+    private void StartWatch()
+    {
+        if (disposed || !Session.Connected || Session.Api is not { } api || !open && !InLibrary && !jobs.Any(job => job.Pending)) return;
+        watch?.Cancel();
+        watch = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        _ = Watch(api, watch);
+    }
+    private async Task Watch(FamilyHubApi api, CancellationTokenSource request)
+    {
+        try
+        {
+            await foreach (var page in api.WatchJobStatusAsync<LibraryAdditionPage>("/api/library/additions", request.Token))
+            {
+                if (request.IsCancellationRequested) break;
+                var finished = page.Jobs.Any(job => !job.Pending && job.Saved && jobs.Any(row => row.Id == job.Id && row.Pending && job.SourceId is { Length: 11 }));
+                await Merge(page.Jobs, fromWatch: true);
+                if (finished && !request.IsCancellationRequested && ReferenceEquals(api, Session.Api))
+                    await Session.RefreshAsync(background: true);
+                if (!disposed) await InvokeAsync(StateHasChanged);
+            }
+            if (open && !disposed && !request.IsCancellationRequested && jobs.Any(job => job.Pending && job.SourceId is { Length: 11 }))
+            {
+                message ??= "Songs are still queued. Reopen Add songs to check their status.";
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception)
+        {
+            if (open && !disposed && !request.IsCancellationRequested)
+            {
+                message ??= "Job status is unavailable. Reopen Add songs to check again.";
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        finally
+        {
+            if (watch == request) watch = null;
+            request.Dispose();
+        }
+    }
+    public void Dispose()
+    {
+        disposed = true;
+        Session.LibraryAdditionUpdated -= ObserveSongRow;
+        lifetime.Cancel();
+        lifetime.Dispose();
+    }
+}

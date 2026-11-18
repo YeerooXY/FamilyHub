@@ -1,9 +1,16 @@
 @page "/"
+@page "/server-work"
+@page "/server-stats"
+@page "/stats"
+@page "/song-review"
+@page "/review"
+@page "/artist-mappings"
 @implements IDisposable
 @inject MusicSession Session
 @inject MusicPlayer Player
 @inject ListenTogether Together
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
 
 @if (!Session.Ready || !chromeReady)
 {
@@ -74,7 +81,7 @@ else
         <div id="profile-menu" aria-label="Settings">
             <div class="settings-profile"><ProfileAvatar Profile="CurrentProfile" Size="32" /><strong>@Session.ProfileName</strong></div>
             @* Phones have no sidebar; these pages open from the profile menu instead. *@
-            @foreach (var tab in new[] { "Leaderboard", "Stats", "Review", "Artist mappings" })
+            @foreach (var tab in new[] { "Leaderboard", "Stats" })
             { <button class="profile-phone-link" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" />@NavLabel(tab)</button> }
             <hr class="profile-phone-link" />
             <button @onclick="SwitchProfile"><MusicIcon Name="player" />Switch profile</button>
@@ -89,13 +96,13 @@ else
     <button class="nav-button phone-nav" aria-label="Search" aria-current='@(view == "Search" ? "page" : null)' @onclick="OpenSearchTab"><MusicIcon Name="search" /><span class="nav-label">Search</span></button>
     <button class="nav-button phone-nav" aria-label="Playlists" aria-current='@(LibraryViews.Contains(view) ? "page" : null)' @onclick='() => Navigate("Playlists")'><MusicIcon Name="playlist" /><span class="nav-label">Playlists</span></button>
     <button id="open-library" class="nav-button desktop-nav" aria-label="Your library" title="Your library" aria-current='@(view == "Library" ? "page" : null)' @onclick='() => Navigate("Library")'><MusicIcon Name="library" /><span class="nav-label">Your library</span></button>
-    @foreach (var tab in new[] { "Downloads", "Playlists", "Review", "Artist mappings", "Leaderboard", "Stats" })
+    @foreach (var tab in new[] { "Downloads", "Playlists", "Leaderboard", "Stats" })
     { <button class="nav-button desktop-nav" aria-label="@NavLabel(tab)" title="@NavLabel(tab)" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" /><span class="nav-label">@NavLabel(tab)</span></button> }
     </nav>
     <div id="sidebar-resize" role="separator" tabindex="0" aria-label="Resize library sidebar" aria-orientation="vertical" aria-valuemin="72" aria-valuemax="420" aria-valuenow="@(sidebarCollapsed ? 72 : sidebarWidth)"></div>
 </aside>
 <div class="workspace"><main id="content" tabindex="-1">
-    @if (view is not ("Playlists" or "Review" or "Artist mappings" or "Home")) { <h1 id="view-title" tabindex="-1">@(view == "Downloads" ? "Downloaded" : view == "Preferences" ? "Settings" : view == "Stats" ? "Server stats" : view)</h1> }
+    @if (view is not ("Playlists" or "Home")) { <h1 id="view-title" tabindex="-1">@(view == "Preferences" ? "Settings" : NavLabel(view))</h1> }
     <p id="feedback" class="operation-status @(error is not null ? "error" : "")" role="status">@(error ?? radioProgress ?? (Session.DownloadingId is null ? Session.Message : ""))</p>
     @if (LibraryViews.Contains(view) && (view != "Playlists" || Selected is null))
     {
@@ -107,16 +114,16 @@ else
     }
     else if (view == "Library" || view == "Downloads")
     {
-        var source = (view == "Downloads" ? Session.DeviceTracks : Session.Library).ToList();
-        var tracks = source.Where(t => Matches(t, filter) && (genre.Length == 0 || Genre(t) == genre)).ToList();
+        var source = view == "Downloads" ? Session.DeviceTracks : Session.Library;
+        var tracks = source.Where(t => Matches(t, filter) && (genre.Length == 0 || GenreNames.Key(t.Genre) == genre)).ToList();
         var kept = view == "Downloads" ? source.Count(Session.KeptOnDevice) : 0;
         <div class="library-heading">@if (view == "Downloads") { <dl class="device-sizes"><div><dt>Downloaded</dt><dd>@kept @(kept == 1 ? "song" : "songs"), @Size(Session.DownloadedBytes)</dd></div><div><dt>Cached while playing</dt><dd>@(source.Count - kept) @(source.Count - kept == 1 ? "song" : "songs"), @Size(Math.Max(0, Session.DeviceBytes - Session.DownloadedBytes))</dd></div></dl> }
-        else { <p class="note">@source.Count recordings</p> }@if (view == "Library") { <UploadSongs /><LibraryAdditions @key="Session.User" /> }</div>
-        <div class="genre-pills" role="group" aria-label="Genres">
-            <button aria-pressed="@Aria(genre.Length == 0)" @onclick='() => genre = ""'>All</button>
-            @foreach (var item in source.Select(Genre).Distinct().OrderBy(g => g))
-            { <button @key="item" aria-pressed="@Aria(genre == item)" @onclick="() => genre = item">@item</button> }
-        </div>
+        else { <p class="note">@source.Count recordings</p><button id="library-add-songs" class="quiet upload-open" aria-haspopup="dialog" @onclick='() => addSongs?.Open("library-add-songs")'><MusicIcon Name="plus" />Add songs</button> }</div>
+        @if (CurrentAdditionJobs.Count > 0 && view == "Library")
+        {
+            <details class="library-additions glass-panel" open><summary>Library additions <span class="music-admin-count">@CurrentAdditionJobs.Count</span></summary><LibraryAdditions Jobs="CurrentAdditionJobs" Prefix="library" /></details>
+        }
+        <GenreFilter @key="view" Tracks="source" @bind-Value="genre" />
         <div class="library-filter"><label class="sr" for="library-filter">Filter songs</label><MusicIcon Name="search" /><input id="library-filter" type="search" @bind="filter" @bind:event="oninput" placeholder="Filter library" /></div>
         @if (tracks.Count == 0)
         { <p class="note">@(source.Count > 0 ? "No matching songs." : view == "Downloads" ? "No songs on this device. Download a song or playlist while connected." : "Connect and refresh to load your server library.")</p> }
@@ -229,12 +236,17 @@ else
                 { <button id="share-playlist" class="quiet playlist-sharing" aria-pressed="@Aria(selected.Shared)" aria-label="@(selected.Shared ? "Shared playlist; make private" : "Private playlist; share with family")" title="@(selected.Shared ? "Shared playlist" : "Private playlist")" aria-disabled="@Aria(!Session.Connected || busy)" @onclick="() => SharePlaylist(selected, !selected.Shared)"><MusicIcon Name="@(selected.Shared ? "people" : "person")" /></button> }
                 else { <span class="playlist-privacy" title="@(selected.Shared ? "Shared playlist" : "Private playlist")"><MusicIcon Name="@(selected.Shared ? "people" : "person")" /><span class="sr">@(selected.Shared ? "Shared playlist" : "Private playlist")</span></span> }
                 <button id="playlist-menu-toggle" class="quiet" aria-label="Playlist options" title="Playlist options" aria-haspopup="dialog" @onclick="OpenPlaylistOptions"><MusicIcon Name="more" /></button>
-                @if (selected.CanEdit) { <button id="add-playlist-song" class="quiet playlist-add-song" @onclick="OpenSongPicker"><MusicIcon Name="plus" />Add songs</button> }
+                @if (selected.CanEdit) { <button id="add-playlist-song" class="quiet playlist-add-song" aria-haspopup="dialog" @onclick='() => addSongs?.Open("add-playlist-song", selected)'><MusicIcon Name="plus" />Add songs</button> }
             </div>
             </section>
             <div id="playlist-options" popover="auto" role="dialog" aria-label="Playlist options" class="glass-dialog playlist-options">
                 <button id="queue-playlist" class="quiet" @onclick="() => QueuePlaylist(selected, playNext: false)" aria-disabled="@Aria(Player.FollowingHost || selected.Tracks.Count == 0)"><MusicIcon Name="queue" />Add to queue</button>
                 <button class="quiet" @onclick="() => QueuePlaylist(selected, playNext: true)" aria-disabled="@Aria(Player.FollowingHost || selected.Tracks.Count == 0)"><MusicIcon Name="next" />Play next</button>
+                @if (selected.CanEdit)
+                {
+                    <button id="playlist-saved-songs" class="quiet" aria-haspopup="dialog" @onclick="OpenSongPicker"><MusicIcon Name="library" />Choose saved songs</button>
+                    <button id="playlist-import-link" class="quiet" aria-haspopup="dialog" @onclick="AppendPlaylistLink"><MusicIcon Name="link" />Import playlist link</button>
+                }
                 @if (selected.CanEdit) { <button id="playlist-details-open" class="quiet" @onclick="() => playlistDetails?.Open() ?? Task.CompletedTask"><MusicIcon Name="pencil" />Edit details</button> }
                 @if (selected.CanManageAuthors) { <button id="playlist-coauthors" class="quiet" @onclick="() => playlistAuthors?.Open() ?? Task.CompletedTask"><MusicIcon Name="people" />Invite collaborators</button> }
                 @if (selected.CanDelete) { <button id="delete-playlist" class="quiet playlist-delete" aria-disabled="@Aria(!Session.Connected || busy)" @onclick="DeleteFromMenu"><MusicIcon Name="trash" />Delete playlist</button> }
@@ -279,17 +291,17 @@ else
             @ShowMore(playlistPositions.Count)
         }
     }
-    else if (view == "Review")
-    {
-        <CatalogueReviewPanel OpenPlaylist="OpenPlaylistReviewGap" />
-    }
-    else if (view == "Artist mappings")
-    {
-        <ArtistMappings @key="(Session.Server, Session.User)" />
-    }
     else if (view == "Stats")
     {
-        <ServerStats />
+        <div class="server-work-page">
+            <ServerStats>
+                <CatalogueReviewPanel OpenPlaylist="OpenPlaylistReviewGap" />
+            </ServerStats>
+            <details class="server-work-mappings glass-panel" open="@mappingsOpen">
+                <summary id="artist-mappings-title" @onclick="ToggleMappings" @onclick:preventDefault><MusicIcon Name="chevron-down" />Artist mappings</summary>
+                @if (mappingsLoaded) { <ArtistMappings @key="(Session.Server, Session.User)" /> }
+            </details>
+        </div>
     }
     else if (view == "Leaderboard")
     {
@@ -379,6 +391,7 @@ else
     <div class="actions"><button id="spotify-yes" class="primary" aria-disabled="@Aria(busy)" @onclick="() => AnswerSpotify(true)">Yes</button><button aria-disabled="@Aria(busy)" @onclick="() => AnswerSpotify(false)">No</button></div>
 </dialog>
 <CreatePlaylist Created="PlaylistCreated" />
+<AddSongs @key="AppearanceKey" @ref="addSongs" InLibrary='@(view == "Library")' JobsChanged="SetAdditionJobs" />
 <dialog id="preload-dialog" class="glass-dialog preload-dialog" aria-labelledby="preload-heading">
     <h2 id="preload-heading">Keep on this device</h2>
     <p>@preloadTracks.Count songs ready on the server
@@ -394,12 +407,7 @@ else
     <div class="actions"><button class="primary" @onclick="StartPreload" aria-disabled="@Aria(preloadTracks.Count == 0 || busy)">Keep @preloadTracks.Count songs</button><button @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "preload-dialog", "keep-playlist").AsTask()'>Cancel</button></div>
 </dialog>
 <dialog id="add-song-dialog" class="glass-dialog song-picker-dialog" aria-labelledby="add-song-heading" @onclose="() => songPickerShown = false">
-    <div class="dialog-heading"><h2 id="add-song-heading">Add songs</h2><button class="quiet" aria-label="Close song picker" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "add-song-dialog", "add-playlist-song").AsTask()'><MusicIcon Name="close" /></button></div>
-    <div class="playlist-add-choices" aria-label="Add songs from">
-        <button class="quiet" @onclick="() => UploadPlaylistSongs(false)" aria-disabled="@Aria(busy || playlistUploader?.Busy == true)"><MusicIcon Name="upload" />Upload songs</button>
-        <button class="quiet" @onclick="() => UploadPlaylistSongs(true)" aria-disabled="@Aria(busy || playlistUploader?.Busy == true)"><MusicIcon Name="folder" />Upload a folder</button>
-        <button class="quiet" @onclick="AppendPlaylistLink" aria-disabled="@Aria(busy)"><MusicIcon Name="link" />Import playlist link</button>
-    </div>
+    <div class="dialog-heading"><h2 id="add-song-heading">Choose saved songs</h2><button class="quiet" aria-label="Close song picker" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "add-song-dialog", "playlist-menu-toggle").AsTask()'><MusicIcon Name="close" /></button></div>
     <label for="add-song-filter">Find a saved song</label><input id="add-song-filter" type="search" placeholder="Search saved songs" value="@songFilter" @oninput='args => songFilter = args.Value?.ToString() ?? ""' />
     <p class="entry-error" role="status">@error</p>
     <div class="song-picker-results">
@@ -417,7 +425,7 @@ else
         @if (Session.Library.Count == 0) { <p role="status">No saved songs.</p> }
     </div>
 </dialog>
-<UploadSongs @ref="playlistUploader" Prefix="playlist-upload" ShowOpenButton="false" ReturnFocus="add-playlist-song" />
+
 
 @if (queueNotice is { } notice)
 {
@@ -493,23 +501,29 @@ else
         await Run(() => Session.DownloadAsync(preloadTracks));
     }
     private bool songPickerOpen, songPickerShown, playlistTransitionPending;
-    private UploadSongs? playlistUploader;
+    private AddSongs? addSongs;
+    private IReadOnlyList<LibraryAddition> additionJobs = [];
+    private string? additionIdentity;
+    private IReadOnlyList<LibraryAddition> CurrentAdditionJobs => additionIdentity == AppearanceKey ? additionJobs : [];
+    private void SetAdditionJobs(IReadOnlyList<LibraryAddition> jobs)
+    {
+        additionIdentity = AppearanceKey;
+        additionJobs = jobs;
+    }
     private PlaylistTransfer? playlistTransfer;
     private int? initialPlaylistReviewIndex;
     private string songFilter = "";
     private List<MusicTrack> SongPickerMatches => Session.Library.Where(t => string.IsNullOrWhiteSpace(songFilter) || (t.Title + " " + t.Channel).Contains(songFilter, StringComparison.OrdinalIgnoreCase)).Take(61).ToList();
     private HashSet<string> songPickerRows = [];
-    private void OpenSongPicker() { songFilter = ""; error = null; songPickerOpen = songPickerShown = true; }
-    private async Task UploadPlaylistSongs(bool folder)
+    private async Task OpenSongPicker()
     {
-        if (busy || playlistUploader is null || playlistUploader.Busy || Selected is not { CanEdit: true } playlist) return;
-        await JS.InvokeVoidAsync("familyhub.closeDialog", "add-song-dialog", "add-playlist-song");
-        await playlistUploader.OpenForPlaylist(playlist, folder);
+        await JS.InvokeVoidAsync("familyhub.closeDialog", "playlist-options", "playlist-menu-toggle");
+        songFilter = ""; error = null; songPickerOpen = songPickerShown = true;
     }
     private async Task AppendPlaylistLink()
     {
         if (busy || playlistTransfer is null || Selected is not { CanEdit: true }) return;
-        await JS.InvokeVoidAsync("familyhub.closeDialog", "add-song-dialog", "add-playlist-song");
+        await JS.InvokeVoidAsync("familyhub.closeDialog", "playlist-options", "playlist-menu-toggle");
         await playlistTransfer.OpenAppendImport();
     }
     private async Task AddPickedSong(MusicTrack song)
@@ -517,7 +531,7 @@ else
         if (busy || Selected is not { } playlist) return;
         await Run(async () => {
             await Session.EditPlaylistAsync(playlist, new { add_source_id = song.Id });
-            await JS.InvokeVoidAsync("familyhub.closeDialog", "add-song-dialog", "add-playlist-song");
+            await JS.InvokeVoidAsync("familyhub.closeDialog", "add-song-dialog", "playlist-menu-toggle");
         });
     }
     private string view = "Home", server = "", filter = "", query = "", genre = "", profileName = "";
@@ -659,12 +673,12 @@ else
             || current.Title != gap.Title || current.Artist != gap.Artist)
         {
             await Session.RefreshAsync();
-            if (view != "Review") return;
+            if (view != "Stats") return;
             playlist = FindPlaylist();
         }
         if (playlist is null)
         {
-            error = "This playlist is unavailable. Refresh song review and try again.";
+            error = "This playlist is unavailable. Refresh the review and try again.";
             return;
         }
 
@@ -810,9 +824,8 @@ else
     private List<MusicTrack>? recommendations;
     private static string PlaylistAlbum(PlaylistTrack entry, MusicTrack? track) => PlaylistSongs.Album(entry, track);
     private MusicTrack? NextTrack => Player.QueueIndex + 1 < Player.Queue.Count ? Player.Queue[Player.QueueIndex + 1] : null;
-    private static string Genre(MusicTrack track) => string.IsNullOrWhiteSpace(track.Genre) ? "Unsorted" : track.Genre;
-    private static string NavLabel(string tab) => tab switch { "Downloads" => "Downloaded", "Review" => "Song review", "Stats" => "Server stats", "Leaderboard" => "Leaderboard", _ => tab };
-    private static string NavIcon(string tab) => tab switch { "Library" => "library", "Search" => "search", "Downloads" => "down", "Playlists" => "playlist", "Review" => "pencil", "Artist mappings" => "link", "Stats" => "device", "Leaderboard" => "crown", _ => "queue" };
+    private static string NavLabel(string tab) => tab switch { "Downloads" => "Downloaded", "Stats" => "Server work", _ => tab };
+    private static string NavIcon(string tab) => tab switch { "Library" => "library", "Search" => "search", "Downloads" => "down", "Playlists" => "playlist", "Stats" => "device", "Leaderboard" => "crown", _ => "queue" };
     private Task VolumeChanged(ChangeEventArgs args)
     {
         if (!double.TryParse(args.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value)) return Task.CompletedTask;
@@ -839,7 +852,16 @@ else
     private Task ChooseProfile(string id) => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); ResetProfileView(); await Session.SelectProfileAsync(id); });
     private Task CreateProfile() => Run(async () => { await Session.CreateProfileAsync(profileName); await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); ResetProfileView(); await Session.SelectProfileAsync(Session.Profiles.Last().Id); });
     private Task SwitchProfile() => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); await Session.SwitchProfileAsync(); ResetProfileView(); });
-    private void ResetProfileView() { CancelSearch(); backViews.Clear(); forwardViews.Clear(); view = "Home"; profileMenu = false; addingProfile = false; selectedId = ""; searchResults = []; recommendations = null; filter = ""; genre = ""; pendingFocus = "content"; }
+    private void ResetProfileView()
+    {
+        var keepDeepLink = EntryScreen && view == "Stats";
+        CancelSearch();
+        backViews.Clear(); forwardViews.Clear();
+        view = "Home"; profileMenu = false; addingProfile = false; selectedId = "";
+        searchResults = []; recommendations = null; filter = ""; genre = "";
+        pendingFocus = "content";
+        if (keepDeepLink) { lastRoute = null; ApplyDeepLink(); }
+    }
     private async Task ToggleRepeat() { Player.RepeatMode = Player.RepeatMode switch { "off" => "all", "all" => "one", _ => "off" }; await SavePlaybackPreferences(); }
     private async Task ToggleShuffle() { Player.ToggleShuffle(); await SavePlaybackPreferences(); }
     // Phones hide the volume slider and use the hardware buttons, so the profile volume set on a PC
@@ -866,6 +888,35 @@ else
         BackNavigation.Handler = async () => { var handled = false; await InvokeAsync(async () => handled = await StepBack()); return handled; };
         await Session.InitializeAsync(); server = Session.Server;
     }
+    private string? lastRoute;
+    [SupplyParameterFromQuery(Name = "view")] private string? RouteView { get; set; }
+    private bool mappingsOpen, mappingsLoaded;
+    private void ToggleMappings()
+    {
+        mappingsOpen = !mappingsOpen;
+        mappingsLoaded |= mappingsOpen;
+    }
+    protected override void OnParametersSet() => ApplyDeepLink();
+    private void ApplyDeepLink()
+    {
+        if (lastRoute == Navigation.Uri) return;
+        lastRoute = Navigation.Uri;
+        var uri = new Uri(lastRoute);
+        var target = uri.Fragment.TrimStart('#');
+        if (target.Length == 0) target = RouteView ?? uri.AbsolutePath.Trim('/');
+        var section = Uri.UnescapeDataString(target).ToLowerInvariant().Replace(' ', '-') switch
+        {
+            "artist-mappings" or "artist-mappings-title" => "artist-mappings-title",
+            "review" or "song-review" or "songs-that-need-work" or "catalogue-review-title" => "catalogue-review-title",
+            "stats" or "server-stats" or "server-work" or "stats-work-title" => "view-title",
+            _ => null
+        };
+        if (section is null) return;
+        view = "Stats";
+        if (section == "artist-mappings-title") mappingsLoaded = mappingsOpen = true;
+        pendingFocus = section;
+        if (section != "view-title") pendingReveal = section;
+    }
     private string? renderedView, appliedProfile;
     private ListenerPreferences? appliedPreferences;
     private bool wasDownloading, renderedSearching;
@@ -881,7 +932,7 @@ else
             await InvokeAsync(StateHasChanged);
             return;
         }
-        if (pendingFocus is { } target) { pendingFocus = null; await JS.InvokeVoidAsync("familyhub.focus", target); }
+        if (pendingFocus is { } target && (!EntryScreen || target is not ("artist-mappings-title" or "catalogue-review-title" or "view-title"))) { pendingFocus = null; await JS.InvokeVoidAsync("familyhub.focus", target); }
         if (AppUpdater.Platform is not null && Session.Api is not null && updateChecks.Add(Session.Server))
         { startupUpdate = null; _ = CheckStartupUpdate(Session.Server); }
         if (startupUpdate is not null && !updateNoticeDismissed && !updateDialogOpened)
@@ -892,7 +943,7 @@ else
         if (songPickerOpen) { songPickerOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "add-song-dialog", "add-song-filter"); }
         HashSet<string> pickerRows = songPickerShown ? SongPickerMatches.Take(60).Select(song => "add-saved-song-" + song.Id).ToHashSet() : [];
         foreach (var removed in songPickerRows.Except(pickerRows))
-            await JS.InvokeVoidAsync("familyhub.restoreFocus", removed, songPickerShown ? "add-song-filter" : "add-playlist-song");
+            await JS.InvokeVoidAsync("familyhub.restoreFocus", removed, songPickerShown ? "add-song-filter" : "playlist-menu-toggle");
         songPickerRows = pickerRows;
         await JS.InvokeVoidAsync("familyhub.syncChrome");
         await JS.InvokeVoidAsync("familyhub.observePanel");
@@ -927,7 +978,7 @@ else
             renderedView = screen;
             await JS.InvokeVoidAsync("familyhub.view", screen);
         }
-        if (pendingReveal is { } reveal) { pendingReveal = null; await JS.InvokeVoidAsync("familyhub.revealWhenReady", reveal); }
+        if (!EntryScreen && pendingReveal is { } reveal) { pendingReveal = null; await JS.InvokeVoidAsync("familyhub.revealWhenReady", reveal); }
         if (!string.IsNullOrEmpty(Session.User) && (appliedProfile != Session.Server + Session.User || appliedPreferences != Session.PlaybackPreferences))
         {
             if (appliedProfile != Session.Server + Session.User) unmutedVolume = Session.PlaybackPreferences.Volume > 0 ? Session.PlaybackPreferences.Volume : 1;
@@ -994,20 +1045,20 @@ else
         if (tab == "Playlists") selectedId = "";
         RememberView(tab); profileMenu = false; error = null; genre = "";
         if (tab == "Settings") server = Session.Server;
-        pendingFocus = tab == "Artist mappings" ? "artist-mappings-title" : "content";
+        pendingFocus = tab == "Stats" ? "view-title" : "content";
         await Task.CompletedTask;
     }
     private void GoBack()
     {
         if (!backViews.TryPop(out var tab)) return;
         initialPlaylistReviewIndex = null;
-        CancelSearch(); forwardViews.Push(view); view = tab; profileMenu = false; error = null;
+        CancelSearch(); forwardViews.Push(view); view = tab; profileMenu = false; error = null; pendingFocus = "content";
     }
     private void GoForward()
     {
         if (!forwardViews.TryPop(out var tab)) return;
         initialPlaylistReviewIndex = null;
-        CancelSearch(); backViews.Push(view); view = tab; profileMenu = false; error = null;
+        CancelSearch(); backViews.Push(view); view = tab; profileMenu = false; error = null; pendingFocus = "content";
     }
     private async Task Run(Func<Task> action)
     {

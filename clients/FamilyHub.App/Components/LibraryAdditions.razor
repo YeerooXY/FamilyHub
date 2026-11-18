@@ -1,45 +1,53 @@
-@inject MusicSession Session
-<section class="home-section library-additions" aria-label="Add songs to server library">
-    <details>
-        <summary>Add YouTube links</summary>
-        <label for="library-links">YouTube links, one per line (up to 200)</label>
-        <textarea id="library-links" @bind="links" rows="4"></textarea>
-        <button @onclick="Add" disabled="@(busy || !Session.Connected)">Add to library</button>
-        <button @onclick="Refresh" disabled="@(busy || !Session.Connected)">Refresh save status</button>
-        <p role="status">@message</p>
-        @foreach (var job in jobs)
+@inject IJSRuntime JS
+
+<section class="library-addition-status" aria-label="Save status">
+    <p class="sr" role="status">@Jobs.Count(job => job.Pending) songs pending, @Jobs.Count(job => !job.Pending && job.Saved) saved, @Jobs.Count(job => !job.Pending && !job.Saved) failed.</p>
+    <ul class="addition-list">
+        @foreach (var job in Jobs.Take(limit))
         {
-            <div class="library-addition"><span>@job.Title</span><span>@Label(job)</span>
-                @if (job.State is "error" or "cancelled") { <button disabled="@busy" @onclick="() => Retry(job)">Retry @job.Title</button> }
-            </div>
+            <li class="library-addition" id="@(Prefix + "-addition-" + job.Key)" @key="job.Key" tabindex="-1">
+                <span><strong>@job.Title</strong>
+                    @if (!string.IsNullOrEmpty(job.PlaylistError) || !string.IsNullOrWhiteSpace(job.Message) && (job.Pending || !job.Saved))
+                    { <small>@(job.PlaylistError ?? job.Message)</small> }
+                </span>
+                <span class="music-admin-count">@Status(job)</span>
+                @if (Retry.HasDelegate && job.SourceId is { Length: 11 } && (job.State is "error" or "cancelled" && !job.Saved || job.PlaylistError is not null))
+                {
+                    <button type="button" class="quiet" aria-label="Retry @job.Title" aria-disabled="@(Busy ? "true" : "false")" @onclick="() => RetryJob(job)">Retry</button>
+                }
+            </li>
         }
-    </details>
-</section>
-@code {
-    private string links = "", message = "";
-    private bool busy;
-    private List<LibraryAddition> jobs = [];
-    private static string Label(LibraryAddition job) => job.Saved || job.State == "done" ? "Saved" : job.State == "queued" ? "Queued" : job.State == "running" ? "Downloading" : "Failed";
-    private Task Add() => Save(links.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
-    private Task Retry(LibraryAddition job) => Save(["https://www.youtube.com/watch?v=" + job.SourceId]);
-    private async Task Save(string[] urls)
+    </ul>
+    @if (Jobs.Count > limit)
     {
-        if (busy || Session.Api is null || !Session.Connected) return;
-        busy = true;
-        try {
-            var result = await Session.Api.RequestJsonAsync<LibraryAdditionPage>(HttpMethod.Post, "/api/library/additions", new { urls });
-            foreach (var job in result.Jobs) { jobs.RemoveAll(j => j.SourceId == job.SourceId); jobs.Add(job); }
-            message = "Queue updated.";
-        }
-        catch (Exception e) when (e is not OperationCanceledException) { message = "Songs could not be queued. Check the links and try again."; }
-        finally { busy = false; }
+        <button id="@(Prefix + "-addition-more")" class="quiet" type="button" @onclick="More">Show more additions</button>
     }
-    private async Task Refresh()
+</section>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<LibraryAddition> Jobs { get; set; } = [];
+    [Parameter] public EventCallback<LibraryAddition> Retry { get; set; }
+    [Parameter] public string Prefix { get; set; } = "dialog";
+    [Parameter] public bool Busy { get; set; }
+    private int limit = 5;
+    private static string Status(LibraryAddition job) => job.State switch
     {
-        if (busy || Session.Api is null) return;
-        busy = true;
-        try { jobs = (await Session.Api.RequestJsonAsync<LibraryAdditionPage>(HttpMethod.Get, "/api/library/additions")).Jobs; message = ""; }
-        catch (Exception e) when (e is not OperationCanceledException) { message = "Save status could not be loaded. Try again."; }
-        finally { busy = false; }
+        "queued" => "Queued",
+        "running" => "Working",
+        "done" => "Saved",
+        "cancelled" => "Cancelled",
+        _ => job.Saved ? "Saved" : "Failed"
+    };
+    private async Task More()
+    {
+        if (Jobs.Count <= limit + 20)
+            await JS.InvokeVoidAsync("familyhub.focus", Prefix + "-addition-" + Jobs[Math.Min(limit, Jobs.Count) - 1].Key);
+        limit += 20;
+    }
+    private async Task RetryJob(LibraryAddition job)
+    {
+        if (Busy) return;
+        await JS.InvokeVoidAsync("familyhub.focus", Prefix + "-addition-" + job.Key);
+        await Retry.InvokeAsync(job);
     }
 }

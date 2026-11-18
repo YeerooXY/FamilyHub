@@ -2,30 +2,29 @@
 @inject MusicSession Session
 @inject IJSRuntime JS
 
-@if (ShowOpenButton) { <button id="@(Prefix + "-songs-open")" class="quiet upload-open" @onclick="Open" aria-label="Upload songs" title="Upload songs"><MusicIcon Name="upload" /><span>Upload songs</span></button> }
-@if (Inline)
-{
-    <div class="upload-inline" id="@(Prefix + "-songs-dialog")">@Content @if (working) { <div class="actions">@if (working) { <button id="@(Prefix + "-stop")" class="quiet" @onclick="() => stopping = true" aria-disabled="@(stopping ? "true" : "false")">@(stopping ? "Stopping after this song..." : "Stop after this song")</button> }</div> }</div>
-}
-else
-{
-<dialog id="@(Prefix + "-songs-dialog")" class="glass-dialog upload-songs-dialog" aria-labelledby="@(Prefix + "-songs-heading")">
-    <div class="dialog-heading"><h2 id="@(Prefix + "-songs-heading")">Upload songs</h2><button class="quiet" aria-label="Close upload" @onclick="Close"><MusicIcon Name="close" /></button></div>
-    @Content
-    <div class="actions"><button class="quiet" @onclick="Close">Close</button>@if (working) { <button id="@(Prefix + "-stop")" class="quiet" @onclick="() => stopping = true" aria-disabled="@(stopping ? "true" : "false")">@(stopping ? "Stopping after this song..." : "Stop after this song")</button> }<button id="@(Prefix + "-start")" class="primary" @onclick="Upload" aria-disabled="@(working || picking || Remaining == 0 || !Session.Connected ? "true" : "false")">@(working ? "Uploading..." : Remaining == 0 && files.Count > 0 ? "Uploaded" : Remaining == 0 ? "Upload" : $"Upload {Remaining} {(Remaining == 1 ? "song" : "songs")}")</button></div>
-</dialog>
-}
+@using System.Text.Json
 
-@code {
-    // Choices, selection, left-out files and progress: shared by the dialog and the inline Create playlist view.
-    private RenderFragment Content => __builder =>
+<div class="create-files">
+    <label class="create-file-choice" aria-disabled="@Aria(Disabled || Busy)">
+        <MusicIcon Name="music" /><strong>Choose songs</strong><small>One song or several</small>
+        <InputFile @key="fileInputGeneration" id="@(Prefix + "-audio-file")" OnChange="Choose"
+                   accept="audio/*,.mp3,.flac,.m4a,.opus,.ogg,.oga,.wav,.aac,.webm,.mka,.wv,.aiff,.aif"
+                   multiple disabled="@(Disabled || Busy)" aria-label="Choose songs" />
+    </label>
+    @if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid())
     {
-    <div class="upload-choices" hidden="@Inline">
-        <label class="upload-choice"><MusicIcon Name="music" /><strong>Choose songs</strong><small>One song or several</small><InputFile @key="fileInputGeneration" id="@(Prefix + "-audio-file")" OnChange="Choose" accept="audio/*,.mp3,.flac,.m4a,.opus,.ogg,.oga,.wav,.aac,.webm,.mka,.wv,.aiff,.aif" multiple disabled="@(working || picking)" aria-label="Choose songs" /></label>
-        @if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid()) { <button id="@(Prefix + "-folder")" type="button" class="upload-choice" @onclick="ChooseFolder" aria-disabled="@(working || picking ? "true" : "false")"><MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Include its subfolders</small></button> }
-        else { <label class="upload-choice"><MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Include its subfolders</small><InputFile @key="fileInputGeneration" id="@(Prefix + "-folder")" OnChange="Choose" webkitdirectory="" directory="" multiple disabled="@(working || picking)" aria-label="Choose a folder" /></label> }
-    </div>
-    @if (!Inline) { <p class="upload-guidance">Tags are filled in automatically. Missing details go to Song review.</p> }
+        <button id="@(Prefix + "-folder")" type="button" class="create-file-choice" @onclick="ChooseFolder"
+                aria-disabled="@Aria(Disabled || Busy)"><MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Includes its subfolders</small></button>
+    }
+    else
+    {
+        <label class="create-file-choice" aria-disabled="@Aria(Disabled || Busy)">
+            <MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Includes its subfolders</small>
+            <InputFile @key="fileInputGeneration" id="@(Prefix + "-folder")" OnChange="Choose"
+                       webkitdirectory="" directory="" multiple disabled="@(Disabled || Busy)" aria-label="Choose a folder" />
+        </label>
+    }
+</div>
     <p class="upload-limits">Up to 500 songs at a time. 128 MB per song.</p>
     @if (picking) { <p role="status">Reading folder...</p> }
     @if (files.Count > 0) {
@@ -44,62 +43,38 @@ else
             @if (otherFiles > 0) { <small class="upload-problem-other">@(otherFiles == 1 ? "1 other file isn't audio" : $"{otherFiles} other files aren't audio") (@string.Join(", ", otherTypes)), so @(otherFiles == 1 ? "it was" : "they were") left out.</small> }
         </section>
     }
-    @if (!Inline && fixedPlaylistKey is null) { <label class="upload-target">Add to playlist<select @bind="playlistKey" disabled="@(working || picking)"><option value="">Library only</option>@if (folderName.Length > 0) { <option value="@NewPlaylist">New playlist: @folderName</option> }@foreach (var list in Session.Playlists.Where(p => p.CanEdit)) { <option value="@(list.OwnerId + ":" + list.Id)">@list.Name</option> }</select></label> }
-    @if (fixedPlaylistKey is not null) { <p>Add to <strong>@Session.Playlists.FirstOrDefault(p => p.OwnerId + ":" + p.Id == fixedPlaylistKey)?.Name</strong></p> }
     @if (working || completed.Count > 0) { <div class="upload-status" role="status"><div><strong>@status</strong><span>@completed.Count / @files.Count saved</span></div>@if (currentName is not null) { <small>@currentName</small> }@if (uploading) { <progress aria-label="Uploading song" max="100" value="@percent"></progress> } else if (working) { <progress aria-label="Preparing song on server"></progress> }</div> }
     @if (error is not null) { <p class="entry-error" role="status">@error</p> }
-    };
-    /// <summary>Prefix for element ids, so the dialog can appear on more than one screen.</summary>
-    [Parameter] public string Prefix { get; set; } = "upload";
-    [Parameter] public bool ShowOpenButton { get; set; } = true;
-    /// <summary>Where focus returns when the dialog closes.</summary>
-    [Parameter] public string? ReturnFocus { get; set; }
-    // A name chosen on the Create playlist screen; it wins over the folder's own name.
-    private string presetName = "";
-    private bool shareNew = true;
-    /// <summary>Shown inside another screen (Create playlist) instead of as its own dialog.</summary>
-    [Parameter] public bool Inline { get; set; }
-    /// <summary>Called when the selection or upload progress changes, so the hosting screen can update.</summary>
+@if (working)
+{
+    <button id="@(Prefix + "-stop")" type="button" class="quiet upload-stop" @onclick="() => stopping = true"
+            aria-disabled="@Aria(stopping)">@(stopping ? "Stopping after this song..." : "Stop after this song")</button>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Prefix { get; set; } = "";
+    [Parameter, EditorRequired] public string SubmitId { get; set; } = "";
+    [Parameter] public bool Disabled { get; set; }
     [Parameter] public EventCallback Changed { get; set; }
+    [Parameter] public EventCallback<LibraryAddition> JobChanged { get; set; }
     public int SelectedCount => files.Count;
     public bool Busy => working || picking;
     public bool Finished => files.Count > 0 && Remaining == 0 && !working;
     public string? CreatedPlaylistKey { get; private set; }
-    /// <summary>The chosen folder's name, offered as the playlist name when none was typed.</summary>
-    public string FolderName => folderName;
-    private string? fixedPlaylistKey;
-    public async Task OpenForPlaylist(MusicPlaylist playlist, bool folder)
-    {
-        if (Busy || !playlist.CanEdit) return;
-        Clear(); fixedPlaylistKey = playlistKey = playlist.OwnerId + ":" + playlist.Id;
-        await InvokeAsync(StateHasChanged);
-        await Open();
-        if (folder) await JS.InvokeVoidAsync("familyhub.focus", Prefix + "-folder");
-        if (folder) await PickFolder(); else await PickSongs();
-    }
-    public async Task PickSongs() { if (!Busy) await JS.InvokeVoidAsync("familyhub.clickElement", Prefix + "-audio-file"); }
-    public async Task PickFolder()
-    {
-        if (Busy) return;
-        if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid()) { await ChooseFolder(); await Changed.InvokeAsync(); }
-        else await JS.InvokeVoidAsync("familyhub.clickElement", Prefix + "-folder");
-    }
-    /// <summary>Uploads the selection into a new playlist with this name.</summary>
-    public async Task UploadInto(string name, bool shared)
-    {
-        shareNew = shared; presetName = name.Trim(); folderName = presetName; playlistKey = folderName.Length > 0 ? NewPlaylist : "";
-        await Upload();
-    }
-    public void Clear() { if (!Busy) { presetName = ""; ResetSelection(); CreatedPlaylistKey = null; fileInputGeneration++; } }
+    public string FolderName { get; private set; } = "";
+    private static string Aria(bool value) => value ? "true" : "false";
+
+    public Task UploadInto(string name, bool shared) => Upload(null, name.Trim(), shared);
+    public Task UploadTo(MusicPlaylist? playlist) => Upload(playlist, null, true);
+    public void Clear() { if (!Busy) { ResetSelection(); CreatedPlaylistKey = null; fileInputGeneration++; } }
+
     private List<LocalAudioFile> files = [];
     private readonly HashSet<LocalAudioFile> completed = [];
     private readonly Dictionary<LocalAudioFile,string> acceptedJobs = [];
     private string sourceIdentity = "";
     private bool selectionInvalidated;
     private int fileInputGeneration;
-    private string playlistKey = "", status = "", folderName = "";
-    // A chosen folder becomes a playlist with the folder's name unless the owner picks otherwise.
-    private const string NewPlaylist = "new-from-folder";
+    private string status = "";
     private string? error, selectionNote, currentName, pendingFocus;
     // Files left out of this upload, each with a reason someone can act on.
     private readonly List<(string Name, string Reason)> problems = [];
@@ -121,16 +96,25 @@ else
     private readonly CancellationTokenSource lifetime = new();
     private string Identity => Session.Server + "\n" + Session.User;
     protected override void OnInitialized() { sourceIdentity = Identity; Session.Changed += SessionChanged; }
-    private void ClearChangedIdentity() { ResetSelection(); fixedPlaylistKey = null; playlistKey = ""; sourceIdentity = Identity; selectionInvalidated = false; fileInputGeneration++; pendingFocus = (Prefix + "-audio-file"); }
+    private void ClearChangedIdentity() { ResetSelection(); sourceIdentity = Identity; selectionInvalidated = false; fileInputGeneration++; pendingFocus = (Prefix + "-audio-file"); }
     private void SessionChanged() { if (!disposed) _ = InvokeAsync(() => { if (sourceIdentity != Identity) { selectionInvalidated = true; stopping = true; if (!working && !picking) ClearChangedIdentity(); StateHasChanged(); } }); }
-    private Task Open() => JS.InvokeVoidAsync("familyhub.showDialog", (Prefix + "-songs-dialog"), working ? (Prefix + "-stop") : (Prefix + "-audio-file")).AsTask();
-    private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", (Prefix + "-songs-dialog"), ReturnFocus ?? (Prefix + "-songs-open")).AsTask();
-    protected override async Task OnAfterRenderAsync(bool firstRender) { if (Inline) { pendingFocus = null; return; } if (pendingFocus is { } id) { pendingFocus = null; await JS.InvokeVoidAsync("familyhub.focus", id); } }
-    private void ResetSelection() { files = []; folderName = presetName; if (playlistKey == NewPlaylist) playlistKey = ""; completed.Clear(); acceptedJobs.Clear(); error = selectionNote = currentName = null; status = ""; problems.Clear(); otherFiles = 0; otherTypes = []; }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (pendingFocus is { } id)
+        {
+            pendingFocus = null;
+            await JS.InvokeVoidAsync("familyhub.focusInOpenDialog", id);
+        }
+    }
+    private void ResetSelection()
+    {
+        files = []; FolderName = ""; completed.Clear(); acceptedJobs.Clear();
+        error = selectionNote = currentName = null; status = ""; problems.Clear(); otherFiles = 0; otherTypes = [];
+    }
     private void Choose(InputFileChangeEventArgs args)
     {
-        if (working || picking) return; ResetSelection();
-        if (args.FileCount > 500) { error = "Choose up to 500 songs at a time."; return; }
+        if (Disabled || Busy) return; ResetSelection(); CreatedPlaylistKey = null;
+        if (args.FileCount > 500) { error = "Choose up to 500 songs at a time."; _ = Changed.InvokeAsync(); return; }
         var skipped = 0; var skips = new List<LocalAudioSkip>();
         foreach (var file in args.GetMultipleFiles(500)) {
             if (!LocalAudioFolderPicker.IsSupported(file.Name) || file.Size is <= 0 or > 134217728) { skipped++; skips.Add(new(file.Name, !LocalAudioFolderPicker.IsSupported(file.Name) ? "not-audio" : file.Size <= 0 ? "empty" : "too-large")); continue; }
@@ -143,70 +127,128 @@ else
         selectionNote = null;
         if (limited) selectionNote = $"The folder is large. Selected {files.Count} songs; choose a smaller folder for the rest.";
         if (files.Count == 0) error = "No supported audio files found.";
-        pendingFocus = files.Count > 0 ? (Prefix + "-start") : (Prefix + "-audio-file");
+        pendingFocus = files.Count > 0 ? SubmitId : Prefix + "-audio-file";
     }
     private async Task ChooseFolder()
     {
-        if (working || picking) return; picking = true; error = null;
-        try { var selected = await LocalAudioFolderPicker.PickAsync(lifetime.Token); if (selected is not null && !selectionInvalidated) { ResetSelection(); files = selected.Files.ToList(); AddSkips(selected.SkippedFiles ?? []); folderName = presetName.Length > 0 ? presetName : selected.Name.Trim() is { Length: > 0 and <= 200 } name ? name : ""; if (folderName.Length > 0) playlistKey = NewPlaylist; SelectionReady(selected.Skipped, selected.LimitReached); } }
+        if (Disabled || Busy) return; picking = true; error = null;
+        try { var selected = await LocalAudioFolderPicker.PickAsync(lifetime.Token); if (selected is not null && !selectionInvalidated) { ResetSelection(); CreatedPlaylistKey = null; files = selected.Files.ToList(); AddSkips(selected.SkippedFiles ?? []); FolderName = selected.Name.Trim().Length <= 200 ? selected.Name.Trim() : ""; SelectionReady(selected.Skipped, selected.LimitReached); } }
         catch (OperationCanceledException) { }
         catch (Exception exception) { error = exception.Message; }
-        finally { picking = false; if (selectionInvalidated) ClearChangedIdentity(); pendingFocus ??= (Prefix + "-folder"); }
+        finally { picking = false; if (selectionInvalidated) ClearChangedIdentity(); pendingFocus ??= Prefix + "-folder"; await Changed.InvokeAsync(); }
     }
-    private async Task Upload()
+    private async Task Upload(MusicPlaylist? playlist, string? newName, bool shared)
     {
-        if (working || picking || Remaining == 0 || Session.Api is not { } api || !Session.Connected) return;
-        if (fixedPlaylistKey is not null) playlistKey = fixedPlaylistKey;
-        var user = Session.User; var identity = Session.Server;
-        bool Current() => !selectionInvalidated && ReferenceEquals(api, Session.Api) && user == Session.User && identity == Session.Server;
-        working = true; stopping = false; error = null; var token = lifetime.Token;
-        var failures = 0; var playlistFailures = 0;
-        try {
-            if (playlistKey == NewPlaylist) {
-                status = "Creating playlist..."; await InvokeAsync(StateHasChanged);
-                await Session.CreatePlaylistAsync(folderName);
-                var created = Session.Playlists.LastOrDefault(p => p.Name == folderName && p.CanEdit) ?? throw new InvalidOperationException("The playlist could not be created.");
-                if (!shareNew) await Session.EditPlaylistAsync(created, new { shared = false });
-                playlistKey = created.OwnerId + ":" + created.Id; folderName = ""; CreatedPlaylistKey = playlistKey;
+        if (Busy || Remaining == 0 || Session.Api is not { } api || !Session.Connected) return;
+        var identity = Identity;
+        bool Current() => !selectionInvalidated && ReferenceEquals(api, Session.Api) && identity == Identity;
+        working = true;
+        stopping = false;
+        error = null;
+        var token = lifetime.Token;
+        var playlistFailures = 0;
+        try
+        {
+            await Changed.InvokeAsync();
+            if (newName is not null)
+            {
+                playlist = Session.Playlists.FirstOrDefault(p => p.CanEdit && p.OwnerId + ":" + p.Id == CreatedPlaylistKey);
+                if (playlist is null)
+                {
+                    status = "Creating playlist...";
+                    await InvokeAsync(StateHasChanged);
+                    await Session.CreatePlaylistAsync(newName);
+                    if (!Current()) return;
+                    playlist = Session.Playlists.LastOrDefault(p => p.Name == newName && p.CanEdit)
+                        ?? throw new InvalidOperationException("The playlist could not be created.");
+                    CreatedPlaylistKey = playlist.OwnerId + ":" + playlist.Id;
+                    if (!shared) await Session.EditPlaylistAsync(playlist, new { shared = false });
+                }
             }
-            foreach (var file in files.Where(f => !completed.Contains(f)).ToArray()) {
+            foreach (var file in files.Where(f => !completed.Contains(f)).ToArray())
+            {
                 if (stopping || !Current()) break;
-                token.ThrowIfCancellationRequested(); uploading = true; percent = 0; currentName = file.Name; status = "Uploading song..."; await InvokeAsync(StateHasChanged);
-                try {
-                    System.Text.Json.JsonElement response;
-                    if (acceptedJobs.TryGetValue(file, out var acceptedId)) {
-                        uploading = false; status = "Resuming server preparation...";
-                        response = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Get, "/api/jobs/" + Uri.EscapeDataString(acceptedId), cancellationToken: token, background: true);
-                    } else {
+                currentName = file.Name;
+                try
+                {
+                    LibraryAddition? job = null;
+                    if (!acceptedJobs.TryGetValue(file, out var acceptedId))
+                    {
+                        uploading = true;
+                        percent = 0;
+                        status = "Uploading song...";
+                        await InvokeAsync(StateHasChanged);
                         await using var stream = await file.OpenRead(token);
                         if (!Current()) break;
-                        response = await api.UploadAudioAsync(stream, file.Size, file.Name, "", "", "", new Progress<DownloadProgress>(p => { percent = (int)(p.Received * 100 / Math.Max(1,p.Total)); if (!disposed) _ = InvokeAsync(StateHasChanged); }), token);
-                        acceptedJobs[file] = response.GetProperty("job").GetProperty("id").GetString()!;
+                        var response = await api.UploadAudioAsync(stream, file.Size, file.Name, "", "", "",
+                            new Progress<DownloadProgress>(p =>
+                            {
+                                percent = (int)(p.Received * 100 / Math.Max(1, p.Total));
+                                if (!disposed) _ = InvokeAsync(StateHasChanged);
+                            }), token, playlist, JobChanged.HasDelegate);
+                        job = response.Deserialize<LibraryAdditionStatus>(FamilyHubApi.JsonOptions)?.Job
+                            ?? throw new InvalidDataException("The server did not confirm the upload.");
+                        acceptedJobs[file] = acceptedId = job.Id;
+                        if (Current()) await JobChanged.InvokeAsync(job);
                     }
-                    uploading = false; var job = response.GetProperty("job"); var id = job.GetProperty("id").GetString()!;
-                    while (job.GetProperty("state").GetString() is "queued" or "running") {
-                        status = job.GetProperty("message").GetString() ?? "Preparing song..."; await InvokeAsync(StateHasChanged); await Task.Delay(1000, token);
-                        if (!Current()) { stopping = true; break; }
-                        response = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Get, "/api/jobs/" + Uri.EscapeDataString(id), cancellationToken: token, background: true); job = response.GetProperty("job");
+
+                    uploading = false;
+                    status = job?.Message ?? "Checking upload status...";
+                    await InvokeAsync(StateHasChanged);
+                    if (job is null || job.Pending)
+                    {
+                        await foreach (var update in api.WatchJobStatusAsync<LibraryAdditionStatus>("/api/jobs/" + Uri.EscapeDataString(acceptedId), token))
+                        {
+                            if (!Current()) break;
+                            job = update.Job;
+                            status = job.Message;
+                            await JobChanged.InvokeAsync(job);
+                            await InvokeAsync(StateHasChanged);
+                        }
                     }
                     if (!Current()) break;
-                    if (job.GetProperty("state").GetString() != "done") { acceptedJobs.Remove(file); throw new InvalidOperationException(job.GetProperty("message").GetString() ?? "The song could not be prepared."); }
-                    completed.Add(file); acceptedJobs.Remove(file);
-                    if (playlistKey.Length > 0) {
-                        try { var target = Session.Playlists.FirstOrDefault(p => p.OwnerId + ":" + p.Id == playlistKey && p.CanEdit) ?? throw new InvalidOperationException(); var source = job.GetProperty("source_id").GetString() ?? throw new InvalidOperationException(); await Session.EditPlaylistAsync(target, new { add_source_id = source }); }
-                        catch (Exception exception) when (exception is not OperationCanceledException) { playlistFailures++; }
+                    if (job is null || job.Pending)
+                    {
+                        error = "Upload status is unavailable. Submit again to check the accepted upload.";
+                        break;
                     }
-                } catch (OperationCanceledException) { throw; }
-                catch (Exception exception) { failures++; problems.Add((file.Name, (exception is FamilyHubApiException { StatusCode: 404 } && acceptedJobs.ContainsKey(file) ? "This upload status expired. Check the library before selecting this song again." : exception.Message))); if (!Current() || !Session.Connected || exception is HttpRequestException) break; }
+                    acceptedJobs.Remove(file);
+                    if (!job.Saved && job.State != "done")
+                        throw new InvalidOperationException(job.Message.Length > 0 ? job.Message : "The song could not be prepared.");
+                    completed.Add(file);
+                    if (job.PlaylistError is not null) playlistFailures++;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception exception)
+                {
+                    problems.Add((file.Name, exception switch
+                    {
+                        FamilyHubApiException { StatusCode: 404 } when acceptedJobs.ContainsKey(file) => "This upload status expired. Check the library before selecting this song again.",
+                        FamilyHubApiException or InvalidOperationException => exception.Message,
+                        _ => "Could not finish the upload. Check the connection and try again."
+                    }));
+                    if (acceptedJobs.ContainsKey(file) || !Current() || !Session.Connected || exception is HttpRequestException) break;
+                }
                 finally { uploading = false; }
             }
             if (Current()) await Session.RefreshAsync(background: true);
             status = stopping ? "Upload stopped" : Remaining == 0 ? "Saved on server" : "Upload finished";
-            error = null;
-            if (playlistFailures > 0) error = (error is null ? "" : error + " ") + $"{playlistFailures} songs were saved but could not be added to the playlist. Add them from your library.";
-        } catch (OperationCanceledException) { }
-        catch (Exception exception) { error = exception.Message; }
-        finally { working = uploading = false; currentName = null; _ = Changed.InvokeAsync(); if (selectionInvalidated) ClearChangedIdentity(); if (!disposed) { pendingFocus = Remaining > 0 ? (Prefix + "-start") : (Prefix + "-audio-file"); await InvokeAsync(StateHasChanged); } }
+            if (playlistFailures > 0) error = $"{playlistFailures} saved {(playlistFailures == 1 ? "song could" : "songs could")} not be added to the playlist. Add them from your library.";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception exception) { error = exception is FamilyHubApiException ? exception.Message : "The upload could not finish. Try again."; }
+        finally
+        {
+            working = uploading = false;
+            currentName = null;
+            if (selectionInvalidated) ClearChangedIdentity();
+            if (!disposed)
+            {
+                await Changed.InvokeAsync();
+                await InvokeAsync(StateHasChanged);
+                await JS.InvokeVoidAsync("familyhub.restoreUploadFocus", Prefix + "-stop", SubmitId);
+            }
+        }
     }
     public void Dispose() { disposed = true; Session.Changed -= SessionChanged; lifetime.Cancel(); lifetime.Dispose(); }
 }

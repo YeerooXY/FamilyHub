@@ -313,9 +313,6 @@ body[data-navigation=compact] .sidebar-top .library-title { display:none; }
 #add-song-dialog > :not(.song-picker-results) { flex-shrink:0; }
 #add-song-dialog .dialog-heading h2 { margin:0; }
 #add-song-dialog input { position:static; margin:0; }
-.playlist-add-choices { display:flex; flex-wrap:wrap; gap:8px; }
-.playlist-add-choices button { display:inline-flex; align-items:center; gap:8px; }
-.playlist-add-choices .icon { width:18px; height:18px; flex-shrink:0; }
 .song-picker-results { flex:1 1 auto; min-height:0; overflow:auto; max-height:45dvh; overscroll-behavior:contain; }
 .song-picker-row { display:flex; align-items:center; width:100%; text-align:left; gap:12px; padding:8px; border:0; border-radius:8px; background:transparent; }
 .song-picker-row:hover,.song-picker-row:focus-visible { background:#ffffff0a; }
@@ -746,13 +743,8 @@ body[data-view=preferences] #view-title { width:min(900px,100%); margin-inline:a
 @media(prefers-reduced-motion:reduce) { #playlist-details-dialog[open],#playlist-coauthors-dialog[open] { animation:none; } }
 .library-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .upload-open { display:inline-flex; align-items:center; gap:8px; flex-shrink:0; }
-.upload-songs-dialog { width:min(580px,calc(100vw - 32px)); background-color:var(--surface,#101b2e); }
-.upload-choices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:8px 0 16px; }
-.upload-choices>.upload-choice { margin:0; position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; min-height:148px; padding:20px 12px; border:1px solid color-mix(in srgb,var(--accent-blue) 24%,#ffffff18); border-radius:14px; background:color-mix(in srgb,var(--accent-blue) 5%,transparent); color:var(--ink); cursor:pointer; text-align:center; overflow:hidden; transition:background .18s,transform .18s; }
-.upload-choice>.icon { width:32px; height:32px; color:var(--accent-blue); }.upload-choice strong { font-size:15px; }.upload-choice small { color:var(--muted); font-size:12px; }.upload-choice:hover { background:color-mix(in srgb,var(--accent-blue) 12%,transparent); }.upload-choice:active { transform:scale(.98); }.upload-choice:focus-within { outline:2px solid var(--accent-blue); outline-offset:3px; }.upload-choice input[type=file] { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; margin:0; }
-.upload-guidance { font-size:13px; line-height:1.5; color:var(--muted); }.upload-limits { font-size:12px; color:var(--muted); margin-top:4px; }.upload-selection { margin:20px 0; border-top:1px solid #ffffff10; padding-top:16px; }.upload-selection>div,.upload-status>div { display:flex; justify-content:space-between; align-items:center; gap:12px; }.upload-selection>div>span { color:var(--muted); font-size:12px; }.upload-selection ul { list-style:none; padding:0; margin:12px 0; max-height:180px; overflow:auto; }.upload-selection li { display:flex; align-items:center; gap:10px; padding:7px 0; font-size:12px; }.upload-selection li span { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.upload-selection li>.icon { width:18px; height:18px; flex-shrink:0; color:var(--muted); }.upload-selection li>.icon:last-child:not(:first-child) { color:var(--mint); }.upload-selection>small { color:var(--muted); font-size:12px; }
-.upload-target { display:block; color:var(--muted); font-size:13px; margin:16px 0; }.upload-target select { display:block; width:100%; box-sizing:border-box; margin-top:8px; min-height:44px; border:1px solid #ffffff24; border-radius:10px; padding:10px 14px; background:var(--panel,#20232c); color:var(--ink); color-scheme:dark; }
-.upload-status { display:grid; gap:12px; margin:20px 0; font-size:13px; }.upload-status>div>span,.upload-status>small { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }.upload-status progress { width:100%; height:6px; accent-color:var(--accent-blue); }.upload-songs-dialog .entry-error { overflow-wrap:anywhere; }.upload-songs-dialog .actions { flex-wrap:wrap; }
+.upload-limits { font-size:12px; color:var(--muted); margin-top:4px; }.upload-selection { margin:20px 0; border-top:1px solid #ffffff10; padding-top:16px; }.upload-selection>div,.upload-status>div { display:flex; justify-content:space-between; align-items:center; gap:12px; }.upload-selection>div>span { color:var(--muted); font-size:12px; }.upload-selection ul { list-style:none; padding:0; margin:12px 0; max-height:180px; overflow:auto; }.upload-selection li { display:flex; align-items:center; gap:10px; padding:7px 0; font-size:12px; }.upload-selection li span { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.upload-selection li>.icon { width:18px; height:18px; flex-shrink:0; color:var(--muted); }.upload-selection li>.icon:last-child:not(:first-child) { color:var(--mint); }.upload-selection>small { color:var(--muted); font-size:12px; }
+.upload-status { display:grid; gap:12px; margin:20px 0; font-size:13px; }.upload-status>div>span,.upload-status>small { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }.upload-status progress { width:100%; height:6px; accent-color:var(--accent-blue); }
 @media(max-width:480px) { .upload-open span { display:none; }.upload-choice { min-height:132px; padding:16px 8px; }.upload-choice strong { font-size:13px; }.upload-choice small { font-size:12px; } }
 @media(prefers-reduced-motion:reduce) { .upload-choice { transition:none; }.upload-choice:active { transform:none; } }
 .session-invite { display:grid; gap:8px; margin:18px 0; }.session-invite select { min-height:44px; background:#ffffff0a; border:1px solid #ffffff20; border-radius:8px; padding:10px; color:var(--text); }.session-invite select option { background:#1b202a; }
@@ -857,3 +849,21 @@ body::before { content:""; position:fixed; inset:0 0 auto; z-index:1000; height:
 
 /* Keep the 24 px icon family at 2 CSS px when controls resize it. */
 .music-icon :is(path, circle, ellipse, rect, line, polyline, polygon) { vector-effect:non-scaling-stroke; }
+
+/* Keep the search and its shortcuts visible without letting suggestions cover the search field. */
+.genre-filter { position:sticky; top:0; z-index:5; display:grid; gap:8px; margin:0 -24px 16px; padding:12px 24px; background:var(--panel-hue,var(--panel-bg)); }
+.genre-filter .genre-top { position:static; margin:0; padding:2px; }
+.genre-search { position:relative; width:min(100%,360px); }
+.genre-search > .icon { position:absolute; inset-inline-start:14px; top:12px; width:20px; height:20px; pointer-events:none; color:var(--ink); }
+.genre-search input { width:100%; min-height:44px; padding-inline:44px; }
+.genre-search .genre-clear { position:absolute; inset-inline-end:0; top:0; min-width:44px; min-height:44px; }
+.genre-search :is(ul,.genre-no-results) { position:absolute; inset:calc(100% + 4px) 0 auto; z-index:1; max-height:min(280px,40dvh); overflow:auto; display:grid; margin:0; padding:4px; border:1px solid var(--border,#ffffff40); border-radius:12px; background:var(--surface,#101b2e); box-shadow:0 8px 20px #0006; list-style:none; }
+.genre-search .genre-no-results { padding:10px 12px; color:var(--muted); }
+.genre-search ul[hidden] { display:none; }
+.genre-search [role=option] { padding:10px 12px; border-radius:8px; cursor:pointer; overflow-wrap:anywhere; }
+.genre-search [role=option]:is(:hover,[aria-selected=true]) { background:#ffffff22; }
+
+@media(max-width:720px) {
+ .genre-filter { margin-inline:-16px; padding:10px 16px; }
+ .genre-filter .genre-top { padding:2px; }
+}

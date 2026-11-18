@@ -16,7 +16,7 @@
         {
             <div class="stats-server-status"><i class="stats-online-dot @(!Offline ? "is-online" : "")" aria-hidden="true"></i><span>@(Offline ? "Server offline" : "Server online")</span>@if (data is not null) { <span>@data.Profiles.Count(p => p.Listening) listening now</span> }</div>
         }
-        <button id="server-stats-refresh" class="quiet stats-refresh @(fetching ? "is-refreshing" : "")" aria-label="@(Leaderboard ? "Refresh leaderboard" : "Refresh server stats")" title="Refresh" @onclick="RefreshNow" aria-disabled="@Aria(fetching || Offline)"><MusicIcon Name="refresh" /></button>
+        <button id="server-stats-refresh" class="quiet stats-refresh @(fetching ? "is-refreshing" : "")" aria-label="@(Leaderboard ? "Refresh leaderboard" : "Refresh server work")" title="Refresh" @onclick="RefreshNow" aria-disabled="@Aria(fetching || Offline)"><MusicIcon Name="refresh" /></button>
     </div>
     @if (error is not null || Offline || data is null) { <p class="stats-status" role="status">@StatusText</p> }
     @if (data is { } stats && Leaderboard)
@@ -146,88 +146,109 @@
             </section>
         }
     }
-    else if (data is { } server)
+    else if (!Leaderboard)
     {
-        var used = Math.Max(0, server.StorageTotalBytes - server.StorageFreeBytes);
-        var usedPercent = server.StorageTotalBytes > 0 ? Math.Clamp(100d * used / server.StorageTotalBytes, 0, 100) : 0;
         <div class="srv-grid">
-            <section class="stats-work srv-work glass-panel" aria-labelledby="stats-work-title">
-                <div class="stats-section-heading"><h2 id="stats-work-title">Worker activity</h2></div>
-                @if (server.WorkerStages is null)
-                {
-                    <p class="srv-work-empty">Update the server to see queue and retry counts.</p>
-                }
-                else if (server.WorkerStages.Count == 0)
-                {
-                    <p class="srv-work-empty">No resource jobs are waiting or running.</p>
-                }
-                else
-                {
-                    <ul class="srv-stage-cards">
-                    @foreach (var stage in server.WorkerStages)
+            @if (data is { } server)
+            {
+                <section class="stats-work srv-work glass-panel" aria-labelledby="stats-work-title">
+                    <div class="stats-section-heading"><h2 id="stats-work-title">Worker activity</h2></div>
+                    @if (server.WorkerStages is null && server.PlaylistBacklog is null)
                     {
-                        var (title, icon) = StageDisplay(stage.Stage);
-                        <li class="srv-stage-card" @key="stage.Stage">
-                            <h3><MusicIcon Name="@icon" />@title</h3>
-                            <dl>
-                                <div><dt>Queued</dt><dd class="music-admin-count">@stage.Queued</dd></div>
-                                <div><dt>Backing off</dt><dd class="music-admin-count">@stage.BackingOff</dd></div>
-                                <div><dt>Running</dt><dd class="music-admin-count">@stage.Running</dd></div>
-                            </dl>
-                        </li>
+                        <p class="srv-work-empty">Update the server to see queue and retry counts.</p>
                     }
-                    </ul>
-                }
-                @if (server.Workers.Count > 0)
-                {
-                    <details class="srv-worker-details">
-                        <summary><MusicIcon Name="chevron-down" />Worker slots</summary>
-                        <ul class="srv-work-list">
-                        @foreach (var group in WorkGroups(server.Workers))
+                    else if (server.WorkerStages is { Count: 0 } && server.PlaylistBacklog is null)
+                    {
+                        <p class="srv-work-empty">No resource jobs are waiting or running.</p>
+                    }
+                    else
+                    {
+                        <ul class="srv-stage-cards">
+                        @foreach (var stage in server.WorkerStages ?? [])
                         {
-                            var working = group.Workers.Where(w => w.State == "working").ToList();
-                            var first = group.Workers[0];
-                            <li class="srv-work-row is-@(working.Count > 0 ? "working" : first.State)" @key="group.Name">
-                                <div class="srv-work-line">
-                                    <strong>@group.Name</strong>
-                                    <span class="srv-work-status">@(group.Workers.Count > 1 && working.Count > 0 ? $"{working.Count} of {group.Workers.Count} active" : Label(first.State))</span>
-                                </div>
-                                @if (working.Count == 0 && first.WaitingFor.Length > 0)
-                                {
-                                    <small class="srv-work-wait">Waiting for @(char.ToLowerInvariant(first.WaitingFor[0]) + first.WaitingFor[1..])</small>
-                                }
-                                @foreach (var job in working)
-                                {
-                                    var percent = job.Progress;
-                                    <div class="srv-work-job" @key="job.Id">
-                                        @if (!string.IsNullOrWhiteSpace(job.CurrentTitle)) { <span class="stats-current-action">@job.CurrentTitle</span> }
-                                        @if (job.Phase.Length > 0) { <small>@job.Phase</small> }
-                                        @if (percent is not null) { <div class="stats-meter" role="progressbar" aria-label="@job.Title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@percent.Value.ToString("0", Inv)"><i style="width:@percent.Value.ToString("0.###", Inv)%"></i></div> }
-                                        @if (job.Owner.Length > 0) { <span class="stats-job-requester"><ProfileAvatar Profile="WorkProfile(job)" Size="24" /><span>@job.User</span></span> }
-                                    </div>
-                                }
+                            var (title, icon) = StageDisplay(stage.Stage);
+                            <li class="srv-stage-card" @key="stage.Stage">
+                                <h3><MusicIcon Name="@icon" />@title</h3>
+                                <dl>
+                                    <div><dt>Queued</dt><dd class="music-admin-count">@stage.Queued</dd></div>
+                                    <div><dt>Backing off</dt><dd class="music-admin-count">@stage.BackingOff</dd></div>
+                                    <div><dt>Running</dt><dd class="music-admin-count">@stage.Running</dd></div>
+                                </dl>
+                            </li>
+                        }
+                        @if (server.PlaylistBacklog is { } backlog)
+                        {
+                            <li class="srv-stage-card">
+                                <h3><MusicIcon Name="playlist" />Playlist backlog</h3>
+                                <dl>
+                                    <div><dt>Pending</dt><dd class="music-admin-count">@backlog.Pending</dd></div>
+                                    <div><dt>Waiting to retry</dt><dd class="music-admin-count">@backlog.WaitingToRetry</dd></div>
+                                    <div><dt>Running</dt><dd class="music-admin-count">@backlog.Running</dd></div>
+                                </dl>
                             </li>
                         }
                         </ul>
-                    </details>
-                }
-            </section>
-            <section class="srv-savings glass-panel" aria-labelledby="srv-savings-title">
-                <h2 id="srv-savings-title">Savings</h2>
-                <div class="srv-figures">
-                    <div class="srv-figure"><span>Total saved</span><strong>@Huf(server.SavedHuf)<small> Ft</small></strong></div>
-                    <div class="srv-figure"><span>Per month</span><strong>@Huf(server.MonthlySavedHuf)<small> Ft</small></strong></div>
-                    <div class="srv-figure"><span>Withheld from streamers</span><strong>@Usd(server.RoyaltyUsd)</strong><small>@server.TotalQualifiedPlays.ToString("N0", Inv) plays</small></div>
-                </div>
-            </section>
-            <section class="srv-storage glass-panel" aria-labelledby="srv-storage-title">
-                <h2 id="srv-storage-title">Storage</h2>
-                <div class="srv-ring" style="--used:@usedPercent.ToString("0.#", Inv)" role="img" aria-label="@($"{usedPercent:0} percent of storage used")"><span><strong>@usedPercent.ToString("0", Inv)%</strong><small>used</small></span></div>
-                <dl class="srv-storage-facts"><div><dt>Used</dt><dd>@Bytes(used)</dd></div><div><dt>Free</dt><dd>@Bytes(server.StorageFreeBytes)</dd></div><div><dt>Total</dt><dd>@Bytes(server.StorageTotalBytes)</dd></div></dl>
-            </section>
+                    }
+                    @if (server.Workers.Count > 0)
+                    {
+                        <details class="srv-worker-details">
+                            <summary><MusicIcon Name="chevron-down" />Worker slots</summary>
+                            <ul class="srv-work-list">
+                            @foreach (var group in WorkGroups(server.Workers))
+                            {
+                                var working = group.Workers.Where(w => w.State == "working").ToList();
+                                var first = group.Workers[0];
+                                <li class="srv-work-row is-@(working.Count > 0 ? "working" : first.State)" @key="group.Name">
+                                    <div class="srv-work-line">
+                                        <strong>@group.Name</strong>
+                                        <span class="srv-work-status">@(group.Workers.Count > 1 && working.Count > 0 ? $"{working.Count} of {group.Workers.Count} active" : Label(first.State))</span>
+                                    </div>
+                                    @if (working.Count == 0 && first.WaitingFor.Length > 0)
+                                    {
+                                        <small class="srv-work-wait">Waiting for @(char.ToLowerInvariant(first.WaitingFor[0]) + first.WaitingFor[1..])</small>
+                                    }
+                                    @foreach (var job in working)
+                                    {
+                                        var percent = job.Progress;
+                                        <div class="srv-work-job" @key="job.Id">
+                                            @if (!string.IsNullOrWhiteSpace(job.CurrentTitle)) { <span class="stats-current-action">@job.CurrentTitle</span> }
+                                            @if (job.Phase.Length > 0) { <small>@job.Phase</small> }
+                                            @if (percent is not null) { <div class="stats-meter" role="progressbar" aria-label="@job.Title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@percent.Value.ToString("0", Inv)"><i style="width:@percent.Value.ToString("0.###", Inv)%"></i></div> }
+                                            @if (job.Owner.Length > 0) { <span class="stats-job-requester"><ProfileAvatar Profile="WorkProfile(job)" Size="24" /><span>@job.User</span></span> }
+                                        </div>
+                                    }
+                                </li>
+                            }
+                            </ul>
+                        </details>
+                    }
+                </section>
+            }
+            @if (ChildContent is not null)
+            {
+                <div class="srv-review-slot">@ChildContent</div>
+            }
+            @if (data is { } figures)
+            {
+                var used = Math.Max(0, figures.StorageTotalBytes - figures.StorageFreeBytes);
+                var usedPercent = figures.StorageTotalBytes > 0 ? Math.Clamp(100d * used / figures.StorageTotalBytes, 0, 100) : 0;
+                <section class="srv-savings glass-panel" aria-labelledby="srv-savings-title">
+                    <h2 id="srv-savings-title">Savings</h2>
+                    <div class="srv-figures">
+                        <div class="srv-figure"><span>Total saved</span><strong>@Huf(figures.SavedHuf)<small> Ft</small></strong></div>
+                        <div class="srv-figure"><span>Per month</span><strong>@Huf(figures.MonthlySavedHuf)<small> Ft</small></strong></div>
+                        <div class="srv-figure"><span>Withheld from streamers</span><strong>@Usd(figures.RoyaltyUsd)</strong><small>@figures.TotalQualifiedPlays.ToString("N0", Inv) plays</small></div>
+                    </div>
+                </section>
+                <section class="srv-storage glass-panel" aria-labelledby="srv-storage-title">
+                    <h2 id="srv-storage-title">Storage</h2>
+                    <div class="srv-ring" style="--used:@usedPercent.ToString("0.#", Inv)" role="img" aria-label="@($"{usedPercent:0} percent of storage used")"><span><strong>@usedPercent.ToString("0", Inv)%</strong><small>used</small></span></div>
+                    <dl class="srv-storage-facts"><div><dt>Used</dt><dd>@Bytes(used)</dd></div><div><dt>Free</dt><dd>@Bytes(figures.StorageFreeBytes)</dd></div><div><dt>Total</dt><dd>@Bytes(figures.StorageTotalBytes)</dd></div></dl>
+                </section>
+            }
         </div>
     }
-    @if (data is { Records.Count: > 0 } recordStats)
+    @if (Leaderboard && data is { Records.Count: > 0 } recordStats)
     {
         <section class="stats-records" aria-labelledby="stats-records-title">
             <h2 id="stats-records-title">Records</h2>
@@ -264,6 +285,7 @@
     private double SelectedTotal => period == "week" ? Days.Sum(d => d.Seconds) : data?.Profiles.Sum(PeriodSeconds) ?? 0;
     private double PeriodSeconds(ListenerStatistics profile) => period == "all" ? profile.Seconds : period == "month" ? profile.MonthSeconds : profile.Daily.Where(d => string.CompareOrdinal(d.Day,StartDay) >= 0).Sum(d => d.Seconds);
     [Parameter] public bool Leaderboard { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
     private async Task SetPeriod(string value) { if (period == value) return; await JS.InvokeVoidAsync("familyhub.captureLeaderboard"); period = value; }
     private static string X(int i,int count) => (count <= 1 ? 280d : i * 560d / (count - 1)).ToString("0.##",Inv);
     private static string Y(double seconds,double peak) => (144 - 128 * seconds / peak).ToString("0.##",Inv);
