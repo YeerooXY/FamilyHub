@@ -94,18 +94,14 @@ class CoordinatorTests(unittest.TestCase):
             self.store.save("alex", data)
             self.assertNotIn("backlog_retry", self.store.read("alex", PID)["tracks"][0])
 
-    def test_backlog_waits_for_presence_handback_and_dispatch_admission(self):
+    def test_backlog_keeps_base_share_while_listening_and_respects_dispatch_admission(self):
         now = 0
         resources = ResourceGovernor(clock=lambda: now)
         self.addCleanup(lambda: resources.reporter.cancel() if resources.reporter else None)
         coordinator = self.backlog(lambda *_: None, resources)
         self.save_tracks("alex", PID, entry())
         resources.presence("alex", "listening", 20)
-        self.assertFalse(self.sweep(coordinator, refresh=True))
-        resources.close("alex")
-        self.assertFalse(self.sweep(coordinator))
-        now = 1
-        self.assertFalse(self.sweep(coordinator, admit=lambda: False))
+        self.assertFalse(self.sweep(coordinator, refresh=True, admit=lambda: False))
         self.assertTrue(self.sweep(coordinator))
 
     def test_manual_pause_and_import_without_downloads_exclude_playlists(self):
