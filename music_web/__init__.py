@@ -52,7 +52,7 @@ def scratch_size(workspace, library, intake):
         if root == workspace:
             # Published assets are durable storage, not acquisition scratch space.
             dirs[:] = [d for d in dirs if d not in
-                       (".app-updates", ".listening-versions", ".finished-audio")]
+                       (".app-updates", ".listening-versions", ".finished-audio", ".discovery")]
             for name in dirs[:]:
                 if not intake.ID_RE.fullmatch(name):
                     continue

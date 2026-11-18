@@ -33,7 +33,9 @@ def recent_release(row, today):
 
 class Discovery:
     def __init__(self, workspace, get=None):
-        self.path = str(Path(workspace) / 'discovery.sqlite3')
+        # Durable store, kept out of the acquisition scratch quota (see scratch_size).
+        (Path(workspace) / '.discovery').mkdir(mode=0o700, exist_ok=True)
+        self.path = str(Path(workspace) / '.discovery' / 'discovery.sqlite3')
         self.lock = threading.RLock()
         self.refresh_lock = threading.Lock()
         try:
