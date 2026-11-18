@@ -103,6 +103,7 @@ public sealed class MusicSession
     private readonly HashSet<string> handovers = [], controlsSeen = [];
     public async Task ReportPlaybackActivityAsync(bool playing, double? position = null, bool followingHost = false, string remoteDeviceId = "")
     {
+        if (DateTime.UtcNow - lastHistorySync > TimeSpan.FromMinutes(1)) { lastHistorySync = DateTime.UtcNow; _ = SyncHistoryAsync(); }
         var api = Api;
         if (!Connected || api is null) return;
         if (activityInFlight) { pendingActivity = (playing, position, followingHost, remoteDeviceId); return; }
@@ -288,6 +289,130 @@ public sealed class MusicSession
         Changed?.Invoke();
     }
 
+    private readonly SemaphoreSlim historyGate = new(1, 1);
+    private DateTime lastHistorySync;
+    public long HistoryRevision { get; private set; }
+    public string HistoryOwner => PreferenceKey(Server, User) + Preferences.Default.Get(HistoryKey + ":generation", "");
+    private string HistoryKey => PreferenceKey(Server, User) + ":history-v1";
+    private readonly object historyStorageLock = new();
+    private T ReadHistory<T>(string suffix, T fallback)
+    {
+        lock (historyStorageLock)
+        {
+            if (Offline is null) return fallback;
+            try { return JsonSerializer.Deserialize<T>(File.ReadAllText(Path.Combine(Offline.RootDirectory, "history" + suffix.Replace(":", "-") + ".json"))) ?? fallback; }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { return fallback; }
+        }
+    }
+    private void WriteHistory<T>(string suffix, T value)
+    {
+        lock (historyStorageLock)
+        {
+            if (Offline is null) return;
+            var target = Path.Combine(Offline.RootDirectory, "history" + suffix.Replace(":", "-") + ".json");
+            var temporary = target + ".tmp";
+            File.WriteAllText(temporary, JsonSerializer.Serialize(value));
+            File.Move(temporary, target, true);
+        }
+    }
+    public Dictionary<string, double> ArtistPreferences()
+    {
+        var summary = ReadHistory<ListeningSummary?>(":summary", null);
+        return (summary?.Artists ?? []).GroupBy(p => Similarity.Artist(new MusicTrack { Channel = p.Key }))
+            .ToDictionary(g => g.Key, g => g.Sum(p => p.Value.Score));
+    }
+    public List<MusicTrack> RankRecommendations(IEnumerable<MusicTrack> candidates) => ListeningRecommendations.Rank(
+        candidates, ReadHistory<ListeningSummary?>(":summary", null), ListeningHistory(), DateTimeOffset.UtcNow);
+
+    public void QueueListeningEvent(MusicTrack track, DateTimeOffset started, double seconds, double duration, double position, string outcome, string source, string owner)
+    {
+        if (owner != HistoryOwner || string.IsNullOrEmpty(User) || PlaybackPreferences.ListeningHistoryPaused || !double.IsFinite(seconds) || !double.IsFinite(duration) || !double.IsFinite(position) || seconds <= 0 || duration <= 0 || duration > 86400) return;
+        lock (historyStorageLock)
+        {
+            var pending = ReadHistory<List<ListeningEvent>>(":pending", []);
+            pending.Add(new() { RecordingId = track.Id, StartedAt = started, ListenedSeconds = Math.Clamp(seconds, 0, duration),
+                Duration = duration, Position = Math.Clamp(position, 0, duration), Outcome = outcome, Source = source,
+                DeviceKind = DeviceInfo.Current.Platform == DevicePlatform.WinUI ? "windows" : DeviceInfo.Current.Platform == DevicePlatform.Android ? "android" : "iphone" });
+            WriteHistory(":pending", pending.TakeLast(2000).ToList());
+        }
+        _ = SyncHistoryAsync();
+    }
+    private sealed record HistoryAck([property: JsonPropertyName("acknowledged")] List<string> Acknowledged);
+    public async Task SyncHistoryAsync()
+    {
+        if (!Connected || Api is null || string.IsNullOrEmpty(User)) return;
+        var key = HistoryKey; var api = Api; var version = accountVersion;
+        if (!await historyGate.WaitAsync(0)) return;
+        try
+        {
+            if (version != accountVersion) return;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            // Dirty offline preferences (including pause) reach the server before queued events.
+            if (ReadPreferences().Dirty)
+            {
+                var saved = await api.SavePreferencesAsync(PlaybackPreferences, timeout.Token);
+                if (version != accountVersion) return;
+                PlaybackPreferences = saved; StorePreferences(saved, false);
+            }
+            while (version == accountVersion)
+            {
+                var batch = ReadHistory<List<ListeningEvent>>(":pending", []).Take(100).ToList();
+                if (batch.Count == 0) break;
+                var ack = await api.RequestJsonAsync<HistoryAck>(HttpMethod.Post, "/api/listening/events", new { events = batch }, timeout.Token);
+                if (version != accountVersion) return;
+                var ids = ack.Acknowledged.ToHashSet();
+                if (!batch.All(e => ids.Contains(e.EventId))) return;
+                lock (historyStorageLock)
+                {
+                    var pending = ReadHistory<List<ListeningEvent>>(":pending", []).Where(e => !ids.Contains(e.EventId)).ToList();
+                    WriteHistory(":pending", pending);
+                }
+            }
+            var summary = await api.RequestJsonAsync<ListeningSummary>(HttpMethod.Get, "/api/listening/summary", cancellationToken: timeout.Token);
+            if (version != accountVersion) return;
+            var previous = ReadHistory<ListeningSummary?>(":summary", null);
+            if (summary.ClearedAt is { } cleared && (previous?.ClearedAt is null || cleared > previous.ClearedAt))
+            {
+                WriteHistory(":legacy", new List<string>());
+                Preferences.Default.Set(key + ":migrated", "true");
+                Preferences.Default.Set(key + ":generation", Guid.NewGuid().ToString());
+            }
+            if (Preferences.Default.Get(key + ":migrated", "false") != "true")
+            {
+                WriteHistory(":legacy", ListeningHistory());
+                Preferences.Default.Set(key + ":migrated", "true");
+            }
+            var legacy = ReadHistory<List<string>>(":legacy", []);
+            var pendingIds = ReadHistory<List<ListeningEvent>>(":pending", []).Select(e => e.RecordingId);
+            Preferences.Default.Set(PreferenceKey(Server, User) + ":listening-history", JsonSerializer.Serialize(
+                legacy.Concat(summary.RecentHistory).Concat(pendingIds).TakeLast(200)));
+            WriteHistory(":summary", summary); HistoryRevision++;
+            Changed?.Invoke();
+        }
+        catch (Exception error) when (error is HttpRequestException or IOException or FamilyHubApiException or OperationCanceledException or JsonException or UnauthorizedAccessException) { }
+        finally { historyGate.Release(); }
+    }
+    private sealed record HistoryClear([property: JsonPropertyName("cleared_at")] DateTimeOffset? ClearedAt);
+    public async Task ClearListeningHistoryAsync()
+    {
+        var api = OnlineApi(); var version = accountVersion;
+        await historyGate.WaitAsync();
+        try
+        {
+            EnsureCurrent(version);
+            var cleared = await api.RequestJsonAsync<HistoryClear>(HttpMethod.Delete, "/api/listening/history");
+            EnsureCurrent(version);
+            Preferences.Default.Set(HistoryKey + ":generation", Guid.NewGuid().ToString());
+            WriteHistory(":pending", new List<ListeningEvent>());
+            WriteHistory(":legacy", new List<string>());
+            WriteHistory(":summary", new ListeningSummary { ClearedAt = cleared.ClearedAt });
+            Preferences.Default.Set(HistoryKey + ":migrated", "true");
+            Preferences.Default.Set(PreferenceKey(Server, User) + ":listening-history", "[]");
+            HistoryRevision++; SetMessage("Listening history cleared.");
+        }
+        finally { historyGate.Release(); }
+    }
+
     private List<string> ListeningHistory()
     {
         try { return JsonSerializer.Deserialize<List<string>>(Preferences.Default.Get(PreferenceKey(Server, User) + ":listening-history", "[]")) ?? []; }
@@ -303,11 +428,12 @@ public sealed class MusicSession
     public void RecordListen(MusicTrack track)
     {
         if (string.IsNullOrEmpty(User)) return;
+        if (PlaybackPreferences.ListeningHistoryPaused) return;
         var recent = ListeningHistory();
-        recent.Add(track.Id);
+        recent.Add(track.Id); HistoryRevision++;
         Preferences.Default.Set(PreferenceKey(Server, User) + ":listening-history", JsonSerializer.Serialize(recent.TakeLast(200)));
     }
-    public List<MusicTrack> QuickPlayQueue() => QuickPlay.Queue(Connected ? Library : Downloads, ListeningHistory());
+    public List<MusicTrack> QuickPlayQueue() => RankRecommendations(Connected ? Library : Downloads);
 
     private void PersistConnection() => Preferences.Default.Set(ConfigurationKey,
         JsonSerializer.Serialize(new Connection(Server, User, ProfileName)));
@@ -321,6 +447,7 @@ public sealed class MusicSession
 
     private static string PreferenceKey(string server, string user) => "familyhub:profile-prefs:" +
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(server + "\n" + user)));
+    public bool PreferencesPending => ReadPreferences().Dirty;
     private CachedPreferences ReadPreferences() => JsonSerializer.Deserialize<CachedPreferences>(
         Preferences.Default.Get(PreferenceKey(Server, User), "null")) ?? new(new(), false);
     private void StorePreferences(ListenerPreferences value, bool dirty) => Preferences.Default.Set(
@@ -497,7 +624,7 @@ public sealed class MusicSession
         finally { if (!ReferenceEquals(Api, candidate)) candidate?.Dispose(); connectionLock.Release(); }
     }
 
-    public async Task SavePreferencesAsync(double volume, bool shuffle, bool? autoDj = null, string? repeatMode = null, int? crossfadeSeconds = null, string? volumeLevel = null)
+    public async Task SavePreferencesAsync(double volume, bool shuffle, bool? autoDj = null, string? repeatMode = null, int? crossfadeSeconds = null, string? volumeLevel = null, bool? listeningHistoryPaused = null)
     {
         if (!double.IsFinite(volume) || volume is < 0 or > 1) throw new ArgumentException("Volume must be between zero and one.");
         if (volumeLevel is not (null or "loud" or "normal" or "quiet")) throw new ArgumentException("Choose Loud, Normal or Quiet volume level.");
@@ -505,7 +632,7 @@ public sealed class MusicSession
         try
         {
             if (string.IsNullOrEmpty(User)) return;
-            PlaybackPreferences = PlaybackPreferences with { Volume = volume, Shuffle = shuffle, AutoDj = autoDj ?? PlaybackPreferences.AutoDj, RepeatMode = repeatMode ?? PlaybackPreferences.RepeatMode, CrossfadeSeconds = crossfadeSeconds ?? PlaybackPreferences.CrossfadeSeconds, VolumeLevel = volumeLevel ?? PlaybackPreferences.VolumeLevel };
+            PlaybackPreferences = PlaybackPreferences with { ListeningHistoryPaused = listeningHistoryPaused ?? PlaybackPreferences.ListeningHistoryPaused, Volume = volume, Shuffle = shuffle, AutoDj = autoDj ?? PlaybackPreferences.AutoDj, RepeatMode = repeatMode ?? PlaybackPreferences.RepeatMode, CrossfadeSeconds = crossfadeSeconds ?? PlaybackPreferences.CrossfadeSeconds, VolumeLevel = volumeLevel ?? PlaybackPreferences.VolumeLevel };
             StorePreferences(PlaybackPreferences, true); Changed?.Invoke();
             if (!Connected || Api is null) return;
             try
@@ -600,6 +727,7 @@ public sealed class MusicSession
             var playlists = changedPlaylists ?? Playlists;
             if (version != accountVersion) return;
             Library = library; Playlists = playlists; Connected = true; Message = "";
+            await SyncHistoryAsync();
             await ReadDownloadsAsync();
             await ReadPlaybackAvailabilityAsync(version, playbackCaches.Values.ToArray());
             if (version == accountVersion && Message is "Library updated."
@@ -1139,13 +1267,13 @@ public sealed class MusicSession
     }
     public List<MusicTrack> AutoplayQueue(MusicTrack seed)
     {
-        var similar = Library.Where(t => t.Id != seed.Id && Similarity.IsRecommendation(seed, t))
+        var similar = Library.Where(t => t.Id != seed.Id && Similarity.IsSimilar(seed, t))
             .DistinctBy(Similarity.SongKey).ToArray();
-        Random.Shared.Shuffle(similar);
-        return [seed, .. similar.Take(30)];
+        return [seed, .. RankRecommendations(similar).Take(30)];
     }
     public async Task<List<MusicTrack>> SimilarAsync(MusicTrack seed)
     {
+        if (!Connected) return RankRecommendations(Downloads.Where(t => t.Id != seed.Id && Similarity.IsSimilar(seed, t)));
         var version = accountVersion;
         var artist = Similarity.Artist(seed);
         if (string.IsNullOrEmpty(artist)) return [];
@@ -1159,8 +1287,8 @@ public sealed class MusicSession
             candidates.AddRange(result.Tracks); offset = result.NextOffset;
         }
         var anchor = seed with { Genre = string.IsNullOrEmpty(seed.Genre) || seed.Genre == "Unsorted" ? seedGenre ?? "" : seed.Genre };
-        return candidates.Concat(Library).Where(t => t.Id != seed.Id && Similarity.IsRecommendation(anchor, t))
-            .DistinctBy(Similarity.SongKey).OrderBy(t => libraryById.ContainsKey(t.Id)).ToList();
+        return RankRecommendations(candidates.Concat(Library).Where(t => t.Id != seed.Id && Similarity.IsSimilar(anchor, t))
+            .DistinctBy(Similarity.SongKey));
     }
 
     public async Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken cancellationToken)

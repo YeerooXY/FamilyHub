@@ -78,6 +78,7 @@ internal static class SessionChecks
                 "/api/connect" => Json("{\"family_profiles\":true,\"csrf_token\":\"boot\",\"profiles\":" +
                     (removed ? "[]" : "[{\"id\":\"alex\",\"name\":\"Alex\"},{\"id\":\"sam\",\"name\":\"Sam\"}]") + "}"),
                 "/api/profile/select" => Json("{\"profile\":{\"id\":\"alex\",\"name\":\"Alex\"},\"csrf_token\":\"selected\",\"preferences\":{\"volume\":0.8,\"shuffle\":false}}"),
+                "/api/listening/summary" => Json("{}"),
                 "/api/library" => Json(System.Text.Json.JsonSerializer.Serialize(new { results = publishLibrary ? new[] { recording } : [] }, FamilyHubApi.JsonOptions)),
                 "/api/playlists" => Json("{\"playlists\":[]}"),
                 _ => throw new Exception("Unexpected endpoint " + request.RequestUri)

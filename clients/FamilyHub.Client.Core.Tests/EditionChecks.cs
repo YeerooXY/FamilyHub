@@ -24,6 +24,7 @@ internal static class EditionChecks
             {
                 "/api/connect" => new { family_profiles = true, csrf_token = "boot", profiles = new[] { new { id = "alex", name = "Alex" } } },
                 "/api/profile/select" => new { profile = new { id = "alex", name = "Alex" }, csrf_token = "selected", preferences = new { volume = 1, shuffle = false } },
+                "/api/listening/summary" => new { },
                 "/api/library" => new { results = new[] { current } },
                 "/api/playlists" => new { playlists = Array.Empty<object>() },
                 "/api/library/abcdefghijk/download" => new { },

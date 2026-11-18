@@ -88,6 +88,7 @@
     private List<Album> albums = [];
     private List<MusicTrack> radioSeeds = [];
     private int renderedRadioCount;
+    private long builtHistoryRevision = -1;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -127,19 +128,22 @@
     protected override void OnInitialized() => Session.Changed += LibraryChanged;
     private void LibraryChanged() => _ = InvokeAsync(() =>
     {
-        if (ReferenceEquals(builtFrom, Session.Connected ? Session.Library : Session.Downloads) && builtConnected == Session.Connected) return;
+        if (ReferenceEquals(builtFrom, Session.Connected ? Session.Library : Session.Downloads)
+            && builtConnected == Session.Connected && builtHistoryRevision == Session.HistoryRevision) return;
         OnParametersSet(); StateHasChanged();
     });
     public void Dispose() => Session.Changed -= LibraryChanged;
 
     protected override void OnParametersSet()
     {
+        builtHistoryRevision = Session.HistoryRevision;
         recent = Session.RecentlyPlayed(6);
         var history = Session.RecentlyPlayed(200);
         var anchor = CurrentTrack ?? history.FirstOrDefault();
+        var artistPreferences = Session.ArtistPreferences();
         radioSeeds = anchor is null ? [] : [anchor, .. history
             .Where(t => Similarity.Artist(t).Length > 0 && Similarity.Artist(t) != Similarity.Artist(anchor))
-            .GroupBy(Similarity.Artist).OrderByDescending(g => g.Count()).Take(3).Select(g => g.First())];
+            .GroupBy(Similarity.Artist).OrderByDescending(g => artistPreferences.GetValueOrDefault(g.Key)).ThenByDescending(g => g.Count()).Take(3).Select(g => g.First())];
         // Grouping the whole library is costly on phones; redo it only when the library changes.
         var source0 = Session.Connected ? Session.Library : Session.Downloads;
         if (ReferenceEquals(builtFrom, source0) && builtConnected == Session.Connected) return;

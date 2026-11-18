@@ -2200,6 +2200,9 @@ def create_app(test_config=None):
             return app.response_class(text, mimetype="application/vnd.apple.mpegurl")
         return send_file(path, mimetype="audio/mp4", conditional=True, etag=True, max_age=0)
 
+    from .listening_history import register as register_listening_history
+    register_listening_history(app, ws, body, profile_store, cfg["ADMIN_USERS"],
+                               lambda: {t["id"]: t for t in library_tracks()}, lock)
     from .listening_rooms import register_listening_rooms
     register_listening_rooms(app, body, profile_store)
     from .playback_devices import register_playback_devices

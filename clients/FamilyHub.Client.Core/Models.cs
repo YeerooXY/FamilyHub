@@ -90,6 +90,7 @@ public sealed record ListenerProfile
 
 public sealed record ListenerPreferences
 {
+    [JsonPropertyName("listening_history_paused")] public bool ListeningHistoryPaused { get; init; }
     [JsonPropertyName("volume")] public double Volume { get; init; } = 1;
     [JsonPropertyName("shuffle")] public bool Shuffle { get; init; }
     [JsonPropertyName("auto_dj")] public bool AutoDj { get; init; } = true;

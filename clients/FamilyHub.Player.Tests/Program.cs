@@ -323,6 +323,25 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
     await player.ApplyRemoteControlAsync(new() { Action = "pause" });
     Check(player.Playing && !player.RemoteActive && session.LocalPlays == 0, "Profile arbitration interrupted a Listen Together follower");
 }
+{
+    var (session, player) = Setup(); player.AutoDj = false;
+    await player.PlayAsync(tracks[0], tracks, source: "search");
+    var native = WindowsAudioPlayer.Last!;
+    for (var i = 0; i < 8; i++) native.Tick(.5);
+    await player.NextAsync();
+    Check(session.Events.Count == 1 && session.Events[0] == (tracks[0].Id, "skipped", 4, "search"), "Next event seconds, outcome or source incorrect");
+    for (var i = 0; i < 60; i++) native.Tick(.5);
+    native.RaiseEnded(); await Task.Yield();
+    Check(session.Events.Count == 2 && session.Events[1].Outcome == "completed" && session.Events[1].Source == "auto_dj", "Natural end did not finalize exactly one completed event");
+    for (var i = 0; i < 6; i++) native.Tick(.5);
+    await player.StopAsync(); await player.StopAsync();
+    Check(session.Events.Count == 3 && session.Events[2].Outcome == "stopped" && session.Events[2].Seconds == 3, "Stop lost or duplicated an event");
+    await player.PlayAsync(tracks[0], tracks); player.FollowingHost = true;
+    var before = session.Events.Count;
+    for (var i = 0; i < 40; i++) native.Tick(.5);
+    await player.StopAsync();
+    Check(session.Events.Count == before && session.Listened.Count == 1, "Following a host recorded local history");
+}
 Console.WriteLine("PASS: shuffle, volume, playback races, history, Auto DJ, host controls, device handover and filtered drift correction.");
 
 public static class MainThread
@@ -360,6 +379,10 @@ namespace FamilyHub.App.Services
         public MusicTrack PlaybackRecording(MusicTrack track, string path) => track;
         public List<string> Listened { get; } = [];
         public void RecordListen(MusicTrack track) => Listened.Add(track.Id);
+        public string HistoryOwner => "test";
+        public List<(string Id, string Outcome, double Seconds, string Source)> Events { get; } = [];
+        public void QueueListeningEvent(MusicTrack track, DateTimeOffset started, double seconds, double duration, double position, string outcome, string source, string owner)
+        { if (seconds > 0) Events.Add((track.Id, outcome, seconds, source)); }
         public bool Connected => true;
         public int LocalPlays { get; private set; }
         public void MarkLocalPlayback() => LocalPlays++;

@@ -408,6 +408,7 @@ finally { Directory.Delete(folder, true); }
     Check(!pending.IsCurrent("other|me", false, now) && !pending.IsCurrent("server|me", true, now) && !pending.IsCurrent("server|me", false, now.AddMinutes(2)), "Poke crossed accounts, replaced a session or outlived expiry");
     Check(pending.Find([new ListeningRoom { Id = "wrong", HostUser = "other" }, new ListeningRoom { Id = "right", HostUser = "target" }])?.Id == "right", "Poke joined the wrong host");
 }
+checks += await HistoryChecks.RunAsync();
 checks += ListeningChecks.Run();
 checks += PlaylistSongChecks.Run();
 checks += await SessionChecks.RunAsync();

@@ -82,13 +82,15 @@ class ProfileStore:
     def preferences(self, profile_id, changes=None):
         self.get(profile_id)
         data = self.read()
-        preferences = {"volume": 1, "shuffle": False, "auto_dj": True, "crossfade_seconds": 6, "volume_level": "normal", "spotify_subscribed": None, "repeat_mode": "off",
+        preferences = {"listening_history_paused": False, "volume": 1, "shuffle": False, "auto_dj": True, "crossfade_seconds": 6, "volume_level": "normal", "spotify_subscribed": None, "repeat_mode": "off",
                        **data["preferences"].get(profile_id, {})}
         if changes is not None:
-            if not changes or set(changes) - {"volume", "shuffle", "auto_dj", "crossfade_seconds", "volume_level", "spotify_subscribed", "repeat_mode"}:
-                raise ProfileError("Choose volume, shuffle or Auto DJ preferences.")
+            if not changes or set(changes) - {"listening_history_paused", "volume", "shuffle", "auto_dj", "crossfade_seconds", "volume_level", "spotify_subscribed", "repeat_mode"}:
+                raise ProfileError("Choose a supported profile preference.")
             if "volume" in changes and (type(changes["volume"]) not in (float, int) or not 0 <= changes["volume"] <= 1):
                 raise ProfileError("Volume must be between 0 and 1.")
+            if "listening_history_paused" in changes and type(changes["listening_history_paused"]) is not bool:
+                raise ProfileError("Pause history must be true or false.")
             if "shuffle" in changes and type(changes["shuffle"]) is not bool:
                 raise ProfileError("Shuffle must be true or false.")
             if "auto_dj" in changes and type(changes["auto_dj"]) is not bool:

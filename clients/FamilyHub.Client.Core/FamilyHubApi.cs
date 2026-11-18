@@ -152,7 +152,7 @@ public sealed class FamilyHubApi : IDisposable
     {
         if (!double.IsFinite(preferences.Volume) || preferences.Volume is < 0 or > 1) throw new ArgumentException("Volume must be between zero and one.");
         if (preferences.VolumeLevel is not ("loud" or "normal" or "quiet")) throw new ArgumentException("Choose Loud, Normal or Quiet volume level.");
-        return (await RequestJsonAsync<PreferencesResponse>(HttpMethod.Patch, "/api/profile/preferences", new { volume_level = preferences.VolumeLevel, volume = preferences.Volume, shuffle = preferences.Shuffle, auto_dj = preferences.AutoDj, crossfade_seconds = preferences.CrossfadeSeconds, repeat_mode = preferences.RepeatMode }, cancellationToken)).Preferences;
+        return (await RequestJsonAsync<PreferencesResponse>(HttpMethod.Patch, "/api/profile/preferences", new { listening_history_paused = preferences.ListeningHistoryPaused, volume_level = preferences.VolumeLevel, volume = preferences.Volume, shuffle = preferences.Shuffle, auto_dj = preferences.AutoDj, crossfade_seconds = preferences.CrossfadeSeconds, repeat_mode = preferences.RepeatMode }, cancellationToken)).Preferences;
     }
 
     public async Task<List<MusicPlaylist>> GetPlaylistsAsync(CancellationToken cancellationToken = default) =>

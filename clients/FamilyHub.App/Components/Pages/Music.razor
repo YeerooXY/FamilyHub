@@ -154,6 +154,12 @@ else
                     <p class="setting-help">Friends on Discord see the song and artist while the Discord app is open.</p>
                 }
             </section>
+            <section class="settings-panel glass-panel" aria-labelledby="listening-history-heading">
+                <h2 id="listening-history-heading">Listening history</h2>
+                <label class="setting-toggle"><input type="checkbox" checked="@Session.PlaybackPreferences.ListeningHistoryPaused" @onchange="SetHistoryPaused" disabled="@busy" /><span>Pause history</span></label>
+                <div class="setting-row"><span>Admins can see listening history.</span><button id="clear-history" @onclick='() => JS.InvokeVoidAsync("familyhub.showDialog", "clear-history-dialog", "cancel-clear-history").AsTask()' disabled="@(!Session.Connected)">Clear listening history</button></div>
+                @if (!Session.Connected) { <p class="setting-help">Connect to clear shared listening history.</p> }
+            </section>
             <section class="settings-panel glass-panel" aria-labelledby="appearance-settings-heading">
                 <h2 id="appearance-settings-heading">Appearance</h2>
                 <div class="setting-row"><label for="appearance-theme">Theme</label><select id="appearance-theme" value="@theme" @onchange="SetTheme">@foreach (var option in themes) { <option value="@option.Id">@option.Label</option> }</select></div>
@@ -416,6 +422,12 @@ else
 
 <SongPlaylistPicker @ref="playlistPicker" />
 
+<dialog id="clear-history-dialog" class="glass-dialog" aria-labelledby="clear-history-title">
+    <h2 id="clear-history-title">Clear listening history?</h2>
+    <p>This removes your shared listening history and this device's pending events.</p>
+    <p class="entry-error" role="status">@error</p>
+    <div class="actions"><button id="cancel-clear-history" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "clear-history-dialog", "clear-history").AsTask()'>Cancel</button><button disabled="@busy" @onclick="ClearHistory">Clear listening history</button></div>
+</dialog>
 <dialog id="delete-playlist-dialog" class="glass-dialog" aria-labelledby="delete-playlist-heading">
     <h2 id="delete-playlist-heading">Delete playlist?</h2>
     <p>Delete <strong>@Selected?.Name</strong> from FamilyHub? Downloaded songs stay on the server and devices.</p>
@@ -432,6 +444,16 @@ else
     // Pause appears only once audio is playing; preparing a song keeps the play icon with a loading state.
     private bool ShowPause => Player.RemoteActive ? Player.RemotePlaying : (Player.Playing || Player.Seeking) && Player.PlaybackRequested && !Player.Preparing;
     private void OpenPlaylistPicker((MusicTrack Track, string Opener) value) => playlistPicker?.Open(value.Track, value.Opener);
+    private Task SetHistoryPaused(ChangeEventArgs args) => Run(async () =>
+    {
+        await Session.SavePreferencesAsync(SavedVolume, Session.PlaybackPreferences.Shuffle, listeningHistoryPaused: args.Value is true);
+        Session.SetMessage(Session.PreferencesPending ? "History preference saved on this device. It will sync when connected." : args.Value is true ? "Listening history paused." : "Listening history resumed.");
+    });
+    private Task ClearHistory() => Run(async () =>
+    {
+        await Session.ClearListeningHistoryAsync();
+        await JS.InvokeVoidAsync("familyhub.closeDialog", "clear-history-dialog", "clear-history");
+    });
     private bool deletePlaylistOpen;
     private void OpenDeletePlaylist() { if (Session.Connected && !busy) { error = ""; deletePlaylistOpen = true; } }
     private Task DeletePlaylist() => Run(async () =>
@@ -678,7 +700,7 @@ else
     {
         var tracks = Player.Queue.Count > 0 ? Player.Queue.ToList() : Session.QuickPlayQueue();
         if (tracks.Count == 0) throw new InvalidOperationException("Add songs to your library or download music to use Quick play.");
-        await Player.PlayAsync(tracks[0], tracks);
+        await Player.PlayAsync(tracks[0], tracks, source: "auto_dj");
     });
     private bool busy, profileMenu, addingProfile, searching;
     private string searchStatus = "";
@@ -1017,8 +1039,8 @@ else
         catch (Exception ex) { if (version == searchVersion) { error = ex.Message; moreSearchFailed = true; } }
         finally { if (version == searchVersion) { loadingMore = false; await InvokeAsync(StateHasChanged); } }
     }
-    private Task PlayRow(MusicTrack track, List<MusicTrack> sequence, int? position) => view == "Search" ? PlaySearchResult(track) : RunPlayback(() => Player.PlayAsync(track, sequence, position));
-    private Task PlaySearchResult(MusicTrack track) => RunPlayback(() => Player.PlayAsync(track, Session.AutoplayQueue(track)));
+    private Task PlayRow(MusicTrack track, List<MusicTrack> sequence, int? position) => view == "Search" ? PlaySearchResult(track) : RunPlayback(() => Player.PlayAsync(track, sequence, position, source: view == "Similar songs" ? "auto_dj" : "library"));
+    private Task PlaySearchResult(MusicTrack track) => RunPlayback(() => Player.PlayAsync(track, Session.AutoplayQueue(track), source: "search"));
     private CancellationTokenSource? radioCancellation;
     private string? radioProgress;
     // The normal library refresh is every three minutes; radio needs each new recording now.
@@ -1040,9 +1062,9 @@ else
                 if (!Current()) return;
                 var playlist = Session.Playlists.FirstOrDefault(p => PlaylistKey(p) == PlaylistKey(radio));
                 if (playlist is null) return;
-                foreach (var entry in playlist.Tracks)
-                    if (Session.Resolve(entry) is { } track && songs.Add(Similarity.SongKey(track)) && queued.Add(track.Id)
-                        && !Player.Queue.Any(t => t.Id == track.Id)) Player.AddToQueue(track);
+                foreach (var track in Session.RankRecommendations(playlist.Tracks.Select(Session.Resolve).OfType<MusicTrack>()))
+                    if (track is not null && songs.Add(Similarity.SongKey(track)) && queued.Add(track.Id)
+                        && !Player.Queue.Any(t => t.Id == track.Id)) Player.AddToQueue(track, manual: false);
                 var ready = playlist.Tracks.Count(t => Session.Resolve(t) is not null);
                 var state = status.GetProperty("state").GetString();
                 if (state == "error") throw new InvalidOperationException("Radio could not find songs. Try another radio.");
@@ -1075,7 +1097,7 @@ else
         radioProgress = "Preparing " + seed.Title + ". Finding radio songs...";
         await InvokeAsync(StateHasChanged);
         if (revision != Player.ControlRevision || Player.FollowingHost) { radioProgress = null; return; }
-        try { await Player.PlayAsync(seed, [seed]); }
+        try { await Player.PlayAsync(seed, [seed], source: "radio"); }
         finally { radioProgress = null; }
         if (identity != AppearanceKey || Player.Current?.Id != seed.Id) return;
         radioCancellation = new();
@@ -1099,7 +1121,7 @@ else
         // Shuffle starts at a random song but keeps the list's order; the player picks each next song
         // at random, so turning shuffle off continues in playlist order from the current song.
         if (Player.Shuffle) { var start = Random.Shared.Next(available.Count); available = available.Skip(start).Concat(available.Take(start)).ToList(); }
-        await Player.PlayAsync(available[0], available);
+        await Player.PlayAsync(available[0], available, source: view == "Playlists" && Selected is { } playlist ? "playlist:" + playlist.Id : "library");
     });
     private ListenerProfile PlaylistOwner(MusicPlaylist playlist) => Session.Profiles.FirstOrDefault(p => p.Id == playlist.OwnerId) ?? new() { Id = playlist.OwnerId, Name = playlist.OwnerName };
     private ListenerProfile PlaylistContributor(MusicPlaylist playlist, PlaylistTrack entry) => string.IsNullOrEmpty(entry.AddedBy)
@@ -1127,7 +1149,7 @@ else
             .Where(item => item.Track is not null && (Session.Connected || Session.LocalPath(item.Track) is not null)).ToList();
         var start = entries.FindIndex(item => item.Position == position);
         if (start < 0) throw new InvalidOperationException("Download this song while connected to play it offline.");
-        await Player.PlayAsync(entries[start].Track!, entries.Select(item => item.Track!), start);
+        await Player.PlayAsync(entries[start].Track!, entries.Select(item => item.Track!), start, source: "playlist:" + playlist.Id);
     });
     private async Task PauseDownload()
     { await JS.InvokeVoidAsync("familyhub.focus", "content"); Session.CancelDownload(); }
