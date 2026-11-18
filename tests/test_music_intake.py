@@ -39,6 +39,8 @@ def fake_item(ws, data=b"placeholder bytes, never decoded", **changes):
 
 class Base(unittest.TestCase):
     def setUp(self):
+        # Searches are cached per process; each test starts with an empty cache.
+        mi.SEARCH_CACHE.clear()
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.tmp = pathlib.Path(tmp.name)
