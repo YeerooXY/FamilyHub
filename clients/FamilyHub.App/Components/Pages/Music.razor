@@ -977,7 +977,7 @@ else
         var searchQuery = query.Trim();
         var words = searchQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         searchResults = Session.Library.Where(t => words.All(w =>
-            (t.Title + " " + t.Channel + " " + t.Artist).Contains(w, StringComparison.OrdinalIgnoreCase))).Take(8).ToList();
+            (t.Title + " " + t.Channel).Contains(w, StringComparison.OrdinalIgnoreCase))).Take(8).ToList();
         searching = searchResults.Count == 0; searchStatus = "Searching";
         await InvokeAsync(StateHasChanged);
         if (submitted) await JS.InvokeVoidAsync("familyhub.searchSubmitted");
