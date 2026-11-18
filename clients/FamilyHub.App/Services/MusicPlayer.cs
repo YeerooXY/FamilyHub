@@ -224,7 +224,7 @@ public sealed class MusicPlayer(MusicSession session)
                 _ = ApplyResumePositionAsync();
                 RecordListening();
 #if !WINDOWS
-                if (owner is MauiAudioDeck mobile) mobile.FastPositionWindow = Math.Max(3, FadeDuration + 2);
+                if (owner is MauiAudioDeck mobile) mobile.FastPositionWindow = Current?.PlaybackVersion == "preview-hls" ? 0 : Math.Max(3, FadeDuration + 2);
 #endif
                 var transport = (owner.Playing, owner.Opening, owner.PlaybackRequested, owner.Duration);
                 if (transport != lastDeckTransport || UiActive && Environment.TickCount64 - lastProgressNotice >= 1000)
@@ -424,7 +424,7 @@ public sealed class MusicPlayer(MusicSession session)
         var path = session.LocalPath(track) ?? await session.GetCachedPlaybackPathAsync(track, token);
         if (path is not null) return path;
         if (!session.Connected) throw new InvalidOperationException("This song is not downloaded on this device. Connect to play it.");
-        var saved = await session.EnsureServerRecordingAsync(track, token);
+        var saved = await session.EnsureServerRecordingAsync(track, token, session.CanStream && lead <= 0);
         if (session.CanStream)
         {
             try { return await session.StreamPlaybackAsync(saved, lead, token); }
@@ -434,6 +434,7 @@ public sealed class MusicPlayer(MusicSession session)
     }
     private void WarmNext()
     {
+        if (Current?.PlaybackVersion == "preview-hls") return;
         if (RepeatMode == "one" || standby is null || blending || warming || !PlaybackRequested || index + 1 >= queue.Count) return;
         if (Duration <= 0 || Duration - Position > Math.Max(30, FadeDuration + 15)) return;
         var next = index + 1;
@@ -486,6 +487,7 @@ public sealed class MusicPlayer(MusicSession session)
     private bool IncomingReady => standby is not null && preparedTrack is not null && !standby.Opening && !incomingFailed && PreparedIndex > index;
     private void TryBlend()
     {
+        if (Current?.PlaybackVersion == "preview-hls" || preparedTrack?.PlaybackVersion == "preview-hls") return;
         if (RepeatMode == "one" || !AutoDj || FollowingHost || blending || preparing || !sourceReady || !Playing || !PlaybackRequested || !IncomingReady || Duration <= 0) return;
         if (Position < Duration - FadeDuration || Duration - Position <= .15) return;
         _ = BlendAsync(completed: true);
@@ -636,7 +638,7 @@ public sealed class MusicPlayer(MusicSession session)
             if (RepeatMode == "off" || FollowingHost || queue.Count == 0) return Task.CompletedTask;
             next = 0;
         }
-        if (AutoDj && !blending && IncomingReady && Playing && Duration - Position > .15) return BlendAsync();
+        if (Current?.PlaybackVersion != "preview-hls" && preparedTrack?.PlaybackVersion != "preview-hls" && AutoDj && !blending && IncomingReady && Playing && Duration - Position > .15) return BlendAsync();
         var sequence = queue.ToList();
         if (Shuffle && !FollowingHost && !manualQueue.Contains(sequence[next]) && !nextChosen)
         {

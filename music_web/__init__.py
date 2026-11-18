@@ -254,7 +254,7 @@ def create_app(test_config=None):
         if request.endpoint in ("login", "static", "family_connect", "create_family_profile", "select_family_profile", "app_update_manifest", "app_update_package", "profile_image"):
             return
         # Audio players cannot send the sign-in cookie, so a stream link carries a signed ticket.
-        if request.endpoint in ("playback_audio", "download_library_recording") and "ticket" in request.args:
+        if request.endpoint in ("playback_audio", "download_library_recording", "job_media") and "ticket" in request.args:
             g.user = stream_ticket_user()
             if not g.user:
                 raise ApiError(HTTP_TEXT[401], 401)
@@ -539,6 +539,7 @@ def create_app(test_config=None):
                                if k in job["analysis"]}
         if job["preview_state"] == "ready":
             out["media_url"] = f"/api/jobs/{job['id']}/media/index.m3u8"
+            out["stream_url"] = stream_url(out["media_url"])
         return out
 
     def source_signature(result):
@@ -2204,6 +2205,10 @@ def create_app(test_config=None):
                     raise ApiError(HTTP_TEXT[404], 404)
                 if "URI=" in line and line != '#EXT-X-MAP:URI="init.mp4"':
                     raise ApiError(HTTP_TEXT[404], 404)
+            if "ticket" in request.args:
+                text = text.replace('URI="init.mp4"', 'URI="' + stream_url(f"/api/jobs/{job_id}/media/init.mp4") + '"')
+                text = "\n".join(stream_url(f"/api/jobs/{job_id}/media/{line}")
+                                 if line and not line.startswith("#") else line for line in text.splitlines()) + "\n"
             text = text.replace("#EXTM3U", "#EXTM3U\n#EXT-X-START:TIME-OFFSET=0,PRECISE=YES", 1)
             return app.response_class(text, mimetype="application/vnd.apple.mpegurl")
         return send_file(path, mimetype="audio/mp4", conditional=True, etag=True, max_age=0)

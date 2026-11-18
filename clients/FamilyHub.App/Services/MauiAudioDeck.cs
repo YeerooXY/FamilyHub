@@ -27,7 +27,7 @@ internal sealed class MauiAudioDeck : IAudioDeck
         positionTimer = media.Dispatcher.CreateTimer();
         positionTimer.Interval = TimeSpan.FromSeconds(1);
         positionTimer.Tick += (_, _) => {
-            var fast = Playing && Duration > 0 && Duration - Position <= FastPositionWindow;
+            var fast = FastPositionWindow > 0 && Playing && Duration > 0 && Duration - Position <= FastPositionWindow;
             positionTimer.Interval = TimeSpan.FromMilliseconds(fast ? FamilyHub.Client.Core.CrossfadeEnvelope.TickMilliseconds : 1000);
             RefreshPosition();
         };

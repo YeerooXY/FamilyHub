@@ -30,7 +30,7 @@ def detect(url):
     if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port not in (None, 443):
         return None
     if host == "open.spotify.com": return "spotify"
-    if host in ("www.youtube.com", "youtube.com", "music.youtube.com"): return "youtube"
+    if host in ("www.youtube.com", "youtube.com", "music.youtube.com", "youtu.be"): return "youtube"
     if host in ("soundcloud.com", "www.soundcloud.com", "m.soundcloud.com"): return "soundcloud"
     if host in ("www.deezer.com", "deezer.com"): return "deezer"
     return None

@@ -115,6 +115,32 @@ for (var run = 0; run < 100; run++)
     await player.StopAsync(); session.Complete(0); await Task.Delay(10);
     Check(player.Current is null && !primary.Playing && !secondary.Playing, "Stopping a fade left a deck audible");
 }
+{
+    var session = new MusicSession(); var primary = new WindowsAudioPlayer(); var secondary = new WindowsAudioPlayer();
+    var player = new MusicPlayer(session); player.AttachDecks(primary, secondary);
+    var preview = tracks[1] with { PlaybackVersion = "preview-hls" };
+    await player.PlayAsync(preview, [preview, tracks[3]]);
+    for (var tick = 0; tick < 24; tick++) primary.Tick(1);
+    await Task.Delay(30);
+    Check(!secondary.Playing && player.Current == preview, "Growing preview began a crossfade");
+    await player.NextAsync();
+    Check(player.Current?.Id == tracks[3].Id, "Preview prevented the next-track handoff");
+    Check(session.Events.Count == 1, "Preview recorded duplicate listening events");
+    await player.StopAsync();
+}
+{
+    var session = new MusicSession(); var primary = new WindowsAudioPlayer(); var secondary = new WindowsAudioPlayer();
+    var player = new MusicPlayer(session); player.AttachDecks(primary, secondary);
+    var preview = tracks[3] with { PlaybackVersion = "preview-hls" };
+    await player.PlayAsync(tracks[1], [tracks[1], preview]);
+    for (var tick = 0; tick < 24; tick++) primary.Tick(1);
+    await Task.Delay(30);
+    Check(!secondary.Playing && player.Current?.Id == tracks[1].Id, "Player crossfaded into a growing preview");
+    await player.NextAsync();
+    Check(player.Current?.PlaybackVersion == "preview-hls", "Manual next failed to enter a preview");
+    Check(session.Events.Count == 1, "Entering a preview duplicated listening history");
+    await player.StopAsync();
+}
 Check(CrossfadeEnvelope.Duration(180) == 6 && CrossfadeEnvelope.Duration(12) == 4, "Old transition duration rules changed");
 Check(CrossfadeEnvelope.Duration(180, 12) == 12 && CrossfadeEnvelope.Duration(180, 0) == 0 && CrossfadeEnvelope.Duration(30, 12) == 10 && CrossfadeEnvelope.Duration(180, 40) == 12, "Crossfade setting is not applied within 0-12 s and a third of the song");
 Check(CrossfadeEnvelope.Fraction(3, 0, 6) == .5, "Old transition linear curve changed");
@@ -353,7 +379,7 @@ public static class MainThread
 namespace CommunityToolkit.Maui.Views { public sealed class MediaElement { } }
 namespace FamilyHub.Client.Core
 {
-    public sealed record MusicTrack(string Id, string Title, string Channel) { public double? PlaybackGainDb { get; init; } public double? Lufs { get; init; } public double? TruePeak { get; init; } public double Duration { get; init; } = 30; }
+    public sealed record MusicTrack(string Id, string Title, string Channel) { public double? PlaybackGainDb { get; init; } public double? Lufs { get; init; } public double? TruePeak { get; init; } public string PlaybackVersion { get; init; } = ""; public double Duration { get; init; } = 30; }
     public sealed record ListenerPreferences { public string VolumeLevel { get; init; } = "normal"; }
     public sealed record PlaybackResume
     {
@@ -393,7 +419,7 @@ namespace FamilyHub.App.Services
         private readonly List<TaskCompletionSource<string>> requests = [];
         public string? LocalPath(MusicTrack track) => Delay ? null : FailPlayback ? "fail" : "fixture";
         public Task<string?> GetCachedPlaybackPathAsync(MusicTrack track, CancellationToken token) => Task.FromResult<string?>(null);
-        public Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken token) => Task.FromResult(track);
+        public Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken token, bool allowPreview = false) => Task.FromResult(track);
         public bool CanStream => false;
         public void StreamingFailed() { }
         public static bool IsStream(string source) => source.StartsWith("https://", StringComparison.Ordinal);

@@ -61,9 +61,19 @@ class Base(unittest.TestCase):
 
 
 class Inputs(unittest.TestCase):
+    def test_pasted_short_link_search_is_one_direct_lookup(self):
+        mi.SEARCH_CACHE.clear()
+        row = {"id": "abcdefghijk", "title": "Song", "duration": 180}
+        with mock.patch.object(mi, "tool", return_value="yt-dlp"), mock.patch.object(mi, "youtube_run", return_value=(0, json.dumps(row), "")) as run:
+            entries, complete = mi.search_entries("https://youtu.be/abcdefghijk?si=tracking", 0, "search", False)
+        self.assertEqual(entries, [row])
+        self.assertTrue(complete)
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.args[0][-1], mi.WATCH + "abcdefghijk")
+
     def test_video_urls(self):
         vid = "aaaaaaaaaaa"
-        for url in (f"https://www.youtube.com/watch?v={vid}", f"https://youtu.be/{vid}",
+        for url in (f"https://www.youtube.com/watch?v={vid}", f"https://youtu.be/{vid}", f"https://youtu.be/{vid}?si=tracking&list=RD{vid}",
                     f"https://music.youtube.com/watch?v={vid}&list=PLxyz&t=3"):
             self.assertEqual(mi.video_id(url), vid)
         for url in ("https://www.youtube.com/playlist?list=PLxyz", "https://www.youtube.com/@channel/videos",

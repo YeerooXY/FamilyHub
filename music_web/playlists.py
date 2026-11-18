@@ -256,15 +256,20 @@ def fetch_youtube_playlist(url, intake):
     try:
         parsed = urlsplit(url if isinstance(url, str) and len(url) <= 2048 else "")
         values = parse_qs(parsed.query).get("list", [])
-        valid = (parsed.scheme == "https" and parsed.hostname in ("www.youtube.com", "youtube.com", "music.youtube.com")
+        valid = (parsed.scheme == "https" and parsed.hostname in ("www.youtube.com", "youtube.com", "music.youtube.com", "youtu.be")
                  and parsed.port in (None, 443) and not parsed.username and not parsed.password
-                 and parsed.path in ("/playlist", "/watch") and len(values) == 1
+                 and (parsed.path in ("/playlist", "/watch") or parsed.hostname == "youtu.be" and re.fullmatch(r"/[A-Za-z0-9_-]{11}", parsed.path)) and len(values) == 1
                  and re.fullmatch(r"[A-Za-z0-9_-]{10,100}", values[0]))
     except ValueError:
         valid = False
     if not valid:
         raise PlaylistError("Enter a public YouTube playlist link.")
     canonical = "https://www.youtube.com/playlist?list=" + values[0]
+    if values[0].startswith("RD"):
+        videos = [parsed.path[1:]] if parsed.hostname == "youtu.be" else parse_qs(parsed.query).get("v", [])
+        if len(videos) != 1 or not re.fullmatch(r"[A-Za-z0-9_-]{11}", videos[0]):
+            raise PlaylistError("YouTube Mixes can't be read from the link alone. Open the mix, play a song in it, then share that link.")
+        canonical = "https://www.youtube.com/watch?v=" + videos[0] + "&list=" + values[0]
     rc, output, _ = intake.run([intake.tool("yt-dlp"), "--ignore-config", "--flat-playlist",
                                "--dump-single-json", "--playlist-end", "10001", "--", canonical],
                               240, "YouTube playlist", True)

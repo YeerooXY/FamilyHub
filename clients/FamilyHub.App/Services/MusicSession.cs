@@ -1049,6 +1049,12 @@ public sealed class MusicSession
         track = CurrentRecording(track);
         var api = OnlineApi();
         var version = accountVersion;
+        if (track.PlaybackVersion == "preview-hls" && track.StreamUrl.Length > 0)
+        {
+            var preview = api.ResolveUri(track.StreamUrl).AbsoluteUri;
+            playbackRecords[preview] = track;
+            return preview;
+        }
         if (track.PlaybackInfoUrl != $"/api/library/{track.Id}/playback-info")
             throw new InvalidDataException("Streaming is unavailable for this recording.");
         var info = await api.RequestJsonAsync<MusicTrack>(HttpMethod.Get, PlaybackInfoUrl(track, ActiveStreamingQuality, lead), cancellationToken: cancellationToken);
@@ -1301,7 +1307,7 @@ public sealed class MusicSession
             .DistinctBy(Similarity.SongKey));
     }
 
-    public async Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken cancellationToken)
+    public async Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken cancellationToken, bool allowPreview = false)
     {
         if (!string.IsNullOrEmpty(track.DownloadUrl)) return track;
         var version = accountVersion;
@@ -1312,6 +1318,11 @@ public sealed class MusicSession
         var id = job.GetProperty("id").GetString();
         while (job.GetProperty("state").GetString() is "queued" or "running")
         {
+            if (allowPreview && job.TryGetProperty("source_id", out var source) && source.GetString() == track.Id && job.TryGetProperty("stream_url", out var preview) && preview.GetString() is { Length: > 0 } url)
+            {
+                EnsureCurrent(version);
+                return track with { StreamUrl = url, PlaybackVersion = "preview-hls" };
+            }
             await Task.Delay(1000, cancellationToken);
             job = (await api.RequestJsonAsync<JsonElement>(HttpMethod.Get, "/api/jobs/" + id, cancellationToken: cancellationToken)).GetProperty("job");
         }

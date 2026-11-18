@@ -537,6 +537,39 @@ class JobTests(Base):
             self.wait(c, self.start(c, tok, url="https://youtu.be/" + f"{_:011d}").get_json()["job"]["id"])
         self.assertLessEqual(len(self.state.jobs), music_web.MAX_JOBS)
 
+    def test_signed_preview_refreshes_playlist_and_scopes_every_asset(self):
+        c, _ = self.signed_in()
+        jid = "native-preview"
+        root = pathlib.Path(self.ws) / (".preview-" + jid)
+        root.mkdir()
+        playlist = root / "index.m3u8"
+        prefix = '#EXTM3U\n#EXT-X-PLAYLIST-TYPE:EVENT\n#EXT-X-MAP:URI="init.mp4"\n#EXTINF:2,\nseg00000.m4s\n'
+        playlist.write_text(prefix)
+        for asset in ("init.mp4", "seg00000.m4s", "seg00001.m4s"):
+            (root / asset).write_bytes(b"audio")
+        self.state.jobs[jid] = dict(id=jid, owner="sample-a", state="running", message="Preparing", artist="Artist",
+            title="Song", phase="fetch", source_id="abcdefghijk", preview_state="ready",
+            assets={"index.m3u8", "init.mp4", "seg00000.m4s"}, created=time.time())
+        job = self.go(c, "GET", "/api/jobs/" + jid).json["job"]
+        native = self.app.test_client()
+        response = self.go(native, "GET", job["stream_url"])
+        self.assertEqual(response.status_code, 200)
+        text = response.get_data(as_text=True)
+        self.assertIn("#EXT-X-PLAYLIST-TYPE:EVENT", text)
+        self.assertNotIn("#EXT-X-ENDLIST", text)
+        assets = [line for line in text.splitlines() if line and not line.startswith("#")]
+        assets.append(re.search(r'URI="([^"]+)"', text).group(1))
+        for url in assets:
+            self.assertEqual(self.go(native, "GET", url).data, b"audio")
+        stolen = assets[0].replace("seg00000.m4s", "init.mp4")
+        self.assertEqual(self.go(native, "GET", stolen).status_code, 401)
+        playlist.write_text(prefix + "#EXTINF:2,\nseg00001.m4s\n#EXT-X-ENDLIST\n")
+        self.state.jobs[jid]["assets"].add("seg00001.m4s")
+        updated = self.go(native, "GET", job["stream_url"]).get_data(as_text=True)
+        self.assertIn("seg00001.m4s?", updated)
+        self.assertIn("#EXT-X-ENDLIST", updated)
+        self.assertEqual(len(self.state.jobs), 1)
+
     def test_media_assets_are_owner_scoped_immutable_files(self):
         c, _ = self.signed_in("sample-a")
         other, _ = self.signed_in("sample-b")

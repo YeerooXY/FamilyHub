@@ -77,7 +77,7 @@
             return uri.Host.ToLowerInvariant() switch
             {
                 "open.spotify.com" => "spotify",
-                "www.youtube.com" or "youtube.com" or "music.youtube.com" => "youtube",
+                "www.youtube.com" or "youtube.com" or "music.youtube.com" or "youtu.be" => "youtube",
                 "soundcloud.com" or "www.soundcloud.com" or "m.soundcloud.com" => "soundcloud",
                 "www.deezer.com" or "deezer.com" => "deezer",
                 _ => null

@@ -84,6 +84,7 @@ internal static class SessionChecks
             }
             return request.RequestUri!.AbsolutePath switch
             {
+                "/api/jobs" => Json("{\"job\":{\"id\":\"preview\",\"source_id\":\"abcdefghijk\",\"state\":\"running\",\"stream_url\":\"/api/jobs/preview/media/index.m3u8?ticket=test\"}}"),
                 "/api/connect" => Json("{\"family_profiles\":true,\"csrf_token\":\"boot\",\"profiles\":" +
                     (removed ? "[]" : "[{\"id\":\"alex\",\"name\":\"Alex\"},{\"id\":\"sam\",\"name\":\"Sam\"}]") + "}"),
                 "/api/profile/select" => Json("{\"profile\":{\"id\":\"alex\",\"name\":\"Alex\"},\"csrf_token\":\"selected\",\"preferences\":{\"volume\":0.8,\"shuffle\":false}}"),
@@ -100,6 +101,12 @@ internal static class SessionChecks
             Check(session.NeedsProfileSelection && session.Profiles.Count == 2, "Connected profile chooser missing");
             await session.SelectProfileAsync("alex");
             Check(session.Connected && session.ProfileName == "Alex", "Online profile selection failed");
+            var previewTrack = await session.EnsureServerRecordingAsync(recording with { DownloadUrl = "" }, CancellationToken.None, allowPreview: true);
+            Check(previewTrack.PlaybackVersion == "preview-hls", "Acquisition waited past the ready preview");
+            var previewStream = await session.StreamPlaybackAsync(previewTrack, 0, CancellationToken.None);
+            Check(previewStream.Contains("/api/jobs/preview/media/index.m3u8?ticket=test"), "Preview lost its signed HLS address");
+            Check(session.PlaybackRecording(previewTrack, previewStream).PlaybackVersion == "preview-hls" && playbackInfoRequests == 0 && audioRequests == 0,
+                "Preview requested a finished phone copy or lost its playback metadata");
             var handedOver = 0;
             session.PlaybackHandedOver += _ => handedOver++;
             await session.ReportPlaybackActivityAsync(false);

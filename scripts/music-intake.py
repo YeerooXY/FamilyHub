@@ -493,7 +493,9 @@ def search_entries(query, offset, caller, background, main_only=False):
                 if budget:
                     budget()
                 YOUTUBE.condition.wait(.2)
-    key = " ".join(query.casefold().split())
+    direct = WATCH + video_id(query) if query.startswith("https://") else None
+    query = direct or query
+    key = query if direct else " ".join(query.casefold().split())
     # Reserve a query without holding the cache lock during pacing or network work.
     while True:
         with SEARCH_CACHE_LOCK:
@@ -517,9 +519,10 @@ def search_entries(query, offset, caller, background, main_only=False):
         depth = offset + SEARCH_POOL
         if cached["depth"] < depth:
             rc, out, err = youtube_run([tool("yt-dlp"), "--ignore-config", "--flat-playlist", "--dump-single-json",
-                f"ytsearch{depth}:{query}"], 120, "yt-dlp search", True, caller, background)
+                *(["--no-playlist", "--", direct] if direct else [f"ytsearch{depth}:{query}"])], 120, "yt-dlp search", True, caller, background)
             try:
-                entries = json.loads(out).get("entries") or [] if rc == 0 else None
+                data = json.loads(out) if rc == 0 else None
+                entries = [data] if direct and isinstance(data, dict) else (data.get("entries") or [] if isinstance(data, dict) else None)
             except (ValueError, AttributeError):
                 entries = None
             if not isinstance(entries, list):
@@ -528,7 +531,7 @@ def search_entries(query, offset, caller, background, main_only=False):
             cached["entries"].extend(entries[len(cached["entries"]):])
             cached["depth"] = depth
         entries = list(cached["entries"][offset:depth])
-        if not offset and listening_query(query) != query and sum(kind(e) == "topic" for e in entries if isinstance(e, dict)) < 3:
+        if not direct and not offset and listening_query(query) != query and sum(kind(e) == "topic" for e in entries if isinstance(e, dict)) < 3:
             if cached["extra"] is None and main_only:
                 return entries, False
             if cached["extra"] is None:
