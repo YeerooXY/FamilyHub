@@ -21,20 +21,27 @@ META = {"artist": "Artist", "album": "Album", "title": "Title"}
 
 class Base(unittest.TestCase):
     extra = {}
+    check_presence = False
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.ws, self.lib = os.path.join(tmp.name, "ws"), os.path.join(tmp.name, "lib")
         os.mkdir(self.ws), os.mkdir(self.lib)
-        self.app = music_web.create_app({
+        self.settings = {
             "SECRET_KEY": "k" * 40, "CLI_PATH": str(ROOT / "scripts" / "music-intake.py"), "WORKSPACE": self.ws,
             "LIBRARY": self.lib, "PUBLIC_ORIGIN": ORIGIN, "PLAYER_URL": "https://player.test/",
             "ALLOWED_USERS": ["sample-a", "sample-b"],
             # Legacy file fixtures isolate transport/coordinator behavior from FFmpeg.
-            "REQUIRE_FINISHED_AUDIO": False, **self.extra})
+            "REQUIRE_FINISHED_AUDIO": False, **self.extra}
+        self.app = music_web.create_app(self.settings)
         self.state = self.app.extensions["music"]
         self.intake = self.app.intake
+        if not self.check_presence:
+            # These route fixtures test their own work without waiting for lease handback.
+            self.presence_stub = mock.patch.object(self.state.resources, "presence")
+            self.presence_stub.start()
+            mock.patch.object(self.state.resources, "end_search").start()
         # Coordinator fixtures use fake audio; measurement has separate FFmpeg integration tests.
         mock.patch("music_web.profile", return_value={}).start()
         mock.patch("music_web.prepare_record", return_value=None).start()
@@ -47,6 +54,7 @@ class Base(unittest.TestCase):
         for job in self.state.jobs.values():
             if job.get("cancel"):
                 job["cancel"].set()
+        self.state.resources.changed()
         worker = getattr(self.state, "worker", None)
         if worker:
             worker.join(5)
@@ -97,6 +105,99 @@ class Base(unittest.TestCase):
             return {"item": args.item, "imported": os.path.join(self.lib, "secret", "path.flac")}
         mock.patch.object(self.intake, "cmd_fetch", fetch).start()
         mock.patch.object(self.intake, "cmd_import", imp).start()
+
+
+class ForegroundAdmissionTests(Base):
+    check_presence = True
+    extra = {"BACKGROUND_WORKERS": 8}
+
+    def setUp(self):
+        super().setUp()
+        self.clock = mock.Mock(return_value=time.monotonic())
+        self.state.resources.clock = self.clock
+        self.app.extensions["listening_rooms"].clock = self.clock
+
+    def advance(self, seconds):
+        governor = self.state.resources
+        with governor.condition:
+            self.clock.return_value += seconds
+            governor._changed()
+
+    def test_opening_app_keeps_base_background_and_current_song_gets_a_slot(self):
+        self.fake_ok()
+        client, token = self.signed_in()
+        started, urgent, last = threading.Semaphore(0), threading.Event(), threading.Event()
+        release = threading.Event()
+        sources = ["https://youtu.be/" + f"{index:011d}" for index in range(13)]
+
+        def fetch(args):
+            if args.url.endswith("dQw4w9WgXcQ"):
+                urgent.set()
+            else:
+                if args.url.endswith("00000000012"):
+                    last.set()
+                started.release()
+                release.wait(3)
+                self.assertFalse(args.cancel.is_set())
+                self.intake.CONTROL.budget()
+            return {"item": os.path.join(self.ws, "yt-item")}
+
+        with mock.patch.object(self.intake, "cmd_fetch", side_effect=fetch), \
+                mock.patch.object(self.intake, "cmd_preview", side_effect=self.intake.IntakeError("fixture")):
+            queued = self.post(client, token, "/api/library/additions", json={"urls": sources})
+            self.assertEqual(queued.status_code, 202)
+            # Library additions keep their usual background slots while their owner is online.
+            self.assertTrue(started.acquire(timeout=1))
+            self.advance(30)
+            try:
+                self.assertTrue(all(started.acquire(timeout=1) for _ in range(11)))
+                self.assertFalse(last.is_set())
+                listener, listener_token = self.signed_in("sample-b")
+                self.assertEqual(self.state.resources.reservations(), ("online-idle", 1, 1))
+                deadline = time.monotonic() + .25
+                current = self.post(listener, listener_token, "/api/jobs", json={"url": URL, **META})
+                self.assertTrue(urgent.wait(max(0, deadline - time.monotonic())))
+                self.assertEqual(self.state.resources.reservations(), ("listening", 2, 2))
+                self.assertEqual(self.wait(listener, current.json["job"]["id"])["state"], "done")
+            finally:
+                release.set()
+            self.assertEqual(self.wait(client, queued.json["jobs"][0]["id"])["state"], "done")
+            self.advance(16)
+            self.assertTrue(last.wait(1))
+            self.assertEqual(self.wait(client, queued.json["jobs"][-1]["id"])["state"], "done")
+
+    def test_authenticated_requests_heartbeats_and_room_exit(self):
+        client, token = self.signed_in()
+        governor = self.state.resources
+        self.assertEqual(governor.reservations(), ("online-idle", 1, 1))
+        self.go(client, "GET", "/api/library")
+        self.assertEqual(governor.reservations(), ("browsing", 2, 1))
+        def search(_):
+            self.assertEqual(governor.reservations(), ("searching", 2, 1))
+            return {"results": []}
+        with mock.patch.object(self.intake, "cmd_search", side_effect=search):
+            self.assertEqual(self.post(client, token, "/api/search", json={"query": "Example"}).status_code, 200)
+        self.advance(3)
+        self.assertEqual(governor.reservations(), ("browsing", 2, 1))
+        device = "a" * 32
+        activity = {"device_id": device, "playing": True, "device_info": {"sequence": 1}}
+        self.assertEqual(self.post(client, token, "/api/playback/activity", json=activity).status_code, 200)
+        self.assertEqual(governor.reservations(), ("listening", 2, 2))
+        track = {"id": "dQw4w9WgXcQ", "channel": "Artist", "title": "Track"}
+        playback = {"queue": [track], "index": 0, "position": 0, "playing": True,
+                    "auto_dj": False, "crossfading": False}
+        created = self.post(client, token, "/api/listening/rooms", json=playback)
+        self.assertEqual(created.status_code, 201)
+        room = "/api/listening/rooms/" + created.json["room"]["id"]
+        self.assertEqual(governor.reservations(), ("listen-together", 2, 2))
+        self.assertEqual(self.go(client, "DELETE", room, headers={"X-CSRFToken": token, "Origin": ORIGIN}).status_code, 200)
+        self.assertEqual(governor.reservations(), ("listening", 2, 2))
+        self.post(client, token, "/api/playback/activity", json={**activity, "playing": False,
+                                                               "device_info": {"sequence": 2}})
+        self.advance(5)
+        self.assertEqual(governor.reservations()[0], "browsing")
+        self.advance(10)
+        self.assertEqual(governor.reservations(), ("offline", 0, 0))
 
 
 class AuthTests(Base):
@@ -399,97 +500,6 @@ class JobTests(Base):
         self.assertNotIn("SECRET", "".join(logs.output))
         self.assertNotIn("/srv/p", "".join(logs.output))
         self.assertIn("RuntimeError", "".join(logs.output))
-
-    def test_catalogue_waits_for_preparation_then_runs_while_people_listen(self):
-        self.fake_ok()
-        a, token_a = self.signed_in()
-        b, token_b = self.signed_in("sample-b")
-        for client, token, device in ((a, token_a, "a" * 32), (b, token_b, "b" * 32)):
-            self.assertEqual(self.post(client, token, "/api/playback/activity", json={"device_id": device, "playing": True}).status_code, 200)
-        foreground, catalogue, release = threading.Event(), threading.Event(), threading.Event()
-        def fetch(args):
-            if args.url.endswith("abcdefghijk"): catalogue.set()
-            else:
-                foreground.set()
-                release.wait(2)
-            return {"item": os.path.join(self.ws, "yt-item")}
-        with mock.patch.object(self.intake, "cmd_fetch", side_effect=fetch):
-            jid = self.start(a, token_a).json["job"]["id"]
-            self.assertTrue(foreground.wait(1), "Foreground playback was blocked by another listener")
-            background = dict(self.state.jobs[jid], id="background", source_id="abcdefghijk", priority=20,
-                              url="https://www.youtube.com/watch?v=abcdefghijk", state="queued", playlist_import=True, current=False)
-            self.state.jobs["background"] = background
-            self.assertFalse(catalogue.wait(.15), "Bulk work started while foreground preparation was active")
-            release.set()
-            self.assertEqual(self.wait(a, jid)["state"], "done")
-            self.assertTrue(catalogue.wait(2), "Cached playback incorrectly blocked catalogue work")
-            self.assertEqual(self.wait(a, "background")["state"], "done")
-        self.assertEqual(self.post(a, token_a, "/api/playback/activity", json={"device_id": "invalid", "playing": True}).status_code, 400)
-
-    def test_running_catalogue_yields_cleans_partial_preview_and_resumes(self):
-        self.fake_ok()
-        c, tok = self.signed_in()
-        entered, check = threading.Event(), threading.Event()
-        calls = []
-        def fetch(args):
-            calls.append(args.url)
-            if len(calls) == 1:
-                os.mkdir(args.preview)
-                entered.set()
-                self.assertTrue(check.wait(2))
-            else:
-                self.assertFalse(os.path.exists(args.preview), "Interrupted preview blocked acquisition retry")
-            self.intake.CONTROL.budget()
-            return {"item": os.path.join(self.ws, "yt-item")}
-        with mock.patch.object(self.intake, "cmd_fetch", side_effect=fetch):
-            jid = self.start(c, tok).json["job"]["id"]
-            self.assertTrue(entered.wait(1))
-            job = self.state.jobs[jid]
-            job.update(playlist_import=True, current=False, priority=20)
-            self.post(c, tok, "/api/playback/activity", json={"device_id": "a" * 32, "playing": True})
-            self.state.jobs['urgent'] = dict(state='running',priority=0,current=True,owner='sample-b',cancel=threading.Event())
-            check.set()
-            deadline = time.monotonic() + 2
-            while job["state"] == "running" and time.monotonic() < deadline: time.sleep(.01)
-            self.assertEqual(job["state"], "queued")
-            self.assertFalse(job["cancel"].is_set())
-            self.state.jobs['urgent']['state']='done'
-            self.assertEqual(self.wait(c, jid)["state"], "done")
-            self.assertEqual(len(calls), 2)
-
-    def test_listener_pauses_exactly_one_background_download(self):
-        self.fake_ok()
-        c, tok = self.signed_in()
-        started, release = threading.Semaphore(0), threading.Event()
-        yielded, calls = [], []
-        def fetch(args):
-            calls.append(args.url)
-            started.release()
-            while not release.is_set():
-                try: self.intake.CONTROL.budget()
-                except Exception: yielded.append(args.url); raise
-                time.sleep(.01)
-            return {"item": os.path.join(self.ws, "yt-item")}
-        with mock.patch.object(self.intake, "cmd_fetch", side_effect=fetch):
-            first = self.start(c, tok).json["job"]["id"]
-            self.assertTrue(started.acquire(timeout=1))
-            other, other_token = self.signed_in("sample-b")
-            second = self.start(other, other_token, url="https://www.youtube.com/watch?v=abcdefghijk").json["job"]["id"]
-            self.assertTrue(started.acquire(timeout=1))
-            for jid, progress in ((first, 5 << 20), (second, 1 << 20)):
-                self.state.jobs[jid].update(playlist_import=True, current=False, priority=20, download_bytes=progress)
-            self.state.jobs['urgent'] = dict(state='running', priority=0, current=True, owner='sample-b', cancel=threading.Event(), created=time.time())
-            deadline = time.monotonic() + 2
-            while not yielded and time.monotonic() < deadline: time.sleep(.01)
-            time.sleep(.3)
-            self.assertEqual(len(yielded), 1, "only one background download pauses")
-            self.assertTrue(yielded[0].endswith("abcdefghijk"), "the download with the least progress pauses")
-            self.assertEqual(self.state.jobs[first]["state"], "running")
-            self.assertEqual(self.state.jobs[second]["state"], "queued")
-            self.state.jobs['urgent']['state'] = 'done'
-            release.set()
-            self.assertEqual(self.wait(c, first)["state"], "done")
-            self.assertEqual(self.wait(other, second)["state"], "done", "the paused download resumes after the listener")
 
     def test_other_user_same_source_waits_without_409(self):
         self.fake_ok()

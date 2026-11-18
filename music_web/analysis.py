@@ -102,8 +102,9 @@ def analyze_library(path, duration, ffmpeg='ffmpeg'):
     windows, chromas = [], []
     for start in starts:
         decoded = subprocess.run([ffmpeg, '-nostdin', '-v', 'error', '-threads', '1',
+            '-filter_threads', '1', '-filter_complex_threads', '1',
             '-protocol_whitelist', 'file,pipe', '-ss', str(start), '-i', str(path),
-            '-map', '0:a:0', '-t', str(length), '-ac', '1', '-ar', '22050', '-f', 'f32le', 'pipe:1'],
+            '-map', '0:a:0', '-t', str(length), '-ac', '1', '-ar', '22050', '-f', 'f32le', '-threads', '1', 'pipe:1'],
             capture_output=True, check=True, timeout=45)
         samples = np.frombuffer(decoded.stdout, dtype='<f4')
         if len(samples) < 22050 * 8:

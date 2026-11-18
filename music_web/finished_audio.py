@@ -6,20 +6,19 @@ import os
 import re
 import secrets
 import shutil
-import threading
 from .audio_profile import profile, measure_loudness as measurement
 from . import mobile_audio
 from .worker_activity import WorkerActivity
-from .resources import observe
+from .resources import observe, PriorityLane
 
 VERSION = "loudness-flac-v1"
 TARGET = -16
 PEAK = -1.5
-_encoding = threading.Lock()
+_encoding = PriorityLane()
 activity = WorkerActivity('finished-audio', 'Finished audio')
 
 
-def prepare_record(store, editions, library, item, manifest=None):
+def prepare_record(store, editions, library, item, manifest=None, background=lambda: False):
     if manifest is None:
         _, manifest, _ = store.intake.load_item(item)
     record = manifest["import"]
@@ -30,16 +29,18 @@ def prepare_record(store, editions, library, item, manifest=None):
     edition = editions.select(manifest["source"].get("id", manifest["id"]), digest)
     if edition:
         version, source = edition
-        finished = store.prepare(source, version["sha256"], title=record['title'])
+        finished = store.prepare(source, version["sha256"], title=record['title'], background=background)
     else:
         finished = store.select(digest)
         if not finished:
             # Reviewed cuts take priority. For new recordings only remove boundary silence;
             # speech, effects and ambiguous fades still need a reviewed edition.
             boundaries = profile(store.intake, item, manifest, measure=True)
-            finished = store.prepare(source, digest, boundaries["start"], boundaries["end"], title=record['title'])
+            finished = store.prepare(source, digest, boundaries["start"], boundaries["end"],
+                                     title=record['title'], background=background)
     row, path = finished
-    mobile_audio.prepare(store.intake, item, path, row["sha256"], title=record['title'])
+    mobile_audio.prepare(store.intake, item, path, row["sha256"], title=record['title'],
+                         urgent=not background(), offline_only=background())
     return finished
 
 
@@ -85,8 +86,8 @@ class FinishedAudio:
             self.checked[path] = stamp
         return row, path
 
-    def prepare(self, source, digest, start=0, end=None, title=''):
-        with observe(getattr(self.intake, "RESOURCES", None), "finished", "render lock") as running, _encoding, activity.track(title):
+    def prepare(self, source, digest, start=0, end=None, title='', background=lambda: False):
+        with observe(getattr(self.intake, "RESOURCES", None), "finished", "render lock") as running, _encoding.turn(background=background), activity.track(title):
             running()
             existing = self.select(digest)
             if existing:

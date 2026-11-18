@@ -233,13 +233,15 @@ class Discovery:
                                reason='Followed artist' if normal(artist['name']) in follows else 'Artist you play'))
         return sorted(result, key=lambda r: (r['reason'] == 'Followed artist', r['release_date']), reverse=True)[:100]
 
-    def start(self):
+    def start(self, allow_background=lambda: True):
         with self.lock:
             if self.thread: return
             def run():
                 background_request.set(True)
                 while True:
-                    try: self.refresh_one()
+                    try:
+                        if allow_background():
+                            self.refresh_one()
                     except (OSError, sqlite3.Error): pass
                     self.wake.wait(60)
                     self.wake.clear()
@@ -247,12 +249,12 @@ class Discovery:
             self.thread.start()
 
 
-def register(app, workspace, body, admins, tracks, worker=True):
+def register(app, workspace, body, admins, tracks, worker=True, allow_background=lambda: True):
     from flask import g, jsonify, abort, request
     store = Discovery(workspace)
     app.extensions['discovery'] = store
     if worker:
-        store.start()
+        store.start(allow_background)
 
     def selection():
         library = tracks()
@@ -260,7 +262,7 @@ def register(app, workspace, body, admins, tracks, worker=True):
         with store.lock:
             selected, follows = store.select(g.user, summary, library)
         if worker:
-            store.start()
+            store.start(allow_background)
         return store.items(g.user, selected, follows, library)
 
     @app.get('/api/discovery')

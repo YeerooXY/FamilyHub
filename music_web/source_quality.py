@@ -12,11 +12,13 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 from .catalogue_review import seed
 from .playlists import preferred_match, rank_matches, source_tier
 from .worker_activity import WorkerActivity
+from .resources import audio_command, background_command
 
 FFMPEG_LOCK = threading.Lock()
 SIZE = 4096
@@ -77,7 +79,7 @@ def classify(energies):
     return dict(verdict=verdict, bands_db=[round(value, 2) for value in ratios])
 
 
-def analyze(path, duration, idle=lambda: True, ffmpeg='ffmpeg'):
+def analyze(path, duration, idle=lambda: True, ffmpeg='ffmpeg', governor=None):
     """Measure three three-second windows, decoding one bounded buffer at a time."""
     if not math.isfinite(duration) or duration < 3:
         return dict(verdict='unknown', bands_db=[])
@@ -90,21 +92,22 @@ def analyze(path, duration, idle=lambda: True, ffmpeg='ffmpeg'):
             command = [ffmpeg, '-nostdin', '-v', 'error', '-threads', '1',
                        '-protocol_whitelist', 'file,pipe', '-ss', str(start), '-i', str(path),
                        '-map', '0:a:0', '-t', '3', '-ac', '1', '-ar', str(RATE), '-f', 'f32le', 'pipe:1']
-            if os.name == 'posix' and shutil.which('nice'):
-                command = ['nice', '-n', '10', *command]
-            with FFMPEG_LOCK:
-                if not idle():
+            command = background_command(audio_command(command))
+            permit = governor.compute(True, start_offline=True) if governor else nullcontext(True)
+            with FFMPEG_LOCK, permit as granted:
+                if not granted or not idle():
                     raise ScanPaused()
                 options = {'creationflags': subprocess.BELOW_NORMAL_PRIORITY_CLASS} if os.name == 'nt' else {}
                 with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **options) as process:
                     elapsed = 0
+                    interval = 30 if governor else .2
                     while True:
                         try:
-                            output, _ = process.communicate(timeout=.2)
+                            output, _ = process.communicate(timeout=interval)
                             break
                         except subprocess.TimeoutExpired:
-                            elapsed += .2
-                            if not idle() or elapsed >= 30:
+                            elapsed += interval
+                            if (governor is None and not idle()) or elapsed >= 30:
                                 process.kill()
                                 process.communicate()
                                 if not idle():
@@ -195,7 +198,8 @@ class SourceQuality:
                                                   duration=manifest['audio']['duration']))
                         tier = source_tier(source, track['artist']) if source['kind'] == 'youtube' else None
                         with self.activity.track(record['title']):
-                            result = analyze(audio, manifest['audio']['duration'], self.idle)
+                            result = analyze(audio, manifest['audio']['duration'], self.idle,
+                                             governor=getattr(self.intake, 'RESOURCES', None))
                         row = dict(id=identifier, sha256=digest, channel=source.get('channel', record['artist']), **track, **result, source_tier=tier,
                                    proposed_replacement=None, replacement_checked=False)
                         self.save(key, row)
@@ -370,7 +374,7 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
             key, identifier, candidate, user = pending.get()
             try:
                 while not idle() or busy(candidate['id']):
-                    time.sleep(.5)
+                    time.sleep(30)
                 with scanner.replace_lock:
                     with scanner.lock:
                         scanner.save(key, dict(scanner.rows[key], queued=False))
@@ -448,7 +452,7 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
                 scanner.scan_once()
             except Exception as error:
                 app.logger.warning('Source quality: %s', type(error).__name__)
-            if scanner.stop.wait(1800 if idle() else 5):
+            if scanner.stop.wait(1800 if idle() else 30):
                 return
 
     if enabled:

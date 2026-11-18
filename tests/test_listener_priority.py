@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from music_web import mobile_audio
+from music_web.resources import PriorityLane
 
 
 class ListenerLaneTests(unittest.TestCase):
@@ -32,7 +33,7 @@ class ListenerLaneTests(unittest.TestCase):
 
 
     def test_song_needed_soonest_encodes_first(self):
-        gate, order, started = mobile_audio._Gate(), [], []
+        gate, order, started = PriorityLane(), [], []
         def wait(lead, name):
             with gate.turn(lead): order.append(name)
         with gate.turn(0):  # a listener's song is encoding
