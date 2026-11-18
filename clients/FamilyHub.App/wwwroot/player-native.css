@@ -86,8 +86,9 @@
 .now-playing-group #show-queue { flex:1; min-width:0; }
 #now-add-playlist { display:grid; place-items:center; flex-shrink:0; width:40px; height:44px; padding:8px; }
 #now-add-playlist .icon { width:20px; height:20px; }
-#repeat-toggle[aria-pressed=true] { color:var(--accent-blue); }
-#repeat-toggle[aria-pressed=false] { opacity:.7; }
+.song-playlist-add .icon { display:block; width:20px; height:20px; flex-shrink:0; overflow:visible; margin:0; }
+:is(#repeat-toggle,#sheet-repeat-toggle)[aria-pressed=true] { color:var(--accent-blue); }
+:is(#repeat-toggle,#sheet-repeat-toggle)[aria-pressed=false] { opacity:.7; }
 @media(max-width:720px) { .now-playing-group { padding-right:156px; gap:2px; } .now-playing-group #show-queue { padding-right:0; } .now-playing-group #now-add-playlist { width:32px; padding:5px; } }
 @media(max-width:720px) { .player-bar:has(.local-pause-button) .now-playing-group { padding-right:216px; } }
 .transport-buttons button,.header-icon,.row-action,.nav-button,#mute-toggle,#recommend-similar { transition:transform .1s ease,background-color .15s ease,color .15s ease; }

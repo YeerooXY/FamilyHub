@@ -313,7 +313,6 @@ else
     @if (playerExpanded)
     {
         <button id="player-collapse" class="quiet player-collapse" aria-label="Close Now Playing" title="Close Now Playing" @onclick="CollapsePlayer"><MusicIcon Name="chevron-down" /></button>
-        <button id="player-queue" class="quiet player-queue" aria-label="Open playback queue" title="Queue" @onclick="OpenQueueFromPlayer"><MusicIcon Name="queue" /></button>
     }
     <div class="now-playing-group"><button id="show-queue" class="now-playing" @onclick="PlayerArea" aria-label='@(Player.Current is null ? "Quick play" : "Open playback queue")'>
         @if (Player.Current is null) { <span class="cover quick-play-art"><MusicIcon Name="play" /></span> } else { <TrackCover @key="Player.Current.Id" Track="Player.Current" /> }
@@ -328,6 +327,10 @@ else
         <button id="play" class="primary round @(Player.Preparing ? "is-preparing" : "")" @onclick="TogglePlayback" aria-busy="@Aria(Player.Preparing)" aria-label="@(Player.FollowingHost ? Together.LocallyPaused ? "Resume live session" : "Pause only for me" : ShowPause ? "Pause" : "Play")"><MusicIcon Name='@(ShowPause ? "pause" : "play")' /></button>
         <button class="quiet" @onclick="() => RunPlayback(Player.NextAsync)" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Next song"><MusicIcon Name="next" /></button>
         <button id="repeat-toggle" class="quiet" @onclick="ToggleRepeat" aria-disabled="@Aria(Player.FollowingHost)" aria-pressed="@Aria(Player.RepeatMode != "off")" aria-label="@("Repeat " + Player.RepeatMode)" title="@("Repeat " + Player.RepeatMode)"><MusicIcon Name="@(Player.RepeatMode == "one" ? "repeat-one" : "repeat")" /></button>
+        @if (playerExpanded)
+        {
+            <button id="player-queue" class="quiet player-queue" aria-label="Open playback queue" title="Queue" @onclick="OpenQueueFromPlayer"><MusicIcon Name="queue" /></button>
+        }
     </div><SeekBar /></div>
     @if (Player.Current is not null) { <LyricsView Expanded="lyricsOpen" ExpandedChanged="SetLyricsOpen" AvailabilityChanged="LyricsAvailabilityChanged" /> }
     <button id="player-more" class="quiet player-more" aria-label="Player options" aria-expanded="@Aria(playerToolsOpen)" aria-controls="player-options" @onclick="TogglePlayerTools"><MusicIcon Name="more" /></button>
@@ -341,6 +344,7 @@ else
             <button id="sheet-add-playlist" class="quiet sheet-only" aria-label="Add to playlist" aria-haspopup="dialog" @onclick='() => { playerToolsOpen = false; OpenPlaylistPicker((sheetSong, "player-more")); }'><MusicIcon Name="plus-circle" /></button>
             <button id="sheet-queue" class="quiet sheet-only" aria-label="Go to queue" @onclick="OpenQueueFromSheet"><MusicIcon Name="queue" /></button>
         }
+        <button id="sheet-repeat-toggle" class="quiet sheet-only" @onclick="ToggleRepeat" aria-disabled="@Aria(Player.FollowingHost)" aria-pressed="@Aria(Player.RepeatMode != "off")" aria-label="@("Repeat " + Player.RepeatMode)" title="@("Repeat " + Player.RepeatMode)"><MusicIcon Name="@(Player.RepeatMode == "one" ? "repeat-one" : "repeat")" /></button>
         <ListenTogetherPanel />
         <AudioOutputPicker />
         @if (Player.Current is { Saved: true } trimmingTrack) { <TrimRequest Track="trimmingTrack" /> }
