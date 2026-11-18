@@ -5,7 +5,7 @@
 Boundary tests need only Python. Audio tests run when ffmpeg and ffprobe are on PATH.
 The public search test runs only with FAMILYHUB_NETWORK_TESTS=1 and yt-dlp on PATH.
 """
-import hashlib, importlib.util, json, os, pathlib, shutil, subprocess, tempfile, unittest
+import collections, hashlib, importlib.util, itertools, json, os, pathlib, shutil, subprocess, tempfile, threading, unittest
 from unittest import mock
 from types import SimpleNamespace
 
@@ -39,8 +39,10 @@ def fake_item(ws, data=b"placeholder bytes, never decoded", **changes):
 
 class Base(unittest.TestCase):
     def setUp(self):
-        # Searches are cached per process; each test starts with an empty cache.
-        mi.SEARCH_CACHE.clear()
+        self.enterContext(mock.patch.object(mi, "SEARCH_CACHE", collections.OrderedDict()))
+        self.enterContext(mock.patch.object(mi, "CONTROL", threading.local()))
+        self.enterContext(mock.patch.object(mi, "YOUTUBE", mi.YouTubeGate()))
+        mi.YOUTUBE.spacing = 0
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.tmp = pathlib.Path(tmp.name)
@@ -351,7 +353,8 @@ def entry(n, title="Song", channel="Someone", **extra):
 
 class SearchRanking(unittest.TestCase):
     def setUp(self):
-        mi.SEARCH_CACHE.clear()
+        self.enterContext(mock.patch.object(mi, "SEARCH_CACHE", collections.OrderedDict()))
+        self.enterContext(mock.patch.object(mi, "CONTROL", threading.local()))
         self.gate = mock.patch.object(mi, "YOUTUBE", mi.YouTubeGate())
         self.gate.start()
         self.addCleanup(self.gate.stop)
@@ -474,10 +477,15 @@ class SearchRanking(unittest.TestCase):
         for kw in ({"rc": 1}, {"raw": b"not json"}, {"raw": b"[]"}):
             with self.assertRaises(mi.IntakeError, msg=kw):
                 self.search([], **kw)
+        process = mock.Mock()
+        process.poll.return_value = None
         with mock.patch.object(mi, "tool", return_value="yt-dlp"), \
-                mock.patch.object(mi.subprocess, "run", side_effect=mi.subprocess.TimeoutExpired("yt-dlp", 1)):
-            with self.assertRaises(mi.IntakeError):
+                mock.patch.object(mi, "spawn", return_value=process), \
+                mock.patch.object(mi, "stop_process") as stop, \
+                mock.patch.object(mi.time, "monotonic", side_effect=itertools.count(int(mi.time.monotonic()) + 1, 121)):
+            with self.assertRaisesRegex(mi.IntakeError, "timed out"):
                 mi.dispatch(["search", "x"])
+        stop.assert_called_once_with(process)
         for limit in (0, 31):
             with self.assertRaises(mi.IntakeError):
                 self.search([], "--limit", str(limit))

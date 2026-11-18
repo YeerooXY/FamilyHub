@@ -1,4 +1,5 @@
 """Offline cache, request scheduling and refusal accounting tests."""
+import collections
 import importlib.util
 import json
 from pathlib import Path
@@ -15,8 +16,9 @@ spec.loader.exec_module(mi)
 
 class YouTubeTests(unittest.TestCase):
     def setUp(self):
-        mi.SEARCH_CACHE.clear()
-        mi.YOUTUBE = mi.YouTubeGate()
+        self.enterContext(mock.patch.object(mi, 'SEARCH_CACHE', collections.OrderedDict()))
+        self.enterContext(mock.patch.object(mi, 'CONTROL', threading.local()))
+        self.enterContext(mock.patch.object(mi, 'YOUTUBE', mi.YouTubeGate()))
         mi.YOUTUBE.spacing = 0
         self.tool = mock.patch.object(mi, 'tool', return_value='yt-dlp')
         self.tool.start()
@@ -40,6 +42,17 @@ class YouTubeTests(unittest.TestCase):
             self.assertEqual(first, self.search())
             self.assertEqual(run.call_count, 2)
             self.assertEqual(deeper['results'][0]['id'], '00000000030')
+
+    def test_failed_extension_raises_and_can_retry(self):
+        with mock.patch.object(mi, 'run', side_effect=[self.runner_result(30), (1, b'', 'failed'), self.runner_result(60)]) as run:
+            self.search()
+            with self.assertRaisesRegex(mi.IntakeError, 'failed'):
+                self.search(30)
+            self.assertEqual(self.search(30)['results'][0]['id'], '00000000030')
+            self.assertEqual(run.call_count, 3)
+
+    def runner_result(self, depth):
+        return self.runner([f'ytsearch{depth}:Artist official audio'])
 
     def test_art_tracks_cached_with_query(self):
         with mock.patch.object(mi, 'run', return_value=(0, b'{"entries":[]}', '')) as run:
