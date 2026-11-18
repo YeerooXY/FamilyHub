@@ -139,6 +139,39 @@ class YouTubeTests(unittest.TestCase):
         with mi.YOUTUBE.request('search'):
             self.assertGreaterEqual(time.monotonic() - first, .03)
 
+    def test_search_proceeds_during_media_transfer(self):
+        for preview in (False, True):
+            with self.subTest(preview=preview):
+                started, release, searched = threading.Event(), threading.Event(), threading.Event()
+                def transfer(*args, **kwargs):
+                    started.set()
+                    release.wait(2)
+                    return None if preview else (0, b'', '')
+                def run(command, *args):
+                    if command == ['download']:
+                        return transfer()
+                    searched.set()
+                    return self.runner(command, *args)
+                def media():
+                    if preview:
+                        mi.pump_preview(['download'], 'unused-spool', 'unused-root')
+                    else:
+                        mi.youtube_run(['download'], 1800, 'download', media=True)
+                with mock.patch.object(mi, 'run', side_effect=run), mock.patch.object(mi, '_pump_preview', side_effect=transfer):
+                    worker = threading.Thread(target=media, daemon=True)
+                    worker.start()
+                    try:
+                        self.assertTrue(started.wait(2))
+                        search = threading.Thread(target=self.search, kwargs={'query': f'new query {preview}'}, daemon=True)
+                        search.start()
+                        self.assertTrue(searched.wait(.5))
+                        search.join(2)
+                        self.assertFalse(search.is_alive())
+                        self.assertEqual(mi.YOUTUBE.counts['fetch'], 1 if not preview else 2)
+                    finally:
+                        release.set()
+                        worker.join(2)
+
     def test_concurrent_same_query_fetches_once(self):
         started, release = threading.Event(), threading.Event()
         errors = []

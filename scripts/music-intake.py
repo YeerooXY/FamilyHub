@@ -400,7 +400,7 @@ class YouTubeGate:
         self.reported = time.monotonic()
 
     @contextlib.contextmanager
-    def request(self, caller, background=False):
+    def request(self, caller, background=False, media=False):
         with self.condition:
             self.users += not background
             try:
@@ -416,12 +416,14 @@ class YouTubeGate:
                         self.users += int(background) - int(current_background)
                         background = current_background
                     now = time.monotonic()
-                    delay = max(self.last + self.spacing - now, self.until - now if background else 0)
-                    if not self.active and not (background and self.users) and delay <= 0:
+                    delay = max(self.last + self.spacing - now if not media else 0,
+                                self.until - now if background else 0)
+                    if (media or (not self.active and not (background and self.users))) and delay <= 0:
                         break
                     self.condition.wait(.2)
-                self.active = True
-                self.last = now
+                if not media:
+                    self.active = True
+                    self.last = now
                 self.counts[caller] += 1
             finally:
                 self.users -= not background
@@ -438,7 +440,8 @@ class YouTubeGate:
                     self.counts.clear()
                     self.refusals.clear()
                     self.reported = now
-                self.active = False
+                if not media:
+                    self.active = False
                 self.condition.notify_all()
 
     def result(self, caller, rc, error):
@@ -464,12 +467,12 @@ class YouTubeDeferred(IntakeError):
     pass
 
 
-def youtube_run(command, timeout, what, want_stdout=False, caller="fetch", background=None):
+def youtube_run(command, timeout, what, want_stdout=False, caller="fetch", background=None, media=False):
     if background is None:
         background = getattr(CONTROL, "background", False)
     # Background refusals are retried after cooldown, never persisted as failed matches.
     while True:
-        with YOUTUBE.request(caller, background):
+        with YOUTUBE.request(caller, background, media):
             result = run(command, timeout, what, want_stdout)
             refused = YOUTUBE.result(caller, result[0], result[2])
         if background and refused:
@@ -626,7 +629,7 @@ def cmd_fetch(args):
         # --extract-audio with --audio-format best keeps the source codec; it changes the container at most.
         rc, _, err = youtube_run(base + ["--no-overwrites", "--no-progress", "--match-filter", "!is_live",
                                  "--max-filesize", "2G", "--extract-audio", "--audio-format", "best",
-                                 "--paths", dl, "--output", "source.%(ext)s", "--", url], 1800, "yt-dlp download")
+                                 "--paths", dl, "--output", "source.%(ext)s", "--", url], 1800, "yt-dlp download", media=True)
         files = os.listdir(dl)
         if rc or len(files) != 1:
             raise IntakeError(f"yt-dlp download failed: {err or 'no single audio file was produced'}")
@@ -726,7 +729,7 @@ def pump_preview(command, *args, **kwargs):
     while True:
         background = getattr(CONTROL, "background", False)
         retry_paths = not os.path.lexists(root) and not os.path.lexists(spool)
-        with YOUTUBE.request("fetch", background):
+        with YOUTUBE.request("fetch", background, media=True):
             try:
                 result = _pump_preview(command, *args, **kwargs)
             except IntakeError as error:
