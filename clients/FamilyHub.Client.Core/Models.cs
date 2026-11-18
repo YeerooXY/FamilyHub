@@ -120,6 +120,12 @@ public sealed class FamilyHubApiException(string message, int statusCode) : Exce
 
 public sealed record SearchPage
 {
+    [JsonPropertyName("complete")] public bool Complete { get; init; } = true;
+    public static void AppendNew(List<MusicTrack> shown, IEnumerable<MusicTrack> incoming)
+    {
+        var ids = shown.Select(t => t.Id).ToHashSet();
+        shown.AddRange(incoming.Where(t => ids.Add(t.Id)));
+    }
     [JsonPropertyName("results")] public List<MusicTrack> Tracks { get; init; } = [];
     [JsonPropertyName("next_offset")] public int? NextOffset { get; init; }
 }

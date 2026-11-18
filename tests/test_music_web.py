@@ -3,7 +3,7 @@
 Needs requirements-mobile.txt; the whole module is skipped when Flask is not installed.
 Run from the repository root: python -m unittest tests.test_music_web
 """
-import io, os, pathlib, re, sys, tempfile, threading, time, unittest
+import io, json, os, pathlib, re, sys, tempfile, threading, time, unittest
 from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -232,6 +232,40 @@ class AuthTests(Base):
 
 
 class SearchTests(Base):
+    def test_partial_then_complete_poll_uses_cache(self):
+        c, tok = self.signed_in()
+        started, release, finished = threading.Event(), threading.Event(), threading.Event()
+        first = {"id": "abcdefghijk", "title": "First"}
+        extra = {"id": "12345678901", "title": "Extra"}
+        def run(command, *args):
+            if "Provided to YouTube" not in command[-1]:
+                return 0, json.dumps({"entries": [first]}).encode(), ""
+            started.set()
+            release.wait(5)
+            finished.set()
+            return 0, json.dumps({"entries": [extra]}).encode(), ""
+        self.intake.YOUTUBE.spacing = 0
+        with mock.patch.object(self.intake, "tool", return_value="yt-dlp"), mock.patch.object(self.intake, "run", side_effect=run) as runner:
+            try:
+                partial = self.post(c, tok, "/api/search", json={"query": "Artist"}).json
+                self.assertFalse(partial["complete"])
+                self.assertEqual(partial["results"][0]["id"], first["id"])
+                self.assertTrue(started.wait(2))
+                pending = self.post(c, tok, "/api/search", json={"query": "Artist"}).json
+                self.assertFalse(pending["complete"])
+                self.assertEqual(runner.call_count, 2)
+            finally:
+                release.set()
+            self.assertTrue(finished.wait(2))
+            for _ in range(100):
+                final = self.post(c, tok, "/api/search", json={"query": "Artist"}).json
+                if final["complete"]:
+                    break
+                time.sleep(.01)
+            self.assertTrue(final["complete"])
+            self.assertEqual(len(final["results"]), 2)
+            self.assertEqual(runner.call_count, 2)
+
     def test_transient_search_retries_then_succeeds(self):
         for message in ("HTTP Error 403: Forbidden", "HTTP Error 429", "HTTP Error 503",
                         "yt-dlp search cancelled or timed out", "Unable to download API page"):

@@ -1680,7 +1680,7 @@ def create_app(test_config=None):
             raise ApiError("Enter 1 to 200 characters to search.")
         block = offset // 30 * 30
         page_offset = offset - block
-        def page(found):
+        def page(found, complete=True):
             full = len(found) >= 30
             found = [r for r in found if include_long or not isinstance(r.get("duration"), (int, float)) or r["duration"] < 1800]
             next_page = offset + 8 if page_offset + 8 < len(found) else block + 30 if full and block + 30 < 3000 else None
@@ -1689,12 +1689,12 @@ def create_app(test_config=None):
                 for track in results:
                     track["genre"] = genre_labels.get(artist_name(track, {"artist": track.get("channel") or ""}))
                 return jsonify(results=results, next_offset=next_page, seed_genre=genre_labels.get(seed_artist))
-            return jsonify(results=results, next_offset=next_page)
+            return jsonify(results=results, next_offset=next_page, complete=complete)
         cache_key = (g.user, recommendation, q.casefold(), block)
         with lock:
             cached = search_cache.get(cache_key)
             if cached and time.time() - cached[0] < 300:
-                return page(cached[1])
+                return page(cached[1], cached[2])
         if not allow("search:" + g.user, 40, 60):
             raise ApiError("Too many searches. Wait a minute.", 429)
         cancel = threading.Event()
@@ -1714,7 +1714,9 @@ def create_app(test_config=None):
                 if cancel.is_set():
                     raise ApiError("A newer search replaced this request.", 409)
                 try:
-                    found = app.intake.cmd_search(SimpleNamespace(query=q, limit=30, offset=block))["results"]
+                    result = app.intake.cmd_search(SimpleNamespace(query=q, limit=30, offset=block, main_only=not recommendation))
+                    found = result["results"]
+                    complete = result.get("complete", True)
                     break
                 except app.intake.IntakeError as e:
                     if cancel.is_set():
@@ -1739,10 +1741,36 @@ def create_app(test_config=None):
             selected = selections.setdefault(g.user, {})
             selected.update({r["id"]: r for r in found})
             selections[g.user] = dict(list(selected.items())[-100:])
-            search_cache[cache_key] = (time.time(), found)
+            search_cache[cache_key] = (time.time(), found, complete)
             while len(search_cache) > 32:
                 search_cache.popitem(last=False)
-        return page(found)
+        if not complete:
+            owner = g.user
+            def enrich():
+                app.intake.CONTROL.cancel = cancel
+                deadline = time.monotonic() + 120
+                def budget():
+                    if time.monotonic() >= deadline:
+                        raise app.intake.IntakeError("search enrichment timed out")
+                app.intake.CONTROL.budget = budget
+                try:
+                    final = app.intake.cmd_search(SimpleNamespace(query=q, limit=30, offset=block,
+                        main_only=False, youtube_caller="search", youtube_background=True))["results"]
+                except Exception as e:
+                    log.warning("search enrichment failed: %s", type(e).__name__)
+                    final = found
+                finally:
+                    app.intake.CONTROL.cancel = None
+                    app.intake.CONTROL.budget = None
+                with lock:
+                    current = search_cache.get(cache_key)
+                    if current and current[1] is found:
+                        search_cache[cache_key] = (current[0], final, True)
+                        selected = selections.setdefault(owner, {})
+                        selected.update({r["id"]: r for r in final})
+                        selections[owner] = dict(list(selected.items())[-100:])
+            threading.Thread(target=enrich, daemon=True, name="search-enrichment").start()
+        return page(found, complete)
 
     def fetch_metadata(d, vid):
         if any(k in d for k in ("artist", "album", "track")):

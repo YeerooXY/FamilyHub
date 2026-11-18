@@ -298,7 +298,7 @@ else
     else if (view == "Search")
     {
         @if (!searching && searchResults.Count == 0) { <p class="note">@(query.Length == 0 ? "Search for a song or artist above." : "No search results.")</p> }
-        <div id="pick" class="search-workspace" aria-busy="@Aria(searching)"><span class="sr" role="status">@(searching ? "Searching" : "")</span><div class="search-loading song-placeholders" aria-hidden="true">@for (var i = 0; i < 5; i++) { <div class="song-placeholder"><span class="placeholder-cover"></span><span class="placeholder-text"><span></span><span></span></span><span class="placeholder-action"></span></div> }</div><div id="results" class="library-list unified-song-list search-results" tabindex="0" aria-label="Search results"><Virtualize Items="searchResults" Context="track" ItemSize="100" OverscanCount="3">@TrackRow(track, searchResults, false)</Virtualize>@if (nextSearchOffset is not null) { <div id="search-more-sentinel"><button id="search-more" class="quiet" @onclick="() => LoadMoreSearch(searchVersion)" aria-disabled="@Aria(loadingMore)">@(loadingMore ? "Loading more songs..." : moreSearchFailed ? "Retry loading songs" : "More songs")</button></div> }</div></div>
+        <div id="pick" class="search-workspace" aria-busy="@Aria(searching)"><span class="sr" role="status">@searchStatus</span><div class="search-loading song-placeholders" aria-hidden="true">@for (var i = 0; i < 5; i++) { <div class="song-placeholder"><span class="placeholder-cover"></span><span class="placeholder-text"><span></span><span></span></span><span class="placeholder-action"></span></div> }</div><div id="results" class="library-list unified-song-list search-results" tabindex="0" aria-label="Search results"><Virtualize Items="searchResults" Context="track" ItemSize="100" OverscanCount="3">@TrackRow(track, searchResults, false)</Virtualize>@if (nextSearchOffset is not null) { <div id="search-more-sentinel"><button id="search-more" class="quiet" @onclick="() => LoadMoreSearch(searchVersion)" aria-disabled="@Aria(loadingMore)">@(loadingMore ? "Loading more songs..." : moreSearchFailed ? "Retry loading songs" : "More songs")</button></div> }</div></div>
 
     }
     @if (recommendations is not null && view == "Similar songs")
@@ -681,6 +681,7 @@ else
         await Player.PlayAsync(tracks[0], tracks);
     });
     private bool busy, profileMenu, addingProfile, searching;
+    private string searchStatus = "";
     private CancellationTokenSource? searchCancellation;
     private int searchVersion;
     private int? nextSearchOffset;
@@ -949,7 +950,7 @@ else
     private void CancelSearch()
     {
         searchVersion++; searchCancellation?.Cancel(); searchCancellation?.Dispose();
-        searchCancellation = null; searching = false; loadingMore = false; nextSearchOffset = null; moreSearchFailed = false;
+        searchCancellation = null; searching = false; searchStatus = ""; loadingMore = false; nextSearchOffset = null; moreSearchFailed = false;
     }
     private async Task SearchInput(ChangeEventArgs args)
     {
@@ -972,13 +973,28 @@ else
     private async Task SearchResults(int version, CancellationToken cancellationToken, bool submitted = false)
     {
         if (version != searchVersion || cancellationToken.IsCancellationRequested) return;
-        RememberView("Search"); searching = true; error = null; recommendations = null;
+        RememberView("Search"); error = null; recommendations = null;
+        var searchQuery = query.Trim();
+        var words = searchQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        searchResults = Session.Library.Where(t => words.All(w =>
+            (t.Title + " " + t.Channel + " " + t.Artist).Contains(w, StringComparison.OrdinalIgnoreCase))).Take(8).ToList();
+        searching = searchResults.Count == 0; searchStatus = "Searching";
         await InvokeAsync(StateHasChanged);
         if (submitted) await JS.InvokeVoidAsync("familyhub.searchSubmitted");
         try
         {
-            var results = await Session.SearchPageAsync(query.Trim(), 0, cancellationToken);
-            if (version == searchVersion && !cancellationToken.IsCancellationRequested) { searchResults = results.Tracks; nextSearchOffset = results.NextOffset; }
+            SearchPage results;
+            do
+            {
+                results = await Session.SearchPageAsync(searchQuery, 0, cancellationToken);
+                if (version != searchVersion || cancellationToken.IsCancellationRequested) return;
+                SearchPage.AppendNew(searchResults, results.Tracks);
+                searching = searchResults.Count == 0 && !results.Complete;
+                nextSearchOffset = results.Complete ? results.NextOffset : null;
+                searchStatus = results.Complete ? $"{searchResults.Count} search results" : $"{searchResults.Count} results. Searching for more songs";
+                await InvokeAsync(StateHasChanged);
+                if (!results.Complete) await Task.Delay(500, cancellationToken);
+            } while (!results.Complete);
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) { if (version == searchVersion) error = exception.Message; }
@@ -994,8 +1010,7 @@ else
         {
             var page = await Session.SearchPageAsync(query.Trim(), offset, token);
             if (version != searchVersion || token.IsCancellationRequested) return;
-            var ids = searchResults.Select(t => t.Id).ToHashSet();
-            searchResults.AddRange(page.Tracks.Where(t => ids.Add(t.Id)));
+            SearchPage.AppendNew(searchResults, page.Tracks);
             nextSearchOffset = page.NextOffset > offset ? page.NextOffset : null;
         }
         catch (OperationCanceledException) { }

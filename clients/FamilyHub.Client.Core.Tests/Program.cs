@@ -8,6 +8,13 @@ using FamilyHub.Client.Core;
 var origin = new Uri("https://music.test:8444/");
 var checks = 0;
 void Check(bool value, string message) { if (!value) throw new Exception(message); checks++; }
+var shownSearch = new List<MusicTrack> { new() { Id = "first", Title = "First" } };
+var originalSearchRow = shownSearch[0];
+SearchPage.AppendNew(shownSearch, [new() { Id = "extra" }, new() { Id = "first" }, new() { Id = "extra" }]);
+Check(shownSearch.Select(t => t.Id).SequenceEqual(["first", "extra"]), "Search enrichment appends unique rows without reordering");
+Check(ReferenceEquals(shownSearch[0], originalSearchRow), "Search enrichment preserves existing row identity");
+Check(JsonSerializer.Deserialize<SearchPage>("{}")!.Complete, "Older search responses default to complete");
+Check(!JsonSerializer.Deserialize<SearchPage>("{\"complete\":false}")!.Complete, "Partial search response is recognized");
 var discordSnapshot = new DiscordSnapshot("Song", "Artist - Topic", "Album", "abcdefghijk", true, 12, 100, false);
 using (var activity = JsonDocument.Parse(JsonSerializer.Serialize(DiscordActivity.Build(discordSnapshot, 100000))))
 {

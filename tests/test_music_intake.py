@@ -417,6 +417,24 @@ class SearchRanking(unittest.TestCase):
         for title in ("Love Story", "Live Forever", "Cover Me", "The Story of Us"):
             self.assertEqual(mi.listening_rank(entry(1, title), title)[:3], (False, False, False))
 
+    def test_progressive_search_reuses_main_pool(self):
+        args = SimpleNamespace(query="fictional song", limit=30, offset=0, main_only=True)
+        with mock.patch.object(mi, "tool", return_value="yt-dlp"), mock.patch.object(mi, "run", side_effect=[
+            (0, json.dumps({"entries": [entry(1)]}).encode(), ""),
+            (0, json.dumps({"entries": [entry(2, channel="Artist - Topic")]}).encode(), "")
+        ]) as runner:
+            partial = mi.cmd_search(args)
+            self.assertFalse(partial["complete"])
+            self.assertEqual(runner.call_count, 1)
+            args.main_only = False
+            final = mi.cmd_search(args)
+            self.assertTrue(final["complete"])
+            self.assertEqual(len(final["results"]), 2)
+            self.assertEqual(runner.call_count, 2)
+            self.assertIn("Provided to YouTube", runner.call_args.args[0][-1])
+            self.assertEqual(mi.cmd_search(args), final)
+            self.assertEqual(runner.call_count, 2)
+
     def search(self, entries, *argv, rc=0, raw=None):
         out = raw if raw is not None else json.dumps({"entries": entries}).encode()
         with mock.patch.object(mi, "tool", return_value="yt-dlp"), \

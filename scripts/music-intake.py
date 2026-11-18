@@ -482,7 +482,7 @@ def youtube_run(command, timeout, what, want_stdout=False, caller="fetch", backg
         return result
 
 
-def search_entries(query, offset, caller, background):
+def search_entries(query, offset, caller, background, main_only=False):
     if background:
         with YOUTUBE.condition:
             while YOUTUBE.until > time.monotonic():
@@ -529,6 +529,8 @@ def search_entries(query, offset, caller, background):
             cached["depth"] = depth
         entries = list(cached["entries"][offset:depth])
         if not offset and listening_query(query) != query and sum(kind(e) == "topic" for e in entries if isinstance(e, dict)) < 3:
+            if cached["extra"] is None and main_only:
+                return entries, False
             if cached["extra"] is None:
                 try:
                     rc, out, _ = youtube_run([tool("yt-dlp"), "--ignore-config", "--flat-playlist", "--dump-single-json",
@@ -542,7 +544,7 @@ def search_entries(query, offset, caller, background):
                     if cancel and cancel.is_set():
                         raise IntakeError("search cancelled")
             entries.extend(cached["extra"] or [])
-        return entries
+        return entries, True
     finally:
         cached["busy"].release()
 
@@ -560,7 +562,7 @@ def cmd_search(args):
     background = getattr(args, "youtube_background", caller != "search")
     while True:
         try:
-            entries = search_entries(query, offset, caller, background)
+            entries, complete = search_entries(query, offset, caller, background, getattr(args, "main_only", False))
             break
         except YouTubeDeferred:
             continue
@@ -592,7 +594,7 @@ def cmd_search(args):
         weak_title_match = bool(terms) and len(terms & title_words) < min(2, len(terms))
         return (weak_title_match, *listening_rank(pair[0], query, artist_terms))
     found.sort(key=rank)  # Stable provider order within a tier.
-    return {"query": query, "results": [
+    return {"query": query, "complete": complete, "results": [
         {"id": e["id"], "url": WATCH + e["id"], "title": clip(e.get("title")),
          "channel": clip(e.get("channel") or e.get("uploader")), "duration": e.get("duration"), "kind": k}
         for e, k in found[:args.limit]]}
