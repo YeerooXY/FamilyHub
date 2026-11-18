@@ -81,7 +81,12 @@ public sealed class MusicSession
     private readonly string activityDevice = Guid.NewGuid().ToString("N");
     private ListeningJournal? listeningJournal;
     private MusicTrack? activityTrack;
-    public void ObserveListening(MusicTrack? track, int index, double position, bool playing) { activityTrack = track; listeningJournal?.Observe(track?.Id, index, position, playing); }
+    public void ObserveListening(MusicTrack? track, int index, double position, bool playing)
+    {
+        activityTrack = track;
+        if (!PlaybackPreferences.ListeningHistoryPaused) listeningJournal?.Observe(track?.Id, index, position, playing);
+        else listeningJournal?.InvalidateBaseline();
+    }
     public void InvalidateListeningBaseline() => listeningJournal?.InvalidateBaseline();
     public void FlushListening() => listeningJournal?.Flush();
     private DateTime lastActivity;
@@ -327,13 +332,16 @@ public sealed class MusicSession
 
     public void QueueListeningEvent(MusicTrack track, DateTimeOffset started, double seconds, double duration, double position, string outcome, string source, string owner)
     {
-        if (owner != HistoryOwner || string.IsNullOrEmpty(User) || PlaybackPreferences.ListeningHistoryPaused || !double.IsFinite(seconds) || !double.IsFinite(duration) || !double.IsFinite(position) || seconds <= 0 || duration <= 0 || duration > 86400) return;
+        if (owner != HistoryOwner || string.IsNullOrEmpty(User) || PlaybackPreferences.ListeningHistoryPaused || !double.IsFinite(seconds) || !double.IsFinite(duration) || !double.IsFinite(position) || (seconds <= 0 && outcome == "stopped") || duration <= 0 || duration > 86400) return;
+        static string Tag(string value) => string.Concat(value.Where(c => c >= ' ').Take(200)).Trim();
         lock (historyStorageLock)
         {
             var pending = ReadHistory<List<ListeningEvent>>(":pending", []);
             pending.Add(new() { RecordingId = track.Id, StartedAt = started, ListenedSeconds = Math.Clamp(seconds, 0, duration),
                 Duration = duration, Position = Math.Clamp(position, 0, duration), Outcome = outcome, Source = source,
-                DeviceKind = DeviceInfo.Current.Platform == DevicePlatform.WinUI ? "windows" : DeviceInfo.Current.Platform == DevicePlatform.Android ? "android" : "iphone" });
+                DeviceKind = DeviceInfo.Current.Platform == DevicePlatform.WinUI ? "windows" : DeviceInfo.Current.Platform == DevicePlatform.Android ? "android" : "iphone",
+                Track = new() { ["title"] = Tag(track.Title), ["channel"] = Tag(track.Channel),
+                    ["library_album"] = Tag(track.LibraryAlbum), ["genre"] = Tag(track.Genre) } });
             WriteHistory(":pending", pending.TakeLast(2000).ToList());
         }
         _ = SyncHistoryAsync();
@@ -633,6 +641,11 @@ public sealed class MusicSession
         try
         {
             if (string.IsNullOrEmpty(User)) return;
+            if (listeningHistoryPaused is { } paused && paused != PlaybackPreferences.ListeningHistoryPaused)
+            {
+                Preferences.Default.Set(HistoryKey + ":generation", Guid.NewGuid().ToString());
+                listeningJournal?.InvalidateBaseline();
+            }
             PlaybackPreferences = PlaybackPreferences with { ListeningHistoryPaused = listeningHistoryPaused ?? PlaybackPreferences.ListeningHistoryPaused, Volume = volume, Shuffle = shuffle, AutoDj = autoDj ?? PlaybackPreferences.AutoDj, RepeatMode = repeatMode ?? PlaybackPreferences.RepeatMode, CrossfadeSeconds = crossfadeSeconds ?? PlaybackPreferences.CrossfadeSeconds, VolumeLevel = volumeLevel ?? PlaybackPreferences.VolumeLevel };
             StorePreferences(PlaybackPreferences, true); Changed?.Invoke();
             if (!Connected || Api is null) return;

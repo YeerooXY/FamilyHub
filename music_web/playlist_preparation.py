@@ -80,7 +80,7 @@ class _PlaylistOperation:
                 raise
             return deepcopy(data["preparation"])
 
-    def start(self, user, pid, mode="download"):
+    def start(self, user, pid, mode="download", actor=None):
         if mode not in ("download", "match"):
             raise ValueError("Choose matching or downloading.")
         with self.lock:
@@ -88,6 +88,8 @@ class _PlaylistOperation:
             if self.active == (user, pid):
                 if mode == "download" and data["preparation"].get("mode") != "download":
                     data["preparation"]["download_after_matching"] = True
+                    if actor:
+                        data['preparation']['actor'] = actor
                     if data["preparation"]["state"] == "done":
                         data["preparation"].update(state="running", message="Starting server downloads")
                     self.store.save(user, data)
@@ -107,6 +109,7 @@ class _PlaylistOperation:
             data["preparation"] = ({**previous, "state": "running", "mode": mode, "message": "Resuming"}
                                    if resume else self._status(mode, len(data["tracks"])))
             data["preparation"]["playlist_revision"] = data["revision"]
+            data['preparation']['actor'] = actor or previous.get('actor') or user
             if (previous.get("append") and previous.get("playlist_revision") == data["revision"]
                     and (previous.get("state") == "paused" or mode == "download" and previous.get("mode") in ("import", "match"))):
                 first_index = previous.get("start_index", 0)
@@ -227,7 +230,8 @@ class _PlaylistOperation:
                         progress("Choose a recording", file_phase="error")
                         return track
                     callback = self.prepare if mode == "download" else self.match
-                    result = callback(user, track, progress)
+                    actor = (prior.get('actor') or user) if mode == 'download' else user
+                    result = callback(actor, track, progress)
                     if result is None:
                         track["state"] = "review"
                         if mode == "download": progress("Choose a recording", file_phase="error")
@@ -296,6 +300,7 @@ class _PlaylistOperation:
                             and data["preparation"].get("download_after_matching") is True):
                         data["preparation"] = {**self._status("download", len(data["tracks"]) - data["preparation"].get("start_index",0)),
                                                "automatic": data["preparation"].get("automatic",False),
+                                               "actor": data["preparation"].get("actor", user),
                                                "append": data["preparation"].get("append",False),
                                                "start_index": data["preparation"].get("start_index",0),
                                                "playlist_revision": data["revision"], "matched_only": True}
@@ -421,7 +426,7 @@ class PlaylistPreparation:
         if not self.is_active(user,pid) and sum(op.active is not None for op in self.operations.values()) >= self.MAX_ACTIVE:
             raise ValueError("Eight playlist operations are active. Pause one before starting another.")
 
-    def start(self,user,pid,mode="download"):
+    def start(self,user,pid,mode="download",actor=None):
         with self.lock:
             self._admit(user,pid)
             operation=self._operation(user,pid)
@@ -429,7 +434,7 @@ class PlaylistPreparation:
             if data.get("preparation", {}).get("append") and data["preparation"].get("phase") == "reading" and operation.active is None:
                 raise ValueError("Import the playlist link again to continue adding songs.")
             data["auto_download_paused"]=False; self.store.save(user,data)
-            result=operation.start(user,pid,mode); self.thread=operation.thread
+            result=operation.start(user,pid,mode,actor); self.thread=operation.thread
             return result
 
     def begin_import(self,user,pid,revision,provider,url,download=True,name=None,append=False,actor=None):
@@ -492,7 +497,7 @@ class PlaylistPreparation:
             selected=[]
             for _,(owner,pid),mode in sorted(candidates)[:limit]:
                 if not idle() or not self.allow_background(): break
-                self.start(owner,pid,mode)
+                self.start(owner,pid,mode,actor=owner)
                 operation=self._operation(owner,pid)
                 operation.update(owner,pid,automatic=True,matched_only=True,download_after_matching=mode=='match')
                 self.auto_served[(owner,pid)]=time.monotonic()

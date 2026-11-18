@@ -1,16 +1,21 @@
 """Store tests deliberately need only Python's standard library."""
-import importlib.util
+import importlib
+import json
+import sys
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import ModuleType
+from unittest import mock
 from uuid import uuid4
 
-spec = importlib.util.spec_from_file_location('listening_history_store', Path(__file__).resolve().parents[1] / 'music_web/listening_history.py')
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-ListeningHistory = module.ListeningHistory
+package = ModuleType('listening_test_store')
+package.__path__ = [str(Path(__file__).resolve().parents[1] / 'music_web')]
+sys.modules[package.__name__] = package
+ListeningHistory = importlib.import_module('.listening_history', package.__name__).ListeningHistory
+DeezerChart = importlib.import_module('.wrapped', package.__name__).DeezerChart
 
 
 class HistoryStoreTests(unittest.TestCase):
@@ -106,3 +111,64 @@ class HistoryStoreTests(unittest.TestCase):
         self.now = datetime(2027, 11, 19, tzinfo=timezone.utc)
         self.store.prune()
         self.assertEqual(self.store.path('alex').read_text(), '')
+
+    def test_wrapped_migrates_legacy_rows_recovers_a_write_and_survives_pruning(self):
+        path = self.store.path('alex')
+        path.parent.mkdir()
+        first = self.event(started_at='2025-12-31T23:00:00Z')
+        path.write_text(json.dumps(first) + '\n', encoding='utf-8')
+        track = dict(title='Song', channel='Artist', library_album='Album', genre='Pop')
+        store = ListeningHistory(self.tmp.name, utc=lambda: self.now,
+                                 track_metadata=lambda ids: {first['recording_id']: track})
+        night = self.event(started_at='2026-01-01T02:00:00Z', device_kind='android')
+        skip = self.event(started_at='2026-01-02T12:00:00Z', outcome='skipped', position=10, listened_seconds=10)
+        with mock.patch.object(store, '_rollup', side_effect=OSError('interrupted write')):
+            with self.assertRaises(OSError):
+                store.append('alex', [skip, night])
+        store = ListeningHistory(self.tmp.name, utc=lambda: self.now)
+        self.assertEqual(store.append('alex', [night])['added'], 0)
+        summary = store.wrapped('alex', 2026, {}, full=True)
+        self.assertEqual(summary['favourite_artist'], 'Artist')
+        self.assertEqual(summary['favourite_genre'], 'Pop')
+        self.assertEqual(summary['top_albums'][0]['name'], 'Album')
+        self.assertAlmostEqual(summary['total_minutes'], 110 / 60)
+        self.assertAlmostEqual(summary['monthly_minutes'][0], 110 / 60)
+        self.assertEqual(summary['top_hour'], 2)
+        self.assertEqual(summary['longest_streak_days'], 2)
+        self.assertEqual(summary['night_owl_share'], 1)
+        self.assertEqual(summary['devices']['phone']['plays'], 1)
+        self.assertEqual(summary['most_replayed_song']['replays'], 1)
+        self.assertEqual(summary['most_skipped_song']['skips'], 1)
+        self.assertEqual(summary['first_listened_per_artist'], {'Artist': '2025-12-31'})
+        self.assertEqual(next(e['position'] for e in store.events('alex') if e['outcome'] == 'skipped'), 10)
+        self.now += timedelta(days=400)
+        store.prune()
+        self.assertEqual(store.events('alex'), [])
+        self.assertEqual(store.wrapped('alex', 2026, {}, full=True), summary)
+        self.assertEqual(store.wrapped('alex', 2025, {})['total_minutes'], 100 / 60)
+        store.clear('alex')
+        self.assertEqual(store.wrapped('alex', 2026, {})['total_minutes'], 0)
+        self.assertFalse(path.with_suffix('.yearly.json').exists())
+
+    def test_chart_cache_baseline_later_entry_and_failed_refresh(self):
+        def chart(artist):
+            return {'artists': {'data': [{'name': artist}]},
+                    'tracks': {'data': [{'title': 'Song', 'artist': {'name': artist}}]}}
+
+        read = mock.Mock(side_effect=[chart('Other'), chart('Artist'), OSError('offline')])
+        cache = DeezerChart(self.tmp.name, lambda: self.now, read)
+        track = dict(title='Song', channel='Artist - Topic')
+        self.store.append('alex', [self.event(started_at='2026-11-10T00:00:00Z', track=track)])
+        first = cache.snapshot()
+        self.assertEqual(self.store.wrapped('alex', 2026, first)['mainstream_score'], 0)
+        self.now += timedelta(hours=23)
+        self.assertEqual(DeezerChart(self.tmp.name, lambda: self.now, read).snapshot(), first)
+        self.now += timedelta(hours=1)
+        second = cache.snapshot()
+        result = self.store.wrapped('alex', 2026, second)
+        self.assertEqual(result['mainstream_score'], 1)
+        self.assertEqual(result['early_listeners'], ['Artist - Topic'])
+        self.now += timedelta(days=1)
+        self.assertEqual(cache.snapshot()['day'], second['day'])
+        cache.snapshot()
+        self.assertEqual(read.call_args_list, [mock.call('chart?limit=50')] * 3)

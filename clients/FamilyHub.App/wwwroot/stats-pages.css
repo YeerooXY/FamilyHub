@@ -1,6 +1,24 @@
 /* Leaderboard and Server pages. Loaded last; the shared stats rules stay in server-stats.css. */
 
 /* Leaderboard */
+.lb-wrapped { display:grid; grid-column:1 / -1; gap:12px; min-width:0; }
+.lb-wrapped h2, .lb-wrapped-card h3 { margin:0; }
+.lb-wrapped h2 { font-size:18px; }
+.lb-wrapped-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,17.5rem),1fr)); gap:12px; }
+.lb-wrapped-grid:empty { display:none; }
+.lb-wrapped-card { min-width:0; padding:14px; }
+.lb-wrapped-card h3 { display:flex; align-items:center; gap:10px; font-size:1rem; overflow-wrap:anywhere; }
+.lb-wrapped-card dl { display:grid; gap:8px; margin:12px 0 0; }
+.lb-wrapped-card dl > div { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:center; gap:8px; }
+.lb-wrapped-card dt, .lb-early { display:flex; align-items:center; gap:7px; }
+.lb-wrapped-card dt, .lb-wrapped-help, .lb-wrapped-card dd small { color:var(--muted); }
+.lb-wrapped-card .music-icon { flex:none; width:16px; height:16px; }
+.lb-wrapped-card dd { margin:0; text-align:right; overflow-wrap:anywhere; font-weight:600; }
+.lb-wrapped-card dd small { display:block; font-weight:400; }
+.lb-early { margin:12px 0 0; overflow-wrap:anywhere; }
+.lb-wrapped-help { font-size:.875rem; }
+.lb-wrapped-help summary { cursor:pointer; min-height:28px; width:fit-content; }
+.lb-wrapped-help p { margin:6px 0 0; }
 .leaderboard-page { display:grid; grid-template-columns:minmax(0,1fr); gap:20px; width:100%; max-width:880px; margin-inline:auto; }
 .leaderboard-page .stats-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0; }
 .lb-periods { display:inline-flex; gap:4px; padding:4px; border-radius:24px; background:#ffffff0d; }

@@ -6,6 +6,7 @@ import secrets
 import math
 import time
 from pathlib import Path
+from datetime import datetime, timezone
 
 
 class ProfileError(ValueError):
@@ -91,6 +92,8 @@ class ProfileStore:
                 raise ProfileError("Volume must be between 0 and 1.")
             if "listening_history_paused" in changes and type(changes["listening_history_paused"]) is not bool:
                 raise ProfileError("Pause history must be true or false.")
+            if changes.get('listening_history_paused') is False and preferences['listening_history_paused']:
+                preferences['listening_history_resumed_at'] = datetime.fromtimestamp(self.clock(), timezone.utc).isoformat()
             if "shuffle" in changes and type(changes["shuffle"]) is not bool:
                 raise ProfileError("Shuffle must be true or false.")
             if "auto_dj" in changes and type(changes["auto_dj"]) is not bool:
