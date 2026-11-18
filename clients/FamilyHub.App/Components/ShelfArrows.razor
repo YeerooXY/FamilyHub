@@ -1,12 +1,15 @@
 @inject IJSRuntime JS
-@* Previous and next buttons for a sideways Home shelf; shown only with a mouse, where swiping is not available. *@
-<div class="shelf-arrows">
-    <button type="button" class="quiet shelf-arrow" data-shelf="@Target" data-dir="-1" aria-controls="@Target" aria-label="@($"Scroll {Label} back")" @onclick="() => Scroll(-1)"><MusicIcon Name="back" /></button>
-    <button type="button" class="quiet shelf-arrow" data-shelf="@Target" data-dir="1" aria-controls="@Target" aria-label="@($"Scroll {Label} forward")" @onclick="() => Scroll(1)"><MusicIcon Name="forward" /></button>
+@* A sideways Home shelf with round previous and next buttons over its cover row. They show with a
+   mouse on hover or keyboard focus, hide at either end, and are absent on touch screens. *@
+<div class="shelf-frame">
+    @ChildContent
+    <button type="button" class="shelf-arrow is-back is-end" data-shelf="@Target" data-dir="-1" aria-controls="@Target" aria-label="@($"Scroll {Label} back")" @onclick="() => Scroll(-1)"><MusicIcon Name="back" /></button>
+    <button type="button" class="shelf-arrow is-forward is-end" data-shelf="@Target" data-dir="1" aria-controls="@Target" aria-label="@($"Scroll {Label} forward")" @onclick="() => Scroll(1)"><MusicIcon Name="forward" /></button>
 </div>
 @code {
     [Parameter, EditorRequired] public string Target { get; set; } = "";
     [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
     private Task Scroll(int direction) => JS.InvokeVoidAsync("familyhub.scrollShelf", Target, direction).AsTask();
     protected override Task OnAfterRenderAsync(bool firstRender) => JS.InvokeVoidAsync("familyhub.watchShelf", Target).AsTask();
 }

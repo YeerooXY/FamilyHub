@@ -22,6 +22,8 @@ public sealed class MusicSession
     public ListenerPreferences PlaybackPreferences { get; private set; } = new();
     public bool Connected { get; private set; }
     public bool UiActive { get; set; } = true;
+    public int IdleHeartbeatSeconds { get; set; } = 5;
+    public bool HandoffPending { get; set; }
     public bool Ready { get; private set; }
     public string Message { get; private set; } = "";
     private List<MusicTrack> library = [];
@@ -105,6 +107,10 @@ public sealed class MusicSession
     private long? playbackEpoch, localPlaybackEpoch;
     private long queueRevision, sentQueueRevision;
     private string[] queueIds = [];
+    private IReadOnlyList<MusicTrack>? observedQueue;
+    private string[]? sentQueueIds;
+    private int sentQueueStart;
+    private bool compactQueue = true;
     private int activityQueueIndex = -1;
     private readonly HashSet<string> pendingAcks = [];
     public long PlaybackActivation { get; private set; }
@@ -140,11 +146,13 @@ public sealed class MusicSession
         string? status = null, double? duration = null, MusicTrack? track = null, IReadOnlyList<MusicTrack>? queue = null, int queueIndex = -1, bool force = false)
     {
         if (DateTime.UtcNow - lastHistorySync > TimeSpan.FromMinutes(1)) { lastHistorySync = DateTime.UtcNow; _ = SyncHistoryAsync(); }
-        if (queue is not null && (queueIndex != activityQueueIndex || !queue.Select(t => t.Id).SequenceEqual(queueIds)))
+        if (queue is not null)
         {
-            queueIds = queue.Select(t => t.Id).ToArray();
+            var idsChanged = !ReferenceEquals(queue, observedQueue) && !queue.Select(t => t.Id).SequenceEqual(queueIds);
+            observedQueue = queue;
+            if (idsChanged) queueIds = queue.Select(t => t.Id).ToArray();
+            if (idsChanged || activityQueueIndex != queueIndex) queueRevision++;
             activityQueueIndex = queueIndex;
-            queueRevision++;
         }
         return SendPlaybackActivityAsync(new(playing, position, followingHost, remoteDeviceId, background, status, duration, status is null ? activityTrack : track, force));
     }
@@ -152,7 +160,7 @@ public sealed class MusicSession
     private async Task SendPlaybackActivityAsync(Activity activity)
     {
         var api = Api;
-        if (!Connected || api is null) return;
+        if (!Connected || api is null || !UiActive && !activity.Playing && !HandoffPending) return;
         if (activityInFlight)
         {
             pendingActivity = activity with { Background = activity.Background && pendingActivity?.Background != false, Force = activity.Force || pendingActivity?.Force == true };
@@ -170,22 +178,35 @@ public sealed class MusicSession
         var sameApi = ReferenceEquals(api, lastActivityApi);
         var revision = queueRevision;
         // After a minute without a check-in the server discards the device and its queue.
-        var queueChanged = !sameApi || revision != sentQueueRevision || activityAt - lastActivity >= 60_000;
+        var needsFullQueue = !sameApi || activityAt - lastActivity >= 60_000 || sentQueueIds is null;
+        var queueChanged = needsFullQueue || revision != sentQueueRevision;
         var localPlay = activity.Playing && !activity.FollowingHost && activity.RemoteDeviceId.Length == 0 && activity.Status != "paused"
             && activation != 0 && activation != lastActivityActivation;
         var acks = pendingAcks.ToArray();
         // Allow timer jitter around five-second check-ins (server expiry is 15 seconds).
+        var interval = !activity.Playing && activity.Status != "buffering" && !HandoffPending
+            ? IdleHeartbeatSeconds : 5;
         if (!activity.Force && acks.Length == 0 && !queueChanged && !localPlay && trackId == lastActivityTrackId
             && activity.Playing == lastActivityPlaying && activity.Status == lastActivityStatus && activity.Duration == lastActivityDuration
-            && activity.FollowingHost == lastActivityFollowingHost && activity.RemoteDeviceId == lastActivityRemoteDevice && activityAt - lastActivity < 4800) return;
+            && activity.FollowingHost == lastActivityFollowingHost && activity.RemoteDeviceId == lastActivityRemoteDevice && activityAt - lastActivity < interval * 1000 - 200) return;
+        var ids = queueIds;
+        var start = 0;
+        int? compactIndex = null;
         PlaybackResume? snapshot = null;
         if (queueChanged && revision != 0 && activityQueueIndex >= 0 && activityQueueIndex < queueIds.Length)
         {
-            var start = Math.Min(activityQueueIndex, Math.Max(0, queueIds.Length - 1000));
-            snapshot = new() { TrackIds = queueIds.Skip(start).Take(1000).ToList(), Index = activityQueueIndex - start };
-            if (!snapshot.IsValid) snapshot = null;
+            // Keep the published 1000-track window until the playhead leaves it.
+            start = ReferenceEquals(sentQueueIds, ids) && activityQueueIndex >= sentQueueStart && activityQueueIndex < sentQueueStart + 1000
+                ? sentQueueStart : Math.Min(activityQueueIndex, Math.Max(0, ids.Length - 1000));
+            if (compactQueue && !needsFullQueue && ReferenceEquals(sentQueueIds, ids) && start == sentQueueStart)
+                compactIndex = activityQueueIndex - start;
+            else
+            {
+                snapshot = new() { TrackIds = ids.Skip(start).Take(1000).ToList(), Index = activityQueueIndex - start };
+                if (!snapshot.IsValid) snapshot = null;
+            }
         }
-        if (queueChanged && revision != 0) snapshot ??= new() { Index = -1 };
+        if (queueChanged && compactIndex is null && revision != 0) snapshot ??= new() { Index = -1 };
         activityInFlight = true;
         try
         {
@@ -194,7 +215,7 @@ public sealed class MusicSession
             var counters = journal?.Pending();
             var receipt = await api.ReportPlaybackActivityAsync(activityDevice, activity.Playing, timeout.Token, counters, journal?.DeviceId, activity.Track, DeviceName, DeviceKind,
                 activity.Position, activation, ++activitySequence, activity.FollowingHost, activity.RemoteDeviceId, activity.Background,
-                activity.Status, activity.Duration, snapshot, revision, localPlay ? localPlaybackEpoch : playbackEpoch, localPlay, acks);
+                activity.Status, activity.Duration, snapshot, revision, localPlay ? localPlaybackEpoch : playbackEpoch, localPlay, acks, compactIndex);
             if (receipt.CountersAccepted && journal is not null && counters is { Count: > 0 }) journal.Acknowledge(counters);
             if (profileVersion != accountVersion || !ReferenceEquals(api, Api)) return;
             var epoch = receipt.Epoch ?? receipt.Command?.Epoch;
@@ -205,7 +226,9 @@ public sealed class MusicSession
             if (localPlay) lastActivityActivation = activation;
             lastActivityStatus = activity.Status; lastActivityDuration = activity.Duration;
             lastActivityFollowingHost = activity.FollowingHost; lastActivityRemoteDevice = activity.RemoteDeviceId;
-            sentQueueRevision = serverRestarted && snapshot is null ? 0 : revision;
+            sentQueueRevision = revision;
+            sentQueueIds = serverRestarted ? null : ids;
+            if (queueChanged) sentQueueStart = start;
             if (receipt.Command is { } command) activationWatermark = Math.Max(activationWatermark, command.Activation);
             if (activation == PlaybackActivation && !activity.FollowingHost)
             {
@@ -214,6 +237,12 @@ public sealed class MusicSession
                 foreach (var control in receipt.Controls) if (controlsSeen.Add(control.Id)) RemoteControlReceived?.Invoke(control);
             }
             else if (activation != PlaybackActivation) PlaybackActivation = Math.Max(PlaybackActivation, activationWatermark + 1);
+        }
+        catch (FamilyHubApiException error) when (error.StatusCode == 400 && compactIndex is not null && ReferenceEquals(api, Api))
+        {
+            // Older servers require track_ids on index changes. Retry the latest check-in in full.
+            compactQueue = false;
+            pendingActivity ??= activity;
         }
         catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException or ObjectDisposedException) { }
         finally
@@ -272,7 +301,7 @@ public sealed class MusicSession
         #if IOS
         DownloadStorage.Configure(Offline.RootDirectory);
 #endif
-        accountVersion++; pendingActivity = null; TopListenerId = null; topListenerChecked = default;
+        accountVersion++; pendingActivity = null; compactQueue = true; sentQueueIds = null; observedQueue = null; TopListenerId = null; topListenerChecked = default;
         if (!sameAccount)
         {
             PlaybackActivation = 0; activationWatermark = 0; controlsSeen.Clear();

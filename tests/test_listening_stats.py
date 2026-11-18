@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 from music_web.listening_stats import ListeningStats, listening_records, longest_streak
 
 
@@ -116,6 +117,42 @@ class ListeningStatisticsTests(unittest.TestCase):
         self.assertEqual(sum(d['seconds'] for d in snapshot['daily']),120)
         self.assertEqual(snapshot['profiles'][0]['daily'],[dict(day='2026-10-05',seconds=90),dict(day='2026-11-14',seconds=30)])
         self.assertEqual(snapshot['profiles'][1]['daily'],[])
+
+    def test_journal_recovers_pending_counters_and_compacted_revisions(self):
+        device = 'a' * 32
+        first = dict(day='2026-11-14', seconds=30, plays=1)
+        latest = dict(first, seconds=60, plays=2)
+        self.stats.sync('alex', device, [first])
+        self.now += 5
+        self.stats.sync('alex', device, [latest])
+        self.assertEqual(json.loads(self.stats.path.read_text())['plays']['alex'], 1)
+        with self.stats.journal.open('ab') as journal:
+            journal.write(b'["interrupted append"')
+
+        restarted = ListeningStats(self.root.name, clock=lambda: self.now, utc=lambda: self.utc)
+        self.assertEqual(restarted.data, self.stats.data)
+        self.assertEqual(restarted.sync('alex', device, [latest]), dict(seconds=0, plays=0))
+        with mock.patch.object(Path, 'unlink', side_effect=OSError('cleanup interrupted')):
+            with self.assertLogs('music_web.listening_stats', level='ERROR'):
+                restarted.sync('alex', device, [dict(latest, seconds=75)])
+                restarted.clear('alex')
+        self.assertEqual(len(restarted.journal.read_text().splitlines()), 2)
+        reloaded = ListeningStats(self.root.name)
+        self.assertEqual(reloaded.data, restarted.data)
+        self.assertNotIn('alex', reloaded.data['counters'])
+
+    def test_idle_heartbeats_do_not_flush_another_players_elapsed_time(self):
+        self.stats.heartbeat('alex', 'active', True)
+        self.now += 5
+        self.stats.heartbeat('alex', 'active', True)
+        self.now += 5
+        self.stats.heartbeat('alex', 'active', True)
+        with mock.patch.object(self.stats, '_write', wraps=self.stats._write) as write:
+            self.stats.heartbeat('sam', 'idle', False)
+            write.assert_not_called()
+            self.stats.heartbeat('alex', 'active', False)
+            write.assert_called_once()
+        self.assertEqual(ListeningStats(self.root.name).data['daily']['alex']['2026-11-15'], 10)
 
     def test_empty_chart_covers_seven_days_across_month_boundary(self):
         self.utc = datetime(2026, 11, 1, tzinfo=timezone.utc)

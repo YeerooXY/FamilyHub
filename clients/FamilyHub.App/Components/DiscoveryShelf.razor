@@ -4,20 +4,27 @@
 @if (items.Count > 0)
 {
     <section class="home-section" aria-labelledby="discovery-title">
-        <div class="home-section-heading"><h2 id="discovery-title" tabindex="-1">New from artists you play</h2><ShelfArrows Target="discovery-shelf" Label="new releases" /></div>
-        <div class="home-shelf" id="discovery-shelf">
+        <div class="home-section-heading"><h2 id="discovery-title" tabindex="-1">New from artists you play</h2></div>
+        <ShelfArrows Target="discovery-shelf" Label="new releases"><div class="home-shelf" id="discovery-shelf">
             @foreach (var item in items)
             {
+                var cover = failedCovers.Contains(item.Id) ? null : item.CoverUrl;
                 <div class="home-card-holder discovery-card" @key="item.Id">
-                    <div class="home-card"><strong>@item.Title</strong><span>@item.Artist</span><span>@item.ReleaseDate</span>
-                        @if (!item.Seen) { <span>New</span> }
-                        @if (item.Stale) { <span>Cached</span> }
-                        <span>Deezer</span>
+                    <div class="home-card">
+                        <div class="discovery-art">
+                            <span class="cover discovery-cover" aria-hidden="true">
+                                <span class="discovery-cover-empty"><MusicIcon Name="music" /></span>
+                                @if (cover is not null) { <img src="@cover" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" @onerror="() => failedCovers.Add(item.Id)" /> }
+                            </span>
+                            <button id="@("discovery-play-" + item.Id)" class="discovery-play" aria-disabled="@(busy ? "true" : "false")" aria-label="Play @item.Title" title="Play" @onclick="() => Play(item)"><MusicIcon Name="play" /></button>
+                            <button id="@("discovery-dismiss-" + item.Id)" class="discovery-dismiss" aria-disabled="@(busy ? "true" : "false")" aria-label="Dismiss @item.Title" title="Dismiss" @onclick="() => Dismiss(item)"><MusicIcon Name="close" /></button>
+                        </div>
+                        <strong title="@item.Title">@item.Title</strong>
+                        <span>@(item.Seen ? item.Artist : "New · " + item.Artist)</span>
                     </div>
-                    <div class="actions"><button id="@("discovery-play-" + item.Id)" disabled="@busy" aria-label="Play @item.Title" @onclick="() => Play(item)">Play</button><button disabled="@busy" aria-label="Dismiss @item.Title" @onclick="() => Dismiss(item)">Dismiss</button></div>
                 </div>
             }
-        </div>
+        </div></ShelfArrows>
         <p role="status">@message</p>
         @if (choices.Count > 0)
         {
@@ -31,6 +38,7 @@
     [Parameter] public EventCallback<List<MusicTrack>> PlayTracks { get; set; }
     private List<DiscoveryItem> items = [];
     private List<MusicTrack> choices = [];
+    private readonly HashSet<string> failedCovers = [];
     private string message = "";
     private bool busy;
     private FamilyHubApi? loadedApi;
@@ -56,7 +64,14 @@
     {
         if (busy || Session.Api is null) return;
         busy = true;
-        try { await Session.Api.RequestJsonAsync<object>(HttpMethod.Post, "/api/discovery/" + item.Id + "/state", new { state = "dismissed" }); items.Remove(item); await InvokeAsync(StateHasChanged); await JS.InvokeVoidAsync("familyhub.focus", items.Count > 0 ? "discovery-title" : "view-title"); }
+        try
+        {
+            await Session.Api.RequestJsonAsync<object>(HttpMethod.Post, "/api/discovery/" + item.Id + "/state", new { state = "dismissed" });
+            var at = items.IndexOf(item); items.Remove(item); await InvokeAsync(StateHasChanged);
+            // Focus stays in the shelf: the card that took the dismissed one's place, else the heading of Home.
+            var next = items.Count == 0 ? null : items[Math.Clamp(at, 0, items.Count - 1)];
+            await JS.InvokeVoidAsync("familyhub.focus", next is null ? "view-title" : "discovery-play-" + next.Id);
+        }
         catch (Exception e) when (e is not OperationCanceledException) { message = "The release could not be dismissed. Try again."; }
         finally { busy = false; }
     }

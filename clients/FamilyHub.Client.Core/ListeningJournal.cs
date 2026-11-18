@@ -53,6 +53,7 @@ public sealed record PlaybackDevice
     [JsonPropertyName("position")] public double? Position { get; init; }
     /// <summary>Seconds since the device last checked in.</summary>
     [JsonPropertyName("age")] public double Age { get; init; }
+    [JsonPropertyName("active")] public bool? Active { get; init; }
     [JsonPropertyName("this")] public bool This { get; init; }
     [JsonIgnore] public bool IsPlaying => Status is null ? Playing : Status == "playing";
 

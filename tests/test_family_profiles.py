@@ -1,5 +1,7 @@
 """Passwordless profiles are available only on an explicitly enabled family server."""
+import json
 import unittest
+from unittest import mock
 
 from test_music_web import Base, ORIGIN
 from music_web import create_app
@@ -134,6 +136,20 @@ class FamilyProfiles(Base):
         self.restart()
         client, _ = self.select()
         self.assertEqual(self.go(client, 'GET', '/api/profile/preferences').json['preferences'], {'volume': .35, 'shuffle': True, 'auto_dj': True, 'crossfade_seconds': 6, 'volume_level': 'normal', 'spotify_subscribed': None, 'repeat_mode': 'off', 'listening_history_paused': False})
+
+    def test_profile_cache_reuses_parse_and_detects_replacement(self):
+        user = 'sample-a'
+        store = ProfileStore(self.ws, [])
+        with mock.patch('music_web.profiles.json.loads', wraps=json.loads) as loads:
+            self.assertEqual(store.get(user)['name'], user)
+            self.assertFalse(store.preferences(user)['listening_history_paused'])
+            store.read()['profiles'][0]['name'] = 'Unsaved'
+            self.assertEqual(store.get(user)['name'], user)
+            loads.assert_called_once()
+        ProfileStore(self.ws, []).preferences(user, {'listening_history_paused': True})
+        self.assertTrue(store.preferences(user)['listening_history_paused'])
+        store.preferences(user, {'listening_history_paused': False})
+        self.assertFalse(store.preferences(user)['listening_history_paused'])
 
     def test_volume_levels_are_saved_per_profile(self):
         client, token = self.select()

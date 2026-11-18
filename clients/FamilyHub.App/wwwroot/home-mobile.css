@@ -12,13 +12,27 @@
 .home-section h2 { margin:0 0 12px; font-size:20px; font-weight:700; }
 .home-section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
 .home-section-heading h2 { margin:0; }
-/* Arrows only with a mouse and only when the shelf overflows; touch users swipe. */
-.shelf-arrows { display:none; gap:6px; }
-@media (hover:hover) and (pointer:fine) { .home-section.has-overflow .shelf-arrows { display:flex; } }
-.shelf-arrow { display:inline-grid; place-items:center; width:36px; height:36px; padding:0; border-radius:50%; color:var(--ink); background:rgb(255 255 255 / .08); transition:background-color .15s ease-out,opacity .15s ease-out; }
-.shelf-arrow:hover { background:rgb(255 255 255 / .16); }
-.shelf-arrow[aria-disabled=true] { opacity:.35; cursor:default; }
+/* Shelf arrows, measured from Spotify at 1x: a 32 px #1f1f1f circle with a 16 px white chevron, over
+   the shelf's left and right edges and centred on the cover row (card padding 10 px + half of a
+   160 px cover = 90 px down). They show on shelf hover or keyboard focus, never at either end, and
+   only with a mouse: touch users swipe. */
+.shelf-frame { position:relative; min-width:0; }
+.shelf-arrow { position:absolute; top:calc(var(--shelf-cover-centre,90px) - 16px); z-index:2; display:none; place-items:center; width:32px; height:32px; min-height:32px; padding:0; border:0; border-radius:50%;
+  color:#fff; background:#1f1f1f; box-shadow:0 4px 12px #0007; opacity:0; transition:opacity .2s ease,background-color .15s ease; }
+.shelf-arrow.is-back { left:8px; }
+.shelf-arrow.is-forward { right:8px; }
 .shelf-arrow .icon { width:16px; height:16px; }
+.shelf-arrow:hover { background:#2a2a2a; }
+.shelf-arrow:hover,.shelf-arrow:active { transform:none!important; filter:none; }
+.shelf-arrow:focus-visible { outline:2px solid #fff; outline-offset:2px; }
+.shelf-arrow.is-end { visibility:hidden; }
+@media (hover:hover) and (pointer:fine) {
+ .shelf-arrow { display:grid; }
+ .shelf-frame:hover .shelf-arrow,.shelf-frame:focus-within .shelf-arrow { opacity:1; }
+}
+@media(max-width:720px) { .shelf-frame { --shelf-cover-centre:74px; } }
+@media(max-width:360px) { .shelf-frame { --shelf-cover-centre:66px; } }
+.home-shelf:focus-visible { outline:2px solid var(--focus,var(--accent-blue)); outline-offset:2px; border-radius:8px; }
 @media(prefers-reduced-motion:reduce) { .shelf-arrow { transition:none; } }
 .home-shortcuts { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; }
 .home-shortcut { display:flex; align-items:center; gap:12px; min-height:56px; padding:0 12px 0 0; border:0; border-radius:6px; overflow:hidden; text-align:left; font-size:13px; font-weight:700; color:var(--ink); background:#ffffff14; transition:background-color .18s ease; }
@@ -343,11 +357,35 @@ body.native-hidden *,body.native-hidden *::before,body.native-hidden *::after { 
 .report-status { margin:14px 0 0; color:var(--muted); }
 
 /* Cached release metadata and explicit server-library saves. */
-.discovery-card { display:flex; flex-direction:column; }
-.discovery-card .home-card { flex:1; }
-.discovery-card .home-card strong,.discovery-card .home-card span { white-space:normal; overflow-wrap:anywhere; }
-.discovery-card .actions { display:flex; flex-wrap:wrap; gap:6px; padding:10px; }
-.discovery-card .actions button { flex:1; min-height:44px; padding:8px; }
+/* New releases: the same card as the other shelves. Square cover (the release's, else a music note on
+   #282828), bold two-line title, muted artist. Play is Spotify's 48 px #1ed760 circle at the cover's
+   bottom-right, 8 px in, shown on hover or focus (always on touch); Dismiss is a quiet 28 px circle
+   at the top-right. */
+.discovery-card .home-card:hover { background:#ffffff0f; }
+.discovery-card .home-card:active { transform:none; }
+.discovery-art { position:relative; margin-bottom:4px; }
+.discovery-cover { width:100%; height:auto; aspect-ratio:1; border-radius:8px; background:#282828; box-shadow:0 8px 20px #0005; }
+.discovery-cover-empty { display:grid; place-items:center; width:100%; height:100%; color:#b3b3b3; }
+.discovery-cover-empty .icon { width:38%; height:38%; }
+.discovery-card .home-card strong { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; white-space:normal; overflow-wrap:anywhere; line-height:1.35; }
+.discovery-play,.discovery-dismiss { position:absolute; display:grid; place-items:center; padding:0; border:0; border-radius:50%; opacity:0; transition:opacity .2s ease,transform .2s ease,background-color .15s ease; }
+.discovery-play { right:8px; bottom:8px; width:48px; height:48px; min-height:48px; color:#000; background:#1ed760; box-shadow:0 8px 8px #0000004d; transform:translateY(8px); }
+.discovery-play .icon { width:24px; height:24px; }
+.discovery-play:hover:not([aria-disabled=true]) { background:#3be477; filter:none; }
+.discovery-dismiss { top:6px; right:6px; width:28px; height:28px; min-height:28px; color:#fff; background:#000000b3; }
+.discovery-dismiss .icon { width:14px; height:14px; }
+.discovery-dismiss:hover:not([aria-disabled=true]) { background:#000000e0; filter:none; }
+.discovery-card:hover :is(.discovery-play,.discovery-dismiss),.discovery-card:focus-within :is(.discovery-play,.discovery-dismiss) { opacity:1; transform:none; }
+.discovery-play:focus-visible,.discovery-dismiss:focus-visible { opacity:1; transform:none; outline:2px solid #fff; outline-offset:2px; }
+@media(hover:none),(pointer:coarse) {
+ .discovery-play,.discovery-dismiss { opacity:1; transform:none; }
+ .discovery-play { width:44px; height:44px; min-height:44px; }
+ /* A 44 px touch target around the 28 px circle. */
+ .discovery-dismiss { top:0; right:0; width:44px; height:44px; min-height:44px; background:transparent; }
+ .discovery-dismiss::before { content:""; position:absolute; inset:8px; border-radius:50%; background:#000000b3; }
+ .discovery-dismiss .icon { position:relative; }
+}
+@media(prefers-reduced-motion:reduce) { .discovery-play,.discovery-dismiss { transition:none; transform:none; } }
 .library-additions { max-width:720px; margin-bottom:16px; padding:0 14px; }
 .library-additions summary { cursor:pointer; min-height:44px; padding-block:10px; }
 .library-additions summary .music-admin-count { margin-inline-start:6px; }

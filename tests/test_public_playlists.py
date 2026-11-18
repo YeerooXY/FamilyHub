@@ -84,7 +84,7 @@ class PublicPlaylists(unittest.TestCase):
         with self.assertRaisesRegex(PlaylistError, '429'):
             read_pages(PID, fetch)
 
-    def test_reimport_refreshes_order_and_preserves_occurrence_state(self):
+    def test_reimport_refreshes_order_and_keeps_a_repeated_song_once(self):
         with tempfile.TemporaryDirectory() as folder:
             store = PlaylistStore(folder)
             old, _ = self.reader([row(1), row(1)])
@@ -93,9 +93,9 @@ class PublicPlaylists(unittest.TestCase):
             store.save('user', old)
             fresh, _ = self.reader([row(2), row(1), row(1), row(3)])
             result = store.import_playlist('user', copy.deepcopy(fresh))
-            self.assertEqual([t['title'] for t in result['tracks']], ['Track 2', 'Track 1', 'Track 1', 'Track 3'])
-            self.assertEqual([t['state'] for t in result['tracks']], ['unmatched', 'saved', 'ready', 'unmatched'])
-            self.assertEqual(result['tracks'][2]['job_id'], 'second')
+            self.assertEqual([t['title'] for t in result['tracks']], ['Track 2', 'Track 1', 'Track 3'])
+            self.assertEqual([t['state'] for t in result['tracks']], ['unmatched', 'saved', 'unmatched'])
+            self.assertEqual(result['tracks'][1]['job_id'], 'first')
             self.assertEqual(store.read('user', PID), result)
             self.assertEqual(store.list('other'), [])
 

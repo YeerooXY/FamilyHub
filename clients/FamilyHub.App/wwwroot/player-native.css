@@ -97,31 +97,121 @@
 @media(prefers-reduced-motion:reduce) { .transport-buttons button,.header-icon,.row-action,.nav-button,#mute-toggle,#recommend-similar { transition:none; } .transport-buttons button:active,.header-icon:active,.row-action:active,.nav-button:active,#mute-toggle:active,#recommend-similar:active { transform:none!important; } }
 
 #connect-device { display:grid; place-items:center; width:44px; height:44px; min-width:44px; padding:10px; }
-.audio-output-option { display:flex; align-items:center; gap:12px; width:100%; min-height:48px; text-align:left; padding:12px; border-radius:10px; background:transparent; border:0; }
-.audio-output-option:hover,.audio-output-option:focus-visible { background:#ffffff0a; }
-.audio-output-option[aria-pressed=true] { color:var(--accent-blue); }
-.audio-output-option .icon { width:20px; height:20px; flex-shrink:0; }
-/* Connect to a device: other open apps first, then this device's speakers. */
-.connect-device-dialog { width:min(400px,calc(100vw - 32px)); }
-.connect-section { display:grid; gap:2px; margin-top:16px; }
-.connect-section h3 { margin:0 0 6px; font-size:13px; font-weight:700; color:var(--muted); }
-.device-option { display:flex; align-items:center; gap:14px; width:100%; min-height:60px; padding:10px 12px; border:0; border-radius:10px; text-align:left; color:var(--ink); background:transparent; }
-button.device-option:hover:not([aria-disabled=true]),button.device-option:focus-visible { background:#ffffff0d; }
-.device-option.is-active { color:#56d58e; }
-.device-icon { display:grid; place-items:center; width:40px; height:40px; flex-shrink:0; border-radius:8px; background:#ffffff0d; }
-.device-icon .icon { width:22px; height:22px; }
-.device-text { display:grid; gap:3px; min-width:0; flex:1; }
+/* Connect, measured from Spotify (desktop panel at 1x; phone sheet at 2.625x, divided down to CSS px).
+   Desktop: 282 px panel, #121212, radius 8; 64 px header with a 16 px bold title; the current device
+   in a 64 px #1f1f1f row (radius 8, 8 px side inset) with a green 24 px icon and green label; other
+   devices in 56 px rows with 24 px icons and bold 16 px names; 56 px help rows at the bottom.
+   Phone: #1f1f1f sheet, radius 18, 40x4 handle; 24 px bold title; the current device in a #2a2a2a
+   card (radius 16, 9 px inset) with a 28 px bold name, green 16 px song line and a 14 px volume track;
+   64 px device rows with 18 px names; a 74 px #2a2a2a Bluetooth button (radius 4, 18 px inset). */
+#connect-device.is-remote { color:#1ed760; }
+.connect-panel { color:#fff; }
+.connect-panel[open] { position:fixed; inset:calc(var(--caption-height,64px) + 16px) 8px calc(var(--player-height) + 8px) auto; display:flex; width:282px; max-width:calc(100vw - 16px); height:auto; max-height:none; margin:0; padding:0; border:0; border-radius:8px; overflow-y:auto; overscroll-behavior:contain; background:#121212; box-shadow:0 16px 48px #000a; animation:connect-panel-in .2s cubic-bezier(.2,.8,.2,1); }
+@media(min-width:721px) { body:has(#device-strip) .connect-panel[open] { bottom:calc(var(--player-height) + 32px); } }
+.connect-panel::backdrop { background:transparent; }
+.connect-body { display:flex; flex-direction:column; flex:1; min-height:100%; padding-bottom:8px; }
+.connect-handle { display:none; }
+.connect-header { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:64px; padding:0 8px 0 16px; }
+.connect-header h2 { margin:0; font-size:16px; font-weight:700; line-height:1.25; }
+.connect-header button { display:grid; place-items:center; width:32px; height:32px; min-height:32px; padding:0; border:0; border-radius:50%; color:#b3b3b3; background:transparent; }
+.connect-header button:hover { color:#fff; background:#1f1f1f; }
+.connect-header button .icon { width:16px; height:16px; }
+.connect-devices,.connect-outputs { display:grid; gap:0; padding:0 8px; }
+.connect-current { display:grid; grid-template-columns:24px minmax(0,1fr); grid-template-areas:"icon text" "volume volume"; align-items:center; column-gap:16px; min-height:64px; padding:10px 16px; border-radius:8px; background:#1f1f1f; color:#1ed760; }
+.connect-current-icon { grid-area:icon; display:grid; place-items:center; color:#1ed760; }
+.connect-current-icon .icon { width:24px; height:24px; }
+.connect-current-text { grid-area:text; display:grid; gap:2px; min-width:0; }
+.connect-current-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:16px; font-weight:400; line-height:1.4; color:#1ed760; }
+.connect-current-song { display:flex; align-items:center; gap:6px; min-width:0; font-size:13px; color:#1ed760; }
+.connect-current-song>span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.connect-volume { grid-area:volume; display:grid; grid-template-columns:16px minmax(0,1fr) 16px; align-items:center; gap:12px; margin-top:10px; color:#b3b3b3; }
+.connect-volume .icon { width:16px; height:16px; }
+.connect-volume input[type=range] { appearance:none; -webkit-appearance:none; width:100%; height:24px; margin:0; padding:0; border:0; background:transparent; box-shadow:none; cursor:pointer; }
+.connect-volume input[type=range]::-webkit-slider-runnable-track { height:6px; border-radius:3px; background:linear-gradient(90deg,#1ed760 var(--volume-level),#404040 var(--volume-level)); }
+.connect-volume input[type=range]::-webkit-slider-thumb { appearance:none; -webkit-appearance:none; width:4px; height:14px; margin-top:-4px; border:0; border-radius:2px; background:#fff; }
+.connect-volume input[type=range]::-moz-range-track { height:6px; border-radius:3px; background:linear-gradient(90deg,#1ed760 var(--volume-level),#404040 var(--volume-level)); }
+.connect-volume input[type=range]::-moz-range-thumb { width:4px; height:14px; border:0; border-radius:2px; background:#fff; }
+.connect-volume input[type=range]:focus-visible { outline:2px solid #fff; outline-offset:2px; border-radius:4px; }
+.device-option { display:flex; align-items:center; gap:16px; width:100%; min-height:56px; padding:8px 16px; border:0; border-radius:8px; text-align:left; color:#fff; background:transparent; }
+button.device-option:hover:not([aria-disabled=true]),button.device-option:focus-visible { background:#1f1f1f; transform:none; }
+.device-option:focus-visible,.connect-help-row:focus-visible,.connect-bluetooth:focus-visible,.audio-output-option:focus-visible { outline:2px solid #fff; outline-offset:-2px; }
+.device-icon { display:grid; place-items:center; width:24px; height:24px; flex-shrink:0; }
+.device-icon .icon { width:24px; height:24px; }
+.device-text { display:grid; gap:2px; min-width:0; flex:1; }
 .device-text strong,.device-text small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.device-text strong { font-size:15px; }
-.device-text small { font-size:13px; color:var(--muted); }
-.device-option.is-active small { color:#56d58ecc; }
-.connect-empty { margin:4px 12px 0; font-size:13px; }
-.device-playing { display:flex; align-items:flex-end; gap:2px; height:14px; }
-.device-playing span { width:3px; height:100%; border-radius:1px; background:#56d58e; animation:device-eq 1s ease-in-out infinite; transform-origin:bottom; }
+.device-text strong { font-size:16px; font-weight:700; line-height:1.4; }
+.device-text small { font-size:13px; color:#b3b3b3; }
+.device-text small.is-playing { display:flex; align-items:center; gap:6px; color:#1ed760; }
+.device-text small.is-playing>span:last-child { overflow:hidden; text-overflow:ellipsis; }
+.connect-empty { margin:8px 16px 0; font-size:13px; line-height:1.5; color:#b3b3b3; }
+.connect-outputs { margin-top:16px; }
+.connect-outputs h3 { margin:0; padding:8px 16px; font-size:13px; font-weight:700; color:#b3b3b3; }
+.audio-output-option { display:flex; align-items:center; gap:16px; width:100%; min-height:48px; padding:8px 16px; border:0; border-radius:8px; text-align:left; font-size:14px; color:#fff; background:transparent; }
+.audio-output-option:hover { background:#1f1f1f; }
+.audio-output-option[aria-pressed=true] { color:#1ed760; }
+.audio-output-option .icon { width:24px; height:24px; flex-shrink:0; }
+.connect-error { margin:12px 24px 0; font-size:13px; line-height:1.5; color:#f3727f; }
+.connect-spacer { flex:1; min-height:24px; }
+.connect-help { display:grid; padding:0 8px; }
+.connect-help-row { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; min-height:56px; padding:0 12px; border:0; border-radius:8px; text-align:left; font-size:15px; font-weight:700; color:#fff; background:transparent; }
+.connect-help-row:hover { background:#1f1f1f; transform:none; }
+.connect-help-row .icon { width:16px; height:16px; flex-shrink:0; color:#b3b3b3; transition:transform .2s ease; }
+.connect-help-row[aria-expanded=true] .icon { transform:rotate(180deg); }
+.connect-help-text { margin:0 12px 8px; font-size:14px; line-height:1.5; color:#b3b3b3; }
+.connect-bluetooth { display:flex; align-items:center; gap:16px; margin:0 8px; min-height:56px; padding:0 12px; border:0; border-radius:8px; font-size:15px; font-weight:700; color:#fff; background:transparent; }
+.connect-bluetooth:hover { background:#1f1f1f; transform:none; }
+.connect-bluetooth .icon { width:24px; height:24px; flex-shrink:0; }
+.device-playing { display:flex; align-items:flex-end; gap:2px; width:13px; height:12px; flex-shrink:0; }
+.device-playing span { width:3px; height:100%; border-radius:1px; background:#1ed760; animation:device-eq 1s ease-in-out infinite; transform-origin:bottom; }
 .device-playing span:nth-child(2) { animation-delay:-.4s; }.device-playing span:nth-child(3) { animation-delay:-.7s; }
 @keyframes device-eq { 0%,100% { transform:scaleY(.35); } 50% { transform:scaleY(1); } }
-#connect-device.is-remote { color:#56d58e; }
-@media(prefers-reduced-motion:reduce) { .device-playing span { animation:none; } }
+@keyframes connect-panel-in { from { opacity:0; transform:translateX(16px); } }
+@keyframes connect-sheet-in { from { transform:translateY(100%); } }
+@media(max-width:720px) {
+ .connect-panel[open] { inset:auto 0 0 0; width:100%; max-width:100%; min-height:min(80dvh,640px); max-height:92dvh; border-radius:18px 18px 0 0; background:#1f1f1f; box-shadow:0 -12px 40px #000a; touch-action:pan-y; animation:connect-sheet-in .26s cubic-bezier(.2,.8,.2,1); }
+ .connect-panel::backdrop { background:#000a; }
+ .connect-body { padding-bottom:calc(16px + env(safe-area-inset-bottom)); }
+ .connect-handle { display:block; flex-shrink:0; width:40px; height:4px; margin:11px auto 0; border-radius:2px; background:#636363; }
+ .connect-header { min-height:56px; padding:0 12px 0 24px; }
+ .connect-header h2 { font-size:24px; }
+ .connect-header button { width:44px; height:44px; min-height:44px; }
+ .connect-header button .icon { width:20px; height:20px; }
+ .connect-devices,.connect-outputs,.connect-help { padding:0 9px; }
+ .connect-current { grid-template-columns:minmax(0,1fr) 56px; grid-template-areas:"text icon" "volume volume"; column-gap:12px; min-height:0; padding:22px 18px 18px; border-radius:16px; background:#2a2a2a; margin-bottom:8px; }
+ .connect-current-name { font-size:28px; font-weight:700; line-height:1.2; color:#fff; }
+ .connect-current-text { gap:8px; }
+ .connect-current-song { font-size:16px; gap:8px; }
+ .connect-current-song .device-playing { width:16px; height:16px; }
+ .connect-current-song .device-playing span { width:4px; }
+ .connect-current-icon { flex-direction:column; align-self:start; gap:6px; }
+ .connect-current-icon .icon { width:40px; height:40px; }
+ .connect-current-icon::after { content:""; width:56px; height:4px; border-radius:2px; background:#1ed760; }
+ .connect-volume { grid-template-columns:24px minmax(0,1fr) 24px; gap:16px; margin-top:24px; }
+ .connect-volume .icon { width:20px; height:20px; }
+ .connect-volume input[type=range] { height:44px; }
+ .connect-volume input[type=range]::-webkit-slider-runnable-track { height:14px; border-radius:7px; }
+ .connect-volume input[type=range]::-webkit-slider-thumb { width:4px; height:18px; margin-top:-2px; }
+ .connect-volume input[type=range]::-moz-range-track { height:14px; border-radius:7px; }
+ .connect-volume input[type=range]::-moz-range-thumb { height:18px; }
+ .device-option { min-height:64px; padding:8px 19px; gap:16px; }
+ .device-text strong { font-size:18px; font-weight:400; }
+ .device-text small { font-size:14px; }
+ .audio-output-option { min-height:56px; padding:8px 19px; font-size:16px; }
+ .connect-help-row { min-height:56px; padding:0 19px; font-size:16px; }
+ .connect-help-text { margin:0 19px 8px; }
+ .connect-bluetooth { flex-direction:column; justify-content:center; gap:8px; min-height:74px; margin:8px 18px 0; border-radius:4px; font-size:16px; font-weight:400; background:#2a2a2a; }
+ .connect-bluetooth:hover { background:#333; }
+}
+/* The dialog sits inside the player bar's tools: keep that bar's hover zoom, 24 px sheet icons and
+   110 px input cap from reaching the panel. */
+#audio-output-dialog button:hover,#audio-output-dialog button:active { transform:none; }
+#audio-output-dialog .connect-header button .icon,#audio-output-dialog .connect-help-row .icon { width:16px; height:16px; }
+#audio-output-dialog #connect-volume { max-width:none; }
+@media(max-width:720px) {
+ #audio-output-dialog .connect-header button .icon { width:20px; height:20px; }
+ #audio-output-dialog .connect-current-icon { display:flex; flex-direction:column; align-items:center; }
+}
+@media(prefers-reduced-motion:reduce) { .device-playing span { animation:none; } .connect-panel[open] { animation:none; } .connect-help-row .icon { transition:none; } }
 @media(max-width:720px) { .player-tools { width:148px; } .player-tools #mute-toggle { display:none; } .player-tools .app-update { display:none; } .player-bar:has(.local-pause-button) .player-tools { width:200px; } .player-bar:has(.local-pause-button) .now-playing-group { padding-right:208px; } }
 
 @media(min-width:901px) { .player-bar { grid-template-columns:minmax(180px,1fr) minmax(240px,2fr) minmax(300px,1fr); }.player-tools { max-width:360px; } }
@@ -173,23 +263,63 @@ button.device-option:hover:not([aria-disabled=true]),button.device-option:focus-
  .player-bar .player-tools-backdrop:hover,.player-bar .player-tools-backdrop:active { transform:none; }
 }
 
-/* Second mini player and "Listening on" strip (another device of this profile is playing). */
-.remote-mini { position:relative; display:flex; align-items:center; gap:4px; margin:0 8px 6px; padding:0 8px 0 0; overflow:hidden; border-radius:10px; background:color-mix(in srgb,#56d58e 22%,#1c1c1c); }
-.remote-mini-main { display:flex; align-items:center; gap:12px; flex:1; min-width:0; min-height:56px; padding:8px 8px 8px 12px; border:0; text-align:left; color:var(--ink); background:transparent; }
-.remote-mini-icon { display:grid; place-items:center; width:40px; height:40px; flex-shrink:0; border-radius:8px; color:#56d58e; background:#0000004d; }
-.remote-mini-icon .icon { width:22px; height:22px; }
+/* Music on another device of this profile. Spotify's desktop "Playing on" line, measured at 1x: a
+   24 px #1ed760 line flush under a 72 px player bar, the full window width, with a 16 px speaker icon
+   and 14 px bold black text right-aligned 16 px from the edge. On phones the same line is the last
+   row of the mini player card, above the tabs.
+   .device-strip: this device is the remote for the other one (its own player bar shows that song).
+   .remote-mini: the other device plays while this one is idle; it replaces the idle player bar. */
+.player-bar.is-remote-peek:not(.is-expanded) { display:none; }
+.device-strip,.remote-mini-line { display:flex; align-items:center; gap:8px; min-width:0; white-space:nowrap; }
+.device-strip>span,.remote-mini-line>span { overflow:hidden; text-overflow:ellipsis; }
+.device-strip .icon,.remote-mini-line .icon { width:16px; height:16px; flex-shrink:0; }
+.device-strip strong,.remote-mini-line strong { font-weight:700; }
+.remote-mini { position:relative; display:grid; min-width:0; overflow:hidden; }
+.remote-mini-main { grid-area:main; display:flex; align-items:center; gap:12px; min-width:0; min-height:0; border:0; border-radius:6px; text-align:left; color:#fff; background:transparent; }
+.remote-mini-main .cover { flex-shrink:0; }
 .remote-mini-copy { display:grid; gap:2px; min-width:0; }
 .remote-mini-copy strong,.remote-mini-copy small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.remote-mini-copy strong { font-size:14px; }
-.remote-mini-copy small { font-size:12px; color:#ffffffb8; }
-.remote-mini-device { color:#56d58e; font-weight:700; }
-.remote-mini-state { display:grid; place-items:center; width:44px; height:44px; flex-shrink:0; color:var(--ink); }
-.remote-mini-state .icon { width:22px; height:22px; }
-.remote-mini-progress { position:absolute; inset:auto 0 0 0; height:3px; background:#ffffff26; }
-.remote-mini-progress span { display:block; height:100%; background:var(--ink); }
+.remote-mini-copy small { color:#b3b3b3; }
+.remote-mini-toggle { grid-area:toggle; display:grid; place-items:center; padding:0; border:0; border-radius:50%; color:#000; background:#fff; }
+.remote-mini-toggle:hover:not([aria-disabled=true]) { background:#fff; transform:scale(1.04); }
+.remote-mini-line { grid-area:line; }
+.remote-mini-progress { position:absolute; inset:auto 0 0 0; height:3px; overflow:hidden; background:#ffffff26; }
+.remote-mini-progress span { display:block; height:100%; background:#fff; }
 .remote-mini-progress span.is-running { animation:remote-mini-fill var(--seconds) linear forwards; }
 @keyframes remote-mini-fill { from { width:calc(var(--from) * 1%); } to { width:100%; } }
-@media (prefers-reduced-motion:reduce) { .remote-mini-progress span.is-running { animation:none; } }
-.device-strip { display:flex; align-items:center; gap:8px; margin:0 8px; padding:4px 12px; font-size:12px; color:#56d58e; border-radius:8px 8px 0 0; background:#56d58e1f; }
-.device-strip .icon { width:16px; height:16px; }
-.device-strip strong { font-weight:700; }
+@media(min-width:721px) {
+ .device-strip,.remote-mini-line { justify-content:flex-end; height:24px; padding:0 16px; font-size:14px; font-weight:700; line-height:24px; color:#000; background:#1ed760; }
+ /* The strip takes its own row under the player bar; the main area gives up the 24 px. */
+ .device-strip { position:relative; z-index:4; grid-column:1 / -1; grid-row:4; margin:calc(-1 * var(--panel-gap,8px)) -8px 0; }
+ body:has(#device-strip) .lyrics-view { bottom:calc(var(--player-height) + 32px); }
+ .remote-mini { grid-area:player; z-index:4; grid-template-columns:minmax(180px,1fr) minmax(240px,2fr) minmax(180px,1fr); grid-template-rows:minmax(0,1fr) 24px;
+   grid-template-areas:"main toggle ." "line line line"; column-gap:16px; margin:0 -8px; background:var(--frame-bg,#07101f); }
+ .remote-mini-main { align-self:center; justify-self:start; max-width:100%; margin-left:8px; padding:8px; }
+ .remote-mini-main:hover:not([aria-disabled=true]) { background:#ffffff0f; }
+ .remote-mini-main .cover { width:56px; height:56px; border-radius:4px; }
+ .remote-mini-copy strong { font-size:14px; }
+ .remote-mini-copy small { font-size:12px; }
+ .remote-mini-toggle { align-self:start; justify-self:center; width:32px; height:32px; min-height:32px; margin-top:12px; }
+ .remote-mini-toggle .icon { width:16px; height:16px; }
+ /* Under the play button, like the player bar's seek line. */
+ .remote-mini-progress { grid-area:toggle; inset:auto 0 16px 0; width:94%; max-width:840px; height:4px; margin:0 auto; border-radius:2px; }
+}
+@media(max-width:720px) {
+ /* One card above the tabs: 72 px mini player row plus a 28-32 px device row. */
+ body:has(#device-strip) { --player-height:104px; }
+ body:has(#remote-now-playing) { --player-height:100px; }
+ .device-strip,.remote-mini-line { padding:0 14px; font-size:13px; color:#1ed760; }
+ .device-strip { grid-area:player; align-self:end; position:relative; z-index:3; height:32px; margin:0 8px; padding-bottom:4px; border-radius:0 0 10px 10px;
+   background:linear-gradient(90deg,color-mix(in oklch,var(--accent-blue) 22%,#1b1f29),#1b1f29); box-shadow:0 8px 24px #0008; }
+ body:has(#device-strip) .player-bar:not(.is-expanded) { align-self:start; border-radius:10px 10px 0 0; box-shadow:none; }
+ .remote-mini { grid-area:player; align-self:end; z-index:3; grid-template-columns:minmax(0,1fr) 56px; grid-template-rows:60px 28px; grid-template-areas:"main toggle" "line line";
+   margin:0 8px; padding:6px 0; border-radius:10px; background:linear-gradient(90deg,color-mix(in oklch,var(--accent-blue) 22%,#1b1f29),#1b1f29); box-shadow:0 8px 24px #0008; }
+ .remote-mini-main { padding:0 8px; }
+ .remote-mini-main .cover { width:44px; height:44px; border-radius:6px; }
+ .remote-mini-copy strong { font-size:13px; }
+ .remote-mini-copy small { font-size:12px; }
+ .remote-mini-toggle { align-self:center; justify-self:start; width:44px; height:44px; min-height:44px; }
+ .remote-mini-toggle .icon { width:22px; height:22px; }
+ .remote-mini-progress { height:2px; }
+}
+@media (prefers-reduced-motion:reduce) { .remote-mini-progress span.is-running { animation:none; } .remote-mini-toggle:hover:not([aria-disabled=true]) { transform:none; } }

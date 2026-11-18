@@ -10,7 +10,7 @@ internal sealed class MauiAudioDeck : IAudioDeck
     private readonly MediaElement media;
     private MediaSource? pendingSource;
     private readonly IDispatcherTimer positionTimer;
-    public double FastPositionWindow { get; set; } = 12;
+    public double FastPositionWindow { get; set; }
     public event Action? Changed;
     public event Action? Ended;
     public event Action<string>? Failed;

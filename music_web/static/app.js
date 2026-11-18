@@ -4,7 +4,8 @@ const $ = (id) => document.getElementById(id);
 const csrf = document.querySelector('meta[name="csrf-token"]').content;
 
 
-let timer = null;
+let jobTimer, pollingJobs = false, nextPreviewPoll = 0, handoff = null;
+const jobPollAfter = new WeakMap();
 let selectedSource = null;
 let seekingPointer = false;
 const songRecommendations = window.MusicRecommendations;
@@ -48,12 +49,38 @@ function musicIcon(path) {
   shape.setAttribute("d", path); svg.append(shape); return svg;
 }
 
+function playerIcon(name) {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("class", "icon player-icon");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS(ns, "use");
+  use.setAttribute("href", "/static/player-icons.svg#" + name);
+  svg.append(use);
+  return svg;
+}
+function displaySongTitle(title) {
+  return String(title || "").replace(/\s*[\[(](?:(?:official )?(?:music video|audio|video|lyrics?)|hd)[\])]/gi, "").trim() || title;
+}
+for (const box of document.querySelectorAll(".player-title")) {
+  const title = box.firstElementChild;
+  const observer = new ResizeObserver(() => {
+    const distance = title.offsetWidth - box.clientWidth;
+    box.classList.toggle("overflows", distance > 1);
+    box.style.setProperty("--title-offset", -distance + "px");
+    box.style.setProperty("--title-duration", Math.max(4, distance / 24) + "s");
+    box.title = title.textContent;
+  });
+  observer.observe(box);
+  observer.observe(title);
+}
 function cover(track) {
-  const node = el("span", {class:"cover", "aria-hidden":"true"});
-  node.textContent = (track?.title || "♫").slice(0, 1).toUpperCase();
+  const node = el("span", {class:"cover", "aria-hidden":"true"}, playerIcon("music"));
   const id = sourceKey(track);
-  if (/^[A-Za-z0-9_-]{11}$/.test(id || "")) {
-    const img = el("img", {src:"/api/artwork/" + encodeURIComponent(id), alt:"", loading:"lazy"});
+  const src = track?.cover_url || (/^[A-Za-z0-9_-]{11}$/.test(id || "") ? "/api/artwork/" + encodeURIComponent(id) : "");
+  if (src && src.startsWith("/api/")) {
+    const img = el("img", {src, alt:"", loading:"lazy"});
     img.addEventListener("error", () => img.remove(), {once:true});
     node.append(img);
   }
@@ -109,6 +136,7 @@ $("search-form").addEventListener("submit", async e => {
   e.preventDefault(); setView("search");
   const q = $("q").value.trim(), out = $("search-status");
   if(!q) { out.textContent = "Enter a song or artist."; $("q").focus(); return; }
+  if (e.submitter && matchMedia("(pointer: coarse)").matches) $("content").focus({preventScroll:true});
   const version = ++searchVersion;
   searchQuery = q; searchOffset = null; searchPreviewTracks = []; $("load-more-search").hidden = true;
   searchController?.abort(); searchController = new AbortController();
@@ -139,15 +167,15 @@ window.addEventListener("resize", scheduleVisiblePreviews);
 // ---- status ----
 function showJob(job) {
   statusJob = job;
-  rememberSaved(job); updateSongStates();
-  const active = job.state === "running" || job.state === "queued";
+  if (rememberSaved(job)) loadLibrary();
+  updateSongStates();
+  const active = unfinished(job);
   $("cancel").disabled = !active;
   $("retry").disabled = !(job.media_url || job.source_id);
   $("status").hidden = false;
   $("status-text").textContent = job.message;
   $("busy").hidden = !active;
   $("recovery").hidden = !["error", "cancelled"].includes(job.state);
-  if (job.state === "done") loadLibrary();
   const player = decks[deckIndex];
   configureAudio(player, job);
   if (job.media_url && player.dataset.mediaUrl !== job.media_url) {
@@ -158,25 +186,7 @@ function showJob(job) {
   }
 }
 
-function poll(id, fails, version = requestVersion) {
-  timer = setTimeout(async () => {
-    try {
-      const { job } = await api("/api/jobs/" + encodeURIComponent(id));
-      if (version !== requestVersion) return;
-      if (job.source_id) {
-        if (currentJob && currentJob.id !== id) return;
-        currentJob = job;
-      }
-      showJob(job);
-      if (job.state === "running" || job.state === "queued") poll(id, 0, version);
-    } catch (ex) {
-      if (version !== requestVersion) return;
-      if (ex.status === 404) showJob({ state: "error", message: "This import is no longer listed." });
-      else if (fails < 4 && version === requestVersion) poll(id, fails + 1, version);
-      else showJob({ state: "error", message: "Lost contact with the server. The import may still be running." });
-    }
-  }, currentJob?.media_url ? 2000 : 300);
-}
+const unfinished = job => job?.state === "running" || job?.state === "queued";
 
 // Stable decks: search, queue edits and status updates never replace an audio element.
 const decks = [$("preview-player"), $("next-player")];
@@ -190,7 +200,7 @@ try {
   const stored = JSON.parse(localStorage.getItem("music:last-track"));
   if (stored && typeof stored.title === "string" && typeof stored.channel === "string") recentSeed = stored;
 } catch { /* First visit or unavailable browser storage. */ }
-let masterGain = null, pauseVersion = 0;
+let masterGain = null, outputGain = null, pauseVersion = 0;
 let audioContext = null, gains = [], levels = [], nodes = [], blending = false, plan = null, planKey = "", planPending = false;
 let prepareVersion = 0;
 let blendVersion = 0;
@@ -206,12 +216,16 @@ function unlock() {
   if (!audioContext && AudioContext) {
     try {
       audioContext = new AudioContext();
-      masterGain = audioContext.createGain(); masterGain.connect(audioContext.destination);
+      masterGain = audioContext.createGain();
+      outputGain = audioContext.createGain();
+      outputGain.gain.value = Number($("volume").value);
+      masterGain.connect(outputGain).connect(audioContext.destination);
       decks.forEach((deck, i) => {
         const node = audioContext.createMediaElementSource(deck); nodes.push(node);
         const gain = audioContext.createGain(); gain.gain.value = i === deckIndex ? 1 : 0;
         const level = audioContext.createGain(); levels.push(level);
         node.connect(level).connect(gain).connect(masterGain); gains.push(gain);
+        deck.volume = 1;
       });
     } catch { $("mix-state").textContent = "Audio mixing is unavailable. Tracks play separately."; }
   }
@@ -290,7 +304,9 @@ function rememberSaved(job) {
 function updateSongStates() {
   const active = sourceKey(currentTrack), next = sourceKey(queue[0]);
   if (selectedSource === active) selectedSource = null;
-  document.querySelectorAll(".song-primary").forEach(button => {
+  const buttons = document.querySelectorAll(".song-primary");
+  document.body.classList.toggle("animate-song-rows", buttons.length <= 12);
+  buttons.forEach(button => {
     const source = button.dataset.source;
     const saved = savedSources.has(source) || pool.some(t => t.saved && sourceKey(t) === source);
     const job = currentJob?.source_id === source ? currentJob : prepared.get(source);
@@ -331,7 +347,9 @@ async function smoothPause() {
     masterGain.gain.linearRampToValueAtTime(0, now + .18);
     await new Promise(resolve => setTimeout(resolve, 190));
   }
-  if (version === pauseVersion) decks.forEach(deck => deck.pause());
+  if (version === pauseVersion) decks.forEach(deck => {
+    if (deck !== handoff?.stage?.player) deck.pause();
+  });
 }
 async function safePlay(player) {
   ++pauseVersion;
@@ -353,6 +371,7 @@ async function safePlay(player) {
 }
 decks.forEach((player) => {
   player.addEventListener("loadedmetadata", () => {
+    if (player === handoff?.stage?.player) return;
     if (player === decks[deckIndex] && startPosition !== null) startPlayback(player);
     else cueAudio(player);
   });
@@ -416,17 +435,17 @@ function playHere(local = true) {
   } else if (currentTrack) listen(currentTrack, true, "queue", local);
 }
 
-async function listen(track, keepQueue = false, context = "search", local = true, resume = null) {
+async function listen(track, keepQueue = false, context = "search", local = true) {
   const localEpoch = local ? playbackEpoch : null;
   selectedSource = sourceKey(track);
   updateSongStates();
   unlock();
-  if (!resume && queueIdentity(currentTrack) === queueIdentity(track) && currentJob?.media_url) { playHere(local); return; }
+  if (queueIdentity(currentTrack) === queueIdentity(track) && currentJob?.media_url) { playHere(local); return; }
   if (!keepQueue) recordSkip();
   const version = ++requestVersion;
-  const directUrl = (resume || !track.url) && track.download_url;
+  const directUrl = !track.url && track.download_url;
   const cached = directUrl ? null : preparedJob(track);
-  const loadedIndex = decks.findIndex(deck => cached?.media_url && deck.dataset.mediaUrl === cached.media_url && deck.readyState >= 2);
+  const loadedIndex = decks.findIndex(deck => deck !== handoff?.stage?.player && cached?.media_url && deck.dataset.mediaUrl === cached.media_url && deck.readyState >= 2);
   if (!keepQueue) {
     if (context !== "recommendations") {
       similarSeed = {...track}; recommendationSeed = ""; ++similarVersion;
@@ -439,7 +458,7 @@ async function listen(track, keepQueue = false, context = "search", local = true
     queue = [...new Map([...queue.filter(t => manualQueue.has(sourceKey(t))), ...tail].filter(t => sourceKey(t) !== sourceKey(track)).map(t => [sourceKey(t), t])).values()];
     for (const previous of list.slice(0, index)) heard.add(previous.url);
   }
-  if (!resume && currentTrack && loadedIndex >= 0 && loadedIndex !== deckIndex && !decks[deckIndex].paused && Number($("fade").value) > 0) {
+  if (currentTrack && loadedIndex >= 0 && loadedIndex !== deckIndex && !decks[deckIndex].paused && Number($("fade").value) > 0) {
     // A direct selection authorizes this incoming song even with discovery disabled.
     if (!keepQueue) manualQueue.add(sourceKey(track));
     ++blendVersion; blending = false;
@@ -448,18 +467,16 @@ async function listen(track, keepQueue = false, context = "search", local = true
     if (local) localPlayPending = localEpoch;
     renderQueue(); checkBlend(true); return;
   }
-  if (!decks[deckIndex].paused) {
-    if (resume) decks.forEach(deck => deck.pause());
-    else await smoothPause();
-  }
+  if (!decks[deckIndex].paused) await smoothPause();
   if (version !== requestVersion) return;
   localPlayPending = localEpoch;
-  wantPlayback = resume?.playing ?? true;
-  startPosition = resume?.position ?? null;
+  wantPlayback = true;
+  startPosition = null;
   ++blendVersion;
-  clearTimeout(timer); plan = null; planKey = ""; blending = false;
+  plan = null; planKey = ""; blending = false;
   if (loadedIndex >= 0) deckIndex = loadedIndex;
   decks.forEach((deck, i) => {
+    if (deck === handoff?.stage?.player) return;
     deck.pause(); deck.playbackRate = 1;
     if (gains[i]) { gains[i].gain.cancelScheduledValues(audioContext.currentTime); gains[i].gain.value = i === deckIndex ? 1 : 0; }
   });
@@ -469,7 +486,7 @@ async function listen(track, keepQueue = false, context = "search", local = true
     player.removeAttribute("src"); delete player.dataset.mediaUrl; player.load();
   }
   currentJob = cached?.media_url ? cached : null;
-  if (!resume && context !== "previous" && currentTrack && queueIdentity(currentTrack) !== queueIdentity(track)) history.push(currentTrack);
+  if (context !== "previous" && currentTrack && queueIdentity(currentTrack) !== queueIdentity(track)) history.push(currentTrack);
   currentTrack = track;
   stalled = false;
   updateNowPlaying();
@@ -487,23 +504,23 @@ async function listen(track, keepQueue = false, context = "search", local = true
     configureAudio(player, cached);
     if (loadedIndex < 0) loadPlayback(player, cached.media_url);
     else {
-      if (!resume) player.currentTime = cached.playback?.start || 0;
+      player.currentTime = cached.playback?.start || 0;
       startPlayback(player);
     }
   }
   $("status").hidden = false; $("status-text").textContent = "Preparing playback";
   try {
-    const { job } = await api("/api/jobs", { method: "POST", json: { ...track, allow_new: Boolean(resume) || !keepQueue || manualQueue.has(sourceKey(track)) || $("allow-new").checked, generation: Date.now() * 1000 + version } });
+    const { job } = await api("/api/jobs", { method: "POST", json: { ...track, allow_new: !keepQueue || manualQueue.has(sourceKey(track)) || $("allow-new").checked, generation: Date.now() * 1000 + version } });
     if (version !== requestVersion) return;
     currentJob = job; heard.add(track.url);
-    showJob(job); poll(job.id, 0);
-    if (!resume) await fillQueue();
+    showJob(job); scheduleJobs();
+    await fillQueue();
     if (version !== requestVersion) return;
     renderQueue(); prepare();
     return true;
   } catch (err) {
     if (version === requestVersion) {
-      $("status-text").textContent = resume ? "Could not load this recording. Use Retry playback." : err.message;
+      $("status-text").textContent = err.message;
       $("recovery").hidden = false;
       $("retry").disabled = false;
       return Boolean(cached?.media_url);
@@ -558,13 +575,19 @@ function renderQueue() {
 async function prepare() {
   const version = ++prepareVersion;
   const wanted = queue.slice(0, 6).map(t => ({...t, requested:manualQueue.has(sourceKey(t))}));
+  const previews = $("search-previews").checked ? searchPreviewTracks : [];
+  const sources = new Set([...wanted, ...previews].map(sourceKey));
+  for (const key of prepared.keys()) if (!sources.has(key)) prepared.delete(key);
   try {
     const { jobs } = await api("/api/queue", { method: "POST", json: {
-      tracks: wanted, previews: $("search-previews").checked ? searchPreviewTracks : [],
+      tracks: wanted, previews,
       allow_new: $("allow-new").checked, preload_search:$("search-previews").checked, generation: Date.now() * 1000 + version } });
     if (version !== prepareVersion) return;
     prepared = new Map(jobs.map((j) => [j.source_id, j]));
-    jobs.forEach(rememberSaved); updateSongStates();
+    if (jobs.map(rememberSaved).some(Boolean)) loadLibrary();
+    updateSongStates();
+    updateNext();
+    scheduleJobs();
     $("queue-state").textContent = jobs.length ? "Preparing next recording and up to five following recordings." : "Local mode prepares saved recordings only.";
     preload();
   } catch (err) { if (version === prepareVersion) $("queue-state").textContent = err.message; }
@@ -575,6 +598,7 @@ function transitionKey() {
   return `${currentJob?.id}/${upcoming()?.id}/${$("fade").value}/${$("dj").checked}/${Boolean(upcoming()?.analysis)}/${Boolean(currentJob?.analysis)}/${currentJob?.playback?.end}/${jobCue(upcoming())}`;
 }
 function preload() {
+  if (handoff?.stage) return;
   window.MusicPrefixCache?.warm([
     preparedJob(queue[0]),
     ...($("search-previews").checked ? searchPreviewTracks.map(preparedJob) : []),
@@ -603,16 +627,56 @@ function preload() {
     });
   }
 }
-setInterval(async () => {
-  if (!queue.length && !searchPreviewTracks.length) return;
+function scheduleJobs() {
+  clearTimeout(jobTimer);
+  if (document.hidden || pollingJobs) return;
+  const jobs = [handoff?.stage?.job, currentJob, ...prepared.values()].filter(unfinished);
+  if (!jobs.length) return;
+  const now = Date.now();
+  for (const job of jobs) {
+    if (!jobPollAfter.has(job)) jobPollAfter.set(job, now + jobPollDelay(job));
+  }
+  const due = job => job === currentJob || job === handoff?.stage?.job ? jobPollAfter.get(job) :
+    Math.max(jobPollAfter.get(job), nextPreviewPoll);
+  jobs.sort((a, b) => due(a) - due(b) || jobPollAfter.get(a) - jobPollAfter.get(b));
+  const next = jobs[0];
+  jobTimer = setTimeout(() => pollJob(next), Math.max(0, due(next) - now));
+}
+function jobPollDelay(job) {
+  return !job.media_url && (job === currentJob || job === handoff?.stage?.job) ? 300 : 2000;
+}
+async function pollJob(previous) {
+  if (document.hidden || pollingJobs) return;
+  const stage = handoff?.stage;
+  if (previous !== currentJob && previous !== stage?.job && previous !== prepared.get(previous.source_id)) {
+    scheduleJobs();
+    return;
+  }
+  pollingJobs = true;
+  if (previous !== currentJob && previous !== stage?.job) nextPreviewPoll = Date.now() + 2000;
   try {
-    const { jobs } = await api("/api/jobs");
-    if (jobs.map(rememberSaved).some(Boolean)) loadLibrary();
-    jobs.forEach((j) => { if (j.priority > 0) prepared.set(j.source_id, j); if (j.id === currentJob?.id) { currentJob = j; configureAudio(decks[deckIndex], j); } });
+    let job;
+    try { ({job} = await api("/api/jobs/" + encodeURIComponent(previous.id))); }
+    catch (error) { if (error.status !== 404) throw error; }
+    if (prepared.get(previous.source_id)?.id === previous.id) {
+      if (job) prepared.set(previous.source_id, job);
+      else prepared.delete(previous.source_id);
+    }
+    if (currentJob?.id === previous.id && unfinished(currentJob)) {
+      currentJob = job || {...currentJob, state:"error", message:"This import is no longer listed."};
+      showJob(currentJob);
+    }
+    if (stage && stage === handoff?.stage && stage.job?.id === previous.id) {
+      stage.job = job || {...previous, state:"error"};
+      loadHandoffMedia(stage);
+    }
+    if (rememberSaved(job)) loadLibrary();
     updateSongStates();
+    updateNext();
     preload();
-  } catch { /* current playback retains its source during a status outage */ }
-}, 2000);
+  } catch { jobPollAfter.set(previous, Date.now() + 2000); }
+  finally { pollingJobs = false; scheduleJobs(); }
+}
 
 function related(seed, candidates) {
   const artist = artistName(seed);
@@ -746,7 +810,7 @@ $("fade").addEventListener("input", () => { plan = null; planKey = ""; preload()
 
 async function checkBlend(manual = false) {
   const outgoing = decks[deckIndex], next = upcoming();
-  if (blending || (!manual && !$("autoplay").checked) || outgoing.paused || !plan?.fade || !next?.media_url || outgoing.currentTime < plan.out) return;
+  if (handoff?.stage || blending || (!manual && !$("autoplay").checked) || outgoing.paused || !plan?.fade || !next?.media_url || outgoing.currentTime < plan.out) return;
   if (gains.length !== 2 || audioContext?.state !== "running") {
     $("mix-state").textContent = "Mixing needs an active audio session. Use Play; tracks otherwise play separately.";
     return;
@@ -803,7 +867,7 @@ async function checkBlend(manual = false) {
     // Promote before queue reconciliation: otherwise removal from the queue can cancel the audible job.
     api("/api/jobs", { method: "POST", json: { ...currentTrack, allow_new: manualQueue.has(sourceKey(currentTrack)) || $("allow-new").checked } }).then(async ({job}) => {
       if (version !== requestVersion || currentJob?.id !== next.id) return;
-      currentJob = job; poll(job.id, 0, version);
+      currentJob = job; showJob(job); scheduleJobs();
       await fillQueue(); renderQueue(); prepare();
     }).catch((err) => { $("status-text").textContent = err.message; });
   }
@@ -843,6 +907,7 @@ function setView(view) {
   $("view-title").textContent = {library:"Library",search:"Search",queue:"Queue",settings:"Settings"}[view];
   if(moved) $(view === "queue" ? "queue-h" : "view-title").focus();
   if(changed) {
+    if (view === "library") loadLibrary();
     $("content").scrollTop = 0;
     document.querySelector(".workspace").scrollTop = 0;
   }
@@ -854,7 +919,7 @@ function setView(view) {
 for(const view of Object.keys(viewSections)) $("nav-"+view)?.addEventListener("click",()=>setView(view));
 $("find-music").addEventListener("click",()=>{setView("search");$("q").focus();});
 $("show-queue").addEventListener("click",()=>{renderQueue();setView("queue");$("content").scrollTop=0;$("queue-h").focus({preventScroll:true});});
-let libraryFingerprint = "";
+let libraryFingerprint = "", libraryDeferred = false, libraryVersion = 0;
 let libraryGenre = "", searchDirty = false;
 let genreOptions = [], genreAliases = new Map();
 const genreSearch = $("library-genre-search");
@@ -904,9 +969,14 @@ $("clear-library-genre").addEventListener("click", () => {
   chooseLibraryGenre("");
 });
 async function loadLibrary() {
+  const version = ++libraryVersion;
+  libraryDeferred = document.hidden;
+  if (libraryDeferred) return;
   $("library-error").textContent = "";
   try {
     const { results, genres = [], genre_keys = {} } = await api("/api/library?genre_filters=1");
+    if (version !== libraryVersion) return;
+    if (document.hidden) { libraryDeferred = true; return; }
     results.forEach(t => savedSources.add(sourceKey(t)));
     pool = [...new Map([...pool, ...results].map((r) => [sourceKey(r), r])).values()];
     const list = $("library-list"), active = document.activeElement;
@@ -929,6 +999,7 @@ async function loadLibrary() {
     filterLibrary();
     if (!currentTrack && !queue.length) { await fillQueue(); renderQueue(); prepare(); }
   } catch (err) {
+    if (version !== libraryVersion) return;
     $("library-count").textContent = "";
     $("library-error").textContent = err.message + " Use Refresh to try again.";
   }
@@ -962,9 +1033,9 @@ function updateNowPlaying() {
   updateSongStates();
   $("now-cover").replaceChildren(cover(currentTrack));
   $("rail-cover").replaceChildren(cover(currentTrack));
-  $("rail-title").textContent = currentTrack?.title || "Choose a song";
+  $("rail-title").textContent = displaySongTitle(currentTrack?.title) || "Choose a song";
   $("rail-artist").textContent = currentTrack?.channel || currentTrack?.artist || "";
-  $("now-title").textContent = currentTrack?.title || "Choose a song";
+  $("now-title").textContent = displaySongTitle(currentTrack?.title) || "Choose a song";
   $("now-artist").textContent = currentTrack?.channel || currentTrack?.artist || "";
   updateTransport();
   if ("mediaSession" in navigator && window.MediaMetadata && currentTrack) {
@@ -973,9 +1044,9 @@ function updateNowPlaying() {
 }
 function updateTransport() {
   const player = decks[deckIndex], total = currentJob?.playback?.duration || currentTrack?.duration || player.duration;
-  updateSongStates();
   if ($("play").dataset.paused !== String(player.paused)) {
-    $("play").replaceChildren(musicIcon(player.paused ? "M8 5l11 7-11 7z" : "M5 3h5v18H5zM14 3h5v18h-5z"));
+    updateSongStates();
+    $("play").replaceChildren(playerIcon(player.paused ? "play" : "pause"));
     $("play").dataset.paused = String(player.paused);
   }
   $("play").setAttribute("aria-label", player.paused ? "Play" : "Pause");
@@ -995,7 +1066,11 @@ for (const event of ["pointerup", "pointercancel"]) window.addEventListener(even
 });
 $("seek").addEventListener("blur", () => { seekingPointer = false; updateTransport(); });
 $("seek").addEventListener("input", () => { decks[deckIndex].currentTime = Number($("seek").value); });
-$("volume").addEventListener("input", () => { for (const deck of decks) deck.volume = Number($("volume").value); });
+$("volume").addEventListener("input", () => {
+  const value = Number($("volume").value);
+  if (outputGain) outputGain.gain.value = value;
+  decks.forEach((deck, i) => { if (!nodes[i]) deck.volume = value; });
+});
 function updateShuffle() { $("shuffle-toggle").setAttribute("aria-pressed", String($("queue-mode").value === "shuffle")); }
 $("shuffle-toggle").addEventListener("click", () => {
   $("queue-mode").value = $("queue-mode").value === "shuffle" ? "order" : "shuffle";
@@ -1032,7 +1107,6 @@ if ("mediaSession" in navigator) {
 }
 
 function updateNext() {
-  updateSongStates();
   const track = queue[0], job = preparedJob(track);
   $("next-title").textContent = track?.title || ($("autoplay").checked ? "No song queued" : "Autoplay is off");
   $("next-artist").textContent = track?.channel || track?.artist || "";
@@ -1043,9 +1117,10 @@ function updateNext() {
   $("next-readiness").textContent = !track ? "" : failedPreparation(job) ? "Preparation failed" : job?.media_url ? "Ready to play" : "Preparing audio";
   $("bar-next").textContent = track ? "Up next · " + track.title : "Up next · " + ($("autoplay").checked ? "No song queued" : "Autoplay off");
 }
-setInterval(updateNext, 1000);
-setInterval(()=>{if(!document.hidden) loadLibrary();}, 15000);
-document.addEventListener("visibilitychange",()=>{if(!document.hidden) loadLibrary();});
+document.addEventListener("visibilitychange", () => {
+  scheduleJobs();
+  if (!document.hidden && libraryDeferred) loadLibrary();
+});
 
 function closeProfile(restore=false) {
   $("profile-menu").hidden = true;
@@ -1135,7 +1210,8 @@ const [deviceKind, deviceName] = /iPad/.test(ua) || (/Macintosh/.test(ua) && nav
   : /Windows/.test(ua) ? ["windows", "Windows browser"]
   : /Macintosh/.test(ua) ? ["mac", "Mac browser"] : ["other", "Web browser"];
 const onlineSeconds = 15;
-let playbackEpoch = 0, sentQueueRev = 0, queueSignature = "", queueSnapshot = null;
+let playbackEpoch = 0, sentQueueRev = 0, sentQueueIds = null, queueSnapshot = null;
+let compactQueue = true, lastCheckIn = 0, lastReportedPlaying = false, reportHandoffResult = false, heartbeatTimer;
 let checkingIn = false, checkInQueued = false, localPlayPending = null, localPlay = null, stalled = false;
 let deviceReady = false, deviceRegistered = false, ownsPlayback = false, remoteOwner = null;
 const handledCommands = new Set(), pendingAcks = new Set();
@@ -1145,6 +1221,17 @@ function rememberPlaybackCommand(id) {
   if (handledCommands.size > 64) handledCommands.delete(handledCommands.values().next().value);
 }
 function queuePlaybackCheckIn() {
+  if (deviceReady) {
+    if (document.hidden && idleHere() && !handoff && !pendingAcks.size && !lastReportedPlaying && !reportHandoffResult) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+      return;
+    }
+    heartbeatTimer ??= setInterval(() => {
+      queuePlaybackCheckIn();
+      refreshRemotePlayback();
+    }, 5000);
+  }
   if (checkInQueued) return;
   checkInQueued = true;
   queueMicrotask(checkIn);
@@ -1156,40 +1243,47 @@ function markPlaybackStarted() {
 }
 function capturePlaybackQueue() {
   const currentId = sourceKey(currentTrack);
+  const after = [], before = [];
   if (!recordingId.test(currentId)) {
     if (!queueSnapshot?.track_ids.length) return;
     queueSnapshot = {track_ids:[], index:-1};
-    queueSignature = JSON.stringify(queueSnapshot);
-    ++queueRev;
-    return;
+  } else {
+    for (const track of queue) {
+      const id = sourceKey(track);
+      if (recordingId.test(id)) after.push(id);
+      if (after.length === 999) break;
+    }
+    for (let i = history.length - 1; i >= 0 && before.length + after.length < 999; i--) {
+      const id = sourceKey(history[i]);
+      if (recordingId.test(id)) before.push(id);
+    }
+    const ids = [...before.reverse(), currentId, ...after], previous = queueSnapshot?.track_ids;
+    const same = previous?.length === ids.length && ids.every((id, i) => id === previous[i]);
+    if (same && queueSnapshot.index === before.length) return;
+    queueSnapshot = {track_ids:same ? previous : ids, index:before.length};
   }
-  const after = queue.map(sourceKey).filter(id => recordingId.test(id)).slice(0, 999);
-  const before = history.slice(-999).map(sourceKey).filter(id => recordingId.test(id));
-  before.splice(0, Math.max(0, before.length + after.length - 999));
-  const snapshot = {track_ids:[...before, currentId, ...after], index:before.length};
-  const signature = JSON.stringify(snapshot);
-  if (signature === queueSignature) return;
-  queueSignature = signature;
-  queueSnapshot = snapshot;
   ++queueRev;
 }
 function playbackSnapshot() {
-  const player = decks[deckIndex], currentId = sourceKey(currentTrack);
+  const stage = handoff?.stage, player = stage?.player || decks[deckIndex];
+  const recording = stage ? (stage.loaded && stage.positioned && !player.seeking && player.readyState >= 2 ? stage.track : null) : currentTrack;
+  const currentId = sourceKey(recording);
   const status = player.paused || player.ended ? "paused"
-    : stalled || player.seeking || player.readyState < 3 ? "buffering" : "playing";
-  const total = currentJob?.playback?.duration || currentTrack?.duration || player.duration;
+    : (!stage && stalled) || player.seeking || player.readyState < 3 ? "buffering" : "playing";
+  const total = (stage ? stage.job : currentJob)?.playback?.duration || recording?.duration || player.duration;
   const clean = (value, limit) => String(value || "").replace(/[\x00-\x1f]/g, " ").slice(0, limit);
   const track = recordingId.test(currentId) ? {
-    id:currentId, title:clean(currentTrack.title, 500), channel:clean(currentTrack.channel || currentTrack.artist, 300)
+    id:currentId, title:clean(recording.title, 500), channel:clean(recording.channel || recording.artist, 300)
   } : null;
   return {
     device_id:deviceId, playing:status !== "paused", track,
-    position:track ? Math.min(86400, Math.max(0, startPosition ?? player.currentTime)) : null,
+    position:track ? Math.min(86400, Math.max(0, player.currentTime)) : null,
     device_info:{
       name:deviceName, kind:deviceKind, sequence:++sequence, epoch:localPlay ?? playbackEpoch,
-      local_play:localPlay !== null && status !== "paused", status, queue_rev:queueRev,
+      local_play:!handoff && localPlay !== null && status !== "paused", status, queue_rev:queueRev,
       ...(Number.isFinite(total) && total > 0 ? {duration:Math.min(86400, total)} : {}),
-      ...(queueSnapshot && queueRev !== sentQueueRev ? {queue:queueSnapshot} : {}),
+      ...(queueSnapshot && queueRev !== sentQueueRev ? {queue:compactQueue && sentQueueIds === queueSnapshot.track_ids
+        ? {index:queueSnapshot.index} : queueSnapshot} : {}),
       ...(pendingAcks.size ? {acks:[...pendingAcks]} : {})
     }
   };
@@ -1198,27 +1292,32 @@ async function checkIn() {
   if (!deviceReady || checkingIn || !checkInQueued) return;
   checkInQueued = false;
   checkingIn = true;
-  const json = playbackSnapshot(), info = json.device_info;
+  if (Date.now() - lastCheckIn > onlineSeconds * 1000) { sentQueueRev = 0; sentQueueIds = null; }
+  const snapshot = queueSnapshot, json = playbackSnapshot(), info = json.device_info;
+  const reportingResult = reportHandoffResult;
+  reportHandoffResult = false;
   localPlay = null;
   try { sessionStorage.setItem(deviceKey, JSON.stringify({id:deviceId, sequence, queueRev})); } catch {}
   try {
     const {epoch, command, controls} = await api("/api/playback/activity", {method:"POST", json});
+    lastCheckIn = Date.now();
+    lastReportedPlaying = json.playing;
     if (!deviceRegistered) {
       deviceRegistered = true;
       renderRemotePlayback();
     }
     const restarted = Number.isSafeInteger(epoch) && epoch < playbackEpoch;
     if (Number.isSafeInteger(epoch)) playbackEpoch = epoch;
-    if (info.queue) sentQueueRev = info.queue_rev;
-    if (restarted) { sentQueueRev = 0; ownsPlayback = false; checkInQueued = true; }
-    if (info.local_play && Number.isSafeInteger(epoch) && epoch > info.epoch && !command) {
+    if (info.queue) { sentQueueRev = info.queue_rev; sentQueueIds = snapshot.track_ids; }
+    if (restarted) { sentQueueRev = 0; sentQueueIds = null; ownsPlayback = false; checkInQueued = true; }
+    if (!handoff && info.local_play && Number.isSafeInteger(epoch) && epoch > info.epoch && !command) {
       ownsPlayback = true;
       remoteOwner = null;
-    } else if (command?.action === "pause" || (Number.isSafeInteger(epoch) && epoch > info.epoch && !command)) {
+    } else if (!handoff && (command?.action === "pause" || (Number.isSafeInteger(epoch) && epoch > info.epoch && !command))) {
       ownsPlayback = false;
     }
     for (const id of info.acks || []) pendingAcks.delete(id);
-    if (command?.action === "pause") {
+    if (command?.action === "pause" && !handoff) {
       const retained = command.id && !command.id.startsWith("active-");
       if (!retained || !handledCommands.has(command.id)) {
         applyPlaybackPause(command);
@@ -1235,7 +1334,12 @@ async function checkIn() {
       await applyPlaybackControl(control);
       checkInQueued = true;
     }
-  } catch {
+  } catch (error) {
+    if (reportingResult) reportHandoffResult = true;
+    if (info.queue && !info.queue.track_ids && error.status === 400) {
+      compactQueue = false;
+      checkInQueued = true;
+    }
     if (info.local_play && localPlay === null && wantPlayback) localPlay = info.epoch;
   }
   finally {
@@ -1248,7 +1352,6 @@ function pauseDevicePlayback() {
   // Invalidate a pending selection, job poll or crossfade before acknowledging.
   ++requestVersion;
   ++blendVersion; blending = false; plan = null; planKey = "";
-  clearTimeout(timer);
   localPlay = localPlayPending = null;
   wantPlayback = false;
   ++pauseVersion;
@@ -1271,23 +1374,35 @@ async function applyPlaybackControl({action, position}) {
 }
 
 function applyPlaybackPause(command) {
+  ++outputRevision;
   remoteOwner = command.epoch === playbackEpoch ? command.device_id || null : null;
   pauseDevicePlayback();
-  if (remoteDevice?.id !== remoteOwner) clearRemotePlayback();
+  if (remoteDevice?.id !== remoteOwner && command.track && remoteOwner) {
+    remoteDevice = {...onlineDevices.find(device => device.id === remoteOwner), id:remoteOwner,
+      name:command.from_name, track:command.track, position:command.position, duration:command.duration,
+      status:command.status, age:0, receivedAt:performance.now()};
+    renderRemotePlayback();
+  }
   refreshRemotePlayback();
 }
 
 async function applyPlaybackCommand(command) {
-  pauseDevicePlayback();
-  ownsPlayback = true;
-  remoteOwner = null;
+  if (handoff && (handoff.target !== deviceId || (handoff.id && handoff.id !== command.id)))
+    finishHandoff(handoff, false);
+  const pending = handoff || beginHandoff(deviceId);
+  watchHandoff(pending, command.id);
+  if (blending) return;
+  const stage = pending.stage = {player:decks[1 - deckIndex], command};
   const {track_ids:ids, index, position} = command.resume;
-  const version = requestVersion, epoch = playbackEpoch, source = remoteDevice?.track;
+  const source = remoteDevice?.track;
   try {
     if (!Array.isArray(ids) || !Number.isInteger(index) || !recordingId.test(ids[index]) || !Number.isFinite(position)) throw new Error();
-    const {results = []} = await api("/api/library").catch(() => ({}));
-    if (version !== requestVersion || epoch !== playbackEpoch) return;
-    const available = new Map([...visibleResults, ...pool, ...results].map(track => [sourceKey(track), track]));
+    const available = new Map([...visibleResults, ...pool].map(track => [sourceKey(track), track]));
+    if (!available.get(ids[index])?.download_url || ids.some(id => id.startsWith("local-") && !available.has(id))) {
+      const {results = []} = await api("/api/library").catch(() => ({}));
+      if (pending !== handoff) return;
+      for (const track of results) available.set(sourceKey(track), track);
+    }
     const tracks = ids.slice(0, 1000).map((id, i) => {
       if (!recordingId.test(id)) return null;
       const track = available.get(id) || (!id.startsWith("local-") && {
@@ -1297,84 +1412,125 @@ async function applyPlaybackCommand(command) {
       return track ? {...track, playlistEntry:command.id + ":" + i} : null;
     });
     if (!tracks[index]) throw new Error();
-    clearRemotePlayback();
-    manualQueue.clear();
-    history = tracks.slice(0, index).filter(Boolean);
-    queue = tracks.slice(index + 1).filter(Boolean);
-    playbackSearchQuery = null;
-    const listening = listen(tracks[index], true, "queue", false, {position:Math.max(0, position), playing:command.playing !== false});
-    const listenVersion = requestVersion;
-    if (await listening && listenVersion === requestVersion && epoch === playbackEpoch) {
-      pendingAcks.add(command.id);
-      queuePlaybackCheckIn();
-    }
-  } catch {
-    if (version === requestVersion) {
-      ownsPlayback = false;
-      showHandoffMessage("Could not load playback here. Try again.");
-    }
-  } finally {
-    completedHandoff = command.id;
-    if (pendingTakeover === command.id) pendingTakeover = null;
-    renderRemotePlayback();
+    stage.track = tracks[index];
+    stage.history = tracks.slice(0, index).filter(Boolean);
+    stage.queue = tracks.slice(index + 1).filter(Boolean);
+    stage.job = stage.track.download_url ? {source_id:ids[index], media_url:stage.track.download_url} :
+      (await api("/api/jobs", {method:"POST", json:{...stage.track, allow_new:true}})).job;
+    if (pending !== handoff) return;
+    loadHandoffMedia(stage);
+    scheduleJobs();
+  } catch { /* The source keeps playback if this target cannot confirm. */ }
+}
+function loadHandoffMedia(stage) {
+  const url = stage.job?.media_url, player = stage.player;
+  if (!url || stage.loaded) return;
+  stage.loaded = true;
+  player.pause();
+  player.playbackRate = 1;
+  configureAudio(player, stage.job);
+  if (stage.track.download_url) {
+    player.hls?.destroy(); player.hls = null;
+    player.dataset.mediaUrl = url;
+    player.src = url;
+    player.load();
+  } else attach(player, url);
+  updateHandoffMedia(stage);
+}
+function updateHandoffMedia(stage) {
+  const {player, command} = stage;
+  if (!stage.loaded || player.error || player.readyState < 1 || player.dataset.mediaUrl !== stage.job?.media_url) return;
+  if (!stage.positioned) {
+    stage.positioned = true;
+    player.dataset.cued = "true";
+    player.currentTime = command.resume.position;
+  }
+  if (command.playing && !stage.started) {
+    stage.started = true;
+    player.play().then(() => {
+      if (stage !== handoff?.stage) return;
+      stage.playing = true;
+      updateHandoffMedia(stage);
+    }).catch(() => {});
+  }
+  if (!stage.acknowledged && !player.seeking && player.readyState >= (command.playing ? 3 : 2) &&
+      (!player.paused && !player.ended) === command.playing && Math.abs(player.currentTime - command.resume.position) <= 5 &&
+      (!command.playing || (stage.playing && (!audioContext || audioContext.state === "running")))) {
+    stage.acknowledged = true;
+    pendingAcks.add(command.id);
+    queuePlaybackCheckIn();
   }
 }
 
-for (const player of decks) for (const event of ["play", "playing", "waiting", "stalled", "pause", "seeked", "durationchange", "ended", "error"]) {
+for (const player of decks) for (const event of ["loadedmetadata", "loadeddata", "canplay", "play", "playing", "waiting", "stalled", "pause", "seeked", "durationchange", "ended", "error"]) {
   player.addEventListener(event, () => {
+    if (handoff?.stage?.player === player) { updateHandoffMedia(handoff.stage); return; }
     if (player !== decks[deckIndex]) return;
     if (event === "play") markPlaybackStarted();
     if (event === "waiting" || (event === "stalled" && player.readyState < 3)) stalled = true;
     if (["playing", "pause", "ended"].includes(event)) stalled = false;
-    if (!player.paused && !player.ended) clearRemotePlayback();
+    if (!handoff && !player.paused && !player.ended) clearRemotePlayback();
     queuePlaybackCheckIn();
   });
 }
 
-const remoteBar = $("remote-playback"), remoteButton = $("takeover"), remoteProgress = $("remote-progress");
+const remoteBar = $("remote-playback"), remoteProgress = $("remote-progress");
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+let onlineDevices = [];
 let remoteDevice = null, remoteExpiry, remoteProgressTimer, readingDevices = false;
-let pendingTakeover = null, completedHandoff = null, takeoverTimer, handoffMessageTimer;
+let handoffMessageTimer, outputRevision = 0;
 const idleHere = () => decks[deckIndex].paused || decks[deckIndex].ended;
 const remoteAge = () => remoteDevice.age + (performance.now() - remoteDevice.receivedAt) / 1000;
-const canTakeOver = () => deviceRegistered && remoteDevice?.queue_rev > 0 && remoteAge() < onlineSeconds && !pendingTakeover;
 
 function clearRemotePlayback() {
   remoteDevice = null;
   renderRemotePlayback();
 }
 function showHandoffMessage(message) {
+  if (handoff) message = "Connecting...";
   const status = $("handoff-message");
   status.textContent = message;
+  if ($("connect-panel").open) $("connect-message").textContent = message;
   clearTimeout(handoffMessageTimer);
-  if (message) handoffMessageTimer = setTimeout(() => { status.textContent = ""; }, 6000);
+  if (message && !handoff) handoffMessageTimer = setTimeout(() => { status.textContent = ""; }, 6000);
 }
 function renderRemotePlayback() {
   clearTimeout(remoteExpiry);
   clearTimeout(remoteProgressTimer);
-  const hidden = !remoteDevice || !idleHere() || document.hidden;
-  if (hidden && !document.hidden && remoteBar.contains(document.activeElement)) $("play").focus({preventScroll:true});
+  const hidden = !remoteDevice || (!handoff && (!idleHere() || remoteAge() >= onlineSeconds));
+  const active = document.activeElement;
+  const focusRemote = remoteBar.hidden && !hidden && $("status").contains(active);
+  const focusLocal = hidden && remoteBar.contains(active);
   remoteBar.hidden = hidden;
-  if (remoteBar.hidden) return;
+  if (focusRemote) $("remote-toggle").focus({preventScroll:true});
+  if (focusLocal) $("connect-open").focus({preventScroll:true});
+  document.dispatchEvent(new Event("playbackdeviceschange"));
+  if (hidden || document.hidden) return;
   const {name, track, duration:total, position, status} = remoteDevice;
-  const age = remoteAge(), fresh = age < onlineSeconds;
+  const age = remoteAge();
   const moving = status === "playing";
-  const available = canTakeOver();
-  const state = pendingTakeover ? "Switching playback…" : !fresh ? "Last played on " + name
-    : (status === "paused" ? "Paused on " : status === "buffering" ? "Buffering on " : "Playing on ") + name;
-  $("remote-title").textContent = track.title;
-  $("remote-device").textContent = state;
-  $("remote-playing-icon").hidden = status === "paused" || !fresh;
-  $("remote-paused-icon").hidden = status !== "paused" && fresh;
-  remoteButton.setAttribute("aria-disabled", String(!available));
-  remoteButton.setAttribute("aria-busy", String(Boolean(pendingTakeover)));
-  remoteButton.setAttribute("aria-label", track.title + ". " + state + (available ? ". Switch to this browser." : ""));
-  const elapsed = moving && fresh ? age : 0;
+  const prefix = status === "paused" ? "Paused on " : status === "buffering" ? "Buffering on " : "Playing on ";
+  const state = prefix + name;
+  const title = displaySongTitle(track.title);
+  if ($("remote-title").textContent !== title) $("remote-title").textContent = title;
+  $("remote-artist").textContent = track.channel || track.artist || "";
+  if ($("remote-cover").dataset.source !== track.id) {
+    $("remote-cover").replaceChildren(cover(track));
+    $("remote-cover").dataset.source = track.id;
+  }
+  $("remote-state").textContent = prefix;
+  $("remote-device").textContent = name;
+  $("remote-line").setAttribute("aria-label", state + ". Play here");
+  $("remote-playing-icon").hidden = status === "paused";
+  $("remote-paused-icon").hidden = status !== "paused";
+  $("remote-toggle").setAttribute("aria-label", (status === "paused" ? "Play" : "Pause") + " on " + name);
+  const elapsed = moving ? age : 0;
+  $("remote-elapsed").textContent = duration(Math.min(total || Infinity, (position || 0) + elapsed)) || "0:00";
+  $("remote-total").textContent = duration(total);
   const ratio = seconds => total > 0 && Number.isFinite(position) ? Math.max(0, Math.min(1, (position + seconds) / total)) : 0;
   remoteProgress.style.transition = "none";
   remoteProgress.style.transform = "scaleX(" + ratio(elapsed) + ")";
-  if (!fresh) return;
-  remoteExpiry = setTimeout(renderRemotePlayback, (onlineSeconds - age) * 1000);
+  if (!handoff) remoteExpiry = setTimeout(renderRemotePlayback, (onlineSeconds - age) * 1000);
   const travel = Math.min(onlineSeconds - age, total - position - elapsed);
   if (moving && Number.isFinite(position) && travel > 0 && !reducedMotion.matches) {
     remoteProgressTimer = setTimeout(() => {
@@ -1384,56 +1540,170 @@ function renderRemotePlayback() {
   }
 }
 async function refreshRemotePlayback() {
-  if (document.hidden || !idleHere() || readingDevices) return;
+  if (document.hidden || (!idleHere() && !$("connect-panel").open) || readingDevices) return;
   readingDevices = true;
+  const revision = outputRevision;
   try {
     const {devices} = await api("/api/playback/devices?device_id=" + deviceId);
-    if (!idleHere() || document.hidden || pendingTakeover) return;
+    if (document.hidden || revision !== outputRevision) return;
+    onlineDevices = devices;
+    if (!idleHere() || handoff) {
+      const source = handoff && remoteDevice && devices.find(device => device.id === remoteDevice.id && device.track);
+      if (source) remoteDevice = {...source, receivedAt:performance.now()};
+      renderRemotePlayback();
+      return;
+    }
     const candidates = devices.filter(device => device.id !== deviceId && device.track && device.active !== false && !device.following);
     const row = candidates.find(device => device.active) || candidates.find(device => device.playing) ||
       candidates.find(device => device.id === remoteOwner) ||
       (!ownsPlayback && !remoteOwner && candidates.filter(device => device.queue_rev > 0).sort((a, b) => a.age - b.age)[0]);
     if (row && Number.isFinite(row.age)) {
       remoteDevice = {...row, status:row.status || (row.playing ? "playing" : "paused"), receivedAt:performance.now()};
-    }
+    } else remoteDevice = null;
     renderRemotePlayback();
-  } catch { /* Let the displayed snapshot age out if the server drops offline. */ }
+  } catch { if ($("connect-panel").open && !handoff) $("connect-message").textContent = "Could not load devices. Check your connection and reopen Connect."; }
   finally { readingDevices = false; }
 }
-remoteButton.addEventListener("click", async () => {
-  if (!canTakeOver()) return;
-  const source = remoteDevice.id;
-  unlock();
-  pendingTakeover = true;
+function beginHandoff(target) {
+  ++outputRevision;
+  handoff = {target, source:remoteDevice?.id || deviceId};
+  showHandoffMessage("Connecting...");
   renderRemotePlayback();
+  return handoff;
+}
+async function choosePlaybackDevice(target) {
+  if (handoff) return;
+  const source = !remoteBar.hidden && remoteDevice ? remoteDevice.id : deviceId;
+  if (source === target) return;
+  const json = {from:source, to:target};
+  if (source === deviceId) {
+    capturePlaybackQueue();
+    if (!queueSnapshot?.track_ids.length) {
+      showHandoffMessage("Play a song here, then select the other device.");
+      return;
+    }
+    json.resume = {...queueSnapshot, position:decks[deckIndex].currentTime};
+    json.playing = !idleHere();
+  }
+  if (target === deviceId) unlock();
+  const pending = beginHandoff(target);
+  pending.source = source;
+  pending.output = onlineDevices.find(device => device.id === target);
+  pending.track = json.resume ? currentTrack : remoteDevice.track;
+  pending.position = json.resume?.position ?? remoteDevice?.position;
+  pending.status = json.resume ? (json.playing ? "playing" : "paused") : remoteDevice.status;
   try {
-    const result = await api("/api/playback/takeover", {method:"POST", json:{from:source, to:deviceId}});
-    pendingTakeover = completedHandoff === result.id ? null : result.id;
-    renderRemotePlayback();
-    if (result.source_paused === false) showHandoffMessage("The other device may still be playing.");
-    clearTimeout(takeoverTimer);
-    takeoverTimer = setTimeout(() => {
-      if (pendingTakeover !== result.id) return;
-      pendingTakeover = null;
-      showHandoffMessage("Could not switch playback. Try again.");
-      renderRemotePlayback();
-    }, 15000);
+    const result = await api("/api/playback/" + (json.resume ? "transfer" : "takeover"), {method:"POST", json});
+    if (pending !== handoff) return;
+    if (!result.id) throw new Error();
+    watchHandoff(pending, result.id);
     queuePlaybackCheckIn();
   } catch (error) {
-    pendingTakeover = null;
-    showHandoffMessage(error.status === 409 && error.message === "Leave Listen Together first."
-      ? "Leave Listen Together before switching playback." : "Could not switch playback. Try again.");
-    renderRemotePlayback();
-    refreshRemotePlayback();
+    if (pending === handoff && !pending.id) finishHandoff(pending, false, error.message === "Leave Listen Together first."
+      ? "Leave Listen Together before switching playback." : undefined);
   }
-});
-document.addEventListener("visibilitychange", () => {
+}
+async function watchHandoff(pending, id) {
+  if (pending.id) return;
+  pending.id = id;
+  while (pending === handoff) {
+    try {
+      const {state, target} = await api("/api/playback/handoff/" + encodeURIComponent(id));
+      if (pending !== handoff) return;
+      if (state !== "pending") {
+        finishHandoff(pending, state === "ready" && target === pending.target);
+        return;
+      }
+    } catch (error) {
+      if (pending !== handoff) return;
+      if (error.status === 404) { finishHandoff(pending, false); return; }
+    }
+    await new Promise(resolve => setTimeout(resolve, 750));
+  }
+}
+function finishHandoff(pending, ready, message = "Could not switch playback. Try again.") {
+  const stage = pending.stage;
+  ++outputRevision;
+  reportHandoffResult = true;
+  handoff = null;
+  if (ready && stage) {
+    const previous = decks[deckIndex];
+    ++requestVersion;
+    deckIndex = decks.indexOf(stage.player);
+    previous.pause();
+    gains.forEach((gain, i) => {
+      gain.gain.cancelScheduledValues(audioContext.currentTime);
+      gain.gain.value = i === deckIndex ? 1 : 0;
+    });
+    if (masterGain) {
+      masterGain.gain.cancelScheduledValues(audioContext.currentTime);
+      masterGain.gain.value = 1;
+    }
+    currentTrack = stage.track; currentJob = stage.job; statusJob = stage.job.id ? stage.job : null;
+    history = stage.history; queue = stage.queue; manualQueue.clear();
+    wantPlayback = stage.command.playing;
+    localPlay = localPlayPending = startPosition = playbackSearchQuery = null;
+    stalled = false; plan = null; planKey = "";
+    ownsPlayback = true; remoteOwner = null;
+    $("playback-state").textContent = stage.player.paused ? "Paused" : "Playing";
+    $("recovery").hidden = true;
+    $("busy").hidden = !unfinished(stage.job);
+    clearRemotePlayback();
+    updateNowPlaying(); renderQueue(); prepare(); scheduleJobs();
+  } else if (stage?.loaded) {
+    stage.player.pause();
+    stage.player.hls?.destroy(); stage.player.hls = null;
+    stage.player.removeAttribute("src"); delete stage.player.dataset.mediaUrl;
+    stage.player.load();
+    pendingAcks.delete(pending.id);
+    preload();
+  } else if (ready && pending.target !== deviceId) {
+    if (pending.source === deviceId) pauseDevicePlayback();
+    ownsPlayback = false; remoteOwner = pending.target;
+    remoteDevice = {...pending.output, id:pending.target, track:pending.track, position:pending.position,
+      duration:pending.track.duration, status:pending.status, age:0, receivedAt:performance.now()};
+  }
   renderRemotePlayback();
-  if (!document.hidden) {
-    queuePlaybackCheckIn();
-    refreshRemotePlayback();
+  showHandoffMessage(ready ? "" : message);
+  queuePlaybackCheckIn();
+  refreshRemotePlayback();
+}
+for (const id of ["remote-song", "remote-line"]) {
+  $(id).addEventListener("click", () => choosePlaybackDevice(deviceId));
+}
+let pendingRemoteControl = null;
+remoteBar.addEventListener("click", async event => {
+  const actionButton = event.target.closest("[data-control]");
+  if (!actionButton || remoteBar.hidden || !remoteDevice || pendingRemoteControl || handoff) return;
+  const target = remoteDevice.id;
+  const command = actionButton.dataset.control;
+  const action = command === "toggle" ? (remoteDevice.status === "paused" ? "play" : "pause") : command;
+  pendingRemoteControl = target;
+  actionButton.setAttribute("aria-busy", "true");
+  try {
+    await api("/api/playback/control", {method:"POST", json:{from:deviceId, to:target, action}});
+    if (remoteDevice?.id === target && (action === "play" || action === "pause")) {
+      if (remoteDevice.status === "playing") remoteDevice.position += remoteAge();
+      remoteDevice.age = 0;
+      remoteDevice.receivedAt = performance.now();
+      remoteDevice.status = action === "play" ? "playing" : "paused";
+      renderRemotePlayback();
+    }
+  } catch { showHandoffMessage("Could not control playback. Check the connected device and try again."); }
+  finally {
+    pendingRemoteControl = null;
+    actionButton.removeAttribute("aria-busy");
   }
 });
+function resyncPlayback() {
+  renderRemotePlayback();
+  queuePlaybackCheckIn();
+  if (!document.hidden) {
+    refreshRemotePlayback();
+  }
+}
+document.addEventListener("visibilitychange", resyncPlayback);
+window.addEventListener("focus", resyncPlayback);
 reducedMotion.addEventListener?.("change", renderRemotePlayback);
 async function startDevicePlayback() {
   // A duplicated tab can inherit sessionStorage. Keep its check-ins distinct.
@@ -1455,10 +1725,6 @@ async function startDevicePlayback() {
   checkInQueued = false;
   queuePlaybackCheckIn();
   refreshRemotePlayback();
-  setInterval(() => {
-    queuePlaybackCheckIn();
-    refreshRemotePlayback();
-  }, 5000);
 }
 updateNowPlaying(); updateNext();
 startDevicePlayback();

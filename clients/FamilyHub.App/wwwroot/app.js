@@ -311,6 +311,12 @@ new MutationObserver(()=>{
     }
 }).observe(document.getElementById('app'),{childList:true,subtree:true});
 
+window.familyhub.observeSeekBar = (slider, reference) => {
+    const observer = new IntersectionObserver(([entry]) => reference.invokeMethodAsync('SeekVisibility', entry.isIntersecting));
+    observer.observe(slider);
+    return {disconnect: () => observer.disconnect()};
+};
+
 window.familyhub.bindSeekHover = input => {
     if (!input || input._hoverBound) return;
     input._hoverBound = true;
@@ -396,6 +402,15 @@ window.familyhub.bindSeekHover = input => {
     window.addEventListener('resize', hide);
 })();
 
+// Focus inside an element that is about to go moves to a successor that may still be hidden: the
+// main area holds it until the successor shows, so focus never falls to the page body.
+window.familyhub.handFocusTo = (selector, successor) => {
+ if (!document.activeElement?.closest(selector)) return;
+ (document.getElementById('content') || document.querySelector('main'))?.focus({preventScroll:true});
+ let tries = 0;
+ const step = () => { const target = document.getElementById(successor); if (target?.getClientRects().length) target.focus({preventScroll:true}); else if (++tries < 30) requestAnimationFrame(step); };
+ requestAnimationFrame(step);
+};
 window.familyhub.focusIfWithin = (selector, successor) => { if (document.activeElement?.closest(selector)) document.getElementById(successor)?.focus({preventScroll:true}); };
 window.familyhub.captureStatsFocus = () => {
  const root=document.querySelector('.server-stats');
@@ -582,6 +597,23 @@ window.familyhub.bindSheet = (id, closeId) => {
  sheet.addEventListener('pointermove',e=>{ if(e.pointerType!=='touch'&&start!==null)move(e.clientY); },{passive:true});
  sheet.addEventListener('pointerup',e=>{ if(e.pointerType!=='touch')end(); }); sheet.addEventListener('pointercancel',e=>{ if(e.pointerType!=='touch')end(); });
 };
+// A dialog shown as a bottom sheet on phones (Connect): a tap outside closes it, and so does a downward
+// drag from the top of the sheet. Touch uses touch events because the browser claims a pan-y swipe.
+window.familyhub.bindDialogSheet = (id, returnId) => {
+ const dialog=document.getElementById(id); if(!dialog||dialog.dataset.sheetBound)return; dialog.dataset.sheetBound='1';
+ const close=()=>familyhub.closeDialog(id, returnId);
+ let start=null, moved=0, draggedAt=0;
+ dialog.addEventListener('click',e=>{ if(Date.now()-draggedAt<350){ e.stopPropagation(); e.preventDefault(); return; } if(e.target===dialog)close(); },true);
+ const begin=(y,target)=>{ if(!familyhub.isPhone()||!dialog.open||dialog.scrollTop>0||target.closest('input,select'))return; start=y; moved=0; };
+ const move=y=>{ moved=Math.max(0,y-start); if(moved>6){ dialog.style.transition='none'; dialog.style.transform=`translateY(${moved}px)`; } };
+ const end=()=>{ if(start===null)return; start=null; dialog.style.transition=''; dialog.style.transform=''; if(moved>90)close(); if(moved>6)draggedAt=Date.now(); };
+ dialog.addEventListener('touchstart',e=>{ if(e.touches.length===1)begin(e.touches[0].clientY,e.target); else start=null; },{passive:true});
+ dialog.addEventListener('touchmove',e=>{ if(start===null)return; const y=e.touches[0].clientY; if(y<start&&moved<=6){ start=null; return; } e.preventDefault(); move(y); },{passive:false});
+ dialog.addEventListener('touchend',end); dialog.addEventListener('touchcancel',end);
+ dialog.addEventListener('pointerdown',e=>{ if(e.pointerType!=='touch'&&e.target!==dialog)begin(e.clientY,e.target); },{passive:true});
+ dialog.addEventListener('pointermove',e=>{ if(e.pointerType!=='touch'&&start!==null)move(e.clientY); },{passive:true});
+ dialog.addEventListener('pointerup',e=>{ if(e.pointerType!=='touch')end(); }); dialog.addEventListener('pointercancel',e=>{ if(e.pointerType!=='touch')end(); });
+};
 // Android Back: close the topmost popup or dialog the same way Escape does.
 window.familyhub.closeTopLayer = () => {
  const popup=[...document.querySelectorAll(':popover-open')].pop();
@@ -634,14 +666,16 @@ window.familyhub.cropCover = image => {
  });
 };
 document.addEventListener('load',event=>{ if(event.target instanceof HTMLImageElement && event.target.matches('.cover img'))familyhub.cropCover(event.target); },true);
-// Home shelves: arrow buttons step one view sideways and dim at either end.
+// Home shelves: round arrow buttons step one view sideways and hide at either end. A focused
+// button that hides hands focus to its counterpart, or to the shelf itself.
 familyhub.updateShelf=id=>{
  const shelf=document.getElementById(id); if(!shelf)return;
+ if(!shelf.hasAttribute('tabindex'))shelf.tabIndex=-1;
  const max=shelf.scrollWidth-shelf.clientWidth-1;
- document.querySelectorAll(`[data-shelf="${id}"]`).forEach(button=>{
-  const end=Number(button.dataset.dir)<0?shelf.scrollLeft<=1:shelf.scrollLeft>=max;
-  button.setAttribute('aria-disabled',String(end||max<=0));
- });
+ const states=[...document.querySelectorAll(`[data-shelf="${id}"]`)].map(button=>({button,hide:max<=0||(Number(button.dataset.dir)<0?shelf.scrollLeft<=1:shelf.scrollLeft>=max)}));
+ const focused=states.find(s=>s.hide&&s.button===document.activeElement);
+ if(focused)(states.find(s=>!s.hide)?.button||shelf).focus({preventScroll:true});
+ states.forEach(({button,hide})=>button.classList.toggle('is-end',hide));
  shelf.closest('.home-section')?.classList.toggle('has-overflow',max>0);
 };
 familyhub.scrollShelf=(id,dir)=>{

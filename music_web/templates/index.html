@@ -1,4 +1,4 @@
-{% from '_icons.html' import icon %}
+{% from '_icons.html' import icon, player_icon %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -7,10 +7,13 @@
 <meta name="csrf-token" content="{{ csrf_token() }}">
 <title>Music - FamilyHub</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='shell.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='player.css') }}">
 <script src="{{ url_for('static', filename='vendor/hls.light.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='prefix-cache.js') }}" defer></script>
 <script src="{{ url_for('static', filename='recommendations.js') }}" defer></script>
 <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+<script src="{{ url_for('static', filename='connect.js') }}" defer></script>
+<script src="{{ url_for('static', filename='shelves.js') }}" defer></script>
 <script src="{{ url_for('static', filename='playlists.js') }}" defer></script>
 </head>
 <body data-user="{{ user }}" data-view="library" data-player-url="{{ player_url }}">
@@ -29,7 +32,9 @@
 <h1 id="view-title" tabindex="-1">Library</h1>
 <p id="status-text" class="sr" role="status"></p><progress class="sr" id="busy" aria-label="Preparing music" hidden></progress>
 <div id="recovery" hidden><button id="retry" type="button">Retry playback</button><button id="cancel" type="button">Cancel preparation</button></div>
-<section id="library-view" aria-label="Library"><div class="library-heading"><p id="library-count" class="note" role="status">Loading library…</p><button id="refresh-library" type="button">Refresh</button></div><form id="library-genre-form" class="library-filter"><label class="sr" for="library-genre-search">Filter by genre</label>{{ icon('search') }}<input id="library-genre-search" type="text" list="library-genre-options" placeholder="Search genres" autocomplete="off"><datalist id="library-genre-options"></datalist><button id="clear-library-genre" type="button" aria-label="Clear genre filter" hidden>{{ icon('close') }}</button></form><div id="library-genres" class="genre-pills" role="group" aria-label="Most played genres" hidden></div><div class="library-filter"><label class="sr" for="library-filter">Filter library by song or artist</label>{{ icon('search') }}<input id="library-filter" type="search" placeholder="Filter library" autocomplete="off"><select id="library-artist" hidden aria-label="Artist"><option value="">All artists</option></select></div><details id="playlist-panel"><summary>Playlists</summary><form id="spotify-playlist-form"><label for="spotify-playlist-url">Spotify playlist link</label><div class="playlist-actions"><input id="spotify-playlist-url" type="url" required placeholder="https://open.spotify.com/playlist/..."><button type="submit">Import track list</button></div></form><label for="playlist-select">Saved playlists</label><select id="playlist-select"><option value="">Choose a playlist</option></select><div id="playlist-detail" hidden><h3 id="playlist-name"></h3><p id="playlist-notice" class="note"></p><div class="playlist-actions"><button id="playlist-match" type="button">Find recordings</button><button id="playlist-download" type="button">Save selected to server</button><button id="playlist-stop" type="button" hidden>Stop after current song</button><button id="playlist-play" type="button">Play playlist</button></div><p class="note">Review the matches before saving. Keep this window open while importing; completed songs stay on the server.</p><ol id="playlist-tracks"></ol></div><p id="playlist-feedback" role="status"></p></details><div id="library-list" class="library-list"></div><p id="library-error" class="error" role="alert"></p><div id="library-empty" hidden><p>No saved songs yet.</p><button id="find-music" type="button">Search music</button></div></section>
+<section id="library-view" aria-label="Library">
+{% include "_discovery.html" %}
+<div class="library-heading"><p id="library-count" class="note" role="status">Loading library…</p><button id="refresh-library" type="button">Refresh</button></div><form id="library-genre-form" class="library-filter"><label class="sr" for="library-genre-search">Filter by genre</label>{{ icon('search') }}<input id="library-genre-search" type="text" list="library-genre-options" placeholder="Search genres" autocomplete="off"><datalist id="library-genre-options"></datalist><button id="clear-library-genre" type="button" aria-label="Clear genre filter" hidden>{{ icon('close') }}</button></form><div id="library-genres" class="genre-pills" role="group" aria-label="Most played genres" hidden></div><div class="library-filter"><label class="sr" for="library-filter">Filter library by song or artist</label>{{ icon('search') }}<input id="library-filter" type="search" placeholder="Filter library" autocomplete="off"><select id="library-artist" hidden aria-label="Artist"><option value="">All artists</option></select></div><details id="playlist-panel"><summary>Playlists</summary><form id="spotify-playlist-form"><label for="spotify-playlist-url">Spotify playlist link</label><div class="playlist-actions"><input id="spotify-playlist-url" type="url" required placeholder="https://open.spotify.com/playlist/..."><button type="submit">Import track list</button></div></form><label for="playlist-select">Saved playlists</label><select id="playlist-select"><option value="">Choose a playlist</option></select><div id="playlist-detail" hidden><h3 id="playlist-name"></h3><p id="playlist-notice" class="note"></p><div class="playlist-actions"><button id="playlist-match" type="button">Find recordings</button><button id="playlist-download" type="button">Save selected to server</button><button id="playlist-stop" type="button" hidden>Stop after current song</button><button id="playlist-play" type="button">Play playlist</button></div><p class="note">Review the matches before saving. Keep this window open while importing; completed songs stay on the server.</p><ol id="playlist-tracks"></ol></div><p id="playlist-feedback" role="status"></p></details><div id="library-list" class="library-list"></div><p id="library-error" class="error" role="alert"></p><div id="library-empty" hidden><p>No saved songs yet.</p><button id="find-music" type="button">Search music</button></div></section>
 <section id="pick" hidden aria-label="Search results" aria-busy="false"><div class="search-loading" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><p id="search-status" class="sr" role="status"></p><fieldset id="results-set" hidden><legend class="sr">Songs</legend><ul id="results" class="results"></ul></fieldset><button id="load-more-search" type="button" hidden>Show more songs</button></section>
 <section id="queue-view" hidden aria-label="Playback queue"><h2 id="queue-h" tabindex="-1">Now playing</h2><div id="queue-current"></div><div class="library-heading"><h2>Up next</h2><button id="library" type="button">Add saved songs</button></div><ol id="queue"></ol><p id="queue-state" class="sr" role="status"></p><section id="similar-panel" hidden aria-label="Similar recordings" aria-busy="false"><h2>Recommended</h2><p id="similar-status" role="status"></p><ul id="similar-results" class="results"></ul></section><details id="queue-history"><summary>Previously played</summary><div id="queue-history-list"></div><p id="queue-history-empty">No earlier songs yet.</p></details></section>
 <section id="settings-view" aria-label="Settings" hidden>
@@ -56,17 +61,23 @@
 </div>
 <footer id="status" class="player-bar">
 <div id="remote-playback" hidden>
-  <button id="takeover" type="button">
-    <span id="remote-playing-icon">{{ icon('pause') }}</span>
-    <span id="remote-paused-icon" hidden>{{ icon('play') }}</span>
-    <strong id="remote-title"></strong>
-    <span id="remote-device"></span>
-    <span class="remote-progress-track" aria-hidden="true"><span id="remote-progress"></span></span>
-  </button>
+  <button id="remote-song" class="now-playing" type="button" aria-label="Play here" aria-describedby="remote-title"><span id="remote-cover"></span><span class="now-copy"><span class="player-title"><strong id="remote-title"></strong></span><span id="remote-artist"></span></span></button>
+  <div class="remote-transport">
+    <div class="transport-buttons">
+      <button type="button" class="device-action" data-control="previous" aria-label="Previous song on connected device">{{ player_icon('previous') }}</button>
+      <button id="remote-toggle" type="button" class="primary round" data-control="toggle" aria-label="Pause on connected device"><span id="remote-playing-icon">{{ player_icon('pause') }}</span><span id="remote-paused-icon" hidden>{{ player_icon('play') }}</span></button>
+      <button type="button" class="device-action" data-control="next" aria-label="Next song on connected device">{{ player_icon('next') }}</button>
+    </div>
+    <div class="remote-timeline"><span id="remote-elapsed"></span><span class="remote-progress-track"><span id="remote-progress"></span></span><span id="remote-total"></span></div>
+  </div>
+  <button id="remote-line" type="button" title="Play here">{{ player_icon('playing-on') }}<span class="remote-label"><span id="remote-state"></span><span id="remote-device"></span></span></button>
 </div>
 <p id="handoff-message" role="status"></p>
-<button id="show-queue" class="now-playing" type="button" aria-label="Open playback queue"><span id="now-cover"></span><span class="now-copy"><strong id="now-title">Choose a song</strong><span id="now-artist"></span><span id="bar-next">Up next</span></span></button>
-<div class="transport"><div class="transport-buttons"><button id="previous" type="button" class="quiet" aria-label="Previous song">{{ icon('previous') }}</button><button id="play" type="button" class="primary round" aria-label="Play">{{ icon('play') }}</button><button id="next" type="button" class="quiet" aria-label="Next song">{{ icon('next') }}</button></div><div class="seek-row"><span id="elapsed">0:00</span><input id="seek" type="range" aria-label="Playback position" min="0" max="100" step="0.1" value="0" disabled><span id="total">0:00</span></div><p id="playback-state" class="sr" role="status"></p></div>
-<div class="player-tools"><button id="shuffle-toggle" type="button" class="quiet" aria-label="Shuffle" aria-pressed="false">{{ icon('shuffle') }}</button><button id="recommend-similar" type="button" class="quiet" aria-label="Recommend similar" title="Recommend similar" aria-controls="similar-panel">{{ icon('music') }}</button><label class="sr" for="volume">Volume</label>{{ icon('volume') }}<input id="volume" type="range" min="0" max="1" step="0.01" value="1"></div>
-</footer><audio id="preview-player" preload="auto" hidden></audio><audio id="next-player" preload="auto" hidden></audio>
+<button id="show-queue" class="now-playing" type="button" aria-label="Open playback queue"><span id="now-cover"></span><span class="now-copy"><span class="player-title"><strong id="now-title">Choose a song</strong></span><span id="now-artist"></span><span id="bar-next">Up next</span></span></button>
+<div class="transport"><div class="transport-buttons"><button id="previous" type="button" class="quiet" aria-label="Previous song">{{ player_icon('previous') }}</button><button id="play" type="button" class="primary round" aria-label="Play">{{ player_icon('play') }}</button><button id="next" type="button" class="quiet" aria-label="Next song">{{ player_icon('next') }}</button></div><div class="seek-row"><span id="elapsed">0:00</span><input id="seek" type="range" aria-label="Playback position" min="0" max="100" step="0.1" value="0" disabled><span id="total">0:00</span></div><p id="playback-state" class="sr" role="status"></p></div>
+<div class="player-actions"><button id="connect-open" class="device-action" aria-label="Connect to a device" title="Connect to a device" aria-haspopup="dialog" aria-controls="connect-panel">{{ player_icon('laptop') }}</button>
+<div class="player-tools"><button id="shuffle-toggle" type="button" class="quiet" aria-label="Shuffle" aria-pressed="false">{{ player_icon('shuffle') }}</button><button id="recommend-similar" type="button" class="quiet" aria-label="Recommend similar" title="Recommend similar" aria-controls="similar-panel">{{ player_icon('music') }}</button><label class="sr" for="volume">Volume</label>{{ player_icon('speaker') }}<input id="volume" type="range" min="0" max="1" step="0.01" value="1"></div></div>
+</footer>
+{% include "_connect.html" %}
+<audio id="preview-player" preload="auto" hidden></audio><audio id="next-player" preload="auto" hidden></audio>
 </body></html>

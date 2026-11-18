@@ -1,4 +1,5 @@
 @implements IDisposable
+@inject PlaybackDevicePoll DevicePoll
 @inject MusicPlayer Player
 @inject MusicSession Session
 @inject IJSRuntime JS
@@ -6,9 +7,12 @@
 
 @if (Device is { Track: { } track } device)
 {
+    @* One song bar: the other device's song stands in for this device's idle player (cover, title,
+       artist, play/pause), with the "Playing on" line under it. *@
+    var known = Session.Library.Concat(Session.Downloads).FirstOrDefault(s => s.Id == track.Id);
     <div id="remote-now-playing" class="remote-mini" role="group" aria-label="@("Playback on " + device.Name)">
-        <button id="remote-take-over" class="remote-mini-main" @onclick="() => ConnectAsync(device)" disabled="@(connectingDevice is not null)" aria-label="@($"Move {track.Title} to this device")">
-            <span class="remote-mini-icon"><MusicIcon Name="@(device.Kind is "android" or "iphone" ? "phone" : "device")" /></span>
+        <button id="remote-take-over" class="remote-mini-main" @onclick="() => ConnectAsync(device)" aria-disabled="@(connectingDevice is not null ? "true" : "false")" aria-label="@($"Move {track.Title} to this device")" title="Play on this device">
+            <TrackCover Track="@(known ?? new MusicTrack { Id = track.Id, Title = track.Title, Channel = track.Channel })" />
             <span class="remote-mini-copy">
                 <strong>@track.Title</strong>
                 @if (connectingDevice is not null)
@@ -17,12 +21,13 @@
                 }
                 else
                 {
-                    <small><span class="remote-mini-device">@device.Name</span> · @track.Channel</small>
+                    <small>@track.Channel</small>
                 }
             </span>
         </button>
-        <span class="remote-mini-state" aria-hidden="true"><MusicIcon Name="@(device.IsPlaying ? "pause" : "play")" /></span>
-        @{ var duration = device.Duration ?? Session.Library.Concat(Session.Downloads).FirstOrDefault(s => s.Id == track.Id)?.Duration ?? 0;
+        <button id="remote-toggle" class="remote-mini-toggle" aria-disabled="@(connectingDevice is not null || toggling ? "true" : "false")" aria-label="@((device.IsPlaying ? "Pause on " : "Play on ") + device.Name)" @onclick="() => ToggleAsync(device)"><MusicIcon Name="@(device.IsPlaying ? "pause" : "play")" /></button>
+        <span class="remote-mini-line"><MusicIcon Name="volume" /><span>Playing on <strong>@device.Name</strong></span></span>
+        @{ var duration = device.Duration ?? known?.Duration ?? 0;
            var position = Math.Clamp(device.PositionAt(Elapsed) ?? 0, 0, Math.Max(0, duration)); }
         @if (duration > 0 && Fresh && connectingDevice is null)
         {
@@ -33,7 +38,7 @@
 }
 
 @code {
-    [Parameter] public EventCallback<PlaybackDevice> TakeOver { get; set; }
+    [Parameter, EditorRequired] public Func<PlaybackDevice, Task<bool>> TakeOver { get; set; } = default!;
     private PlaybackDevice? device;
     private PlaybackDevice? connectingDevice;
     private long checkedAt;
@@ -47,8 +52,29 @@
     {
         if (connectingDevice is not null || !Fresh) return;
         connectingDevice = source;
-        try { await TakeOver.InvokeAsync(source); }
+        try { if (await TakeOver(source)) device = null; }
         finally { connectingDevice = null; }
+    }
+
+    // Play/pause on the other device; this device stays idle. The next check-in confirms the state.
+    private bool toggling;
+    private async Task ToggleAsync(PlaybackDevice source)
+    {
+        if (toggling || connectingDevice is not null || !Fresh || Session.Api is not { } api) return;
+        toggling = true;
+        var playing = source.IsPlaying;
+        try
+        {
+            await api.ControlPlaybackAsync(Session.DeviceId, source.Id, playing ? "pause" : "play");
+            if (ReferenceEquals(device, source) && loop is { IsCancellationRequested: false } running)
+            {
+                var updated = device = source with { Playing = !playing, Status = playing ? "paused" : "playing", Position = source.PositionAt(Elapsed), Age = 0 };
+                checkedAt = Stopwatch.GetTimestamp();
+                _ = HideWhenExpiredAsync(updated, checkedAt, running.Token);
+            }
+        }
+        catch (Exception e) when (e is HttpRequestException or FamilyHubApiException or OperationCanceledException) { }
+        finally { toggling = false; }
     }
 
     private async Task HideWhenExpiredAsync(PlaybackDevice snapshot, long receivedAt, CancellationToken token)
@@ -65,46 +91,42 @@
     private async Task HideDeviceAsync(PlaybackDevice snapshot, CancellationToken token)
     {
         if (token.IsCancellationRequested || !ReferenceEquals(device, snapshot)) return;
-        await JS.InvokeVoidAsync("familyhub.focusIfWithin", "#remote-take-over", "play");
+        // This bar stands in for the player bar, which shows again once it goes: focus follows to Play.
+        await JS.InvokeVoidAsync("familyhub.handFocusTo", "#remote-now-playing", "play");
         if (token.IsCancellationRequested || !ReferenceEquals(device, snapshot)) return;
         device = null;
         StateHasChanged();
     }
 
-    protected override void OnInitialized()
+    [Parameter] public bool Visible { get; set; } = true;
+    protected override void OnParametersSet()
     {
-        var token = (loop = new CancellationTokenSource()).Token;
-        _ = Task.Run(async () =>
+        if (Visible)
         {
-            while (!token.IsCancellationRequested)
-            {
-                try
-                {
-                    if (Session.UiActive && Session.Api is { } api && !Player.RemoteActive && !Player.PlaybackRequested && !Player.FollowingHost)
-                    {
-                        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(4));
-                        var found = (await api.GetPlaybackDevicesAsync(Session.DeviceId, timeout.Token, background: true)).Devices
-                            .Where(d => !d.This && d.Track is not null && d.QueueRevision > 0 && d.Age < PlaybackDevice.OnlineSeconds)
-                            .OrderByDescending(d => d.IsPlaying || d.Status == "buffering").ThenBy(d => d.Age).FirstOrDefault();
-                        var receivedAt = Stopwatch.GetTimestamp();
-                        await InvokeAsync(async () =>
-                        {
-                            if (token.IsCancellationRequested || !ReferenceEquals(Session.Api, api)) return;
-                            if (found is null)
-                            {
-                                if (device is { } snapshot) await HideDeviceAsync(snapshot, token);
-                                return;
-                            }
-                            device = found; checkedAt = receivedAt; StateHasChanged();
-                            _ = HideWhenExpiredAsync(found, receivedAt, token);
-                        });
-                    }
-                    else if (device is { } snapshot) await InvokeAsync(() => HideDeviceAsync(snapshot, token));
-                }
-                catch (Exception e) when (e is HttpRequestException or FamilyHubApiException or OperationCanceledException) { }
-                try { await Task.Delay(5000, token); } catch (OperationCanceledException) { }
-            }
-        });
+            loop ??= new(); DevicePoll.Watch(DevicesChanged);
+        }
+        else StopWatching();
     }
-    public void Dispose() { loop?.Cancel(); loop?.Dispose(); }
+
+    private void DevicesChanged(List<PlaybackDevice> devices) => _ = InvokeAsync(async () =>
+    {
+        if (loop is null) return;
+        var token = loop.Token;
+        var found = PlaybackDevicePoll.FindRemoteSource(devices);
+        if (found is null)
+        {
+            if (device is { } snapshot) await HideDeviceAsync(snapshot, token);
+            return;
+        }
+        device = found; checkedAt = Stopwatch.GetTimestamp(); StateHasChanged();
+        _ = HideWhenExpiredAsync(found, checkedAt, token);
+    });
+
+    private void StopWatching()
+    {
+        DevicePoll.Unwatch(DevicesChanged);
+        loop?.Cancel(); loop?.Dispose(); loop = null; device = null;
+    }
+    protected override void OnAfterRender(bool firstRender) => Player.SetRemotePeek(Device?.Track is not null);
+    public void Dispose() { StopWatching(); Player.SetRemotePeek(false); }
 }

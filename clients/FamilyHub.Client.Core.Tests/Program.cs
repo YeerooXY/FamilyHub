@@ -15,6 +15,9 @@ Check(shownSearch.Select(t => t.Id).SequenceEqual(["first", "extra"]), "Search e
 Check(ReferenceEquals(shownSearch[0], originalSearchRow), "Search enrichment preserves existing row identity");
 Check(JsonSerializer.Deserialize<SearchPage>("{}")!.Complete, "Older search responses default to complete");
 Check(!JsonSerializer.Deserialize<SearchPage>("{\"complete\":false}")!.Complete, "Partial search response is recognized");
+Check(JsonSerializer.Deserialize<DiscoveryItem>("{\"source_ids\":{\"album\":302127,\"track\":5}}")!.CoverUrl == "https://api.deezer.com/album/302127/image?size=big", "Discovery cards use the release's Deezer album cover");
+Check(JsonSerializer.Deserialize<DiscoveryItem>("{\"cover\":\"https://cdn.test/c.jpg\",\"source_ids\":{\"album\":1}}")!.CoverUrl == "https://cdn.test/c.jpg", "A server cover address takes precedence");
+Check(JsonSerializer.Deserialize<DiscoveryItem>("{\"cover\":\"http://private/c.jpg\"}")!.CoverUrl is null, "Discovery covers load only over HTTPS");
 var discordSnapshot = new DiscordSnapshot("Song", "Artist - Topic", "Album", "abcdefghijk", true, 12, 100, false);
 using (var activity = JsonDocument.Parse(JsonSerializer.Serialize(DiscordActivity.Build(discordSnapshot, 100000))))
 {

@@ -13,7 +13,7 @@ internal static class DeckCrossfade
         var startupMilliseconds = 0;
         while (incoming.Opening || !incoming.Playing || incoming.Position < cue + .04)
         {
-            token.ThrowIfCancellationRequested();
+            await WaitForResumeAsync(outgoing, requested, token);
             incoming.RefreshPosition(); outgoing.RefreshPosition();
             if (failed?.Invoke() is true) throw new InvalidOperationException("The next song could not be opened. Use Next to retry it.");
             if (requested())
@@ -33,10 +33,9 @@ internal static class DeckCrossfade
         var previousPosition = start;
         while (true)
         {
-            token.ThrowIfCancellationRequested();
+            await WaitForResumeAsync(outgoing, requested, token);
             incoming.RefreshPosition(); outgoing.RefreshPosition();
             if (failed?.Invoke() is true) throw new InvalidOperationException("The next song stopped decoding. Use Next to retry it.");
-            if (!requested()) { await Task.Delay(CrossfadeEnvelope.TickMilliseconds, token); continue; }
             var position = incoming.Position;
             var progressing = incoming.Playing && !incoming.Opening;
             stalledMilliseconds = !progressing || position <= previousPosition ? stalledMilliseconds + CrossfadeEnvelope.TickMilliseconds : 0;
@@ -50,5 +49,16 @@ internal static class DeckCrossfade
             if (fraction >= 1) { setGain(1); return; }
             await Task.Delay(CrossfadeEnvelope.TickMilliseconds, token);
         }
+    }
+
+    private static async Task WaitForResumeAsync(IAudioDeck deck, Func<bool> requested, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (requested()) return;
+        var resumed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Changed() { if (requested()) resumed.TrySetResult(); }
+        deck.Changed += Changed;
+        try { Changed(); await resumed.Task.WaitAsync(token); }
+        finally { deck.Changed -= Changed; }
     }
 }

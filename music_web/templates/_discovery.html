@@ -1,0 +1,10 @@
+<section id="discovery" hidden aria-labelledby="discovery-title">
+  <h2 id="discovery-title">New from artists you play</h2>
+  <div class="cover-shelf">
+    <div id="release-list" class="shelf-track" tabindex="0" role="region" aria-labelledby="discovery-title"></div>
+    {% for direction in ['previous', 'next'] %}
+    <button class="shelf-arrow {{ direction }}" type="button" aria-label="{{ direction|capitalize }} releases" aria-controls="release-list" hidden>{{ player_icon('chevron') }}</button>
+    {% endfor %}
+  </div>
+  <p class="error" id="discovery-message" role="status"></p>
+</section>

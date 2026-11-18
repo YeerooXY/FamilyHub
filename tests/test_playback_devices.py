@@ -32,7 +32,7 @@ class Registry(unittest.TestCase):
         self.clock.now = 16
         self.assertEqual(self.devices.list('me'), [], 'devices that stop checking in go offline')
 
-    def test_transfer_waits_for_the_targets_next_check_in_once(self):
+    def test_transfer_retries_until_a_legacy_client_reports_the_requested_track(self):
         self.devices.report('me', PC, dict(name='Desk PC', kind='windows'), True)
         self.devices.report('me', PHONE, dict(name='Pixel', kind='android'), False)
         sent = self.devices.transfer('me', PHONE, PC, RESUME, True)
@@ -40,10 +40,11 @@ class Registry(unittest.TestCase):
         self.assertIsNone(self.devices.report_command('me', PHONE, dict(name='Pixel'), False), 'only the target receives it')
         command, _, _ = self.devices.report('me', PC, dict(name='Desk PC', kind='windows'), True)
         self.assertEqual((command['action'], command['from_name'], command['resume'], command['playing']), ('play', 'Pixel', RESUME, True))
-        self.assertIsNone(self.devices.report_command('me', PC, dict(name='Desk PC'), True), 'a command is delivered once')
-        self.devices.transfer('me', PHONE, PC, RESUME, True); self.clock.now = 31
-        self.devices.report('me', PHONE, dict(name='Pixel'), False)
-        self.assertIsNone(self.devices.report_command('me', PC, dict(name='Desk PC'), True), 'an uncollected command expires')
+        self.assertEqual(self.devices.report_command('me', PC, dict(name='Desk PC'), True), command)
+        track = dict(id=RESUME['track_ids'][RESUME['index']])
+        self.assertIsNone(self.devices.report_command('me', PC, dict(name='Desk PC'), True, track))
+        self.assertEqual(self.devices.handoff_status('me', sent['id']), dict(state='ready', target=PC))
+        self.assertEqual([row['id'] for row in self.devices.list('me') if row['active']], [PC])
 
     def test_remote_controls_reach_the_target_in_order(self):
         self.devices.report('me', PC, dict(name='Desk PC'), True, dict(id='abcdefghijk', title='Song', channel='A'), 30)

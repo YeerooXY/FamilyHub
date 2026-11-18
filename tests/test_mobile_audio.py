@@ -13,6 +13,32 @@ import unittest
 import test_native_music_api as native
 from test_music_web import Base
 from music_web import mobile_audio
+from music_web.audio_profile import profile
+
+
+class OpusWarmerTests(unittest.TestCase):
+    def test_repeated_heartbeats_skip_lock_and_caches_stay_bounded(self):
+        resolve = mock.Mock(side_effect=ValueError('unavailable'))
+        with mock.patch.object(threading.Thread, 'start'):
+            warmer = mobile_audio.Warmer(None, resolve, None, None)
+        warmer.cv = mock.MagicMock()
+        with mock.patch.object(mobile_audio.time, 'monotonic', return_value=100) as clock:
+            warmer.now_playing('current')
+            self.assertEqual(warmer._next(), ('current', True))
+            warmer.cv.reset_mock()
+            for _ in range(720):
+                warmer.now_playing('current')
+            warmer.cv.__enter__.assert_not_called()
+            clock.return_value += warmer.CHECK_SECONDS
+            warmer.now_playing('current')
+            warmer.cv.__enter__.assert_called_once()
+            for index in range(warmer.CACHE_LIMIT + 10):
+                source = str(index)
+                warmer.now_playing(source)
+                warmer._warm(source)
+        self.assertEqual(len(warmer.checked), warmer.CACHE_LIMIT)
+        self.assertEqual(len(warmer.failed), warmer.CACHE_LIMIT)
+        self.assertEqual(len(warmer.playing), 20)
 
 
 class CachedMobileAudio(Base):
@@ -39,6 +65,12 @@ class CachedMobileAudio(Base):
 @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg required")
 class MobileAudio(Base):
     recording = native.NativeMusicApi.recording
+
+    def setUp(self):
+        super().setUp()
+        measure = mock.patch('music_web.profile', side_effect=profile)
+        measure.start()
+        self.addCleanup(measure.stop)
 
     def test_compressed_copy_is_reused_original_preserved_and_range_supported(self):
         item, target, manifest, _ = self.recording()

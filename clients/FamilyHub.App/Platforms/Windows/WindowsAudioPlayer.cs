@@ -141,7 +141,7 @@ public sealed class WindowsAudioPlayer : IAudioDeck, IDisposable
             playback.SeekCompleted -= finished;
             if (ReferenceEquals(player, current))
             {
-                seeking = false; pausedPosition = PlaybackRequested ? null : target;
+                seeking = false; pausedPosition = PlaybackRequested ? null : playback.Position.TotalSeconds;
                 if (PlaybackRequested) current.Play(); else current.Pause();
                 Changed?.Invoke();
             }

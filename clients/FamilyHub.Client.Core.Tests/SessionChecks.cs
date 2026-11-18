@@ -25,6 +25,8 @@ internal static class SessionChecks
         JsonElement activityBody = default;
         long? ownershipEpoch = null;
         var rejectActivity = false;
+        var rejectCompact = false;
+        var statuses = new Queue<string>();
         Action? duringActivity = null;
         var searchOffsets = new List<int>();
         var audioRequests = 0;
@@ -76,6 +78,8 @@ internal static class SessionChecks
                 using var body = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
                 activityBody = body.RootElement.Clone();
                 activityReports.Add(body.RootElement.GetProperty("device_info").Clone());
+                if (rejectCompact && activityReports[^1].TryGetProperty("queue", out var delta) && !delta.TryGetProperty("track_ids", out _))
+                    return new(HttpStatusCode.BadRequest);
                 if (rejectActivity) return new(HttpStatusCode.ServiceUnavailable);
                 var response = Json(JsonSerializer.Serialize(new { counters_accepted = true, command = activityCommand, epoch = ownershipEpoch }, FamilyHubApi.JsonOptions));
                 var callback = duringActivity; duringActivity = null; callback?.Invoke();
@@ -88,6 +92,16 @@ internal static class SessionChecks
                     && body.RootElement.GetProperty("to").GetString()?.Length == 32, "Takeover posted the wrong devices");
                 return Json("""{"id":"takeover","target":"Windows","source_paused":false}""");
             }
+            if (request.RequestUri.AbsolutePath == "/api/playback/transfer")
+            {
+                using var body = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                var transfer = body.RootElement;
+                Check(!transfer.GetProperty("playing").GetBoolean() && transfer.GetProperty("resume").GetProperty("position").GetDouble() == 12,
+                    "Paused transfer changed play intent or dropped its position");
+                return Json("""{"id":"transfer","target":"Pixel"}""");
+            }
+            if (request.RequestUri.AbsolutePath == "/api/playback/handoff/transfer")
+                return Json(JsonSerializer.Serialize(new { state = statuses.Dequeue(), target = new string('b', 32) }));
             if (request.RequestUri!.AbsolutePath == "/api/search")
             {
                 var body = System.Text.Json.JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
@@ -191,6 +205,34 @@ internal static class SessionChecks
             var edited = activityReports[^1];
             Check(edited.GetProperty("queue_rev").GetInt64() == revision + 1 && edited.GetProperty("queue").GetProperty("index").GetInt32() == 1
                 && !edited.TryGetProperty("acks", out _), "Queue changes waited for the timer or a successful acknowledgment was repeated");
+            await session.ReportPlaybackActivityAsync(false, queue: [recording, recording], queueIndex: 0);
+            var delta = activityReports[^1].GetProperty("queue");
+            Check(delta.EnumerateObject().Count() == 1 && delta.GetProperty("index").GetInt32() == 0, "Index change retransmitted track ids");
+            rejectCompact = true;
+            var beforeRetry = activityReports.Count;
+            await session.ReportPlaybackActivityAsync(false, queue: [recording, recording], queueIndex: 1);
+            Check(activityReports.Count == beforeRetry + 2 && activityReports[^1].GetProperty("queue").GetProperty("track_ids").GetArrayLength() == 2,
+                "Server rejected an index change and did not receive the full queue");
+            session.UiActive = false;
+            var hiddenReports = activityReports.Count;
+            await session.ReportPlaybackActivityAsync(false, force: true);
+            Check(activityReports.Count == hiddenReports, "Hidden idle player sent a heartbeat");
+            session.UiActive = true;
+            var destination = new string('b', 32);
+            var transfer = await session.Api!.TransferPlaybackAsync(session.DeviceId, destination, new() { TrackIds = [recording.Id], Index = 0, Position = 12 }, false);
+            statuses.Enqueue("pending"); statuses.Enqueue("ready");
+            Check(await session.Api.WaitForHandoffAsync(transfer.Id, destination, CancellationToken.None) && statuses.Count == 0,
+                "Pending receipt completed before the target reported ready");
+            statuses.Enqueue("failed");
+            Check(!await session.Api.WaitForHandoffAsync(transfer.Id, destination, CancellationToken.None), "Failed handoff reported success");
+            statuses.Enqueue("ready");
+            Check(!await session.Api.WaitForHandoffAsync(transfer.Id, session.DeviceId, CancellationToken.None), "Wrong target reported success");
+            using (var timeout = new CancellationTokenSource(100))
+            {
+                statuses.Enqueue("pending");
+                try { await session.Api.WaitForHandoffAsync(transfer.Id, destination, timeout.Token); throw new Exception("Pending handoff ignored timeout"); }
+                catch (OperationCanceledException) when (timeout.IsCancellationRequested) { checks++; }
+            }
             ownershipEpoch = 43;
             duringActivity = () =>
             {

@@ -1,4 +1,4 @@
-@implements IDisposable
+@implements IAsyncDisposable
 @inject MusicPlayer Player
 @inject IJSRuntime JS
 
@@ -18,14 +18,23 @@
 
 @code {
     private ElementReference slider;
-    protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender) await JS.InvokeVoidAsync("familyhub.bindSeekHover", slider); }
+    private DotNetObjectReference<SeekBar>? visibility;
+    private IJSObjectReference? observer;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await JS.InvokeVoidAsync("familyhub.bindSeekHover", slider);
+        visibility = DotNetObjectReference.Create(this);
+        observer = await JS.InvokeAsync<IJSObjectReference>("familyhub.observeSeekBar", slider, visibility);
+    }
+    [JSInvokable] public void SeekVisibility(bool visible) => Player.SetSeekBarVisible(visible);
     private double? preview;
     private bool showPreview;
     private string? track;
     private double Position => preview ?? Player.Position;
     private double Percent => Player.Duration > 0 ? Math.Clamp(Position / Player.Duration * 100, 0, 100) : 0;
     private static string Time(double seconds) => $"{(int)Math.Max(0, seconds) / 60}:{(int)Math.Max(0, seconds) % 60:00}";
-    protected override void OnInitialized() { track = Player.Current?.Id; Player.Changed += Changed; }
+    protected override void OnInitialized() { track = Player.Current?.Id; Player.Changed += Changed; Player.RemotePositionChanged += Changed; }
     private long lastRender;
     private void Changed() => _ = InvokeAsync(() => {
         if (!Player.UiActive || track == Player.Current?.Id && Environment.TickCount64 - lastRender < 1000) return;
@@ -49,5 +58,14 @@
         try { if (preview is { } value && Player.CanSeek && !Player.FollowingHost) await Player.SeekAsync(value); }
         finally { preview = null; showPreview = false; }
     }
-    public void Dispose() => Player.Changed -= Changed;
+    public async ValueTask DisposeAsync()
+    {
+        Player.Changed -= Changed; Player.RemotePositionChanged -= Changed;
+        if (observer is not null)
+        {
+            try { await observer.InvokeVoidAsync("disconnect"); await observer.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+        }
+        visibility?.Dispose(); Player.SetSeekBarVisible(false);
+    }
 }

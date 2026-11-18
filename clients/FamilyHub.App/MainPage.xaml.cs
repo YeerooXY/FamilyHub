@@ -1,3 +1,6 @@
+using FamilyHub.Client.Core;
+using FamilyHub.App.Services;
+
 namespace FamilyHub.App;
 
 public partial class MainPage : ContentPage
@@ -5,6 +8,7 @@ public partial class MainPage : ContentPage
     private static WeakReference<MainPage>? current;
     private readonly Services.MusicSession session;
     private readonly Services.MusicPlayer player;
+    private readonly PlaybackDevicePoll devices;
 #if WINDOWS
     private readonly Services.DiscordPresence discord;
     private long? lastFocusRequest;
@@ -49,7 +53,8 @@ public partial class MainPage : ContentPage
         if (blazorWebView.Handler?.PlatformView is Android.Webkit.WebView web)
             web.EvaluateJavascript("window.familyhub?.setNativeActive(" + (active ? "true" : "false") + ")", null);
 #endif
-        if (active) remoteTimer.Start(); else remoteTimer.Stop();
+        devices.Update(); UpdateTimers();
+        if (active) _ = CheckInPlaybackAsync(force: true);
         refreshTimer ??= CreateRefreshTimer();
         if (!active) { session.FlushListening(); if (player.Playing || Math.Abs(player.Position - lastPlaybackPosition) > .25) SavePlayback(); refreshTimer.Stop(); return; }
         refreshTimer.Start();
@@ -60,21 +65,38 @@ public partial class MainPage : ContentPage
     }
     private string? restoredProfile;
     private bool restoringPlayback, restoredOnline;
+    private readonly IDispatcherTimer checkpointTimer;
     private DateTime lastPlaybackSave;
     private double lastPlaybackPosition;
-    private string lastPlaybackIdentity = "";
+    private (string? Track, int Index, IReadOnlyList<MusicTrack>? Queue) lastCheckpoint;
     private long lastUserPlaybackRevision;
     private long lastActivityControlRevision, lastActivitySeekRevision;
     private void SavePlayback(bool background = true)
     {
-        if (restoringPlayback || restoredProfile != session.Server + "|" + session.User) return;
+        if (player.RemoteActive || restoringPlayback || restoredProfile != session.Server + "|" + session.User) return;
+        var checkpoint = (player.Current?.Id, player.QueueIndex, player.QueueSnapshot);
+        if (lastCheckpoint == checkpoint)
+        {
+            if (Math.Abs(player.Position - lastPlaybackPosition) <= .25) return;
+            var remaining = TimeSpan.FromSeconds(15) - (DateTime.UtcNow - lastPlaybackSave);
+            if (remaining > TimeSpan.Zero)
+            {
+                if (!checkpointTimer.IsRunning)
+                {
+                    checkpointTimer.Interval = remaining; checkpointTimer.Start();
+                }
+                return;
+            }
+        }
         var state = player.CaptureResume();
         if (state is null) return;
+        checkpointTimer.Stop(); lastCheckpoint = checkpoint;
         _ = session.SavePlaybackAsync(state, background);
         lastPlaybackSave = DateTime.UtcNow; lastPlaybackPosition = state.Position;
     }
     private void PlaybackChanged()
     {
+        UpdateTimers();
         session.ObserveListening(player.Preparing || player.Seeking ? null : player.Current, player.QueueIndex, player.Position, player.Playing);
         if (player.Seeking) return;
         var background = player.UserPlaybackRevision == lastUserPlaybackRevision;
@@ -82,13 +104,15 @@ public partial class MainPage : ContentPage
         var force = lastActivityControlRevision != player.ControlRevision || lastActivitySeekRevision != player.SeekRevision;
         lastActivityControlRevision = player.ControlRevision; lastActivitySeekRevision = player.SeekRevision;
         _ = CheckInPlaybackAsync(background, force);
-        var identity = player.Current?.Id + ":" + player.QueueIndex + ":" + player.Queue.Count + ":" + player.PlaybackRequested + ":" + player.ControlRevision + ":" + player.Shuffle;
-        if (identity != lastPlaybackIdentity || !player.Playing && Math.Abs(player.Position - lastPlaybackPosition) > .25 || player.Playing && DateTime.UtcNow - lastPlaybackSave > TimeSpan.FromSeconds(15))
-        { lastPlaybackIdentity = identity; SavePlayback(background); }
+        SavePlayback(background);
     }
     private Task CheckInPlaybackAsync(bool background = true, bool force = false)
     {
-        if (player.Seeking && !force) return Task.CompletedTask;
+        if (player.ReportingHandoff is { } loaded)
+            return session.ReportPlaybackActivityAsync(loaded.Deck.Playing, loaded.Deck.Position, background: background,
+                status: loaded.Deck.Opening ? "buffering" : loaded.Deck.Playing ? "playing" : "paused", duration: loaded.Deck.Duration,
+                track: loaded.Track, queue: loaded.Queue, queueIndex: loaded.Index, force: force);
+        if (!session.UiActive && !player.Playing && !session.HandoffPending || player.Seeking && !force) return Task.CompletedTask;
         var local = !player.RemoteActive && !player.FollowingHost;
         var track = local ? player.Current : null;
         var playing = !player.RemoteActive && player.Playing;
@@ -96,28 +120,64 @@ public partial class MainPage : ContentPage
         var duration = player.Duration > 0 ? player.Duration : track?.Duration;
         if (duration is not (> 0 and <= 86400)) duration = null;
         return session.ReportPlaybackActivityAsync(playing, track is null ? null : player.Position, player.FollowingHost, player.RemoteDeviceId, background,
-            status, track is null ? null : duration, track, local ? player.Queue : [], local ? player.QueueIndex : -1, force);
+            status, track is null ? null : duration, track, local ? player.QueueSnapshot : [], local ? player.QueueIndex : -1, force);
     }
     // While this device's music plays elsewhere, mirror that device's song, position and state.
     private int remoteMisses;
     private readonly IDispatcherTimer remoteTimer;
-    private bool followingRemote;
-    private async Task FollowRemoteAsync()
+    private void FollowRemote(List<PlaybackDevice> rows)
     {
-        if (!session.UiActive || !player.RemoteActive || followingRemote || session.Api is not { } api) { remoteMisses = 0; return; }
-        followingRemote = true;
-        try
+        if (!player.RemoteActive || session.HandoffPending) return;
+        var device = rows.FirstOrDefault(d => d.Id == player.RemoteDeviceId);
+        if (device is null) { if (++remoteMisses >= 3) player.LeaveRemote(); return; }
+        remoteMisses = 0;
+        player.ApplyRemoteState(device.Track?.Id ?? "", device.IsPlaying, device.PositionAt(0), device.Age, device.Duration);
+    }
+
+    private void UpdateTimers()
+    {
+        if (player.RemoteActive && session.UiActive) devices.Watch(FollowRemote);
+        else { devices.Unwatch(FollowRemote); remoteMisses = 0; }
+        if (session.UiActive && player.RemoteActive && player.RemotePlaying && player.SeekBarVisible)
+        { if (!remoteTimer.IsRunning) remoteTimer.Start(); }
+        else if (remoteTimer.IsRunning) remoteTimer.Stop();
+
+        if ((player.PlaybackRequested || player.RemotePlaying || session.HandoffPending) && activityTimer.Interval.TotalSeconds != 5)
+            activityTimer.Interval = TimeSpan.FromSeconds(5);
+        if (session.UiActive || player.Playing || session.HandoffPending)
         {
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
-            var target = player.RemoteDeviceId;
-            var device = (await api.GetPlaybackDevicesAsync(session.DeviceId, timeout.Token, background: true)).Devices.FirstOrDefault(d => d.Id == target);
-            if (!ReferenceEquals(api, session.Api) || !player.RemoteActive || player.RemoteDeviceId != target) return;
-            if (device is null) { if (++remoteMisses >= 3) player.LeaveRemote(); return; }
-            remoteMisses = 0;
-            player.ApplyRemoteState(device.Track?.Id ?? "", device.IsPlaying, device.PositionAt(0), device.Age, device.Duration);
+            if (!activityTimer.IsRunning) activityTimer.Start();
         }
-        catch (Exception error) when (error is HttpRequestException or FamilyHub.Client.Core.FamilyHubApiException or OperationCanceledException) { }
-        finally { followingRemote = false; }
+        else if (activityTimer.IsRunning) activityTimer.Stop();
+    }
+
+    private void ActivityTick()
+    {
+        // Leave headroom under the server's 15-second expiry, even on a metered idle connection.
+        var playingOrConnecting = player.PlaybackRequested || player.RemotePlaying || session.HandoffPending;
+        session.IdleHeartbeatSeconds = !playingOrConnecting && MeteredConnection() ? 10 : 5;
+        var interval = TimeSpan.FromSeconds(session.IdleHeartbeatSeconds);
+        if (activityTimer.Interval != interval) activityTimer.Interval = interval;
+        SavePlayback();
+        session.ObserveListening(player.Preparing || player.Seeking ? null : player.Current, player.QueueIndex, player.Position, player.Playing);
+        _ = CheckInPlaybackAsync();
+    }
+#if IOS || MACCATALYST
+    private readonly Network.NWPathMonitor pathMonitor = new();
+    private bool meteredApplePath;
+#endif
+    private bool MeteredConnection()
+    {
+#if WINDOWS
+        var cost = global::Windows.Networking.Connectivity.NetworkInformation.GetInternetConnectionProfile()?.GetConnectionCost();
+        if (cost?.NetworkCostType is global::Windows.Networking.Connectivity.NetworkCostType.Fixed or global::Windows.Networking.Connectivity.NetworkCostType.Variable) return true;
+#elif ANDROID
+        var manager = Android.App.Application.Context.GetSystemService(Android.Content.Context.ConnectivityService) as Android.Net.ConnectivityManager;
+        if (manager?.IsActiveNetworkMetered == true) return true;
+#elif IOS || MACCATALYST
+        if (meteredApplePath) return true;
+#endif
+        return Connectivity.Current.ConnectionProfiles.Contains(ConnectionProfile.Cellular);
     }
     private async void RestorePlayback()
     {
@@ -180,13 +240,19 @@ public partial class MainPage : ContentPage
             Task.Run<Stream>(async () => await image is { } found ? new MemoryStream(found.Data, false) : throw new FileNotFoundException()));
     }
 
-	public MainPage(Services.MusicPlayer player, Services.MusicSession session
+	public MainPage(Services.MusicPlayer player, Services.MusicSession session, PlaybackConnection connection, PlaybackDevicePoll devices
 #if WINDOWS
         , Services.DiscordPresence discord
 #endif
         )
 	{
 		InitializeComponent();
+#if IOS || MACCATALYST
+        pathMonitor.SetQueue(CoreFoundation.DispatchQueue.MainQueue);
+        pathMonitor.SnapshotHandler = path => meteredApplePath = path.IsExpensive || path.IsConstrained;
+        pathMonitor.Start();
+#endif
+        this.devices = devices;
         this.session = session;
         this.player = player;
 #if WINDOWS
@@ -206,15 +272,19 @@ public partial class MainPage : ContentPage
         Loaded += (_, _) => Services.WindowsWindowChrome.Update(this,
             blazorWebView.Handler?.PlatformView as Microsoft.UI.Xaml.FrameworkElement, 48, [], 1);
 #endif
+        checkpointTimer = Dispatcher.CreateTimer();
+        checkpointTimer.IsRepeating = false;
+        checkpointTimer.Tick += (_, _) => SavePlayback();
         activityTimer = Dispatcher.CreateTimer();
         // Five-second check-ins stay within the server's 15-second device expiry.
         activityTimer.Interval = TimeSpan.FromSeconds(5);
-        activityTimer.Tick += (_, _) => { if (player.Playing && DateTime.UtcNow - lastPlaybackSave >= TimeSpan.FromSeconds(15)) SavePlayback(); session.ObserveListening(player.Preparing || player.Seeking ? null : player.Current, player.QueueIndex, player.Position, player.Playing); _ = CheckInPlaybackAsync(); _ = FollowRemoteAsync(); };
+        activityTimer.Tick += (_, _) => ActivityTick();
         activityTimer.Start();
         remoteTimer = Dispatcher.CreateTimer();
         remoteTimer.Interval = TimeSpan.FromMilliseconds(500);
         remoteTimer.Tick += (_, _) => player.RemoteTick();
-        remoteTimer.Start();
+        connection.Changed += UpdateTimers;
+        player.SeekBarVisibilityChanged += UpdateTimers;
         player.Attach(audio, audioNext);
 #if ANDROID
         PlaybackControls.Start(Microsoft.Maui.ApplicationModel.Platform.AppContext, player, session);
@@ -234,37 +304,8 @@ public partial class MainPage : ContentPage
         };
         session.PlaybackHandedOver += handover =>
         {
-            var activation = session.PlaybackActivation; var api = session.Api;
-            Dispatcher.Dispatch(async () =>
-            {
-                if (!ReferenceEquals(api, session.Api)) return;
-                var pause = handover.Action == "pause";
-                var applied = false;
-                try
-                {
-                    if (activation != session.PlaybackActivation || !session.IsCurrentPlaybackCommand(handover) || player.FollowingHost) return;
-                    if (handover.Resume is { IsValid: true } resume &&
-                        !session.Library.Concat(session.Downloads).Any(track => track.Id == resume.TrackIds[resume.Index]))
-                    {
-                        await session.RefreshAsync(background: true);
-                        if (activation != session.PlaybackActivation || !session.IsCurrentPlaybackCommand(handover) || !ReferenceEquals(api, session.Api)) return;
-                    }
-                    if (await player.ApplyPlaybackCommandAsync(handover, session.Library.Concat(session.Downloads))
-                        && ReferenceEquals(api, session.Api))
-                    {
-                        applied = true;
-                        session.AcknowledgePlaybackCommand(handover.Id);
-                    }
-                }
-                catch (Exception error) when (error is InvalidOperationException or IOException or HttpRequestException or FamilyHub.Client.Core.FamilyHubApiException or OperationCanceledException)
-                {
-                    if (ReferenceEquals(api, session.Api)) session.SetMessage(error.Message);
-                }
-                finally
-                {
-                    if (pause && !applied && ReferenceEquals(api, session.Api)) session.RetryPauseCommand(handover.Id);
-                }
-            });
+            var activation = session.PlaybackActivation;
+            if (session.Api is { } api) Dispatcher.Dispatch(async () => await connection.ReceiveAsync(handover, api, activation));
         };
         blazorWebView.UrlLoading += (_, args) => { if (args.Url.Host != "0.0.0.1") args.UrlLoadingStrategy = Microsoft.AspNetCore.Components.WebView.UrlLoadingStrategy.CancelLoad; };
 	}

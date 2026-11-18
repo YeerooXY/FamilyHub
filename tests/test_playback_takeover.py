@@ -1,5 +1,6 @@
 """Server-side playback snapshot, ownership and takeover tests."""
 import unittest
+from unittest.mock import Mock
 
 from music_web.playback_devices import DeviceError, PlaybackDevices
 import test_family_profiles as family
@@ -28,6 +29,10 @@ class Takeover(unittest.TestCase):
     def takeover(self):
         return self.devices.takeover('me', PC, PHONE)
 
+    def assert_owner(self, device, epoch):
+        self.assertEqual(self.devices.active['me'], dict(id=device, epoch=epoch))
+        self.assertEqual([d['id'] for d in self.devices.list('me') if d['active']], [device])
+
     def test_paused_snapshot_keeps_track_position_and_queue(self):
         self.start(duration=100)
         self.clock.now = 3
@@ -36,10 +41,17 @@ class Takeover(unittest.TestCase):
         row = self.devices.list('me', PC)[0]
         self.assertEqual((row['status'], row['duration'], row['queue_rev'], row['track'], row['position'], row['age']),
                          ('paused', 100, 1, TRACK, 42.5, 5))
-        self.takeover()
-        command = self.check_in(PHONE, 'paused')[0]
+        sent = self.takeover()
+        command = self.check_in(PHONE, 'paused', epoch=1)[0]
         self.assertFalse(command['playing'])
         self.assertEqual(command['resume'], RESUME)
+        self.assert_owner(PC, 1)
+        self.assertIsNone(self.check_in(PHONE, 'playing', acks=[sent['id']])[0])
+        self.assertIsNone(self.check_in(PHONE, 'paused', track=None, position=None)[0])
+        self.assert_owner(PC, 1)
+        self.assertIsNone(self.check_in(PHONE, 'paused')[0])
+        self.assert_owner(PHONE, 2)
+        self.assertFalse(self.check_in(status='paused')[0]['playing'])
 
     def test_playing_position_advances_and_clamps_while_buffering_stays_put(self):
         for status, duration, expected in [('playing', 100, 52.5), ('playing', 50, 50), ('buffering', 100, 42.5)]:
@@ -49,37 +61,112 @@ class Takeover(unittest.TestCase):
                 self.clock.now = 10
                 sent = self.takeover()
                 command, _, epoch = self.check_in(PHONE, 'paused')
-                self.assertEqual((command['id'], command['action'], epoch), (sent['id'], 'play', 2))
+                self.assertEqual((command['id'], command['action'], epoch), (sent['id'], 'play', 1))
                 self.assertEqual(command['resume'], dict(**QUEUE, position=expected))
                 self.assertTrue(command['playing'])
-                self.assertIsNone(self.check_in(PHONE, 'playing', acks=[sent['id']])[0])
+                self.assertIsNone(self.check_in(PHONE, 'playing', position=expected, acks=[sent['id']])[0])
+                self.assert_owner(PHONE, 2)
 
     def test_takeover_play_retries_after_a_lost_response_until_target_acks(self):
         self.start()
         sent = self.takeover()
         first, _, epoch = self.check_in(PHONE, 'paused', sequence=1)
         self.assertEqual((first['id'], first['action'], first['epoch']), (sent['id'], 'play', epoch))
-        pause, _, _ = self.check_in(acks=[sent['id']])
-        self.assertEqual(pause['action'], 'pause')
-        self.assertIsNone(self.check_in(status='paused', acks=[pause['id']])[0])
+        self.assertIsNone(self.check_in(acks=[sent['id']])[0])
         self.assertEqual(self.check_in(PHONE, 'paused', sequence=2, acks=['unknown'])[0], first)
+        self.assertEqual(self.check_in(PHONE, 'playing', sequence=3, epoch=epoch, local_play=True)[0], first)
+        self.assert_owner(PC, epoch)
         self.assertIsNone(self.check_in(PHONE, 'playing', sequence=3, acks=[sent['id']])[0])
-        self.assertIsNone(self.check_in(PHONE, 'playing', sequence=4)[0])
+        self.assert_owner(PC, epoch)
+        self.assertIsNone(self.check_in(PHONE, 'playing', sequence=4, acks=[sent['id']])[0])
+        self.assertIsNone(self.check_in(PHONE, 'playing', sequence=5, acks=[sent['id']])[0])
+        self.assert_owner(PHONE, epoch + 1)
 
-    def test_unacknowledged_play_expires_from_the_time_it_was_queued(self):
+    def test_timeout_keeps_source_ownership_and_playback_with_or_without_ack(self):
+        for source_status in ('playing', 'paused'):
+            for acked in (True, False):
+                with self.subTest(source_status=source_status, acked=acked):
+                    self.setUp()
+                    epoch = self.start(source_status)
+                    sent = self.takeover()
+                    self.check_in(PHONE, 'paused', track=None, epoch=epoch)
+                    self.clock.now += 14
+                    command = self.check_in(PHONE, 'buffering', acks=[sent['id']] if acked else [])[0]
+                    self.assertEqual(command is None, acked)
+                    self.assertIsNone(self.check_in(status=source_status)[0])
+                    self.assertEqual(self.devices.handoff_status('me', sent['id'])['state'], 'pending')
+                    self.clock.now += 1
+                    self.assertEqual(self.devices.handoff_status('me', sent['id'])['state'], 'failed')
+                    self.assertIsNone(self.devices.handoffs['me', sent['id']]['command'])
+                    self.assertIsNone(self.check_in(status=source_status)[0])
+                    late = self.check_in(PHONE, source_status, acks=[sent['id']])[0]
+                    self.assertTrue(late is None or late['action'] == 'pause')
+                    self.assert_owner(PC, epoch)
+                    self.assertEqual(self.devices.list('me', PC)[0]['status'], source_status)
+
+    def test_transfer_and_takeover_create_the_same_handoff_and_play_command(self):
+        expected = {'from': PC, 'to': PHONE, 'resume': RESUME, 'playing': False, 'state': 'pending', 'created': 0}
+        commands = []
+        for method in ('transfer', 'takeover'):
+            self.setUp()
+            self.start('paused')
+            sent = (self.devices.transfer('me', PC, PHONE, RESUME, False)
+                    if method == 'transfer' else self.takeover())
+            record = self.devices.handoffs['me', sent['id']]
+            self.assertEqual(record['id'], sent['id'])
+            self.assertEqual({k: record[k] for k in expected}, expected)
+            command = self.check_in(PHONE, 'paused')[0]
+            self.assertEqual(command.pop('id'), sent['id'])
+            commands.append(command)
+        self.assertEqual(commands[0], commands[1])
+
+    def test_replacement_handoff_rejects_the_superseded_ack(self):
         self.start()
-        sent = self.takeover()
-        self.clock.now += 30
-        self.assertEqual(self.check_in(PHONE, 'paused')[0]['id'], sent['id'])
-        self.clock.now += 1
-        self.assertIsNone(self.check_in(PHONE, 'paused')[0])
+        first = self.takeover()['id']
+        self.check_in(PHONE, 'paused', epoch=1)
+        second = self.devices.transfer('me', PC, PHONE, RESUME, True)['id']
+        self.assertEqual(self.devices.handoff_status('me', first)['state'], 'failed')
+        self.assertEqual(self.check_in(PHONE, acks=[first])[0]['id'], second)
+        self.assertEqual(self.check_in(PHONE, acks=[first])[0]['id'], second)
+        self.assert_owner(PC, 1)
+        self.check_in(PHONE, acks=[second])
+        self.assert_owner(PHONE, 2)
+
+    def test_failed_return_handoff_preserves_the_outstanding_source_pause(self):
+        self.start()
+        first = self.takeover()['id']
+        self.check_in(PHONE, 'paused')
+        self.check_in(PHONE, acks=[first], queue=QUEUE)
+        pause = self.check_in()[0]
+        second = self.devices.takeover('me', PHONE, PC)['id']
+        self.assertEqual(self.check_in()[0]['id'], second)
+        self.clock.now += 15
+        self.assertEqual(self.check_in(status='paused')[0], pause)
+        self.assertEqual(self.devices.handoff_status('me', second)['state'], 'failed')
+        self.assert_owner(PHONE, 2)
+
+    def test_ack_waits_for_fresh_matching_playback_before_presence_or_pause(self):
+        self.start()
+        self.devices.presence = presence = Mock()
+        sent = self.devices.transfer('me', PC, PHONE, RESUME, True)
+        self.check_in(PHONE, 'playing', acks=[])
+        self.check_in(PHONE, 'buffering', acks=[sent['id']])
+        for fields in (dict(track=dict(id=QUEUE['track_ids'][0])), dict(position=55), dict(position=None)):
+            self.assertIsNone(self.check_in(PHONE, 'playing', **fields)[0])
+            self.assert_owner(PC, 1)
+        presence.presence.assert_not_called()
+        self.assertIsNone(self.check_in()[0])
+        self.assertIsNone(self.check_in(PHONE, 'playing', position=45)[0])
+        presence.presence.assert_called_with(('me', PHONE), 'listening', self.devices.ONLINE_SECONDS)
+        self.assert_owner(PHONE, 2)
 
     def test_new_owner_replaces_pending_pause_and_pauses_all_other_players(self):
         self.start()
         sent = self.takeover()
+        self.assertEqual(self.check_in(PHONE)[0]['id'], sent['id'])
+        self.check_in(PHONE, acks=[sent['id']])
         old_pause, _, transfer_epoch = self.check_in()
         self.assertEqual(old_pause['device_id'], PHONE)
-        self.assertEqual(self.check_in(PHONE)[0]['id'], sent['id'])
 
         _, _, epoch = self.check_in(OTHER, epoch=transfer_epoch, local_play=True)
         self.assertEqual(epoch, transfer_epoch + 1)
@@ -93,10 +180,11 @@ class Takeover(unittest.TestCase):
 
     def test_retained_pause_retries_until_source_acknowledges_it(self):
         epoch = self.start()
-        self.takeover()
+        sent = self.takeover()
+        self.assertEqual(self.check_in(PHONE, 'paused')[0]['action'], 'play')
+        self.check_in(PHONE, acks=[sent['id']])
         pause, _, takeover_epoch = self.check_in(epoch=epoch, local_play=True)
         self.assertEqual((pause['action'], pause['device_id'], takeover_epoch), ('pause', PHONE, epoch + 1))
-        self.assertEqual(self.check_in(PHONE, 'paused')[0]['action'], 'play')
         self.assertEqual(self.check_in(acks=['unknown'], status='paused')[0], pause)
         self.assertIsNone(self.check_in(status='paused', acks=[pause['id']])[0])
         self.assertIsNone(self.check_in(status='paused', acks=[pause['id']])[0])
@@ -108,8 +196,10 @@ class Takeover(unittest.TestCase):
         self.clock.now = 16
         self.check_in(PHONE, 'paused')
         self.assertEqual([row['id'] for row in self.devices.list('me')], [PHONE])
-        self.assertIs(self.takeover()['source_paused'], False)
+        sent = self.takeover()
+        self.assertIs(sent['source_paused'], False)
         self.assertEqual(self.check_in(PHONE, 'paused')[0]['resume'], RESUME)
+        self.check_in(PHONE, acks=[sent['id']])
         self.clock.now += 30
         self.assertEqual(self.check_in(status='paused')[0]['action'], 'pause')
         self.clock.now += 1
@@ -129,6 +219,22 @@ class Takeover(unittest.TestCase):
                 self.check_in(**update)
                 with self.assertRaises(DeviceError):
                     self.takeover()
+
+    def test_index_only_update_preserves_queue_ids_and_revision_for_takeover(self):
+        self.start(status='paused', sequence=1)
+        self.check_in(status='paused', queue_rev=1, queue=dict(index=0), sequence=2, track=None, position=7)
+        self.check_in(status='paused', queue_rev=1, sequence=3, track=None, position=None)
+
+        self.assertEqual(self.devices.list('me', PC)[0]['queue_rev'], 1)
+        self.takeover()
+        self.assertEqual(self.check_in(PHONE, 'paused')[0]['resume'], dict(QUEUE, index=0, position=7))
+
+    def test_index_only_updates_require_an_integer_within_the_stored_queue(self):
+        self.start()
+        for queue in (dict(index=-1), dict(index=2), dict(index=True), dict(index=0.0), {}):
+            with self.subTest(queue=queue), self.assertRaisesRegex(DeviceError, 'Invalid playback queue index'):
+                self.check_in(queue_rev=1, queue=queue)
+        self.assertEqual(self.devices.devices['me', PC]['queue'], QUEUE)
 
     def test_takeover_limits_devices_to_the_profile_and_excludes_followers(self):
         self.start()
@@ -157,6 +263,27 @@ class TakeoverRoutes(Base):
     bootstrap = family.FamilyProfiles.bootstrap
     select = family.FamilyProfiles.select
 
+    def test_index_only_update_requests_a_full_queue_when_the_base_is_unavailable(self):
+        client, token = self.select()
+
+        def report(queue, sequence, **fields):
+            return self.post(client, token, '/api/playback/activity', json=dict(
+                device_id=PC, playing=False, device_info=dict(name=PC, sequence=sequence, queue=queue, **fields)))
+
+        compact = dict(index=0)
+        needs_full_queue = (400, 'Send the full playback queue.')
+        response = report(compact, 1, queue_rev=2)
+        self.assertEqual((response.status_code, response.json['error']), needs_full_queue)
+        self.assertEqual(report(QUEUE, 1, queue_rev=2).status_code, 200)
+
+        for fields in (dict(queue_rev=1), {}):
+            with self.subTest(fields=fields):
+                response = report(compact, 2, **fields)
+                self.assertEqual((response.status_code, response.json['error']), needs_full_queue)
+
+        self.assertEqual(report(dict(QUEUE, index=0), 2, queue_rev=3).status_code, 200)
+        self.assertEqual(report(dict(index=1), 3, queue_rev=3).status_code, 200)
+
     def test_activity_and_takeover_with_server_epoch_and_command_acks(self):
         client, token = self.select()
 
@@ -175,16 +302,24 @@ class TakeoverRoutes(Base):
                          ('paused', 95, 1, TRACK))
         response = self.post(client, token, '/api/playback/takeover', json={'from': PC, 'to': PHONE})
         self.assertEqual(response.status_code, 202)
+        path = '/api/playback/handoff/' + response.json['id']
+        self.assertEqual(self.go(client, 'GET', path).json, dict(state='pending', target=PHONE))
+        other, _ = self.select('sample-b')
+        self.assertEqual(self.go(other, 'GET', path).status_code, 404)
         target = report(PHONE)
         self.assertEqual((target['epoch'], target['command']['id'], target['command']['resume']),
-                         (2, response.json['id'], RESUME))
+                         (1, response.json['id'], RESUME))
         self.assertEqual(report(PHONE)['command'], target['command'])
-        self.assertIsNone(report(PHONE, epoch=2, acks=[response.json['id']])['command'])
+        self.assertIsNone(report(PHONE, epoch=1, acks=[response.json['id']])['command'])
+        self.assertEqual(self.go(client, 'GET', path).json['state'], 'pending')
+        self.assertIsNone(report(PC)['command'])
+        self.assertEqual(report(PHONE, epoch=1, track=TRACK, position=42.5)['epoch'], 2)
+        self.assertEqual(self.go(client, 'GET', path).json, dict(state='ready', target=PHONE))
         source = report(PC, epoch=1)
         self.assertEqual(source['command']['action'], 'pause')
         self.assertIsNone(report(PC, epoch=source['epoch'], acks=[source['command']['id']])['command'])
 
-    def test_takeover_rejects_a_listen_together_host(self):
+    def test_both_handoff_routes_reject_a_listen_together_host(self):
         client, token = self.select()
         for device in (PC, PHONE):
             self.assertEqual(self.post(client, token, '/api/playback/activity', json=dict(
@@ -192,5 +327,7 @@ class TakeoverRoutes(Base):
         room = self.post(client, token, '/api/listening/rooms', json=dict(
             queue=[TRACK], index=0, position=1, playing=True, auto_dj=False, crossfading=False))
         self.assertEqual(room.status_code, 201)
-        response = self.post(client, token, '/api/playback/takeover', json={'from': PC, 'to': PHONE})
-        self.assertEqual((response.status_code, response.json['error']), (409, 'Leave Listen Together first.'))
+        for route, fields in (('takeover', {}), ('transfer', dict(resume=RESUME, playing=True))):
+            with self.subTest(route=route):
+                response = self.post(client, token, '/api/playback/' + route, json={'from': PC, 'to': PHONE, **fields})
+                self.assertEqual((response.status_code, response.json['error']), (409, 'Leave Listen Together first.'))

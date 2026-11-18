@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <symbol id="laptop" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="14" rx="2"/><path d="M1 21h22"/></symbol>
+  <symbol id="phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11.5 18h1"/></symbol>
+  <symbol id="speaker" viewBox="0 0 24 24"><path d="M11 5 5 9H2v6h3l6 4zM15 9a5 5 0 0 1 0 6m3-10a10 10 0 0 1 0 14"/></symbol>
+  <symbol id="playing-on" viewBox="0 0 24 24"><path d="M17 3a10 10 0 1 0 0 18m3-15a10 10 0 0 1 0 12m-4-9a4 4 0 0 1 0 6"/><path fill="currentColor" d="m11.5 7-3.5 3H6v4h2l3.5 3z"/></symbol>
+  <symbol id="quiet" viewBox="0 0 24 24"><path d="M15 4 6 10H3v4h3l9 6zM19 10a3 3 0 0 1 0 4"/></symbol>
+  <symbol id="chevron" viewBox="0 0 24 24"><path d="m9 4 8 8-8 8"/></symbol>
+  <symbol id="close" viewBox="0 0 24 24"><path d="m5 5 14 14M19 5 5 19"/></symbol>
+  <symbol id="external" viewBox="0 0 24 24"><path d="M13 3H4v17h17v-9m-8 0 8-8m-6 0h6v6"/></symbol>
+  <symbol id="bluetooth" viewBox="0 0 24 24"><path d="m6 6 12 12-6 5V1l6 5L6 18"/></symbol>
+  <symbol id="music" viewBox="0 0 24 24"><path d="M7.5 17.5V4h13v13.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/></symbol>
+  <symbol id="equaliser" viewBox="0 0 24 24"><path d="M4 21V4m8 17V8m8 13v-9"/></symbol>
+  <symbol id="play" viewBox="0 0 24 24"><path fill="currentColor" d="m7 4 13 8-13 8z"/></symbol>
+  <symbol id="pause" viewBox="0 0 24 24"><path fill="currentColor" d="M6 4h4v16H6zm8 0h4v16h-4z"/></symbol>
+  <symbol id="previous" viewBox="0 0 24 24"><path d="M4 5v14m15-14L7 12l12 7z"/></symbol>
+  <symbol id="next" viewBox="0 0 24 24"><path d="M20 5v14M5 5l12 7-12 7z"/></symbol>
+  <symbol id="shuffle" viewBox="0 0 24 24"><path d="M3 6h2c5 0 8 12 13 12h3m-4-4 4 4-4 4M3 18h2c2 0 4-2 5-4m4-6c1-1 2-2 4-2h3m-4-4 4 4-4 4"/></symbol>
+</svg>

@@ -1,11 +1,12 @@
 @implements IDisposable
 @inject MusicPlayer Player
 
-@* Spotify's "Listening on" strip: this device is the remote for another one of your devices. *@
+@* Spotify's "Playing on" line: this device is the remote for another one of your devices. A full-width
+   green line under the player bar on wider windows; on phones, the last row of the mini player card. *@
 @if (Player.RemoteActive)
 {
     <div id="device-strip" class="device-strip" role="status">
-        <MusicIcon Name="device" /><span>Listening on <strong>@Player.RemoteDeviceName</strong></span>
+        <MusicIcon Name="volume" /><span>Playing on <strong>@Player.RemoteDeviceName</strong></span>
     </div>
 }
 

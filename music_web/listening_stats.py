@@ -1,6 +1,6 @@
 """Connected listening time, offline listening counters, royalties and subscription savings for the family server."""
-import copy
 import json
+import logging
 import math
 import re
 import threading
@@ -75,6 +75,7 @@ def listening_records(daily, profiles, today):
 
 class ListeningStats:
     LEASE = 20
+    CHECKPOINT_SECONDS = 300
     DEVICE = re.compile(r'[0-9a-f]{32}')
     DAY = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2}')
     MAX_ENTRIES = 400
@@ -82,6 +83,7 @@ class ListeningStats:
 
     def __init__(self, workspace, clock=time.monotonic, utc=lambda: datetime.now(timezone.utc)):
         self.path = Path(workspace) / '.listening-statistics.json'
+        self.journal = self.path.with_suffix('.jsonl')
         self.clock, self.utc = clock, utc
         self.lock = threading.RLock()
         self.devices, self.counted = {}, {}
@@ -92,15 +94,67 @@ class ListeningStats:
         # shortcut: counters and daily seconds are bounded by the calendar since 2020, not pruned.
         for key in ('daily', 'plays', 'savings', 'counters'):
             self.data.setdefault(key, {})
-        self.last_write = 0
-        self.dirty = not self.path.exists()
+        self.last_write = None
+        self.legacy_dirty = False
+        self.revision = self.data.pop('journal_revision', 0)
+        self.journal_end = 0
+        if self.journal.exists():
+            with self.journal.open('rb') as journal:
+                for line in journal:
+                    if not line.endswith(b'\n'):
+                        break  # An interrupted append leaves an incomplete final record.
+                    revision, since, user, device_id, at, days = json.loads(line)
+                    self.journal_end += len(line)
+                    if revision > self.revision:
+                        self.data['since'] = since
+                        self._credit(user, device_id, at, days)
+                        self.revision = revision
 
     def _write(self, now):
         temporary = self.path.with_suffix('.tmp')
-        temporary.write_text(json.dumps(self.data), encoding='utf-8')
+        temporary.write_text(json.dumps(dict(self.data, journal_revision=self.revision)), encoding='utf-8')
         temporary.replace(self.path)
         self.last_write = now
-        self.dirty = False
+        self.legacy_dirty = False
+        if self.journal_end:
+            try:
+                self.journal.unlink(missing_ok=True)
+            except OSError:
+                # The checkpoint revision also handles replay if cleanup is interrupted.
+                logging.getLogger(__name__).exception('Could not remove compacted listening statistics journal')
+            else:
+                self.journal_end = 0
+
+    def _append(self, user, device_id, at, days):
+        revision = self.revision + 1
+        record = json.dumps((revision, self.data['since'], user, device_id, at, days), separators=(',', ':')).encode() + b'\n'
+        with self.journal.open('ab', buffering=0) as journal:
+            if journal.tell() != self.journal_end:
+                journal.truncate(self.journal_end)
+            try:
+                if journal.write(record) != len(record):
+                    raise OSError('Incomplete listening statistics journal write')
+            except OSError:
+                journal.truncate(self.journal_end)
+                raise
+        self.journal_end += len(record)
+        self.revision = revision
+
+    def _credit(self, user, device_id, at, days):
+        device = self.data['counters'].setdefault(user, {}).setdefault(device_id, {'at': 0, 'days': {}})
+        gained_seconds, gained_plays = 0, 0
+        for day, new in days.items():
+            old = device['days'].get(day, [0, 0])
+            device['days'][day] = new
+            seconds, plays = new[0] - old[0], new[1] - old[1]
+            if seconds:
+                self._add_seconds(user, day, seconds)
+                gained_seconds += seconds
+            if plays:
+                self.data['plays'][user] = self.data['plays'].get(user, 0) + plays
+                gained_plays += plays
+        device['at'] = at
+        return dict(seconds=gained_seconds, plays=gained_plays)
 
     def _expire(self, now):
         for key, device in list(self.devices.items()):
@@ -120,17 +174,18 @@ class ListeningStats:
             self._expire(now)
             key = (user, device_id)
             previous = self.devices.get(key)
-            if count_time and previous and previous['playing']:
+            was_counting = count_time and previous is not None and previous['playing']
+            if was_counting:
                 # Count elapsed playback, merging overlapping devices of one profile.
                 elapsed = max(0, now - max(previous['at'], self.counted.get(user, previous['at'])))
                 if elapsed:
                     self._add_seconds(user, self.utc().strftime('%Y-%m-%d'), elapsed)
                     self.counted[user] = now
-                    self.dirty = True
+                    self.legacy_dirty = True
             if key not in self.devices and len(self.devices) >= 512:
                 raise ValueError('Too many active players.')
             self.devices[key] = {'at': now, 'playing': playing, 'track': track if playing else None}
-            if self.dirty and (now - self.last_write >= 30 or not playing):
+            if self.legacy_dirty and was_counting and (self.last_write is None or now - self.last_write >= 30 or not playing):
                 self._write(now)
 
     def sync(self, user, device_id, entries, *, after_day=''):
@@ -162,35 +217,31 @@ class ListeningStats:
                 raise ValueError('Counter plays must be a whole number between 0 and 10000.')
             parsed.append((day, float(seconds), plays))
         with self.lock:
-            backup = copy.deepcopy(self.data)
-            gained_seconds, gained_plays, changed = 0, 0, False
-            try:
-                known = self.data['counters'].setdefault(user, {})
-                if device_id not in known and len(known) >= self.MAX_DEVICES:
-                    raise ValueError('Too many listening devices for this profile.')
-                device = known.setdefault(device_id, {'at': 0, 'days': {}})
-                for day, seconds, plays in parsed:
-                    if day <= after_day:
-                        continue
-                    old = device['days'].get(day, [0, 0])
-                    new = [max(seconds, old[0]), max(plays, old[1])]
-                    if new == old:
-                        continue
-                    changed = True
-                    device['days'][day] = new
-                    if new[0] > old[0]:
-                        self._add_seconds(user, day, new[0] - old[0])
-                        gained_seconds += new[0] - old[0]
-                    if new[1] > old[1]:
-                        self.data['plays'][user] = self.data['plays'].get(user, 0) + new[1] - old[1]
-                        gained_plays += new[1] - old[1]
-                if changed:
-                    device['at'] = int(self.utc().timestamp())
-                    self._write(self.clock())
-            except Exception:
-                self.data = backup  # keep memory equal to the file so a retry credits the same counters
-                raise
-            return dict(seconds=gained_seconds, plays=gained_plays)
+            known = self.data['counters'].get(user, {})
+            if device_id not in known and len(known) >= self.MAX_DEVICES:
+                raise ValueError('Too many listening devices for this profile.')
+            previous = known.get(device_id, {}).get('days', {})
+            changed = {}
+            for day, seconds, plays in parsed:
+                if day <= after_day:
+                    continue
+                old = changed.get(day, previous.get(day, [0, 0]))
+                new = [max(seconds, old[0]), max(plays, old[1])]
+                if new != old:
+                    changed[day] = new
+            if not changed:
+                self.data['counters'].setdefault(user, {}).setdefault(device_id, {'at': 0, 'days': {}})
+                return dict(seconds=0, plays=0)
+            at = int(self.utc().timestamp())
+            self._append(user, device_id, at, changed)
+            result = self._credit(user, device_id, at, changed)
+            now = self.clock()
+            if self.last_write is None or now - self.last_write >= self.CHECKPOINT_SECONDS:
+                try:
+                    self._write(now)
+                except OSError:
+                    logging.getLogger(__name__).exception('Could not compact listening statistics journal')
+            return result
 
     def playing(self):
         with self.lock:
@@ -207,7 +258,6 @@ class ListeningStats:
             self.reset_presence(user)
             for key in ('profiles', 'daily', 'plays', 'counters'):
                 self.data[key].pop(user, None)
-            self.dirty = True
             self._write(self.clock())
 
     def _reconcile(self, user, history, now):
@@ -261,11 +311,10 @@ class ListeningStats:
                                  saved_huf=sum(self.data['savings'].get(user, {}).values()),
                                  monthly_saved_huf=SPOTIFY_PRICE_HUF if status is False else 0))
             if changed:
-                self.dirty = True
                 try:
                     self._write(self.clock())
                 except OSError:
-                    pass  # stays dirty and is written with the next change
+                    pass  # Kept in memory and included in the next checkpoint.
             today = now.date()
             daily = []
             visible = [p for p in profiles if p['id'] not in hidden]

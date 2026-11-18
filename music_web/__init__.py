@@ -717,6 +717,10 @@ def create_app(test_config=None):
 
     listening_stats = ListeningStats(ws)
     deezer_chart = DeezerChart(ws, listening_stats.utc)
+    from .profiles import file_version
+
+    history_markers = {}
+
     @app.post("/api/playback/activity")
     def playback_activity():
         data = body(65536)
@@ -728,6 +732,14 @@ def create_app(test_config=None):
             if not isinstance(track, dict) or any(not isinstance(track.get(key), str) or len(track[key]) > limit or any(ord(c) < 32 for c in track[key]) for key, limit in (("id", 128), ("title", 500), ("channel", 300))):
                 raise ApiError("Invalid current song.")
             track = {key: track[key] for key in ("id", "title", "channel")}
+        device_info = data.get("device_info")
+        playback_fields = {key: data[key] for key in ("status", "duration", "queue", "queue_rev", "epoch", "local_play", "acks") if key in data}
+        if playback_fields:
+            device_info = {**(device_info if isinstance(device_info, dict) else {}), **playback_fields}
+        queue = device_info.get("queue") if isinstance(device_info, dict) else None
+        track_ids = queue.get("track_ids") if isinstance(queue, dict) else None
+        if isinstance(track_ids, list) and len(track_ids) > 1000:
+            raise ApiError("Invalid playback queue.", 400)
         counters = data.get("counters")
         with lock:
             preferences = profile_store.preferences(g.user) if family_mode else {}
@@ -735,7 +747,15 @@ def create_app(test_config=None):
             if not paused:
                 if counters is not None:
                     # Day-only legacy counters cannot separate plays on the day of a clear or resume.
-                    after_day = max(listening_history.cleared_at(g.user) or '', preferences.get('listening_history_resumed_at', ''))[:10]
+                    try:
+                        version = file_version(listening_history.path(g.user).with_suffix('.cleared'))
+                    except FileNotFoundError:
+                        version = None
+                    cached_version, cleared = history_markers.get(g.user, (None, None))
+                    if version != cached_version:
+                        cleared = listening_history.cleared_at(g.user) if version is not None else None
+                        history_markers[g.user] = version, cleared
+                    after_day = max(cleared or '', preferences.get('listening_history_resumed_at', ''))[:10]
                     try: listening_stats.sync(g.user, data.get("counter_device_id") or device, counters, after_day=after_day)
                     except ValueError as error: raise ApiError(str(error), 400)
                 try: listening_stats.heartbeat(g.user, device, data["playing"], count_time=counters is None, track=track)
@@ -746,10 +766,6 @@ def create_app(test_config=None):
         identity = listener_identity()
         background = background_activity()
         room_heartbeat = app.extensions["listening_rooms"].playback_heartbeat if background else None
-        device_info = data.get("device_info")
-        playback_fields = {key: data[key] for key in ("status", "duration", "queue", "queue_rev", "epoch", "local_play", "acks") if key in data}
-        if playback_fields:
-            device_info = {**(device_info if isinstance(device_info, dict) else {}), **playback_fields}
         command, controls, epoch = playback_devices.report(g.user, device, device_info, data["playing"],
                                                           track, data.get("position"), identity,
                                                           background=background, room_heartbeat=room_heartbeat)

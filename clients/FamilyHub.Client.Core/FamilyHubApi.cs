@@ -77,7 +77,7 @@ public sealed class FamilyHubApi : IDisposable
         RequestJsonAsync<ServerStatistics>(HttpMethod.Get, leaderboard ? "/api/server/stats?leaderboard=1" : "/api/server/stats", cancellationToken: cancellationToken, background: background);
 
     public Task<ActivityReceipt> ReportPlaybackActivityAsync(string deviceId, bool playing, CancellationToken cancellationToken = default, IReadOnlyList<ListeningCounter>? counters = null, string? counterDeviceId = null, MusicTrack? track = null, string? deviceName = null, string? deviceKind = null, double? position = null, long activation = 0, long sequence = 0, bool followingHost = false, string remoteDeviceId = "", bool background = false,
-        string? status = null, double? duration = null, PlaybackResume? queue = null, long? queueRevision = null, long? epoch = null, bool localPlay = false, IReadOnlyList<string>? acks = null)
+        string? status = null, double? duration = null, PlaybackResume? queue = null, long? queueRevision = null, long? epoch = null, bool localPlay = false, IReadOnlyList<string>? acks = null, int? queueIndex = null)
     {
         Dictionary<string, object?>? deviceInfo = null;
         if (deviceName is not null)
@@ -86,6 +86,7 @@ public sealed class FamilyHubApi : IDisposable
             if (status is not null) deviceInfo["status"] = status;
             if (duration is not null) deviceInfo["duration"] = duration;
             if (queue is not null) deviceInfo["queue"] = new { track_ids = queue.TrackIds, index = queue.Index };
+            else if (queueIndex is not null) deviceInfo["queue"] = new { index = queueIndex };
             if (queueRevision is not null) deviceInfo["queue_rev"] = queueRevision;
             if (epoch is not null) deviceInfo["epoch"] = epoch;
             if (epoch is not null || localPlay) deviceInfo["local_play"] = localPlay;
@@ -100,6 +101,27 @@ public sealed class FamilyHubApi : IDisposable
 
     public Task<PlaybackTransferReceipt> TakeOverPlaybackAsync(string fromDevice, string toDevice, CancellationToken cancellationToken = default) =>
         RequestJsonAsync<PlaybackTransferReceipt>(HttpMethod.Post, "/api/playback/takeover", new { from = fromDevice, to = toDevice }, cancellationToken);
+
+    private sealed record HandoffStatus(string State, string Target);
+
+    public async Task<bool> WaitForHandoffAsync(string id, string target, CancellationToken token)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return false;
+        var path = "/api/playback/handoff/" + Uri.EscapeDataString(id);
+        while (true)
+        {
+            token.ThrowIfCancellationRequested();
+            try
+            {
+                var status = await RequestJsonAsync<HandoffStatus>(HttpMethod.Get, path, cancellationToken: token, background: true);
+                if (status.Target != target || status.State != "pending")
+                    return status.Target == target && status.State == "ready";
+            }
+            catch (HttpRequestException) { }
+            catch (FamilyHubApiException e) when (e.StatusCode is 408 or 429 or >= 500) { }
+            await Task.Delay(500, token);
+        }
+    }
 
     public Task ControlPlaybackAsync(string fromDevice, string toDevice, string action, double? position = null, CancellationToken cancellationToken = default) =>
         RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/playback/control", new { from = fromDevice, to = toDevice, action, position }, cancellationToken);

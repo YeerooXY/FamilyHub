@@ -1,4 +1,5 @@
 """Shared Deezer metadata cache. Discovery never contacts YouTube."""
+import io
 import json
 import re
 import sqlite3
@@ -6,12 +7,14 @@ import threading
 import time
 import urllib.parse
 import urllib.error
+import urllib.request
+from functools import lru_cache
 from email.utils import parsedate_to_datetime
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
 from . import catalog_search
-from .resources import background_request
+from .resources import PROVIDERS, background_request
 
 
 def valid_artist_id(value):
@@ -20,6 +23,41 @@ def valid_artist_id(value):
 
 def normal(value):
     return re.sub(r'\W+', ' ', str(value).casefold()).strip()
+
+
+def cover_hash(*records):
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        digest = record.get('md5_image')
+        if isinstance(digest, str) and re.fullmatch(r'[a-f0-9]{32}', digest):
+            return digest
+        for key in ('cover_medium', 'cover_big', 'cover_small', 'cover_xl', 'cover'):
+            match = re.search(r'/images/cover/([a-f0-9]{32})/', str(record.get(key, '')))
+            if match:
+                return match[1]
+    return None
+
+
+@lru_cache(maxsize=64)
+def cover_jpeg(digest):
+    # Rebuild the URL on the image CDN. The browser's image policy is same-origin.
+    url = cover_address(digest)
+    with PROVIDERS['deezer'].request(max_wait=8), urllib.request.build_opener(catalog_search.NoRedirect).open(url, timeout=5) as response:
+        data = response.read(262145)
+        if response.headers.get_content_type() != 'image/jpeg' or len(data) > 262144 or not data.startswith(b'\xff\xd8\xff'):
+            raise ValueError('Invalid cover image')
+    return data
+
+
+def cover_address(digest):
+    return f'https://cdn-images.dzcdn.net/images/cover/{digest}/250x250-000000-80-0-0.jpg'
+
+
+@lru_cache(maxsize=128)
+def legacy_album_hash(album):
+    # Previously cached releases only kept the album ID. Resolve it when a cover is requested.
+    return cover_hash(catalog_search._get('deezer', f'https://api.deezer.com/album/{album}'))
 
 
 def artist_mapping(row):
@@ -189,7 +227,13 @@ class Discovery:
                 for album in self.pages('artist/%d/albums' % identifier):
                     if not recent_release(album, today): continue
                     prefix = str(album['id']) + ':'
-                    if any(key.startswith(prefix) for key in existing): continue
+                    cached = [row for key, row in existing.items() if key.startswith(prefix)]
+                    if cached:
+                        # Refresh older cached releases from the album listing without fetching tracks again.
+                        digest = cover_hash(album)
+                        if digest:
+                            additions.extend(dict(row, cover_hash=digest) for row in cached if not row.get('cover_hash'))
+                        continue
                     detail = self.request('album/%d' % album['id'])
                     if detail.get('artist', {}).get('id') != identifier or not recent_release({**album, **detail}, today): continue
                     for track in self.pages('album/%d/tracks' % album['id']):
@@ -197,6 +241,7 @@ class Discovery:
                         if (track.get('artist') or {}).get('id') != identifier: continue
                         additions.append(dict(id=prefix + str(track['id']), title=track['title'][:200], artist=artist['name'],
                                               artist_id=identifier, album=str(album.get('title', ''))[:200],
+                                              cover_hash=cover_hash(track.get('album'), track, detail, album),
                                               release_date=detail.get('release_date', album['release_date']), date_precision='day',
                                               source='Deezer', source_ids=dict(artist=identifier, album=album['id'], track=track['id'])))
                 with self.db() as db:
@@ -244,7 +289,12 @@ class Discovery:
             seen.add(key)
             if not recent_release(dict(id=row['source_ids']['album'], record_type='single', title=row['album'], release_date=row['release_date']), date.today()): continue
             row = dict(row, artist=artist['name'], source_url='https://www.deezer.com/track/' + str(row['source_ids']['track']))
-            result.append(dict(row, seen=states.get(row['id']) == 'seen', updated_at=artist.get('updated_at'),
+            legacy = 'cover_hash' not in row
+            digest = row.pop('cover_hash', None) or cover_hash(row)
+            image_id = digest or (f"album-{row['source_ids']['album']}" if legacy else None)
+            result.append(dict(row, cover=cover_address(digest) if digest else None,
+                               cover_url=f'/api/discovery/covers/{image_id}.jpg' if image_id else None,
+                               seen=states.get(row['id']) == 'seen', updated_at=artist.get('updated_at'),
                                stale=time.time() - (artist.get('updated_at') or 0) > 86400,
                                reason='Followed artist' if normal(artist['name']) in follows else 'Artist you play'))
         return sorted(result, key=lambda r: (r['reason'] == 'Followed artist', r['release_date']), reverse=True)[:100]
@@ -266,7 +316,7 @@ class Discovery:
 
 
 def register(app, workspace, body, admins, tracks, worker=True, allow_background=lambda: True):
-    from flask import g, jsonify, abort, request
+    from flask import g, jsonify, abort, request, send_file
     store = Discovery(workspace)
     app.extensions['discovery'] = store
     if worker:
@@ -284,6 +334,23 @@ def register(app, workspace, body, admins, tracks, worker=True, allow_background
     @app.get('/api/discovery')
     def discovery_get():
         return jsonify(items=selection())
+
+    @app.get('/api/discovery/covers/<image_id>.jpg')
+    def discovery_cover(image_id):
+        try:
+            digest = image_id
+            if match := re.fullmatch(r'album-([1-9][0-9]{0,18})', image_id):
+                album = match[1]
+                with store.db() as db:
+                    if not db.execute('SELECT 1 FROM releases WHERE id LIKE ? LIMIT 1', (album + ':%',)).fetchone():
+                        abort(404)
+                digest = legacy_album_hash(album)
+            if not digest or not re.fullmatch(r'[a-f0-9]{32}', digest):
+                abort(404)
+            image = cover_jpeg(digest)
+        except (OSError, ValueError):
+            abort(404)
+        return send_file(io.BytesIO(image), mimetype='image/jpeg', max_age=86400)
 
     @app.post('/api/discovery/<identifier>/state')
     def discovery_state(identifier):

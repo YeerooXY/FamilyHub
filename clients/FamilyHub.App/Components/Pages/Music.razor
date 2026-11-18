@@ -6,6 +6,7 @@
 @page "/review"
 @page "/artist-mappings"
 @implements IDisposable
+@inject PlaybackConnection Connection
 @inject MusicSession Session
 @inject MusicPlayer Player
 @inject ListenTogether Together
@@ -332,9 +333,9 @@ else
         </section>
     }
 </main></div>
-<RemoteNowPlaying TakeOver="TakeOverFromBar" />
+<RemoteNowPlaying Visible="@(!playerExpanded && !lyricsOpen && !Player.RemoteActive && !Player.PlaybackRequested && !Player.FollowingHost)" TakeOver="TakeOverFromBar" />
 <DeviceStrip />
-<footer class="player-bar @(playerExpanded && !lyricsOpen ? "is-expanded" : "")" @onkeydown="PlayerKeyDown">
+<footer class="player-bar @(playerExpanded && !lyricsOpen ? "is-expanded" : "") @(Player.RemotePeek && !playerExpanded ? "is-remote-peek" : "")" @onkeydown="PlayerKeyDown">
     @if (playerExpanded)
     {
         <button id="player-collapse" class="quiet player-collapse" aria-label="Close Now Playing" title="Close Now Playing" @onclick="CollapsePlayer"><MusicIcon Name="chevron-down" /></button>
@@ -504,36 +505,12 @@ else
     }
     private bool songPickerOpen, songPickerShown, playlistTransitionPending;
     private AddSongs? addSongs;
-    private Task TakeOverFromBar(PlaybackDevice device) => RunPlayback(async () =>
+    private async Task<bool> TakeOverFromBar(PlaybackDevice device)
     {
-        if (Session.Api is not { } api) return;
-        var activation = Session.PlaybackActivation;
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
-        await Session.RequestPlaybackCheckInAsync().WaitAsync(timeout.Token);
-        if (!ReferenceEquals(api, Session.Api) || activation != Session.PlaybackActivation || Player.FollowingHost) return;
-        var receipt = await api.TakeOverPlaybackAsync(device.Id, Session.DeviceId, timeout.Token);
-        if (!ReferenceEquals(api, Session.Api)) return;
-        var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        void OnCommand(PlaybackHandover command)
-        {
-            if (command.Action == "play" && command.Id == receipt.Id) received.TrySetResult();
-        }
-        Session.PlaybackHandedOver += OnCommand;
-        try
-        {
-            if (!Session.HasReceivedPlaybackCommand(receipt.Id))
-            {
-                _ = Session.RequestPlaybackCheckInAsync();
-                await received.Task.WaitAsync(timeout.Token);
-            }
-            if (receipt.SourcePaused == false) Session.SetMessage($"Could not confirm playback paused on {device.Name}.");
-        }
-        catch (OperationCanceledException)
-        {
-            error = "This device did not receive playback. Try again.";
-        }
-        finally { Session.PlaybackHandedOver -= OnCommand; }
-    });
+        error = await Connection.ChooseAsync(device.Id, Session.DeviceId);
+        StateHasChanged();
+        return error is null;
+    }
     private IReadOnlyList<LibraryAddition> additionJobs = [];
     private string? additionIdentity;
     private IReadOnlyList<LibraryAddition> CurrentAdditionJobs => additionIdentity == AppearanceKey ? additionJobs : [];
@@ -1036,7 +1013,7 @@ else
     private void PlayerChanged() => _ = InvokeAsync(async () =>
     {
         var state = (Player.Current?.Id, Player.Playing, Player.Seeking, Player.PlaybackRequested, Player.Preparing, Player.CanSeek, Player.FollowingHost,
-            Player.Queue.Count, Player.QueueIndex, NextTrack?.Id, Player.Shuffle, Player.RepeatMode, Player.Volume, Player.AudioOutputId, Together.LocallyPaused);
+            Player.RemoteActive, Player.RemotePeek, Player.Queue.Count, Player.QueueIndex, NextTrack?.Id, Player.Shuffle, Player.RepeatMode, Player.Volume, Player.AudioOutputId, Together.LocallyPaused);
         if (Equals(state, playerState)) return;
         if (Player.Current is not { Saved: true })
             await JS.InvokeVoidAsync("familyhub.focusIfWithin", ".player-tools .trim-request", "recommend-similar");

@@ -4,6 +4,7 @@ window.MusicPrefixCache = (() => {
   const entries = new Map(), completed = new Set(), pending = new Set();
   const limit = 8 * 1024 * 1024, ttl = 120000;
   let bytes = 0, wanted = [], workers = 0;
+  const canWarm = () => !document.hidden && !navigator.connection?.saveData;
   const absolute = path => new URL(path, location.origin).href;
   function prune() {
     for (const [url, entry] of entries) {
@@ -49,11 +50,14 @@ window.MusicPrefixCache = (() => {
       }
     }
     if (assets.length === 1) return;
-    for (const name of assets) await cache(new URL(name, base).href);
+    for (const name of assets) {
+      if (!canWarm()) return;
+      await cache(new URL(name, base).href);
+    }
     if (elapsed >= target || assets.length >= 7 || playlist.includes('#EXT-X-ENDLIST')) completed.add(url);
   }
   function drain() {
-    while (workers < 2 && wanted.length) {
+    while (canWarm() && workers < 2 && wanted.length) {
       const job = wanted.shift(), url = absolute(job.media_url);
       if (completed.has(url) || pending.has(url)) continue;
       pending.add(url); workers++;
@@ -61,7 +65,7 @@ window.MusicPrefixCache = (() => {
     }
   }
   function warm(jobs) {
-    if (!window.Hls?.isSupported()) return;
+    if (!canWarm() || !window.Hls?.isSupported()) return;
     prune();
     wanted = jobs.filter(job => job?.media_url).slice(0, 14);
     drain();

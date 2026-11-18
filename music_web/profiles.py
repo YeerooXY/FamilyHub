@@ -1,4 +1,5 @@
 """Profiles for an explicitly enabled private family server."""
+from copy import deepcopy
 import json
 import hashlib
 import re
@@ -13,12 +14,18 @@ class ProfileError(ValueError):
     pass
 
 
+def file_version(path):
+    stat = path.stat()
+    return stat.st_mtime_ns, stat.st_size, stat.st_ino
+
+
 class ProfileStore:
     COLORS = ("#bba8ff", "#7fc8f8", "#96d6ab", "#f5b98d", "#eea9ca", "#e6d279")
 
     def __init__(self, workspace, seeds, clock=time.time):
         self.clock = clock
         self.path = Path(workspace) / ".family-profiles.json"
+        self._cache = None
         if not self.path.exists():
             profiles = []
             for name in sorted(set(seeds)):
@@ -30,23 +37,35 @@ class ProfileStore:
     def profile(self, profile_id, name, index):
         return {"id": profile_id, "name": name, "color": self.COLORS[index % len(self.COLORS)]}
 
+    def _load(self):
+        version = file_version(self.path)
+        cached = self._cache
+        if cached is None or cached[0] != version:
+            cached = version, json.loads(self.path.read_text(encoding="utf-8"))
+            self._cache = cached
+        return cached[1]
+
     def read(self):
-        return json.loads(self.path.read_text(encoding="utf-8"))
+        return deepcopy(self._load())
 
     def write(self, data):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         temporary.replace(self.path)
+        self._cache = None
 
     def list(self):
-        profiles = self.read()["profiles"]
-        for profile in profiles:
-            digest = profile.get("image_sha256", "")
-            if isinstance(digest, str) and re.fullmatch(r"[a-f0-9]{64}", digest):
-                owner = hashlib.sha256(profile["id"].encode()).hexdigest()
-                profile["image_url"] = f"/api/profile-images/{owner}/{digest}.jpg"
-        return profiles
+        return [self._public_profile(profile) for profile in self._load()["profiles"]]
+
+    @staticmethod
+    def _public_profile(profile):
+        profile = deepcopy(profile)
+        digest = profile.get("image_sha256", "")
+        if isinstance(digest, str) and re.fullmatch(r"[a-f0-9]{64}", digest):
+            owner = hashlib.sha256(profile["id"].encode()).hexdigest()
+            profile["image_url"] = f"/api/profile-images/{owner}/{digest}.jpg"
+        return profile
 
     def set_image(self, profile_id, digest):
         if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
@@ -59,9 +78,13 @@ class ProfileStore:
         return self.get(profile_id)
 
     def get(self, profile_id):
+        return self._public_profile(self._find(profile_id, self._load()))
+
+    @staticmethod
+    def _find(profile_id, data):
         if not isinstance(profile_id, str):
             raise ProfileError("Choose a family profile.")
-        profile = next((p for p in self.list() if p["id"] == profile_id), None)
+        profile = next((p for p in data["profiles"] if p["id"] == profile_id), None)
         if profile is None:
             raise ProfileError("This profile was not found. Choose a family profile.")
         return profile
@@ -81,10 +104,10 @@ class ProfileStore:
         return profile
 
     def preferences(self, profile_id, changes=None):
-        self.get(profile_id)
-        data = self.read()
+        data = self._load() if changes is None else self.read()
+        self._find(profile_id, data)
         preferences = {"listening_history_paused": False, "volume": 1, "shuffle": False, "auto_dj": True, "crossfade_seconds": 6, "volume_level": "normal", "spotify_subscribed": None, "repeat_mode": "off",
-                       **data["preferences"].get(profile_id, {})}
+                       **deepcopy(data["preferences"].get(profile_id, {}))}
         if changes is not None:
             if not changes or set(changes) - {"listening_history_paused", "volume", "shuffle", "auto_dj", "crossfade_seconds", "volume_level", "spotify_subscribed", "repeat_mode"}:
                 raise ProfileError("Choose a supported profile preference.")

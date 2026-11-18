@@ -115,28 +115,38 @@ class Warmer:
 
     resolve(source_id) returns (item, source, digest, title) or None; library()
     lists source ids; idle() is False while someone is waiting for a song."""
+    CACHE_LIMIT = 2000
+    CHECK_SECONDS = 600
+
     def __init__(self, intake, resolve, library, idle, backfill=True, start_delay=60):
         self.intake, self.resolve, self.library, self.idle, self.backfill = intake, resolve, library, idle, backfill
         self.start_delay = start_delay
         self.cv = threading.Condition()
         self.playing = []
-        self.failed = set()
+        self.failed = {}
         self.checked = {}
         self.stop = threading.Event()
         threading.Thread(target=self.work, name='opus-warm', daemon=True).start()
 
     def now_playing(self, source_id):
-        # Devices report every 2 s; one check per song every 10 minutes is enough.
         now = time.monotonic()
+        if self._recent(source_id, now):
+            return
         with self.cv:
-            if source_id in self.playing or source_id in self.failed or now - self.checked.get(source_id, -1e9) < 600:
+            if self._recent(source_id, now):
                 return
+            self.checked.pop(source_id, None)
+            if len(self.checked) >= self.CACHE_LIMIT:
+                del self.checked[next(iter(self.checked))]
             self.checked[source_id] = now
-            if len(self.checked) > 2000:
-                self.checked = {k: v for k, v in self.checked.items() if now - v < 600}
             self.playing.append(source_id)
             del self.playing[:-20]
             self.cv.notify()
+
+    def _recent(self, source_id, now):
+        checked_at = self.checked.get(source_id)
+        return (checked_at is not None and now - checked_at < self.CHECK_SECONDS
+                or source_id in self.failed or source_id in self.playing)
 
     def _next(self):
         with self.cv:
@@ -158,7 +168,10 @@ class Warmer:
                     made |= path is not None
             return made
         except Exception:
-            self.failed.add(source_id)
+            with self.cv:
+                if source_id not in self.failed and len(self.failed) >= self.CACHE_LIMIT:
+                    del self.failed[next(iter(self.failed))]
+                self.failed[source_id] = None
             return False
 
     def work(self):
@@ -187,7 +200,7 @@ class Warmer:
                 if not made_any:
                     with self.cv:
                         self.cv.wait(3600)
-                    self.failed.clear()
+                        self.failed.clear()
                 try:
                     pending = [s for s in self.library() if s not in self.failed]
                 except Exception:
