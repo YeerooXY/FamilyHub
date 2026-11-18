@@ -126,14 +126,14 @@ class FamilyProfiles(Base):
     def test_preferences_are_validated_isolated_and_persisted(self):
         client, token = self.select()
         response = self.go(client, 'PATCH', '/api/profile/preferences', json={'volume': .35, 'shuffle': True, 'auto_dj': True}, headers={'X-CSRFToken': token})
-        self.assertEqual(response.json['preferences'], {'volume': .35, 'shuffle': True, 'auto_dj': True, 'crossfade_seconds': 6, 'volume_level': 'normal', 'spotify_subscribed': None, 'repeat_mode': 'off'})
+        self.assertEqual(response.json['preferences'], {'volume': .35, 'shuffle': True, 'auto_dj': True, 'crossfade_seconds': 6, 'volume_level': 'normal', 'spotify_subscribed': None, 'repeat_mode': 'off', 'listening_history_paused': False})
         for change in ({'volume': True}, {'volume': -1}, {'volume': 1.1}, {'volume': 10 ** 300}, {'volume': '1'}, {'shuffle': 1}, {'auto_dj': 1}, {'auto_dj': None}, {'crossfade_seconds': 13}, {'crossfade_seconds': -1}, {'crossfade_seconds': 2.5}, {'crossfade_seconds': True}, {'volume_level': 'invalid'}, {'volume_level': None}, {'volume_level': True}, {'volume_level': []}, {'other': 1}, {}):
             self.assertEqual(self.go(client, 'PATCH', '/api/profile/preferences', json=change, headers={'X-CSRFToken': token}).status_code, 400)
         other, _ = self.select('sample-b')
-        self.assertEqual(self.go(other, 'GET', '/api/profile/preferences').json['preferences'], {'volume': 1, 'shuffle': False, 'auto_dj': True, 'crossfade_seconds': 6, 'volume_level': 'normal', 'spotify_subscribed': None, 'repeat_mode': 'off'})
+        self.assertEqual(self.go(other, 'GET', '/api/profile/preferences').json['preferences'], {'volume': 1, 'shuffle': False, 'auto_dj': True, 'crossfade_seconds': 6, 'volume_level': 'normal', 'spotify_subscribed': None, 'repeat_mode': 'off', 'listening_history_paused': False})
         self.restart()
         client, _ = self.select()
-        self.assertEqual(self.go(client, 'GET', '/api/profile/preferences').json['preferences'], {'volume': .35, 'shuffle': True, 'auto_dj': True, 'crossfade_seconds': 6, 'volume_level': 'normal', 'spotify_subscribed': None, 'repeat_mode': 'off'})
+        self.assertEqual(self.go(client, 'GET', '/api/profile/preferences').json['preferences'], {'volume': .35, 'shuffle': True, 'auto_dj': True, 'crossfade_seconds': 6, 'volume_level': 'normal', 'spotify_subscribed': None, 'repeat_mode': 'off', 'listening_history_paused': False})
 
     def test_volume_levels_are_saved_per_profile(self):
         client, token = self.select()
