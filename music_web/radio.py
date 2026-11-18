@@ -15,6 +15,8 @@ SIZE = 50
 PER_ARTIST = 4
 URL = re.compile(r"familyhub-radio:(artist|track):(\d{1,15})")
 VARIANT = re.compile(r"\b(remix|live|acoustic|instrumental|karaoke|sped up|slowed|nightcore|mix|edit|version)\b", re.I)
+_TITLE_NOISE = r"(?:official (?:music |lyric )?(?:audio|video)|lyrics?|lyric video|hd|hq|4k|original(?: [^()[\]]+ inspired)? song)"
+_TITLE_SUFFIX = re.compile(rf"(?:\s*(?:\(\s*{_TITLE_NOISE}\s*\)|\[\s*{_TITLE_NOISE}\s*\]))+\Z", re.I)
 
 
 def _key(value):
@@ -41,13 +43,19 @@ def seed(artist, title="", read=_deezer):
         # A Deezer error reply here is an outage or quota limit, not a missing artist.
         try: return read(path).get("data") or []
         except PlaylistError as error: raise OSError("Deezer search failed") from error
-    # "Artist - Song (Official Video) HD" names the song "Song".
-    title = re.sub(r"^" + re.escape(artist) + r"\s*[-–—]\s*", "", (title or "").strip(), flags=re.I)
-    title = re.sub(r"\s*[\[(][^\])]*[\])]", "", title).strip() or title
-    title = re.sub(r"\s+\b(?:HD|HQ|4K)$", "", title, flags=re.I).strip() or title
+    title = (title or "").strip()
+    parts = re.split(r"\s+[-–—]\s+", title, maxsplit=1)
+    if len(parts) == 2 and _key(parts[0]) == _key(artist):
+        title = parts[1]
+    else:
+        title = re.sub(r"^" + re.escape(artist) + r"\s*[-–—]\s*", "", title, flags=re.I)
+    title = _TITLE_SUFFIX.sub("", title).rstrip() or title
     if title:
-        rows = search("search?" + urlencode(dict(q=artist + " " + title, limit=10)))
-        songs = [row for row in rows if _key(title) in _key(row.get("title"))]
+        # Deezer search can find the base song when the upload names an edition.
+        query = re.sub(r"\s*[\[(][^\])]*[\])]", "", title).strip() or title
+        query = re.sub(r"\s+\b(?:HD|HQ|4K)$", "", query, flags=re.I).strip() or query
+        rows = search("search?" + urlencode(dict(q=artist + " " + query, limit=10)))
+        songs = [row for row in rows if _key(query) in _key(row.get("title"))]
         for row in [r for r in songs if _key(r.get("artist", {}).get("name")) == _key(artist)] \
                  + [r for r in songs if _named_in(r.get("artist", {}).get("name"), artist)]:
             return f"familyhub-radio:track:{int(row['id'])}", f"{title} Radio"
