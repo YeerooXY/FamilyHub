@@ -19,6 +19,7 @@ public static class AudioOutputs
     {
 #if ANDROID
         var activity = Platform.CurrentActivity ?? throw new InvalidOperationException("The audio chooser is not ready.");
+        AudioRouting.Clear();
         if (OperatingSystem.IsAndroidVersionAtLeast(34) && Android.Media.MediaRouter2.GetInstance(activity)?.ShowSystemOutputSwitcher() == true) return;
         var action = OperatingSystem.IsAndroidVersionAtLeast(29) ? Android.Provider.Settings.Panel.ActionVolume : Android.Provider.Settings.ActionSoundSettings;
         activity.StartActivity(new Android.Content.Intent(action));

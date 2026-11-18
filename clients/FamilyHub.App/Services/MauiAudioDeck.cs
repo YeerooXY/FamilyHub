@@ -55,6 +55,9 @@ internal sealed class MauiAudioDeck : IAudioDeck
         media.MetadataTitle = title; media.MetadataArtist = artist; media.ShouldAutoPlay = play;
         pendingSource = path.StartsWith("https://", StringComparison.Ordinal) ? MediaSource.FromUri(path) : MediaSource.FromFile(path);
         media.Source = pendingSource;
+#if ANDROID
+        AudioRouting.Apply(media);
+#endif
         positionTimer.Start();
     }
     public void SetPlaying(bool play)

@@ -175,6 +175,7 @@ public partial class MainPage : ContentPage
         player.Attach(audio, audioNext);
 #if ANDROID
         PlaybackControls.Start(Microsoft.Maui.ApplicationModel.Platform.AppContext, player, session);
+        AudioRouting.Start(audio, audioNext);
 #endif
         player.Changed += PlaybackChanged; session.Changed += RestorePlayback;
         session.RemoteControlReceived += control =>
