@@ -480,6 +480,11 @@ window.familyhub.revealWhenReady = id => {
  setTimeout(()=>observer.disconnect(),8000);
 };
 window.familyhub.isPhone = () => matchMedia('(max-width:720px)').matches;
+window.familyhub.searchSubmitted = () => {
+    if (!familyhub.isPhone()) return;
+    document.getElementById('q')?.blur();
+    familyhub.focus('view-title');
+};
 // Focuses the first of these controls that is on screen, after the next render.
 window.familyhub.focusVisible = (...ids) => requestAnimationFrame(() => { for(const id of ids){ const target=document.getElementById(id); if(target&&target.getClientRects().length){ target.focus(); return; } } });
 // Opens a file input from another control (the Create playlist screen's big buttons).

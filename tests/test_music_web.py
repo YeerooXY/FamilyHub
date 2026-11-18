@@ -232,6 +232,49 @@ class AuthTests(Base):
 
 
 class SearchTests(Base):
+    def test_transient_search_retries_then_succeeds(self):
+        for message in ("HTTP Error 403: Forbidden", "HTTP Error 429", "HTTP Error 503",
+                        "yt-dlp search cancelled or timed out", "Unable to download API page"):
+            with self.subTest(message=message):
+                c, tok = self.signed_in()
+                waits = mock.Mock(return_value=False)
+                def search(args):
+                    self.intake.CONTROL.cancel.wait = waits
+                    if waits.call_count < 2:
+                        raise self.intake.IntakeError(message)
+                    return {"results": []}
+                with mock.patch.object(self.intake, "cmd_search", side_effect=search) as intake_search:
+                    r = self.post(c, tok, "/api/search", json={"query": message})
+                self.assertEqual(r.status_code, 200)
+                self.assertEqual(intake_search.call_count, 3)
+                self.assertEqual(waits.call_args_list, [mock.call(1.5), mock.call(4)])
+                self.assertIsNone(self.intake.CONTROL.cancel)
+
+    def test_transient_search_exhausted_returns_503(self):
+        c, tok = self.signed_in()
+        waits = mock.Mock(return_value=False)
+        def search(args):
+            self.intake.CONTROL.cancel.wait = waits
+            raise self.intake.IntakeError("yt-dlp search failed: HTTP Error 403: Forbidden /private")
+        with mock.patch.object(self.intake, "cmd_search", side_effect=search) as intake_search:
+            r = self.post(c, tok, "/api/search", json={"query": "Artist"})
+        self.assertEqual(intake_search.call_count, 3)
+        self.assertEqual(waits.call_args_list, [mock.call(1.5), mock.call(4)])
+        self.assertEqual(r.status_code, 503)
+        self.assertEqual(r.json["error"], "YouTube is limiting searches right now. Try again in a moment.")
+        self.assertIsNone(self.intake.CONTROL.cancel)
+
+    def test_search_cancelled_during_backoff_does_not_retry(self):
+        c, tok = self.signed_in()
+        def search(args):
+            self.intake.CONTROL.cancel.wait = mock.Mock(return_value=True)
+            raise self.intake.IntakeError("HTTP Error 403: Forbidden")
+        with mock.patch.object(self.intake, "cmd_search", side_effect=search) as intake_search:
+            r = self.post(c, tok, "/api/search", json={"query": "Artist"})
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(intake_search.call_count, 1)
+        self.assertIsNone(self.intake.CONTROL.cancel)
+
     def test_long_mixes_hidden_unless_requested_and_cache_shared(self):
         c, tok = self.signed_in()
         rows = [{"id": str(i).zfill(11), "title": f"Song {i}", "duration": duration}

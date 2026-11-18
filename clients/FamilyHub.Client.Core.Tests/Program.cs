@@ -176,6 +176,12 @@ foreach (var detail in new[] { "Another playlist operation is running. Wait for 
     try { await api.RequestJsonAsync<JsonElement>(HttpMethod.Get, "/api/playlists"); Check(false, "Conflict did not throw"); }
     catch (FamilyHubApiException ex) { Check(ex.StatusCode == 409 && ex.Message == detail, "Conflict reason was replaced with a stale-playlist claim"); }
 }
+using (var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+    { Content = System.Net.Http.Json.JsonContent.Create(new { error = "YouTube is limiting searches right now. Try again in a moment." }) }))))
+{
+    try { await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, "/api/search", new { query = "Artist" }); Check(false, "Unavailable search did not throw"); }
+    catch (FamilyHubApiException ex) { Check(ex.StatusCode == 503 && ex.Message == "YouTube is limiting searches right now. Try again in a moment.", "Search limitation message was discarded"); }
+}
 foreach (var body in new[] { "not json", "[]", "{\"error\":\"" + new string('x', 5000) + "\"}" })
 {
     using var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict)

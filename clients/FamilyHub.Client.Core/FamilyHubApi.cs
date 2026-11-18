@@ -302,7 +302,7 @@ public sealed class FamilyHubApi : IDisposable
             HttpStatusCode.Conflict => "The request conflicts with the server's current state. Try again.",
             _ => $"The server returned HTTP {(int)response.StatusCode}."
         };
-        if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Conflict or HttpStatusCode.RequestEntityTooLarge or HttpStatusCode.TooManyRequests && response.Content.Headers.ContentType?.MediaType == "application/json")
+        if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Conflict or HttpStatusCode.RequestEntityTooLarge or HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable && response.Content.Headers.ContentType?.MediaType == "application/json")
         {
             try
             {

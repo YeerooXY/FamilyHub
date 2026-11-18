@@ -95,7 +95,7 @@ else
     <div id="sidebar-resize" role="separator" tabindex="0" aria-label="Resize library sidebar" aria-orientation="vertical" aria-valuemin="72" aria-valuemax="420" aria-valuenow="@(sidebarCollapsed ? 72 : sidebarWidth)"></div>
 </aside>
 <div class="workspace"><main id="content" tabindex="-1">
-    @if (view != "Playlists" && view != "Review" && view != "Home") { <h1 id="view-title">@(view == "Downloads" ? "Downloaded" : view == "Preferences" ? "Settings" : view == "Stats" ? "Server stats" : view)</h1> }
+    @if (view != "Playlists" && view != "Review" && view != "Home") { <h1 id="view-title" tabindex="-1">@(view == "Downloads" ? "Downloaded" : view == "Preferences" ? "Settings" : view == "Stats" ? "Server stats" : view)</h1> }
     <p id="feedback" class="operation-status @(error is not null ? "error" : "")" role="status">@(error ?? radioProgress ?? (Session.DownloadingId is null ? Session.Message : ""))</p>
     @if (LibraryViews.Contains(view) && (view != "Playlists" || Selected is null))
     {
@@ -635,7 +635,7 @@ else
     private void ShowMoreSongs(int total) { shown += ListPage; pendingFocus = total > shown ? "show-more" : "content"; }
     private string? pendingReveal;
     private static readonly HashSet<string> LibraryViews = ["Library", "Playlists", "Downloads"];
-    private async Task OpenSearchTab() { await Navigate("Search"); pendingFocus = "q"; }
+    private async Task OpenSearchTab() { await Navigate("Search"); pendingFocus = await JS.InvokeAsync<bool>("familyhub.isPhone") ? "view-title" : "q"; }
     // On a phone the mini player opens the full-screen Now Playing; on desktop it opens the queue.
     private async Task PlayerArea()
     {
@@ -967,13 +967,14 @@ else
         CancelSearch();
         if (string.IsNullOrWhiteSpace(query)) { await JS.InvokeVoidAsync("familyhub.focus", "q"); return; }
         searchCancellation = new CancellationTokenSource();
-        await SearchResults(searchVersion, searchCancellation.Token);
+        await SearchResults(searchVersion, searchCancellation.Token, submitted: true);
     }
-    private async Task SearchResults(int version, CancellationToken cancellationToken)
+    private async Task SearchResults(int version, CancellationToken cancellationToken, bool submitted = false)
     {
         if (version != searchVersion || cancellationToken.IsCancellationRequested) return;
         RememberView("Search"); searching = true; error = null; recommendations = null;
         await InvokeAsync(StateHasChanged);
+        if (submitted) await JS.InvokeVoidAsync("familyhub.searchSubmitted");
         try
         {
             var results = await Session.SearchPageAsync(query.Trim(), 0, cancellationToken);

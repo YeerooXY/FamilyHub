@@ -1704,7 +1704,24 @@ def create_app(test_config=None):
                         job.update(state="cancelled", message="Cancelled")
         app.intake.CONTROL.cancel = cancel
         try:
-            found = app.intake.cmd_search(SimpleNamespace(query=q, limit=30, offset=block))["results"]
+            for attempt in range(3):
+                if cancel.is_set():
+                    raise ApiError("A newer search replaced this request.", 409)
+                try:
+                    found = app.intake.cmd_search(SimpleNamespace(query=q, limit=30, offset=block))["results"]
+                    break
+                except app.intake.IntakeError as e:
+                    if cancel.is_set():
+                        raise ApiError("A newer search replaced this request.", 409)
+                    transient = re.search(r"http(?:\s+error)?\s*[:=]?\s*(?:403|429|5\d\d)\b|timed?\s*out|timeout|unable to download api page", str(e), re.I)
+                    if not transient:
+                        raise
+                    if attempt == 2:
+                        raise ApiError("YouTube is limiting searches right now. Try again in a moment.", 503)
+                    if cancel.wait((1.5, 4)[attempt]):
+                        raise ApiError("A newer search replaced this request.", 409)
+        except ApiError:
+            raise
         except Exception as e:
             log.warning("search failed: %s", type(e).__name__)
             raise ApiError("Search failed. Try again later.", 502)
