@@ -15,9 +15,14 @@
                 @for (var i = 0; i < radioSeeds.Count; i++)
                 {
                     var seed = radioSeeds[i];
+                    var title = Similarity.RadioTitle(seed);
                     <button id="@("home-radio-" + i)" class="home-radio @(i == 0 ? "home-radio-current" : "")" @onclick="() => StartRadio.InvokeAsync(seed)"
-                            aria-disabled="@(!Session.Connected || RadioBusy || FollowingHost ? "true" : "false")" aria-label="Start radio from @seed.Title">
-                        <TrackCover Track="seed" /><span><strong>@seed.Title Radio</strong><small>@seed.Channel</small></span><MusicIcon Name="radio" />
+                            aria-disabled="@(!Session.Connected || RadioBusy || FollowingHost ? "true" : "false")" aria-label="Start @title Radio">
+                        <TrackCover Track="seed" />
+                        <span class="home-radio-text">
+                            <span class="home-radio-label"><strong>@title Radio</strong><MusicIcon Name="radio" /></span>
+                            <small>@seed.Channel</small>
+                        </span>
                     </button>
                 }
             </div>

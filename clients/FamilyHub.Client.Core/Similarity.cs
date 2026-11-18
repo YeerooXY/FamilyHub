@@ -24,13 +24,28 @@ public static class Similarity
 
     public static string SongKey(MusicTrack track)
     {
-        var title = Regex.Replace(track.Title ?? "", @"^\[[^\]]+\]\s*[-:]?\s*", "");
-        var parts = Regex.Split(title, @"\s+[-\u2013\u2014]\s+");
-        if (parts.Length > 1) title = string.Join(" - ", parts.Skip(1));
+        var title = TitleWithoutArtist(Regex.Replace(track.Title ?? "", @"^\[[^\]]+\]\s*[-:]?\s*", ""));
         title = Regex.Replace(title, @"[\[(][^\])]*(?:official|audio|video|lyrics|release|first half|second half|hq)[^\])]*[\])]", "", RegexOptions.IgnoreCase);
         title = Regex.Replace(title, @"\b(hq|hd|official|audio|video|lyrics)\b", "", RegexOptions.IgnoreCase);
         return Normalize(title);
     }
+
+    public static string RadioTitle(MusicTrack track)
+    {
+        var title = TitleWithoutArtist(track.Title ?? "").Trim();
+        const string noise = @"(?:official (?:music |lyric )?(?:audio|video)|lyrics?|lyric video|hd|hq|4k|original(?: [^()[\]]+ inspired)? song)";
+        var cleaned = Regex.Replace(title, $@"(?:\s*(?:\(\s*{noise}\s*\)|\[\s*{noise}\s*\]))+\z", "", RegexOptions.IgnoreCase).TrimEnd();
+        return cleaned.Length > 0 ? cleaned : title;
+    }
+
+    private static string TitleWithoutArtist(string title)
+    {
+        var separator = Regex.Match(title, @"\s+[-\u2013\u2014]\s+");
+        if (separator.Success)
+            return title[(separator.Index + separator.Length)..];
+        return title;
+    }
+
     public static string Artist(MusicTrack track)
     {
         var title = Regex.Replace(track.Title ?? "", @"^\[[^\]]+\]\s*[-:]?\s*", "");

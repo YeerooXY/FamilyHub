@@ -235,6 +235,9 @@ await Throws<ArgumentException>(() => Task.FromResult(FamilyHubApi.NormalizeOrig
 await Throws<ArgumentException>(() => Task.FromResult(FamilyHubApi.NormalizeOrigin(new Uri("https://name:secret@music.test/"))), "Credentials in origin allowed");
 var rockSeed = new MusicTrack { Title = "Numb", Channel = "Linkin Park", Genre = "Rock" };
 Check(Similarity.Artist(new() { Title = "[Drum&Bass] - Muzzy - Endgame" }) == "muzz", "Muzzy alias or genre prefix failed");
+Check(Similarity.RadioTitle(new() { Title = "BETON.HOFI - PÁNCZÉL (OFFICIAL AUDIO) [HD]" }) == "PÁNCZÉL", "Radio title retained upload tags or artist prefix");
+Check(Similarity.RadioTitle(new() { Title = "Colors (Original Life is Strange Inspired Song)" }) == "Colors", "Radio title retained the upload description");
+Check(Similarity.RadioTitle(new() { Title = "Artist – Song (Live) [Lyrics]" }) == "Song (Live)", "Radio title lost the performance name");
 Check(!Similarity.IsRecommendation(new() { Title = "Muzzy - Endgame HQ (second half)" }, new() { Title = "[Drum&Bass] - MUZZ - Endgame", Channel = "MUZZ" }), "Same song entered autoplay under another upload");
 Check(!Similarity.IsRecommendation(new() { Title = "Muzzy - Endgame" }, new() { Title = "Muzzy - Feeling Stronger (second half)" }), "Partial upload entered autoplay");
 Check(Similarity.IsRecommendation(new() { Title = "Muzzy - Endgame" }, new() { Title = "MUZZ - Lost Forever" }), "Artist alias rejected a different song");
