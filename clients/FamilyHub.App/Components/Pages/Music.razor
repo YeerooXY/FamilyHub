@@ -111,7 +111,7 @@ else
         var tracks = source.Where(t => Matches(t, filter) && (genre.Length == 0 || Genre(t) == genre)).ToList();
         var kept = view == "Downloads" ? source.Count(Session.KeptOnDevice) : 0;
         <div class="library-heading">@if (view == "Downloads") { <dl class="device-sizes"><div><dt>Downloaded</dt><dd>@kept @(kept == 1 ? "song" : "songs"), @Size(Session.DownloadedBytes)</dd></div><div><dt>Cached while playing</dt><dd>@(source.Count - kept) @(source.Count - kept == 1 ? "song" : "songs"), @Size(Math.Max(0, Session.DeviceBytes - Session.DownloadedBytes))</dd></div></dl> }
-        else { <p class="note">@source.Count recordings</p> }@if (view == "Library") { <UploadSongs /> }</div>
+        else { <p class="note">@source.Count recordings</p> }@if (view == "Library") { <UploadSongs /><LibraryAdditions @key="Session.User" /> }</div>
         <div class="genre-pills" role="group" aria-label="Genres">
             <button aria-pressed="@Aria(genre.Length == 0)" @onclick='() => genre = ""'>All</button>
             @foreach (var item in source.Select(Genre).Distinct().OrderBy(g => g))
@@ -280,7 +280,7 @@ else
     }
     else if (view == "Review")
     {
-        <CatalogueReviewPanel />
+        <CatalogueReviewPanel /><ArtistMappings @key="Session.User" />
     }
     else if (view == "Stats")
     {

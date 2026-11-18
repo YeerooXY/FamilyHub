@@ -498,7 +498,7 @@ def create_app(test_config=None):
                     os.chmod(target, 0o600)
                 shutil.rmtree(directory)
 
-    def new_job(user, step, m, source_id=None, priority=0, save=True):
+    def new_job(user, step, m, source_id=None, priority=0, save=True, library_addition=False):
         with lock:
             now = time.time()
             for old in list(jobs.values()):
@@ -515,7 +515,7 @@ def create_app(test_config=None):
                     found["priority"] = 0 if found.get("current") else priority
                     found["save"] |= save
                     return found
-            if len([j for j in jobs.values() if j["state"] in ("queued", "running")]) >= (32 if priority == 0 else 24):
+            if not library_addition and len([j for j in jobs.values() if j["state"] in ("queued", "running") and not j.get("library_addition")]) >= (32 if priority == 0 else 24):
                 raise ApiError("The preparation queue is full. Try again shortly.", 429)
             job = {"id": secrets.token_urlsafe(12), "owner": user, "state": "running", "message": STEP_TEXT[step],
                    "artist": m["artist"], "title": m["title"], "phase": step,
@@ -1839,6 +1839,57 @@ def create_app(test_config=None):
                 job.update(state="queued", message=STEP_TEXT["import"])
             return start(job, app.intake.WATCH + vid, None, m)
 
+    @app.get("/api/library/additions")
+    def library_additions():
+        with lock:
+            return jsonify(jobs=[public(j) for j in jobs.values()
+                                 if j["owner"] == g.user and j.get("library_addition")])
+
+    @app.post("/api/library/additions")
+    def library_add():
+        data = body(64 * 1024)
+        links = data.get("urls")
+        if not isinstance(links, list) or not 1 <= len(links) <= 200:
+            raise ApiError("Paste 1 to 200 YouTube video links.")
+        sources = []
+        for url in links:
+            try:
+                if not isinstance(url, str) or len(url) > 200: raise app.intake.IntakeError("Invalid link")
+                source = app.intake.video_id(url)
+            except app.intake.IntakeError:
+                raise ApiError("Enter one YouTube video link per line.")
+            if source not in sources: sources.append(source)
+        result = []
+        with lock:
+            pending = sum(j["owner"] == g.user and j.get("library_addition") and j["state"] in ("queued", "running") for j in jobs.values())
+            active_sources = {j.get("source_id") for j in jobs.values() if j["owner"] == g.user
+                              and j["state"] in ("queued", "running") and not j["cancel"].is_set()}
+            additions = sum(source not in active_sources and not saved_source(source) for source in sources)
+            if pending + additions > 200:
+                raise ApiError("Your library queue is full. Wait for songs to finish before adding more.", 429)
+            for source in sources:
+                if saved_source(source):
+                    result.append(dict(source_id=source, state="done", saved=True, title=source, message="Saved"))
+                    continue
+                job = next((j for j in jobs.values() if j["owner"] == g.user and j.get("source_id") == source
+                            and j["state"] in ("queued", "running") and not j["cancel"].is_set()), None)
+                if job is None:
+                    try:
+                        m = fetch_metadata({}, source)
+                        job = new_job(g.user, "fetch", m, source, 20, True, library_addition=True)
+                    except ApiError as error:
+                        result.append(dict(source_id=source, state="error", saved=False, title=source, message=error.message))
+                        continue
+                    job.update(library_addition=True, playlist_import=True, automatic_meta=True)
+                    if job["state"] == "done" and not job.get("committed"):
+                        job.update(state="queued", message=STEP_TEXT["import"])
+                    start(job, app.intake.WATCH + source, None, m)
+                else:
+                    job["save"] = True
+                    job["library_addition"] = True
+                result.append(public(job))
+        return jsonify(jobs=result), 202
+
     @app.post("/api/jobs/<job_id>/cancel")
     def cancel_job(job_id):
         with lock:
@@ -2211,6 +2262,9 @@ def create_app(test_config=None):
     from .listening_history import register as register_listening_history
     register_listening_history(app, ws, body, profile_store, cfg["ADMIN_USERS"],
                                lambda: {t["id"]: t for t in library_tracks()}, lock)
+    from .discovery import register as register_discovery
+    register_discovery(app, ws, body, cfg["ADMIN_USERS"], library_tracks,
+                       cfg.get("DISCOVERY_WORKER", cfg["PUBLIC_ORIGIN"] != "https://music.test"))
     from .listening_rooms import register_listening_rooms
     register_listening_rooms(app, body, profile_store)
     from .playback_devices import register_playback_devices

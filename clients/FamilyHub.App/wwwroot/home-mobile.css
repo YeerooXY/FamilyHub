@@ -319,3 +319,20 @@ body.native-hidden *,body.native-hidden *::before,body.native-hidden *::after { 
 
 .report-choices { display:grid; gap:8px; }
 .report-choices button { text-align:left; white-space:normal; }
+
+/* Cached release metadata and explicit server-library saves. */
+.discovery-card { display:flex; flex-direction:column; }
+.discovery-card .home-card { flex:1; }
+.discovery-card .home-card strong,.discovery-card .home-card span { white-space:normal; overflow-wrap:anywhere; }
+.discovery-card .actions { display:flex; flex-wrap:wrap; gap:6px; padding:10px; }
+.discovery-card .actions button { flex:1; min-height:44px; padding:8px; }
+.library-additions summary { cursor:pointer; min-height:44px; padding-block:12px; }
+.library-additions label,.artist-mappings label { display:block; margin-block:12px 6px; }
+.library-additions textarea { display:block; box-sizing:border-box; width:100%; max-width:640px; margin-bottom:12px; }
+.library-addition { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding-block:8px; }
+.library-addition>span:first-child { flex:1; min-width:100px; overflow-wrap:anywhere; }
+.artist-mappings>div { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding-block:8px; }
+.artist-mappings input { max-width:100%; box-sizing:border-box; }
+
+.song-row.has-library-add .row-actions { grid-template-columns:repeat(3,44px); }
+.song-row.has-library-add .row-more { grid-column:3; }
