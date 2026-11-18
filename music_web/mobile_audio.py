@@ -1,14 +1,11 @@
 """Reusable Opus playback copies; imported originals are never modified."""
-import heapq
-import itertools
 import os
 import secrets
 import threading
 import time
-from contextlib import contextmanager
 from .audio_profile import measure_loudness
 from .worker_activity import WorkerActivity
-from .resources import observe
+from .resources import observe, PriorityLane, ResourceGovernor
 
 _encoding = threading.Lock()
 background_activity = WorkerActivity('opus-background', 'Opus background copy')
@@ -23,35 +20,7 @@ _wanted = {"high": time.time()}
 WANTED_SECONDS = 14 * 86400
 
 
-class _Gate:
-    """One listening encode at a time; the song needed soonest goes first.
-
-    lead is how many seconds until the listener needs the song: 0 for a song
-    someone is waiting on, the time left in the current song for the next one."""
-    def __init__(self):
-        self.cv = threading.Condition()
-        self.busy = False
-        self.waiting = []
-        self.order = itertools.count()
-
-    @contextmanager
-    def turn(self, lead):
-        ticket = (max(0.0, float(lead)), next(self.order))
-        with self.cv:
-            heapq.heappush(self.waiting, ticket)
-            while self.busy or self.waiting[0] != ticket:
-                self.cv.wait()
-            heapq.heappop(self.waiting)
-            self.busy = True
-        try:
-            yield
-        finally:
-            with self.cv:
-                self.busy = False
-                self.cv.notify_all()
-
-
-_listening = _Gate()
+_listening = PriorityLane()
 _inflight_lock = threading.Lock()
 _inflight = {}
 
@@ -65,7 +34,7 @@ def copy_path(item, digest, quality):
     return os.path.join(item, f".{TIERS[quality][1]}-{digest}.opus")
 
 
-def prepare(intake, item, source, digest, urgent=False, quality="normal", title='', lead=0):
+def prepare(intake, item, source, digest, urgent=False, quality="normal", title='', lead=0, offline_only=False):
     path = copy_path(item, digest, quality)
     if urgent:
         _wanted[quality] = time.time()
@@ -74,33 +43,34 @@ def prepare(intake, item, source, digest, urgent=False, quality="normal", title=
     if os.path.lexists(path):
         intake.regular_file(path, "mobile audio")
         return path
-    # The same copy is encoded once; a second request waits for the first.
-    with _inflight_lock:
-        running = _inflight.get(path)
-        if running is None:
-            _inflight[path] = done = threading.Event()
-    if running is not None:
-        with observe(getattr(intake, "RESOURCES", None), "opus", "same output"):
-            running.wait(240)
-        if os.path.lexists(path):
-            intake.regular_file(path, "mobile audio")
-            return path
-        return prepare(intake, item, source, digest, urgent, quality, title, lead)
-    try:
-        # Serialize encodes so simultaneous listeners cannot exhaust the server.
-        lane = _listening.turn(lead) if urgent else _encoding
-        activity = listening_activity if urgent else background_activity
-        with observe(getattr(intake, "RESOURCES", None), "opus", "encoder lane") as running, lane, activity.track(title):
-            running()
-            if os.path.lexists(path):
-                intake.regular_file(path, "mobile audio")
-            else:
-                _encode(intake, source, path, TIERS[quality][0])
-        return path
-    finally:
-        with _inflight_lock:
-            _inflight.pop(path, None)
-        done.set()
+    governor = getattr(intake, "RESOURCES", None)
+    activity = listening_activity if urgent else background_activity
+    with observe(governor, "opus", "encoder lane") as state:
+        while True:
+            state("encoder lane")
+            with (_listening.turn(lead) if urgent else _encoding):
+                if os.path.lexists(path):
+                    intake.regular_file(path, "mobile audio")
+                    return path
+                if offline_only and isinstance(governor, ResourceGovernor) and not governor.background_slots(1):
+                    return None
+                with _inflight_lock:
+                    running = _inflight.get(path)
+                    if running is None:
+                        _inflight[path] = done = threading.Event()
+                if running is None:
+                    try:
+                        state()
+                        with activity.track(title):
+                            _encode(intake, source, path, TIERS[quality][0])
+                        return path
+                    finally:
+                        with _inflight_lock:
+                            _inflight.pop(path, None)
+                        done.set()
+            state("same output")
+            if not running.wait(240):
+                raise ValueError("Mobile audio preparation timed out")
 
 
 def _encode(intake, source, path, kbps):
@@ -183,8 +153,9 @@ class Warmer:
             made = False
             for quality in wanted_tiers():
                 if not os.path.lexists(copy_path(item, digest, quality)):
-                    prepare(self.intake, item, source, digest, quality=quality, title=title)
-                    made = True
+                    path = prepare(self.intake, item, source, digest, quality=quality, title=title,
+                                   offline_only=True)
+                    made |= path is not None
             return made
         except Exception:
             self.failed.add(source_id)
@@ -199,11 +170,15 @@ class Warmer:
         if control is not None:
             control.background = True
         while not self.stop.is_set():
+            if not self.idle():
+                with self.cv:
+                    self.cv.wait(30)
+                continue
             source_id, current = self._next()
             if source_id:
                 self._warm(source_id)
                 continue
-            if not self.backfill or not self.idle():
+            if not self.backfill:
                 with self.cv:
                     self.cv.wait(30)
                 continue
@@ -221,6 +196,3 @@ class Warmer:
                 continue
             if self._warm(pending.pop()):
                 made_any = True
-                # Leave CPU for playback and other workers between background songs.
-                with self.cv:
-                    self.cv.wait(2)

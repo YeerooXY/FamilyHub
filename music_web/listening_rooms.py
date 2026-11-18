@@ -16,8 +16,9 @@ class RoomError(ValueError):
 
 
 class ListeningRooms:
-    def __init__(self, clock=time.monotonic):
+    def __init__(self, clock=time.monotonic, presence=None):
         self.clock = clock
+        self.presence = presence
         self.lock = threading.RLock()
         self.rooms = {}
         self.pokes = {}
@@ -60,6 +61,10 @@ class ListeningRooms:
                 del self.rooms[key]
             else:
                 room['members'] = {k: v for k, v in room['members'].items() if now - v < 30}
+
+    def renew_presence(self, room):
+        if self.presence:
+            self.presence.room(room['id'], room['updated'] + 30, room['state']['playing'])
 
     @staticmethod
     def validate(data, previous=None):
@@ -126,6 +131,7 @@ class ListeningRooms:
                     if field in current: existing['state'][field] = current[field]
                 existing.update(host=identity, name=name, updated=self.clock(), revision=existing['revision'] + 1)
                 existing['members'] = {member: at for member, at in existing['members'].items() if self.profile(member) != self.profile(identity)}
+                self.renew_presence(existing)
                 return {**self.snapshot(existing, identity), 'resumed': True}
             if existing:
                 # A request can succeed after its client times out. Retrying must recover that room.
@@ -136,6 +142,7 @@ class ListeningRooms:
             key = secrets.token_urlsafe(16)
             room = dict(id=key, host=identity, name=name, state=state, updated=self.clock(), members={}, revision=1, queue_revision=1)
             self.rooms[key] = room
+            self.renew_presence(room)
             return self.snapshot(room, identity)
 
     def access(self, key):
@@ -173,6 +180,7 @@ class ListeningRooms:
             if state['queue'] != room['state']['queue']:
                 room['queue_revision'] += 1
             room.update(state=state, updated=self.clock(), revision=room['revision'] + 1)
+            self.renew_presence(room)
             return self.snapshot(room, identity, room['queue_revision'])
 
     def leave(self, key, identity):
@@ -180,12 +188,14 @@ class ListeningRooms:
             room = self.access(key)
             if room['host'] == identity:
                 del self.rooms[key]
+                if self.presence:
+                    self.presence.room(key, None)
             else:
                 room['members'].pop(identity, None)
 
 
-def register_listening_rooms(app, body, profile_store):
-    rooms = ListeningRooms()
+def register_listening_rooms(app, body, profile_store, presence=None):
+    rooms = ListeningRooms(presence=presence)
     app.extensions['listening_rooms'] = rooms
 
     @app.errorhandler(RoomError)

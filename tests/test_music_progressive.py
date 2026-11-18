@@ -264,11 +264,11 @@ class Coordinator(WebBase):
                 release.set()
             self.assertEqual(self.wait(other,jid)['state'],'done')
 
-    def test_three_background_jobs_reserve_fourth_slot_and_other_owner_cancel_isolated(self):
+    def test_offline_queue_uses_available_slots_and_other_owner_cancel_is_isolated(self):
         first, token = self.signed_in()
         other, other_token = self.signed_in("sample-b")
         release = threading.Event()
-        three_started = threading.Event()
+        batch_started = threading.Event()
         foreground_started = threading.Event()
         guard = threading.Lock()
         calls = []
@@ -279,7 +279,7 @@ class Coordinator(WebBase):
                 active += 1
                 peak = max(peak, active)
                 calls.append(args.url)
-                if len(calls) == 3: three_started.set()
+                if len(calls) == 6: batch_started.set()
                 if args.url == URL: foreground_started.set()
             try:
                 while not release.wait(.01):
@@ -292,21 +292,20 @@ class Coordinator(WebBase):
                 rows = [{"url": "https://youtu.be/" + f"{i:011d}"} for i in range(1, 7)]
                 response = self.post(first, token, "/api/queue", json={"tracks": rows, "allow_new": True})
                 self.assertEqual(response.status_code, 200)
-                self.assertTrue(three_started.wait(2))
-                time.sleep(.1)
-                self.assertEqual(len(calls), 3)
+                self.assertTrue(batch_started.wait(2))
+                self.assertEqual(len(calls), 6)
                 response = self.post(other, other_token, "/api/jobs", json={"url": URL, **META})
                 self.assertEqual(response.status_code, 202)
                 foreground = response.json["job"]["id"]
                 self.assertTrue(foreground_started.wait(2))
-                self.assertEqual(peak, 4)
+                self.assertEqual(peak, 7)
                 self.post(first, token, "/api/queue", json={"tracks": [], "allow_new": True})
                 self.assertFalse(self.state.jobs[foreground]["cancel"].is_set())
                 self.assertEqual(self.post(first, token, f"/api/jobs/{foreground}/cancel", json={}).status_code, 404)
             finally:
                 release.set()
             self.assertEqual(self.wait(other, foreground)["state"], "done")
-            self.assertLessEqual(peak, 4)
+            self.assertLessEqual(peak, 7)
 
     def test_eviction_refuses_changed_cache_but_next_acquisition_works(self):
         import music_web
@@ -514,7 +513,7 @@ class Coordinator(WebBase):
         def fetch(args):
             nonlocal active
             active += 1
-            self.assertLessEqual(active, 4)
+            self.assertLessEqual(active, 7)
             calls.append(args.url)
             started.set()
             try:
@@ -536,7 +535,7 @@ class Coordinator(WebBase):
             while any(j["state"] == "running" and j["priority"] > 0 for j in self.state.jobs.values()) and time.monotonic() < deadline:
                 time.sleep(.02)
             self.assertIn(URL, calls)
-            self.assertLessEqual(calls.index(URL), 3)
+            self.assertLessEqual(calls.index(URL), 6)
             self.assertEqual(self.state.jobs[first.json["jobs"][0]["id"]]["state"], "cancelled")
             self.assertTrue(all(j["state"] == "cancelled" for j in self.state.jobs.values() if j["priority"] > 0))
 

@@ -1,11 +1,12 @@
 """Resumable playlist matching and acquisition through the existing music queue."""
 import threading
 import time
+from contextlib import ExitStack
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from .playlists import PlaylistError, rank_matches, preferred_match
 from .worker_activity import WorkerActivity
-from .resources import observe, background_request
+from .resources import observe, background_request, enabled
 
 
 class _PlaylistOperation:
@@ -310,7 +311,7 @@ class _PlaylistOperation:
 
 
 class PlaylistPreparation:
-    """Bounded independent operations sharing three fair background slots."""
+    """Bounded independent operations sharing fair background slots."""
     MAX_ACTIVE = 8
     WORKERS = 3
 
@@ -320,10 +321,11 @@ class PlaylistPreparation:
         self.download_workers, self.allow_background = download_workers, allow_background
         self.operations = {}
         self.thread = None
-        self.condition = threading.Condition()
+        self.condition = resources.condition if resources else threading.Condition()
+        self.capacity = 6 if resources and enabled("FAMILYHUB_IDLE_PLAYLISTS") else self.WORKERS
         self.waiters, self.served, self.inflight, self.dispatch = [], {}, 0, 0
         self.auto_served = {}
-        self.activity = WorkerActivity('playlist', 'Playlist matching / preparation', self.WORKERS)
+        self.activity = WorkerActivity('playlist', 'Playlist matching / preparation', self.capacity)
         self.resources = resources
 
     def _execute(self, key, operation, callback):
@@ -342,25 +344,37 @@ class PlaylistPreparation:
                 with self.condition:
                     if operation.stop.is_set(): raise InterruptedError()
                     chosen = min(self.waiters,key=lambda row:self.served.get(row[1],-1))
-                    if self.inflight < self.WORKERS and chosen[0] is ticket and allowed:
+                    cap = self.resources.background_slots(self.capacity) if self.resources else self.capacity
+                    if self.inflight < cap and chosen[0] is ticket and allowed:
                         self.waiters.remove((ticket,key))
                         self.inflight += 1; self.dispatch += 1; self.served[key] = self.dispatch
                         self.condition.notify_all()
                         break
-                    state("playlist slots" if allowed else "playback demand")
-                    self.condition.wait(.1)
+                    state("playlist slots" if allowed and cap else "presence")
+                    delay = None if allowed else 30
+                    if self.resources and chosen[0] is ticket and cap <= self.inflight < self.capacity:
+                        delay = self.resources.background_delay(self.inflight + 1)
+                    self.condition.wait(delay)
         except BaseException:
             with self.condition:
                 self.waiters.remove((ticket,key)); self.condition.notify_all()
             raise
+        held = True
+        def release():
+            nonlocal held
+            with self.condition:
+                if held:
+                    held = False
+                    self.inflight -= 1
+                    self.condition.notify_all()
+
         token = background_request.set(True)
         state()
         try:
-            return callback()
+            return callback(release)
         finally:
             background_request.reset(token)
-            with self.condition:
-                self.inflight -= 1; self.condition.notify_all()
+            release()
 
     def _operation(self, user, pid):
         key = (user,pid)
@@ -373,15 +387,21 @@ class PlaylistPreparation:
                 def run(owner, track, progress):
                     progress.playlist_id = pid
                     progress("Waiting for background slot" if self.allow_background() else "Waiting for playback preparation")
-                    def execute():
-                        with self.activity.track(track['title'], owner=owner, playlist_id=pid):
+                    def execute(release):
+                        with ExitStack() as activity:
+                            activity.enter_context(self.activity.track(track['title'], owner=owner, playlist_id=pid))
+                            def release_slot():
+                                activity.close()
+                                release()
+                            progress.release_slot = release_slot
+                            progress.stopped = operation.stop.is_set
                             progress("Preparing recording" if callback is self.prepare else "Finding recording")
                             return callback(owner,track,progress)
                     return self._execute(key, operation, execute)
                 return run
             def read(provider,url,progress):
                 operation.update(user,pid,message="Waiting for background slot" if self.allow_background() else "Waiting for playback preparation")
-                def execute():
+                def execute(_release):
                     with self.lock:
                         title = self.store.read(user, pid)['name']
                     with self.activity.track(title, owner=user, playlist_id=pid):
@@ -425,7 +445,10 @@ class PlaylistPreparation:
     def pause(self,user,pid):
         with self.lock:
             data=self.store.read(user,pid); data["auto_download_paused"]=True; self.store.save(user,data)
-            return self._operation(user,pid).pause(user,pid)
+            result = self._operation(user,pid).pause(user,pid)
+            with self.condition:
+                self.condition.notify_all()
+            return result
 
     def update(self,user,pid,**changes):
         with self.lock: self._operation(user,pid).update(user,pid,**changes)
@@ -444,13 +467,13 @@ class PlaylistPreparation:
             return result
 
 
-    def queue_idle(self,owners,idle,limit=3):
+    def queue_idle(self,owners,idle,limit=None):
         """Keep up to `limit` playlists preparing, preserving manual pauses and recording reviews.
         A finished playlist frees its place for the next one at the following check."""
         if not idle() or not self.allow_background(): return []
         with self.lock:
             running={key for key,op in self.operations.items() if op.active is not None}
-            limit=min(limit,3)-len(running)
+            limit=min(limit if limit is not None else self.capacity, self.capacity, self.MAX_ACTIVE)-len(running)
             if limit<=0: return []
             candidates=[]
             for owner in owners:

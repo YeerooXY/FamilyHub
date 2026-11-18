@@ -149,14 +149,32 @@ class DiscoveryApiTests(Base):
 
 
 class LibraryAdditionTests(Base):
+    def test_pending_addition_resumes_with_same_job_id_after_restart(self):
+        import music_web
+
+        client, token = self.signed_in()
+        self.state.resources.room('fixture', time.monotonic() + 30)
+        added = self.post(client, token, '/api/library/additions', json={'urls': [URL]}).json['jobs'][0]
+        self.assertEqual(added['state'], 'queued')
+        self.stop_worker()
+        self.fake_ok()
+        with patch('music_web.load_intake', return_value=self.intake), \
+                patch.object(self.intake, 'cmd_preview', side_effect=self.intake.IntakeError('fixture')):
+            restarted = music_web.create_app(self.settings)
+            self.app = restarted
+            self.state = restarted.extensions['music']
+            client, token = self.signed_in()
+            self.assertEqual(self.wait(client, added['id'])['state'], 'done')
+        self.assertEqual(json.loads(Path(self.ws, '.library-additions.json').read_text(encoding='utf-8')), [])
+
     def test_validates_entire_batch_and_deduplicates_while_background(self):
         c, token = self.signed_in()
         with patch.object(self.intake, 'cmd_fetch') as fetch:
             result = self.post(c, token, '/api/library/additions', json={'urls': [URL, 'not a url']})
             self.assertEqual(result.status_code, 400)
             fetch.assert_not_called()
-        # Hold dispatch with playback demand so no fixture ever touches audio/network.
-        self.state.jobs['urgent'] = dict(state='running', priority=0, current=True, owner='sample-b', cancel=__import__('threading').Event())
+        # An existing room holds background admission while this request queues links.
+        self.state.resources.room('fixture', time.monotonic() + 30)
         result = self.post(c, token, '/api/library/additions', json={'urls': [URL, 'https://youtu.be/dQw4w9WgXcQ']})
         self.assertEqual(result.status_code, 202)
         self.assertEqual(len(result.json['jobs']), 1)
@@ -170,9 +188,6 @@ class LibraryAdditionTests(Base):
         self.assertEqual(self.go(other, 'GET', '/api/library/additions').json['jobs'], [])
         self.state.jobs[jid]['cancel'].set()
         self.state.jobs[jid]['state'] = 'cancelled'
-        self.state.jobs['urgent']['state'] = 'done'
-        # Fake sentinel has no preview lifecycle.
-        del self.state.jobs['urgent']
 
     def test_retry_saved_reuse_and_gate_background_priority(self):
         from test_native_music_api import NativeMusicApi
@@ -196,9 +211,8 @@ class LibraryAdditionTests(Base):
             self.assertEqual(fetch.call_count, 1)
 
     def test_200_pending_limit_allows_existing_requests(self):
-        import threading
         c, token = self.signed_in()
-        self.state.jobs['urgent'] = dict(state='running', priority=0, current=True, owner='sample-b', cancel=threading.Event())
+        self.state.resources.room('fixture', time.monotonic() + 30)
         try:
             urls = ['https://youtu.be/%011d' % i for i in range(200)]
             result = self.post(c, token, '/api/library/additions', json={'urls': urls})
@@ -207,9 +221,8 @@ class LibraryAdditionTests(Base):
             self.assertEqual(self.post(c, token, '/api/library/additions', json={'urls': [URL]}).status_code, 429)
             self.assertEqual(self.post(c, token, '/api/library/additions', json={'urls': [urls[0]]}).status_code, 202)
         finally:
-            for key, job in list(self.state.jobs.items()):
-                if key != 'urgent': job['cancel'].set()
-            del self.state.jobs['urgent']
+            for job in self.state.jobs.values():
+                job['cancel'].set()
 
     def test_queue_bound_and_auth(self):
         c, token = self.signed_in()

@@ -7,12 +7,13 @@ from .playlist_artwork import PlaylistArtwork, ArtworkError
 
 
 class ProfileArtwork(PlaylistArtwork):
-    def __init__(self, workspace):
+    def __init__(self, workspace, governor=None):
+        super().__init__(workspace, governor)
         self.root = Path(workspace) / ".profile-artwork"
 
 
-def register(app, workspace, profiles, require_family, lock):
-    artwork = ProfileArtwork(workspace)
+def register(app, workspace, profiles, require_family, lock, governor=None):
+    artwork = ProfileArtwork(workspace, governor)
 
     @app.post("/api/profile/image")
     def save_profile_image():

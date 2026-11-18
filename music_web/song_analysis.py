@@ -4,19 +4,18 @@ import logging
 import math
 import os
 from pathlib import Path
-import shutil
 import signal
 import subprocess
 import sys
 import threading
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 
 from .source_quality import FFMPEG_LOCK, ScanPaused
 from .worker_activity import WorkerActivity
-from .resources import observe
+from .resources import observe, audio_command, background_command
 
 
-def measure(path, duration, idle, ffmpeg):
+def measure(path, duration, idle, ffmpeg, governor=None):
     if not idle() or not FFMPEG_LOCK.acquire(blocking=False):
         raise ScanPaused()
     try:
@@ -26,38 +25,45 @@ def measure(path, duration, idle, ffmpeg):
             options['creationflags'] = subprocess.IDLE_PRIORITY_CLASS
         else:
             options['start_new_session'] = True
-            if shutil.which('nice'):
-                command = ['nice', '-n', '15', *command]
+            command = background_command(audio_command(command), nice=15)
         env = dict(os.environ, OMP_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1', MKL_NUM_THREADS='1',
                    NUMBA_NUM_THREADS='1')
-        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, **options) as process:
-            try:
-                elapsed = 0
-                while True:
-                    if not idle():
-                        raise ScanPaused()
-                    try:
-                        output, _ = process.communicate(timeout=.2)
-                        break
-                    except subprocess.TimeoutExpired:
-                        elapsed += .2
-                        if elapsed >= 240:
-                            raise TimeoutError('Song analysis timed out')
-                if process.returncode:
-                    raise ValueError('Song analysis unavailable')
-                return json.loads(output)
-            finally:
-                if process.poll() is None:
-                    # Decoding is a child of the worker; reap the entire tree on demand.
-                    if os.name == 'nt':
-                        try:
-                            subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True, timeout=5)
-                        finally:
-                            process.kill()
+        permit = governor.compute(True, cost=2, start_offline=True) if governor else nullcontext(True)
+        with permit as granted:
+            if not granted:
+                raise ScanPaused()
+            with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, **options) as process:
+                try:
+                    if governor:
+                        output, _ = process.communicate(timeout=240)
                     else:
-                        with suppress(ProcessLookupError):
-                            os.killpg(process.pid, signal.SIGKILL)
-                    process.communicate()
+                        # Standalone scans still honor their caller's cancellation predicate.
+                        for _ in range(1200):
+                            if not idle():
+                                raise ScanPaused()
+                            try:
+                                output, _ = process.communicate(timeout=.2)
+                                break
+                            except subprocess.TimeoutExpired:
+                                pass
+                        else:
+                            raise TimeoutError('Song analysis timed out')
+                    if process.returncode:
+                        raise ValueError('Song analysis unavailable')
+                    return json.loads(output)
+                except subprocess.TimeoutExpired as error:
+                    raise TimeoutError('Song analysis timed out') from error
+                finally:
+                    if process.poll() is None:
+                        if os.name == 'nt':
+                            try:
+                                subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True, timeout=5)
+                            finally:
+                                process.kill()
+                        else:
+                            with suppress(ProcessLookupError):
+                                os.killpg(process.pid, signal.SIGKILL)
+                        process.communicate()
     finally:
         FFMPEG_LOCK.release()
 
@@ -120,7 +126,8 @@ class SongAnalysis:
                     if not math.isfinite(duration) or duration <= 0:
                         continue
                     with observe(getattr(self.intake, "RESOURCES", None), "analysis"), self.activity.track(record.get('title', '')):
-                        result = measure(audio, duration, lambda: self.idle() and not self.stop.is_set(), self.intake.tool('ffmpeg'))
+                        result = measure(audio, duration, lambda: self.idle() and not self.stop.is_set(),
+                                         self.intake.tool('ffmpeg'), getattr(self.intake, 'RESOURCES', None))
                     if not isinstance(result, dict):
                         raise ValueError('Invalid song analysis')
                     with self.lock:
@@ -133,6 +140,7 @@ class SongAnalysis:
                     return
                 except (OSError, ValueError, KeyError, TimeoutError, self.intake.IntakeError) as error:
                     logging.getLogger(__name__).warning('Song analysis %s: %s', item.name, type(error).__name__)
+            return True
         finally:
             self.scan_lock.release()
 
@@ -144,11 +152,11 @@ def register(app, workspace, library, intake, idle, enabled=True):
     def scan():
         while not scanner.stop.wait(30):
             try:
-                scanner.scan_once()
+                complete = scanner.scan_once()
+                if complete and scanner.stop.wait(1800):
+                    return
             except Exception as error:
                 app.logger.warning('Song analysis: %s', type(error).__name__)
-            if scanner.stop.wait(1800 if idle() else 5):
-                return
 
     if enabled:
         threading.Thread(target=scan, name='song-analysis', daemon=True).start()

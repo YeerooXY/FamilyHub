@@ -40,6 +40,10 @@ NUM_RE = re.compile(r"\d{1,6}(\.\d{1,6})?")
 RESERVED = {"CON", "PRN", "AUX", "NUL"} | {f"{p}{n}" for p in ("COM", "LPT") for n in range(1, 10)}
 CONTROL = threading.local()
 RESOURCE_TRACK = lambda stage: contextlib.nullcontext()
+RESOURCE_COMPUTE = lambda background: contextlib.nullcontext(True)
+RESOURCE_CHANGED = lambda: None
+BACKGROUND_COMMAND = None
+AUDIO_COMMAND = None
 RESOURCE_WAIT = lambda reason: contextlib.nullcontext()
 SAFE_INPUT = ["-protocol_whitelist", "file,pipe", "-format_whitelist",
               "aac,aiff,flac,matroska,webm,mov,mp4,m4a,3gp,3g2,mj2,mp3,ogg,wav,wv"]
@@ -123,11 +127,19 @@ def run(args, timeout, what, want_stdout=False, cwd=None, progress=None, stderr_
     By default only the last 600 stderr bytes are returned with URLs removed.
     Internal audio measurement can request the bounded complete diagnostic output.
     """
-    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+    executable = os.path.splitext(os.path.basename(args[0]))[0].lower()
+    heavy = (executable in ("ffmpeg", "ffprobe")
+             or "music_web.analysis" in args or "--extract-audio" in args)
+    permit = audio_permit() if heavy else contextlib.nullcontext()
+    with permit, tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         proc = None
         try:
-            proc = spawn(args, stdin=subprocess.DEVNULL, stdout=out if want_stdout else subprocess.DEVNULL,
-                         stderr=err, cwd=cwd)
+            options = {}
+            if "music_web.analysis" in args:
+                options["env"] = dict(os.environ, OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1",
+                                      MKL_NUM_THREADS="1", NUMBA_NUM_THREADS="1")
+            proc = spawn(AUDIO_COMMAND(args) if heavy and AUDIO_COMMAND else args, stdin=subprocess.DEVNULL,
+                         stdout=out if want_stdout else subprocess.DEVNULL, stderr=err, cwd=cwd, **options)
             deadline = time.monotonic() + timeout
             checked = 0
             while proc.poll() is None:
@@ -420,6 +432,9 @@ class YouTubeGate:
                     now = time.monotonic()
                     delay = max(self.last + self.spacing - now if not media else 0,
                                 self.until - now if background else 0)
+                    defer = getattr(CONTROL, "defer_youtube", None)
+                    if defer and background:
+                        defer(self.until > now)
                     if (media or (not self.active and not (background and self.users))) and delay <= 0:
                         break
                     reason = "YouTube cooldown" if background and self.until > now else "YouTube pacing"
@@ -458,6 +473,7 @@ class YouTubeGate:
             elif not rc and (not media or time.monotonic() >= self.until):
                 self.until = self.backoff = 0
             self.condition.notify_all()
+        RESOURCE_CHANGED()
         return bool(refused)
 
 
@@ -782,10 +798,23 @@ def stop_process(proc):
         proc.music_job = None
 
 
+@contextlib.contextmanager
+def audio_permit():
+    priority = getattr(CONTROL, "priority", None) or getattr(CONTROL, "background", False)
+    with RESOURCE_COMPUTE(priority) as granted:
+        if not granted:
+            raise IntakeError("Audio processing requires a CPU slot")
+        yield
+
+
 def spawn(args, **kw):
     # Work no listener is waiting on yields the CPU: niceness 10 on Linux.
-    if os.name != "nt" and getattr(CONTROL, "background", False) and shutil.which("nice"):
-        args = ["nice", "-n", "10", *args]
+    priority = getattr(CONTROL, "priority", None)
+    if priority() if priority else getattr(CONTROL, "background", False):
+        if BACKGROUND_COMMAND:
+            args = BACKGROUND_COMMAND(args)
+        elif os.name != "nt" and shutil.which("nice"):
+            args = ["nice", "-n", "10", *args]
     proc = subprocess.Popen(args, start_new_session=os.name != "nt",
                             creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP | 4) if os.name == "nt" else 0, **kw)
     if os.name == "nt":
@@ -886,6 +915,7 @@ def _pump_preview(command, spool, root, cancel, notify=lambda: None, budget=lamb
     stopped = threading.Event()
     errors = []
     procs, threads = [], []
+    permit = contextlib.ExitStack()
     source_error = tempfile.TemporaryFile()
     digest, size, preview_ok = hashlib.sha256(), 0, False
     def read_source():
@@ -919,9 +949,11 @@ def _pump_preview(command, spool, root, cancel, notify=lambda: None, budget=lamb
             with contextlib.suppress(OSError):
                 encoder.stdin.close()
     try:
+        permit.enter_context(audio_permit())
         source = spawn(command, stdout=subprocess.PIPE, stderr=source_error, stdin=subprocess.DEVNULL)
         procs.append(source)
-        encoder = spawn(hls_command("pipe:0", root), cwd=root, stdin=subprocess.PIPE,
+        encoder_command = hls_command("pipe:0", root)
+        encoder = spawn(AUDIO_COMMAND(encoder_command) if AUDIO_COMMAND else encoder_command, cwd=root, stdin=subprocess.PIPE,
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         procs.append(encoder)
         for fn in (read_source, write_encoder):
@@ -988,8 +1020,11 @@ def _pump_preview(command, spool, root, cancel, notify=lambda: None, budget=lamb
         return {"sha256": digest.hexdigest(), "bytes": size, "preview_complete": preview_ok}
     finally:
         stopped.set()
-        for proc in procs:
-            stop_process(proc)
+        try:
+            for proc in procs:
+                stop_process(proc)
+        finally:
+            permit.close()
         source_error.close()
         for thread in threads:
             thread.join(timeout=5)

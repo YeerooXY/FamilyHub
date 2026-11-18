@@ -35,8 +35,9 @@ class PlaybackDevices:
     COMMAND_SECONDS = 30
     MAX_DEVICES = 512
 
-    def __init__(self, clock=time.monotonic):
+    def __init__(self, clock=time.monotonic, presence=None):
         self.clock = clock
+        self.presence = presence
         self.lock = threading.Lock()
         self.devices = {}
         self.commands = {}
@@ -53,11 +54,21 @@ class PlaybackDevices:
         for owner in list(self.active):
             if owner not in owners: del self.active[owner]
 
-    def report(self, user, device_id, info, playing, track=None, position=None):
+    def _presence(self, user, device, playing, session=None):
+        if self.presence:
+            key = (user, device)
+            self.presence.presence(key, 'listening' if playing else 'online-idle', self.ONLINE_SECONDS)
+            if not playing:
+                self.presence.pause(key, session)
+
+    def report(self, user, device_id, info, playing, track=None, position=None, session=None):
         """Record a check-in; returns (play/pause handover command or None, remote control actions)."""
         if not DEVICE.fullmatch(device_id or ''): raise DeviceError('Invalid device id.')
         # Apps older than "Connect to a device" send no device_info and cannot take playback over.
-        if not isinstance(info, dict): return None, []
+        if not isinstance(info, dict):
+            with self.lock:
+                self._presence(user, device_id, playing, session)
+            return None, []
         activation, sequence = info.get('activation', 0), info.get('sequence', 0)
         if any(type(value) is not int or not 0 <= value < 2 ** 63 for value in (activation, sequence)):
             raise DeviceError('Invalid playback activity ordering.')
@@ -77,6 +88,7 @@ class PlaybackDevices:
             self.devices[key] = dict(id=device_id, name=clean_name(info.get('name')) or 'Unnamed device', kind=kind,
                                      playing=bool(playing), track=track if playing else None, position=position, at=now,
                                      sequence=sequence, activation=max(activation, previous.get('activation', 0)), following=following)
+            self._presence(user, device_id, playing and not following, session)
             active = self.active.get(user)
             # Heartbeats repeat the last local play timestamp; only a newer user action can win.
             if not following and activation > previous.get('activation', 0) and (not active or activation > active['activation']):
@@ -129,6 +141,7 @@ class PlaybackDevices:
             command = dict(id=secrets.token_hex(8), action='play', from_name=sender['name'] if sender else '',
                            resume=dict(track_ids=list(ids), index=index, position=float(position)), playing=playing, activation=activation, at=now)
             self.commands[(user, target)] = command
+            self._presence(user, target, playing)
             return dict(id=command['id'], target=device['name'])
 
 
@@ -147,7 +160,9 @@ class PlaybackDevices:
             if len(queue) >= 8: queue.pop(0)
             queue.append(dict(id=secrets.token_hex(6), action=action, position=float(position) if action == 'seek' else None, at=now))
             # The controller sees its own play or pause at once instead of after the next check-in.
-            if action in ('play', 'pause'): device['playing'] = action == 'play'
+            if action in ('play', 'pause'):
+                device['playing'] = action == 'play'
+                self._presence(user, target, device['playing'])
             return dict(ok=True)
 
 

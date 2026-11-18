@@ -1,4 +1,5 @@
 import unittest
+import time
 from unittest.mock import patch
 from test_music_web import Base
 from music_web.playlists import PlaylistStore
@@ -28,7 +29,7 @@ class WorkerCapacityTests(Base):
     def test_acquisition_capacity_uses_the_configured_pool_limit(self):
         client, _ = self.signed_in()
         rows = self.go(client, 'GET', '/api/server/stats').json['workers']
-        self.assertEqual(len([r for r in rows if r['id'].startswith('acquisition-')]), 10)
+        self.assertEqual(len([r for r in rows if r['id'].startswith('acquisition-')]), 11)
         self.assertFalse(any(r['id'].startswith(('tagging-', 'song-analysis-', 'source-quality-', 'genre-')) for r in rows))
 
 
@@ -46,7 +47,7 @@ class EnabledWorkerTests(Base):
         def slots():
             return {row['id']: row for row in self.go(client, 'GET', '/api/server/stats').json['workers']}
         initial = slots()
-        self.assertEqual(len(initial), 20)
+        self.assertEqual(len(initial), 24)
         self.assertTrue(all(initial[key]['state'] == 'idle' for key in
                             ('source-quality-0', 'song-analysis-0', 'tagging-0', 'genre-0', 'playlist-queue-0')))
         with self.state.source_quality.activity.track('Source song'), self.state.song_analysis.activity.track('Analysis song'):
@@ -63,7 +64,7 @@ class EnabledWorkerTests(Base):
         review.process_one(lambda: True, resolve)
         self.assertEqual(slots()['tagging-0']['state'], 'idle')
         self.assertEqual(list(slots()), list(initial))
-        self.state.jobs['urgent'] = dict(owner='sample-a', title='Needed', state='queued', current=True)
+        self.state.resources.room('fixture', time.monotonic() + 30)
         paused = slots()
         self.assertEqual(paused['source-quality-0']['state'], 'paused')
         self.assertEqual(paused['song-analysis-0']['state'], 'paused')
@@ -78,9 +79,9 @@ class ServerWorkTests(Base):
         get=lambda:self.go(client,'GET','/api/server/stats').json
         first=get()
         slots=first['workers']
-        self.assertEqual(len([r for r in slots if r['id'].startswith('acquisition-')]),8)
-        self.assertEqual(len([r for r in slots if r['id'].startswith('playlist-')]),3)
-        self.assertEqual(len(slots),15)  # 8 acquisition, 3 playlist, finished, 2 Opus, replacement.
+        self.assertEqual(len([r for r in slots if r['id'].startswith('acquisition-')]),9)
+        self.assertEqual(len([r for r in slots if r['id'].startswith('playlist-')]),6)
+        self.assertEqual(len(slots),19)
         self.assertTrue(all(r['state']=='idle' and r['waiting_for'] for r in slots))
         self.assertEqual(first['records'],[])
         with mobile_audio.background_activity.track('Encoding song'):
@@ -88,9 +89,9 @@ class ServerWorkTests(Base):
             row=next(r for r in active if r['id']=='opus-background-0')
             self.assertEqual((row['state'],row['current_title']),('working','Encoding song'))
         self.assertEqual([r['id'] for r in get()['workers']],[r['id'] for r in slots])
-        self.state.jobs['urgent']=dict(owner='sample-a',title='Needed',state='queued',current=True)
+        self.state.resources.room('fixture', time.monotonic() + 30)
         paused=get()['workers']
-        self.assertEqual([r['state'] for r in paused if r['id'].startswith('playlist-')],['paused']*3)
+        self.assertEqual([r['state'] for r in paused if r['id'].startswith('playlist-')],['paused']*6)
 
 
     def test_playlist_operation_is_one_entry_with_requester_counts_and_file_action(self):
@@ -149,21 +150,15 @@ class ServerWorkTests(Base):
         finally:
             operation.active = None
 
-    def test_existing_playback_does_not_block_bulk_but_real_preparation_does(self):
+    def test_existing_playback_holds_background_admission_until_handback(self):
         client=self.app.test_client();token=self.go(client,'GET','/api/connect').json['csrf_token']
         token=self.post(client,token,'/api/profile/select',json={'profile_id':'sample-a'}).json['csrf_token']
+        governor = self.state.resources
+        clock = time.monotonic()
+        governor.clock = lambda: clock
+        self.presence_stub.stop()
         response=self.post(client,token,'/api/playback/activity',json=dict(device_id='a'*32,playing=True,counters=[]))
         self.assertEqual(response.status_code,200,response.json)
-        self.assertFalse(self.go(client,'GET','/api/server/stats').json['catalogue_paused'])
-        coordinator=self.state.playlist_preparation
-        self.assertTrue(coordinator.allow_background())
-        self.state.jobs['urgent']=dict(owner='sample-a',title='Needed song',state='running',phase='fetch',message='Downloading',current=True)
         self.assertTrue(self.go(client,'GET','/api/server/stats').json['catalogue_paused'])
-        self.assertFalse(coordinator.allow_background())
-        self.state.jobs['urgent']['state']='done'
-        self.assertTrue(coordinator.allow_background())
+        clock += 16
         self.assertFalse(self.go(client,'GET','/api/server/stats').json['catalogue_paused'])
-        self.state.jobs['next']=dict(owner='sample-a',title='Next song',state='queued',phase='fetch',message='Preparing',priority=1)
-        self.assertFalse(coordinator.allow_background())
-        self.state.jobs['next']['search_preview']=True
-        self.assertTrue(coordinator.allow_background())
