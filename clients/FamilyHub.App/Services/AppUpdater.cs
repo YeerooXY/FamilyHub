@@ -10,7 +10,10 @@ public static class AppUpdater
 {
     public static string CurrentVersion => typeof(App).Assembly.GetName().Version!.ToString(3);
     public static string? Platform => DeviceInfo.Platform == DevicePlatform.WinUI ? "windows-x64"
-        : DeviceInfo.Platform == DevicePlatform.Android ? "android" : null;
+        : DeviceInfo.Platform == DevicePlatform.Android ? "android"
+        : DeviceInfo.Platform == DevicePlatform.iOS ? "ios" : null;
+    // iPhone builds are installed and re-signed by SideStore; the app only opens it.
+    public static bool UpdatesInSideStore => Platform == "ios";
 
     public static async Task<AppRelease?> CheckAsync(FamilyHubApi api)
     {
@@ -93,6 +96,12 @@ public static class AppUpdater
             if (!handedOff) Directory.Delete(stage, true);
         }
 #else
+        if (UpdatesInSideStore)
+        {
+            if (!await Launcher.Default.TryOpenAsync(new Uri("sidestore://")))
+                throw new InvalidOperationException("Open SideStore, then tap Update next to FamilyHub Music in My Apps.");
+            return;
+        }
         // Android keeps installation under the operating system's package installer.
         if (!await Launcher.Default.OpenAsync(api.ResolveUri(release.DownloadUrl)))
             throw new InvalidOperationException("Open your FamilyHub server in a browser to download the update.");

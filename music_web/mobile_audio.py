@@ -1,13 +1,15 @@
 """Reusable Opus playback copies; imported originals are never modified."""
+import heapq
+import itertools
 import os
 import secrets
 import threading
+import time
+from contextlib import contextmanager
 from .audio_profile import measure_loudness
 from .worker_activity import WorkerActivity
 
 _encoding = threading.Lock()
-# A listener waiting for a song encodes in its own lane, never behind background playlist work.
-_listening = threading.Lock()
 background_activity = WorkerActivity('opus-background', 'Opus background copy')
 listening_activity = WorkerActivity('opus-listening', 'Opus listening copy')
 TIERS = {
@@ -15,52 +17,205 @@ TIERS = {
     "normal": (96, "opus96-v2"),
     "high": (160, "opus160-v2"),
 }
+# Tiers phones asked for recently; "high" is the phone default away from home.
+_wanted = {"high": time.time()}
+WANTED_SECONDS = 14 * 86400
 
 
-def prepare(intake, item, source, digest, urgent=False, quality="normal", title=''):
-    kbps, version = TIERS[quality]
-    path = os.path.join(item, f".{version}-{digest}.opus")
+class _Gate:
+    """One listening encode at a time; the song needed soonest goes first.
+
+    lead is how many seconds until the listener needs the song: 0 for a song
+    someone is waiting on, the time left in the current song for the next one."""
+    def __init__(self):
+        self.cv = threading.Condition()
+        self.busy = False
+        self.waiting = []
+        self.order = itertools.count()
+
+    @contextmanager
+    def turn(self, lead):
+        ticket = (max(0.0, float(lead)), next(self.order))
+        with self.cv:
+            heapq.heappush(self.waiting, ticket)
+            while self.busy or self.waiting[0] != ticket:
+                self.cv.wait()
+            heapq.heappop(self.waiting)
+            self.busy = True
+        try:
+            yield
+        finally:
+            with self.cv:
+                self.busy = False
+                self.cv.notify_all()
+
+
+_listening = _Gate()
+_inflight_lock = threading.Lock()
+_inflight = {}
+
+
+def wanted_tiers():
+    now = time.time()
+    return [q for q, at in _wanted.items() if now - at < WANTED_SECONDS]
+
+
+def copy_path(item, digest, quality):
+    return os.path.join(item, f".{TIERS[quality][1]}-{digest}.opus")
+
+
+def prepare(intake, item, source, digest, urgent=False, quality="normal", title='', lead=0):
+    path = copy_path(item, digest, quality)
+    if urgent:
+        _wanted[quality] = time.time()
     # Published copies are immutable and appear through atomic replacement.
     # Playback of an existing copy must not wait behind another song's encoder.
     if os.path.lexists(path):
         intake.regular_file(path, "mobile audio")
         return path
-    # Serialize encodes so simultaneous listeners cannot exhaust the server.
-    with (_listening if urgent else _encoding), (listening_activity if urgent else background_activity).track(title):
+    # The same copy is encoded once; a second request waits for the first.
+    with _inflight_lock:
+        running = _inflight.get(path)
+        if running is None:
+            _inflight[path] = done = threading.Event()
+    if running is not None:
+        running.wait(240)
         if os.path.lexists(path):
             intake.regular_file(path, "mobile audio")
+            return path
+        return prepare(intake, item, source, digest, urgent, quality, title, lead)
+    try:
+        # Serialize encodes so simultaneous listeners cannot exhaust the server.
+        with (_listening.turn(lead) if urgent else _encoding), (listening_activity if urgent else background_activity).track(title):
+            if os.path.lexists(path):
+                intake.regular_file(path, "mobile audio")
+            else:
+                _encode(intake, source, path, TIERS[quality][0])
+        return path
+    finally:
+        with _inflight_lock:
+            _inflight.pop(path, None)
+        done.set()
+
+
+def _encode(intake, source, path, kbps):
+    temporary = path + "." + secrets.token_hex(8) + ".opus"
+    try:
+        # Lossy encoding can create intersample peaks above its input.
+        # Limit transient peaks, then verify the decoded delivery file itself.
+        ceiling_db = -4
+        requested_lufs = -14
+        for _ in range(4):
+            filters = ["-af", f"loudnorm=I={requested_lufs:.2f}:TP={ceiling_db:.2f}:LRA=50"]
+            rc, _, _ = intake.run([intake.tool("ffmpeg"), "-nostdin", "-v", "error", "-y",
+                *intake.SAFE_INPUT, "-i", source, "-map", "0:a:0", "-vn",
+                *filters, "-ar", "48000", "-c:a", "libopus", "-b:a", f"{kbps}k", "-ac", "2", "-vbr", "constrained", "-application", "audio",
+                "-fs", str(64 << 20), temporary], 180, "mobile audio")
+            if rc or not os.path.getsize(temporary):
+                raise ValueError("Mobile audio preparation failed")
+            measured = measure_loudness(intake, temporary)
+            if abs(measured["input_i"] + 14) <= 1.5 and measured["input_tp"] <= -1:
+                break
+            requested_lufs += -14 - measured["input_i"]
+            if measured["input_tp"] > -1:
+                ceiling_db -= measured["input_tp"] + 1.5
+            if ceiling_db < -9 or not -16 <= requested_lufs <= -10:
+                raise ValueError("Mobile audio requires excessive peak limiting")
         else:
-            temporary = path + "." + secrets.token_hex(8) + ".opus"
-            try:
-                # Lossy encoding can create intersample peaks above its input.
-                # Limit transient peaks, then verify the decoded delivery file itself.
-                ceiling_db = -4
-                requested_lufs = -14
-                for _ in range(4):
-                    filters = ["-af", f"loudnorm=I={requested_lufs:.2f}:TP={ceiling_db:.2f}:LRA=50"]
-                    rc, _, _ = intake.run([intake.tool("ffmpeg"), "-nostdin", "-v", "error", "-y",
-                        *intake.SAFE_INPUT, "-i", source, "-map", "0:a:0", "-vn",
-                        *filters, "-ar", "48000", "-c:a", "libopus", "-b:a", f"{kbps}k", "-ac", "2", "-vbr", "constrained", "-application", "audio",
-                        "-fs", str(64 << 20), temporary], 180, "mobile audio")
-                    if rc or not os.path.getsize(temporary):
-                        raise ValueError("Mobile audio preparation failed")
-                    measured = measure_loudness(intake, temporary)
-                    if abs(measured["input_i"] + 14) <= 1.5 and measured["input_tp"] <= -1:
-                        break
-                    requested_lufs += -14 - measured["input_i"]
-                    if measured["input_tp"] > -1:
-                        ceiling_db -= measured["input_tp"] + 1.5
-                    if ceiling_db < -9 or not -16 <= requested_lufs <= -10:
-                        raise ValueError("Mobile audio requires excessive peak limiting")
-                else:
-                    raise ValueError("Mobile audio failed loudness or peak verification")
-                # Refuse an output truncated by the size limit.
-                if os.path.getsize(temporary) >= (64 << 20):
-                    raise ValueError("Recording exceeds the mobile audio limit")
-                if abs(intake.probe(temporary)["duration"] - intake.probe(source)["duration"]) > .2:
-                    raise ValueError("Mobile audio duration does not match the original")
-                os.replace(temporary, path)
-            finally:
-                if os.path.exists(temporary):
-                    os.unlink(temporary)
-    return path
+            raise ValueError("Mobile audio failed loudness or peak verification")
+        # Refuse an output truncated by the size limit.
+        if os.path.getsize(temporary) >= (64 << 20):
+            raise ValueError("Recording exceeds the mobile audio limit")
+        if abs(intake.probe(temporary)["duration"] - intake.probe(source)["duration"]) > .2:
+            raise ValueError("Mobile audio duration does not match the original")
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+class Warmer:
+    """Makes phone copies before anyone asks: songs playing on any device first,
+    so a handover to a phone starts at once, then the rest of the library while idle.
+
+    resolve(source_id) returns (item, source, digest, title) or None; library()
+    lists source ids; idle() is False while someone is waiting for a song."""
+    def __init__(self, intake, resolve, library, idle, backfill=True, start_delay=60):
+        self.intake, self.resolve, self.library, self.idle, self.backfill = intake, resolve, library, idle, backfill
+        self.start_delay = start_delay
+        self.cv = threading.Condition()
+        self.playing = []
+        self.failed = set()
+        self.checked = {}
+        self.stop = threading.Event()
+        threading.Thread(target=self.work, name='opus-warm', daemon=True).start()
+
+    def now_playing(self, source_id):
+        # Devices report every 2 s; one check per song every 10 minutes is enough.
+        now = time.monotonic()
+        with self.cv:
+            if source_id in self.playing or source_id in self.failed or now - self.checked.get(source_id, -1e9) < 600:
+                return
+            self.checked[source_id] = now
+            if len(self.checked) > 2000:
+                self.checked = {k: v for k, v in self.checked.items() if now - v < 600}
+            self.playing.append(source_id)
+            del self.playing[:-20]
+            self.cv.notify()
+
+    def _next(self):
+        with self.cv:
+            if self.playing:
+                return self.playing.pop(0), True
+        return None, False
+
+    def _warm(self, source_id):
+        try:
+            found = self.resolve(source_id)
+            if not found:
+                return False
+            item, source, digest, title = found
+            made = False
+            for quality in wanted_tiers():
+                if not os.path.lexists(copy_path(item, digest, quality)):
+                    prepare(self.intake, item, source, digest, quality=quality, title=title)
+                    made = True
+            return made
+        except Exception:
+            self.failed.add(source_id)
+            return False
+
+    def work(self):
+        pending, made_any = [], True
+        # Let the server finish starting before the first library pass.
+        self.stop.wait(self.start_delay)
+        # Background copies run niced; a listener's own encode never does.
+        control = getattr(self.intake, "CONTROL", None)
+        if control is not None:
+            control.background = True
+        while not self.stop.is_set():
+            source_id, current = self._next()
+            if source_id:
+                self._warm(source_id)
+                continue
+            if not self.backfill or not self.idle():
+                with self.cv:
+                    self.cv.wait(30)
+                continue
+            if not pending:
+                # A pass that made nothing means the library is done; look again hourly.
+                if not made_any:
+                    with self.cv:
+                        self.cv.wait(3600)
+                    self.failed.clear()
+                try:
+                    pending = [s for s in self.library() if s not in self.failed]
+                except Exception:
+                    pending = []
+                made_any = False
+                continue
+            if self._warm(pending.pop()):
+                made_any = True
+                # Leave CPU for playback and other workers between background songs.
+                with self.cv:
+                    self.cv.wait(2)

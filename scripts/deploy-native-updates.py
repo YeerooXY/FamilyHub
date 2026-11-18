@@ -11,7 +11,11 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('release', type=Path)
+    parser.add_argument('--platforms', default='windows-x64,android', help='comma-separated: windows-x64, android, ios')
     args = parser.parse_args()
+    platforms = [p for p in args.platforms.split(',') if p]
+    if not platforms or any(p not in ('windows-x64', 'android', 'ios') for p in platforms):
+        parser.error('Choose platforms from windows-x64, android and ios.')
     release = args.release.resolve()
     options = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', '-o', 'HostKeyAlias=familyhub-dev',
                '-o', 'StrictHostKeyChecking=yes', '-o', 'UserKnownHostsFile=.local/vm/known_hosts',
@@ -22,12 +26,12 @@ def main():
     subprocess.run([*ssh, 'mkdir -m 700 ' + incoming], check=True, cwd=ROOT)
     files = [ROOT / 'music_web' / name for name in ('__init__.py', 'app_updates.py', 'playlist_artwork.py', 'playlists.py', 'finished_audio.py', 'audio_profile.py', 'mobile_audio.py', 'playlist_preparation.py', 'profile_artwork.py', 'profiles.py', 'public_playlists.py', 'listening_rooms.py', 'listening_versions.py', 'listening_stats.py', 'catalogue_review.py', 'source_quality.py', 'analysis.py', 'song_analysis.py', 'worker_activity.py', 'musicbrainz.py', 'catalog_search.py', 'genres.py', 'lyrics.py', '__main__.py', 'link_playlists.py', 'playback_devices.py', 'radio.py')]
     files.append(ROOT / 'scripts' / 'music-intake.py')
-    for platform in ('windows-x64', 'android'):
+    for platform in platforms:
         manifest = release / (platform + '.json')
         data = json.loads(manifest.read_text(encoding='utf-8'))
         files.extend((manifest, release / data['file']))
     subprocess.run(['scp', *options, *map(str, files), host + ':' + incoming + '/'], check=True, cwd=ROOT)
-    remote = 'incoming = ' + repr(incoming) + '\n' + r'''
+    remote = 'incoming = ' + repr(incoming) + '\nplatforms = ' + repr(platforms) + '\n' + r'''
 import hashlib,json,os,pathlib,shutil,subprocess,time,urllib.request
 incoming=pathlib.Path(incoming)
 config=json.loads(pathlib.Path('/etc/familyhub-music-web/config.json').read_text())
@@ -51,7 +55,7 @@ for name in ('__init__.py','app_updates.py','playlist_artwork.py','playlists.py'
     original=base/name
     originals[name]=original.exists()
     if original.exists():shutil.copy2(original,backup/name)
-for platform in ('windows-x64','android'):
+for platform in platforms:
     data=json.loads((incoming/(platform+'.json')).read_text())
     source=incoming/data['file']
     if source.stat().st_size!=data['size'] or hashlib.sha256(source.read_bytes()).hexdigest()!=data['sha256']:

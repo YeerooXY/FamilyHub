@@ -40,7 +40,7 @@ else if (EntryScreen)
         {
             <form class="connect-form" @onsubmit="Connect" @onsubmit:preventDefault>
                 <img class="connect-mark" src="familyhub-mark.png" alt="FamilyHub Music" />
-                <div class="connect-fields"><label class="sr" for="server">Server address</label><input id="server" type="url" @bind="server" placeholder="Server address" autocomplete="url" required /><button class="primary" type="submit" aria-disabled="@Aria(busy)">@(busy ? "Connecting..." : "Connect")</button></div>
+                <div class="connect-fields"><label class="sr" for="server">Server address</label><input id="server" type="url" @bind="server" placeholder="Server address" autocomplete="url" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url" required /><button class="primary" type="submit" aria-disabled="@Aria(busy)">@(busy ? "Connecting..." : "Connect")</button></div>
                 <p class="entry-error" role="status">@(error ?? EntryMessage)</p>
                 @if (!string.IsNullOrEmpty(Session.User)) { <button class="quiet change-server" type="button" @onclick='() => Navigate("Library")'>Back</button> }
                 <AppUpdate @key="Session.Server" />
@@ -325,7 +325,7 @@ else
         <button class="quiet" @onclick="() => RunPlayback(Player.NextAsync)" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Next song"><MusicIcon Name="next" /></button>
         <button id="repeat-toggle" class="quiet" @onclick="ToggleRepeat" aria-disabled="@Aria(Player.FollowingHost)" aria-pressed="@Aria(Player.RepeatMode != "off")" aria-label="@("Repeat " + Player.RepeatMode)" title="@("Repeat " + Player.RepeatMode)"><MusicIcon Name="@(Player.RepeatMode == "one" ? "repeat-one" : "repeat")" /></button>
     </div><SeekBar /></div>
-    @if (Player.Current is not null) { <LyricsView @bind-Expanded="lyricsOpen" AvailabilityChanged="LyricsAvailabilityChanged" /> }
+    @if (Player.Current is not null) { <LyricsView Expanded="lyricsOpen" ExpandedChanged="SetLyricsOpen" AvailabilityChanged="LyricsAvailabilityChanged" /> }
     <button id="player-more" class="quiet player-more" aria-label="Player options" aria-expanded="@Aria(playerToolsOpen)" aria-controls="player-options" @onclick="TogglePlayerTools"><MusicIcon Name="more" /></button>
     @if (playerToolsOpen) { <button class="player-tools-backdrop" aria-label="Close player options" @onclick="ClosePlayerTools"></button> }
     <div id="player-options" class="player-tools @(playerToolsOpen ? "is-open" : "")" @onkeydown="PlayerToolsKeyDown" @onkeydown:stopPropagation="true">
@@ -637,14 +637,23 @@ else
         await OpenQueueFromPlayer();
     }
     private bool playerExpanded;
-    private void CollapsePlayer() { playerExpanded = false; lyricsOpen = false; pendingFocus = "show-queue"; }
+    private void CollapsePlayer() { playerExpanded = false; lyricsOpen = lyricsReopenSheet = false; pendingFocus = "show-queue"; }
     private bool lyricsOpen, lyricsAvailable;
     private async Task LyricsAvailabilityChanged(bool available)
     {
         if (!available) await JS.InvokeVoidAsync("familyhub.focusIfWithin", "#sheet-lyrics", "listen-together");
         lyricsAvailable = available;
     }
-    private void OpenLyricsFromSheet() { playerToolsOpen = false; lyricsOpen = true; }
+    private void OpenLyricsFromSheet() { playerToolsOpen = false; SetLyricsOpen(true); }
+    // Lyrics keep the player bar in view: a phone's Now Playing sheet folds to the mini player while
+    // lyrics are open and comes back when they close.
+    private bool lyricsReopenSheet;
+    private void SetLyricsOpen(bool open)
+    {
+        if (open && !lyricsOpen) { lyricsReopenSheet = playerExpanded; playerExpanded = false; playerToolsOpen = false; }
+        else if (!open && lyricsOpen && lyricsReopenSheet) { playerExpanded = true; lyricsReopenSheet = false; }
+        lyricsOpen = open;
+    }
     private async Task OpenQueueFromSheet() { playerToolsOpen = false; await OpenQueueFromPlayer(); }
     private async Task OpenQueueFromPlayer() { playerExpanded = false; await Navigate("Queue"); }
     private void PlayerKeyDown(KeyboardEventArgs e) { if (e.Key == "Escape" && playerExpanded) CollapsePlayer(); }
@@ -876,7 +885,7 @@ else
             view = "Home"; StateHasChanged(); return true;
         }
         if (playerToolsOpen) await ClosePlayerTools();
-        else if (lyricsOpen) { lyricsOpen = false; pendingFocus = playerExpanded ? "lyrics-preview" : "player-more"; }
+        else if (lyricsOpen) { var sheet = lyricsReopenSheet; SetLyricsOpen(false); pendingFocus = sheet ? "lyrics-preview" : "player-more"; }
         else if (playerExpanded) CollapsePlayer();
         else if (profileMenu) { profileMenu = false; pendingFocus = "profile-toggle"; }
         else if (view == "Playlists" && Selected is not null) await AllPlaylists();

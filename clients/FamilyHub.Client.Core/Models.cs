@@ -23,6 +23,8 @@ public sealed record MusicTrack
     [JsonPropertyName("download_sha256")] public string DownloadSha256 { get; init; } = "";
     [JsonPropertyName("download_extension")] public string DownloadExtension { get; init; } = "";
     [JsonPropertyName("playback_info_url")] public string PlaybackInfoUrl { get; init; } = "";
+    // Signed link a player can stream without the sign-in cookie; only sent with playback-info.
+    [JsonPropertyName("stream_url")] public string StreamUrl { get; init; } = "";
     [JsonPropertyName("playback_source_sha256")] public string PlaybackSourceSha256 { get; init; } = "";
     [JsonPropertyName("playback_version")] public string PlaybackVersion { get; init; } = "";
     [JsonPropertyName("listening_version")] public string ListeningVersion { get; init; } = "";

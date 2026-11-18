@@ -53,7 +53,7 @@ internal sealed class MauiAudioDeck : IAudioDeck
         if (media.Handler is null) throw new InvalidOperationException("The audio player is not ready. Reopen the app and try again.");
         PlaybackRequested = play;
         media.MetadataTitle = title; media.MetadataArtist = artist; media.ShouldAutoPlay = play;
-        pendingSource = MediaSource.FromFile(path);
+        pendingSource = path.StartsWith("https://", StringComparison.Ordinal) ? MediaSource.FromUri(path) : MediaSource.FromFile(path);
         media.Source = pendingSource;
         positionTimer.Start();
     }

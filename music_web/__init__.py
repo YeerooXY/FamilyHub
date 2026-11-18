@@ -3,7 +3,7 @@
 Acquisition/import reuse scripts/music-intake.py. One coordinator schedules acquisition,
 HLS and bounded beat analysis; browser decks handle playback. See docs/MOBILE_MUSIC.md.
 """
-import gzip, hashlib, importlib.util, io, json, logging, os, re, secrets, shutil, sys, threading, time, urllib.error, urllib.parse, urllib.request
+import gzip, hashlib, hmac, importlib.util, io, json, logging, os, re, secrets, shutil, sys, threading, time, urllib.error, urllib.parse, urllib.request
 from collections import OrderedDict, deque
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from contextlib import suppress
@@ -253,11 +253,34 @@ def create_app(test_config=None):
                 abort(403)
         if request.endpoint in ("login", "static", "family_connect", "create_family_profile", "select_family_profile", "app_update_manifest", "app_update_package", "profile_image"):
             return
+        # Audio players cannot send the sign-in cookie, so a stream link carries a signed ticket.
+        if request.endpoint in ("playback_audio", "download_library_recording") and "ticket" in request.args:
+            g.user = stream_ticket_user()
+            if not g.user:
+                raise ApiError(HTTP_TEXT[401], 401)
+            return
         g.user = current()
         if not g.user:
             if request.path.startswith("/api/"):
                 raise ApiError(HTTP_TEXT[401], 401)
             return redirect("/login")
+
+    STREAM_SECONDS = 24 * 3600
+    def stream_signature(user, path, expires):
+        return hmac.new(cfg["SECRET_KEY"].encode(), f"stream|{user}|{path}|{expires}".encode(), hashlib.sha256).hexdigest()
+
+    def stream_url(url):
+        # Bound to this profile and this song's path; the tier in the query only picks a copy of the same song.
+        path = url.split("?", 1)[0]
+        expires = int(time.time()) + STREAM_SECONDS
+        ticket = urllib.parse.urlencode({"user": g.user, "expires": expires, "ticket": stream_signature(g.user, path, expires)})
+        return url + ("&" if "?" in url else "?") + ticket
+
+    def stream_ticket_user():
+        user, expires, ticket = (request.args.get(k, "") for k in ("user", "expires", "ticket"))
+        if not user or not expires.isdigit() or int(expires) < time.time() or int(expires) > time.time() + STREAM_SECONDS + 60:
+            return None
+        return user if hmac.compare_digest(stream_signature(user, request.path, expires), ticket) else None
 
     CSRFProtect(app)  # registered after guard(), so host, origin and sign-in are checked first
 
@@ -627,6 +650,8 @@ def create_app(test_config=None):
         try: listening_stats.heartbeat(g.user, device, data["playing"], count_time=counters is None, track=track)
         except ValueError as error: raise ApiError(str(error), 429)
         # The same check-in lists this device for "Connect to a device" and collects a transfer sent to it.
+        if track and data["playing"] and opus_warmer and re.fullmatch(r"(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})", track["id"]):
+            opus_warmer.now_playing(track["id"])
         command, controls = playback_devices.report(g.user, device, data.get("device_info"), data["playing"], track, data.get("position"))
         return jsonify(ok=True, counters_accepted=counters is not None, command=command, controls=controls)
 
@@ -1392,6 +1417,18 @@ def create_app(test_config=None):
     def song_analysis_idle():
         with lock:
             return not playback_demand() and not any(j['state'] in ('queued', 'running') or j.get('analyzing') for j in jobs.values())
+    def warm_source(source_id):
+        with app.app_context():
+            item = saved_source(source_id)
+            if not item: return None
+            track, original = library_record(item)
+            return item["item"], original, track["download_sha256"], track["title"]
+    def warm_library():
+        with app.app_context():
+            return [row["id"] for row in library_tracks()]
+    # Phone copies of the song playing anywhere, then the whole library while nobody waits.
+    opus_warmer = (mobile_audio.Warmer(app.intake, warm_source, warm_library, lambda: not playback_demand())
+                   if cfg.get("OPUS_WARMING", cfg["PUBLIC_ORIGIN"] != "https://music.test") else None)
     song_analysis = register_song_analysis(app, ws, lib, app.intake, song_analysis_idle,
         cfg.get('SONG_ANALYSIS_SCAN', cfg['PUBLIC_ORIGIN'] != 'https://music.test'))
 
@@ -1829,7 +1866,7 @@ def create_app(test_config=None):
         track.update(channel=metadata.get('artist',track['channel']),library_album=metadata.get('album',track['library_album']),genre=metadata.get('genre',track['genre']))
         return track, target
 
-    def mobile_record(source_id, digest=None, quality="normal"):
+    def mobile_record(source_id, digest=None, quality="normal", lead=0):
         if quality not in mobile_audio.TIERS:
             raise ApiError("Invalid audio quality.", 400)
         if not re.fullmatch(r"(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})", source_id):
@@ -1842,7 +1879,7 @@ def create_app(test_config=None):
         if digest is not None and digest != source_hash:
             raise ApiError("Recording changed. Refresh the library.", 409)
         try:
-            path = mobile_audio.prepare(app.intake, item["item"], original, source_hash, urgent=True, quality=quality, title=track['title'])
+            path = mobile_audio.prepare(app.intake, item["item"], original, source_hash, urgent=True, quality=quality, title=track['title'], lead=lead)
         except (OSError, ValueError, app.intake.IntakeError):
             raise ApiError("Could not prepare mobile audio. Try again.", 503)
         track["playback_version"] = mobile_audio.TIERS[quality][1]
@@ -1870,7 +1907,17 @@ def create_app(test_config=None):
     @app.get("/api/library/<source_id>/playback-info")
     def playback_info(source_id):
         quality = request.args.get("quality", "normal")
-        track, _ = mobile_record(source_id, quality=quality)
+        # Seconds until the listener needs this song: 0 when they are waiting, the time left in the current song for the next one.
+        try: lead = min(3600.0, max(0.0, float(request.args.get("lead", 0))))
+        except ValueError: raise ApiError("Invalid lead time.", 400)
+        if quality == "max":
+            item = saved_source(source_id) if re.fullmatch(r"(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})", source_id) else None
+            if not item:
+                raise ApiError("Recording unavailable.", 404)
+            track, _ = library_record(item)
+        else:
+            track, _ = mobile_record(source_id, quality=quality, lead=lead)
+        track["stream_url"] = stream_url(track["download_url"])
         return jsonify(track)
 
     lyrics_cache = LyricsCache(ws, cfg.get("LYRICS_LOOKUP"))

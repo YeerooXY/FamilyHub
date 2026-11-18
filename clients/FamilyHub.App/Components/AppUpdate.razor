@@ -22,9 +22,11 @@
     }
     private AppRelease? available;
     private string message = "";
-    private static string DescribeRelease(AppRelease release) => $"Version {release.Version} available · {release.Size / (1024d * 1024):0} MB. " +
-        (AppUpdater.Platform == "windows-x64" ? "Playback stops when the app restarts. Saved music and profiles are kept." : "Open the downloaded APK to install it. Saved music and profiles are kept.");
-    private string Label => working ? "Downloading..." : AppUpdater.Platform == "windows-x64" ? "Download and restart" : "Download update";
+    private static string DescribeRelease(AppRelease release) => AppUpdater.UpdatesInSideStore
+        ? $"Version {release.Version} is available. In SideStore, tap Update next to FamilyHub Music. Saved music and profiles are kept."
+        : $"Version {release.Version} available, {release.Size / (1024d * 1024):0} MB. " +
+          (AppUpdater.Platform == "windows-x64" ? "Playback stops when the app restarts. Saved music and profiles are kept." : "Open the downloaded APK to install it. Saved music and profiles are kept.");
+    private string Label => AppUpdater.UpdatesInSideStore ? "Open SideStore" : working ? "Downloading..." : AppUpdater.Platform == "windows-x64" ? "Download and restart" : "Download update";
 
     private async Task Update()
     {
@@ -33,13 +35,13 @@
         try
         {
             var api = Session.Api ?? throw new InvalidOperationException("Connect to your FamilyHub server to check for updates.");
-            message = "Downloading update...";
+            if (!AppUpdater.UpdatesInSideStore) message = "Downloading update...";
             await AppUpdater.InstallAsync(api, available, percent =>
             {
                 message = $"Downloading update... {percent}%";
                 _ = InvokeAsync(StateHasChanged);
             });
-            if (AppUpdater.Platform != "windows-x64") message = "Open the downloaded APK to install the update.";
+            if (AppUpdater.Platform == "android") message = "Open the downloaded APK to install the update.";
         }
         catch (FamilyHubApiException error) when (error.StatusCode == 404)
         { message = "This update is unavailable. Try again later."; }

@@ -9,9 +9,10 @@
 {
     if (Expanded)
     {
-        <section id="lyrics-view" class="lyrics-view" role="dialog" aria-modal="true" aria-labelledby="lyrics-title" @onkeydown="KeyDown">
+        <section id="lyrics-view" class="lyrics-view" role="dialog" aria-modal="true" aria-labelledby="lyrics-title" @onkeydown="KeyDown" @onkeydown:stopPropagation="true">
             <header class="lyrics-header">
                 <button id="lyrics-close" class="quiet" aria-label="Close lyrics" title="Close lyrics" @onclick="Close"><MusicIcon Name="chevron-down" /></button>
+                <TrackCover @key="track.Id" Track="track" />
                 <div><strong id="lyrics-title">@track.Title</strong><span>@track.Channel</span></div>
                 @if (current.State == "synced")
                 {
@@ -135,7 +136,7 @@
     }
 
     private async Task Open() { await ExpandedChanged.InvokeAsync(true); revealed = -1; }
-    private async Task Close() { await ExpandedChanged.InvokeAsync(false); await JS.InvokeVoidAsync("familyhub.focusVisible", "lyrics-preview", "player-more"); }
+    private async Task Close() { await ExpandedChanged.InvokeAsync(false); await JS.InvokeVoidAsync("familyhub.focusVisible", "lyrics-preview", "sheet-lyrics", "player-more"); }
     private Task KeyDown(KeyboardEventArgs e) => e.Key == "Escape" ? Close() : Task.CompletedTask;
 
     private async Task Seek(double time)

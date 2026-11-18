@@ -371,7 +371,11 @@ namespace FamilyHub.App.Services
         public string? LocalPath(MusicTrack track) => Delay ? null : FailPlayback ? "fail" : "fixture";
         public Task<string?> GetCachedPlaybackPathAsync(MusicTrack track, CancellationToken token) => Task.FromResult<string?>(null);
         public Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken token) => Task.FromResult(track);
-        public Task<string> CachePlaybackAsync(MusicTrack track, CancellationToken token)
+        public bool CanStream => false;
+        public void StreamingFailed() { }
+        public static bool IsStream(string source) => source.StartsWith("https://", StringComparison.Ordinal);
+        public Task<string> StreamPlaybackAsync(MusicTrack track, double lead, CancellationToken token) => throw new InvalidOperationException("Streaming is off in tests.");
+        public Task<string> CachePlaybackAsync(MusicTrack track, CancellationToken token, double lead = 0)
         { var request = new TaskCompletionSource<string>(); requests.Add(request); return request.Task; }
         public void Complete(int i) => requests[i].SetResult("fixture");
         public void Fail(int i) => requests[i].SetException(new IOException("Old request failed"));

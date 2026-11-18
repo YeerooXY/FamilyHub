@@ -144,8 +144,10 @@ class MobileAudio(Base):
         # Invalid quality returns 400
         res = self.go(client, "GET", f"/api/library/{native.FIRST}/playback-info?quality=invalid")
         self.assertEqual(res.status_code, 400)
+        # Max is the original file, offered as a stream link.
         res = self.go(client, "GET", f"/api/library/{native.FIRST}/playback-info?quality=max")
-        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("ticket=", res.json["stream_url"])
         stale_invalid = f"/api/library/{native.FIRST}/playback/{digest}/audio.m4a?quality=unknown"
         self.assertEqual(self.go(client, "GET", stale_invalid).status_code, 400)
 

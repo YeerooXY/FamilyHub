@@ -11,7 +11,8 @@ def register(app, workspace, require_family):
 
     def release(platform):
         require_family()
-        if platform not in ('windows-x64', 'android'):
+        # iPhone builds are installed through SideStore; the server only tells the app a newer one exists.
+        if platform not in ('windows-x64', 'android', 'ios'):
             abort(404)
         directory = root / platform
         try:
@@ -19,7 +20,7 @@ def register(app, workspace, require_family):
             if manifest.stat().st_size > 16384:
                 abort(503)
             data = json.loads(manifest.read_text(encoding='utf-8'))
-            extension = 'zip' if platform == 'windows-x64' else 'apk'
+            extension = {'windows-x64': 'zip', 'android': 'apk', 'ios': 'ipa'}[platform]
             if (not re.fullmatch(r'\d+\.\d+\.\d+', data['version'])
                     or not re.fullmatch(r'[0-9a-f]{64}', data['sha256'])
                     or not re.fullmatch(r'FamilyHub-Music-[A-Za-z0-9.-]+\.' + extension, data['file'])

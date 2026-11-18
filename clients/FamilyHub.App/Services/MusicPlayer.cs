@@ -211,11 +211,25 @@ public sealed class MusicPlayer(MusicSession session)
         };
         owner.Failed += message =>
         {
+            var streamed = streamedDecks.Remove(owner);
+            if (streamed) session.StreamingFailed();
             if (ReferenceEquals(deck, owner))
-            { sourceReady = false; PlaybackRequested = false; session.SetMessage(message); Changed?.Invoke(); }
-            else { incomingFailed = true; preparedTrack = null; }
+            {
+                sourceReady = false;
+                // A failed stream retries once from a full download, at the same place in the song.
+                if (streamed && PlaybackRequested && Current is { } current && !FollowingHost)
+                {
+                    if (Position > 0) resumePosition = Position;
+                    _ = MainThread.InvokeOnMainThreadAsync(() => PlayCoreAsync(current, queue.ToList(), index, true, true));
+                    return;
+                }
+                PlaybackRequested = false; session.SetMessage(message); Changed?.Invoke();
+            }
+            else { incomingFailed = true; preparedTrack = null; if (streamed) attemptedNext = null; }
         };
     }
+    private readonly HashSet<IAudioDeck> streamedDecks = [];
+    private void MarkStream(IAudioDeck target, string source) { if (MusicSession.IsStream(source)) streamedDecks.Add(target); else streamedDecks.Remove(target); }
     private void RecordListening()
     {
         var elapsed = Position - lastListeningPosition; lastListeningPosition = Position;
@@ -336,6 +350,7 @@ public sealed class MusicPlayer(MusicSession session)
             track = session.PlaybackRecording(session.CurrentRecording(track), path);
             Current = track; queue[index] = track; session.PinPlayback(track.Id);
             preparing = false; sourceReady = true; deck.TransportEnabled = !FollowingHost; ApplyVolumes();
+            MarkStream(deck, path);
             deck.PlayFile(path, track.Title, track.Channel, PlaybackRequested);
         }
         catch (OperationCanceledException) { if (version == requestVersion) { sourceReady = false; Restore(); } }
@@ -350,13 +365,18 @@ public sealed class MusicPlayer(MusicSession session)
             }
         }
     }
-    private async Task<string> PrepareFile(MusicTrack track, CancellationToken token)
+    private async Task<string> PrepareFile(MusicTrack track, CancellationToken token, double lead = 0)
     {
         var path = session.LocalPath(track) ?? await session.GetCachedPlaybackPathAsync(track, token);
         if (path is not null) return path;
         if (!session.Connected) throw new InvalidOperationException("This song is not downloaded on this device. Connect to play it.");
         var saved = await session.EnsureServerRecordingAsync(track, token);
-        return await session.CachePlaybackAsync(saved, token);
+        if (session.CanStream)
+        {
+            try { return await session.StreamPlaybackAsync(saved, lead, token); }
+            catch (Exception error) when (error is InvalidDataException or FamilyHubApiException or HttpRequestException) { }
+        }
+        return await session.CachePlaybackAsync(saved, token, lead);
     }
     private void WarmNext()
     {
@@ -382,7 +402,7 @@ public sealed class MusicPlayer(MusicSession session)
         try
         {
             var track = session.CurrentRecording(original);
-            var path = await PrepareFile(track, token);
+            var path = await PrepareFile(track, token, Math.Max(0, Duration - Position));
             token.ThrowIfCancellationRequested();
             if (version != requestVersion || next >= queue.Count || !ReferenceEquals(queue[next], original) || standby is null) return;
             track = session.PlaybackRecording(session.CurrentRecording(track), path);
@@ -390,6 +410,7 @@ public sealed class MusicPlayer(MusicSession session)
             queue[next] = track;
             preparedTrack = null; incomingFailed = false;
             standby.Stop(); standby.TransportEnabled = false; standby.Volume = 0;
+            MarkStream(standby, path);
             standby.PlayFile(path, track.Title, track.Channel, false);
             preparedTrack = track; session.PinUpcomingPlayback(track.Id);
             cancellation.CancelAfter(Timeout.InfiniteTimeSpan);

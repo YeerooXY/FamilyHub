@@ -34,5 +34,10 @@
     </array>
     <key>XSAppIconAssets</key>
     <string>Assets.xcassets/familyhub.appiconset</string>
+    <!-- The update notice checks that SideStore is installed before opening it. -->
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+        <string>sidestore</string>
+    </array>
 </dict>
 </plist>

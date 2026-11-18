@@ -191,6 +191,21 @@ class NativeMusicApi(Base):
         with self.go(client, 'GET', url, headers={'Range': 'bytes=9999-'}) as outside:
             self.assertEqual(outside.status_code, 416)
 
+    def test_stream_link_plays_without_cookie_only_with_its_ticket(self):
+        self.recording()
+        client, _ = self.signed_in()
+        info = self.go(client, 'GET', '/api/library/' + FIRST + '/playback-info?quality=max').json
+        stream = info['stream_url']
+        self.assertTrue(stream.startswith('/api/library/' + FIRST + '/download?'))
+        anonymous = self.app.test_client()
+        self.assertEqual(self.go(anonymous, 'GET', stream).status_code, 200)
+        self.assertEqual(self.go(anonymous, 'GET', stream, headers={'Range': 'bytes=0-3'}).status_code, 206)
+        forged = stream[:-1] + ('0' if stream[-1] != '0' else '1')
+        self.assertEqual(self.go(anonymous, 'GET', forged).status_code, 401)
+        other = stream.replace(FIRST, 'local-' + '0' * 16, 1)
+        self.assertEqual(self.go(anonymous, 'GET', other).status_code, 401)
+        self.assertEqual(self.go(client, 'GET', '/api/library/' + FIRST + '/playback-info?quality=max&lead=x').status_code, 400)
+
     def test_download_requires_session_and_refuses_unsaved_or_missing_recordings(self):
         self.recording(imported=False)
         url = '/api/library/' + FIRST + '/download'

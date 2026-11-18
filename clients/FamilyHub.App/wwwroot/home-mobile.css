@@ -182,12 +182,26 @@
  .lyrics-preview span { font-size:20px; font-weight:700; line-height:1.35; color:#ffffff73; }
  .lyrics-preview span:nth-of-type(1) { color:#fff; }
 }
-.lyrics-view { position:fixed; inset:0; z-index:70; overflow-y:auto; overscroll-behavior:contain; padding:0 24px calc(40dvh + env(safe-area-inset-bottom));
+/* Lyrics stop above the player bar (and the phone tabs) so the song stays controllable. */
+.lyrics-view { position:fixed; inset:0 0 var(--player-height) 0; z-index:70; overflow-y:auto; overscroll-behavior:contain; padding:0 24px calc(40dvh + env(safe-area-inset-bottom));
   background:linear-gradient(180deg in oklch,color-mix(in oklch,var(--accent-blue) 42%,#1d1a2b),color-mix(in oklch,var(--accent-blue) 18%,#0d0f15)); animation:sheet-open .28s cubic-bezier(.2,.8,.2,1); }
 .lyrics-header { position:sticky; top:0; z-index:1; display:flex; align-items:center; gap:12px; margin:0 -24px 12px; padding:calc(10px + env(safe-area-inset-top)) 20px 14px 12px;
   background:linear-gradient(180deg,color-mix(in oklch,var(--accent-blue) 42%,#1d1a2b) 70%,transparent); }
 .lyrics-header>button { display:grid; place-items:center; width:44px; height:44px; flex-shrink:0; padding:10px; }
 .lyrics-header>div { display:grid; gap:2px; min-width:0; }
+.lyrics-header>.cover { width:44px; height:44px; flex-shrink:0; border-radius:6px; }
+/* The Windows caption buttons sit over the top-right corner. */
+.native-titlebar .lyrics-header { padding-right:calc(20px + var(--window-controls-width,0px)); }
+@media(min-width:721px) { .lyrics-view { bottom:calc(var(--player-height) + 8px); } }
+/* Nothing from the page shows around the mini player while lyrics are open. */
+body:has(.lyrics-view) .workspace>main { visibility:hidden; }
+@media(max-width:720px) {
+ .lyrics-view { bottom:calc(var(--player-height) + var(--phone-nav-height,66px) + env(safe-area-inset-bottom)); padding-bottom:40dvh; }
+ /* Title first; the timing buttons take their own row under it. */
+ .lyrics-header { flex-wrap:wrap; row-gap:4px; }
+ .lyrics-header>div:not(.lyrics-timing) { flex:1; }
+ .lyrics-header>.lyrics-timing { order:1; width:100%; justify-content:center; margin-left:0; }
+}
 .lyrics-header strong,.lyrics-header span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .lyrics-header strong { font-size:15px; }
 .lyrics-header span { font-size:13px; color:#ffffffa6; }

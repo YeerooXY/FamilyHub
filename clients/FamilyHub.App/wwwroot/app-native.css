@@ -51,6 +51,8 @@ main.entry-screen { grid-column:1 / -1; grid-row:1 / -1; display:grid; place-ite
 .connect-mark { width:72px; height:72px; margin-bottom:32px; }
 .connect-fields { display:flex; gap:12px; align-items:center; }
 .connect-fields input { flex:1; min-width:0; }
+/* iPhone zooms the whole app into any text field under 16px and stays zoomed; touch screens get 16px fields. */
+@media(pointer:coarse) { input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea { font-size:max(16px,1em); } }
 .entry-error { color:var(--muted); min-height:1.5em; margin:16px 0; }
 .profile-picker { width:min(100%,850px); text-align:center; }
 .profile-picker h1 { margin:0 0 40px; }

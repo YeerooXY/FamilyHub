@@ -888,7 +888,33 @@ public sealed class MusicSession
         return path;
     }
 
-    public async Task<string> CachePlaybackAsync(MusicTrack track, CancellationToken cancellationToken)
+    // Android players stream from a signed link, so a song starts within a second or two instead of after the whole download.
+    // Turned off for the rest of the run after a stream fails; playback then downloads as before.
+    private bool streamingFailed;
+    public bool CanStream => OperatingSystem.IsAndroid() && !streamingFailed;
+    public void StreamingFailed() => streamingFailed = true;
+    public static bool IsStream(string source) => source.StartsWith("https://", StringComparison.Ordinal);
+
+    public async Task<string> StreamPlaybackAsync(MusicTrack track, double lead, CancellationToken cancellationToken)
+    {
+        track = CurrentRecording(track);
+        var api = OnlineApi();
+        var version = accountVersion;
+        if (track.PlaybackInfoUrl != $"/api/library/{track.Id}/playback-info")
+            throw new InvalidDataException("Streaming is unavailable for this recording.");
+        var info = await api.RequestJsonAsync<MusicTrack>(HttpMethod.Get, PlaybackInfoUrl(track, ActiveStreamingQuality, lead), cancellationToken: cancellationToken);
+        EnsureCurrent(version);
+        if (info.Id != track.Id || info.StreamUrl.Length == 0) throw new InvalidDataException("The stream link does not match this recording.");
+        var stream = api.ResolveUri(info.StreamUrl).AbsoluteUri;
+        playbackRecords[stream] = info;
+        return stream;
+    }
+
+    // lead: seconds until the song is needed, so the server encodes the song needed soonest first.
+    private static string PlaybackInfoUrl(MusicTrack track, string quality, double lead) =>
+        $"{track.PlaybackInfoUrl}?quality={quality}&lead={Math.Clamp(lead, 0, 3600).ToString("0", System.Globalization.CultureInfo.InvariantCulture)}";
+
+    public async Task<string> CachePlaybackAsync(MusicTrack track, CancellationToken cancellationToken, double lead = 0)
     {
         track = CurrentRecording(track);
         cancellationToken.ThrowIfCancellationRequested();
@@ -899,7 +925,7 @@ public sealed class MusicSession
         var quality = ActiveStreamingQuality;
         EnsurePlaybackCaches();
         var cache = playbackCaches[quality];
-        track = await PlaybackEditionAsync(track, api, quality, cancellationToken);
+        track = await PlaybackEditionAsync(track, api, quality, cancellationToken, lead);
         EnsureCurrent(version);
         var path = await cache.DownloadAsync(track, api, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
@@ -913,12 +939,12 @@ public sealed class MusicSession
         return path;
     }
 
-    private static async Task<MusicTrack> PlaybackEditionAsync(MusicTrack track, FamilyHubApi api, string quality, CancellationToken token)
+    private static async Task<MusicTrack> PlaybackEditionAsync(MusicTrack track, FamilyHubApi api, string quality, CancellationToken token, double lead = 0)
     {
         if (quality == "max") return track;
         if (track.PlaybackInfoUrl != $"/api/library/{track.Id}/playback-info")
             throw new InvalidDataException("Audio quality is unavailable for this recording. Refresh the library and try again.");
-        var url = quality == "normal" ? track.PlaybackInfoUrl : $"{track.PlaybackInfoUrl}?quality={quality}";
+        var url = PlaybackInfoUrl(track, quality, lead);
         var compressed = await api.RequestJsonAsync<MusicTrack>(HttpMethod.Get, url, cancellationToken: token);
         if (compressed.Id != track.Id || compressed.PlaybackSourceSha256 != track.DownloadSha256)
             throw new InvalidDataException("The playback copy does not match this recording.");
