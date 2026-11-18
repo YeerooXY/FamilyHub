@@ -1,0 +1,6 @@
+﻿{
+  "identity": {"data": [{"title": "Known song", "artist": {"id": 42, "name": "Artist"}}]},
+  "albums": {"data": [{"id": 100, "title": "New single", "record_type": "single", "release_date": "2026-11-01"}, {"id": 101, "title": "Remastered collection", "record_type": "album", "release_date": "2026-11-01"}, {"id": 102, "title": "Missing date", "record_type": "single"}], "next": null},
+  "album": {"id": 100, "title": "New single", "record_type": "single", "release_date": "2026-11-01", "artist": {"id": 42}},
+  "tracks": {"data": [{"id": 200, "title": "New song", "artist": {"id": 42}}, {"id": 201, "title": "Known song", "artist": {"id": 42}}]}
+}

@@ -1,0 +1,78 @@
+@implements IDisposable
+@inject IJSRuntime JS
+@inject MusicSession Session
+@if (items.Count > 0)
+{
+    <section class="home-section" aria-labelledby="discovery-title">
+        <div class="home-section-heading"><h2 id="discovery-title" tabindex="-1">New from artists you play</h2><ShelfArrows Target="discovery-shelf" Label="new releases" /></div>
+        <div class="home-shelf" id="discovery-shelf">
+            @foreach (var item in items)
+            {
+                <div class="home-card-holder discovery-card" @key="item.Id">
+                    <div class="home-card"><strong>@item.Title</strong><span>@item.Artist</span><span>@item.ReleaseDate</span>
+                        @if (!item.Seen) { <span>New</span> }
+                        @if (item.Stale) { <span>Cached</span> }
+                        <span>Deezer</span>
+                    </div>
+                    <div class="actions"><button id="@("discovery-play-" + item.Id)" disabled="@busy" aria-label="Play @item.Title" @onclick="() => Play(item)">Play</button><button disabled="@busy" aria-label="Dismiss @item.Title" @onclick="() => Dismiss(item)">Dismiss</button></div>
+                </div>
+            }
+        </div>
+        <p role="status">@message</p>
+        @if (choices.Count > 0)
+        {
+            <h3>Choose a recording</h3>
+            @foreach (var track in choices) { <SongRow Track="track" Play="() => PlayTracks.InvokeAsync(new List<MusicTrack> { track })" /> }
+            <button @onclick="() => choices.Clear()">Close recording choices</button>
+        }
+    </section>
+}
+@code {
+    [Parameter] public EventCallback<List<MusicTrack>> PlayTracks { get; set; }
+    private List<DiscoveryItem> items = [];
+    private List<MusicTrack> choices = [];
+    private string message = "";
+    private bool busy;
+    private FamilyHubApi? loadedApi;
+    private string? loadedUser;
+    private bool disposed;
+    protected override async Task OnInitializedAsync() { Session.Changed += Changed; await Load(); }
+    public void Dispose() { disposed = true; Session.Changed -= Changed; }
+    private void Changed() => _ = InvokeAsync(async () => { await Load(); if (!disposed) StateHasChanged(); });
+    private async Task Load()
+    {
+        if (disposed) return;
+        if (!Session.Connected) { loadedApi = null; loadedUser = null; items.Clear(); choices.Clear(); return; }
+        var api = Session.Api; var user = Session.User;
+        if (api is null || (ReferenceEquals(api, loadedApi) && loadedUser == user)) return;
+        loadedApi = api; loadedUser = user; items.Clear(); choices.Clear();
+        try {
+            var result = await api.RequestJsonAsync<DiscoveryPage>(HttpMethod.Get, "/api/discovery");
+            if (!disposed && ReferenceEquals(api, Session.Api) && user == Session.User) items = result.Items;
+        }
+        catch (Exception e) when (e is not OperationCanceledException) { }
+    }
+    private async Task Dismiss(DiscoveryItem item)
+    {
+        if (busy || Session.Api is null) return;
+        busy = true;
+        try { await Session.Api.RequestJsonAsync<object>(HttpMethod.Post, "/api/discovery/" + item.Id + "/state", new { state = "dismissed" }); items.Remove(item); await InvokeAsync(StateHasChanged); await JS.InvokeVoidAsync("familyhub.focus", items.Count > 0 ? "discovery-title" : "view-title"); }
+        catch (Exception e) when (e is not OperationCanceledException) { message = "The release could not be dismissed. Try again."; }
+        finally { busy = false; }
+    }
+    private async Task Play(DiscoveryItem item)
+    {
+        if (busy || Session.Api is null) return;
+        busy = true; choices.Clear(); message = "Finding recordings...";
+        try {
+            var query = await Session.Api.RequestJsonAsync<DiscoveryQuery>(HttpMethod.Post, "/api/discovery/" + item.Id + "/play", new { });
+            item.Seen = true;
+            var saved = Session.Library.FirstOrDefault(t => t.Title.Equals(item.Title, StringComparison.OrdinalIgnoreCase) && t.Channel.Equals(item.Artist, StringComparison.OrdinalIgnoreCase));
+            if (saved is not null) { await PlayTracks.InvokeAsync(new List<MusicTrack> { saved }); message = ""; return; }
+            choices = (await Session.Api.RequestJsonAsync<SearchPage>(HttpMethod.Post, "/api/search", new { query = query.Query })).Tracks;
+            message = choices.Count == 0 ? "This release is unavailable. Try again later." : "";
+        }
+        catch (Exception e) when (e is not OperationCanceledException) { message = "Recordings could not be loaded. Try again later."; }
+        finally { busy = false; }
+    }
+}

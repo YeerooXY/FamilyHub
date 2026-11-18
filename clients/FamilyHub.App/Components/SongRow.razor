@@ -1,7 +1,7 @@
 @inject MusicSession Session
 @inject IJSRuntime JS
 
-<article data-recording-id="@Track.Id" class="library-record native-song-row song-row @(PlaylistColumns ? "has-playlist-columns" : "") @(Current ? "is-current" : "")">
+<article data-recording-id="@Track.Id" class="library-record native-song-row song-row @(!FindRecording && !Track.Saved && !PlaylistColumns ? "has-library-add" : "") @(PlaylistColumns ? "has-playlist-columns" : "") @(Current ? "is-current" : "")">
     @if (PlaylistColumns) { <span class="playlist-track-number">@Number</span> }
     <button class="song-primary @(Current ? "is-current" : "") @(Current && Playing ? "is-playing" : "")" @onclick="Play" aria-label="@((FindRecording ? "Find recording for " : "Play ") + Track.Title)">
         <span class="song-artwork"><TrackCover Track="Track" /><span class="artwork-play" aria-hidden="true"><MusicIcon Name="@(FindRecording ? "search" : "play")" /></span></span>
@@ -28,12 +28,19 @@
     }
     else
     { <button class="row-action row-reveal row-find" @onclick="Play" aria-label="Find recording for @Track.Title" title="Find recording"><MusicIcon Name="search" /></button> }
+    @if (!FindRecording && !Track.Saved && !PlaylistColumns)
+    {
+        <button class="row-action row-reveal" disabled="@saveBusy" @onclick="SaveToLibrary" aria-label="Add @Track.Title to server library" title="@(saveState.Length > 0 ? saveState + ": click to refresh" : "Add to library")"><MusicIcon Name="@(saveState == "Saved" ? "cloud-check" : "cloud-empty")" /><span class="sr" role="status">@saveState</span></button>
+    }
     <button id="@moreId" class="row-action row-reveal row-more" @onclick="OpenMenu" aria-label="More options for @Track.Title" title="More options" aria-haspopup="dialog"><MusicIcon Name="more" /></button>
     <div popover="auto" role="dialog" id="@menuId" class="glass-dialog song-menu" aria-label="Options for @Track.Title">
         <div class="dialog-heading"><strong>@Track.Title</strong><button id="@(menuId + "-close")" class="quiet" aria-label="Close song options" @onclick="CloseMenu"><MusicIcon Name="close" /></button></div>
         @if (AddToPlaylist.HasDelegate && !FindRecording) { <button id="@(menuId + "-playlist")" @onclick="MenuPlaylist"><MusicIcon Name="plus-circle" />Add to playlist</button> }
         @if (!FindRecording) { <button @onclick="MenuQueue"><MusicIcon Name="queue" />Add to queue</button> }
         @if (!FindRecording) { <button @onclick="MenuKeep" aria-disabled="@(kept || !Session.Connected || Session.DownloadingId is not null ? "true" : "false")"><MusicIcon Name="@(kept ? "check" : "down")" />@(kept ? "Downloaded" : "Download to this device")</button> }
+        @if (!FindRecording && !Track.Saved) { <button disabled="@saveBusy" @onclick="SaveToLibrary"><MusicIcon Name="plus-circle" />@(saveState is "Failed" ? "Retry add to library" : saveState is "Queued" or "Downloading" ? "Refresh save status" : saveState.Length > 0 ? saveState : "Add to library")</button> }
+        @if (!FindRecording) { <button disabled="@followBusy" @onclick="FollowArtist"><MusicIcon Name="plus-circle" />@(followed ? "Unfollow " : "Follow ")@Track.Channel</button> }
+        @if (saveState.Length > 0) { <p role="status">@saveState</p> }
         @if (Track.Saved) { <TrimRequest Track="Track" ShowText="true" /> }
         @if (Remove.HasDelegate) { <button class="song-menu-remove" @onclick="MenuRemove"><MusicIcon Name="trash" />@RemoveLabel</button> }
     </div>
@@ -62,12 +69,50 @@
     [Parameter] public string RemoveLabel { get; set; } = "Remove";
     private readonly string moreId = "song-more-" + Guid.NewGuid().ToString("N");
     private string menuId => moreId + "-menu";
-    private Task OpenMenu() => JS.InvokeVoidAsync("familyhub.showPanel", menuId, moreId, menuId + "-close").AsTask();
+    private async Task OpenMenu()
+    {
+        await JS.InvokeVoidAsync("familyhub.showPanel", menuId, moreId, menuId + "-close");
+        if (Session.Api is null || !Session.Connected) return;
+        try {
+            var result = await Session.Api.RequestJsonAsync<FollowedArtists>(HttpMethod.Get, "/api/discovery/follow");
+            var name = System.Text.RegularExpressions.Regex.Replace(Track.Channel.ToLowerInvariant(), @"\W+", " ").Trim();
+            followed = result.Artists.Contains(name);
+        }
+        catch (Exception e) when (e is not OperationCanceledException) { }
+    }
     private Task CloseMenu() => JS.InvokeVoidAsync("familyhub.closeDialog", menuId, moreId).AsTask();
     private Task MenuPlaylist() => AddToPlaylist.InvokeAsync((Track, menuId + "-playlist"));
     private async Task MenuKeep() { if (kept || !Session.Connected || Session.DownloadingId is not null) return; await CloseMenu(); await Keep.InvokeAsync(); }
     private async Task MenuQueue() { await CloseMenu(); await Queue.InvokeAsync(); }
     private async Task MenuRemove() { await CloseMenu(); await Remove.InvokeAsync(); await JS.InvokeVoidAsync("familyhub.focus", "content"); }
+    private bool saveBusy, followBusy, followed;
+    private string saveState = "";
+    private async Task SaveToLibrary()
+    {
+        if (saveBusy || Session.Api is null || !Session.Connected || saveState == "Saved") return;
+        saveBusy = true;
+        try {
+            LibraryAddition? job;
+            if (saveState is "Queued" or "Downloading") {
+                var result = await Session.Api.RequestJsonAsync<LibraryAdditionPage>(HttpMethod.Get, "/api/library/additions");
+                job = result.Jobs.FirstOrDefault(j => j.SourceId == Track.Id);
+            } else {
+                var result = await Session.Api.RequestJsonAsync<LibraryAdditionPage>(HttpMethod.Post, "/api/library/additions", new { urls = new[] { "https://www.youtube.com/watch?v=" + Track.Id } });
+                job = result.Jobs.FirstOrDefault();
+            }
+            saveState = job is null ? "Failed" : job.Saved || job.State == "done" ? "Saved" : job.State == "queued" ? "Queued" : job.State == "running" ? "Downloading" : "Failed";
+        }
+        catch (Exception e) when (e is not OperationCanceledException) { saveState = "Failed"; }
+        finally { saveBusy = false; }
+    }
+    private async Task FollowArtist()
+    {
+        if (followBusy || Session.Api is null || !Session.Connected) return;
+        followBusy = true;
+        try { await Session.Api.RequestJsonAsync<object>(HttpMethod.Post, "/api/discovery/follow", new { artist = Track.Channel, follow = !followed }); followed = !followed; }
+        catch (Exception e) when (e is not OperationCanceledException) { saveState = "Artist follow could not be saved. Try again."; }
+        finally { followBusy = false; }
+    }
     private bool kept => Session.KeptOnDevice(Track);
     private string StateLabel => kept ? "Downloaded" : Session.OnThisDevice(Track) ? "Cached" : Track.Saved ? "On server" : "Not on server";
     private string StateIcon => kept ? "device-check" : Session.OnThisDevice(Track) ? "device" : Track.Saved ? "cloud-check" : "cloud-empty";

@@ -1,0 +1,45 @@
+@inject MusicSession Session
+<section class="home-section library-additions" aria-label="Add songs to server library">
+    <details>
+        <summary>Add YouTube links</summary>
+        <label for="library-links">YouTube links, one per line (up to 200)</label>
+        <textarea id="library-links" @bind="links" rows="4"></textarea>
+        <button @onclick="Add" disabled="@(busy || !Session.Connected)">Add to library</button>
+        <button @onclick="Refresh" disabled="@(busy || !Session.Connected)">Refresh save status</button>
+        <p role="status">@message</p>
+        @foreach (var job in jobs)
+        {
+            <div class="library-addition"><span>@job.Title</span><span>@Label(job)</span>
+                @if (job.State is "error" or "cancelled") { <button disabled="@busy" @onclick="() => Retry(job)">Retry @job.Title</button> }
+            </div>
+        }
+    </details>
+</section>
+@code {
+    private string links = "", message = "";
+    private bool busy;
+    private List<LibraryAddition> jobs = [];
+    private static string Label(LibraryAddition job) => job.Saved || job.State == "done" ? "Saved" : job.State == "queued" ? "Queued" : job.State == "running" ? "Downloading" : "Failed";
+    private Task Add() => Save(links.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
+    private Task Retry(LibraryAddition job) => Save(["https://www.youtube.com/watch?v=" + job.SourceId]);
+    private async Task Save(string[] urls)
+    {
+        if (busy || Session.Api is null || !Session.Connected) return;
+        busy = true;
+        try {
+            var result = await Session.Api.RequestJsonAsync<LibraryAdditionPage>(HttpMethod.Post, "/api/library/additions", new { urls });
+            foreach (var job in result.Jobs) { jobs.RemoveAll(j => j.SourceId == job.SourceId); jobs.Add(job); }
+            message = "Queue updated.";
+        }
+        catch (Exception e) when (e is not OperationCanceledException) { message = "Songs could not be queued. Check the links and try again."; }
+        finally { busy = false; }
+    }
+    private async Task Refresh()
+    {
+        if (busy || Session.Api is null) return;
+        busy = true;
+        try { jobs = (await Session.Api.RequestJsonAsync<LibraryAdditionPage>(HttpMethod.Get, "/api/library/additions")).Jobs; message = ""; }
+        catch (Exception e) when (e is not OperationCanceledException) { message = "Save status could not be loaded. Try again."; }
+        finally { busy = false; }
+    }
+}

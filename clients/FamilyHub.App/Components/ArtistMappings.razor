@@ -1,0 +1,40 @@
+@inject MusicSession Session
+<section class="artist-mappings" aria-labelledby="artist-mappings-title">
+    <h2 id="artist-mappings-title">Artist mappings</h2>
+    <button @onclick="Load" disabled="@busy">Load artist mappings</button>
+    <p role="status">@message</p>
+    @foreach (var artist in artists)
+    {
+        <div><strong>@artist.Name</strong> <span>@artist.Confidence</span> <span>Deezer: @artist.DeezerId</span>
+            @if (artist.Candidates.Count > 0) { <span>Candidates: @string.Join(", ", artist.Candidates)</span> }
+            <button @onclick="() => Select(artist)">Edit @artist.Name</button>
+        </div>
+    }
+    <label>Artist name <input @bind="name" /></label>
+    <label>Deezer artist ID <input type="number" @bind="identifier" /></label>
+    <button @onclick="Save" disabled="@busy">Confirm mapping</button>
+</section>
+@code {
+    private List<ArtistMapping> artists = [];
+    private string name = "", message = "";
+    private long identifier;
+    private bool busy;
+    private void Select(ArtistMapping artist) { name = artist.Name; identifier = artist.DeezerId ?? 0; }
+    private async Task Load()
+    {
+        if (busy || Session.Api is null) return;
+        busy = true;
+        try { artists = (await Session.Api.RequestJsonAsync<ArtistMappingPage>(HttpMethod.Get, "/api/admin/discovery")).Artists; message = ""; }
+        catch (Exception e) when (e is not OperationCanceledException) { message = "Artist mappings could not be loaded. Administrator access is required."; }
+        finally { busy = false; }
+    }
+    private async Task Save()
+    {
+        if (busy || Session.Api is null) return;
+        busy = true;
+        try { await Session.Api.RequestJsonAsync<object>(HttpMethod.Post, "/api/admin/discovery", new { name, deezer_id = identifier }); message = "Mapping confirmed."; }
+        catch (Exception e) when (e is not OperationCanceledException) { message = "The mapping could not be saved. Check the artist ID and try again."; }
+        finally { busy = false; }
+        await Load();
+    }
+}
