@@ -42,6 +42,7 @@ internal static class EditionChecks
         {
             await session.ConnectServerAsync("https://editions.test");
             await session.SelectProfileAsync("alex");
+            session.SetStreamingQualityWifi("max");
             var oldDownload = await session.Offline!.DownloadAsync(track, session.Api!);
             Check(session.LocalPath(track) == oldDownload, "Original offline fixture missing");
             current = track with { ListeningVersion = "trimmed", DownloadSha256 = Convert.ToHexString(SHA256.HashData(trimmed)).ToLowerInvariant(), DownloadSize = trimmed.Length };

@@ -26,7 +26,7 @@
             try
             {
                 var api = Session.Api; var user = Session.User; var identity = Session.Server + "|" + user; var version = requestVersion;
-                if (Session.Connected && api is not null)
+                if (Session.UiActive && Session.Connected && api is not null)
                 {
                     await Together.CheckPokedSessionAsync();
                     using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(4));
@@ -37,7 +37,7 @@
                         await InvokeAsync(() => { requests = result.Requests; sourceIdentity = identity; StateHasChanged(); });
                     }
                 }
-                else await InvokeAsync(() => { requests = []; StateHasChanged(); });
+                else if (Session.UiActive) await InvokeAsync(() => { requests = []; StateHasChanged(); });
             }
             catch (Exception exception) when (exception is HttpRequestException or FamilyHubApiException or OperationCanceledException or ObjectDisposedException) { }
             try { await Task.Delay(5000, token); } catch (OperationCanceledException) { return; }

@@ -30,6 +30,7 @@ def clean_name(value):
 
 class PlaybackDevices:
     # A device that has not checked in for this long is offline; a command it never collects expires.
+    # Native clients check in every five seconds; allow two missed heartbeats.
     ONLINE_SECONDS = 15
     COMMAND_SECONDS = 30
     MAX_DEVICES = 512

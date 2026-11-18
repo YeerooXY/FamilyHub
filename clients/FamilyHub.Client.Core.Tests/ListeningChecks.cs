@@ -28,6 +28,13 @@ internal static class ListeningChecks
             var batch = journal.Pending();
             Check(batch.Sum(r => r.Seconds) == 30 && batch.Sum(r => r.Plays) == 1, "Offline listening did not count one qualified play");
             Check(batch.Count == 2 && batch[0].Seconds == 20 && batch[1].Seconds == 10, "Listening crossed midnight into the wrong date");
+            var persisted = File.ReadAllText(Path.Combine(root, "listening.json"));
+            journal.Acknowledge(batch);
+            Check(File.ReadAllText(Path.Combine(root, "listening.json")) == persisted, "Acknowledgement synchronously rewrote the journal");
+            journal.Flush();
+            Check(Open().Pending().Count == 0, "Explicit flush did not persist acknowledgements");
+            // Restore the pending fixture for the restart checks below.
+            File.WriteAllText(Path.Combine(root, "listening.json"), persisted);
             var loaded = Open();
             Check(loaded.DeviceId == journal.DeviceId && loaded.Pending().Sum(r => r.Seconds) == 30, "Offline listening did not survive restart");
             loaded.Observe("song", 0, 30, false);

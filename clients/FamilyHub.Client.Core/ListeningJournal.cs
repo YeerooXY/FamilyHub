@@ -108,7 +108,7 @@ public sealed class ListeningJournal
                 }
             }
             state.Position = position; lastAt = now; wasPlaying = playing;
-            if (dirty && (now - lastWrite >= 5 || !playing || changed)) Flush();
+            if (dirty && (now - lastWrite >= 30 || !playing || changed)) Flush();
         }
     }
 
@@ -146,7 +146,7 @@ public sealed class ListeningJournal
             foreach (var row in sent)
                 if (state.Days.TryGetValue(row.Day, out var day))
                 { day.AckSeconds = Math.Max(day.AckSeconds, row.Seconds); day.AckPlays = Math.Max(day.AckPlays, row.Plays); }
-            dirty = true; Flush();
+            dirty = true; if (clock() - lastWrite >= 30) Flush();
         }
     }
 

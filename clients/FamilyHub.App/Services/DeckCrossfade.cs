@@ -14,6 +14,7 @@ internal static class DeckCrossfade
         while (incoming.Opening || !incoming.Playing || incoming.Position < cue + .04)
         {
             token.ThrowIfCancellationRequested();
+            incoming.RefreshPosition(); outgoing.RefreshPosition();
             if (failed?.Invoke() is true) throw new InvalidOperationException("The next song could not be opened. Use Next to retry it.");
             if (requested())
             {
@@ -33,6 +34,7 @@ internal static class DeckCrossfade
         while (true)
         {
             token.ThrowIfCancellationRequested();
+            incoming.RefreshPosition(); outgoing.RefreshPosition();
             if (failed?.Invoke() is true) throw new InvalidOperationException("The next song stopped decoding. Use Next to retry it.");
             if (!requested()) { await Task.Delay(CrossfadeEnvelope.TickMilliseconds, token); continue; }
             var position = incoming.Position;

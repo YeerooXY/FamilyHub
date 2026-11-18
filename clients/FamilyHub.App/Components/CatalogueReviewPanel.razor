@@ -8,6 +8,24 @@
     <p class="sr" role="status" aria-live="polite" aria-atomic="true">@announcement</p>
     @if (error is not null) { <p class="entry-error" role="alert">@error</p> }
     @if (data is null && error is null) { <p class="muted">@(Session.Connected ? "Loading song review…" : "Connect to the server to review songs.")</p> }
+    @if (data?.CanEdit == true)
+    {
+        <section class="glass-panel catalogue-pool" aria-labelledby="reports-title">
+            <h2 id="reports-title" tabindex="-1">Song reports</h2>
+            @foreach (var report in reports)
+            {
+                <article class="catalogue-row song-row">
+                    <div class="song-text"><strong>@report.Title</strong><small>@report.Artist</small><small>@(report.Reason == "bad_quality" ? "Bad quality or live performance" : "Wrong source (change source)")</small><small>@ProfileName(report.Profile) ? @DateTimeOffset.FromUnixTimeSeconds(report.Time).ToLocalTime().ToString("g")</small></div>
+                    <div class="catalogue-actions">
+                        @if (CanListen(report.Id)) { <button class="quiet" @onclick="() => Play(report.Id)">Listen</button> }
+                        <a class="quiet" href="@("https://www.youtube.com/results?search_query=" + Uri.EscapeDataString(report.Artist + " " + report.Title + " official audio"))" target="_blank" rel="noopener noreferrer">Find source</a>
+                        <button class="quiet" aria-disabled="@(saving ? "true" : "false")" @onclick="() => ResolveReport(report)">Mark resolved</button>
+                    </div>
+                </article>
+            }
+            @if (reports.Count == 0) { <p>No song reports.</p> }
+        </section>
+    }
     <div class="catalogue-columns">
         @if (data?.CanEdit == true)
         {
@@ -99,6 +117,20 @@
     </form>
 </dialog>
 @code {
+    private sealed record SongReport(string Key, string Id, string Title, string Artist, string Profile, string Reason, long Time);
+    private sealed record SongReports(List<SongReport> Reports);
+    private List<SongReport> reports = [];
+    private async Task ResolveReport(SongReport report)
+    {
+        if (saving || Session.Api is null) return;
+        saving = true;
+        try {
+            await Session.Api.RequestJsonAsync<JsonElement>(HttpMethod.Post, "/api/catalogue/reports/resolve", new { key = report.Key });
+            reports.Remove(report); announcement = "Song report resolved.";
+            await JS.InvokeVoidAsync("familyhub.focus", "reports-title");
+        } catch (Exception exception) { error = exception.Message; }
+        finally { saving = false; }
+    }
     private CatalogueReviewSnapshot? data;
     private List<SourceQualitySong> quality = [];
     private bool qualitySaving;
@@ -122,12 +154,13 @@
     private async Task Poll() { try { while (!lifetime.IsCancellationRequested) { await Refresh(); await Task.Delay(15000, lifetime.Token); } } catch (OperationCanceledException) { } }
     private async Task Refresh()
     {
-        if (fetching || disposed || Session.Api is null || !Session.Connected) return;
+        if (!Session.UiActive || fetching || disposed || Session.Api is null || !Session.Connected) return;
         fetching = true;
         var identity = Identity;
         var revision = actionRevision;
         try {
             var result = await Session.Api.RequestJsonAsync<CatalogueReviewSnapshot>(HttpMethod.Get, "/api/catalogue/review?limit=" + Math.Max(trimmingLimit, metadataLimit), cancellationToken: lifetime.Token);
+            var reportResult = result.CanEdit ? (await Session.Api.RequestJsonAsync<SongReports>(HttpMethod.Get, "/api/catalogue/reports", cancellationToken: lifetime.Token)).Reports : [];
             List<SourceQualitySong> songs = result.CanEdit ? (await Session.Api.RequestJsonAsync<SourceQualitySnapshot>(HttpMethod.Get, "/api/catalogue/source-quality", cancellationToken: lifetime.Token)).Songs : [];
             if (identity == Identity && !disposed && revision == actionRevision) {
                 if (data?.CanEdit == true && !result.CanEdit) {
@@ -155,7 +188,7 @@
                 QueueRemoved((data?.Metadata ?? []).Take(metadataLimit).Select(r => r.Id), result.Metadata.Take(metadataLimit).Select(r => r.Id), "metadata", "metadata-title");
                 if (data?.TrimmingTotal > trimmingLimit && result.TrimmingTotal <= trimmingLimit) focusRestores.Add(("trimming-more", "trimming-title"));
                 if (data?.MetadataTotal > metadataLimit && result.MetadataTotal <= metadataLimit) focusRestores.Add(("metadata-more", "metadata-title"));
-                quality = songs; data = result; sourceIdentity = identity; error = null;
+                reports = reportResult; quality = songs; data = result; sourceIdentity = identity; error = null;
             }
         }
         catch (OperationCanceledException) when (disposed) { }

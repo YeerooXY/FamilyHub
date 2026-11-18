@@ -129,7 +129,7 @@ class CatalogueReview:
         self.path=Path(workspace)/'.catalogue-review.json';self.lock=threading.RLock();self.dirty=False
         self.data=json.loads(self.path.read_text(encoding='utf-8')) if self.path.exists() else dict(trimming={},metadata={},overrides={})
         if not isinstance(self.data,dict):raise ReviewError('Invalid catalogue review store.')
-        for section in ('trimming','metadata','overrides'):
+        for section in ('trimming','metadata','overrides','reports'):
             self.data.setdefault(section,{})
             if not isinstance(self.data[section],dict) or len(self.data[section])>self.MAX_ROWS:raise ReviewError('Invalid catalogue review store.')
         for row in self.data['metadata'].values():
@@ -172,6 +172,27 @@ class CatalogueReview:
             if trusted:
                 self._apply(created,trusted);created['state']='queued' if created['missing'] else 'done'
             self.dirty=True
+
+    def report_song(self, track, user, reason):
+        if reason not in ('bad_quality', 'wrong_source'):
+            raise ReviewError('Choose a report reason.')
+        key = user + ':' + track['id'] + ':' + reason
+        with self.lock:
+            reports = self.data['reports']
+            if key not in reports:
+                if len(reports) >= self.MAX_ROWS: raise ReviewError('The report queue is full.')
+                reports[key] = dict(key=key, id=track['id'], title=track['title'], artist=track['channel'],
+                                    profile=user, reason=reason, time=int(time.time()), resolved=False)
+                self.dirty = True
+                self.flush()
+            return copy.deepcopy(reports[key])
+
+    def resolve_report(self, key):
+        with self.lock:
+            if key not in self.data['reports']: raise ReviewError('Report not found.', 404)
+            self.data['reports'][key]['resolved'] = True
+            self.dirty = True
+            self.flush()
 
     def flag_trim(self,track,digest,user,position=0):
         with self.lock:
@@ -297,6 +318,30 @@ def register(app,body,review,recording,admin,rate):
         except ValueError:raise ReviewError('Choose a valid review page size.')
         if not 1<=limit<=review.MAX_ROWS:raise ReviewError('Choose a valid review page size.')
         return jsonify(**review.snapshot(query,limit),can_edit=admin())
+
+    @app.post('/api/catalogue/reports')
+    def report_song():
+        data = body(2048)
+        identifier, reason = data.get('id'), data.get('reason')
+        if not isinstance(identifier, str) or not ID.fullmatch(identifier): raise ReviewError('Choose a saved song.')
+        if reason not in ('bad_quality', 'wrong_source'): raise ReviewError('Choose a report reason.')
+        rate()
+        track, _ = recording(identifier)
+        return jsonify(report=review.report_song(track, g.user, reason)), 201
+
+    @app.get('/api/catalogue/reports')
+    def song_reports():
+        if not admin(): return jsonify(error='Only the admin can review song reports.'), 403
+        with review.lock:
+            return jsonify(reports=[copy.deepcopy(r) for r in review.data['reports'].values() if not r['resolved']])
+
+    @app.post('/api/catalogue/reports/resolve')
+    def resolve_song_report():
+        if not admin(): return jsonify(error='Only the admin can resolve song reports.'), 403
+        key = body(2048).get('key')
+        if not isinstance(key, str): raise ReviewError('Choose a report.')
+        review.resolve_report(key)
+        return jsonify(ok=True)
 
     @app.post('/api/catalogue/trimming')
     def request_trimming():

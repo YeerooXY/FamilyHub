@@ -9,6 +9,7 @@ internal sealed class MauiAudioDeck : IAudioDeck
     private readonly MediaElement media;
     private MediaSource? pendingSource;
     private readonly IDispatcherTimer positionTimer;
+    public double FastPositionWindow { get; set; } = 12;
     public event Action? Changed;
     public event Action? Ended;
     public event Action<string>? Failed;
@@ -24,8 +25,12 @@ internal sealed class MauiAudioDeck : IAudioDeck
     {
         this.media = media;
         positionTimer = media.Dispatcher.CreateTimer();
-        positionTimer.Interval = TimeSpan.FromMilliseconds(FamilyHub.Client.Core.CrossfadeEnvelope.TickMilliseconds);
-        positionTimer.Tick += (_, _) => RefreshPosition();
+        positionTimer.Interval = TimeSpan.FromSeconds(1);
+        positionTimer.Tick += (_, _) => {
+            var fast = Playing && Duration > 0 && Duration - Position <= FastPositionWindow;
+            positionTimer.Interval = TimeSpan.FromMilliseconds(fast ? FamilyHub.Client.Core.CrossfadeEnvelope.TickMilliseconds : 1000);
+            RefreshPosition();
+        };
         media.PositionChanged += (_, _) => Changed?.Invoke();
         media.StateChanged += (_, _) => Changed?.Invoke();
         media.MediaOpened += (_, _) => MainThread.BeginInvokeOnMainThread(() =>

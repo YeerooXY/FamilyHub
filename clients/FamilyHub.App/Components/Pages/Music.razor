@@ -315,7 +315,7 @@ else
         </section>
     }
 </main></div>
-<footer class="player-bar @(playerExpanded ? "is-expanded" : "")" @onkeydown="PlayerKeyDown">
+<footer class="player-bar @(playerExpanded && !lyricsOpen ? "is-expanded" : "")" @onkeydown="PlayerKeyDown">
     @if (playerExpanded)
     {
         <button id="player-collapse" class="quiet player-collapse" aria-label="Close Now Playing" title="Close Now Playing" @onclick="CollapsePlayer"><MusicIcon Name="chevron-down" /></button>
@@ -353,7 +353,7 @@ else
         <button id="sheet-repeat-toggle" class="quiet sheet-only" @onclick="ToggleRepeat" aria-disabled="@Aria(Player.FollowingHost)" aria-pressed="@Aria(Player.RepeatMode != "off")" aria-label="@("Repeat " + Player.RepeatMode)" title="@("Repeat " + Player.RepeatMode)"><MusicIcon Name="@(Player.RepeatMode == "one" ? "repeat-one" : "repeat")" /></button>
         <ListenTogetherPanel />
         <AudioOutputPicker />
-        @if (Player.Current is { Saved: true } trimmingTrack) { <TrimRequest Track="trimmingTrack" /> }
+        @if (Player.Current is { Saved: true } trimmingTrack) { <ReportSong Track="trimmingTrack" /> }
 
         <button id="recommend-similar" class="quiet discover-button" @onclick="Recommend" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Play similar songs next" title="Play similar songs next"><MusicIcon Name="sparkle" /></button>
         <label class="sr" for="volume">Volume</label><button id="mute-toggle" class="quiet" @onclick="ToggleMute" aria-label="@(Player.Volume == 0 ? "Unmute" : "Mute")" title="@(Player.Volume == 0 ? "Unmute" : "Mute")" aria-pressed="@Aria(Player.Volume == 0)"><MusicIcon Name="@(Player.Volume == 0 ? "volume-off" : "volume")" /></button><span class="volume-meter" style="--volume-level:@((Player.Volume * 100).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture))%"><span class="volume-bars" aria-hidden="true"><span></span></span><input id="volume" type="range" min="0" max="1" step="0.01" value="@Player.Volume" @oninput="VolumeChanged" @onchange="SavePlaybackPreferences" /></span>

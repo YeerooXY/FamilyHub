@@ -21,6 +21,7 @@ public sealed class MusicSession
     public bool NeedsProfileSelection { get; private set; }
     public ListenerPreferences PlaybackPreferences { get; private set; } = new();
     public bool Connected { get; private set; }
+    public bool UiActive { get; set; } = true;
     public bool Ready { get; private set; }
     public string Message { get; private set; } = "";
     private List<MusicTrack> library = [];
@@ -47,7 +48,7 @@ public sealed class MusicSession
     private readonly Dictionary<string, OfflineLibrary> playbackCaches = [];
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> cachedEditions = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, MusicTrack> playbackRecords = new();
-    public string StreamingQualityWifi { get; private set; } = "max";
+    public string StreamingQualityWifi { get; private set; } = "high";
     public string StreamingQualityMobile { get; private set; } = "high";
     public string DownloadQuality { get; private set; } = "max";
     public string ActiveStreamingQuality => HomeConnection ? StreamingQualityWifi : StreamingQualityMobile;
@@ -112,8 +113,8 @@ public sealed class MusicSession
         var activation = PlaybackActivation;
         var profileVersion = accountVersion;
         var activityAt = DateTime.UtcNow;
-        // Allow timer jitter around the 2 s activity interval.
-        if (ReferenceEquals(api, lastActivityApi) && activation == lastActivityActivation && trackId == lastActivityTrackId && playing == lastActivityPlaying && activityAt - lastActivity < TimeSpan.FromSeconds(1.9)) return;
+        // Allow timer jitter around five-second check-ins (server expiry is 15 seconds).
+        if (ReferenceEquals(api, lastActivityApi) && activation == lastActivityActivation && trackId == lastActivityTrackId && playing == lastActivityPlaying && activityAt - lastActivity < TimeSpan.FromSeconds(4.8)) return;
         activityInFlight = true;
         try
         {
@@ -206,10 +207,10 @@ public sealed class MusicSession
         var prefPrefix = PreferenceKey(Server, User);
         if (Preferences.Default.ContainsKey(prefPrefix + ":quality-wifi"))
         {
-            var wifi = Preferences.Default.Get(prefPrefix + ":quality-wifi", "max");
+            var wifi = Preferences.Default.Get(prefPrefix + ":quality-wifi", "high");
             var mobile = Preferences.Default.Get(prefPrefix + ":quality-mobile", "high");
             var download = Preferences.Default.Get(prefPrefix + ":quality-download", "max");
-            StreamingQualityWifi = IsValidQuality(wifi) ? wifi : "max";
+            StreamingQualityWifi = IsValidQuality(wifi) ? wifi : "high";
             StreamingQualityMobile = IsValidQuality(mobile) ? mobile : "high";
             DownloadQuality = IsValidQuality(download) ? download : "max";
         }
@@ -224,7 +225,7 @@ public sealed class MusicSession
             }
             else
             {
-                StreamingQualityWifi = "max";
+                StreamingQualityWifi = Preferences.Default.ContainsKey(prefPrefix + ":quality") && oldQuality == "max" ? "max" : "high";
                 StreamingQualityMobile = "high";
                 DownloadQuality = "max";
             }
@@ -1212,6 +1213,7 @@ public sealed class MusicSession
     private async Task SavePlaylistsAsync()
     { if (Offline is not null) await Offline.SavePlaylistsAsync(Playlists); Changed?.Invoke(); }
 
+    private string savedQueueIdentity = "";
     private readonly SemaphoreSlim playbackSaveGate = new(1, 1);
     private sealed record SavedPlayback(string ProfileId, PlaybackResume? Playback)
     {
@@ -1233,7 +1235,15 @@ public sealed class MusicSession
         {
             if (version != accountVersion) return;
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
-            await api.RequestJsonAsync<SavedPlayback>(HttpMethod.Put, "/api/profile/playback", new { profile_id = owner, playback = value }, timeout.Token);
+            var identity = Server + "|" + owner + "|" + string.Join(",", value.TrackIds);
+            var full = identity != savedQueueIdentity;
+            try
+            {
+                await api.RequestJsonAsync<SavedPlayback>(full ? HttpMethod.Put : HttpMethod.Patch, "/api/profile/playback",
+                    new { profile_id = owner, playback = full ? (object)value : new { track_id = value.TrackIds[value.Index], index = value.Index, position = value.Position } }, timeout.Token);
+                savedQueueIdentity = identity;
+            }
+            catch (FamilyHubApiException) { savedQueueIdentity = ""; throw; }
         }
         catch (Exception error) when (error is HttpRequestException or OperationCanceledException or FamilyHubApiException or JsonException) { }
         finally { playbackSaveGate.Release(); }

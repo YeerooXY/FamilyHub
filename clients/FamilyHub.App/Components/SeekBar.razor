@@ -26,7 +26,10 @@
     private double Percent => Player.Duration > 0 ? Math.Clamp(Position / Player.Duration * 100, 0, 100) : 0;
     private static string Time(double seconds) => $"{(int)Math.Max(0, seconds) / 60}:{(int)Math.Max(0, seconds) % 60:00}";
     protected override void OnInitialized() { track = Player.Current?.Id; Player.Changed += Changed; }
+    private long lastRender;
     private void Changed() => _ = InvokeAsync(() => {
+        if (!Player.UiActive || track == Player.Current?.Id && Environment.TickCount64 - lastRender < 1000) return;
+        lastRender = Environment.TickCount64;
         if (track != Player.Current?.Id) { track = Player.Current?.Id; preview = null; showPreview = false; }
         StateHasChanged();
     });

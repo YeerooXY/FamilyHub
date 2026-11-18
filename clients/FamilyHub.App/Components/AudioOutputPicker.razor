@@ -97,7 +97,7 @@
             {
                 try
                 {
-                    if (Session.Api is { } api)
+                    if (Session.UiActive && Session.Api is { } api)
                     {
                         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(5));
                         var found = (await api.GetPlaybackDevicesAsync(Session.DeviceId, timeout.Token)).Devices;

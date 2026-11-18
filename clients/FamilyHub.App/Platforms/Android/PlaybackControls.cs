@@ -19,7 +19,7 @@ internal sealed class PlaybackControls
 {
     internal const string Channel = "playback";
     internal const int NotificationId = 4101;
-    internal const string ActionPrevious = "org.familyhub.music.previous", ActionToggle = "org.familyhub.music.toggle", ActionNext = "org.familyhub.music.next";
+    internal const string ActionMix = "org.familyhub.music.mix", ActionPrevious = "org.familyhub.music.previous", ActionToggle = "org.familyhub.music.toggle", ActionNext = "org.familyhub.music.next";
     private const PlaybackStateCode Unknown = PlaybackStateCode.None;
 
     internal static PlaybackControls? Current { get; private set; }
@@ -33,6 +33,10 @@ internal sealed class PlaybackControls
     private bool serviceRunning;
     private PlaybackStateCode lastState = Unknown;
     private string? lastTrack;
+    private long lastDuration = -1, lastActions, lastControlRevision = -1;
+    private Bitmap? publishedArtwork;
+    private bool lastShuffle;
+
 
     private PlaybackControls(Context context, MusicPlayer player, MusicSession session)
     {
@@ -67,11 +71,21 @@ internal sealed class PlaybackControls
         var actions = PlaybackState.ActionPlay | PlaybackState.ActionPause | PlaybackState.ActionPlayPause | PlaybackState.ActionStop;
         // A Listen Together guest follows the host and cannot skip or seek.
         if (!player.FollowingHost) actions |= PlaybackState.ActionSkipToNext | PlaybackState.ActionSkipToPrevious | (player.CanSeek ? PlaybackState.ActionSeekTo : 0);
-        media.SetPlaybackState(new PlaybackState.Builder()
+        var mixIcon = player.Shuffle ? Resource.Drawable.shuffle_on : Resource.Drawable.shuffle_off;
+        var duration = (long)(Math.Max(player.Duration, track.Duration) * 1000);
+        var currentArtwork = artworkFor == track.Id ? artwork : null;
+        var metadataChanged = track.Id != lastTrack || duration != lastDuration || currentArtwork != publishedArtwork;
+
+        if (!player.Seeking && (state != lastState || actions != lastActions || track.Id != lastTrack || player.ControlRevision != lastControlRevision || player.Shuffle != lastShuffle))
+        {
+            media.SetPlaybackState(new PlaybackState.Builder()
             .SetActions(actions)
+            .AddCustomAction(ActionMix, player.Shuffle ? "Mix on" : "Mix off", mixIcon)
             .SetState(state, (long)(player.Position * 1000), player.Playing ? 1f : 0f, SystemClock.ElapsedRealtime())
             .Build());
-        if (track.Id != lastTrack || artworkFor == track.Id)
+            lastActions = actions; lastControlRevision = player.ControlRevision;
+        }
+        if (metadataChanged)
         {
             var metadata = new MediaMetadata.Builder()
                 .PutString(MediaMetadata.MetadataKeyTitle, track.Title)
@@ -80,10 +94,11 @@ internal sealed class PlaybackControls
                 .PutLong(MediaMetadata.MetadataKeyDuration, (long)(Math.Max(player.Duration, track.Duration) * 1000));
             if (artworkFor == track.Id && artwork is not null) metadata.PutBitmap(MediaMetadata.MetadataKeyAlbumArt, artwork);
             media.SetMetadata(metadata.Build());
+            lastDuration = duration; publishedArtwork = currentArtwork;
             if (track.Id != lastTrack) { lastTrack = track.Id; _ = LoadArtwork(track); }
         }
         media.Active = true;
-        if (state != lastState || !serviceRunning) { lastState = state; ShowNotification(track, state); }
+        if (state != lastState || metadataChanged || player.Shuffle != lastShuffle || !serviceRunning) { lastState = state; lastShuffle = player.Shuffle; ShowNotification(track, state); }
     }
 
     private async Task LoadArtwork(MusicTrack track)
@@ -98,7 +113,7 @@ internal sealed class PlaybackControls
             if (bitmap is null || player.Current?.Id != track.Id) return;
             artwork?.Dispose();
             artwork = bitmap; artworkFor = track.Id;
-            MainThread.BeginInvokeOnMainThread(() => { lastState = Unknown; Update(); });
+            MainThread.BeginInvokeOnMainThread(Update);
         }
         catch (Exception) { /* The song plays without lock-screen artwork. */ }
     }
@@ -121,6 +136,7 @@ internal sealed class PlaybackControls
             .AddAction(Action(Android.Resource.Drawable.IcMediaPrevious, "Previous", ActionPrevious))
             .AddAction(Action(playing ? Android.Resource.Drawable.IcMediaPause : Android.Resource.Drawable.IcMediaPlay, playing ? "Pause" : "Play", ActionToggle))
             .AddAction(Action(Android.Resource.Drawable.IcMediaNext, "Next", ActionNext))
+            .AddAction(Action(player.Shuffle ? Resource.Drawable.shuffle_on : Resource.Drawable.shuffle_off, "Mix", ActionMix))
             .SetStyle(new Notification.MediaStyle().SetMediaSession(media.SessionToken).SetShowActionsInCompactView(0, 1, 2));
         if (artworkFor == track.Id && artwork is not null) builder.SetLargeIcon(artwork);
         PlaybackService.Latest = builder.Build();
@@ -142,6 +158,7 @@ internal sealed class PlaybackControls
 
     internal void Handle(string? action)
     {
+        if (action == ActionMix) { if (!player.FollowingHost && !player.RemoteActive) { player.ToggleShuffle(); _ = session.SavePreferencesAsync(player.Volume, player.Shuffle); } return; }
         _ = action switch
         {
             ActionPrevious => Run(player.PreviousAsync),
@@ -159,6 +176,7 @@ internal sealed class PlaybackControls
 
     private sealed class Callbacks(PlaybackControls owner) : MediaSession.Callback
     {
+        public override void OnCustomAction(string? action, Bundle? extras) => owner.Handle(action);
         public override void OnPlay() { if (!owner.player.Playing) owner.Handle(ActionToggle); }
         public override void OnPause() { if (owner.player.Playing) owner.Handle(ActionToggle); }
         public override void OnSkipToNext() => owner.Handle(ActionNext);

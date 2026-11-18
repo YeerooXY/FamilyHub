@@ -1,0 +1,44 @@
+@inject MusicSession Session
+@inject MusicPlayer Player
+@inject IJSRuntime JS
+<button id="report-song" class="quiet trim-request" aria-haspopup="dialog" @onclick="Open"><MusicIcon Name="scissors" /><span>Report song</span></button>
+<dialog id="report-song-dialog" class="animated-dialog" aria-labelledby="report-song-title" data-return-focus="report-song">
+    <h2 id="report-song-title">Report song</h2>
+    <p>@reportTrack?.Title</p>
+    <div class="report-choices">
+        <button id="report-quality" class="quiet" disabled="@busy" @onclick='() => Send("bad_quality")'>Bad quality or live performance</button>
+        <button class="quiet" disabled="@busy" @onclick='() => Send("wrong_source")'>Wrong source (change source)</button>
+        <button class="quiet" disabled="@busy" @onclick='() => Send("trimming")'>Needs trimming</button>
+    </div>
+    <p role="status">@status</p>
+    <button class="quiet" @onclick="Close">Close</button>
+</dialog>
+<span class="sr" role="status">@announcement</span>
+@code {
+    [Parameter, EditorRequired] public MusicTrack Track { get; set; } = null!;
+    private MusicTrack? reportTrack;
+    private string? status, announcement;
+    private bool busy;
+    private async Task Open()
+    {
+        reportTrack = Track; status = announcement = null;
+        await JS.InvokeVoidAsync("familyhub.showDialog", "report-song-dialog", "report-quality");
+    }
+    private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "report-song-dialog", "report-song").AsTask();
+    private async Task Send(string reason)
+    {
+        if (busy || reportTrack is null) return;
+        if (!Session.Connected || Session.Api is null) { status = "Connect to the server to report this song."; return; }
+        busy = true;
+        var track = reportTrack;
+        try
+        {
+            object payload = reason == "trimming" ? new { id = track.Id, position = Player.Current?.Id == track.Id ? Player.Position : 0 } : new { id = track.Id, reason };
+            await Session.Api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, reason == "trimming" ? "/api/catalogue/trimming" : "/api/catalogue/reports", payload);
+            announcement = reason == "trimming" ? "Added to trimming pool." : "Song reported.";
+            await Close();
+        }
+        catch (Exception error) { status = error.Message; }
+        finally { busy = false; }
+    }
+}

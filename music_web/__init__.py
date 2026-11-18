@@ -370,15 +370,23 @@ def create_app(test_config=None):
         g.pop("csrf_token", None)
         return jsonify(profile=profile, preferences=preferences, csrf_token=generate_csrf())
 
-    @app.route("/api/profile/playback", methods=["GET", "PUT"])
+    @app.route("/api/profile/playback", methods=["GET", "PUT", "PATCH"])
     def family_playback():
         require_family()
         with lock:
-            if request.method == "PUT":
+            if request.method in ("PUT", "PATCH"):
                 data = body(65536)
                 if data.get("profile_id") != g.user:
                     raise ApiError("The selected profile changed.", 409)
-                value = profile_store.playback(g.user, data.get("playback", {}))
+                playback = data.get("playback", {})
+                if request.method == "PATCH":
+                    previous = profile_store.playback(g.user)
+                    index = playback.get("index", previous["index"] if previous else None) if isinstance(playback, dict) else None
+                    if (not previous or type(index) is not int or not 0 <= index < len(previous["track_ids"])
+                            or playback.get("track_id") != previous["track_ids"][index]):
+                        raise ApiError("The playback queue changed.", 409)
+                    playback = dict(previous, index=index, position=playback.get("position"))
+                value = profile_store.playback(g.user, playback)
             else:
                 value = profile_store.playback(g.user)
         return jsonify(profile_id=g.user, playback=value)

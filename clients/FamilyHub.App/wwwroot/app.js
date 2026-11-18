@@ -501,17 +501,18 @@ window.familyhub.revealLyric = id => {
 // Measured once per song; the animation runs on the GPU with fixed pixel values.
 window.familyhub.fitTitle = () => {
  // Full-screen Now Playing and lyrics cover the star background; stop drawing it meanwhile.
- const covered=!!document.querySelector('.player-bar.is-expanded,.lyrics-view');
+ const covered=document.hidden||document.body.classList.contains('native-hidden')||!!document.querySelector('.player-bar.is-expanded,.lyrics-view');
  if((document.body.dataset.visualPaused==='true')!==covered){ if(covered)document.body.dataset.visualPaused='true'; else delete document.body.dataset.visualPaused; }
  const title=document.getElementById('now-title'), text=title?.querySelector('.marquee-text'); if(!text)return;
  const expanded=!!title.closest('.player-bar.is-expanded');
- const key=expanded?text.textContent:'';
+ const enabled=expanded||familyhub.isPhone();
+ const key=[text.textContent,enabled,title.clientWidth,document.hidden,document.body.classList.contains('native-hidden'),matchMedia('(prefers-reduced-motion: reduce)').matches].join('|');
  if(title.dataset.fitted===key)return;
  title.dataset.fitted=key;
  familyhub.titleAnimations?.forEach(a=>a.cancel()); familyhub.titleAnimations=[];
  title.querySelector('.marquee-copy')?.remove();
  title.classList.remove('is-marquee');
- if(!expanded)return;
+ if(!enabled||document.hidden||document.body.classList.contains('native-hidden'))return;
  const overflow=text.scrollWidth>title.clientWidth+2 && !matchMedia('(prefers-reduced-motion: reduce)').matches;
  if(!overflow)return;
  title.classList.add('is-marquee');
@@ -628,4 +629,12 @@ familyhub.watchShelf=id=>{
  shelf.dataset.watched='1';
  shelf.addEventListener('scroll',()=>familyhub.updateShelf(id),{passive:true});
  new ResizeObserver(()=>familyhub.updateShelf(id)).observe(shelf);
+};
+
+matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change',()=>familyhub.fitTitle());
+document.addEventListener('visibilitychange',()=>familyhub.setNativeActive(familyhub.nativeActive??true));
+window.familyhub.setNativeActive = active => {
+ familyhub.nativeActive=active;
+ document.body.classList.toggle('native-hidden',!active||document.hidden);
+ familyhub.fitTitle();
 };

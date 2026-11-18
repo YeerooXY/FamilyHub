@@ -41,11 +41,13 @@ public sealed class MusicPlayer(MusicSession session)
     private double? resumePosition;
     private MusicTrack? preparedTrack;
     private long lastProgressNotice;
+    private (bool Playing, bool Opening, bool Requested, double Duration) lastDeckTransport;
     private long lastHostControl = -1, lastDriftSeek;
     private double filteredDrift;
     private int largeDriftSamples, driftDirection;
     public long ControlRevision { get; private set; }
     private int syncSeeks;
+    public bool UiActive { get; set; } = true;
     public event Action? Changed;
     public MusicTrack? Current { get; private set; }
     public IReadOnlyList<MusicTrack> Queue => queue;
@@ -221,8 +223,12 @@ public sealed class MusicPlayer(MusicSession session)
                 }
                 _ = ApplyResumePositionAsync();
                 RecordListening();
-                if (Environment.TickCount64 - lastProgressNotice >= 200)
-                { lastProgressNotice = Environment.TickCount64; Changed?.Invoke(); }
+#if !WINDOWS
+                if (owner is MauiAudioDeck mobile) mobile.FastPositionWindow = Math.Max(3, FadeDuration + 2);
+#endif
+                var transport = (owner.Playing, owner.Opening, owner.PlaybackRequested, owner.Duration);
+                if (transport != lastDeckTransport || UiActive && Environment.TickCount64 - lastProgressNotice >= 1000)
+                { lastDeckTransport = transport; lastProgressNotice = Environment.TickCount64; Changed?.Invoke(); }
                 if (!preparing && sourceReady && Playing) { WarmNext(); TryBlend(); }
             }
             else if (ReferenceEquals(standby, owner))
@@ -429,6 +435,7 @@ public sealed class MusicPlayer(MusicSession session)
     private void WarmNext()
     {
         if (RepeatMode == "one" || standby is null || blending || warming || !PlaybackRequested || index + 1 >= queue.Count) return;
+        if (Duration <= 0 || Duration - Position > Math.Max(30, FadeDuration + 15)) return;
         var next = index + 1;
         var key = requestVersion + ":" + next + ":" + queue[next].Id;
         if (attemptedNext == key || Environment.TickCount64 < retryUpcomingAt) return;

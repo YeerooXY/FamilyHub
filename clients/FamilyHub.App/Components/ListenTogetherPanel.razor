@@ -89,7 +89,7 @@
     {
         while (open && !token.IsCancellationRequested)
         {
-            try { if (Together.Room is null) await Together.RefreshAsync(); }
+            try { if (Session.UiActive && Together.Room is null) await Together.RefreshAsync(); }
             catch (Exception e) when (e is HttpRequestException or FamilyHubApiException or OperationCanceledException) { error = e.Message; }
             await InvokeAsync(StateHasChanged);
             try { await Task.Delay(3000, token); } catch (OperationCanceledException) { return; }

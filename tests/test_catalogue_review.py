@@ -170,3 +170,24 @@ class ReviewApi(Base):
         self.assertEqual(self.go(admin,'GET','/api/library').json['results'][0]['genre'],'Punk')
         self.assertEqual(self.go(member,'PATCH',f'/api/catalogue/metadata/{FIRST}',headers={'X-CSRFToken':member_token},json=dict(revision=1,values={'album':'Oops'})).status_code,403)
         self.assertEqual(self.post(admin,token,f'/api/catalogue/trimming/{FIRST}/resolve',json={}).status_code,200)
+
+    def test_song_reports_deduplicate_persist_and_require_admin_to_review(self):
+        native.NativeMusicApi.recording(self)
+        admin, token = self.signed_in()
+        member, member_token = self.signed_in('sample-b')
+        self.go(admin, 'GET', '/api/library')
+        payload = dict(id=FIRST, reason='bad_quality')
+        self.assertEqual(self.go(member, 'POST', '/api/catalogue/reports', json=payload).status_code, 400)
+        for _ in range(2):
+            self.assertEqual(self.post(member, member_token, '/api/catalogue/reports', json=payload).status_code, 201)
+        self.assertEqual(self.go(member, 'GET', '/api/catalogue/reports').status_code, 403)
+        rows = self.go(admin, 'GET', '/api/catalogue/reports').json['reports']
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['profile'], 'sample-b')
+        self.assertGreater(rows[0]['time'], 0)
+        self.assertEqual(len(CatalogueReview(self.state.catalogue_review.path.parent).data['reports']), 1)
+        self.assertEqual(self.post(member, member_token, '/api/catalogue/reports/resolve', json=dict(key=rows[0]['key'])).status_code, 403)
+        self.assertEqual(self.post(admin, token, '/api/catalogue/reports/resolve', json=dict(key=rows[0]['key'])).status_code, 200)
+        self.assertEqual(self.go(admin, 'GET', '/api/catalogue/reports').json['reports'], [])
+        for reason in ('trimming', '', None, ['bad_quality']):
+            self.assertEqual(self.post(member, member_token, '/api/catalogue/reports', json=dict(id=FIRST, reason=reason)).status_code, 400)

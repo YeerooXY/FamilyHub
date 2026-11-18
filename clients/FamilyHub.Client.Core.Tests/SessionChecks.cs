@@ -19,6 +19,7 @@ internal static class SessionChecks
             DownloadUrl = "/api/library/abcdefghijk/download", DownloadExtension = ".m4a", DownloadSize = audio.Length,
             DownloadSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(audio)) };
         PlaybackResume? remotePlayback = null;
+        var checkpointCount = 0;
         PlaybackHandover? activityCommand = null;
         var activityReports = new List<JsonElement>();
         Action? duringActivity = null;
@@ -51,6 +52,14 @@ internal static class SessionChecks
             { originalAudioRequests++; return new(HttpStatusCode.OK) { Content = new ByteArrayContent(audio) }; }
             if (request.RequestUri!.AbsolutePath == "/api/profile/playback")
             {
+                if (request.Method == HttpMethod.Patch)
+                {
+                    using var body = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                    var checkpoint = body.RootElement.GetProperty("playback");
+                    Check(!checkpoint.TryGetProperty("track_ids", out _) && checkpoint.GetProperty("track_id").GetString() == recording.Id, "Position checkpoint retransmitted the queue");
+                    remotePlayback = remotePlayback! with { Position = checkpoint.GetProperty("position").GetDouble() };
+                    checkpointCount++;
+                }
                 if (request.Method == HttpMethod.Put)
                 {
                     var body = System.Text.Json.JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
@@ -123,6 +132,9 @@ internal static class SessionChecks
             Check(activityReports[^1].GetProperty("activation").GetInt64() > staleActivation, "Deferred local action did not advance past the stale response");
             Check(activityReports.Select(r => r.GetProperty("sequence").GetInt64()).SequenceEqual(Enumerable.Range(1, activityReports.Count).Select(i => (long)i)), "Activity reports lost monotonic ordering");
             await session.SavePlaybackAsync(new() { TrackIds = [recording.Id], Index = 0, Position = 17 });
+            await session.SavePlaybackAsync(new() { TrackIds = [recording.Id], Index = 0, Position = 18 });
+            Check(checkpointCount == 1 && remotePlayback?.Position == 18, "Repeated saves did not use position checkpoints");
+            await session.SavePlaybackAsync(new() { TrackIds = [recording.Id], Index = 0, Position = 17 });
             Check(session.Offline!.GetPlayback()?.Position == 17 && remotePlayback?.Position == 17, "Playback checkpoint missing from device or server");
             remotePlayback = remotePlayback! with { Position = 42, UpdatedAt = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds() };
             Check((await session.GetPlaybackAsync())?.Position == 42, "Newer playback position from another device ignored");
@@ -139,7 +151,8 @@ internal static class SessionChecks
             publishLibrary = false;
             await session.RefreshLibraryAutomaticallyAsync();
             var originalRoot = session.Offline!.RootDirectory;
-            Check(session.StreamingQualityWifi == "max", "Playback must default to the server original");
+            Check(session.StreamingQualityWifi == "high", "Wi-Fi playback must default to High Opus");
+            session.SetStreamingQualityWifi("max");
             var deviceUpdated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             void DeviceChanged() { if (session.DeviceTracks.Any(t => t.Id == recording.Id)) deviceUpdated.TrySetResult(); }
             session.Changed += DeviceChanged;
@@ -214,7 +227,7 @@ internal static class SessionChecks
             Check(restarted.StreamingQualityWifi == "normal" && restarted.StreamingQualityMobile == "low" && restarted.DownloadQuality == "high", "Restart lost quality settings");
             Check(restarted.PlaybackPreferences.VolumeLevel == "quiet", "Restart lost volume level");
             await restarted.SelectProfileAsync("sam");
-            Check(restarted.StreamingQualityWifi == "max" && restarted.StreamingQualityMobile == "high" && restarted.DownloadQuality == "max", "Quality setting leaked into another profile");
+            Check(restarted.StreamingQualityWifi == "high" && restarted.StreamingQualityMobile == "high" && restarted.DownloadQuality == "max", "Quality setting leaked into another profile");
             Check(restarted.PlaybackPreferences.VolumeLevel == "normal", "Volume level leaked into another profile");
             Check(restarted.User == "sam" && restarted.Library.Count == 0 && restarted.PlaybackPreferences.Volume == 1, "Profile data leaked to another listener");
             try { await restarted.SelectProfileAsync("unknown"); throw new Exception("Unknown offline profile accepted"); }

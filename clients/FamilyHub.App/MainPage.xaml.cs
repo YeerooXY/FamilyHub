@@ -28,6 +28,12 @@ public partial class MainPage : ContentPage
 
     public void SetActive(bool active)
     {
+        player.UiActive = active; session.UiActive = active;
+#if ANDROID
+        if (blazorWebView.Handler?.PlatformView is Android.Webkit.WebView web)
+            web.EvaluateJavascript("window.familyhub?.setNativeActive(" + (active ? "true" : "false") + ")", null);
+#endif
+        if (active) remoteTimer.Start(); else remoteTimer.Stop();
         refreshTimer ??= CreateRefreshTimer();
         if (!active) { session.FlushListening(); if (player.Playing || Math.Abs(player.Position - lastPlaybackPosition) > .25) SavePlayback(); refreshTimer.Stop(); return; }
         refreshTimer.Start();
@@ -49,9 +55,10 @@ public partial class MainPage : ContentPage
     private void PlaybackChanged()
     {
         session.ObserveListening(player.Preparing || player.Seeking ? null : player.Current, player.QueueIndex, player.Position, player.Playing);
+        if (player.Seeking) return;
         _ = session.ReportPlaybackActivityAsync(player.Playing, player.Position, player.FollowingHost, player.RemoteDeviceId);
-        var identity = player.Current?.Id + ":" + player.QueueIndex + ":" + player.Queue.Count + ":" + player.PlaybackRequested;
-        if (identity != lastPlaybackIdentity || !player.Playing && Math.Abs(player.Position - lastPlaybackPosition) > .25 || player.Playing && DateTime.UtcNow - lastPlaybackSave > TimeSpan.FromSeconds(5))
+        var identity = player.Current?.Id + ":" + player.QueueIndex + ":" + player.Queue.Count + ":" + player.PlaybackRequested + ":" + player.ControlRevision + ":" + player.Shuffle;
+        if (identity != lastPlaybackIdentity || !player.Playing && Math.Abs(player.Position - lastPlaybackPosition) > .25 || player.Playing && DateTime.UtcNow - lastPlaybackSave > TimeSpan.FromSeconds(15))
         { lastPlaybackIdentity = identity; SavePlayback(); }
     }
     // While this device's music plays elsewhere, mirror that device's song, position and state.
@@ -60,7 +67,7 @@ public partial class MainPage : ContentPage
     private bool followingRemote;
     private async Task FollowRemoteAsync()
     {
-        if (!player.RemoteActive || followingRemote || session.Api is not { } api) { remoteMisses = 0; return; }
+        if (!session.UiActive || !player.RemoteActive || followingRemote || session.Api is not { } api) { remoteMisses = 0; return; }
         followingRemote = true;
         try
         {
@@ -164,9 +171,9 @@ public partial class MainPage : ContentPage
             blazorWebView.Handler?.PlatformView as Microsoft.UI.Xaml.FrameworkElement, 48, [], 1);
 #endif
         activityTimer = Dispatcher.CreateTimer();
-        // Every 2 s: the same check-in lists this device and collects playback sent from another one.
-        activityTimer.Interval = TimeSpan.FromSeconds(2);
-        activityTimer.Tick += (_, _) => { session.ObserveListening(player.Preparing || player.Seeking ? null : player.Current, player.QueueIndex, player.Position, player.Playing); _ = session.ReportPlaybackActivityAsync(player.Playing, player.Position, player.FollowingHost, player.RemoteDeviceId); _ = FollowRemoteAsync(); };
+        // Five-second check-ins stay within the server's 15-second device expiry.
+        activityTimer.Interval = TimeSpan.FromSeconds(5);
+        activityTimer.Tick += (_, _) => { if (player.Playing && DateTime.UtcNow - lastPlaybackSave >= TimeSpan.FromSeconds(15)) SavePlayback(); session.ObserveListening(player.Preparing || player.Seeking ? null : player.Current, player.QueueIndex, player.Position, player.Playing); _ = session.ReportPlaybackActivityAsync(player.Playing, player.Position, player.FollowingHost, player.RemoteDeviceId); _ = FollowRemoteAsync(); };
         activityTimer.Start();
         remoteTimer = Dispatcher.CreateTimer();
         remoteTimer.Interval = TimeSpan.FromMilliseconds(500);
