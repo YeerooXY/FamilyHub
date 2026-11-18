@@ -197,6 +197,8 @@ def create_app(test_config=None):
     genre_labels = GenreLabels(ws, enabled=cfg.get("GENRE_LOOKUP", cfg["PUBLIC_ORIGIN"] != "https://music.test"))
     sessions, jobs, hits, lock = {}, OrderedDict(), {}, threading.RLock()
     dispatch_wake = threading.Event()
+    automatic_downloads = cfg.get("AUTO_PLAYLIST_DOWNLOADS", cfg["PUBLIC_ORIGIN"] != "https://music.test")
+    backlog_wake = threading.Event()
     job_changed = threading.Condition(lock)
     import_lock = threading.Lock()
     budget_lock = threading.Lock()
@@ -210,7 +212,12 @@ def create_app(test_config=None):
     app.extensions["music"] = SimpleNamespace(sessions=sessions, jobs=jobs)
     log = logging.getLogger("music_web")
     resources = ResourceGovernor(lambda: resource_queue(), lambda: resource_metrics())
-    resources.changed = dispatch_wake.set
+    def resource_changed():
+        dispatch_wake.set()
+        if automatic_downloads:
+            backlog_wake.set()
+
+    resources.changed = resource_changed
     playback_devices = PlaybackDevices(presence=resources)
     transfers = TransferResources(transfer_limit(), lambda: min(
         MAX_CACHE_BYTES - scratch_size(ws, lib, app.intake), shutil.disk_usage(ws).free - MIN_FREE_BYTES),
@@ -231,7 +238,7 @@ def create_app(test_config=None):
                 save_bulk_queue()
             job_changed.notify_all()
         transfers.wake()
-        dispatch_wake.set()
+        resource_changed()
 
     def allow(key, limit, window):
         now = time.monotonic()
@@ -573,7 +580,7 @@ def create_app(test_config=None):
                     os.chmod(target, 0o600)
                 shutil.rmtree(directory)
 
-    def new_job(user, step, m, source_id=None, priority=0, save=True, library_addition=False):
+    def new_job(user, step, m, source_id=None, priority=0, save=True, library_addition=False, *, preserve_priority=False):
         with lock:
             now = time.time()
             for old in list(jobs.values()):
@@ -587,7 +594,10 @@ def create_app(test_config=None):
                               and j["preview_state"] != "expired"), None)
                 if found:
                     found["accessed"] = now
-                    found["priority"] = 0 if found.get("current") else priority
+                    if found.get("current"):
+                        found["priority"] = 0
+                    else:
+                        found["priority"] = min(priority, found["priority"]) if preserve_priority else priority
                     found["save"] |= save
                     transfers.wake()
                     return found
@@ -906,6 +916,8 @@ def create_app(test_config=None):
             if job.get("library_addition") and state in ("done", "error", "cancelled"):
                 save_bulk_queue()
             job_changed.notify_all()
+            if automatic_downloads and state in ("done", "error", "cancelled"):
+                backlog_wake.set()
 
     def save_bulk_queue():
         rows = [{key: j[key] for key in ("id", "owner", "source_id", "meta", "created", "retry_at", "retries") if key in j}
@@ -1242,7 +1254,8 @@ def create_app(test_config=None):
                     acquisition_background_cap=background_cap(),
                     transfer=f"{active}/{transfers.idle_capacity}", scratch_reserved_MiB=reserved >> 20,
                     scratch_free_MiB=free, rss_MiB=runtime_capacity(rss_only=True),
-                    youtube_cooldown_s=max(0, round(app.intake.YOUTUBE.until - time.monotonic())))
+                    youtube_cooldown_s=max(0, round(app.intake.YOUTUBE.until - time.monotonic())),
+                    **playlist_preparation.backlog_counts)
 
     logging.getLogger("music_web.resources").info("resource capacity %s acquisition=%d background=%d transfer=%d",
                                                 runtime_capacity(), workers, background_workers, transfers.capacity)
@@ -1262,6 +1275,8 @@ def create_app(test_config=None):
                         if future.done():
                             job, analyzing, slot = active.pop(future)
                             acquisition_slots[slot] = None
+                            if automatic_downloads:
+                                backlog_wake.set()
                             if future.exception() is not None:
                                 log.warning("job %s worker failed: %s", job["id"], type(future.exception()).__name__)
                                 if analyzing:
@@ -1341,11 +1356,14 @@ def create_app(test_config=None):
                 thread.start()
             dispatch_wake.set()
 
-    def start(job, url, tmp, m):
+    def enqueue_acquisition(job, url, tmp):
         with lock:
             if "url" not in job:
                 job.update(url=url, tmp=tmp, state="queued", queued_at=time.monotonic())
             wake_dispatch()
+
+    def start(job, url, tmp, m):
+        enqueue_acquisition(job, url, tmp)
         return jsonify(job=public(job)), 202
 
     playlist_store = PlaylistStore(ws)
@@ -1361,6 +1379,8 @@ def create_app(test_config=None):
 
     def visible_playlist(playlist, owner):
         playlist = dict(playlist)
+        playlist["tracks"] = [{key: value for key, value in track.items() if key != "backlog_retry"}
+                              for track in playlist["tracks"]]
         if re.fullmatch(r'[0-9a-f]{64}', playlist.get('cover_sha256', '')):
             playlist['cover_url'] = f"/api/playlists/{urllib.parse.quote(owner, safe='')}/{playlist['id']}/artwork/{playlist['cover_sha256']}.jpg"
         if not family_mode:
@@ -1385,37 +1405,42 @@ def create_app(test_config=None):
     @app.get("/api/playlists")
     def list_playlists():
         available = {}
-        for recording in library_tracks():
+        recordings = {row["id"]: row for row in library_tracks()}
+        for recording in recordings.values():
             key = (normalized(recording["title"]), normalized(recording["channel"].split(",")[0]))
             available.setdefault(key, []).append(recording)
         with lock:
-            playlists = playlist_store.list(g.user)
-            for playlist in playlists:
-                for track in playlist["tracks"]:
-                    if not track.get("source_id") and not track.get("match"):
-                        key = (normalized(track["title"]), normalized(track["artist"].split(",")[0]))
-                        matches = [r for r in available.get(key, []) if duration_matches(track, r)]
-                        if len(matches) == 1:
-                            track.update(source_id=matches[0]["id"], match=matches[0], state="saved")
-                    job = jobs.get(track.get("job_id"))
-                    if job and job["owner"] == g.user:
-                        track["state"] = "saved" if job["state"] == "done" and (job.get("committed") or job.get("already_saved")) else job["state"]
-                    elif track.get("match") and (stored := saved_source(track["match"]["id"])):
-                        try:
-                            library_record(stored)
-                            track["state"] = "saved"
-                        except ApiError as error:
-                            if error.code != 503: raise
+            playlists = []
+            owners = [g.user] + ([p["id"] for p in profile_store.list() if p["id"] != g.user] if family_mode else [])
+            for owner in owners:
+                for playlist in playlist_store.list(owner):
+                    if owner != g.user and not (playlist.get("shared") is True
+                            or g.user in playlist.get("co_authors", []) or g.user in cfg["ADMIN_USERS"]):
+                        continue
+                    changed = False
+                    for track in playlist["tracks"]:
+                        previous = dict(track)
+                        source = track.get("source_id") or (track.get("match") or {}).get("id")
+                        ready = recordings.get(source)
+                        if not source:
+                            key = (normalized(track["title"]), normalized(track["artist"].split(",")[0]))
+                            matches = [r for r in available.get(key, []) if duration_matches(track, r)]
+                            if len(matches) == 1:
+                                ready = matches[0]
+                        job = jobs.get(track.get("job_id"))
+                        if ready:
+                            track.update(source_id=ready["id"], match=ready, state="saved")
+                        elif job and job["owner"] == owner:
+                            track["state"] = ("preparing" if job["state"] == "done"
+                                              and (job.get("committed") or job.get("already_saved")) else job["state"])
+                        elif source and saved_source(source):
                             track["state"] = "preparing"
-                    elif track.get("state") in ("queued", "running"):
-                        track["state"] = "ready"
-                playlist_store.save(g.user, playlist)
-            if family_mode:
-                playlists = [visible_playlist(playlist, g.user) for playlist in playlists]
-                for profile in profile_store.list():
-                    if profile["id"] != g.user:
-                        playlists.extend(visible_playlist(playlist, profile["id"])
-                                         for playlist in playlist_store.list(profile["id"]) if playlist.get("shared") is True or g.user in playlist.get("co_authors", []) or g.user in cfg["ADMIN_USERS"])
+                        elif track.get("state") in ("saved", "queued", "running"):
+                            track["state"] = "ready" if source else "unmatched"
+                        changed |= track != previous
+                    if changed:
+                        playlist_store.save(owner, playlist)
+                    playlists.append(visible_playlist(playlist, owner))
         return jsonify(playlists=playlists)
 
     @app.post("/api/playlists/spotify")
@@ -1585,8 +1610,8 @@ def create_app(test_config=None):
                 try: return library_record(existing)[0]
                 except ApiError as error:
                     if error.code != 503: raise
-            if track.get("match"):
-                return track["match"]
+            if track.get("match") and track["match"].get("url"):
+                return {**track["match"], "saved": False}
         ready = preferred_match(rank_matches(track, library_tracks()))
         if ready is not None:
             return library_record(saved_source(ready["id"]))[0]
@@ -1602,27 +1627,33 @@ def create_app(test_config=None):
         track["candidates"] = rank_matches(track, found, search=matching_search)
         return preferred_match(track["candidates"])
 
+    def queue_playlist_recording(user, pid, row, source_replacement=False):
+        with app.app_context():
+            g.user = user
+            source = app.intake.video_id(row["url"])
+            metadata = fetch_metadata(row, source)
+            with lock:
+                job = new_job(user, "fetch", metadata, source, 20, True, preserve_priority=True)
+                if not foreground(job):
+                    job["playlist_import"] = True
+                    job["playlist_id"] = pid
+                if source_replacement:
+                    job["source_replacement"] = True
+                job.setdefault("automatic_meta", True)
+                if job["state"] == "done":
+                    job.update(state="queued", message=STEP_TEXT["import"])
+                enqueue_acquisition(job, app.intake.WATCH + source, None)
+                return job
+
     def prepare_playlist_recording(user, track, progress):
         with app.app_context():
             g.user = user
             row = match_playlist_recording(user, track, progress)
             if row is None: return None
-            source = app.intake.video_id(row["url"])
-            existing = saved_source(source)
-            if existing:
-                try: return library_record(existing)[0]
-                except ApiError as error:
-                    if error.code != 503: raise
-            metadata = fetch_metadata(row, source)
-            with lock:
-                job = new_job(user, "fetch", metadata, source, 20, True)
-                job["playlist_import"] = True
-                if getattr(progress, 'source_replacement', False):
-                    job['source_replacement'] = True
-                job["playlist_id"] = getattr(progress,"playlist_id",None)
-                job.setdefault("automatic_meta", True)
-                if job["state"] == "done": job.update(state="queued", message=STEP_TEXT["import"])
-            start(job, app.intake.WATCH + source, None, metadata)
+            if row.get("saved"): return row
+            track.update(source_id=row["id"], match=row)
+            job = queue_playlist_recording(user, getattr(progress, "playlist_id", None), row,
+                                           getattr(progress, "source_replacement", False))
             release = getattr(progress, "release_slot", None)
             if release:
                 release()
@@ -1641,7 +1672,7 @@ def create_app(test_config=None):
                         last_progress = snapshot
                     job_changed.wait()
             if job["state"] != "done": raise ValueError("Recording preparation failed.")
-            ready = library_record(saved_source(source))[0]
+            ready = library_record(saved_source(row["id"]))[0]
             progress("Ready on server", file_phase="saved", download_bytes=job.get("download_bytes", 0),
                      download_total_bytes=job.get("download_total_bytes"), file_size_bytes=ready.get("download_size"))
             return ready
@@ -1664,6 +1695,9 @@ def create_app(test_config=None):
                                                match_playlist_recording, read_imported_playlist, download_workers=background_workers,
                                                resources=resources)
     app.extensions["music"].playlist_preparation = playlist_preparation
+    if automatic_downloads:
+        playlist_preparation.backlog_wake = backlog_wake
+        playlist_store.changed = playlist_preparation.backlog_changed
     app.extensions["music"].catalogue_review = catalogue_review
     def review_recording(identifier):
         if not re.fullmatch(r"(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})",identifier): raise ApiError("Choose a saved song.")
@@ -1759,24 +1793,71 @@ def create_app(test_config=None):
     song_analysis = register_song_analysis(app, ws, lib, app.intake, song_analysis_idle,
         cfg.get('SONG_ANALYSIS_SCAN', cfg['PUBLIC_ORIGIN'] != 'https://music.test'))
 
-    automatic_downloads=cfg.get("AUTO_PLAYLIST_DOWNLOADS",cfg["PUBLIC_ORIGIN"] != "https://music.test")
     metadata_lookup=cfg.get("METADATA_LOOKUP",cfg["PUBLIC_ORIGIN"] != "https://music.test")
     automatic_activity = WorkerActivity('playlist-queue', 'Playlist queue')
     if automatic_downloads or metadata_lookup:
         auto_stop = threading.Event()
+        def backlog_can_start():
+            active = sum(slot is not None for slot in acquisition_slots)
+            queued = sum(j["state"] == "queued" and not j["cancel"].is_set() for j in jobs.values())
+            return active + queued < background_cap() and app.intake.YOUTUBE.until <= time.monotonic()
+
+        def backlog_delay():
+            with lock:
+                if not playlist_preparation.backlog_counts["backlog_pending"]:
+                    return None
+                active = sum(slot is not None for slot in acquisition_slots)
+                needed = max(1, active + 1 if active >= background_cap() and active < idle_acquisitions else 1,
+                             min(playlist_preparation.capacity, len(playlist_preparation.backlog_running) + 1))
+                delay = resources.background_delay(needed)
+                if delay is not None:
+                    delay = max(delay, app.intake.YOUTUBE.until - time.monotonic())
+                return delay if delay else None
+
+        def resolve_backlog_recording(_owner, source):
+            saved = saved_source(source)
+            return library_record(saved)[0] if saved else None
+
         def automatic_playlists():
-            while not auto_stop.wait(30):
+            next_scan = 0
+            next_metadata = time.monotonic() + 30
+            handback = float("inf")
+            woke = True
+            while not auto_stop.is_set():
+                if woke:
+                    backlog_wake.clear()
+                now = time.monotonic()
+                refresh = now >= next_scan
+                started = False
                 try:
-                    owners = [p['id'] for p in profile_store.list()] if family_mode else sorted(allowed)
-                    if not background_idle():
-                        continue
-                    with automatic_activity.track('Family library'):
-                        if automatic_downloads:playlist_preparation.queue_idle(owners,background_idle)
-                        if metadata_lookup:
-                            library_tracks()
-                            catalogue_review.flush()
+                    if automatic_downloads and (woke or refresh or now >= handback):
+                        owners = []
+                        if refresh:
+                            next_scan = now + 300
+                            owners = [p["id"] for p in profile_store.list()] if family_mode else sorted(allowed)
+                        with automatic_activity.track("Family library"):
+                            started = playlist_preparation.sweep(owners, backlog_can_start, queue_playlist_recording,
+                                                                 resolve_backlog_recording, refresh=refresh)
+                        if any(playlist_preparation.backlog_counts.values()):
+                            resources.wake()
+                        delay = backlog_delay()
+                        handback = time.monotonic() + delay if delay else float("inf")
+                    if metadata_lookup and now >= next_metadata:
+                        next_metadata = now + 30
+                        if background_idle():
+                            with automatic_activity.track("Family library"):
+                                library_tracks()
+                                catalogue_review.flush()
                 except Exception as error:
-                    log.warning("automatic playlist queue: %s", type(error).__name__)
+                    log.warning("playlist backlog or metadata check failed: %s", type(error).__name__)
+                    started = False
+                    handback = float("inf")
+                if started:
+                    woke = True
+                    continue
+                deadline = min(next_scan if automatic_downloads else float("inf"), handback,
+                               next_metadata if metadata_lookup else float("inf"))
+                woke = backlog_wake.wait(max(0, deadline - time.monotonic()))
         def apply_metadata_votes():
             # scripts/metadata-ai-vote.py drops model votes here; they are applied once and removed.
             inbox = os.path.join(ws, ".metadata-votes.json")
@@ -1803,7 +1884,6 @@ def create_app(test_config=None):
         auto_thread = threading.Thread(target=automatic_playlists,name="playlist-idle-queue",daemon=True)
         app.extensions["music"].auto_playlist_stop = auto_stop
         app.extensions["music"].auto_playlist_thread = auto_thread
-        auto_thread.start()
 
     @app.get("/api/playlists/link-name")
     def playlist_link_name():
@@ -1925,6 +2005,7 @@ def create_app(test_config=None):
                     if error.code != 503: raise
             track.update(source_id=source, match=selected, state=state)
             track.pop("job_id", None)
+            track.pop("backlog_retry", None)
             playlist["revision"] += 1
             playlist_store.save(owner, playlist)
         return jsonify(playlist=visible_playlist(playlist, owner))
@@ -1940,7 +2021,10 @@ def create_app(test_config=None):
                 raise ApiError("Pause playlist matching before choosing a recording.", 409)
             if "revision" in data and (type(data["revision"]) is not int or data["revision"] != playlist["revision"]):
                 raise ApiError("This playlist changed. Reopen its recording choices.", 409)
-        if type(index) is not int or not 0 <= index < len(playlist["tracks"]): raise ApiError("Invalid playlist entry.")
+            if type(index) is not int or not 0 <= index < len(playlist["tracks"]):
+                raise ApiError("Invalid playlist entry.")
+            if playlist["tracks"][index].pop("backlog_retry", None):
+                playlist_store.save(owner, playlist)
         revision = playlist["revision"]
         track = playlist["tracks"][index]
         if not allow("search:" + g.user, 40, 60): raise ApiError("Search limit reached. Resume matching in a minute.", 429)
@@ -1956,6 +2040,7 @@ def create_app(test_config=None):
             if playlist["revision"] != revision:
                 raise ApiError("This playlist changed. Refresh it before matching.", 409)
             playlist["tracks"][index]["candidates"] = candidates
+            playlist["tracks"][index].pop("backlog_retry", None)
             if playlist["tracks"][index]["state"] == "unmatched": playlist["tracks"][index]["state"] = "ready"
             playlist_store.save(owner, playlist)
         return jsonify(track=playlist["tracks"][index])
@@ -1977,7 +2062,8 @@ def create_app(test_config=None):
             job["playlist_import"] = True
             job.setdefault("automatic_meta", True)
             if job["state"] == "done" and job.get("item") and job["message"] == "Prepared": job.update(state="queued", message=STEP_TEXT["import"])
-            track.update(match=row, job_id=job["id"], state="queued")
+            track.update(source_id=vid, match=row, job_id=job["id"], state="queued")
+            track.pop("backlog_retry", None)
             playlist_store.save(g.user, playlist)
         return start(job, app.intake.WATCH + vid, None, m)
 
@@ -2493,6 +2579,8 @@ def create_app(test_config=None):
             is_preview = i >= len(rows)
             if is_preview and (type(row.get("duration")) not in (int, float) or not 0 < row["duration"] <= 600):
                 continue
+            if row.get("url") in (None, ""):
+                continue
             try:
                 vid = app.intake.video_id(row.get("url", ""))
             except (app.intake.IntakeError, TypeError):
@@ -2505,8 +2593,9 @@ def create_app(test_config=None):
             if explicit and not is_preview and not background_activity():
                 resources.presence(listener_identity(), "listening")
             m = fetch_metadata(row, vid)
-            priority = (1 if i == 0 else 18 + i) if not is_preview else 2 + i - len(rows)
-            if not is_preview and i > 0 and preload_search:
+            position = len(prepared)
+            priority = (1 if position == 0 else 18 + position) if not is_preview else 2 + i - len(rows)
+            if not is_preview and position > 0 and preload_search:
                 visible = next((n for n, p in enumerate(previews) if isinstance(p, dict) and p.get("url") == row.get("url")), None)
                 if visible is not None:
                     priority = 2 + visible
@@ -2670,4 +2759,6 @@ def create_app(test_config=None):
         pass
     except (OSError, ValueError, TypeError, KeyError, ApiError):
         log.warning("Could not restore the library addition queue")
+    if automatic_downloads or metadata_lookup:
+        auto_thread.start()
     return app

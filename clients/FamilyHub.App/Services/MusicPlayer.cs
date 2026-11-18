@@ -701,18 +701,48 @@ public sealed class MusicPlayer(MusicSession session)
         queue.RemoveRange(index + 1, queue.Count - index - 1);
         queue.AddRange(manual); queue.AddRange(order.Skip(at + 1));
     }
-    public int AddToQueue(MusicTrack track, bool manual = true)
+    public int AddToQueue(MusicTrack track, bool manual = true) => Enqueue([track], manual, playNext: false);
+
+    public void AddToQueue(IEnumerable<MusicTrack> tracks, bool playNext) => Enqueue(tracks, manual: true, playNext: playNext);
+
+    private int Enqueue(IEnumerable<MusicTrack> tracks, bool manual, bool playNext)
     {
         RequirePlaybackControl();
-        var duplicate = manualQueue.FirstOrDefault(t => t.Id == track.Id);
-        if (duplicate is not null) return queue.IndexOf(duplicate);
         if (queue.Count == 0 && Current is not null) { queue.Add(Current); index = 0; }
         var insertion = manual ? (blending ? blendTarget + 1 : index + 1) : queue.Count;
-        for (var i = insertion; i < queue.Count; i++) if (manualQueue.Contains(queue[i])) insertion = i + 1;
-        var entry = track with { }; queue.Insert(insertion, entry);
-        if (manual) { manualQueue.Add(entry); UserPlaybackRevision++; }
-        if (!blending) { CancelUpcoming(true); if (Playing) WarmNext(); }
-        Changed?.Invoke(); return insertion;
+        if (!playNext)
+            for (var i = insertion; i < queue.Count; i++) if (manualQueue.Contains(queue[i])) insertion = i + 1;
+        var first = -1;
+        var changed = false;
+        foreach (var track in tracks)
+        {
+            var entry = manualQueue.FirstOrDefault(t => t.Id == track.Id);
+            if (entry is not null)
+            {
+                var existing = queue.FindIndex(t => ReferenceEquals(t, entry));
+                if (!playNext || existing < insertion)
+                {
+                    if (first < 0) first = existing;
+                    continue;
+                }
+                queue.RemoveAt(existing);
+            }
+            else
+            {
+                entry = track with { };
+                if (manual) manualQueue.Add(entry);
+            }
+            if (first < 0) first = insertion;
+            queue.Insert(insertion++, entry);
+            changed = true;
+        }
+        if (changed)
+        {
+            if (manual) UserPlaybackRevision++;
+            if (!blending) { CancelUpcoming(true); if (Playing) WarmNext(); }
+            Changed?.Invoke();
+        }
+        return first;
     }
     public string AudioOutputId { get; private set; } = "";
     public Task SetAudioOutputAsync(string id) => MainThread.InvokeOnMainThreadAsync(async () =>

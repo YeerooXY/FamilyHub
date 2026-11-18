@@ -298,7 +298,8 @@ class ResourceGovernor:
             self.last_report = now
             self.reporter = None
         state, cpu, transfer = self.reservations()
-        if rows or state != "offline":
+        metrics = self.metrics()
+        if rows or state != "offline" or any(metrics.get(key) for key in ("backlog_pending", "backlog_backing_off", "backlog_running")):
             self.wake()
             counts = Counter((stage, reason) for stage, reason, _ in rows)
             stages = []
@@ -312,7 +313,7 @@ class ResourceGovernor:
             logging.getLogger("music_web.resources").info(
                 "resource presence=%s reserved_cpu=%d reserved_transfers=%d cpu=%d/%d inactive=%d %s %s",
                 state, cpu, transfer, self.cpu_active, self.cpu_capacity, self.inactive_count(), " ".join(stages),
-                " ".join(f"{key}={value}" for key, value in self.metrics().items()))
+                " ".join(f"{key}={value}" for key, value in metrics.items()))
 
 
 def transfer_limit(name="FAMILYHUB_TRANSFERS", default=4):

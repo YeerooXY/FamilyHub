@@ -74,7 +74,7 @@ public sealed record PlaylistTrack
     [JsonPropertyName("spotify_uri")] public string SpotifyUri { get; init; } = "";
     [JsonPropertyName("match")] public MusicTrack? Match { get; init; }
     [JsonPropertyName("state")] public string State { get; init; } = "unmatched";
-    [JsonIgnore] public string? RecordingId => SourceId ?? Match?.Id;
+    [JsonIgnore] public string? RecordingId => string.IsNullOrEmpty(SourceId) ? Match?.Id : SourceId;
 }
 
 public sealed record DownloadProgress(long Received, long Total);

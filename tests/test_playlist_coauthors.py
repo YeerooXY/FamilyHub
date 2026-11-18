@@ -13,6 +13,30 @@ class PlaylistCoAuthors(Base):
     def patch(self, client, token, pid, **data):
         return self.go(client, 'PATCH', '/api/playlists/' + pid, json=data, headers={'X-CSRFToken': token})
 
+    def test_shared_playlist_queues_playable_songs_with_unresolved_entries(self):
+        client, token = self.select('sample-b')
+        native.NativeMusicApi.recording(self, native.FIRST)
+        native.NativeMusicApi.recording(self, native.SECOND, title='Second')
+        self.state.playlist_preparation.store.save('sample-a', {
+            'id': 'p' * 22, 'name': 'Family mix', 'revision': 1, 'shared': True, 'tracks': [
+                {'title': 'Missing', 'artist': 'Artist', 'duration': .02, 'state': 'review'},
+                {'title': 'First', 'artist': 'Artist', 'duration': .02, 'state': 'unmatched'},
+                {'title': 'Second', 'artist': 'Artist', 'duration': .02, 'state': 'ready', 'source_id': native.SECOND},
+            ]})
+        playlist = self.go(client, 'GET', '/api/playlists').json['playlists'][0]
+        self.assertEqual([(row.get('source_id'), row['state']) for row in playlist['tracks']],
+                         [(None, 'review'), (native.FIRST, 'saved'), (native.SECOND, 'saved')])
+        with patch.object(self.intake, 'cmd_fetch') as fetch:
+            response = self.post(client, token, '/api/queue', json={
+                'tracks': [row.get('match', {}) for row in playlist['tracks']], 'allow_new': False})
+            self.assertEqual(response.status_code, 200)
+            queued = response.json['jobs']
+            self.assertEqual([(job['source_id'], job['priority']) for job in queued],
+                             [(native.FIRST, 1), (native.SECOND, 19)])
+            for job in queued:
+                self.wait(client, job['id'])
+            fetch.assert_not_called()
+
     def test_editor_append_import_is_owner_scoped_and_records_the_actor(self):
         owner, token = self.select('sample-a'); editor, et = self.select('sample-b')
         native.NativeMusicApi.recording(self, native.FIRST)

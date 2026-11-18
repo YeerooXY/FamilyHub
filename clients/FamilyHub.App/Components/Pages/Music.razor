@@ -233,7 +233,8 @@ else
             </div>
             </section>
             <div id="playlist-options" popover="auto" role="dialog" aria-label="Playlist options" class="glass-dialog playlist-options">
-                <button id="queue-playlist" class="quiet" @onclick="() => QueuePlaylist(selected)" aria-disabled="@Aria(Player.FollowingHost || selected.Tracks.Count == 0)"><MusicIcon Name="queue" />Add to queue</button>
+                <button id="queue-playlist" class="quiet" @onclick="() => QueuePlaylist(selected, playNext: false)" aria-disabled="@Aria(Player.FollowingHost || selected.Tracks.Count == 0)"><MusicIcon Name="queue" />Add to queue</button>
+                <button class="quiet" @onclick="() => QueuePlaylist(selected, playNext: true)" aria-disabled="@Aria(Player.FollowingHost || selected.Tracks.Count == 0)"><MusicIcon Name="next" />Play next</button>
                 @if (selected.CanEdit) { <button id="playlist-details-open" class="quiet" @onclick="() => playlistDetails?.Open() ?? Task.CompletedTask"><MusicIcon Name="pencil" />Edit details</button> }
                 @if (selected.CanManageAuthors) { <button id="playlist-coauthors" class="quiet" @onclick="() => playlistAuthors?.Open() ?? Task.CompletedTask"><MusicIcon Name="people" />Invite collaborators</button> }
                 @if (selected.CanDelete) { <button id="delete-playlist" class="quiet playlist-delete" aria-disabled="@Aria(!Session.Connected || busy)" @onclick="DeleteFromMenu"><MusicIcon Name="trash" />Delete playlist</button> }
@@ -1195,10 +1196,17 @@ else
     private Task OpenPlaylistOptions() => JS.InvokeVoidAsync("familyhub.showPanel", "playlist-options", "playlist-menu-toggle", "queue-playlist").AsTask();
     private Task ClosePlaylistOptions() => JS.InvokeVoidAsync("familyhub.closeDialog", "playlist-options", "playlist-menu-toggle").AsTask();
     private async Task DeleteFromMenu() { await ClosePlaylistOptions(); OpenDeletePlaylist(); }
-    private Task QueuePlaylist(MusicPlaylist playlist) => RunPlayback(async () =>
+    private Task QueuePlaylist(MusicPlaylist playlist, bool playNext) => RunPlayback(async () =>
     {
+        if (Player.FollowingHost || playlist.Tracks.Count == 0) return;
         await ClosePlaylistOptions();
-        foreach (var track in playlist.Tracks.Select(Session.Resolve).OfType<MusicTrack>().Where(t => Session.Connected || Session.LocalPath(t) is not null)) Player.AddToQueue(track);
+        var playable = playlist.Tracks.Select(Session.Resolve).OfType<MusicTrack>()
+            .Where(track => Session.Connected || Session.LocalPath(track) is not null).ToList();
+        if (playable.Count > 0) Player.AddToQueue(playable, playNext);
+        var missing = playlist.Tracks.Count - playable.Count;
+        var added = playable.Count == 0 ? "No playable songs." : "Playable songs added to the queue.";
+        var unavailable = missing == 1 ? "1 song unavailable" : $"{missing} songs unavailable";
+        Session.SetMessage(missing == 0 ? added : $"{added} {unavailable}{(Session.Connected ? "." : " offline.")}");
     });
     private Task PlayEntry(MusicPlaylist playlist, int position) => RunPlayback(async () =>
     {
