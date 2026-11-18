@@ -317,8 +317,24 @@ body:has(.lyrics-view) .workspace>main { visibility:hidden; }
 
 body.native-hidden *,body.native-hidden *::before,body.native-hidden *::after { animation-play-state:paused !important; }
 
-.report-choices { display:grid; gap:8px; }
-.report-choices button { text-align:left; white-space:normal; }
+/* Report song: icon-only toolbar button (the phone options sheet keeps its row label) and a roomy dialog. */
+#report-song .report-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.player-tools.is-open #report-song .report-label { position:static; width:auto; height:auto; overflow:visible; clip-path:none; }
+.report-dialog { width:min(520px,calc(100vw - 32px)); padding:24px; border-radius:16px; }
+.report-dialog header { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:14px; margin-bottom:20px; }
+.report-dialog header>.icon { width:28px; height:28px; color:#f5b041; }
+.report-dialog h2 { margin:0; font-size:22px; }
+.report-dialog header p { margin:2px 0 0; color:var(--muted); font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.report-close { width:40px; height:40px; display:grid; place-items:center; border-radius:50%; }
+.report-close .icon { width:20px; height:20px; }
+.report-choices { display:grid; gap:10px; }
+.report-choices button { display:grid; grid-template-columns:24px 1fr; align-items:center; gap:16px; width:100%; min-height:72px; padding:14px 18px; border-radius:12px; text-align:left; white-space:normal; background:#ffffff0d; }
+.report-choices button:hover:not(:disabled) { background:#ffffff1a; }
+.report-choices button .icon { width:24px; height:24px; }
+.report-choices strong { display:block; font-size:16px; }
+.report-choices small { display:block; margin-top:3px; color:var(--muted); font-size:13px; font-weight:400; }
+.report-status:empty { display:none; }
+.report-status { margin:14px 0 0; color:var(--muted); }
 
 /* Cached release metadata and explicit server-library saves. */
 .discovery-card { display:flex; flex-direction:column; }

@@ -1,17 +1,19 @@
 @inject MusicSession Session
 @inject MusicPlayer Player
 @inject IJSRuntime JS
-<button id="report-song" class="quiet trim-request" aria-haspopup="dialog" @onclick="Open"><MusicIcon Name="scissors" /><span>Report song</span></button>
-<dialog id="report-song-dialog" class="animated-dialog" aria-labelledby="report-song-title" data-return-focus="report-song">
-    <h2 id="report-song-title">Report song</h2>
-    <p>@reportTrack?.Title</p>
+<button id="report-song" class="quiet trim-request" aria-haspopup="dialog" aria-label="Report song" title="Report song" @onclick="Open"><MusicIcon Name="alert" /><span class="report-label">Report song</span></button>
+<dialog id="report-song-dialog" class="animated-dialog report-dialog" aria-labelledby="report-song-title" aria-describedby="report-song-track" data-return-focus="report-song">
+    <header>
+        <MusicIcon Name="alert" />
+        <div><h2 id="report-song-title">Report song</h2><p id="report-song-track">@reportTrack?.Title</p></div>
+        <button class="quiet report-close" aria-label="Close" @onclick="Close"><MusicIcon Name="close" /></button>
+    </header>
     <div class="report-choices">
-        <button id="report-quality" class="quiet" disabled="@busy" @onclick='() => Send("bad_quality")'>Bad quality or live performance</button>
-        <button class="quiet" disabled="@busy" @onclick='() => Send("wrong_source")'>Wrong source (change source)</button>
-        <button class="quiet" disabled="@busy" @onclick='() => Send("trimming")'>Needs trimming</button>
+        <button id="report-quality" class="quiet" disabled="@busy" @onclick='() => Send("bad_quality")'><MusicIcon Name="volume" /><span><strong>Bad quality or live performance</strong><small>The audio is poor, or it is a live recording.</small></span></button>
+        <button class="quiet" disabled="@busy" @onclick='() => Send("wrong_source")'><MusicIcon Name="refresh" /><span><strong>Wrong source</strong><small>A different song or version plays. An admin picks a new source.</small></span></button>
+        <button class="quiet" disabled="@busy" @onclick='() => Send("trimming")'><MusicIcon Name="scissors" /><span><strong>Needs trimming</strong><small>Silence, talking or an intro should be cut.</small></span></button>
     </div>
-    <p role="status">@status</p>
-    <button class="quiet" @onclick="Close">Close</button>
+    <p class="report-status" role="status">@status</p>
 </dialog>
 <span class="sr" role="status">@announcement</span>
 @code {
