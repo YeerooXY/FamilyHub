@@ -230,7 +230,7 @@
             if (Working) _ = Poll(token);
             else if (status.State != "idle")
             {
-                await Session.RefreshAsync();
+                await Session.RefreshAsync(background: true);
                 if (!token.IsCancellationRequested) await Updated.InvokeAsync();
             }
         }
@@ -327,13 +327,13 @@
             while (!token.IsCancellationRequested && Working)
             {
                 await Task.Delay(1500, token);
-                var status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Get, PreparePath, cancellationToken: token);
+                var status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Get, PreparePath, cancellationToken: token, background: true);
                 if (token.IsCancellationRequested) return;
                 Status = status;
                 if ((!loadedSnapshot && status.Phase != "reading") || !Working)
                 {
                     loadedSnapshot = true;
-                    await Session.RefreshAsync();
+                    await Session.RefreshAsync(background: true);
                     if (token.IsCancellationRequested) return;
                     await Updated.InvokeAsync();
                 }

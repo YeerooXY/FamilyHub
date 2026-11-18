@@ -45,6 +45,7 @@ public sealed class MusicPlayer(MusicSession session)
     private long lastHostControl = -1, lastDriftSeek;
     private double filteredDrift;
     private int largeDriftSamples, driftDirection;
+    public long UserPlaybackRevision { get; private set; }
     public long ControlRevision { get; private set; }
     private int syncSeeks;
     public bool UiActive { get; set; } = true;
@@ -141,8 +142,9 @@ public sealed class MusicPlayer(MusicSession session)
         resumePosition = Position; remoteAt = DateTime.UtcNow; RemotePlaying = false; Changed?.Invoke();
         return SendRemoteAsync("pause");
     }
-    public Task PauseLocallyAsync() => MainThread.InvokeOnMainThreadAsync(() =>
+    public Task PauseLocallyAsync(bool background = true) => MainThread.InvokeOnMainThreadAsync(() =>
     {
+        if (!background) UserPlaybackRevision++;
         PlaybackRequested = false; deck?.SetPlaying(false); standby?.SetPlaying(false);
         if (blending) CancelUpcoming();
         Changed?.Invoke();
@@ -245,8 +247,8 @@ public sealed class MusicPlayer(MusicSession session)
             {
                 FinishListening("completed");
                 if (RepeatMode == "one" && !FollowingHost && Current is { } repeated)
-                    await PlayCoreAsync(repeated, queue.ToList(), index, true, true);
-                else if (index + 1 < queue.Count || RepeatMode == "all" && !FollowingHost) await NextCoreAsync();
+                    await PlayCoreAsync(repeated, queue.ToList(), index, true, true, background: true);
+                else if (index + 1 < queue.Count || RepeatMode == "all" && !FollowingHost) await NextCoreAsync(background: true);
                 else { PlaybackRequested = false; Changed?.Invoke(); }
             }
             catch (Exception error) { session.SetMessage(error.Message); }
@@ -262,7 +264,7 @@ public sealed class MusicPlayer(MusicSession session)
                 {
                     if (Position > 0) resumePosition = Position;
                     sourceReady = false;
-                    _ = MainThread.InvokeOnMainThreadAsync(() => PlayCoreAsync(current, queue.ToList(), index, true, true, retry: true));
+                    _ = MainThread.InvokeOnMainThreadAsync(() => PlayCoreAsync(current, queue.ToList(), index, true, true, retry: true, background: true));
                     return;
                 }
                 FinishListening("stopped"); sourceReady = false;
@@ -287,6 +289,7 @@ public sealed class MusicPlayer(MusicSession session)
         RequirePlaybackControl();
         return MainThread.InvokeOnMainThreadAsync(() =>
         {
+            UserPlaybackRevision++;
             session.MarkLocalPlayback();
             LeaveRemote();
             FinishListening("skipped"); queueSource = source;
@@ -311,7 +314,7 @@ public sealed class MusicPlayer(MusicSession session)
             if (Current?.Id != tracks[targetIndex].Id || index != targetIndex)
             {
                 // Prepare silently, then use a fresh host position on the next poll.
-                await PlayCoreAsync(tracks[targetIndex], tracks, targetIndex, false);
+                await PlayCoreAsync(tracks[targetIndex], tracks, targetIndex, false, background: true);
                 return;
             }
             if (Preparing || !sourceReady) return;
@@ -359,7 +362,7 @@ public sealed class MusicPlayer(MusicSession session)
             Changed?.Invoke();
         });
 
-    private async Task PlayCoreAsync(MusicTrack track, IEnumerable<MusicTrack>? sequence, int? sequenceStartIndex, bool play, bool advance = false, bool retry = false)
+    private async Task PlayCoreAsync(MusicTrack track, IEnumerable<MusicTrack>? sequence, int? sequenceStartIndex, bool play, bool advance = false, bool retry = false, bool background = false)
     {
         if (deck is null) throw new InvalidOperationException("Player is starting. Try again.");
         var selected = sequence?.ToList() ?? [track];
@@ -398,14 +401,14 @@ public sealed class MusicPlayer(MusicSession session)
         }
         try
         {
-            var path = await PrepareFile(track, cancellation.Token);
+            var path = await PrepareFile(track, cancellation.Token, background: background);
             cancellation.Token.ThrowIfCancellationRequested();
             if (version != requestVersion) return;
             track = session.PlaybackRecording(session.CurrentRecording(track), path);
             Current = track; queue[index] = track; session.PinPlayback(track.Id);
             preparing = false; sourceReady = true; deck.TransportEnabled = !FollowingHost; ApplyVolumes();
             MarkStream(deck, path);
-            deck.PlayFile(path, track.Title, track.Channel, PlaybackRequested);
+            deck.PlayFile(path, track.Title, track.Channel, PlaybackRequested, background);
         }
         catch (OperationCanceledException) { if (version == requestVersion) { sourceReady = false; Restore(); } }
         catch { if (version != requestVersion) return; sourceReady = false; Restore(); throw; }
@@ -419,18 +422,18 @@ public sealed class MusicPlayer(MusicSession session)
             }
         }
     }
-    private async Task<string> PrepareFile(MusicTrack track, CancellationToken token, double lead = 0)
+    private async Task<string> PrepareFile(MusicTrack track, CancellationToken token, double lead = 0, bool background = false)
     {
         var path = session.LocalPath(track) ?? await session.GetCachedPlaybackPathAsync(track, token);
         if (path is not null) return path;
         if (!session.Connected) throw new InvalidOperationException("This song is not downloaded on this device. Connect to play it.");
-        var saved = await session.EnsureServerRecordingAsync(track, token, session.CanStream && lead <= 0);
+        var saved = await session.EnsureServerRecordingAsync(track, token, session.CanStream && lead <= 0, background);
         if (session.CanStream)
         {
-            try { return await session.StreamPlaybackAsync(saved, lead, token); }
+            try { return await session.StreamPlaybackAsync(saved, lead, token, background); }
             catch (Exception error) when (error is InvalidDataException or FamilyHubApiException or HttpRequestException) { }
         }
-        return await session.CachePlaybackAsync(saved, token, lead);
+        return await session.CachePlaybackAsync(saved, token, lead, background);
     }
     private void WarmNext()
     {
@@ -458,7 +461,7 @@ public sealed class MusicPlayer(MusicSession session)
         try
         {
             var track = session.CurrentRecording(original);
-            var path = await PrepareFile(track, token, Math.Max(0, Duration - Position));
+            var path = await PrepareFile(track, token, Math.Max(0, Duration - Position), background: true);
             token.ThrowIfCancellationRequested();
             if (version != requestVersion || next >= queue.Count || !ReferenceEquals(queue[next], original) || standby is null) return;
             track = session.PlaybackRecording(session.CurrentRecording(track), path);
@@ -467,7 +470,7 @@ public sealed class MusicPlayer(MusicSession session)
             preparedTrack = null; incomingFailed = false;
             standby.Stop(); standby.TransportEnabled = false; standby.Volume = 0;
             MarkStream(standby, path);
-            standby.PlayFile(path, track.Title, track.Channel, false);
+            standby.PlayFile(path, track.Title, track.Channel, false, background: true);
             preparedTrack = track; session.PinUpcomingPlayback(track.Id);
             cancellation.CancelAfter(Timeout.InfiniteTimeSpan);
             Changed?.Invoke(); TryBlend();
@@ -529,7 +532,7 @@ public sealed class MusicPlayer(MusicSession session)
             {
                 blending = false; blendTarget = -1; preparedTrack = null; incoming.Stop(); blendGain = 0; ApplyVolumes();
                 session.SetMessage(error.Message); Changed?.Invoke();
-                if (outgoing.Duration > 0 && outgoing.Position >= outgoing.Duration - .1) await NextCoreAsync();
+                if (outgoing.Duration > 0 && outgoing.Position >= outgoing.Duration - .1) await NextCoreAsync(background: true);
             }
         }
     }
@@ -592,8 +595,9 @@ public sealed class MusicPlayer(MusicSession session)
     {
         RequirePlaybackControl();
         if (deck is null || Current is null) return;
+        if (localUserAction) UserPlaybackRevision++;
         if (localUserAction && (!PlaybackRequested || !preparing && !sourceReady)) session.MarkLocalPlayback();
-        if (!preparing && !sourceReady) { await PlayCoreAsync(Current, queue, index, true); return; }
+        if (!preparing && !sourceReady) { await PlayCoreAsync(Current, queue, index, true, background: !localUserAction); return; }
         PlaybackRequested = !PlaybackRequested;
         ControlRevision++;
         if (!preparing) { deck.SetPlaying(PlaybackRequested); if (blending) standby?.SetPlaying(PlaybackRequested); }
@@ -613,10 +617,12 @@ public sealed class MusicPlayer(MusicSession session)
         try { await deck.SeekAsync(seconds); }
         finally { Seeking = false; session.InvalidateListeningBaseline(); Changed?.Invoke(); }
     }
-    public Task SeekAsync(double seconds) => RemoteActive ? RemoteSeekAsync(seconds) : MainThread.InvokeOnMainThreadAsync(async () =>
+    public Task SeekAsync(double seconds) => SeekAsync(seconds, background: false);
+    private Task SeekAsync(double seconds, bool background) => RemoteActive ? RemoteSeekAsync(seconds) : MainThread.InvokeOnMainThreadAsync(async () =>
     {
         RequirePlaybackControl();
         if (!CanSeek || deck is null || !double.IsFinite(seconds)) return;
+        if (!background) UserPlaybackRevision++;
         ControlRevision++;
         if (!sourceReady && resumePosition is not null)
         {
@@ -629,8 +635,8 @@ public sealed class MusicPlayer(MusicSession session)
         lastListeningPosition = Math.Clamp(seconds, 0, Duration);
         await SeekDeckAsync(lastListeningPosition); if (Playing) WarmNext();
     });
-    public Task NextAsync() { if (RemoteActive) return SendRemoteAsync("next"); RequirePlaybackControl(); return MainThread.InvokeOnMainThreadAsync(NextCoreAsync); }
-    private Task NextCoreAsync()
+    public Task NextAsync() { if (RemoteActive) return SendRemoteAsync("next"); RequirePlaybackControl(); return MainThread.InvokeOnMainThreadAsync(() => NextCoreAsync(background: false)); }
+    private Task NextCoreAsync(bool background)
     {
         var next = blending ? blendTarget + 1 : index + 1;
         if (next >= queue.Count)
@@ -638,6 +644,7 @@ public sealed class MusicPlayer(MusicSession session)
             if (RepeatMode == "off" || FollowingHost || queue.Count == 0) return Task.CompletedTask;
             next = 0;
         }
+        if (!background) UserPlaybackRevision++;
         if (Current?.PlaybackVersion != "preview-hls" && preparedTrack?.PlaybackVersion != "preview-hls" && AutoDj && !blending && IncomingReady && Playing && Duration - Position > .15) return BlendAsync();
         var sequence = queue.ToList();
         if (Shuffle && !FollowingHost && !manualQueue.Contains(sequence[next]) && !nextChosen)
@@ -645,18 +652,21 @@ public sealed class MusicPlayer(MusicSession session)
             var chosen = Random.Shared.Next(next, sequence.Count);
             (sequence[next], sequence[chosen]) = (sequence[chosen], sequence[next]);
         }
-        return PlayCoreAsync(sequence[next], sequence, next, Current is null || PlaybackRequested, true);
+        return PlayCoreAsync(sequence[next], sequence, next, Current is null || PlaybackRequested, true, background: background);
     }
-    public Task PreviousAsync() => RemoteActive ? SendRemoteAsync("previous") : MainThread.InvokeOnMainThreadAsync(() =>
+    public Task PreviousAsync() => PreviousAsync(background: false);
+    private Task PreviousAsync(bool background) => RemoteActive ? SendRemoteAsync("previous") : MainThread.InvokeOnMainThreadAsync(() =>
     {
         RequirePlaybackControl();
         if (!Preparing && Position > 3)
         {
             FinishListening("skipped"); eventFinalized = false; eventStarted = null;
             listenRecorded = false; listenedSeconds = 0;
-            return SeekAsync(0);
+            return SeekAsync(0, background);
         }
-        return index <= 0 ? Task.CompletedTask : PlayCoreAsync(queue[index - 1], queue, index - 1, PlaybackRequested);
+        if (index <= 0) return Task.CompletedTask;
+        if (!background) UserPlaybackRevision++;
+        return PlayCoreAsync(queue[index - 1], queue, index - 1, PlaybackRequested, background: background);
     });
     /// <summary>Shuffle off: the songs after the current one follow the list's own order again
     /// (queued songs stay first), like Spotify.</summary>
@@ -677,7 +687,8 @@ public sealed class MusicPlayer(MusicSession session)
         if (queue.Count == 0 && Current is not null) { queue.Add(Current); index = 0; }
         var insertion = manual ? (blending ? blendTarget + 1 : index + 1) : queue.Count;
         for (var i = insertion; i < queue.Count; i++) if (manualQueue.Contains(queue[i])) insertion = i + 1;
-        var entry = track with { }; queue.Insert(insertion, entry); if (manual) manualQueue.Add(entry);
+        var entry = track with { }; queue.Insert(insertion, entry);
+        if (manual) { manualQueue.Add(entry); UserPlaybackRevision++; }
         if (!blending) { CancelUpcoming(true); if (Playing) WarmNext(); }
         Changed?.Invoke(); return insertion;
     }
@@ -723,9 +734,9 @@ public sealed class MusicPlayer(MusicSession session)
         {
             case "play" when !PlaybackRequested: await ToggleCoreAsync(false); break;
             case "pause" when PlaybackRequested: await ToggleCoreAsync(false); break;
-            case "next": await NextAsync(); break;
-            case "previous": await PreviousAsync(); break;
-            case "seek" when control.Position is { } seconds: await SeekAsync(seconds); break;
+            case "next": await NextCoreAsync(background: true); break;
+            case "previous": await PreviousAsync(background: true); break;
+            case "seek" when control.Position is { } seconds: await SeekAsync(seconds, background: true); break;
         }
     });
     public Task StopAsync() => MainThread.InvokeOnMainThreadAsync(() =>

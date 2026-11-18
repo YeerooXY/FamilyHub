@@ -93,6 +93,7 @@
         var token = (refreshing = new CancellationTokenSource()).Token;
         _ = Task.Run(async () =>
         {
+            var background = false;
             while (!token.IsCancellationRequested)
             {
                 try
@@ -100,11 +101,12 @@
                     if (Session.UiActive && Session.Api is { } api)
                     {
                         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(5));
-                        var found = (await api.GetPlaybackDevicesAsync(Session.DeviceId, timeout.Token)).Devices;
+                        var found = (await api.GetPlaybackDevicesAsync(Session.DeviceId, timeout.Token, background)).Devices;
                         await InvokeAsync(() => { devices = found; loadedDevices = true; StateHasChanged(); });
                     }
                 }
                 catch (Exception exception) when (exception is HttpRequestException or FamilyHubApiException or OperationCanceledException) { }
+                background = true;
                 try { await Task.Delay(3000, token); } catch (OperationCanceledException) { }
             }
         });

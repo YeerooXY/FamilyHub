@@ -14,6 +14,13 @@ from urllib.error import HTTPError
 _current = ContextVar("resource_stages", default=())
 background_request = ContextVar("background_provider_request", default=False)
 
+
+def background_activity():
+    from flask import request
+
+    return request.headers.get("X-FamilyHub-Activity") == "background"
+
+
 PRESENCE = {
     "offline": (0, 0), "online-idle": (1, 1), "browsing": (2, 1),
     "searching": (2, 1), "listening": (2, 2), "listen-together": (2, 2),
@@ -71,6 +78,11 @@ class ResourceGovernor:
         self.last_report = self.clock()
         self.reporter = None
         self.leases = {}
+        self.last_activity = {}
+        try:
+            self.inactive_seconds = max(1, int(os.environ.get("FAMILYHUB_INACTIVE_MINUTES", 20))) * 60
+        except ValueError:
+            self.inactive_seconds = 20 * 60
         self.searches = {}
         self.handback = float("-inf")
         self.changed = lambda: None
@@ -87,13 +99,29 @@ class ResourceGovernor:
             if expiry <= now:
                 del self.leases[key]
 
+    @staticmethod
+    def _profile(identity):
+        return identity[0] if isinstance(identity, tuple) else identity
+
+    def inactive_count(self):
+        with self.condition:
+            cutoff = self.clock() - self.inactive_seconds
+            return sum(last <= cutoff for last in self.last_activity.values())
+
+    def remember_profile(self, profile):
+        with self.condition:
+            # Restoring a session automatically can introduce a profile before its first activity.
+            self.last_activity.setdefault(profile, float("-inf"))
+
     def presence(self, identity, state="online-idle", seconds=15):
         with self.condition:
             now = self.clock()
             self._expire(now)
+            self.last_activity[self._profile(identity)] = now
             self.leases[identity, "online-idle"] = now + 15
             if state != "online-idle":
-                self.leases[identity, state] = now + seconds
+                # A search can hold its lease until teardown, up to the inactivity cutoff.
+                self.leases[identity, state] = now + min(seconds, self.inactive_seconds)
             self.handback = max(self.leases.values())
             self._changed()
         self.wake()
@@ -156,8 +184,10 @@ class ResourceGovernor:
             del self.searches[identity]
             now = self.clock()
             self._expire(now)
-            self.leases[identity, "searching"] = now + 3
-            self.handback = max(self.leases.values())
+            remaining = self.last_activity.get(self._profile(identity), float("-inf")) + self.inactive_seconds - now
+            if remaining > 0:
+                self.leases[identity, "searching"] = now + min(3, remaining)
+            self.handback = max(self.leases.values(), default=min(now, self.handback))
             self._changed()
 
     def reservations(self):
@@ -277,8 +307,8 @@ class ResourceGovernor:
                 stages.append(f"{stage}={counts[stage, '']}r/{sum(reasons.values())}q"
                               f"[{waits},oldest={oldest:.0f}s,run={totals.get((stage, ''), 0):.1f}s,wait={wait_seconds:.1f}s]")
             logging.getLogger("music_web.resources").info(
-                "resource presence=%s reserved_cpu=%d reserved_transfers=%d cpu=%d/%d %s %s",
-                state, cpu, transfer, self.cpu_active, self.cpu_capacity, " ".join(stages),
+                "resource presence=%s reserved_cpu=%d reserved_transfers=%d cpu=%d/%d inactive=%d %s %s",
+                state, cpu, transfer, self.cpu_active, self.cpu_capacity, self.inactive_count(), " ".join(stages),
                 " ".join(f"{key}={value}" for key, value in self.metrics().items()))
 
 

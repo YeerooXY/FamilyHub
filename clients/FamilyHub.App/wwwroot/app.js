@@ -291,7 +291,7 @@ window.familyhub.observeSearch = (reference, version) => {
     searchPageObserver = new IntersectionObserver(entries => {
         if (entries.some(entry => entry.isIntersecting)) {
             searchPageObserver.disconnect();
-            reference.invokeMethodAsync('LoadMoreSearch', version).catch(() => {});
+            reference.invokeMethodAsync('LoadMoreSearchInBackground', version).catch(() => {});
         }
     }, { root, rootMargin: '160px' });
     searchPageObserver.observe(sentinel);

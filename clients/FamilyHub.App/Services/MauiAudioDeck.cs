@@ -1,6 +1,7 @@
 #if !WINDOWS
 using CommunityToolkit.Maui.Core;
 using CommunityToolkit.Maui.Views;
+using FamilyHub.Client.Core;
 
 namespace FamilyHub.App.Services;
 
@@ -53,12 +54,17 @@ internal sealed class MauiAudioDeck : IAudioDeck
             Changed?.Invoke();
         });
     }
-    public void PlayFile(string path, string title, string artist, bool play = true)
+    public void PlayFile(string path, string title, string artist, bool play = true, bool background = false)
     {
         if (media.Handler is null) throw new InvalidOperationException("The audio player is not ready. Reopen the app and try again.");
         PlaybackRequested = play;
         media.MetadataTitle = title; media.MetadataArtist = artist; media.ShouldAutoPlay = play;
-        pendingSource = path.StartsWith("https://", StringComparison.Ordinal) ? MediaSource.FromUri(path) : MediaSource.FromFile(path);
+        if (!path.StartsWith("https://", StringComparison.Ordinal))
+            pendingSource = MediaSource.FromFile(path);
+        else if (background)
+            pendingSource = MediaSource.FromUri(new Uri(path), new Dictionary<string, string> { [FamilyHubApi.ActivityHeader] = FamilyHubApi.BackgroundActivity });
+        else
+            pendingSource = MediaSource.FromUri(path);
         media.Source = pendingSource;
 #if ANDROID
         AudioRouting.Apply(media);

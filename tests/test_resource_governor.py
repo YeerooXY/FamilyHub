@@ -27,6 +27,7 @@ class SummaryTests(unittest.TestCase):
                 self.assertIn("fetch=0r/1q[same source:1,oldest=50s", logs.output[0])
                 self.assertIn("preview=0r/1q[transfer:1,oldest=30s", logs.output[0])
                 self.assertIn("presence=offline reserved_cpu=0 reserved_transfers=0", logs.output[0])
+                self.assertIn("inactive=0", logs.output[0])
                 self.assertEqual(len(logs.output), 1)
                 self.assertEqual([call.args[0] for call in timer.call_args_list], [30, 30])
             governor.queued = lambda: ()
@@ -148,6 +149,22 @@ class AdmissionTests(unittest.TestCase):
             self.assertEqual(governor.reservations(), ("listen-together", 2, 2))
             governor.room("two", None)
             self.assertEqual(governor.reservations(), ("listening", 2, 2))
+
+    def test_inactivity_caps_a_search_lease_and_its_completion_grace(self):
+        clock = Mock(return_value=100)
+        with patch.dict(os.environ, FAMILYHUB_INACTIVE_MINUTES="1"):
+            governor = ResourceGovernor(clock=clock)
+        with patch.object(governor, "wake"):
+            identity = ("ana", False)
+            ticket = governor.begin_search(identity)
+            clock.return_value = 159
+            self.assertEqual(governor.inactive_count(), 0)
+            self.assertEqual(governor.reservations(), ("searching", 2, 1))
+            clock.return_value = 160
+            governor.end_search(identity, ticket)
+            self.assertEqual(governor.inactive_count(), 1)
+            self.assertEqual(governor.reservations(), ("offline", 0, 0))
+            self.assertEqual(governor.background_delay(1), 1)
 
     def test_idle_transfers_expand_then_wait_without_interrupting_active_transfer(self):
         governor = ResourceGovernor()

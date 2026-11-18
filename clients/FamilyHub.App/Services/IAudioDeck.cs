@@ -14,7 +14,7 @@ public interface IAudioDeck
     bool TransportEnabled { set; }
     bool SupportsPlaybackRate => false;
     double PlaybackRate { get => 1; set { } }
-    void PlayFile(string path, string title, string artist, bool play = true);
+    void PlayFile(string path, string title, string artist, bool play = true, bool background = false);
     void SetPlaying(bool play);
     void RefreshPosition();
     Task SeekAsync(double seconds);

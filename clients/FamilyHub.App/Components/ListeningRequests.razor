@@ -30,7 +30,7 @@
                 {
                     await Together.CheckPokedSessionAsync();
                     using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(4));
-                    var result = await api.RequestJsonAsync<ListeningPokes>(HttpMethod.Get, "/api/listening/pokes", cancellationToken: timeout.Token);
+                    var result = await api.RequestJsonAsync<ListeningPokes>(HttpMethod.Get, "/api/listening/pokes", cancellationToken: timeout.Token, background: true);
                     if (ReferenceEquals(api, Session.Api) && user == Session.User && version == requestVersion)
                     {
                         if (requests.FirstOrDefault() is { } old && !result.Requests.Any(p => p.Id == old.Id)) await JS.InvokeVoidAsync("familyhub.focusIfWithin", ".listening-poke", "listen-together");

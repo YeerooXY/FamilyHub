@@ -107,6 +107,82 @@ class Base(unittest.TestCase):
         mock.patch.object(self.intake, "cmd_import", imp).start()
 
 
+class ActivityPresenceTests(Base):
+    check_presence = True
+
+    def setUp(self):
+        with mock.patch.dict(os.environ, FAMILYHUB_INACTIVE_MINUTES="1"):
+            super().setUp()
+        self.governor = self.state.resources
+        self.clock = mock.Mock(return_value=self.governor.clock())
+        self.governor.clock = self.clock
+        mock.patch.object(self.governor, "wake").start()
+        self.client, self.csrf = self.signed_in()
+        self.background = {"X-FamilyHub-Activity": "background"}
+
+    def advance(self, seconds):
+        self.clock.return_value += seconds
+
+    def heartbeat(self, playing, headers):
+        response = self.post(self.client, self.csrf, "/api/playback/activity",
+                             json={"device_id": "a" * 32, "playing": playing}, headers=dict(headers))
+        self.assertEqual(response.status_code, 200)
+
+    def test_background_refresh_and_paused_heartbeats_do_not_extend_activity(self):
+        for _ in range(5):
+            self.advance(12)
+            response = self.go(self.client, "GET", "/api/library", headers=self.background)
+            self.assertEqual(response.status_code, 200)
+            self.heartbeat(False, self.background)
+        self.assertEqual(self.governor.inactive_count(), 1)
+        self.assertEqual(self.governor.reservations(), ("offline", 0, 0))
+        self.assertEqual(self.governor.background_slots(6), 6)
+        self.assertEqual(self.go(self.client, "GET", "/api/library").status_code, 200)
+        self.assertEqual(self.governor.inactive_count(), 0)
+        self.assertEqual(self.governor.reservations(), ("browsing", 2, 1))
+
+    def test_background_playing_heartbeat_reserves_listening_capacity(self):
+        self.advance(60)
+        self.assertEqual(self.governor.inactive_count(), 1)
+        self.heartbeat(True, self.background)
+        self.assertEqual(self.governor.inactive_count(), 0)
+        self.assertEqual(self.governor.reservations(), ("listening", 2, 2))
+        self.heartbeat(False, self.background)
+        self.advance(15)
+        self.assertEqual(self.governor.reservations(), ("offline", 0, 0))
+
+    def test_legacy_paused_heartbeat_retains_online_idle(self):
+        for _ in range(5):
+            self.advance(12)
+            self.heartbeat(False, {})
+            self.assertEqual(self.governor.reservations(), ("online-idle", 1, 1))
+        self.assertEqual(self.governor.inactive_count(), 0)
+
+    def test_background_playback_preparation_does_not_create_a_listening_lease(self):
+        self.advance(60)
+        response = self.go(self.client, "GET", "/api/library/abcdefghijk/playback-info?quality=max",
+                           headers=self.background)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.governor.inactive_count(), 1)
+        self.assertEqual(self.governor.reservations(), ("offline", 0, 0))
+
+    def test_room_updates_keep_state_and_only_playing_heartbeats_renew_presence(self):
+        self.app.extensions["listening_rooms"].clock = self.clock
+        state = dict(queue=[dict(id="abcdefghijk", title="Song", channel="Artist")],
+                     index=0, position=0, playing=True, auto_dj=False, crossfading=False)
+        created = self.post(self.client, self.csrf, "/api/listening/rooms", json=state)
+        self.assertEqual(created.status_code, 201)
+        path = "/api/listening/rooms/" + created.json["room"]["id"]
+        for _ in range(3):
+            self.advance(11)
+            response = self.go(self.client, "PUT", path, json=state,
+                               headers={**self.background, "X-CSRFToken": self.csrf})
+            self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.governor.reservations(), ("offline", 0, 0))
+        self.heartbeat(True, self.background)
+        self.assertEqual(self.governor.reservations(), ("listen-together", 2, 2))
+
+
 class ForegroundAdmissionTests(Base):
     check_presence = True
     extra = {"BACKGROUND_WORKERS": 8}

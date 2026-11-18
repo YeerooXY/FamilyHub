@@ -176,7 +176,7 @@ else
                     System.Text.Json.JsonElement response;
                     if (acceptedJobs.TryGetValue(file, out var acceptedId)) {
                         uploading = false; status = "Resuming server preparation...";
-                        response = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Get, "/api/jobs/" + Uri.EscapeDataString(acceptedId), cancellationToken:token);
+                        response = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Get, "/api/jobs/" + Uri.EscapeDataString(acceptedId), cancellationToken: token, background: true);
                     } else {
                         await using var stream = await file.OpenRead(token);
                         if (!Current()) break;
@@ -187,7 +187,7 @@ else
                     while (job.GetProperty("state").GetString() is "queued" or "running") {
                         status = job.GetProperty("message").GetString() ?? "Preparing song..."; await InvokeAsync(StateHasChanged); await Task.Delay(1000, token);
                         if (!Current()) { stopping = true; break; }
-                        response = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Get, "/api/jobs/" + Uri.EscapeDataString(id), cancellationToken:token); job = response.GetProperty("job");
+                        response = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Get, "/api/jobs/" + Uri.EscapeDataString(id), cancellationToken: token, background: true); job = response.GetProperty("job");
                     }
                     if (!Current()) break;
                     if (job.GetProperty("state").GetString() != "done") { acceptedJobs.Remove(file); throw new InvalidOperationException(job.GetProperty("message").GetString() ?? "The song could not be prepared."); }
@@ -200,7 +200,7 @@ else
                 catch (Exception exception) { failures++; problems.Add((file.Name, (exception is FamilyHubApiException { StatusCode: 404 } && acceptedJobs.ContainsKey(file) ? "This upload status expired. Check the library before selecting this song again." : exception.Message))); if (!Current() || !Session.Connected || exception is HttpRequestException) break; }
                 finally { uploading = false; }
             }
-            if (Current()) await Session.RefreshAsync();
+            if (Current()) await Session.RefreshAsync(background: true);
             status = stopping ? "Upload stopped" : Remaining == 0 ? "Saved on server" : "Upload finished";
             error = null;
             if (playlistFailures > 0) error = (error is null ? "" : error + " ") + $"{playlistFailures} songs were saved but could not be added to the playlist. Add them from your library.";

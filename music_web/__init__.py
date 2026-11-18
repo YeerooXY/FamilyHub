@@ -31,7 +31,7 @@ from .finished_audio import FinishedAudio, prepare_record, activity as finished_
 from .playlist_artwork import PlaylistArtwork, ArtworkError
 from .lyrics import LyricsCache
 from .worker_activity import WorkerActivity
-from .resources import (ResourceGovernor, TransferResources, PROVIDERS, background_request,
+from .resources import (ResourceGovernor, TransferResources, PROVIDERS, background_activity, background_request,
                         enabled, transfer_limit, waiting, runtime_capacity, background_command, audio_command)
 from . import link_playlists
 from . import radio
@@ -317,9 +317,24 @@ def create_app(test_config=None):
     def request_presence():
         if not getattr(g, "user", None) or request.method in ("HEAD", "OPTIONS"):
             return
+        sid = listener_identity()[1]
+        background = background_activity()
+        with lock:
+            signed_in = sessions.get(sid)
+            first_background = signed_in is not None and background and not signed_in.get("activity_header")
+            if first_background:
+                signed_in["activity_header"] = True
+            activity_header = signed_in is not None and signed_in.get("activity_header")
+        if background:
+            if first_background:
+                resources.remember_profile(g.user)
+            return
         endpoint = request.endpoint
-        if endpoint in ("playback_activity", "search", "logout", "get_job", "list_jobs", "library_additions",
-                        "server_stats", "listening_pokes", "job_media", "playback_audio"):
+        if endpoint in ("playback_activity", "search", "logout", "job_media", "playback_audio"):
+            return
+        # Older clients poll these endpoints without an activity header.
+        if not activity_header and endpoint in ("get_job", "list_jobs", "library_additions",
+                                                "server_stats", "listening_pokes"):
             return
         if endpoint == "index" or request.path.startswith("/api/"):
             interactive = (request.method != "GET" and endpoint != "listening_room"
@@ -377,7 +392,7 @@ def create_app(test_config=None):
     def profile_error(error):
         return jsonify(error=str(error)), 400
 
-    def establish_session(user, remember):
+    def establish_session(user, remember, activity_header=False):
         old = session.get("sid")
         session.clear()
         sid = secrets.token_urlsafe(32)
@@ -387,7 +402,7 @@ def create_app(test_config=None):
             for key in [key for key, value in sessions.items() if value["expiry"] <= now]:
                 del sessions[key]
             hours = REMEMBER_HOURS if remember else SESSION_HOURS
-            sessions[sid] = {"user": user, "expiry": now + hours * 3600}
+            sessions[sid] = {"user": user, "expiry": now + hours * 3600, "activity_header": activity_header}
         session.permanent = remember
         session["sid"] = sid
         if family_mode:
@@ -410,12 +425,16 @@ def create_app(test_config=None):
     @app.post("/api/profile/select")
     def select_family_profile():
         require_family()
+        background = background_activity()
         with lock:
             profile = profile_store.get(body().get("profile_id"))
             preferences = profile_store.preferences(profile["id"])
-            establish_session(profile["id"], True)
+            establish_session(profile["id"], True, activity_header=background)
         g.pop("csrf_token", None)
-        resources.presence((profile["id"], session["sid"]))
+        if background:
+            resources.remember_profile(profile["id"])
+        else:
+            resources.presence((profile["id"], session["sid"]))
         return jsonify(profile=profile, preferences=preferences, csrf_token=generate_csrf())
 
     @app.route("/api/profile/playback", methods=["GET", "PUT", "PATCH"])
@@ -698,8 +717,12 @@ def create_app(test_config=None):
         # The same check-in lists this device for "Connect to a device" and collects a transfer sent to it.
         if track and data["playing"] and opus_warmer and re.fullmatch(r"(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})", track["id"]):
             opus_warmer.now_playing(track["id"])
+        identity = listener_identity()
+        background = background_activity()
+        room_heartbeat = app.extensions["listening_rooms"].playback_heartbeat if background else None
         command, controls = playback_devices.report(g.user, device, data.get("device_info"), data["playing"],
-                                                   track, data.get("position"), listener_identity())
+                                                   track, data.get("position"), identity,
+                                                   background=background, room_heartbeat=room_heartbeat)
         return jsonify(ok=True, counters_accepted=counters is not None, command=command, controls=controls)
 
     @app.get("/api/server/stats")
@@ -1878,8 +1901,11 @@ def create_app(test_config=None):
             same = previous and previous[0] == cache_key and not previous[1].is_set()
             if previous and not (cached and same):
                 previous[1].set()
-            cancel = resources.begin_search(search_key)
-            g.search_presence = (search_key, cancel)
+            if background_activity():
+                cancel = threading.Event()
+            else:
+                cancel = resources.begin_search(search_key)
+                g.search_presence = (search_key, cancel)
             if cached and (same or search_cache[cache_key][2]):
                 _, found, complete = search_cache[cache_key]
                 return page(found, complete)
@@ -1993,7 +2019,8 @@ def create_app(test_config=None):
         m = fetch_metadata(d, vid)
         if d.get("allow_new") is False and not saved_source(vid):
             raise ApiError("Enable Allow new music downloads and discovery to listen to this recording.", 403)
-        resources.presence(listener_identity(), "listening")
+        if not background_activity():
+            resources.presence(listener_identity(), "listening")
         job = new_job(g.user, "fetch", m, vid)
         explicit = any(k in d for k in ("artist", "album", "track"))
         with job["publish"], lock:
@@ -2224,7 +2251,8 @@ def create_app(test_config=None):
         # Seconds until the listener needs this song: 0 when they are waiting, the time left in the current song for the next one.
         try: lead = min(3600.0, max(0.0, float(request.args.get("lead", 0))))
         except ValueError: raise ApiError("Invalid lead time.", 400)
-        resources.presence(listener_identity(), "listening")
+        if not background_activity():
+            resources.presence(listener_identity(), "listening")
         if quality == "max":
             item = saved_source(source_id) if re.fullmatch(r"(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})", source_id) else None
             if not item:
@@ -2265,7 +2293,8 @@ def create_app(test_config=None):
     @app.route("/api/library/<source_id>/playback/<digest>/audio.opus", methods=["GET", "HEAD"])
     @app.route("/api/library/<source_id>/playback/<digest>/audio.m4a", methods=["GET", "HEAD"])
     def playback_audio(source_id, digest):
-        resources.presence(listener_identity(), "listening")
+        if not background_activity():
+            resources.presence(listener_identity(), "listening")
         quality = request.args.get("quality", "normal")
         track, path = mobile_record(source_id, digest, quality=quality)
         return send_file(path, conditional=True,
@@ -2336,7 +2365,7 @@ def create_app(test_config=None):
             if not (d["allow_new"] or explicit or is_preview and preload_search) and not saved_source(vid):
                 continue
             requested.add(vid)
-            if explicit and not is_preview:
+            if explicit and not is_preview and not background_activity():
                 resources.presence(listener_identity(), "listening")
             m = fetch_metadata(row, vid)
             priority = (1 if i == 0 else 18 + i) if not is_preview else 2 + i - len(rows)
@@ -2445,7 +2474,8 @@ def create_app(test_config=None):
             root = os.path.join(ws, ".preview-" + job_id)
             path = os.path.join(root, asset)
             job["accessed"] = time.time()
-        resources.presence(listener_identity(), "listening")
+        if not background_activity():
+            resources.presence(listener_identity(), "listening")
         if not app.intake.inside(path, root):
             raise ApiError(HTTP_TEXT[404], 404)
         try:

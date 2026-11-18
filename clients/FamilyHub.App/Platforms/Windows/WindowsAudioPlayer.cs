@@ -66,7 +66,7 @@ public sealed class WindowsAudioPlayer : IAudioDeck, IDisposable
         timer.Tick += OnTick;
     }
 
-    public void PlayFile(string path, string title, string artist, bool play = true)
+    public void PlayFile(string path, string title, string artist, bool play = true, bool background = false)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         var nextStream = File.OpenRead(path);

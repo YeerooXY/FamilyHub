@@ -229,9 +229,14 @@
     {
         try
         {
+            var background = false;
             while (!token.IsCancellationRequested)
             {
-                if (await JS.InvokeAsync<bool>("familyhub.statsVisible")) await Refresh();
+                if (await JS.InvokeAsync<bool>("familyhub.statsVisible"))
+                {
+                    await Refresh(background);
+                    background = true;
+                }
                 await Task.Delay(TimeSpan.FromSeconds(5), token);
             }
         }
@@ -240,7 +245,7 @@
 
     private Task RefreshNow() => Refresh();
 
-    private async Task Refresh()
+    private async Task Refresh(bool background = false)
     {
         if (fetching || disposed || Offline) return;
         fetching = true;
@@ -251,7 +256,7 @@
             request.CancelAfter(TimeSpan.FromSeconds(10));
             var api = Session.Api!;
             var identity = Session.Server + "\n" + Session.User;
-            var result = await api.GetServerStatsAsync(request.Token);
+            var result = await api.GetServerStatsAsync(request.Token, background);
             if (disposed || identity != Session.Server + "\n" + Session.User) return;
             await JS.InvokeVoidAsync("familyhub.captureLeaderboard");
             await JS.InvokeVoidAsync("familyhub.captureStatsFocus");

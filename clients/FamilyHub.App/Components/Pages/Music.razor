@@ -1006,9 +1006,11 @@ else
         try
         {
             SearchPage results;
+            var background = false;
             do
             {
-                results = await Session.SearchPageAsync(searchQuery, 0, cancellationToken);
+                results = await Session.SearchPageAsync(searchQuery, 0, cancellationToken, background);
+                background = true;
                 if (version != searchVersion || cancellationToken.IsCancellationRequested) return;
                 SearchPage.AppendNew(searchResults, results.Tracks);
                 searching = searchResults.Count == 0 && !results.Complete;
@@ -1022,7 +1024,8 @@ else
         catch (Exception exception) { if (version == searchVersion) error = exception.Message; }
         finally { if (version == searchVersion) searching = false; }
     }
-    [JSInvokable] public async Task LoadMoreSearch(int version)
+    [JSInvokable] public Task LoadMoreSearchInBackground(int version) => LoadMoreSearch(version, background: true);
+    private async Task LoadMoreSearch(int version, bool background = false)
     {
         if (version != searchVersion || view != "Search" || searching || loadingMore || nextSearchOffset is not { } offset || searchCancellation is null) return;
         loadingMore = true; moreSearchFailed = false; error = null;
@@ -1030,7 +1033,7 @@ else
         await InvokeAsync(StateHasChanged);
         try
         {
-            var page = await Session.SearchPageAsync(query.Trim(), offset, token);
+            var page = await Session.SearchPageAsync(query.Trim(), offset, token, background);
             if (version != searchVersion || token.IsCancellationRequested) return;
             SearchPage.AppendNew(searchResults, page.Tracks);
             nextSearchOffset = page.NextOffset > offset ? page.NextOffset : null;
@@ -1056,9 +1059,9 @@ else
         {
             while (Current())
             {
-                var status = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Get, "/api/playlists/" + radio.Id + "/prepare", cancellationToken: token);
+                var status = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Get, "/api/playlists/" + radio.Id + "/prepare", cancellationToken: token, background: true);
                 if (!Current()) return;
-                await Session.RefreshAsync();
+                await Session.RefreshAsync(background: true);
                 if (!Current()) return;
                 var playlist = Session.Playlists.FirstOrDefault(p => PlaylistKey(p) == PlaylistKey(radio));
                 if (playlist is null) return;

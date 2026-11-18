@@ -14,7 +14,7 @@ public sealed class ListenTogether(MusicSession session, MusicPlayer player)
     {
         if (!Following) return;
         LocallyPaused = !LocallyPaused;
-        if (LocallyPaused) await player.PauseLocallyAsync();
+        if (LocallyPaused) await player.PauseLocallyAsync(background: false);
         Changed?.Invoke();
     }
     private PendingSessionPoke? pendingPoke;
@@ -42,7 +42,7 @@ public sealed class ListenTogether(MusicSession session, MusicPlayer player)
         var pending = pendingPoke;
         if (pending is null || joining) return;
         if (!pending.IsCurrent(ProfileIdentity, Room is not null, DateTimeOffset.UtcNow)) { pendingPoke = null; return; }
-        await RefreshAsync();
+        await RefreshAsync(background: true);
         if (pendingPoke != pending || !pending.IsCurrent(ProfileIdentity, Room is not null, DateTimeOffset.UtcNow)) return;
         if (pending.Find(Rooms) is { } target) { await JoinAsync(target.Id, true); if (Room is not null) pendingPoke = null; }
     }
@@ -59,12 +59,12 @@ public sealed class ListenTogether(MusicSession session, MusicPlayer player)
     private double guestBestRoundTrip = double.MaxValue;
     private double HostTransit => hostRoundTrips.Count == 0 ? 0 : Math.Min(.5, hostRoundTrips.Min() / 2);
 
-    public async Task RefreshAsync()
+    public async Task RefreshAsync(bool background = false)
     {
         if (!session.Connected) await session.RefreshLibraryAutomaticallyAsync();
         if (!session.Connected || session.Api is null) { Rooms = []; return; }
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-        Rooms = (await session.Api.RequestJsonAsync<ListeningRoomsResponse>(HttpMethod.Get, "/api/listening/rooms", cancellationToken: timeout.Token)).Rooms;
+        Rooms = (await session.Api.RequestJsonAsync<ListeningRoomsResponse>(HttpMethod.Get, "/api/listening/rooms", cancellationToken: timeout.Token, background: background)).Rooms;
         Changed?.Invoke();
     }
     private object State(bool includeQueue)
@@ -119,7 +119,7 @@ public sealed class ListenTogether(MusicSession session, MusicPlayer player)
             var connection = session.Api ?? throw new InvalidOperationException("Connect to join Listen Together.");
             var identity = ProfileIdentity;
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-            var result = await connection.RequestJsonAsync<ListeningRoomResponse>(HttpMethod.Post, "/api/listening/rooms/" + Uri.EscapeDataString(id) + "/join", new { }, timeout.Token);
+            var result = await connection.RequestJsonAsync<ListeningRoomResponse>(HttpMethod.Post, "/api/listening/rooms/" + Uri.EscapeDataString(id) + "/join", new { }, timeout.Token, background: fromPoke);
             if (!ReferenceEquals(connection, session.Api) || identity != ProfileIdentity) return;
             api = connection; Room = result.Room;
             await player.StopAsync();
@@ -172,6 +172,7 @@ public sealed class ListenTogether(MusicSession session, MusicPlayer player)
     private async Task PollAsync(long run, CancellationToken token)
     {
         var lastSuccess = Environment.TickCount64;
+        var userRevision = player.UserPlaybackRevision;
         while (!token.IsCancellationRequested && run == generation && Room is { } room)
         {
             try
@@ -184,15 +185,17 @@ public sealed class ListenTogether(MusicSession session, MusicPlayer player)
                 if (room.IsHost)
                 {
                     var key = string.Join('|', player.Queue.Select(t => t.Id));
+                    var revision = player.UserPlaybackRevision;
                     result = (await api!.RequestJsonAsync<ListeningRoomResponse>(HttpMethod.Put, "/api/listening/rooms/" + room.Id,
-                        await MainThread.InvokeOnMainThreadAsync(() => State(key != sentQueue)), timeout.Token)).Room;
+                        await MainThread.InvokeOnMainThreadAsync(() => State(key != sentQueue)), timeout.Token, background: revision == userRevision)).Room;
+                    userRevision = revision;
                     sentQueue = key;
                     hostRoundTrips.Enqueue((Environment.TickCount64 - started) / 1000d);
                     if (hostRoundTrips.Count > 8) hostRoundTrips.Dequeue();
                 }
                 else
                     result = (await api!.RequestJsonAsync<ListeningRoomResponse>(HttpMethod.Get,
-                        "/api/listening/rooms/" + room.Id + "?queue_revision=" + room.QueueRevision, cancellationToken: timeout.Token)).Room;
+                        "/api/listening/rooms/" + room.Id + "?queue_revision=" + room.QueueRevision, cancellationToken: timeout.Token, background: true)).Room;
                 if (run != generation) return;
                 var roundTrip = (Environment.TickCount64 - started) / 1000d;
                 guestBestRoundTrip = Math.Min(guestBestRoundTrip, roundTrip);

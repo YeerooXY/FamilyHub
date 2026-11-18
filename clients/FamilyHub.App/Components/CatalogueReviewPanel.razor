@@ -151,17 +151,30 @@
         if (pendingFocus is { } id) { pendingFocus = null; await JS.InvokeVoidAsync("familyhub.focus", id); }
     }
     private void Changed() { if (!disposed) _ = InvokeAsync(async () => { if (sourceIdentity is not null && sourceIdentity != Identity) { data = null; quality = []; editing = null; announcement = null; damagedLimit = unofficialLimit = trimmingLimit = metadataLimit = 100; focusRestores.Clear(); await JS.InvokeVoidAsync("familyhub.closeDialog", "metadata-review-dialog", "catalogue-review-title"); } StateHasChanged(); }); }
-    private async Task Poll() { try { while (!lifetime.IsCancellationRequested) { await Refresh(); await Task.Delay(15000, lifetime.Token); } } catch (OperationCanceledException) { } }
-    private async Task Refresh()
+    private async Task Poll()
+    {
+        var background = false;
+        try
+        {
+            while (!lifetime.IsCancellationRequested)
+            {
+                await Refresh(background);
+                background = true;
+                await Task.Delay(15000, lifetime.Token);
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+    private async Task Refresh(bool background = false)
     {
         if (!Session.UiActive || fetching || disposed || Session.Api is null || !Session.Connected) return;
         fetching = true;
         var identity = Identity;
         var revision = actionRevision;
         try {
-            var result = await Session.Api.RequestJsonAsync<CatalogueReviewSnapshot>(HttpMethod.Get, "/api/catalogue/review?limit=" + Math.Max(trimmingLimit, metadataLimit), cancellationToken: lifetime.Token);
-            var reportResult = result.CanEdit ? (await Session.Api.RequestJsonAsync<SongReports>(HttpMethod.Get, "/api/catalogue/reports", cancellationToken: lifetime.Token)).Reports : [];
-            List<SourceQualitySong> songs = result.CanEdit ? (await Session.Api.RequestJsonAsync<SourceQualitySnapshot>(HttpMethod.Get, "/api/catalogue/source-quality", cancellationToken: lifetime.Token)).Songs : [];
+            var result = await Session.Api.RequestJsonAsync<CatalogueReviewSnapshot>(HttpMethod.Get, "/api/catalogue/review?limit=" + Math.Max(trimmingLimit, metadataLimit), cancellationToken: lifetime.Token, background: background);
+            var reportResult = result.CanEdit ? (await Session.Api.RequestJsonAsync<SongReports>(HttpMethod.Get, "/api/catalogue/reports", cancellationToken: lifetime.Token, background: background)).Reports : [];
+            List<SourceQualitySong> songs = result.CanEdit ? (await Session.Api.RequestJsonAsync<SourceQualitySnapshot>(HttpMethod.Get, "/api/catalogue/source-quality", cancellationToken: lifetime.Token, background: background)).Songs : [];
             if (identity == Identity && !disposed && revision == actionRevision) {
                 if (data?.CanEdit == true && !result.CanEdit) {
                     await JS.InvokeVoidAsync("familyhub.focusIfWithin", ".catalogue-quality,.catalogue-actions", "catalogue-review-title");

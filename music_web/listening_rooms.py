@@ -8,6 +8,8 @@ import time
 
 from flask import g, jsonify, request, session
 
+from .resources import background_activity
+
 
 class RoomError(ValueError):
     def __init__(self, message, status=400):
@@ -65,6 +67,13 @@ class ListeningRooms:
     def renew_presence(self, room):
         if self.presence:
             self.presence.room(room['id'], room['updated'] + 30, room['state']['playing'])
+
+    def playback_heartbeat(self, identity):
+        with self.lock:
+            self.prune()
+            for room in self.rooms.values():
+                if room['host'] == identity and room['state']['playing'] and self.presence:
+                    self.presence.room(room['id'], self.clock() + 15)
 
     @staticmethod
     def validate(data, previous=None):
@@ -171,7 +180,7 @@ class ListeningRooms:
                 room['members'][identity] = self.clock()
             return self.snapshot(room, identity, known_queue)
 
-    def update(self, key, identity, data):
+    def update(self, key, identity, data, background=False):
         with self.lock:
             room = self.access(key)
             if room['host'] != identity:
@@ -180,7 +189,8 @@ class ListeningRooms:
             if state['queue'] != room['state']['queue']:
                 room['queue_revision'] += 1
             room.update(state=state, updated=self.clock(), revision=room['revision'] + 1)
-            self.renew_presence(room)
+            if not background:
+                self.renew_presence(room)
             return self.snapshot(room, identity, room['queue_revision'])
 
     def leave(self, key, identity):
@@ -252,5 +262,6 @@ def register_listening_rooms(app, body, profile_store, presence=None):
             rooms.leave(key, identity())
             return jsonify(left=True)
         known = request.args.get('queue_revision', type=int, default=0)
-        result = rooms.update(key, identity(), body(1048576)) if request.method == 'PUT' else rooms.read(key, identity(), known)
+        result = (rooms.update(key, identity(), body(1048576), background_activity())
+                  if request.method == 'PUT' else rooms.read(key, identity(), known))
         return jsonify(room=result)

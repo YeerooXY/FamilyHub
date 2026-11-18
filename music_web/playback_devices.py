@@ -54,20 +54,24 @@ class PlaybackDevices:
         for owner in list(self.active):
             if owner not in owners: del self.active[owner]
 
-    def _presence(self, user, device, playing, session=None):
+    def _presence(self, user, device, playing, session=None, background=False, room_heartbeat=None):
         if self.presence:
             key = (user, device)
-            self.presence.presence(key, 'listening' if playing else 'online-idle', self.ONLINE_SECONDS)
+            if playing or not background:
+                self.presence.presence(key, 'listening' if playing else 'online-idle', self.ONLINE_SECONDS)
             if not playing:
                 self.presence.pause(key, session)
+            elif room_heartbeat is not None:
+                room_heartbeat(session)
 
-    def report(self, user, device_id, info, playing, track=None, position=None, session=None):
+    def report(self, user, device_id, info, playing, track=None, position=None, session=None,
+               background=False, room_heartbeat=None):
         """Record a check-in; returns (play/pause handover command or None, remote control actions)."""
         if not DEVICE.fullmatch(device_id or ''): raise DeviceError('Invalid device id.')
         # Apps older than "Connect to a device" send no device_info and cannot take playback over.
         if not isinstance(info, dict):
             with self.lock:
-                self._presence(user, device_id, playing, session)
+                self._presence(user, device_id, playing, session, background, room_heartbeat)
             return None, []
         activation, sequence = info.get('activation', 0), info.get('sequence', 0)
         if any(type(value) is not int or not 0 <= value < 2 ** 63 for value in (activation, sequence)):
@@ -88,7 +92,7 @@ class PlaybackDevices:
             self.devices[key] = dict(id=device_id, name=clean_name(info.get('name')) or 'Unnamed device', kind=kind,
                                      playing=bool(playing), track=track if playing else None, position=position, at=now,
                                      sequence=sequence, activation=max(activation, previous.get('activation', 0)), following=following)
-            self._presence(user, device_id, playing and not following, session)
+            self._presence(user, device_id, playing and (background or not following), session, background, room_heartbeat)
             active = self.active.get(user)
             # Heartbeats repeat the last local play timestamp; only a newer user action can win.
             if not following and activation > previous.get('activation', 0) and (not active or activation > active['activation']):

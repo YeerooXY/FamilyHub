@@ -10,6 +10,9 @@ public sealed class FamilyHubApi : IDisposable
     private readonly HttpClient http;
     private CookieContainer cookies = new();
     private string? csrf;
+    public const string ActivityHeader = "X-FamilyHub-Activity";
+    public const string BackgroundActivity = "background";
+
     public Uri ServerOrigin { get; }
     public string? UserName { get; private set; }
     public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -70,15 +73,15 @@ public sealed class FamilyHubApi : IDisposable
         UserName = user.Trim();
     }
 
-    public Task<ServerStatistics> GetServerStatsAsync(CancellationToken cancellationToken = default) =>
-        RequestJsonAsync<ServerStatistics>(HttpMethod.Get, "/api/server/stats", cancellationToken: cancellationToken);
+    public Task<ServerStatistics> GetServerStatsAsync(CancellationToken cancellationToken = default, bool background = false) =>
+        RequestJsonAsync<ServerStatistics>(HttpMethod.Get, "/api/server/stats", cancellationToken: cancellationToken, background: background);
 
-    public Task<ActivityReceipt> ReportPlaybackActivityAsync(string deviceId, bool playing, CancellationToken cancellationToken = default, IReadOnlyList<ListeningCounter>? counters = null, string? counterDeviceId = null, MusicTrack? track = null, string? deviceName = null, string? deviceKind = null, double? position = null, long activation = 0, long sequence = 0, bool followingHost = false, string remoteDeviceId = "") =>
+    public Task<ActivityReceipt> ReportPlaybackActivityAsync(string deviceId, bool playing, CancellationToken cancellationToken = default, IReadOnlyList<ListeningCounter>? counters = null, string? counterDeviceId = null, MusicTrack? track = null, string? deviceName = null, string? deviceKind = null, double? position = null, long activation = 0, long sequence = 0, bool followingHost = false, string remoteDeviceId = "", bool background = false) =>
         RequestJsonAsync<ActivityReceipt>(HttpMethod.Post, "/api/playback/activity", new { device_id = deviceId, playing, counters, counter_device_id = counterDeviceId, track = track is null ? null : new { id = track.Id, title = track.Title, channel = track.Channel },
-            device_info = deviceName is null ? null : new { name = deviceName, kind = deviceKind, activation, sequence, following_host = followingHost, remote_device = remoteDeviceId }, position }, cancellationToken);
+            device_info = deviceName is null ? null : new { name = deviceName, kind = deviceKind, activation, sequence, following_host = followingHost, remote_device = remoteDeviceId }, position }, cancellationToken, background);
 
-    public Task<PlaybackDevicesResponse> GetPlaybackDevicesAsync(string deviceId, CancellationToken cancellationToken = default) =>
-        RequestJsonAsync<PlaybackDevicesResponse>(HttpMethod.Get, "/api/playback/devices?device_id=" + Uri.EscapeDataString(deviceId), cancellationToken: cancellationToken);
+    public Task<PlaybackDevicesResponse> GetPlaybackDevicesAsync(string deviceId, CancellationToken cancellationToken = default, bool background = false) =>
+        RequestJsonAsync<PlaybackDevicesResponse>(HttpMethod.Get, "/api/playback/devices?device_id=" + Uri.EscapeDataString(deviceId), cancellationToken: cancellationToken, background: background);
 
     public Task ControlPlaybackAsync(string fromDevice, string toDevice, string action, double? position = null, CancellationToken cancellationToken = default) =>
         RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/playback/control", new { from = fromDevice, to = toDevice, action, position }, cancellationToken);
@@ -90,18 +93,18 @@ public sealed class FamilyHubApi : IDisposable
         (await RequestJsonAsync<LibraryResponse>(HttpMethod.Get, "/api/library", null, cancellationToken)).Results;
 
     // Background refreshes: null when the list has not changed since this connection last read it.
-    public async Task<List<MusicTrack>?> GetLibraryIfChangedAsync(CancellationToken cancellationToken = default) =>
-        (await GetIfChangedAsync<LibraryResponse>("/api/library", cancellationToken))?.Results;
+    public async Task<List<MusicTrack>?> GetLibraryIfChangedAsync(CancellationToken cancellationToken = default, bool background = false) =>
+        (await GetIfChangedAsync<LibraryResponse>("/api/library", cancellationToken, background))?.Results;
 
-    public async Task<List<MusicPlaylist>?> GetPlaylistsIfChangedAsync(CancellationToken cancellationToken = default) =>
-        (await GetIfChangedAsync<PlaylistsResponse>("/api/playlists", cancellationToken))?.Playlists;
+    public async Task<List<MusicPlaylist>?> GetPlaylistsIfChangedAsync(CancellationToken cancellationToken = default, bool background = false) =>
+        (await GetIfChangedAsync<PlaylistsResponse>("/api/playlists", cancellationToken, background))?.Playlists;
 
     private readonly Dictionary<string, string> listTags = [];
-    private async Task<T?> GetIfChangedAsync<T>(string path, CancellationToken cancellationToken) where T : class
+    private async Task<T?> GetIfChangedAsync<T>(string path, CancellationToken cancellationToken, bool background) where T : class
     {
         string? tag;
         lock (listTags) listTags.TryGetValue(path, out tag);
-        using var response = await SendAsync(HttpMethod.Get, path, null, cancellationToken, ifNoneMatch: tag);
+        using var response = await SendAsync(HttpMethod.Get, path, null, cancellationToken, ifNoneMatch: tag, background: background);
         if (response.StatusCode == System.Net.HttpStatusCode.NotModified && tag is not null) return null;
         await EnsureSuccessAsync(response, cancellationToken);
         var value = await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken)
@@ -116,10 +119,10 @@ public sealed class FamilyHubApi : IDisposable
 
     public Task LegacyLoginAsync(string user, string password, CancellationToken cancellationToken = default) => LoginAsync(user, password, cancellationToken);
 
-    public async Task<ProfileConnection> ConnectAsync(CancellationToken cancellationToken = default)
+    public async Task<ProfileConnection> ConnectAsync(CancellationToken cancellationToken = default, bool background = false)
     {
         ProfileConnection result;
-        try { result = await RequestJsonAsync<ProfileConnection>(HttpMethod.Get, "/api/connect", cancellationToken: cancellationToken); }
+        try { result = await RequestJsonAsync<ProfileConnection>(HttpMethod.Get, "/api/connect", cancellationToken: cancellationToken, background: background); }
         catch (FamilyHubApiException error) when (error.StatusCode is 404 or 409)
         { throw new InvalidOperationException("Family profiles are unavailable on this server. Check the server address and enable family profile mode on the server.", error); }
         if (!result.FamilyProfiles || string.IsNullOrWhiteSpace(result.CsrfToken))
@@ -128,10 +131,10 @@ public sealed class FamilyHubApi : IDisposable
         return result;
     }
 
-    public async Task<ProfileSelection> SelectProfileAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<ProfileSelection> SelectProfileAsync(string id, CancellationToken cancellationToken = default, bool background = false)
     {
         if (string.IsNullOrWhiteSpace(id) || id.Length > 64) throw new ArgumentException("Choose a profile.");
-        var result = await RequestJsonAsync<ProfileSelection>(HttpMethod.Post, "/api/profile/select", new { profile_id = id }, cancellationToken);
+        var result = await RequestJsonAsync<ProfileSelection>(HttpMethod.Post, "/api/profile/select", new { profile_id = id }, cancellationToken, background);
         if (result.Profile.Id != id || string.IsNullOrWhiteSpace(result.CsrfToken))
             throw new InvalidDataException("The server returned an invalid profile selection.");
         csrf = result.CsrfToken;
@@ -148,11 +151,11 @@ public sealed class FamilyHubApi : IDisposable
     public async Task<ListenerPreferences> SaveSpotifyStatusAsync(bool subscribed, CancellationToken cancellationToken = default) =>
         (await RequestJsonAsync<PreferencesResponse>(HttpMethod.Patch, "/api/profile/preferences", new { spotify_subscribed = subscribed }, cancellationToken)).Preferences;
 
-    public async Task<ListenerPreferences> SavePreferencesAsync(ListenerPreferences preferences, CancellationToken cancellationToken = default)
+    public async Task<ListenerPreferences> SavePreferencesAsync(ListenerPreferences preferences, CancellationToken cancellationToken = default, bool background = false)
     {
         if (!double.IsFinite(preferences.Volume) || preferences.Volume is < 0 or > 1) throw new ArgumentException("Volume must be between zero and one.");
         if (preferences.VolumeLevel is not ("loud" or "normal" or "quiet")) throw new ArgumentException("Choose Loud, Normal or Quiet volume level.");
-        return (await RequestJsonAsync<PreferencesResponse>(HttpMethod.Patch, "/api/profile/preferences", new { listening_history_paused = preferences.ListeningHistoryPaused, volume_level = preferences.VolumeLevel, volume = preferences.Volume, shuffle = preferences.Shuffle, auto_dj = preferences.AutoDj, crossfade_seconds = preferences.CrossfadeSeconds, repeat_mode = preferences.RepeatMode }, cancellationToken)).Preferences;
+        return (await RequestJsonAsync<PreferencesResponse>(HttpMethod.Patch, "/api/profile/preferences", new { listening_history_paused = preferences.ListeningHistoryPaused, volume_level = preferences.VolumeLevel, volume = preferences.Volume, shuffle = preferences.Shuffle, auto_dj = preferences.AutoDj, crossfade_seconds = preferences.CrossfadeSeconds, repeat_mode = preferences.RepeatMode }, cancellationToken, background)).Preferences;
     }
 
     public async Task<List<MusicPlaylist>> GetPlaylistsAsync(CancellationToken cancellationToken = default) =>
@@ -176,9 +179,9 @@ public sealed class FamilyHubApi : IDisposable
         await EnsureSuccessAsync(response, cancellationToken);
     }
 
-    public async Task<T> RequestJsonAsync<T>(HttpMethod method, string path, object? body = null, CancellationToken cancellationToken = default)
+    public async Task<T> RequestJsonAsync<T>(HttpMethod method, string path, object? body = null, CancellationToken cancellationToken = default, bool background = false)
     {
-        using var response = await SendAsync(method, path, body is null ? null : JsonContent.Create(body, options: JsonOptions), cancellationToken);
+        using var response = await SendAsync(method, path, body is null ? null : JsonContent.Create(body, options: JsonOptions), cancellationToken, background: background);
         await EnsureSuccessAsync(response, cancellationToken);
         return await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken)
             ?? throw new InvalidDataException("The server returned no data.");
@@ -196,19 +199,19 @@ public sealed class FamilyHubApi : IDisposable
         return await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, cancellationToken);
     }
 
-    public Task<HttpResponseMessage> OpenDownloadAsync(MusicTrack track, long offset, CancellationToken cancellationToken = default) =>
-        SendAsync(HttpMethod.Get, track.DownloadUrl, null, cancellationToken, offset, track.DownloadSha256);
+    public Task<HttpResponseMessage> OpenDownloadAsync(MusicTrack track, long offset, CancellationToken cancellationToken = default, bool background = false) =>
+        SendAsync(HttpMethod.Get, track.DownloadUrl, null, cancellationToken, offset, track.DownloadSha256, background: background);
 
     public Task<AppRelease> GetAppReleaseAsync(string platform, CancellationToken cancellationToken = default) =>
-        RequestJsonAsync<AppRelease>(HttpMethod.Get, "/api/app-updates/" + Uri.EscapeDataString(platform), cancellationToken: cancellationToken);
+        RequestJsonAsync<AppRelease>(HttpMethod.Get, "/api/app-updates/" + Uri.EscapeDataString(platform), cancellationToken: cancellationToken, background: true);
 
     public Task<HttpResponseMessage> OpenAppUpdateAsync(AppRelease release, CancellationToken cancellationToken = default) =>
         SendAsync(HttpMethod.Get, release.DownloadUrl, null, cancellationToken);
 
-    public Task<SongLyrics> GetLyricsAsync(string id, CancellationToken cancellationToken = default)
+    public Task<SongLyrics> GetLyricsAsync(string id, CancellationToken cancellationToken = default, bool background = false)
     {
         if (!Regex.IsMatch(id, "^(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})$")) throw new ArgumentException("Invalid recording identifier.");
-        return RequestJsonAsync<SongLyrics>(HttpMethod.Get, "/api/library/" + id + "/lyrics", cancellationToken: cancellationToken);
+        return RequestJsonAsync<SongLyrics>(HttpMethod.Get, "/api/library/" + id + "/lyrics", cancellationToken: cancellationToken, background: background);
     }
 
     public async Task<string> GetArtworkAsync(string id, CancellationToken cancellationToken = default)
@@ -219,7 +222,7 @@ public sealed class FamilyHubApi : IDisposable
 
     public async Task<string> GetImageAsync(string path, CancellationToken cancellationToken = default)
     {
-        using var response = await SendAsync(HttpMethod.Get, path, null, cancellationToken);
+        using var response = await SendAsync(HttpMethod.Get, path, null, cancellationToken, background: true);
         await EnsureSuccessAsync(response, cancellationToken);
         var mime = response.Content.Headers.ContentType?.MediaType?.ToLowerInvariant();
         const int maximum = 2 * 1024 * 1024;
@@ -256,13 +259,14 @@ public sealed class FamilyHubApi : IDisposable
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent? content,
-        CancellationToken cancellationToken, long rangeStart = 0, string? etag = null, string? ifNoneMatch = null)
+        CancellationToken cancellationToken, long rangeStart = 0, string? etag = null, string? ifNoneMatch = null, bool background = false)
     {
         var uri = ResolveUri(path);
         for (var redirects = 0; redirects < 6; redirects++)
         {
             using var request = new HttpRequestMessage(method, uri) { Content = content };
             request.Headers.Add("Origin", ServerOrigin.GetLeftPart(UriPartial.Authority));
+            if (background) request.Headers.Add(ActivityHeader, BackgroundActivity);
             var cookieHeader = cookies.GetCookieHeader(uri);
             if (cookieHeader.Length > 0) request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
             if (method != HttpMethod.Get && method != HttpMethod.Head && csrf is not null)

@@ -7,6 +7,22 @@ public partial class MainPage : ContentPage
     private readonly Services.MusicPlayer player;
 #if WINDOWS
     private readonly Services.DiscordPresence discord;
+    private long? lastFocusRequest;
+
+    private async Task ReportWindowFocusAsync()
+    {
+        var now = Environment.TickCount64;
+        if (!session.Connected || session.Api is not { } api || lastFocusRequest is { } last && now - last < 60_000) return;
+        lastFocusRequest = now;
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+            await api.GetPreferencesAsync(timeout.Token);
+        }
+        catch (Exception error) when (error is HttpRequestException or FamilyHub.Client.Core.FamilyHubApiException
+            or OperationCanceledException or ObjectDisposedException or System.Text.Json.JsonException) { }
+    }
+
     private void UpdateDiscord()
     {
         if (Dispatcher.IsDispatchRequired) { Dispatcher.Dispatch(UpdateDiscord); return; }
@@ -37,6 +53,9 @@ public partial class MainPage : ContentPage
         refreshTimer ??= CreateRefreshTimer();
         if (!active) { session.FlushListening(); if (player.Playing || Math.Abs(player.Position - lastPlaybackPosition) > .25) SavePlayback(); refreshTimer.Stop(); return; }
         refreshTimer.Start();
+#if WINDOWS
+        _ = ReportWindowFocusAsync();
+#endif
         if (DateTime.UtcNow - lastRefresh > TimeSpan.FromSeconds(15)) _ = RefreshLibrary();
     }
     private string? restoredProfile;
@@ -44,22 +63,25 @@ public partial class MainPage : ContentPage
     private DateTime lastPlaybackSave;
     private double lastPlaybackPosition;
     private string lastPlaybackIdentity = "";
-    private void SavePlayback()
+    private long lastUserPlaybackRevision;
+    private void SavePlayback(bool background = true)
     {
         if (restoringPlayback || restoredProfile != session.Server + "|" + session.User) return;
         var state = player.CaptureResume();
         if (state is null) return;
-        _ = session.SavePlaybackAsync(state);
+        _ = session.SavePlaybackAsync(state, background);
         lastPlaybackSave = DateTime.UtcNow; lastPlaybackPosition = state.Position;
     }
     private void PlaybackChanged()
     {
         session.ObserveListening(player.Preparing || player.Seeking ? null : player.Current, player.QueueIndex, player.Position, player.Playing);
         if (player.Seeking) return;
-        _ = session.ReportPlaybackActivityAsync(player.Playing, player.Position, player.FollowingHost, player.RemoteDeviceId);
+        var background = player.UserPlaybackRevision == lastUserPlaybackRevision;
+        lastUserPlaybackRevision = player.UserPlaybackRevision;
+        _ = session.ReportPlaybackActivityAsync(player.Playing, player.Position, player.FollowingHost, player.RemoteDeviceId, background);
         var identity = player.Current?.Id + ":" + player.QueueIndex + ":" + player.Queue.Count + ":" + player.PlaybackRequested + ":" + player.ControlRevision + ":" + player.Shuffle;
         if (identity != lastPlaybackIdentity || !player.Playing && Math.Abs(player.Position - lastPlaybackPosition) > .25 || player.Playing && DateTime.UtcNow - lastPlaybackSave > TimeSpan.FromSeconds(15))
-        { lastPlaybackIdentity = identity; SavePlayback(); }
+        { lastPlaybackIdentity = identity; SavePlayback(background); }
     }
     // While this device's music plays elsewhere, mirror that device's song, position and state.
     private int remoteMisses;
@@ -73,7 +95,7 @@ public partial class MainPage : ContentPage
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
             var target = player.RemoteDeviceId;
-            var device = (await api.GetPlaybackDevicesAsync(session.DeviceId, timeout.Token)).Devices.FirstOrDefault(d => d.Id == target);
+            var device = (await api.GetPlaybackDevicesAsync(session.DeviceId, timeout.Token, background: true)).Devices.FirstOrDefault(d => d.Id == target);
             if (!ReferenceEquals(api, session.Api) || !player.RemoteActive || player.RemoteDeviceId != target) return;
             if (device is null) { if (++remoteMisses >= 3) player.LeaveRemote(); return; }
             remoteMisses = 0;

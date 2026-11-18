@@ -104,7 +104,7 @@ public sealed class OfflineLibrary
     }
 
     public async Task<string> DownloadAsync(MusicTrack track, FamilyHubApi api, CancellationToken cancellationToken = default,
-        IProgress<DownloadProgress>? progress = null, OfflineLibrary? sourceCache = null)
+        IProgress<DownloadProgress>? progress = null, OfflineLibrary? sourceCache = null, bool background = false)
     {
         ValidateTrack(track);
         if (api.ServerOrigin != server) throw new ArgumentException("The download belongs to a different server.");
@@ -140,7 +140,7 @@ public sealed class OfflineLibrary
             if (offset > track.DownloadSize) { File.Delete(part); offset = 0; }
             if (offset < track.DownloadSize)
             {
-                using var response = await api.OpenDownloadAsync(track, offset, cancellationToken);
+                using var response = await api.OpenDownloadAsync(track, offset, cancellationToken, background);
                 await FamilyHubApi.EnsureSuccessAsync(response, cancellationToken);
                 if (response.Content.Headers.ContentEncoding.Any()) throw new InvalidDataException("Encoded download responses cannot be resumed safely.");
                 if (response.StatusCode == HttpStatusCode.PartialContent)

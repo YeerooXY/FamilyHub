@@ -121,7 +121,7 @@
         {
             try
             {
-                var result = await api.GetLyricsAsync(id, cancel.Token);
+                var result = await api.GetLyricsAsync(id, cancel.Token, background: true);
                 lock (cache) { if (cache.Count >= 60) cache.Clear(); cache[id] = result; }
                 await InvokeAsync(() => { if (loadedFor != id) return; lyrics = result; active = ActiveLine(); StateHasChanged(); });
             }

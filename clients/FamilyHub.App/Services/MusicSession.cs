@@ -86,7 +86,7 @@ public sealed class MusicSession
     public void FlushListening() => listeningJournal?.Flush();
     private DateTime lastActivity;
     private bool lastActivityPlaying, activityInFlight;
-    private (bool Playing, double? Position, bool FollowingHost, string RemoteDeviceId)? pendingActivity;
+    private (bool Playing, double? Position, bool FollowingHost, string RemoteDeviceId, bool Background)? pendingActivity;
     private string lastActivityTrackId = "";
     private FamilyHubApi? lastActivityApi;
     private long activitySequence, activationWatermark, lastActivityActivation;
@@ -102,12 +102,12 @@ public sealed class MusicSession
     /// <summary>Raised for each play/pause/next/previous/seek the controlling device sends.</summary>
     public event Action<PlaybackControl>? RemoteControlReceived;
     private readonly HashSet<string> handovers = [], controlsSeen = [];
-    public async Task ReportPlaybackActivityAsync(bool playing, double? position = null, bool followingHost = false, string remoteDeviceId = "")
+    public async Task ReportPlaybackActivityAsync(bool playing, double? position = null, bool followingHost = false, string remoteDeviceId = "", bool background = true)
     {
         if (DateTime.UtcNow - lastHistorySync > TimeSpan.FromMinutes(1)) { lastHistorySync = DateTime.UtcNow; _ = SyncHistoryAsync(); }
         var api = Api;
         if (!Connected || api is null) return;
-        if (activityInFlight) { pendingActivity = (playing, position, followingHost, remoteDeviceId); return; }
+        if (activityInFlight) { pendingActivity = (playing, position, followingHost, remoteDeviceId, background && pendingActivity?.Background != false); return; }
         var currentTrack = playing ? activityTrack : null;
         var trackId = currentTrack?.Id ?? "";
         var activation = PlaybackActivation;
@@ -121,7 +121,7 @@ public sealed class MusicSession
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
             var journal = listeningJournal;
             var counters = journal?.Pending();
-            var receipt = await api.ReportPlaybackActivityAsync(activityDevice, playing, timeout.Token, counters, journal?.DeviceId, currentTrack, DeviceName, DeviceKind, position, activation, ++activitySequence, followingHost, remoteDeviceId);
+            var receipt = await api.ReportPlaybackActivityAsync(activityDevice, playing, timeout.Token, counters, journal?.DeviceId, currentTrack, DeviceName, DeviceKind, position, activation, ++activitySequence, followingHost, remoteDeviceId, background);
             if (receipt.CountersAccepted && journal is not null && counters is { Count: > 0 }) journal.Acknowledge(counters);
             if (profileVersion != accountVersion || !ReferenceEquals(api, Api)) return;
             if (receipt.Command is { } command) activationWatermark = Math.Max(activationWatermark, command.Activation);
@@ -140,7 +140,7 @@ public sealed class MusicSession
             activityInFlight = false;
             var pending = pendingActivity; pendingActivity = null;
             if (profileVersion == accountVersion && pending is { } next)
-                await ReportPlaybackActivityAsync(next.Playing, next.Position, next.FollowingHost, next.RemoteDeviceId);
+                await ReportPlaybackActivityAsync(next.Playing, next.Position, next.FollowingHost, next.RemoteDeviceId, next.Background);
         }
     }
 
@@ -172,7 +172,7 @@ public sealed class MusicSession
         catch { Message = "Could not read the saved connection. Enter your server again."; }
         Ready = true;
         Changed?.Invoke();
-        if (Api is not null) _ = ReconnectAsync();
+        if (Api is not null) _ = ReconnectAsync(background: true);
     }
 
     private void Configure(string server, string user, FamilyHubApi? authenticatedApi = null, OfflineLibrary? offline = null)
@@ -351,7 +351,7 @@ public sealed class MusicSession
             // Dirty offline preferences (including pause) reach the server before queued events.
             if (ReadPreferences().Dirty)
             {
-                var saved = await api.SavePreferencesAsync(PlaybackPreferences, timeout.Token);
+                var saved = await api.SavePreferencesAsync(PlaybackPreferences, timeout.Token, background: true);
                 if (version != accountVersion) return;
                 PlaybackPreferences = saved; StorePreferences(saved, false);
             }
@@ -359,7 +359,7 @@ public sealed class MusicSession
             {
                 var batch = ReadHistory<List<ListeningEvent>>(":pending", []).Take(100).ToList();
                 if (batch.Count == 0) break;
-                var ack = await api.RequestJsonAsync<HistoryAck>(HttpMethod.Post, "/api/listening/events", new { events = batch }, timeout.Token);
+                var ack = await api.RequestJsonAsync<HistoryAck>(HttpMethod.Post, "/api/listening/events", new { events = batch }, timeout.Token, background: true);
                 if (version != accountVersion) return;
                 var ids = ack.Acknowledged.ToHashSet();
                 if (!batch.All(e => ids.Contains(e.EventId))) return;
@@ -369,7 +369,7 @@ public sealed class MusicSession
                     WriteHistory(":pending", pending);
                 }
             }
-            var summary = await api.RequestJsonAsync<ListeningSummary>(HttpMethod.Get, "/api/listening/summary", cancellationToken: timeout.Token);
+            var summary = await api.RequestJsonAsync<ListeningSummary>(HttpMethod.Get, "/api/listening/summary", cancellationToken: timeout.Token, background: true);
             if (version != accountVersion) return;
             var previous = ReadHistory<ListeningSummary?>(":summary", null);
             if (summary.ClearedAt is { } cleared && (previous?.ClearedAt is null || cleared > previous.ClearedAt))
@@ -562,7 +562,7 @@ public sealed class MusicSession
             try
             {
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-                PlaybackPreferences = await candidate.SavePreferencesAsync(cached.Value, timeout.Token);
+                PlaybackPreferences = await candidate.SavePreferencesAsync(cached.Value, timeout.Token, background: true);
                 StorePreferences(PlaybackPreferences, false);
             }
             catch (Exception error) when (error is HttpRequestException or IOException or FamilyHubApiException or OperationCanceledException)
@@ -598,7 +598,7 @@ public sealed class MusicSession
         await ReconnectAsync();
     }
 
-    public async Task ReconnectAsync()
+    public async Task ReconnectAsync(bool background = false)
     {
         await connectionLock.WaitAsync();
         FamilyHubApi? candidate = null;
@@ -608,7 +608,7 @@ public sealed class MusicSession
             RequireIdleDownload();
             candidate = createApi(new Uri(Server));
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            var connection = await candidate.ConnectAsync(timeout.Token);
+            var connection = await candidate.ConnectAsync(timeout.Token, background);
             StoreProfiles(Server, connection.Profiles);
             if (string.IsNullOrEmpty(User) || !connection.Profiles.Any(p => p.Id == User))
             {
@@ -616,10 +616,10 @@ public sealed class MusicSession
                 ClearProfile(); Profiles = connection.Profiles; PersistConnection();
                 SetMessage("Choose who's listening."); return;
             }
-            var selection = await candidate.SelectProfileAsync(User, timeout.Token);
+            var selection = await candidate.SelectProfileAsync(User, timeout.Token, background);
             await ApplySelectionAsync(candidate, selection, connection.Profiles);
             candidate = null;
-            await RefreshAsync();
+            await RefreshAsync(background);
         }
         catch (Exception error) { OfflineError(error); }
         finally { if (!ReferenceEquals(Api, candidate)) candidate?.Dispose(); connectionLock.Release(); }
@@ -671,10 +671,10 @@ public sealed class MusicSession
             for (var attempt = 0; ; attempt++)
             {
                 if (attempt == quietRetries.Length) retryingQuietly = false;
-                if (!Connected) await ReconnectAsync();
+                if (!Connected) await ReconnectAsync(background: true);
                 else if (await connectionLock.WaitAsync(0))
                 {
-                    try { await RefreshAsync(); }
+                    try { await RefreshAsync(background: true); }
                     finally { connectionLock.Release(); }
                 }
                 else return;
@@ -702,13 +702,13 @@ public sealed class MusicSession
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            var stats = await api.GetServerStatsAsync(timeout.Token);
+            var stats = await api.GetServerStatsAsync(timeout.Token, background: true);
             if (version == accountVersion) UpdateTopListener(stats);
         }
         catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException or System.Text.Json.JsonException) { }
     }
 
-    public async Task RefreshAsync()
+    public async Task RefreshAsync(bool background = false)
     {
         if (Api is null || Offline is null) return;
         _ = RefreshTopListenerAsync(Api, accountVersion);
@@ -719,8 +719,8 @@ public sealed class MusicSession
         try
         {
             // Unchanged lists come back as null and cost a few hundred bytes instead of the full list.
-            var changedLibrary = await api.GetLibraryIfChangedAsync(timeout.Token);
-            var changedPlaylists = await api.GetPlaylistsIfChangedAsync(timeout.Token);
+            var changedLibrary = await api.GetLibraryIfChangedAsync(timeout.Token, background);
+            var changedPlaylists = await api.GetPlaylistsIfChangedAsync(timeout.Token, background);
             if (version != accountVersion) return;
             if (changedLibrary is not null) await offline.SaveLibraryAsync(changedLibrary);
             if (changedPlaylists is not null) await offline.SavePlaylistsAsync(changedPlaylists);
@@ -1044,7 +1044,7 @@ public sealed class MusicSession
     public void StreamingFailed() => streamingFailed = true;
     public static bool IsStream(string source) => source.StartsWith("https://", StringComparison.Ordinal);
 
-    public async Task<string> StreamPlaybackAsync(MusicTrack track, double lead, CancellationToken cancellationToken)
+    public async Task<string> StreamPlaybackAsync(MusicTrack track, double lead, CancellationToken cancellationToken, bool background = false)
     {
         track = CurrentRecording(track);
         var api = OnlineApi();
@@ -1057,7 +1057,7 @@ public sealed class MusicSession
         }
         if (track.PlaybackInfoUrl != $"/api/library/{track.Id}/playback-info")
             throw new InvalidDataException("Streaming is unavailable for this recording.");
-        var info = await api.RequestJsonAsync<MusicTrack>(HttpMethod.Get, PlaybackInfoUrl(track, ActiveStreamingQuality, lead), cancellationToken: cancellationToken);
+        var info = await api.RequestJsonAsync<MusicTrack>(HttpMethod.Get, PlaybackInfoUrl(track, ActiveStreamingQuality, lead), cancellationToken: cancellationToken, background: background);
         EnsureCurrent(version);
         if (info.Id != track.Id || info.StreamUrl.Length == 0) throw new InvalidDataException("The stream link does not match this recording.");
         var stream = api.ResolveUri(info.StreamUrl).AbsoluteUri;
@@ -1069,7 +1069,7 @@ public sealed class MusicSession
     private static string PlaybackInfoUrl(MusicTrack track, string quality, double lead) =>
         $"{track.PlaybackInfoUrl}?quality={quality}&lead={Math.Clamp(lead, 0, 3600).ToString("0", System.Globalization.CultureInfo.InvariantCulture)}";
 
-    public async Task<string> CachePlaybackAsync(MusicTrack track, CancellationToken cancellationToken, double lead = 0)
+    public async Task<string> CachePlaybackAsync(MusicTrack track, CancellationToken cancellationToken, double lead = 0, bool background = false)
     {
         track = CurrentRecording(track);
         cancellationToken.ThrowIfCancellationRequested();
@@ -1080,9 +1080,9 @@ public sealed class MusicSession
         var quality = ActiveStreamingQuality;
         EnsurePlaybackCaches();
         var cache = playbackCaches[quality];
-        track = await PlaybackEditionAsync(track, api, quality, cancellationToken, lead);
+        track = await PlaybackEditionAsync(track, api, quality, cancellationToken, lead, background);
         EnsureCurrent(version);
-        var path = await cache.DownloadAsync(track, api, cancellationToken);
+        var path = await cache.DownloadAsync(track, api, cancellationToken, background: background);
         cancellationToken.ThrowIfCancellationRequested();
         EnsureCurrent(version);
         playbackRecords[path] = track;
@@ -1094,13 +1094,13 @@ public sealed class MusicSession
         return path;
     }
 
-    private static async Task<MusicTrack> PlaybackEditionAsync(MusicTrack track, FamilyHubApi api, string quality, CancellationToken token, double lead = 0)
+    private static async Task<MusicTrack> PlaybackEditionAsync(MusicTrack track, FamilyHubApi api, string quality, CancellationToken token, double lead = 0, bool background = false)
     {
         if (quality == "max") return track;
         if (track.PlaybackInfoUrl != $"/api/library/{track.Id}/playback-info")
             throw new InvalidDataException("Audio quality is unavailable for this recording. Refresh the library and try again.");
         var url = PlaybackInfoUrl(track, quality, lead);
-        var compressed = await api.RequestJsonAsync<MusicTrack>(HttpMethod.Get, url, cancellationToken: token);
+        var compressed = await api.RequestJsonAsync<MusicTrack>(HttpMethod.Get, url, cancellationToken: token, background: background);
         if (compressed.Id != track.Id || compressed.PlaybackSourceSha256 != track.DownloadSha256)
             throw new InvalidDataException("The playback copy does not match this recording.");
         return compressed;
@@ -1231,7 +1231,7 @@ public sealed class MusicSession
         try { Offline.SavePlayback(value with { UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
-    public async Task SavePlaybackAsync(PlaybackResume? value)
+    public async Task SavePlaybackAsync(PlaybackResume? value, bool background = false)
     {
         SavePlaybackLocally(value);
         if (value is not { IsValid: true } || !Connected || Api is null) return;
@@ -1246,7 +1246,7 @@ public sealed class MusicSession
             try
             {
                 await api.RequestJsonAsync<SavedPlayback>(full ? HttpMethod.Put : HttpMethod.Patch, "/api/profile/playback",
-                    new { profile_id = owner, playback = full ? (object)value : new { track_id = value.TrackIds[value.Index], index = value.Index, position = value.Position } }, timeout.Token);
+                    new { profile_id = owner, playback = full ? (object)value : new { track_id = value.TrackIds[value.Index], index = value.Index, position = value.Position } }, timeout.Token, background);
                 savedQueueIdentity = identity;
             }
             catch (FamilyHubApiException) { savedQueueIdentity = ""; throw; }
@@ -1263,7 +1263,7 @@ public sealed class MusicSession
             try
             {
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
-                var remote = await Api.RequestJsonAsync<SavedPlayback>(HttpMethod.Get, "/api/profile/playback", cancellationToken: timeout.Token);
+                var remote = await Api.RequestJsonAsync<SavedPlayback>(HttpMethod.Get, "/api/profile/playback", cancellationToken: timeout.Token, background: true);
                 EnsureCurrent(version);
                 if (remote.ProfileId == owner && remote.Playback is { IsValid: true } state && (local is null || state.UpdatedAt > local.UpdatedAt))
                 { Offline?.SavePlayback(state); return state; }
@@ -1274,10 +1274,10 @@ public sealed class MusicSession
     }
     public async Task<List<MusicTrack>> SearchAsync(string query, CancellationToken cancellationToken = default) =>
         (await SearchPageAsync(query, 0, cancellationToken)).Tracks;
-    public async Task<SearchPage> SearchPageAsync(string query, int offset, CancellationToken cancellationToken = default)
+    public async Task<SearchPage> SearchPageAsync(string query, int offset, CancellationToken cancellationToken = default, bool background = false)
     {
         var version = accountVersion;
-        var result = await OnlineApi().RequestJsonAsync<SearchPage>(HttpMethod.Post, "/api/search", new { query, offset }, cancellationToken);
+        var result = await OnlineApi().RequestJsonAsync<SearchPage>(HttpMethod.Post, "/api/search", new { query, offset }, cancellationToken, background);
         EnsureCurrent(version);
         return result;
     }
@@ -1298,7 +1298,8 @@ public sealed class MusicSession
         for (var page = 0; page < 4 && offset is not null; page++)
         {
             var result = await OnlineApi().RequestJsonAsync<Results>(HttpMethod.Post, "/api/recommendations",
-                new { query = artist[..Math.Min(artist.Length, 120)] + " official audio", seed_artist = artist[..Math.Min(artist.Length, 120)], offset = offset.Value });
+                new { query = artist[..Math.Min(artist.Length, 120)] + " official audio", seed_artist = artist[..Math.Min(artist.Length, 120)], offset = offset.Value },
+                background: page > 0);
             EnsureCurrent(version); seedGenre ??= result.SeedGenre;
             candidates.AddRange(result.Tracks); offset = result.NextOffset;
         }
@@ -1307,13 +1308,13 @@ public sealed class MusicSession
             .DistinctBy(Similarity.SongKey));
     }
 
-    public async Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken cancellationToken, bool allowPreview = false)
+    public async Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken cancellationToken, bool allowPreview = false, bool background = false)
     {
         if (!string.IsNullOrEmpty(track.DownloadUrl)) return track;
         var version = accountVersion;
         var api = OnlineApi();
         var created = await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, "/api/jobs",
-            new { url = track.Url, title = track.Title, channel = track.Channel, allow_new = true }, cancellationToken);
+            new { url = track.Url, title = track.Title, channel = track.Channel, allow_new = true }, cancellationToken, background);
         var job = created.GetProperty("job");
         var id = job.GetProperty("id").GetString();
         while (job.GetProperty("state").GetString() is "queued" or "running")
@@ -1324,7 +1325,7 @@ public sealed class MusicSession
                 return track with { StreamUrl = url, PlaybackVersion = "preview-hls" };
             }
             await Task.Delay(1000, cancellationToken);
-            job = (await api.RequestJsonAsync<JsonElement>(HttpMethod.Get, "/api/jobs/" + id, cancellationToken: cancellationToken)).GetProperty("job");
+            job = (await api.RequestJsonAsync<JsonElement>(HttpMethod.Get, "/api/jobs/" + id, cancellationToken: cancellationToken, background: true)).GetProperty("job");
         }
         if (job.GetProperty("state").GetString() != "done")
         {
@@ -1334,7 +1335,7 @@ public sealed class MusicSession
                 ? "The server could not prepare this recording." : message);
         }
         EnsureCurrent(version);
-        await RefreshAsync();
+        await RefreshAsync(background: true);
         EnsureCurrent(version);
         return Library.FirstOrDefault(t => t.Id == track.Id) ?? throw new InvalidOperationException("The recording is not in the server library yet. Refresh and try again.");
     }
