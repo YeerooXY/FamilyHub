@@ -537,10 +537,18 @@ window.familyhub.bindSheet = (id, closeId) => {
  let start=null, moved=0, draggedAt=0;
  // A drag that springs back is not a tap on the row under the finger.
  sheet.addEventListener('click',e=>{ if(Date.now()-draggedAt<350){ e.stopPropagation(); e.preventDefault(); } },true);
- sheet.addEventListener('pointerdown',e=>{ if(!familyhub.isPhone()||!sheet.classList.contains('is-open')||sheet.scrollTop>0||e.target.closest('input,select,dialog'))return; start=e.clientY; moved=0; },{passive:true});
- sheet.addEventListener('pointermove',e=>{ if(start===null)return; moved=Math.max(0,e.clientY-start); if(moved>6){ sheet.style.transition='none'; sheet.style.transform=`translateY(${moved}px)`; } },{passive:true});
+ const begin=(y,target)=>{ if(!familyhub.isPhone()||!sheet.classList.contains('is-open')||sheet.scrollTop>0||target.closest('input,select,dialog'))return; start=y; moved=0; };
+ const move=y=>{ moved=Math.max(0,y-start); if(moved>6){ sheet.style.transition='none'; sheet.style.transform=`translateY(${moved}px)`; } };
  const end=()=>{ if(start===null)return; start=null; sheet.style.transition=''; sheet.style.transform=''; if(moved>90){ document.getElementById(closeId)?.click(); } if(moved>6)draggedAt=Date.now(); };
- sheet.addEventListener('pointerup',end); sheet.addEventListener('pointercancel',end);
+ // Touch: the sheet scrolls vertically, so the browser would claim a downward swipe and cancel the drag.
+ // At the top of the sheet a downward swipe moves the sheet instead; an upward one still scrolls it.
+ sheet.addEventListener('touchstart',e=>{ if(e.touches.length===1)begin(e.touches[0].clientY,e.target); else start=null; },{passive:true});
+ sheet.addEventListener('touchmove',e=>{ if(start===null)return; const y=e.touches[0].clientY; if(y<start&&moved<=6){ start=null; return; } e.preventDefault(); move(y); },{passive:false});
+ sheet.addEventListener('touchend',end); sheet.addEventListener('touchcancel',end);
+ // Mouse and pen keep the pointer drag.
+ sheet.addEventListener('pointerdown',e=>{ if(e.pointerType!=='touch')begin(e.clientY,e.target); },{passive:true});
+ sheet.addEventListener('pointermove',e=>{ if(e.pointerType!=='touch'&&start!==null)move(e.clientY); },{passive:true});
+ sheet.addEventListener('pointerup',e=>{ if(e.pointerType!=='touch')end(); }); sheet.addEventListener('pointercancel',e=>{ if(e.pointerType!=='touch')end(); });
 };
 // Android Back: close the topmost popup or dialog the same way Escape does.
 window.familyhub.closeTopLayer = () => {

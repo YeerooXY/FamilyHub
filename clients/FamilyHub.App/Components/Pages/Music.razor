@@ -73,6 +73,10 @@ else
     {
         <div id="profile-menu" aria-label="Settings">
             <div class="settings-profile"><ProfileAvatar Profile="CurrentProfile" Size="32" /><strong>@Session.ProfileName</strong></div>
+            @* Phones have no sidebar; these pages open from the profile menu instead. *@
+            @foreach (var tab in new[] { "Leaderboard", "Stats", "Review" })
+            { <button class="profile-phone-link" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" />@NavLabel(tab)</button> }
+            <hr class="profile-phone-link" />
             <button @onclick="SwitchProfile"><MusicIcon Name="player" />Switch profile</button>
             <button id="open-settings" @onclick='() => Navigate("Preferences")'><MusicIcon Name="settings" />Settings</button>
         </div>
@@ -169,7 +173,7 @@ else
             var playlists = FilteredPlaylists().ToList();
             <div class="playlist-tools">
                 <div class="genre-pills playlist-filters" role="group" aria-label="Filter playlists">
-                    @foreach (var chip in new[] { "All", "Yours", "Shared with you", "Downloaded" })
+                    @foreach (var chip in new[] { "All", "Yours", "Shared with you" })
                     { <button id="@(chip == "All" ? "playlist-filter-all" : null)" aria-pressed="@Aria(playlistFilter == chip)" @onclick="() => playlistFilter = chip">@chip</button> }
                 </div>
                 <label class="playlist-search"><MusicIcon Name="search" /><span class="sr">Find in playlists</span><input id="playlist-search" type="search" placeholder="Find in playlists" @bind="playlistSearch" @bind:event="oninput" /></label>
@@ -515,7 +519,6 @@ else
             {
                 "Yours" => p.CanEdit,
                 "Shared with you" => !p.CanEdit,
-                "Downloaded" => p.Tracks.Count > 0 && p.Tracks.All(t => Session.Resolve(t) is { } track && Session.KeptOnDevice(track)),
                 _ => true
             }) && System.Globalization.CultureInfo.CurrentCulture.CompareInfo.IndexOf(p.Name, playlistSearch,
                 System.Globalization.CompareOptions.IgnoreCase | System.Globalization.CompareOptions.IgnoreNonSpace) >= 0);
