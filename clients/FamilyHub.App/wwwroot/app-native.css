@@ -254,6 +254,8 @@ body[data-navigation=compact] .sidebar-top .library-title { display:none; }
 .playlist-tools { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-bottom:20px; }
 .playlist-tools .playlist-filters { position:static; flex-wrap:nowrap; max-width:100%; overflow-x:auto; margin:0; padding:4px; transition:none; }
 .playlist-filters button { flex:none; border-radius:999px; white-space:nowrap; transition:none; }
+/* Filter pills and sort share the search field's 48 px height. */
+.playlist-tools .playlist-filters button,.playlist-tools #playlist-sort { height:48px; min-height:48px; padding:0 20px; font-size:15px; }
 .playlist-filters button:hover,.playlist-filters button:active { transform:none!important; }
 .playlist-search { position:relative; display:flex; align-items:center; flex:1 1 180px; min-width:0; }
 .playlist-search>.icon { position:absolute; left:16px; top:50%; transform:translateY(-50%); width:24px; height:24px; pointer-events:none; color:var(--muted); }
