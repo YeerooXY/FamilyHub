@@ -13,28 +13,48 @@ $executable = Join-Path $install 'FamilyHub.App.exe'
 if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) { throw 'The installed FamilyHub executable is missing.' }
 $files = @(Get-ChildItem -LiteralPath $payload -Recurse -File)
 $backup = Join-Path $stage 'backup'
+$installPrefix = $install.TrimEnd('\') + '\'
+$installedRoot = Split-Path -Parent $install
+$launcher = if ((Split-Path -Leaf $install) -eq 'app') { Join-Path $installedRoot 'FamilyHub Music.exe' }
 $changed = [System.Collections.Generic.List[object]]::new()
 try {
     $listener = Get-Process -Id $ListenerProcessId -ErrorAction SilentlyContinue
-    if ($listener) {
-        if ($listener.Path -ne $executable) { throw 'The listener process does not match this installation.' }
-        if (-not $listener.WaitForExit(60000)) { throw 'FamilyHub did not close. Close it and try the update again.' }
+    if ($listener -and $listener.Path -ne $executable -and -not $listener.HasExited) {
+        throw 'The listener process does not match this installation.'
+    }
+    $wait = [Diagnostics.Stopwatch]::StartNew()
+    while ($true) {
+        $running = Get-Process | Where-Object {
+            $path = $_.Path
+            $path -and ($path.StartsWith($installPrefix, [StringComparison]::OrdinalIgnoreCase) -or $path -eq $launcher)
+        } | Select-Object -First 1
+        if (-not $running) { break }
+
+        $remaining = 60000 - $wait.ElapsedMilliseconds
+        if ($remaining -gt 0) {
+            $null = $running.WaitForExit([int]$remaining)
+            continue
+        }
+
+        Add-Type -AssemblyName PresentationFramework
+        $choice = [System.Windows.MessageBox]::Show('Close all FamilyHub Music windows, then select Retry.', 'FamilyHub Music update', 'RetryCancel')
+        if ($choice -ne 'Retry') { exit 1 }
+        $wait.Restart()
     }
     foreach ($file in $files) {
         $relative = $file.FullName.Substring($payload.Length).TrimStart('\')
         $target = [IO.Path]::GetFullPath((Join-Path $install $relative))
-        if (-not $target.StartsWith($install.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'An update file escaped the application folder.' }
+        if (-not $target.StartsWith($installPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'An update file escaped the application folder.' }
         $previous = Join-Path $backup $relative
         $existed = Test-Path -LiteralPath $target -PathType Leaf
         if ($existed) {
             New-Item -ItemType Directory -Path (Split-Path $previous) -Force | Out-Null
             Copy-Item -LiteralPath $target -Destination $previous
         }
-        $changed.Add([pscustomobject]@{ Target=$target; Previous=$previous; Existed=$existed })
         New-Item -ItemType Directory -Path (Split-Path $target) -Force | Out-Null
         Copy-Item -LiteralPath $file.FullName -Destination $target -Force
+        $changed.Add([pscustomobject]@{ Target=$target; Previous=$previous; Existed=$existed })
     }
-    $installedRoot = Split-Path -Parent $install
     if ((Split-Path -Leaf $install) -eq 'app' -and (Test-Path -LiteralPath (Join-Path $installedRoot 'FamilyHub Music.cmd'))) {
         & (Join-Path $install 'Install-Windows.ps1') -InstallDirectory $installedRoot -NoLaunch | Out-Null
     }
@@ -52,7 +72,13 @@ try {
     }
     ($failure + "`n" + ($rollbackErrors -join "`n")) | Set-Content (Join-Path $stage 'update.log')
     Add-Type -AssemblyName PresentationFramework
-    $message = if ($rollbackErrors.Count) { 'The update failed and some files could not be restored. Extract a fresh FamilyHub ZIP into a new folder.' } else { 'The update failed. Your previous application files were restored.' }
+    $message = if ($rollbackErrors.Count) {
+        'The update failed and could not undo some file changes. Extract a fresh FamilyHub ZIP into a new folder.'
+    } elseif ($changed.Count) {
+        'The update failed. Changes from completed file copies were undone.'
+    } else {
+        'The update failed before any file copies completed.'
+    }
     [System.Windows.MessageBox]::Show($message + "`n" + $failure + "`nDetails: " + (Join-Path $stage 'update.log'), 'FamilyHub update') | Out-Null
     if (-not $rollbackErrors.Count) { Start-Process -FilePath $executable -WorkingDirectory $install }
     exit 1
