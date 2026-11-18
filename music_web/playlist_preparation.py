@@ -5,6 +5,7 @@ from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from .playlists import PlaylistError, rank_matches, preferred_match
 from .worker_activity import WorkerActivity
+from .resources import observe, background_request
 
 
 class _PlaylistOperation:
@@ -313,7 +314,7 @@ class PlaylistPreparation:
     MAX_ACTIVE = 8
     WORKERS = 3
 
-    def __init__(self, store, lock, prepare, match=None, read=None, download_workers=1, allow_background=lambda: True):
+    def __init__(self, store, lock, prepare, match=None, read=None, download_workers=1, allow_background=lambda: True, resources=None):
         self.store, self.lock = store, lock
         self.prepare, self.match, self.read = prepare, match, read
         self.download_workers, self.allow_background = download_workers, allow_background
@@ -323,8 +324,13 @@ class PlaylistPreparation:
         self.waiters, self.served, self.inflight, self.dispatch = [], {}, 0, 0
         self.auto_served = {}
         self.activity = WorkerActivity('playlist', 'Playlist matching / preparation', self.WORKERS)
+        self.resources = resources
 
     def _execute(self, key, operation, callback):
+        with observe(self.resources, "matching", "playlist slots") as state:
+            return self._execute_queued(key, operation, callback, state)
+
+    def _execute_queued(self, key, operation, callback, state):
         ticket = object()
         with self.condition:
             self.waiters.append((ticket,key))
@@ -341,14 +347,18 @@ class PlaylistPreparation:
                         self.inflight += 1; self.dispatch += 1; self.served[key] = self.dispatch
                         self.condition.notify_all()
                         break
+                    state("playlist slots" if allowed else "playback demand")
                     self.condition.wait(.1)
         except BaseException:
             with self.condition:
                 self.waiters.remove((ticket,key)); self.condition.notify_all()
             raise
+        token = background_request.set(True)
+        state()
         try:
             return callback()
         finally:
+            background_request.reset(token)
             with self.condition:
                 self.inflight -= 1; self.condition.notify_all()
 

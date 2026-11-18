@@ -524,7 +524,7 @@ class PreparedMetadata(Base):
         from types import SimpleNamespace
         import threading
         paths = []
-        def pump(command, *args, progress, total_bytes):
+        def pump(command, *args, progress, total_bytes, max_bytes):
             self.assertTrue(callable(progress))
             self.assertIsNone(total_bytes)
             progress(download_bytes=100, download_total_bytes=None)
@@ -553,9 +553,10 @@ class PreparedMetadata(Base):
                     "url": "https://media.example/audio?token=private", "title": "Song",
                     "protocol": "https", "filesize": 12345}
         paths = []
-        def pump(command, *args, progress, total_bytes):
+        def pump(command, *args, progress, total_bytes, max_bytes):
             self.assertTrue(callable(progress))
             self.assertEqual(total_bytes, 12345)
+            self.assertEqual(max_bytes, 12345)
             self.assertNotIn(url, command)
             self.assertNotIn(metadata["url"], command)
             self.assertEqual(command[command.index("-f") + 1], "251")

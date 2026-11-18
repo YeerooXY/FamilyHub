@@ -39,6 +39,8 @@ SHA_RE = re.compile(r"[0-9a-f]{64}")
 NUM_RE = re.compile(r"\d{1,6}(\.\d{1,6})?")
 RESERVED = {"CON", "PRN", "AUX", "NUL"} | {f"{p}{n}" for p in ("COM", "LPT") for n in range(1, 10)}
 CONTROL = threading.local()
+RESOURCE_TRACK = lambda stage: contextlib.nullcontext()
+RESOURCE_WAIT = lambda reason: contextlib.nullcontext()
 SAFE_INPUT = ["-protocol_whitelist", "file,pipe", "-format_whitelist",
               "aac,aiff,flac,matroska,webm,mov,mp4,m4a,3gp,3g2,mj2,mp3,ogg,wav,wv"]
 
@@ -420,7 +422,9 @@ class YouTubeGate:
                                 self.until - now if background else 0)
                     if (media or (not self.active and not (background and self.users))) and delay <= 0:
                         break
-                    self.condition.wait(.2)
+                    reason = "YouTube cooldown" if background and self.until > now else "YouTube pacing"
+                    with RESOURCE_WAIT(reason):
+                        self.condition.wait(.2)
                 if not media:
                     self.active = True
                     self.last = now
@@ -444,14 +448,14 @@ class YouTubeGate:
                     self.active = False
                 self.condition.notify_all()
 
-    def result(self, caller, rc, error):
+    def result(self, caller, rc, error, media=False):
         refused = rc and re.search(r"\b(?:403|429)\b|too many requests|rate.?limit|forbidden", error, re.I)
         with self.condition:
             if refused:
                 self.refusals[caller] += 1
                 self.backoff = min(1800, self.backoff * 2 or 300)
                 self.until = time.monotonic() + self.backoff
-            elif not rc:
+            elif not rc and (not media or time.monotonic() >= self.until):
                 self.until = self.backoff = 0
             self.condition.notify_all()
         return bool(refused)
@@ -472,10 +476,15 @@ def youtube_run(command, timeout, what, want_stdout=False, caller="fetch", backg
         background = getattr(CONTROL, "background", False)
     # Background refusals are retried after cooldown, never persisted as failed matches.
     while True:
-        with YOUTUBE.request(caller, background, media):
+        turn = media_turn(caller, background) if media else YOUTUBE.request(caller, background)
+        with turn:
             result = run(command, timeout, what, want_stdout)
-            refused = YOUTUBE.result(caller, result[0], result[2])
+            refused = YOUTUBE.result(caller, result[0], result[2], media)
         if background and refused:
+            if media:
+                if expired_media(result[2]):
+                    return result
+                raise MediaRetry()
             if caller == "fetch":
                 continue
             raise YouTubeDeferred("YouTube cooldown")
@@ -492,7 +501,8 @@ def search_entries(query, offset, caller, background, main_only=False):
                 budget = getattr(CONTROL, "budget", None)
                 if budget:
                     budget()
-                YOUTUBE.condition.wait(.2)
+                with RESOURCE_WAIT("YouTube cooldown"):
+                    YOUTUBE.condition.wait(.2)
     direct = WATCH + video_id(query) if query.startswith("https://") else None
     query = direct or query
     key = query if direct else " ".join(query.casefold().split())
@@ -510,8 +520,9 @@ def search_entries(query, offset, caller, background, main_only=False):
             SEARCH_CACHE.move_to_end(key)
             while len(SEARCH_CACHE) > 200:
                 SEARCH_CACHE.popitem(last=False)
-        if cached["busy"].acquire(timeout=.1):
-            break
+        with RESOURCE_WAIT("same query"):
+            if cached["busy"].acquire(timeout=.1):
+                break
         cancel = getattr(CONTROL, "cancel", None)
         if cancel and cancel.is_set():
             raise IntakeError("search cancelled")
@@ -519,7 +530,7 @@ def search_entries(query, offset, caller, background, main_only=False):
         depth = offset + SEARCH_POOL
         if cached["depth"] < depth:
             rc, out, err = youtube_run([tool("yt-dlp"), "--ignore-config", "--flat-playlist", "--dump-single-json",
-                *(["--no-playlist", "--", direct] if direct else [f"ytsearch{depth}:{query}"])], 120, "yt-dlp search", True, caller, background)
+                *(["--no-playlist", "-f", "bestaudio/best*", "--", direct] if direct else [f"ytsearch{depth}:{query}"])], 120, "yt-dlp search", True, caller, background)
             try:
                 data = json.loads(out) if rc == 0 else None
                 entries = [data] if direct and isinstance(data, dict) else (data.get("entries") or [] if isinstance(data, dict) else None)
@@ -553,6 +564,11 @@ def search_entries(query, offset, caller, background, main_only=False):
 
 
 def cmd_search(args):
+    with RESOURCE_TRACK("search"):
+        return _search(args)
+
+
+def _search(args):
     query = args.query.strip()
     if not query or len(query) > 200 or any(ord(c) < 32 for c in query):
         raise IntakeError("search query must be 1 to 200 printable characters")
@@ -603,18 +619,90 @@ def cmd_search(args):
         for e, k in found[:args.limit]]}
 
 
+class MediaExpired(IntakeError):
+    pass
+
+
+class MediaRetry(IntakeError):
+    pass
+
+
+def expired_media(error):
+    return re.search(r"\b(?:401|403|410)\b", error) is not None
+
+
+@contextlib.contextmanager
+def media_turn(caller, background):
+    acquire = getattr(CONTROL, "transfer", None)
+    while True:
+        with YOUTUBE.request(caller, background, media=True):
+            reserve = getattr(CONTROL, "reserve_attempt", None)
+            if reserve:
+                reserve()
+            with acquire() if acquire else contextlib.nullcontext():
+                # A refusal can arrive while this job is waiting for a transfer slot.
+                with YOUTUBE.condition:
+                    cooling = getattr(CONTROL, "background", background) and YOUTUBE.until > time.monotonic()
+                if not cooling:
+                    yield
+                    return
+            if reserve:
+                raise MediaRetry()
+
+
+def resolved_audio(url, vid):
+    with SEARCH_CACHE_LOCK:
+        cached = SEARCH_CACHE.get(url)
+        if not cached or time.monotonic() - cached["created"] >= 300 or not cached["entries"]:
+            return None
+        data = cached["entries"][0]
+    if (isinstance(data, dict) and data.get("id") == vid and data.get("vcodec") == "none"
+            and data.get("acodec") not in (None, "none") and data.get("format_id")
+            and str(data.get("url", "")).startswith("https://")):
+        expiry = urllib.parse.parse_qs(urllib.parse.urlsplit(data["url"]).query).get("expire", [""])[0]
+        if not expiry.isdecimal() or (len(expiry) <= 12 and int(expiry) > time.time() + 30):
+            return data
+    return None
+
+
+@contextlib.contextmanager
+def media_info(tmp, metadata):
+    # yt-dlp otherwise re-extracts webpage_url on a failed --load-info-json transfer.
+    prepared = json.dumps({k: v for k, v in metadata.items() if k != "webpage_url"}).encode("utf-8")
+    if len(prepared) > MAX_STDOUT:
+        raise IntakeError("selected audio metadata exceeds size limit")
+    fd, path = tempfile.mkstemp(prefix=".source-", suffix=".json", dir=tmp)
+    try:
+        with os.fdopen(fd, "wb") as file:
+            file.write(prepared)
+        yield path
+    finally:
+        os.unlink(path)
+
+
 def cmd_fetch(args):
-    ws = real_dir(args.workspace, "workspace")
     vid = video_id(args.url)
+    metadata = resolved_audio(WATCH + vid, vid)
+    with RESOURCE_TRACK("fetch"):
+        try:
+            return fetch_audio(args, vid, metadata)
+        except MediaExpired:
+            return fetch_audio(args, vid, None)
+
+
+def fetch_audio(args, vid, meta):
+    ws = real_dir(args.workspace, "workspace")
     url = WATCH + vid  # canonical form drops playlist and tracking parameters
     tool("ffmpeg"), tool("ffprobe")
     # bestaudio only: without an audio-only format yt-dlp fails here; nothing substitutes a video download.
     base = [tool("yt-dlp"), "--ignore-config", "--no-playlist", "-f", "bestaudio"]
-    rc, out, err = youtube_run(base + ["--dump-single-json", "--", url], 120, "yt-dlp metadata", True)
-    try:
-        meta = json.loads(out) if rc == 0 else None
-    except ValueError:
-        meta = None
+    err = ""
+    if meta is None:
+        rc, out, err = youtube_run(base + ["--dump-single-json", "--", url], 120, "yt-dlp metadata", True)
+        try:
+            meta = json.loads(out) if rc == 0 else None
+        except ValueError:
+            meta = None
     if not isinstance(meta, dict) or meta.get("id") != vid:
         raise IntakeError(f"yt-dlp could not read this video: {err or 'unexpected metadata'}")
     if meta.get("is_live") or meta.get("live_status") in ("is_live", "is_upcoming", "post_live"):
@@ -626,15 +714,43 @@ def cmd_fetch(args):
               "artist": clip(meta.get("artist")), "album": clip(meta.get("album")), "track_title": clip(meta.get("track")),
               "reported_format": {"format_id": clip(meta.get("format_id"), 40), "acodec": clip(meta.get("acodec"), 40),
                                   "abr": meta.get("abr") if isnum(meta.get("abr")) else None}}
-    if getattr(args, "preview", None):
-        return progressive_fetch(args, meta, source)
-    with scratch(ws) as tmp:
+    reserve = getattr(CONTROL, "reserve", None)
+    source_limit = min(2 << 30, exact_download_size(meta) or (2 << 30))
+    preview = getattr(args, "preview", None)
+    needed = 2 * source_limit + (64 << 20) + (int(meta["duration"] * 32000) if preview else 0)
+    while True:
+        with contextlib.ExitStack() as cleanup:
+            # Reserve only after provider admission. Release after the spool and render clean up.
+            CONTROL.reserve_attempt = (lambda: cleanup.enter_context(reserve(needed))) if reserve else None
+            try:
+                if preview:
+                    return progressive_fetch(args, meta, source, max_bytes=source_limit, scratch_limit=needed)
+                return download_audio(ws, base, meta, source, source_limit, needed)
+            except MediaRetry:
+                pass
+            except BaseException:
+                cleanup_preview = getattr(args, "cleanup_preview", None)
+                if cleanup_preview:
+                    with contextlib.suppress(OSError, IntakeError):
+                        cleanup_preview()
+                raise
+            finally:
+                CONTROL.reserve_attempt = None
+
+
+def download_audio(ws, base, meta, source, max_bytes, scratch_limit):
+    with scratch(ws) as tmp, scratch_guard(tmp, None, scratch_limit) as budget:
         dl = os.path.join(tmp, "dl")
         os.mkdir(dl)
         # --extract-audio with --audio-format best keeps the source codec; it changes the container at most.
-        rc, _, err = youtube_run(base + ["--no-overwrites", "--no-progress", "--match-filter", "!is_live",
-                                 "--max-filesize", "2G", "--extract-audio", "--audio-format", "best",
-                                 "--paths", dl, "--output", "source.%(ext)s", "--", url], 1800, "yt-dlp download", media=True)
+        with media_info(tmp, meta) as info_path:
+            rc, _, err = youtube_run(base + ["--no-overwrites", "--no-progress", "--match-filter", "!is_live",
+                                     "--max-filesize", str(max_bytes), "--extract-audio", "--audio-format", "best",
+                                     "--paths", dl, "--output", "source.%(ext)s", "--load-info-json", info_path],
+                                     1800, "yt-dlp download", media=True)
+            budget(force=True)
+        if rc and expired_media(err):
+            raise MediaExpired("selected audio URL expired")
         files = os.listdir(dl)
         if rc or len(files) != 1:
             raise IntakeError(f"yt-dlp download failed: {err or 'no single audio file was produced'}")
@@ -644,7 +760,7 @@ def cmd_fetch(args):
         os.rename(src, audio)
         os.rmdir(dl)
         sha = sha256_file(audio)
-        return finish(ws, tmp, audio, sha, f"yt-{vid}-{sha[:12]}", source, None)
+        return finish(ws, tmp, audio, sha, f"yt-{source['id']}-{sha[:12]}", source, None)
 
 
 def stop_process(proc):
@@ -734,22 +850,30 @@ def pump_preview(command, *args, **kwargs):
     while True:
         background = getattr(CONTROL, "background", False)
         retry_paths = not os.path.lexists(root) and not os.path.lexists(spool)
-        with YOUTUBE.request("fetch", background, media=True):
+        with media_turn("fetch", background):
             try:
                 result = _pump_preview(command, *args, **kwargs)
             except IntakeError as error:
-                refused = YOUTUBE.result("fetch", 1, str(error))
-                if not (background and refused and retry_paths):
+                refused = YOUTUBE.result("fetch", 1, str(error), media=True)
+                expired = expired_media(str(error))
+                if not retry_paths or not (expired or (background and refused)):
                     raise
                 # The pump has stopped its processes before these owned paths are removed.
                 root_path = os.path.abspath(root)
                 if os.path.realpath(root) != root_path or os.path.dirname(root_path) == root_path:
                     raise
-                shutil.rmtree(root_path)
+                if expired and os.path.exists(os.path.join(root_path, "index.m3u8")):
+                    raise
+                if os.path.isdir(root_path):
+                    shutil.rmtree(root_path)
                 if os.path.exists(spool):
                     os.unlink(spool)
+                if expired:
+                    raise MediaExpired("selected audio URL expired") from error
+                if getattr(CONTROL, "reserve_attempt", None):
+                    raise MediaRetry() from error
             else:
-                YOUTUBE.result("fetch", 0, "")
+                YOUTUBE.result("fetch", 0, "", media=True)
                 return result
 
 
@@ -884,10 +1008,40 @@ def exact_download_size(metadata):
     return None
 
 
-def progressive_fetch(args, metadata, source):
+@contextlib.contextmanager
+def scratch_guard(tmp, preview, cap, check=None):
+    old = getattr(CONTROL, "budget", None)
+    checked = float("-inf")
+
+    def budget(force=False):
+        nonlocal checked
+        if check or old:
+            (check or old)()
+        now = time.monotonic()
+        if cap and (force or now - checked >= .5):
+            checked = now
+            used = 0
+            for path in (tmp, preview):
+                if path:
+                    for root, dirs, files in os.walk(path):
+                        for name in files:
+                            # HLS files can be replaced between the listing and stat.
+                            with contextlib.suppress(FileNotFoundError):
+                                used += os.path.getsize(os.path.join(root, name))
+            if used > cap:
+                raise IntakeError("scratch capacity exceeded")
+
+    CONTROL.budget = budget
+    try:
+        yield budget
+    finally:
+        CONTROL.budget = old
+
+
+def progressive_fetch(args, metadata, source, max_bytes=2 << 30, scratch_limit=0):
     ws = real_dir(args.workspace, "workspace")
     cancel = args.cancel
-    with scratch(ws) as tmp:
+    with scratch(ws) as tmp, scratch_guard(tmp, args.preview, scratch_limit, args.budget) as budget:
         spool = os.path.join(tmp, "original.spool")
         fmt = metadata.get("format_id")
         if not isinstance(fmt, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", fmt):
@@ -895,20 +1049,13 @@ def progressive_fetch(args, metadata, source):
         command = [tool("yt-dlp"), "--ignore-config", "--no-playlist", "--no-progress", "--downloader", "native",
                    "--socket-timeout", "30", "--retries", "2", "--fragment-retries", "2", "-f", fmt,
                    "-o", "-"]
-        prepared = json.dumps(metadata).encode("utf-8")
-        if len(prepared) > MAX_STDOUT:
-            raise IntakeError("selected audio metadata exceeds size limit")
-        fd, info_path = tempfile.mkstemp(prefix=".source-", suffix=".json", dir=tmp)
-        try:
-            with os.fdopen(fd, "wb") as info_file:
-                info_file.write(prepared)
+        with media_info(tmp, metadata) as info_path, RESOURCE_TRACK("preview"):
             # Reuse extraction, including signed URLs, only during this acquisition.
             result = pump_preview(command + ["--load-info-json", info_path], spool,
-                                  args.preview, cancel, args.notify, args.budget,
+                                  args.preview, cancel, args.notify, budget,
                                   progress=getattr(args, "progress", lambda **fields: None),
+                                  max_bytes=max_bytes,
                                   total_bytes=exact_download_size(metadata))
-        finally:
-            os.unlink(info_path)
         if cancel.is_set():
             raise IntakeError("cancelled")
         info = probe(spool)
@@ -935,12 +1082,18 @@ def progressive_fetch(args, metadata, source):
                 if rc:
                     args.preview_failed()
         args.notify()
+        budget(force=True)
         sha = sha256_file(audio)
         return finish(ws, tmp, audio, sha, f"yt-{source['id']}-{sha[:12]}", source, None,
                       source_duration=metadata["duration"])
 
 
 def cmd_preview(args):
+    with RESOURCE_TRACK("preview"):
+        return preview_audio(args)
+
+
+def preview_audio(args):
     """Encode validated local audio, publishing complete HLS segments while encoding continues."""
     item, manifest, audio = load_item(args.item)
     root = os.path.abspath(args.output)

@@ -5,8 +5,10 @@ import time
 import re
 
 from .playlists import PlaylistError, playlist_id
+from .resources import PROVIDERS
 
 ENDPOINT = "https://api-partner.spotify.com/pathfinder/v2/query"
+_spotify = PROVIDERS["spotify"]
 
 
 def read_artist_catalogue(aid, name, fetch_releases, fetch_tracks, progress=None):
@@ -84,15 +86,18 @@ def fetch_public_artist(url, *, progress=None):
                         body = request.post_data_json
                         if isinstance(body, dict): captured[body.get('operationName')] = request
                 page.on('response', capture)
-                page.goto('https://open.spotify.com/artist/' + aid, wait_until='domcontentloaded', timeout=timeout())
-                page.locator('a[href*=discography]').first.click(timeout=timeout())
+                with _spotify.request():
+                    page.goto('https://open.spotify.com/artist/' + aid, wait_until='domcontentloaded', timeout=timeout())
+                with _spotify.request():
+                    page.locator('a[href*=discography]').first.click(timeout=timeout())
                 while not all(op in captured for op in ('queryArtistOverview', 'queryArtistDiscographyAll', 'queryAlbumTracks')):
                     page.wait_for_timeout(min(250, timeout()))
                 def query(operation, **variables):
                     request = captured[operation]; body = copy.deepcopy(request.post_data_json)
                     body['variables'].update(variables)
                     headers = {k: v for k, v in request.all_headers().items() if k in ('authorization', 'client-token', 'app-platform', 'spotify-app-version', 'accept', 'accept-language', 'content-type', 'origin', 'referer', 'user-agent')}
-                    response = context.request.post(ENDPOINT, data=body, headers=headers, timeout=timeout(), max_redirects=0)
+                    with _spotify.request():
+                        response = context.request.post(ENDPOINT, data=body, headers=headers, timeout=timeout(), max_redirects=0)
                     try:
                         if response.status != 200: raise PlaylistError(f'Spotify artist reader returned HTTP {response.status}. Try again.')
                         result = response.json()
@@ -215,7 +220,7 @@ def fetch_public_playlist(url, *, page_size=100, progress=None):
             try:
                 context = browser.new_context()
                 page = context.new_page()
-                with page.expect_response(is_playlist, timeout=remaining()) as pending:
+                with _spotify.request(), page.expect_response(is_playlist, timeout=remaining()) as pending:
                     page.goto("https://open.spotify.com/playlist/" + pid,
                               wait_until="domcontentloaded", timeout=remaining())
                 captured = pending.value.request
@@ -229,8 +234,9 @@ def fetch_public_playlist(url, *, page_size=100, progress=None):
                 def fetch_page(offset):
                     body = copy.deepcopy(template)
                     body["variables"].update(offset=offset, limit=page_size)
-                    response = context.request.post(ENDPOINT, data=body, headers=headers,
-                                                    timeout=remaining(), max_redirects=0)
+                    with _spotify.request():
+                        response = context.request.post(ENDPOINT, data=body, headers=headers,
+                                                        timeout=remaining(), max_redirects=0)
                     try:
                         if response.status != 200:
                             raise PlaylistError(f"Spotify public reader returned HTTP {response.status}. No partial list was returned.")

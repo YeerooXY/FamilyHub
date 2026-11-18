@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
 from . import catalog_search
+from .resources import background_request
 
 
 def normal(value):
@@ -236,6 +237,7 @@ class Discovery:
         with self.lock:
             if self.thread: return
             def run():
+                background_request.set(True)
                 while True:
                     try: self.refresh_one()
                     except (OSError, sqlite3.Error): pass

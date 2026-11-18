@@ -10,6 +10,7 @@ import threading
 from .audio_profile import profile, measure_loudness as measurement
 from . import mobile_audio
 from .worker_activity import WorkerActivity
+from .resources import observe
 
 VERSION = "loudness-flac-v1"
 TARGET = -16
@@ -85,7 +86,8 @@ class FinishedAudio:
         return row, path
 
     def prepare(self, source, digest, start=0, end=None, title=''):
-        with _encoding, activity.track(title):
+        with observe(getattr(self.intake, "RESOURCES", None), "finished", "render lock") as running, _encoding, activity.track(title):
+            running()
             existing = self.select(digest)
             if existing:
                 return existing

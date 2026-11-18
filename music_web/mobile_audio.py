@@ -8,6 +8,7 @@ import time
 from contextlib import contextmanager
 from .audio_profile import measure_loudness
 from .worker_activity import WorkerActivity
+from .resources import observe
 
 _encoding = threading.Lock()
 background_activity = WorkerActivity('opus-background', 'Opus background copy')
@@ -79,14 +80,18 @@ def prepare(intake, item, source, digest, urgent=False, quality="normal", title=
         if running is None:
             _inflight[path] = done = threading.Event()
     if running is not None:
-        running.wait(240)
+        with observe(getattr(intake, "RESOURCES", None), "opus", "same output"):
+            running.wait(240)
         if os.path.lexists(path):
             intake.regular_file(path, "mobile audio")
             return path
         return prepare(intake, item, source, digest, urgent, quality, title, lead)
     try:
         # Serialize encodes so simultaneous listeners cannot exhaust the server.
-        with (_listening.turn(lead) if urgent else _encoding), (listening_activity if urgent else background_activity).track(title):
+        lane = _listening.turn(lead) if urgent else _encoding
+        activity = listening_activity if urgent else background_activity
+        with observe(getattr(intake, "RESOURCES", None), "opus", "encoder lane") as running, lane, activity.track(title):
+            running()
             if os.path.lexists(path):
                 intake.regular_file(path, "mobile audio")
             else:

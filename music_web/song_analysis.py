@@ -13,6 +13,7 @@ from contextlib import suppress
 
 from .source_quality import FFMPEG_LOCK, ScanPaused
 from .worker_activity import WorkerActivity
+from .resources import observe
 
 
 def measure(path, duration, idle, ffmpeg):
@@ -118,7 +119,7 @@ class SongAnalysis:
                     duration = manifest['audio']['duration']
                     if not math.isfinite(duration) or duration <= 0:
                         continue
-                    with self.activity.track(record.get('title', '')):
+                    with observe(getattr(self.intake, "RESOURCES", None), "analysis"), self.activity.track(record.get('title', '')):
                         result = measure(audio, duration, lambda: self.idle() and not self.stop.is_set(), self.intake.tool('ffmpeg'))
                     if not isinstance(result, dict):
                         raise ValueError('Invalid song analysis')

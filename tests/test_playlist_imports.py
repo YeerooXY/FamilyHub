@@ -8,33 +8,33 @@ from tests.test_music_web import Base
 class YouTubeReader(unittest.TestCase):
     def test_short_links_and_mixes_keep_video_and_discard_tracking(self):
         from music_web.link_playlists import detect
-        intake = SimpleNamespace(tool=lambda _: "yt-dlp", run=Mock(return_value=(0, json.dumps({"entries": [{"id": "abcdefghijk"}]}), "")))
+        intake = SimpleNamespace(tool=lambda _: "yt-dlp", youtube_run=Mock(return_value=(0, json.dumps({"entries": [{"id": "abcdefghijk"}]}), "")))
         for url in ("https://youtu.be/abcdefghijk?si=tracking&list=RDabcdefghijk",
                     "https://youtube.com/watch?v=abcdefghijk&list=RDabcdefghijk&si=tracking"):
             self.assertEqual(detect(url), "youtube")
             result = fetch_youtube_playlist(url, intake)
             self.assertEqual(result["url"], "https://www.youtube.com/watch?v=abcdefghijk&list=RDabcdefghijk")
-            self.assertEqual(intake.run.call_args.args[0][-1], result["url"])
-            self.assertIn("--playlist-end", intake.run.call_args.args[0])
-        intake.run.reset_mock()
+            self.assertEqual(intake.youtube_run.call_args.args[0][-1], result["url"])
+            self.assertIn("--playlist-end", intake.youtube_run.call_args.args[0])
+        intake.youtube_run.reset_mock()
         with self.assertRaisesRegex(PlaylistError, "YouTube Mixes can't be read from the link alone"):
             fetch_youtube_playlist("https://youtube.com/playlist?list=RDabcdefghijk", intake)
-        intake.run.assert_not_called()
+        intake.youtube_run.assert_not_called()
         result = fetch_youtube_playlist("https://youtu.be/abcdefghijk?list=PL1234567890&si=tracking", intake)
         self.assertEqual(result["url"], "https://www.youtube.com/playlist?list=PL1234567890")
 
     def test_full_playlist_and_url_boundary(self):
         rows = [{"id": f"{i:011d}", "title": f"Track {i}", "channel": "Artist", "duration": 200} for i in range(549)]
-        intake = SimpleNamespace(tool=lambda _: "yt-dlp", run=Mock(return_value=(0, json.dumps({"title": "DnB", "entries": rows}), "")))
+        intake = SimpleNamespace(tool=lambda _: "yt-dlp", youtube_run=Mock(return_value=(0, json.dumps({"title": "DnB", "entries": rows}), "")))
         result = fetch_youtube_playlist("https://www.youtube.com/playlist?list=PL1234567890", intake)
         self.assertEqual(len(result["tracks"]), 549)
         self.assertEqual(result["tracks"][-1]["source_id"], "00000000548")
         for url in ["https://evil.test/playlist?list=PL1234567890", "https://youtube.com:8080/playlist?list=PL1234567890", "https://user@youtube.com/playlist?list=PL1234567890", "http://youtube.com/playlist?list=PL1234567890"]:
             with self.assertRaises(PlaylistError): fetch_youtube_playlist(url, intake)
-        self.assertEqual(intake.run.call_count, 1)
+        self.assertEqual(intake.youtube_run.call_count, 1)
     def test_oversize_and_empty_fail(self):
         for entries in [[], [{}] * 10001]:
-            intake = SimpleNamespace(tool=lambda _: "yt-dlp", run=lambda *args: (0, json.dumps({"entries": entries}), ""))
+            intake = SimpleNamespace(tool=lambda _: "yt-dlp", youtube_run=lambda *args, **kwargs: (0, json.dumps({"entries": entries}), ""))
             with self.assertRaises(PlaylistError): fetch_youtube_playlist("https://youtube.com/playlist?list=PL1234567890", intake)
 
 

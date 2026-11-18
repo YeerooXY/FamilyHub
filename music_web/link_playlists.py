@@ -10,6 +10,7 @@ import urllib.request
 from urllib.parse import urlsplit
 
 from .playlists import PlaylistError
+from .resources import PROVIDERS
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -53,8 +54,9 @@ def soundcloud_link(url):
 def fetch_soundcloud_playlist(url, intake, progress=None):
     canonical = soundcloud_link(url)
     # Full entries carry artist and length; reading them takes about two seconds a song.
-    rc, output, _ = intake.run([intake.tool("yt-dlp"), "--ignore-config", "--skip-download", "--dump-single-json",
-                               "--playlist-end", str(MAX_TRACKS), "--", canonical], 1800, "SoundCloud set", True)
+    with PROVIDERS["soundcloud"].request():
+        rc, output, _ = intake.run([intake.tool("yt-dlp"), "--ignore-config", "--skip-download", "--dump-single-json",
+                                   "--playlist-end", str(MAX_TRACKS), "--", canonical], 1800, "SoundCloud set", True)
     if rc:
         raise PlaylistError("Could not read this SoundCloud set. Check that it is public and try again.")
     try:
@@ -89,7 +91,7 @@ def deezer_link(url):
 
 def _deezer(path):
     request = urllib.request.Request("https://api.deezer.com/" + path, headers={"Accept": "application/json"})
-    with urllib.request.build_opener(NoRedirect).open(request, timeout=15) as response:
+    with PROVIDERS["deezer"].request(), urllib.request.build_opener(NoRedirect).open(request, timeout=15) as response:
         data = response.read(2 << 20)
     if len(data) > (2 << 20): raise PlaylistError("The Deezer response is too large.")
     value = json.loads(data)
@@ -132,11 +134,21 @@ def _json(address):
     return value
 
 
-def link_name(url, read=_json):
+def link_name(url, read=None, intake=None):
     """The playlist's name from a public link, for the Create playlist name field. '' when unknown."""
     from urllib.parse import quote
     provider = detect(url)
     if provider is None: raise PlaylistError("Paste a public Spotify, YouTube, SoundCloud or Deezer playlist link.")
+    if read is None:
+        def read(address):
+            gate = intake.YOUTUBE.request("playlist") if provider == "youtube" else PROVIDERS[provider].request()
+            with gate:
+                try:
+                    return _json(address)
+                except urllib.error.HTTPError as error:
+                    if provider == "youtube":
+                        intake.YOUTUBE.result("playlist", 1, f"HTTP {error.code}")
+                    raise
     try:
         if provider == "deezer":
             kind, identifier = deezer_link(url)

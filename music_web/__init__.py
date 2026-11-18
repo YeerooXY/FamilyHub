@@ -31,6 +31,7 @@ from .finished_audio import FinishedAudio, prepare_record, activity as finished_
 from .playlist_artwork import PlaylistArtwork, ArtworkError
 from .lyrics import LyricsCache
 from .worker_activity import WorkerActivity
+from .resources import ResourceGovernor, TransferResources, PROVIDERS, background_request, transfer_limit, waiting, runtime_capacity
 from . import link_playlists
 from . import radio
 
@@ -202,6 +203,17 @@ def create_app(test_config=None):
     search_cache = OrderedDict()
     app.extensions["music"] = SimpleNamespace(sessions=sessions, jobs=jobs)
     log = logging.getLogger("music_web")
+    resources = ResourceGovernor(lambda: shadow_queue(), lambda: resource_metrics())
+    transfers = TransferResources(transfer_limit(), lambda: min(
+        MAX_CACHE_BYTES - scratch_size(ws, lib, app.intake), shutil.disk_usage(ws).free - MIN_FREE_BYTES))
+    app.extensions["music"].resources = resources
+    app.intake.RESOURCES = resources
+    app.intake.RESOURCE_TRACK = resources.track
+    app.intake.RESOURCE_WAIT = waiting
+
+    def cancel_acquisition(job):
+        job["cancel"].set()
+        transfers.wake()
 
     def allow(key, limit, window):
         now = time.monotonic()
@@ -514,13 +526,14 @@ def create_app(test_config=None):
                     found["accessed"] = now
                     found["priority"] = 0 if found.get("current") else priority
                     found["save"] |= save
+                    transfers.wake()
                     return found
             if not library_addition and len([j for j in jobs.values() if j["state"] in ("queued", "running") and not j.get("library_addition")]) >= (32 if priority == 0 else 24):
                 raise ApiError("The preparation queue is full. Try again shortly.", 429)
             job = {"id": secrets.token_urlsafe(12), "owner": user, "state": "running", "message": STEP_TEXT[step],
                    "artist": m["artist"], "title": m["title"], "phase": step,
                    "preview_state": "unavailable", "assets": set(), "created": time.time(),
-                   "source_id": source_id, "priority": priority, "save": save, "meta": m,
+                   "source_id": source_id, "priority": priority, "save": save, "meta": m, "queued_at": time.monotonic(),
                    "cancel": threading.Event(), "publish": threading.Lock(), "current": False}
             jobs[job["id"]] = job
             for k in [k for k, v in jobs.items() if v["state"] not in ("queued", "running") and not v.get("current") and not v.get("analyzing")][:max(0, len(jobs) - MAX_JOBS)]:
@@ -840,11 +853,20 @@ def create_app(test_config=None):
                     path, manifest, _ = intake.load_item(job["item"])
                     item = {"item": path, "manifest": manifest}
                 if not item:
-                    item = intake.cmd_fetch(SimpleNamespace(url=url, workspace=ws,
-                        preview=os.path.join(ws, ".preview-" + job["id"]), cancel=job["cancel"],
-                        notify=lambda: publish_assets(job), budget=lambda: job_budget(job),
-                        progress=lambda **fields: download_progress(job, **fields),
-                        preview_failed=lambda: job.update(preview_state="unavailable", preview_failed=True)))
+                    def lease(size=0):
+                        return transfers.lease(size=size, background=lambda: analyzing_job(job),
+                                               cancelled=job["cancel"].is_set, error=intake.IntakeError)
+                    intake.CONTROL.transfer = lease
+                    intake.CONTROL.reserve = lease
+                    try:
+                        item = intake.cmd_fetch(SimpleNamespace(url=url, workspace=ws,
+                            preview=os.path.join(ws, ".preview-" + job["id"]), cancel=job["cancel"],
+                            notify=lambda: publish_assets(job), budget=lambda: job_budget(job),
+                            progress=lambda **fields: download_progress(job, **fields),
+                            cleanup_preview=lambda: remove_preview(job["id"]),
+                            preview_failed=lambda: job.update(preview_state="unavailable", preview_failed=True)))
+                    finally:
+                        intake.CONTROL.transfer = intake.CONTROL.reserve = None
                 job["item"] = item["item"]
                 job["already_saved"] = bool(item.get("manifest", {}).get("import"))
                 job["playback"] = profile(intake, item["item"], item.get("manifest", {}))
@@ -918,7 +940,8 @@ def create_app(test_config=None):
                         job["metadata_locked"] = True
                         m = job["meta"]
                         job.update(artist=m["artist"], title=m["title"])
-                    with import_lock:
+                    with resources.track("import", "import lock") as running, import_lock:
+                        running()
                         job_budget(job)
                         if not job.get("local_existing"): intake.cmd_import(SimpleNamespace(item=item["item"], library=lib, **m))
                 job["committed"] = True
@@ -930,7 +953,7 @@ def create_app(test_config=None):
             else:
                 outcome = ("done", "Prepared")
             if url and os.path.isdir(item["item"]) and not job.get("analysis"):
-                job["analysis_state"] = "pending"
+                job.update(analysis_state="pending", analysis_queued_at=time.monotonic())
         except PlaybackYield:
             # Interrupted progressive downloads own an incomplete preview directory.
             # It must be discarded before retrying the same supervised acquisition.
@@ -938,7 +961,8 @@ def create_app(test_config=None):
                 remove_preview(job["id"])
             job["assets"].clear()
             job.update(state="queued", message="Paused so a listener's song goes first", phase="queued",
-                       preview_state="pending", download_bytes=0, download_total_bytes=None)
+                       preview_state="pending", download_bytes=0, download_total_bytes=None,
+                       queued_at=time.monotonic())
             intake.CONTROL.cancel = None
             intake.CONTROL.background = False
             intake.CONTROL.budget = None
@@ -1008,6 +1032,8 @@ def create_app(test_config=None):
                 os.unlink(wav)
             with lock:
                 job.update(analysis_state="pending" if retry else "done", analyzing=False)
+                if retry:
+                    job["analysis_queued_at"] = time.monotonic()
             intake.CONTROL.cancel = None
             intake.CONTROL.background = False
             intake.CONTROL.budget = None
@@ -1024,6 +1050,61 @@ def create_app(test_config=None):
 
     def foreground(job, analyzing=False):
         return not analyzing and job["priority"] == 0 and (not job.get("playlist_import") or job.get("current"))
+
+    def shadow_queue():
+        with lock:
+            active = [slot for slot in acquisition_slots if slot]
+            sources = {j.get("source_id") for j, analyzing in active if not analyzing and j.get("source_id")}
+            background = sum(not foreground(j, analyzing) for j, analyzing in active)
+            used = len(active)
+            listening = playback_demand()
+            ordered = sorted(jobs.values(), key=lambda j: (j["priority"] + (20 if j["state"] == "done" else 0), j["created"]))
+            for job in ordered:
+                analyzing = job["state"] == "done" and job.get("analysis_state") == "pending" and not job.get("analyzing")
+                if job["cancel"].is_set() or (job["state"] != "queued" and not analyzing):
+                    continue
+                source = job.get("source_id")
+                is_foreground = foreground(job, analyzing)
+                if source in sources:
+                    reason = "same source"
+                elif listening and (analyzing or (job.get("playlist_import") and not job.get("current"))):
+                    reason = "playback demand"
+                elif used >= workers or (background >= background_workers and not is_foreground):
+                    reason = "acquisition capacity"
+                else:
+                    reason = "would admit"
+                    used += 1
+                    background += not is_foreground
+                    if source and not analyzing:
+                        sources.add(source)
+                stage = "analysis" if analyzing else "fetch" if job.get("url") else "import"
+                yield stage, reason, job.get("analysis_queued_at" if analyzing else "queued_at", time.monotonic())
+                if stage == "fetch":
+                    yield "preview", reason, job["queued_at"]
+
+    def resource_metrics():
+        with playback_devices.lock:
+            now = playback_devices.clock()
+            online = sum(now - d["at"] <= playback_devices.ONLINE_SECONDS for d in playback_devices.devices.values())
+        with transfers.condition:
+            active, reserved = transfers.active, transfers.reserved
+        with lock:
+            acquisitions = sum(slot is not None for slot in acquisition_slots)
+            yielded = sum(bool(j.get("yielded")) for j in jobs.values())
+        free = "unknown"
+        with suppress(OSError):
+            free = shutil.disk_usage(ws).free >> 20
+        return dict(online=online, playback=int(playback_demand()), acquisition=f"{acquisitions}/{workers}",
+                    transfer=f"{active}/{transfers.capacity}", scratch_reserved_MiB=reserved >> 20,
+                    scratch_free_MiB=free, rss_MiB=runtime_capacity(rss_only=True),
+                    youtube_cooldown_s=max(0, round(app.intake.YOUTUBE.until - time.monotonic())), yielded=yielded)
+
+    logging.getLogger("music_web.resources").info("resource capacity %s acquisition=%d background=%d transfer=%d",
+                                                runtime_capacity(), workers, background_workers, transfers.capacity)
+
+    def run_analysis(job):
+        with resources.track("analysis"):
+            analyze_job(job)
 
     def drain():
         with worker_lock, ThreadPoolExecutor(max_workers=workers, thread_name_prefix="music-acquire") as pool:
@@ -1064,7 +1145,7 @@ def create_app(test_config=None):
                         last_served[(job["priority"] + (20 if analyzing else 0), job["owner"], job.get("playlist_id"))] = dispatch_number
                         if analyzing:
                             job["analyzing"] = True
-                            future = pool.submit(analyze_job, job)
+                            future = pool.submit(run_analysis, job)
                         else:
                             job["state"] = "running"; job.pop("yielded", None)
                             future = pool.submit(work, job, job.get("url"), job.get("tmp"), job["meta"])
@@ -1083,7 +1164,8 @@ def create_app(test_config=None):
     def start(job, url, tmp, m):
         with lock:
             if "url" not in job:
-                job.update(url=url, tmp=tmp, state="queued")
+                job.update(url=url, tmp=tmp, state="queued", queued_at=time.monotonic())
+                resources.wake()
         # Only one drain thread waits for work; no thread per queued recording.
         with lock:
             thread = app.extensions["music"].__dict__.get("worker")
@@ -1369,16 +1451,17 @@ def create_app(test_config=None):
                 if job["state"] == "done": job.update(state="queued", message=STEP_TEXT["import"])
             start(job, app.intake.WATCH + source, None, metadata)
             last_progress = None
-            while job["state"] in ("queued", "running"):
-                message = "Purifying audio" if job.get("phase") == "prepare" else job.get("message", "Preparing recording")
-                fields = {"file_phase": "queued" if job["state"] == "queued" else ("downloading" if job.get("phase") == "fetch" else "purifying"),
-                          "download_bytes": job.get("download_bytes", 0),
-                          "download_total_bytes": job.get("download_total_bytes")}
-                snapshot = (message, fields)
-                if snapshot != last_progress:
-                    progress(message, **fields)
-                    last_progress = snapshot
-                time.sleep(1)
+            with waiting("acquisition"):
+                while job["state"] in ("queued", "running"):
+                    message = "Purifying audio" if job.get("phase") == "prepare" else job.get("message", "Preparing recording")
+                    fields = {"file_phase": "queued" if job["state"] == "queued" else ("downloading" if job.get("phase") == "fetch" else "purifying"),
+                              "download_bytes": job.get("download_bytes", 0),
+                              "download_total_bytes": job.get("download_total_bytes")}
+                    snapshot = (message, fields)
+                    if snapshot != last_progress:
+                        progress(message, **fields)
+                        last_progress = snapshot
+                    time.sleep(1)
             if job["state"] != "done": raise ValueError("Recording preparation failed.")
             ready = library_record(saved_source(source))[0]
             progress("Ready on server", file_phase="saved", download_bytes=job.get("download_bytes", 0),
@@ -1401,7 +1484,7 @@ def create_app(test_config=None):
 
     playlist_preparation = PlaylistPreparation(playlist_store, lock, prepare_playlist_recording,
                                                match_playlist_recording, read_imported_playlist, download_workers=background_workers,
-                                               allow_background=lambda: not playback_demand())
+                                               allow_background=lambda: not playback_demand(), resources=resources)
     app.extensions["music"].playlist_preparation = playlist_preparation
     app.extensions["music"].catalogue_review = catalogue_review
     def review_recording(identifier):
@@ -1480,6 +1563,7 @@ def create_app(test_config=None):
                 log.warning("metadata votes: %s", type(error).__name__)
             with suppress(OSError): os.remove(inbox)
         def tag_songs():
+            background_request.set(True)
             # One tagger works continuously while nobody needs a song prepared. MusicBrainz allows
             # about one request a second per server, so more taggers would only get it blocked.
             while not auto_stop.is_set():
@@ -1501,7 +1585,7 @@ def create_app(test_config=None):
         url = request.args.get("url", "")
         if not 1 <= len(url) <= 2048: raise ApiError("Paste a playlist link.")
         if not allow("link-name:" + g.user, 30, 60): raise ApiError("Wait a moment before checking another link.", 429)
-        try: provider, name = link_playlists.link_name(url)
+        try: provider, name = link_playlists.link_name(url, intake=app.intake)
         except PlaylistError as error: raise ApiError(str(error))
         return jsonify(provider=provider, name=name)
 
@@ -1714,7 +1798,7 @@ def create_app(test_config=None):
             searches[search_key] = cancel
             for job in jobs.values():
                 if not job.get("playlist_import") and not recommendation and not block and job["owner"] == g.user and job.get("search_preview") and not job.get("current") and job["state"] in ("queued", "running"):
-                    job["cancel"].set()
+                    cancel_acquisition(job)
                     if job["state"] == "queued":
                         job.update(state="cancelled", message="Cancelled")
         app.intake.CONTROL.cancel = cancel
@@ -1832,7 +1916,7 @@ def create_app(test_config=None):
                 obsolete_current = other.get("priority", 0) == 0
                 needs_slot = job["preview_state"] != "ready" and other["state"] == "running"
                 if not other.get("playlist_import") and other is not job and other["owner"] == g.user and other.get("source_id") and (obsolete_current or needs_slot or other.get("analyzing")):
-                    other["cancel"].set()
+                    cancel_acquisition(other)
                     if other["state"] == "queued":
                         other.update(state="cancelled", message="Cancelled")
             if job["state"] == "done" and job.get("item") and job["message"] == "Prepared":
@@ -1899,10 +1983,10 @@ def create_app(test_config=None):
                 raise ApiError(HTTP_TEXT[404], 404)
         with job["publish"]:
             if job.get("committed"):
-                job["cancel"].set()
+                cancel_acquisition(job)
                 return jsonify(job={**public(job), "state": "done", "message": DONE_TEXT})
             if job["state"] != "done":
-                job["cancel"].set()
+                cancel_acquisition(job)
                 if job["state"] == "queued":
                     job.update(state="cancelled", message="Cancelled")
         return jsonify(job=public(job))
@@ -1920,7 +2004,7 @@ def create_app(test_config=None):
         if data is None:
             try:
                 url = f"https://i.ytimg.com/vi/{source_id}/hqdefault.jpg"
-                with urllib.request.urlopen(url, timeout=5) as response:
+                with PROVIDERS["youtube-images"].request(), urllib.request.urlopen(url, timeout=5) as response:
                     if response.geturl() != url or response.headers.get_content_type() != "image/jpeg":
                         abort(404)
                     data = response.read(262145)
@@ -2149,7 +2233,7 @@ def create_app(test_config=None):
             for job in jobs.values():
                 if not job.get("playlist_import") and job["owner"] == g.user and job.get("priority", 0) > 0 and job.get("source_id") not in requested:
                     if not job.get("committed") and job["state"] in ("queued", "running"):
-                        job["cancel"].set()
+                        cancel_acquisition(job)
                     if job["state"] == "queued":
                         job.update(state="cancelled", message="Cancelled")
         return jsonify(jobs=prepared)

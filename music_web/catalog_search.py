@@ -1,27 +1,19 @@
 """Deezer and iTunes song search for metadata review. Only titles, artists and lengths leave the server."""
 import json
 import re
-import threading
-import time
 import urllib.parse
 import urllib.request
+from .resources import PROVIDERS
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise ValueError('Store search redirected the request.')
 
-_locks = {'deezer': threading.Lock(), 'itunes': threading.Lock()}
-_next = {'deezer': 0.0, 'itunes': 0.0}
-# Deezer allows 50 requests per 5 s; iTunes about 20 a minute.
-SPACING = {'deezer': 0.25, 'itunes': 3.2}
 _genres = {}
 
 def _get(service, url):
-    with _locks[service]:
-        time.sleep(max(0, _next[service] - time.monotonic()))
-        _next[service] = time.monotonic() + SPACING[service]
     request = urllib.request.Request(url, headers={'User-Agent': 'FamilyHubMusic/0.1', 'Accept': 'application/json', 'Accept-Language': 'en'})
-    with urllib.request.build_opener(NoRedirect).open(request, timeout=10) as response:
+    with PROVIDERS[service].request(), urllib.request.build_opener(NoRedirect).open(request, timeout=10) as response:
         data = response.read(1048577)
     if len(data) > 1048576: raise ValueError('Store response is too large.')
     return json.loads(data)

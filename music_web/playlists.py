@@ -12,6 +12,7 @@ from difflib import SequenceMatcher
 import unicodedata
 from types import SimpleNamespace
 from collections import defaultdict, deque
+from .resources import background_request
 
 class PlaylistError(ValueError):
     pass
@@ -270,9 +271,13 @@ def fetch_youtube_playlist(url, intake):
         if len(videos) != 1 or not re.fullmatch(r"[A-Za-z0-9_-]{11}", videos[0]):
             raise PlaylistError("YouTube Mixes can't be read from the link alone. Open the mix, play a song in it, then share that link.")
         canonical = "https://www.youtube.com/watch?v=" + videos[0] + "&list=" + values[0]
-    rc, output, _ = intake.run([intake.tool("yt-dlp"), "--ignore-config", "--flat-playlist",
-                               "--dump-single-json", "--playlist-end", "10001", "--", canonical],
-                              240, "YouTube playlist", True)
+    try:
+        rc, output, _ = intake.youtube_run([intake.tool("yt-dlp"), "--ignore-config", "--flat-playlist",
+                                           "--dump-single-json", "--playlist-end", "10001", "--", canonical],
+                                          240, "YouTube playlist", True, caller="playlist",
+                                          background=background_request.get())
+    except intake.YouTubeDeferred:
+        rc = 1
     if rc:
         raise PlaylistError("Could not read this playlist. Check that it is public and try again.")
     try:
