@@ -179,8 +179,9 @@ class ProviderGate:
         self.next_start = 0
 
     @contextmanager
-    def request(self):
+    def request(self, max_wait=None):
         ticket = (object(), background_request.get())
+        deadline = time.monotonic() + max_wait if max_wait is not None else None
         with self.condition:
             self.queue.append(ticket)
             self.condition.notify_all()
@@ -191,8 +192,14 @@ class ProviderGate:
                     if first and delay <= 0:
                         self.next_start = time.monotonic() + self.spacing
                         break
+                    remaining = deadline - time.monotonic() if deadline is not None else None
+                    if remaining is not None and remaining <= 0:
+                        raise TimeoutError('Provider pacing took too long.')
+                    wait_for = remaining
+                    if first:
+                        wait_for = delay if remaining is None else min(delay, remaining)
                     with waiting("provider pacing"):
-                        self.condition.wait(delay if first else None)
+                        self.condition.wait(wait_for)
             finally:
                 self.queue.remove(ticket)
                 self.condition.notify_all()

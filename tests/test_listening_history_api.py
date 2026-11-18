@@ -1,5 +1,11 @@
 """Authenticated API tests use the existing offline Flask fixture."""
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
 import test_family_profiles as family
+from test_music_intake import fake_item, mi
 from test_music_web import Base
 from test_listening_history import HistoryStoreTests
 
@@ -37,3 +43,68 @@ class HistoryApiTests(Base):
         self.assertEqual(self.go(other, 'DELETE', '/api/listening/history?profile=sample-a', headers={'X-CSRFToken': other_token}).status_code, 200)
         self.assertEqual(self.go(other, 'GET', '/api/listening/summary').json['recent_history'], [])
         self.assertEqual(self.go(self.app.test_client(), 'GET', '/api/listening/summary').status_code, 401)
+
+    def test_yearly_and_family_visibility_with_owned_library_adds(self):
+        alice, alice_token = self.select()
+        bob, bob_token = self.select('sample-b')
+        fixture = HistoryStoreTests()
+        fixture.now = datetime.now(timezone.utc)
+        event = fixture.event()
+        stats = '/api/server/stats?leaderboard=1'
+        wrapped = '/api/listening/wrapped'
+        chart = {'artists': {'data': [{'name': 'Artist'}]},
+                 'tracks': {'data': [{'title': 'Song', 'artist': {'name': 'Artist'}}]}}
+        read = self.enterContext(mock.patch('music_web.wrapped._deezer', return_value=chart))
+        item = fake_item(Path(self.ws))
+        with mock.patch.object(mi, 'tag_copy', side_effect=lambda source, target, tags: Path(target).write_bytes(Path(source).read_bytes())):
+            args = SimpleNamespace(item=str(item), library=self.lib, artist='Artist', title='Song', album='Album', track=None, added_by='sample-b')
+            saved = mi.cmd_import(args)['manifest']['import']
+            args.added_by = 'sample-a'
+            self.assertEqual(mi.cmd_import(args)['manifest']['import'], saved)
+            legacy = fake_item(Path(self.ws), data=b'unknown ownership')
+            args.item, args.title, args.added_by = str(legacy), 'Legacy', None
+            mi.cmd_import(args)
+            _, manifest = mi.read_manifest(str(legacy))
+            del manifest['import']['added_at']
+            mi.write_manifest(str(legacy), manifest)
+            args.added_by = 'sample-a'
+            self.assertNotIn('added_by', mi.cmd_import(args)['manifest']['import'])
+        self.assertEqual(saved['added_by'], 'sample-b')
+        event['recording_id'] = item.name
+        self.assertEqual(self.post(bob, bob_token, '/api/listening/events', json={'events': [event]}).json['added'], 1)
+        private = self.go(bob, 'GET', wrapped).json
+        self.assertEqual(private['songs_added'], 1)
+        self.assertEqual(private['favourite_artist'], 'Artist')
+        self.assertEqual(private['mainstream_score'], 1)
+        self.assertEqual(private['early_listeners'], [])
+        self.assertEqual(self.go(alice, 'GET', wrapped + '?profile=sample-b').json['total_minutes'], 0)
+        self.assertEqual(self.go(alice, 'GET', wrapped).json['songs_added'], 0)
+        self.assertEqual(self.go(alice, 'GET', wrapped + '?year=bad').status_code, 400)
+
+        store = self.app.extensions['listening_history']
+        with mock.patch.object(store, 'events', side_effect=AssertionError('Leaderboard read raw history')):
+            rows = {row['id']: row['wrapped'] for row in self.go(alice, 'GET', stats).json['profiles']}
+        self.assertEqual(rows['sample-b']['most_replayed_song'], None)
+        self.assertEqual(rows['sample-b']['songs_added'], 1)
+        self.assertNotIn('first_listened_per_artist', rows['sample-b'])
+        counter = dict(device_id='b' * 32, playing=True, counters=[dict(day=fixture.now.date().isoformat(), seconds=60, plays=1)])
+        activity = '/api/playback/activity'
+        self.assertEqual(self.post(bob, bob_token, activity, json=counter).status_code, 200)
+        self.assertEqual(self.go(alice, 'GET', stats).json['total_seconds'], 60)
+        self.assertEqual(self.go(bob, 'PATCH', '/api/profile/preferences', json={'listening_history_paused': True},
+                                 headers={'X-CSRFToken': bob_token}).status_code, 200)
+        self.assertEqual([row['id'] for row in self.go(alice, 'GET', stats).json['profiles']], ['sample-a'])
+        self.assertTrue(self.go(bob, 'GET', wrapped).json['paused'])
+        counter['counters'][0]['seconds'] = 120
+        self.assertTrue(self.post(bob, bob_token, activity, json=counter).json['counters_accepted'])
+        self.assertEqual(self.go(bob, 'PATCH', '/api/profile/preferences', json={'listening_history_paused': False},
+                                 headers={'X-CSRFToken': bob_token}).status_code, 200)
+        self.assertEqual(self.post(bob, bob_token, '/api/listening/events', json={'events': [fixture.event()]}).json['added'], 0)
+        self.assertEqual(self.post(bob, bob_token, activity, json=counter).status_code, 200)
+        self.assertEqual(self.go(alice, 'GET', stats).json['total_seconds'], 60)
+        self.assertEqual(self.go(bob, 'DELETE', '/api/listening/history', headers={'X-CSRFToken': bob_token}).status_code, 200)
+        self.assertEqual(self.post(bob, bob_token, activity, json=counter).status_code, 200)
+        self.assertEqual(self.go(alice, 'GET', stats).json['total_seconds'], 0)
+        cleared = self.go(bob, 'GET', wrapped).json
+        self.assertEqual((cleared['total_minutes'], cleared['songs_added']), (0, 1))
+        read.assert_called_once_with('chart?limit=50', timeout=4, max_wait=1)

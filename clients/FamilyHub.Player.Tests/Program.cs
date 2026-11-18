@@ -380,7 +380,7 @@ namespace CommunityToolkit.Maui.Views { public sealed class MediaElement { } }
 namespace FamilyHub.Client.Core
 {
     public sealed record MusicTrack(string Id, string Title, string Channel) { public double? PlaybackGainDb { get; init; } public double? Lufs { get; init; } public double? TruePeak { get; init; } public string PlaybackVersion { get; init; } = ""; public double Duration { get; init; } = 30; }
-    public sealed record ListenerPreferences { public string VolumeLevel { get; init; } = "normal"; }
+    public sealed record ListenerPreferences { public string VolumeLevel { get; init; } = "normal"; public bool ListeningHistoryPaused { get; init; } }
     public sealed record PlaybackResume
     {
         public List<string> TrackIds { get; init; } = []; public int Index { get; init; } public double Position { get; init; }

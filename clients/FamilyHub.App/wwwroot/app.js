@@ -396,7 +396,6 @@ window.familyhub.bindSeekHover = input => {
 })();
 
 window.familyhub.focusIfWithin = (selector, successor) => { if (document.activeElement?.closest(selector)) document.getElementById(successor)?.focus({preventScroll:true}); };
-window.familyhub.statsVisible = () => !document.hidden && !!document.querySelector('.server-stats')?.getClientRects().length;
 window.familyhub.captureStatsFocus = () => {
  const root=document.querySelector('.server-stats');
  if(root)root._statsFocus=root.contains(document.activeElement)?document.activeElement:null;

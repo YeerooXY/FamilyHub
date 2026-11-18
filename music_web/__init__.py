@@ -8,6 +8,7 @@ from collections import OrderedDict, deque
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from contextlib import suppress
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 from flask import Flask, abort, g, jsonify, redirect, render_template, request, session, send_file
@@ -16,6 +17,7 @@ from werkzeug.exceptions import HTTPException
 from .genres import GenreLabels, artist_name
 from .playlist_preparation import PlaylistPreparation
 from .listening_stats import ListeningStats
+from .wrapped import DeezerChart
 from .playlists import PlaylistError, PlaylistStore, fetch_playlist, fetch_youtube_playlist, rank_matches, normalized, duration_matches, preferred_match
 from .profiles import ProfileError, ProfileStore
 from .mixing import transition
@@ -407,8 +409,11 @@ def create_app(test_config=None):
     def family_preferences():
         require_family()
         with lock:
-            preferences = profile_store.preferences(g.user, body() if request.method == "PATCH" else None)
-        return jsonify(preferences=preferences)
+            changes = body() if request.method == "PATCH" else None
+            preferences = profile_store.preferences(g.user, changes)
+            if changes and changes.get('listening_history_paused') is True:
+                listening_stats.reset_presence(g.user)
+        return jsonify(preferences={key: value for key, value in preferences.items() if key != 'listening_history_resumed_at'})
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
@@ -644,6 +649,7 @@ def create_app(test_config=None):
         pass
 
     listening_stats = ListeningStats(ws)
+    deezer_chart = DeezerChart(ws, listening_stats.utc)
     def playback_demand():
         # Listening to an available recording needs no preparation capacity.
         with lock:
@@ -666,11 +672,17 @@ def create_app(test_config=None):
                 raise ApiError("Invalid current song.")
             track = {key: track[key] for key in ("id", "title", "channel")}
         counters = data.get("counters")
-        if counters is not None:
-            try: listening_stats.sync(g.user, data.get("counter_device_id") or device, counters)
-            except ValueError as error: raise ApiError(str(error), 400)
-        try: listening_stats.heartbeat(g.user, device, data["playing"], count_time=counters is None, track=track)
-        except ValueError as error: raise ApiError(str(error), 429)
+        with lock:
+            preferences = profile_store.preferences(g.user) if family_mode else {}
+            paused = preferences.get('listening_history_paused', False)
+            if not paused:
+                if counters is not None:
+                    # Day-only legacy counters cannot separate plays on the day of a clear or resume.
+                    after_day = max(listening_history.cleared_at(g.user) or '', preferences.get('listening_history_resumed_at', ''))[:10]
+                    try: listening_stats.sync(g.user, data.get("counter_device_id") or device, counters, after_day=after_day)
+                    except ValueError as error: raise ApiError(str(error), 400)
+                try: listening_stats.heartbeat(g.user, device, data["playing"], count_time=counters is None, track=track)
+                except ValueError as error: raise ApiError(str(error), 429)
         # The same check-in lists this device for "Connect to a device" and collects a transfer sent to it.
         if track and data["playing"] and opus_warmer and re.fullmatch(r"(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})", track["id"]):
             opus_warmer.now_playing(track["id"])
@@ -680,8 +692,24 @@ def create_app(test_config=None):
     @app.get("/api/server/stats")
     def server_stats():
         profiles = profile_store.list() if family_mode else [dict(id=u, name=u) for u in cfg["ALLOWED_USERS"]]
-        result = listening_stats.snapshot(profiles, profile_store.subscription_history() if family_mode else None)
         names = {p["id"]: p["name"] for p in profiles}
+        leaderboard = request.args.get('leaderboard') == '1'
+        chart = deezer_chart.snapshot() if leaderboard and family_mode else {}
+        with lock:
+            preferences = profile_store.read()['preferences'] if family_mode else {}
+            enabled = [p for p in profiles if not preferences.get(p['id'], {}).get('listening_history_paused')]
+            result = listening_stats.snapshot(enabled if leaderboard else profiles,
+                                              profile_store.subscription_history() if family_mode else None,
+                                              hidden={p['id'] for p in profiles if p not in enabled})
+            if leaderboard and family_mode:
+                year = listening_history.utc().year
+                additions = songs_added(year)
+                result['wrapped_year'] = year
+                for row in result['profiles']:
+                    wrapped = listening_history.wrapped(row['id'], year, chart)
+                    row['wrapped'] = dict(wrapped, songs_added=additions.get(row['id'], 0))
+        if leaderboard:
+            return jsonify(result)
         disk = shutil.disk_usage(lib)
         with lock:
             result.update(catalogue_paused=playback_demand(), storage_total_bytes=disk.total, storage_free_bytes=disk.free,
@@ -835,7 +863,43 @@ def create_app(test_config=None):
             if state in ("done", "error"):
                 job["phase"] = state
 
+    addition_counts, addition_checked = {}, None
+    addition_lock = threading.Lock()
+
+    def music_manifests(root, ids=None):
+        for path in root.iterdir():
+            name = path.name
+            if (app.intake.ID_RE.fullmatch(name) and not name.startswith('edit-')
+                    and (ids is None or (name[3:14] if name.startswith('yt-') else name) in ids)):
+                try:
+                    yield app.intake.read_manifest(str(path))[1]
+                except (OSError, ValueError, app.intake.IntakeError):
+                    continue
+
+    def songs_added(year):
+        nonlocal addition_counts, addition_checked
+        with addition_lock:
+            if addition_checked is None or time.monotonic() - addition_checked >= 3600:
+                counts = {}
+                root = Path(ws)
+                replaced = root / '.replaced'
+                archives = [path for path in replaced.iterdir() if path.is_dir()] if replaced.is_dir() else []
+                for directory in [root, *archives]:
+                    for manifest in music_manifests(directory):
+                        record = manifest.get('import') or {}
+                        owner, added_at = record.get('added_by'), record.get('added_at')
+                        if isinstance(owner, str) and isinstance(added_at, str):
+                            try:
+                                when = datetime.fromisoformat(added_at)
+                            except ValueError:
+                                continue
+                            owners = counts.setdefault(when.year, {})
+                            owners[owner] = owners.get(owner, 0) + 1
+                addition_counts, addition_checked = counts, time.monotonic()
+            return addition_counts.get(year, {})
+
     def work(job, url, tmp, m):
+        nonlocal addition_checked
         step, intake, outcome = "fetch" if url else "stage", app.intake, ("done", DONE_TEXT)
         intake.CONTROL.cancel = job["cancel"]
         # Background work runs at lower CPU priority so a listener's song is served first.
@@ -943,7 +1007,11 @@ def create_app(test_config=None):
                     with resources.track("import", "import lock") as running, import_lock:
                         running()
                         job_budget(job)
-                        if not job.get("local_existing"): intake.cmd_import(SimpleNamespace(item=item["item"], library=lib, **m))
+                        if not job.get("local_existing"):
+                            owner = None if job.get('source_replacement') else job['owner']
+                            intake.cmd_import(SimpleNamespace(item=item["item"], library=lib, added_by=owner, **m))
+                            with addition_lock:
+                                addition_checked = None
                 job["committed"] = True
                 job["temporary_item"] = False
                 step = "prepare"
@@ -1635,7 +1703,7 @@ def create_app(test_config=None):
             data = body() if request.method != "GET" else {}
             with lock:
                 owner = editable_playlist_owner(pid, data)
-                if request.method == "POST": status = playlist_preparation.start(owner, pid, data.get("mode", "download"))
+                if request.method == "POST": status = playlist_preparation.start(owner, pid, data.get("mode", "download"), actor=g.user)
                 elif request.method == "DELETE": status = playlist_preparation.pause(owner, pid)
                 else: status = playlist_preparation.status(owner, pid)
         except ValueError as error: raise ApiError(str(error), 409)
@@ -2182,6 +2250,24 @@ def create_app(test_config=None):
                 continue
         return rows
 
+    def history_metadata(ids):
+        tracks = {}
+        for manifest in music_manifests(Path(ws), ids):
+            source, record = manifest['source'], manifest.get('import')
+            identifier = source.get('id', manifest['id'])
+            if identifier not in ids or identifier in tracks and not record:
+                continue
+            overrides = catalogue_review.overrides(identifier, record['library_sha256']) if record else {}
+            record = record or {}
+            artist = overrides.get('artist') or record.get('artist') or artist_name(source, record) or source.get('channel', '')
+            with genre_labels.lock:
+                genre = genre_labels.cache.get(artist.casefold(), {}).get('genre')
+            album = record.get('album')
+            tracks[identifier] = dict(title=record.get('title') or source.get('track_title') or source.get('title'),
+                                      channel=artist, library_album=overrides.get('album') or (album if album != 'Selected recordings' else None) or source.get('album'),
+                                      genre=overrides.get('genre') or genre)
+        return tracks
+
     @app.get("/api/library")
     def library():
         return jsonify(results=library_tracks())
@@ -2349,8 +2435,9 @@ def create_app(test_config=None):
         return send_file(path, mimetype="audio/mp4", conditional=True, etag=True, max_age=0)
 
     from .listening_history import register as register_listening_history
-    register_listening_history(app, ws, body, profile_store, cfg["ADMIN_USERS"],
-                               lambda: {t["id"]: t for t in library_tracks()}, lock)
+    listening_history = register_listening_history(app, ws, body, profile_store, cfg["ADMIN_USERS"],
+        lambda: {t["id"]: t for t in library_tracks()}, lock, track_metadata=history_metadata,
+        chart=deezer_chart, songs_added=songs_added, clear_totals=listening_stats.clear)
     from .discovery import register as register_discovery
     register_discovery(app, ws, body, cfg["ADMIN_USERS"], library_tracks,
                        cfg.get("DISCOVERY_WORKER", cfg["PUBLIC_ORIGIN"] != "https://music.test"))

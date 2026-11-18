@@ -83,6 +83,3 @@ const outside = control('outside');
 outside.focus();
 window.familyhub.restoreStatsFocus();
 assert.equal(document.activeElement, outside, 'A refresh must preserve focus moved outside the chart');
-assert(window.familyhub.statsVisible());
-document.hidden = true;
-assert(!window.familyhub.statsVisible(), 'Hidden pages must skip statistics polling');

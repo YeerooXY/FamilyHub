@@ -16,6 +16,8 @@ public sealed class MusicPlayer(MusicSession session)
     private bool preparing, sourceReady, blending, warming, incomingFailed;
     private double volume = 1, blendGain, listenedSeconds, lastListeningPosition;
     private bool listenRecorded, eventFinalized;
+    private bool lastSamplePlaying;
+    private long lastListeningSample;
     private DateTimeOffset? eventStarted, incomingStarted;
     private string incomingOwner = "";
     private string eventOwner = "", eventSource = "library", queueSource = "library";
@@ -233,7 +235,7 @@ public sealed class MusicPlayer(MusicSession session)
             }
             else if (ReferenceEquals(standby, owner))
             {
-                if (blending && owner.Playing && incomingStarted is null && !FollowingHost)
+                if (blending && owner.Playing && incomingStarted is null && !FollowingHost && !session.PlaybackPreferences.ListeningHistoryPaused)
                 { incomingStarted = DateTimeOffset.UtcNow; incomingOwner = session.HistoryOwner; }
                 TryBlend();
             }
@@ -275,11 +277,30 @@ public sealed class MusicPlayer(MusicSession session)
     private void MarkStream(IAudioDeck target, string source) { if (MusicSession.IsStream(source)) streamedDecks.Add(target); else streamedDecks.Remove(target); }
     private void RecordListening()
     {
-        if (!FollowingHost && !RemoteActive && sourceReady && Playing && !eventFinalized && eventStarted is null)
-        { eventStarted = DateTimeOffset.UtcNow; eventOwner = session.HistoryOwner; }
         var elapsed = Position - lastListeningPosition; lastListeningPosition = Position;
-        if (sourceReady && Playing && !Seeking && elapsed is > 0 and < 5) listenedSeconds += elapsed;
-        if (!FollowingHost && !RemoteActive && !listenRecorded && sourceReady && Playing && Current is { } track && listenedSeconds >= Math.Min(30, Duration > 0 ? Duration / 2 : 30))
+        var now = Environment.TickCount64;
+        var sampleSeconds = (now - lastListeningSample) / 1000d;
+        lastListeningSample = now;
+        var wasPlaying = lastSamplePlaying;
+        lastSamplePlaying = sourceReady && Playing && !Seeking;
+        if (FollowingHost || RemoteActive || session.PlaybackPreferences.ListeningHistoryPaused)
+        {
+            eventStarted = null;
+            listenedSeconds = 0;
+            lastSamplePlaying = false;
+            return;
+        }
+        if (eventStarted is not null && eventOwner != session.HistoryOwner)
+        {
+            eventStarted = null;
+            listenedSeconds = 0;
+            elapsed = 0;
+        }
+        if (sourceReady && Playing && !eventFinalized && eventStarted is null)
+        { eventStarted = DateTimeOffset.UtcNow; eventOwner = session.HistoryOwner; }
+        if (eventStarted is not null && sourceReady && !Seeking && (Playing || wasPlaying)
+            && elapsed > 0 && (elapsed < 5 || elapsed <= sampleSeconds + 2)) listenedSeconds += elapsed;
+        if (!listenRecorded && sourceReady && Playing && Current is { } track && listenedSeconds >= Math.Min(30, Duration > 0 ? Duration / 2 : 30))
         { session.RecordListen(track); listenRecorded = true; }
     }
     public Task PlayAsync(MusicTrack track, IEnumerable<MusicTrack>? sequence = null, int? sequenceStartIndex = null, string source = "library")
@@ -511,13 +532,14 @@ public sealed class MusicPlayer(MusicSession session)
             if (version != requestVersion || !blending) return;
             FinishListening(completed ? "completed" : "skipped");
             eventSource = manualQueue.Contains(incomingTrack) ? "queue" : queueSource == "search" ? "auto_dj" : queueSource;
-            eventFinalized = false; eventStarted = FollowingHost ? null : incomingStarted ?? DateTimeOffset.UtcNow.AddSeconds(-incoming.Position);
+            eventFinalized = false;
+            eventStarted = incomingOwner == session.HistoryOwner && !session.PlaybackPreferences.ListeningHistoryPaused ? incomingStarted : null;
             eventOwner = incomingOwner; incomingStarted = null;
             deck = incoming; standby = outgoing;
             index = blendTarget; Current = incomingTrack; manualQueue.Remove(incomingTrack);
             preparedTrack = null; attemptedNext = null; upcomingPreparation = null;
             blending = false; blendTarget = -1; blendGain = 0;
-            listenRecorded = false; listenedSeconds = incoming.Position; lastListeningPosition = incoming.Position;
+            listenRecorded = false; listenedSeconds = eventStarted is not null ? incoming.Position : 0; lastListeningPosition = incoming.Position;
             deck.TransportEnabled = !FollowingHost; standby.TransportEnabled = false; standby.Stop(); ApplyVolumes();
             session.PinPlayback(incomingTrack.Id); session.PinUpcomingPlayback(null); session.PinPreparingNextPlayback(null);
             Changed?.Invoke(); WarmNext();

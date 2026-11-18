@@ -89,9 +89,9 @@ def deezer_link(url):
     return match.groups()
 
 
-def _deezer(path):
+def _deezer(path, *, timeout=15, max_wait=None):
     request = urllib.request.Request("https://api.deezer.com/" + path, headers={"Accept": "application/json"})
-    with PROVIDERS["deezer"].request(), urllib.request.build_opener(NoRedirect).open(request, timeout=15) as response:
+    with PROVIDERS["deezer"].request(max_wait=max_wait), urllib.request.build_opener(NoRedirect).open(request, timeout=timeout) as response:
         data = response.read(2 << 20)
     if len(data) > (2 << 20): raise PlaylistError("The Deezer response is too large.")
     value = json.loads(data)

@@ -133,7 +133,7 @@ class ListeningStats:
             if self.dirty and (now - self.last_write >= 30 or not playing):
                 self._write(now)
 
-    def sync(self, user, device_id, entries):
+    def sync(self, user, device_id, entries, *, after_day=''):
         """Credit the growth of a device's cumulative daily counters; returns the credited seconds and plays."""
         if not isinstance(user, str) or not user:
             raise ValueError('Choose a family profile.')
@@ -170,6 +170,8 @@ class ListeningStats:
                     raise ValueError('Too many listening devices for this profile.')
                 device = known.setdefault(device_id, {'at': 0, 'days': {}})
                 for day, seconds, plays in parsed:
+                    if day <= after_day:
+                        continue
                     old = device['days'].get(day, [0, 0])
                     new = [max(seconds, old[0]), max(plays, old[1])]
                     if new == old:
@@ -194,6 +196,19 @@ class ListeningStats:
         with self.lock:
             self._expire(self.clock())
             return any(d['playing'] for d in self.devices.values())
+
+    def reset_presence(self, user):
+        with self.lock:
+            self.counted.pop(user, None)
+            self.devices = {key: device for key, device in self.devices.items() if key[0] != user}
+
+    def clear(self, user):
+        with self.lock:
+            self.reset_presence(user)
+            for key in ('profiles', 'daily', 'plays', 'counters'):
+                self.data[key].pop(user, None)
+            self.dirty = True
+            self._write(self.clock())
 
     def _reconcile(self, user, history, now):
         """Credit the first no-subscription month and subsequent eligible month boundaries once."""
@@ -221,7 +236,7 @@ class ListeningStats:
             year, month = (year + 1, 1) if month == 12 else (year, month + 1)
         return events[-1][1], changed
 
-    def snapshot(self, profiles, subscription_history=None):
+    def snapshot(self, profiles, subscription_history=None, *, hidden=()):
         with self.lock:
             self._expire(self.clock())
             now = self.utc()
@@ -229,20 +244,20 @@ class ListeningStats:
             rows, changed = [], False
             for profile in profiles:
                 user = profile['id']
-                months = self.data['profiles'].get(user, {})
-                devices = [d for (owner, _), d in self.devices.items() if owner == user]
+                months = self.data['profiles'].get(user, {}) if user not in hidden else {}
+                devices = [d for (owner, _), d in self.devices.items() if owner == user and user not in hidden]
                 current = max((d for d in devices if d["playing"] and d.get("track")), key=lambda d: d["at"], default=None)
                 status = None
                 if subscription_history is not None:
                     status, added = self._reconcile(user, subscription_history.get(user), now)
                     changed = changed or added
-                plays = self.data['plays'].get(user, 0)
+                plays = self.data['plays'].get(user, 0) if user not in hidden else 0
                 rows.append(dict(id=user, name=profile['name'], current_track=current['track'] if current else None, online=bool(devices),
                                  listening=any(d['playing'] for d in devices), seconds=sum(months.values()),
                                  month_seconds=months.get(month, 0), active_months=sum(value > 0 for value in months.values()),
                                  qualified_plays=plays, royalty_usd=round(plays * ROYALTY_RATE_USD, 5),
                                  spotify_subscribed=status,
-                                 daily=[dict(day=day, seconds=seconds) for day, seconds in sorted(self.data['daily'].get(user, {}).items())],
+                                 daily=[dict(day=day, seconds=seconds) for day, seconds in sorted(self.data['daily'].get(user, {}).items())] if user not in hidden else [],
                                  saved_huf=sum(self.data['savings'].get(user, {}).values()),
                                  monthly_saved_huf=SPOTIFY_PRICE_HUF if status is False else 0))
             if changed:
@@ -253,16 +268,17 @@ class ListeningStats:
                     pass  # stays dirty and is written with the next change
             today = now.date()
             daily = []
+            visible = [p for p in profiles if p['id'] not in hidden]
             earliest = min([today.replace(day=1), today - timedelta(days=6),
-                            *[date.fromisoformat(day) for p in profiles for day in self.data['daily'].get(p['id'], {})]])
+                            *[date.fromisoformat(day) for p in visible for day in self.data['daily'].get(p['id'], {})]])
             earliest = max(date(2020, 1, 1), earliest)
             for back in range((today - earliest).days, -1, -1):
                 day = (today - timedelta(days=back)).isoformat()
-                daily.append(dict(day=day, seconds=sum(self.data['daily'].get(p['id'], {}).get(day, 0) for p in profiles)))
+                daily.append(dict(day=day, seconds=sum(self.data['daily'].get(p['id'], {}).get(day, 0) for p in visible)))
             plays = sum(row['qualified_plays'] for row in rows)
             return dict(since=self.data['since'], profiles=rows,
                         total_seconds=sum(row['seconds'] for row in rows), total_qualified_plays=plays,
                         royalty_usd=round(plays * ROYALTY_RATE_USD, 5), royalty_rate_usd=ROYALTY_RATE_USD,
                         royalty_source=ROYALTY_SOURCE, saved_huf=sum(row['saved_huf'] for row in rows),
                         monthly_saved_huf=sum(row['monthly_saved_huf'] for row in rows), daily=daily,
-                        records=listening_records(self.data['daily'], profiles, today))
+                        records=listening_records(self.data['daily'], visible, today))

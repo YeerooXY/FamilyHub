@@ -70,8 +70,8 @@ public sealed class FamilyHubApi : IDisposable
         UserName = user.Trim();
     }
 
-    public Task<ServerStatistics> GetServerStatsAsync(CancellationToken cancellationToken = default) =>
-        RequestJsonAsync<ServerStatistics>(HttpMethod.Get, "/api/server/stats", cancellationToken: cancellationToken);
+    public Task<ServerStatistics> GetServerStatsAsync(CancellationToken cancellationToken = default, bool leaderboard = false) =>
+        RequestJsonAsync<ServerStatistics>(HttpMethod.Get, leaderboard ? "/api/server/stats?leaderboard=1" : "/api/server/stats", cancellationToken: cancellationToken);
 
     public Task<ActivityReceipt> ReportPlaybackActivityAsync(string deviceId, bool playing, CancellationToken cancellationToken = default, IReadOnlyList<ListeningCounter>? counters = null, string? counterDeviceId = null, MusicTrack? track = null, string? deviceName = null, string? deviceKind = null, double? position = null, long activation = 0, long sequence = 0, bool followingHost = false, string remoteDeviceId = "") =>
         RequestJsonAsync<ActivityReceipt>(HttpMethod.Post, "/api/playback/activity", new { device_id = deviceId, playing, counters, counter_device_id = counterDeviceId, track = track is null ? null : new { id = track.Id, title = track.Title, channel = track.Channel },

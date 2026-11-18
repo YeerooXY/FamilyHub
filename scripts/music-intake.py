@@ -6,6 +6,7 @@ Each staged item is one directory holding the audio bytes and manifest.json.
 Staged bytes are never modified; a trim derives a new item. See docs/MUSIC_INTAKE.md.
 """
 import argparse, collections, logging, contextlib, hashlib, json, math, os, queue, re, shutil, signal, stat, subprocess, sys, tempfile, threading, time, urllib.parse
+from datetime import datetime, timezone
 
 IMPORT_DIR = "Local Imports"
 WATCH = "https://www.youtube.com/watch?v="
@@ -260,8 +261,8 @@ def validate(m, dirname):
         need(isinstance(imp.get("library_sha256"), str) and SHA_RE.fullmatch(imp["library_sha256"]), "import.library_sha256")
 
 
-def load_item(path):
-    """Return (item dir, manifest, audio path) after checking structure, links and the staged SHA-256."""
+def read_manifest(path):
+    """Read and validate a manifest without opening the staged audio."""
     d = real_dir(path, "item")
     mf = os.path.join(d, "manifest.json")
     if regular_file(mf, "manifest").st_size > 1 << 20:
@@ -272,6 +273,12 @@ def load_item(path):
     except ValueError:
         raise IntakeError("malformed manifest: not valid JSON")
     validate(m, os.path.basename(d))
+    return d, m
+
+
+def load_item(path):
+    """Return (item dir, manifest, audio path) after checking structure, links and the staged SHA-256."""
+    d, m = read_manifest(path)
     audio = os.path.join(d, m["audio"]["file"])
     regular_file(audio, "staged audio")
     if sha256_file(audio) != m["audio"]["sha256"]:
@@ -1224,24 +1231,31 @@ def cmd_import(args):
             # A new inode inherits the library's default ACL; the staged file keeps its own permissions.
             os.chmod(tmp, 0o644)
             record["library_sha256"] = sha256_file(tmp)
-            try:
-                with getattr(CONTROL, "publish", None) or contextlib.nullcontext():
-                    cancel = getattr(CONTROL, "cancel", None)
-                    if cancel and cancel.is_set():
-                        raise IntakeError("import cancelled before publication")
+            with getattr(CONTROL, "publish", None) or contextlib.nullcontext():
+                cancel = getattr(CONTROL, "cancel", None)
+                if cancel and cancel.is_set():
+                    raise IntakeError("import cancelled before publication")
+                try:
                     os.link(tmp, dest)  # atomic and never replaces an existing name
-                    committed = getattr(CONTROL, "committed", None)
-                    if committed:
-                        committed()
-            except FileExistsError:
-                raise IntakeError(f"a file appeared at {dest} during import; nothing was changed")
+                except FileExistsError:
+                    raise IntakeError(f"a file appeared at {dest} during import; nothing was changed") from None
+                if prev:
+                    record.update({key: prev[key] for key in ('added_by', 'added_at') if key in prev})
+                else:
+                    record['added_at'] = datetime.now(timezone.utc).isoformat()
+                    if getattr(args, 'added_by', None):
+                        record['added_by'] = args.added_by
+                m['import'] = record
+                try:
+                    write_manifest(d, m)
+                except OSError:
+                    os.unlink(dest)
+                    raise
+                committed = getattr(CONTROL, "committed", None)
+                if committed:
+                    committed()
         finally:
             shutil.rmtree(tmpd, ignore_errors=True)
-    if existing:
-        record["library_sha256"] = prev["library_sha256"]
-    if prev != record:
-        m["import"] = record
-        write_manifest(d, m)
     return {"item": d, "imported": dest, "existing": existing, "manifest": m}
 
 

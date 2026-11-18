@@ -13,6 +13,8 @@ public sealed record ListeningEvent
     [JsonPropertyName("outcome")] public string Outcome { get; init; } = "stopped";
     [JsonPropertyName("source")] public string Source { get; init; } = "other";
     [JsonPropertyName("device_kind")] public string DeviceKind { get; init; } = "windows";
+    [JsonPropertyName("track"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string>? Track { get; init; }
 }
 
 public sealed record ListeningCounts

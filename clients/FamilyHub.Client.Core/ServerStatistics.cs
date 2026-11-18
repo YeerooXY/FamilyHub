@@ -15,6 +15,7 @@ public sealed record ServerStatistics
     public List<ServerWork> Jobs { get; init; } = [];
     public List<ServerWork> Workers { get; init; } = [];
     public List<ListeningRecord> Records { get; init; } = [];
+    [JsonPropertyName("wrapped_year")] public int? WrappedYear { get; init; }
     [JsonPropertyName("catalogue_paused")] public bool CataloguePaused { get; init; }
     [JsonPropertyName("storage_total_bytes")] public long StorageTotalBytes { get; init; }
     [JsonPropertyName("storage_free_bytes")] public long StorageFreeBytes { get; init; }
@@ -35,6 +36,26 @@ public sealed record ListenerStatistics
     public double Seconds { get; init; }
     [JsonPropertyName("month_seconds")] public double MonthSeconds { get; init; }
     [JsonPropertyName("active_months")] public int ActiveMonths { get; init; }
+    public WrappedStatistics? Wrapped { get; init; }
+}
+public sealed record WrappedStatistics
+{
+    [JsonPropertyName("songs_added")] public int SongsAdded { get; init; }
+    [JsonPropertyName("favourite_artist")] public string? FavouriteArtist { get; init; }
+    [JsonPropertyName("favourite_genre")] public string? FavouriteGenre { get; init; }
+    [JsonPropertyName("total_minutes")] public double TotalMinutes { get; init; }
+    [JsonPropertyName("longest_streak_days")] public int LongestStreakDays { get; init; }
+    [JsonPropertyName("night_owl_share")] public double? NightOwlShare { get; init; }
+    [JsonPropertyName("most_replayed_song")] public WrappedSong? MostReplayedSong { get; init; }
+    [JsonPropertyName("mainstream_score")] public double? MainstreamScore { get; init; }
+    [JsonPropertyName("early_listeners")] public List<string> EarlyListeners { get; init; } = [];
+    [JsonPropertyName("chart_date")] public string? ChartDate { get; init; }
+}
+public sealed record WrappedSong
+{
+    public string? Title { get; init; }
+    public string? Artist { get; init; }
+    public int Replays { get; init; }
 }
 public sealed record ServerWork
 {

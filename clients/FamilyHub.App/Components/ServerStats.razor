@@ -73,7 +73,7 @@
             @if (!ranking.Any(p => p.Listening || p.Online)) { <p class="lb-empty">Nobody is online right now.</p> }
         </section>
         <section class="stats-listening glass-panel" aria-labelledby="stats-listening-title">
-            <div class="stats-section-heading"><h2 id="stats-listening-title">Everyone together</h2><span>@PeriodLabel</span></div>
+            <div class="stats-section-heading"><h2 id="stats-listening-title">Family listening time</h2><span>@PeriodLabel</span></div>
             <strong class="stats-time">@Duration(total)</strong>
             @if (days.Count > 0)
             {
@@ -101,6 +101,50 @@
                 <table class="sr"><caption>Daily listening, @PeriodLabel</caption><thead><tr><th scope="col">Date</th><th scope="col">Time listened</th></tr></thead><tbody>@foreach (var day in days) { <tr><th scope="row">@ExactDay(day.Day)</th><td>@ExactDuration(day.Seconds)</td></tr> }</tbody></table>
             }
         </section>
+        @if (stats.WrappedYear is { } year)
+        {
+            <section class="lb-wrapped" aria-labelledby="lb-wrapped-title">
+                <h2 id="lb-wrapped-title">@year listening</h2>
+                @if (stats.Profiles.Count == 0)
+                {
+                    <p class="lb-empty">No profiles have listening history enabled.</p>
+                }
+                <div class="lb-wrapped-grid">
+                    @foreach (var profile in stats.Profiles.Where(p => p.Wrapped is not null))
+                    {
+                        var wrapped = profile.Wrapped!;
+                        var replay = wrapped.MostReplayedSong;
+                        <article class="lb-wrapped-card glass-panel" @key="profile.Id">
+                            <h3><ProfileAvatar Profile="ProfileFor(profile)" Size="36" ShowCrown="false" /> <span>@profile.Name</span></h3>
+                            <dl>
+                                <div><dt><MusicIcon Name="plus-circle" />Songs added</dt><dd>@wrapped.SongsAdded.ToString("N0", Inv)</dd></div>
+                                <div><dt><MusicIcon Name="clock" />Listening time</dt><dd>@wrapped.TotalMinutes.ToString("0.#", Inv) min</dd></div>
+                                <div><dt><MusicIcon Name="person" />Favourite artist</dt><dd>@(wrapped.FavouriteArtist ?? "—")</dd></div>
+                                <div><dt><MusicIcon Name="music" />Favourite genre</dt><dd>@(wrapped.FavouriteGenre ?? "—")</dd></div>
+                                <div><dt><MusicIcon Name="crown" />Longest streak</dt><dd>@(wrapped.LongestStreakDays == 1 ? "1 day" : $"{wrapped.LongestStreakDays} days")</dd></div>
+                                <div><dt><MusicIcon Name="moon" />Night owl</dt><dd>@Percent(wrapped.NightOwlShare)</dd></div>
+                                <div><dt><MusicIcon Name="repeat" />Most replayed</dt><dd>@(replay is null ? "—" : replay.Title ?? "Unknown song")@if (replay is not null) { <small>@replay.Replays × replayed@(string.IsNullOrEmpty(replay.Artist) ? "" : " · " + replay.Artist)</small> }</dd></div>
+                                <div><dt><MusicIcon Name="radio" />Mainstream score</dt><dd>@Percent(wrapped.MainstreamScore)</dd></div>
+                            </dl>
+                            @if (wrapped.EarlyListeners.Count > 0)
+                            {
+                                <p class="lb-early"><MusicIcon Name="sparkle" /><span><strong>Early listener</strong> @string.Join(", ", wrapped.EarlyListeners)</span></p>
+                            }
+                        </article>
+                    }
+                </div>
+                @if (stats.Profiles.Count > 0)
+                {
+                    var chartDate = stats.Profiles.Select(p => p.Wrapped?.ChartDate).FirstOrDefault(d => d is not null);
+                    <details class="lb-wrapped-help">
+                        <summary>How scores are counted</summary>
+                        <p>Night owl is the share of completed plays that started from 00:00 to 05:59 UTC. Replays count each time you listen to a song again this year.</p>
+                        <p>Mainstream score is the share of your top 10 artists and top 10 songs that appear in Deezer’s chart. Early listener marks artists you played before FamilyHub observed them enter the chart.</p>
+                        <p>@(chartDate is null ? "Deezer chart unavailable. Refresh the leaderboard to check again." : $"Deezer chart checked {ExactDay(chartDate)}.")</p>
+                    </details>
+                }
+            </section>
+        }
     }
     else if (data is { } server)
     {
@@ -211,9 +255,8 @@
         return total >= 60 ? $"{total / 60} min {total % 60} s" : $"{total} s";
     }
     private string? error;
-    private DateTime? updated;
     private bool fetching, disposed;
-    private string? sourceIdentity;
+    private string? requestedIdentity;
     private readonly CancellationTokenSource lifetime = new();
 
     private bool Offline => !Session.Connected || Session.Api is null;
@@ -224,54 +267,55 @@
         Session.Changed += Changed;
     }
 
-    // One loop awaits each fetch before waiting, so requests never overlap.
-    private async Task Poll(CancellationToken token)
-    {
-        try
-        {
-            while (!token.IsCancellationRequested)
-            {
-                if (await JS.InvokeAsync<bool>("familyhub.statsVisible")) await Refresh();
-                await Task.Delay(TimeSpan.FromSeconds(5), token);
-            }
-        }
-        catch (OperationCanceledException) { }
-    }
-
     private Task RefreshNow() => Refresh();
+    private string Identity => Session.Server + "\n" + Session.User;
 
     private async Task Refresh()
     {
         if (fetching || disposed || Offline) return;
+        var identity = requestedIdentity = Identity;
         fetching = true;
+        error = null;
         StateHasChanged();
         try
         {
             using var request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             request.CancelAfter(TimeSpan.FromSeconds(10));
             var api = Session.Api!;
-            var identity = Session.Server + "\n" + Session.User;
-            var result = await api.GetServerStatsAsync(request.Token);
-            if (disposed || identity != Session.Server + "\n" + Session.User) return;
+            var result = await api.GetServerStatsAsync(request.Token, leaderboard: Leaderboard);
+            if (disposed || identity != Identity) return;
             await JS.InvokeVoidAsync("familyhub.captureLeaderboard");
             await JS.InvokeVoidAsync("familyhub.captureStatsFocus");
-            sourceIdentity = identity; data = result; Session.UpdateTopListener(result);
-            error = null; updated = DateTime.Now;
+            data = result; Session.UpdateTopListener(result);
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { return; }
-        catch (OperationCanceledException) { error = "The server did not answer in time."; }
-        catch (Exception exception) { error = string.IsNullOrWhiteSpace(exception.Message) ? "Could not load server statistics." : exception.Message; }
-        finally { fetching = false; if (!disposed) StateHasChanged(); }
+        catch (OperationCanceledException) { error = "The server did not answer in time. Try refreshing."; }
+        catch (Exception) { error = "Could not load statistics. Try refreshing."; }
+        finally
+        {
+            fetching = false;
+            if (!disposed) await UpdateIdentity();
+        }
     }
 
-    private void Changed() { if (!disposed) _ = InvokeAsync(async () => { if (sourceIdentity is not null && sourceIdentity != Session.Server + "\n" + Session.User) { await JS.InvokeVoidAsync("familyhub.captureStatsFocus"); data = null; error = null; updated = null; } StateHasChanged(); }); }
+    private void Changed() { if (!disposed) _ = InvokeAsync(UpdateIdentity); }
+    private async Task UpdateIdentity()
+    {
+        if (disposed) return;
+        if (requestedIdentity != Identity)
+        {
+            data = null;
+            if (!fetching) await Refresh();
+        }
+        StateHasChanged();
+    }
     public void Dispose() { disposed = true; Session.Changed -= Changed; lifetime.Cancel(); lifetime.Dispose(); }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         await JS.InvokeVoidAsync("familyhub.animateLeaderboard");
         await JS.InvokeVoidAsync("familyhub.restoreStatsFocus");
-        if (firstRender) _ = Poll(lifetime.Token);
+        if (firstRender) await UpdateIdentity();
     }
     // Numbered slots of one kind ("Acquisition / preparation 1".."12") show as one row with a slot strip.
     private static IEnumerable<(string Name, List<ServerWork> Workers)> WorkGroups(IEnumerable<ServerWork> workers) =>
@@ -285,6 +329,7 @@
     private static string Aria(bool value) => value ? "true" : "false";
     private static string Usd(double value) => "$" + value.ToString("N2", Inv);
     private static string Huf(double value) => value.ToString("N0", Inv);
+    private static string Percent(double? value) => value is { } share ? share.ToString("0%", Inv) : "—";
     private static string Duration(double seconds)
     {
         var total = (long)Math.Max(0, seconds);

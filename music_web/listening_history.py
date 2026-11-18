@@ -1,4 +1,4 @@
-"""Private, retained listening events. No history is exposed through family totals."""
+"""Private listening events and durable yearly aggregates."""
 import calendar
 import copy
 import hashlib
@@ -10,14 +10,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
 
-
+from .wrapped import add_event, compare, write_json, yearly_summary, first_artists
 
 class ListeningHistory:
     MAX_BATCH = 100
 
-    def __init__(self, workspace, utc=lambda: datetime.now(timezone.utc)):
+    def __init__(self, workspace, utc=lambda: datetime.now(timezone.utc), track_metadata=lambda ids: {}):
         self.root = Path(workspace) / '.listening-history'
         self.utc = utc
+        self.track_metadata = track_metadata
         self.lock = threading.RLock()
         self.cache = {}
         self.last_prune = None
@@ -29,16 +30,8 @@ class ListeningHistory:
             if self.last_prune and now - self.last_prune < timedelta(hours=24):
                 return
             for path in self.root.glob('*.jsonl'):
-                events = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()]
-                cleared_path = path.with_suffix('.cleared')
-                cleared = self.timestamp(cleared_path.read_text(encoding='utf-8')) if cleared_path.exists() else None
-                kept = [e for e in events if self.timestamp(e['started_at']) >= self.cutoff()
-                        and (not cleared or self.timestamp(e['started_at']) > cleared)]
-                if len(events) != len(kept):
-                    temporary = path.with_suffix('.tmp')
-                    temporary.write_text(''.join(json.dumps(e) + '\n' for e in kept), encoding='utf-8')
-                    temporary.replace(path)
-                    self.cache.clear()
+                self._read_path(path)
+            self.cache.clear()
             self.last_prune = now
 
     def path(self, profile):
@@ -70,7 +63,7 @@ class ListeningHistory:
         result = []
         fields = {'event_id', 'recording_id', 'started_at', 'listened_seconds', 'duration', 'outcome', 'position', 'source', 'device_kind'}
         for event in events:
-            if not isinstance(event, dict) or set(event) != fields:
+            if not isinstance(event, dict) or not fields <= event.keys() <= fields | {'track'}:
                 raise ValueError('Invalid listening event fields.')
             event = dict(event)
             try:
@@ -97,42 +90,88 @@ class ListeningHistory:
                 raise ValueError('Invalid listening source.')
             if event['device_kind'] not in ('windows', 'android', 'iphone'):
                 raise ValueError('Invalid device kind.')
+            track = event.get('track', {})
+            if (not isinstance(track, dict) or track.keys() - {'title', 'channel', 'library_album', 'genre'}
+                    or any(not isinstance(value, str) or len(value) > 500 or any(ord(c) < 32 for c in value)
+                           for value in track.values())):
+                raise ValueError('Invalid song metadata.')
             result.append(event)
         return result
 
-    def _write(self, profile, events):
+    def _write(self, path, events):
         self.root.mkdir(parents=True, exist_ok=True)
-        path = self.path(profile)
         temporary = path.with_suffix('.tmp')
         temporary.write_text(''.join(json.dumps(e, allow_nan=False) + '\n' for e in events), encoding='utf-8')
         temporary.replace(path)
-        self.cache.pop(profile, None)
 
-    def _read(self, profile):
-        path = self.path(profile)
+    @staticmethod
+    def _cleared(path):
+        marker = path.with_suffix('.cleared')
+        return marker.read_text(encoding='utf-8') if marker.exists() else None
+
+    def _state(self, path, cleared):
+        summary = path.with_suffix('.yearly.json')
+        if summary.exists():
+            saved = json.loads(summary.read_text(encoding='utf-8'))
+            if saved['cleared_at'] == cleared:
+                return saved
+        return dict(cleared_at=cleared, cursor=0, years={})
+
+    def _rollup(self, path, state, events):
+        for event in events:
+            add_event(state['years'], event, self.timestamp(event['started_at']))
+            state['cursor'] = event['_sequence']
+        write_json(path.with_suffix('.yearly.json'), state)
+
+    def _prepare(self, events, cursor):
+        metadata = self.track_metadata({event['recording_id'] for event in events})
+        for index, event in enumerate(events, cursor + 1):
+            event['_sequence'] = index
+            known = {key: value for key, value in metadata.get(event['recording_id'], {}).items()
+                     if value and value != 'Unsorted'}
+            event['track'] = {**event.get('track', {}), **known}
+
+    def _read_path(self, path):
         events = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()] if path.exists() else []
-        cleared = self.cleared_at(profile)
-        kept = [e for e in events if self.timestamp(e['started_at']) >= self.cutoff()
-                and (not cleared or self.timestamp(e['started_at']) > self.timestamp(cleared))]
+        cleared = self._cleared(path)
+        state = self._state(path, cleared)
+        cleared_at = self.timestamp(cleared) if cleared else None
+        cutoff = self.cutoff()
+        visible = [e for e in events if not cleared_at or self.timestamp(e['started_at']) > cleared_at]
+        kept = [e for e in visible if self.timestamp(e['started_at']) >= cutoff]
+        if visible and '_sequence' not in visible[0]:
+            # Publish migration before rolling up, so an interrupted migration can replay the same sequence.
+            self._prepare(visible, state['cursor'])
+            self._write(path, visible)
+        pending = [e for e in visible if e['_sequence'] > state['cursor']]
+        if pending:
+            self._rollup(path, state, pending)
         if len(kept) != len(events):
-            self._write(profile, kept)
-        return kept
+            self._write(path, kept)
+            self.cache.clear()
+        return kept, state
 
-    def append(self, profile, events, paused=False):
+    def append(self, profile, events, paused=False, resumed_at=None):
         events = self.validate(events)  # Validate the entire batch before any mutation, even while paused.
+        if paused:
+            return {'acknowledged': [e['event_id'] for e in events], 'added': 0, 'paused': True}
         with self.lock:
-            saved = self._read(profile)
+            path = self.path(profile)
+            saved, state = self._read_path(path)
             seen = {e['event_id'] for e in saved}
             additions = []
-            cleared = self.cleared_at(profile)
-            cutoff = max(self.cutoff(), self.timestamp(cleared)) if cleared else self.cutoff()
+            cleared = state['cleared_at']
+            cutoff = max([self.cutoff(), *(self.timestamp(value) for value in (cleared, resumed_at) if value)])
             for event in events:
                 at = self.timestamp(event['started_at'])
-                if not paused and event['event_id'] not in seen and at >= cutoff and (not cleared or at > self.timestamp(cleared)):
+                if event['event_id'] not in seen and at >= cutoff and (not cleared or at > self.timestamp(cleared)):
                     additions.append(event)
                     seen.add(event['event_id'])
             if additions:
-                self._write(profile, saved + additions)
+                self._prepare(additions, state['cursor'])
+                self._write(path, saved + additions)
+                self.cache.pop(profile, None)
+                self._rollup(path, state, additions)
         return {'acknowledged': [e['event_id'] for e in events], 'added': len(additions), 'paused': paused}
 
     def clear(self, profile):
@@ -142,11 +181,23 @@ class ListeningHistory:
             temporary = path.with_suffix('.tmp')
             temporary.write_text(self.utc().isoformat(), encoding='utf-8')
             temporary.replace(path)
-            self._write(profile, [])
+            self._write(self.path(profile), [])
+            self.path(profile).with_suffix('.yearly.json').unlink(missing_ok=True)
+            self.cache.pop(profile, None)
 
     def events(self, profile):
         with self.lock:
-            return sorted(self._read(profile), key=lambda e: (e['started_at'], e['event_id']))
+            events, _ = self._read_path(self.path(profile))
+            return [{k: v for k, v in event.items() if k != '_sequence'}
+                    for event in sorted(events, key=lambda e: (e['started_at'], e['event_id']))]
+
+    def wrapped(self, profile, year, chart, *, full=False):
+        with self.lock:
+            path = self.path(profile)
+            years = self._state(path, self._cleared(path))['years']
+        result, artists, songs = yearly_summary(years, year, full=full)
+        first = first_artists(years, year) if chart.get('day') else {}
+        return {**result, **compare(chart, artists, songs, first)}
 
     def summary(self, profile, metadata):
         with self.lock:
@@ -169,7 +220,7 @@ class ListeningHistory:
             complete, skip = event['outcome'] == 'completed', event['outcome'] == 'skipped'
             early = skip and (event['position'] < 30 or event['position'] / event['duration'] < .25)
             weight = .5 ** (max(0, (self.utc() - at).total_seconds()) / (30 * 86400))
-            track = metadata.get(event['recording_id'], {})
+            track = {**event.get('track', {}), **metadata.get(event['recording_id'], {})}
             for bucket, key in ((recordings, event['recording_id']), (artists, track.get('channel', '')), (genres, track.get('genre', 'Unsorted'))):
                 if not key:
                     continue
@@ -190,10 +241,10 @@ class ListeningHistory:
                     recent_history=[e['recording_id'] for e in events[-200:]])
 
 
-def register(app, workspace, body, profiles, admins, metadata, profile_lock):
+def register(app, workspace, body, profiles, admins, metadata, profile_lock, *, track_metadata, chart, songs_added, clear_totals):
     from flask import g, jsonify, request, abort
 
-    store = ListeningHistory(workspace)
+    store = ListeningHistory(workspace, track_metadata=track_metadata)
     app.extensions['listening_history'] = store
 
     @app.before_request
@@ -210,19 +261,35 @@ def register(app, workspace, body, profiles, admins, metadata, profile_lock):
 
     @app.post('/api/listening/events')
     def listening_events_post():
-        data = body(128 * 1024)
+        data = body(512 * 1024)
         if set(data) != {'events'}:
             return jsonify(error='Send events only.'), 400
         try:
             with profile_lock:
-                paused = profiles.preferences(g.user).get('listening_history_paused', False) if profiles else False
-                return jsonify(store.append(g.user, data['events'], paused))
+                preferences = profiles.preferences(g.user) if profiles else {}
+                return jsonify(store.append(g.user, data['events'], preferences.get('listening_history_paused', False),
+                                            preferences.get('listening_history_resumed_at')))
         except ValueError as error:
             return jsonify(error=str(error)), 400
 
     @app.get('/api/listening/summary')
     def listening_summary():
         return jsonify(store.summary(reader(), metadata()))
+
+    @app.get('/api/listening/wrapped')
+    def listening_wrapped():
+        try:
+            year = int(request.args.get('year', store.utc().year))
+            if not 1 <= year <= store.utc().year:
+                raise ValueError
+        except ValueError:
+            return jsonify(error='Choose a past or current calendar year.'), 400
+        snapshot = chart.snapshot()
+        with profile_lock:
+            if profiles and profiles.preferences(g.user)['listening_history_paused']:
+                return jsonify(year=year, paused=True)
+            return jsonify(paused=False, songs_added=songs_added(year).get(g.user, 0),
+                           **store.wrapped(g.user, year, snapshot, full=True))
 
     @app.get('/api/listening/events')
     def listening_events_get():
@@ -235,4 +302,7 @@ def register(app, workspace, body, profiles, admins, metadata, profile_lock):
     def listening_history_clear():
         with profile_lock:
             store.clear(g.user)
+            clear_totals(g.user)
         return jsonify(cleared=True, cleared_at=store.cleared_at(g.user))
+
+    return store
