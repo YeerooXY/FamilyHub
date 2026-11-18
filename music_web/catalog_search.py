@@ -4,6 +4,7 @@ import re
 import urllib.parse
 import urllib.request
 from .resources import PROVIDERS
+from .review_confidence import close_duration
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -27,16 +28,17 @@ def album_key(normal, title):
     return normal(re.sub(r'\s*(?:-\s*(?:single|ep)|\((?:single|ep)\))$', '', title, flags=re.I))
 
 def candidates(seed, core_title, normal):
-    """Store results matching the song's title and length within 4 s, at most 3 per store."""
+    """Store results matching the song's title, artist and length, at most 3 per store."""
     title, artist, duration = seed.get('title', ''), first_artist(seed.get('artist', '')), seed.get('duration') or 0
     wanted = core_title(title)
-    if not wanted or not artist or duration <= 0: return []
+    credit = normal(seed.get('artist', ''))
+    if not wanted or not credit or duration <= 0: return []
     term = artist + ' ' + re.sub(r'\s*[\[(][^\])]*[\])]', '', title).strip()
     found = []
     try:
         for row in (_get('deezer', 'https://api.deezer.com/search?' + urllib.parse.urlencode(dict(q=term, limit=10))).get('data') or [])[:10]:
-            if wanted not in (core_title(row.get('title', '')), core_title(row.get('title_short', ''))): continue
-            if abs((row.get('duration') or 0) - duration) > 4: continue
+            if core_title(row.get('title', '')) != wanted or normal((row.get('artist') or {}).get('name')) != credit: continue
+            if not close_duration(duration, row.get('duration')): continue
             album = row.get('album') or {}
             identifier = album.get('id')
             if identifier not in _genres and type(identifier) is int:
@@ -50,8 +52,8 @@ def candidates(seed, core_title, normal):
     except (OSError, ValueError): pass
     try:
         for row in (_get('itunes', 'https://itunes.apple.com/search?' + urllib.parse.urlencode(dict(term=term, entity='song', limit=10))).get('results') or [])[:10]:
-            if core_title(row.get('trackName', '')) != wanted: continue
-            if abs((row.get('trackTimeMillis') or 0) / 1000 - duration) > 4: continue
+            if core_title(row.get('trackName', '')) != wanted or normal(row.get('artistName')) != credit: continue
+            if not close_duration(duration, (row.get('trackTimeMillis') or 0) / 1000): continue
             album = str(row.get('collectionName', ''))[:120]
             kind = 'compile' if row.get('collectionArtistName', '').casefold() == 'various artists' else ('single' if album.endswith(' - Single') else 'ep' if album.endswith(' - EP') else 'album')
             found.append(dict(source='iTunes', artist=str(row.get('artistName', ''))[:120], album=album, album_type=kind,

@@ -1,6 +1,29 @@
-"""Read-only occupancy reporting for existing bounded workers and encoding lanes."""
+"""Read-only reporting for resource stages and worker occupancy."""
 from contextlib import contextmanager
 import threading
+
+
+def stage_summary(governor, deferred_fetches=0):
+    # The queue takes the jobs lock. Read it before taking the governor's lock.
+    rows = list(governor.queued())
+    with governor.lock:
+        rows.extend(governor.stages.values())
+    counts = {}
+    for stage, reason, _ in rows:
+        row = counts.setdefault(stage, dict(stage=stage, queued=0, backing_off=0, running=0))
+        if not reason:
+            row['running'] += 1
+        elif any(word in reason.casefold().replace('_', ' ') for word in ('cooldown', 'backoff', 'back-off', 'backing off', 'retry')):
+            row['backing_off'] += 1
+        else:
+            row['queued'] += 1
+    for stage in ('fetch', 'preview'):
+        if stage in counts and deferred_fetches:
+            row = counts[stage]
+            retrying = min(deferred_fetches, row['queued'])
+            row['queued'] -= retrying
+            row['backing_off'] += retrying
+    return [counts[stage] for stage in sorted(counts)]
 
 
 class WorkerActivity:

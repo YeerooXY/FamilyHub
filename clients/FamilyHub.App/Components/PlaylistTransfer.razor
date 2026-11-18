@@ -79,12 +79,12 @@
         @if (reviewLoading) { <p role="status">Finding recording choices...</p> }
         @if (!string.IsNullOrEmpty(reviewError)) { <p class="entry-error" role="alert">@reviewError</p> }
         <div class="transfer-candidates" aria-busy="@Aria(reviewLoading)">
-        @for (var i = 0; i < Math.Min(1, choices.Count); i++)
+        @for (var i = 0; i < choices.Count; i++)
         {
             var choice = i; var recording = choices[i];
             <article class="transfer-candidate">
                 <div><strong>@recording.Title</strong><span>@recording.Channel, @RecordingTime(recording.Duration) @if (recording.Saved) { <span class="transfer-result saved">On server</span> }</span></div>
-                <div class="transfer-candidate-actions"><button class="quiet" @onclick="() => ListenToChoice(recording)" title="Open this recording on YouTube"><MusicIcon Name="play" />Listen</button><button class="primary" @onclick="() => UseRecording(choice, recording)" aria-disabled="@Aria(reviewLoading || requesting)">Use recording</button></div>
+                <div class="transfer-candidate-actions"><button class="quiet" @onclick="() => OpenOnYouTube(recording)" aria-label="@($"Open {recording.Title} from {recording.Channel} on YouTube")"><MusicIcon Name="external-link" />YouTube</button><button class="primary" @onclick="() => UseRecording(choice, recording)" aria-label="@($"Use recording {recording.Title} from {recording.Channel}")" aria-disabled="@Aria(reviewLoading || requesting)">Use recording</button></div>
             </article>
         }
         </div>
@@ -105,6 +105,7 @@
 @code {
     [Parameter, EditorRequired] public MusicPlaylist Playlist { get; set; } = null!;
     [Parameter] public EventCallback Updated { get; set; }
+    [Parameter] public int? InitialReviewIndex { get; set; }
     private bool NeedsAttention(PlaylistTrack track) => track.State is "review" or "error"
         && !(track.RecordingId is { Length: > 0 } id && Session.Library.Any(song => song.Id == id));
     private bool RecentNeedsAttention(TransferItem item) => item.State is "review" or "error" && item.Index > 0 && item.Index <= Playlist.Tracks.Count
@@ -128,7 +129,7 @@
             if (choices.Count == 0) await LoadSearchedChoices();
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { reviewError = FriendlyError(ex); }
+        catch (Exception ex) { reviewError = ReviewError(ex, "Could not load recording choices. Try Search again."); }
         finally { reviewLoading = false; }
     }
     private async Task LoadSearchedChoices()
@@ -143,7 +144,7 @@
         reviewLoading = true; reviewError = null;
         try { await LoadSearchedChoices(); }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { reviewError = FriendlyError(ex); }
+        catch (Exception ex) { reviewError = ReviewError(ex, "Could not find recordings. Try Search again."); }
         finally { reviewLoading = false; }
     }
     private async Task UseRecording(int choice, MusicTrack recording)
@@ -160,11 +161,17 @@
             await Updated.InvokeAsync();
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { reviewError = FriendlyError(ex); }
+        catch (Exception ex) { reviewError = ReviewError(ex, "Could not save this recording choice. Try again."); }
         finally { requesting = false; }
     }
     private Task CloseReview() => JS.InvokeVoidAsync("familyhub.closeDialog", "transfer-review-dialog", "playlist-transfer-progress").AsTask();
-    private async Task ListenToChoice(MusicTrack recording)
+    private static string ReviewError(Exception error, string fallback) => error switch
+    {
+        FamilyHubApiException { StatusCode: 403 } => "Only the playlist owner or a co-author can choose a recording.",
+        FamilyHubApiException failure when !failure.Message.StartsWith("The server returned HTTP ", StringComparison.Ordinal) => failure.Message,
+        _ => fallback
+    };
+    private async Task OpenOnYouTube(MusicTrack recording)
     {
         try
         {
@@ -237,6 +244,9 @@
         catch (OperationCanceledException) { }
         catch (HttpRequestException) { }
         catch (FamilyHubApiException) { /* Explicit actions report compatibility or connection errors. */ }
+        if (token.IsCancellationRequested || InitialReviewIndex is not { } index) return;
+        if (Working) { error = "Pause playlist preparation before choosing a recording."; return; }
+        await OpenReview(index);
     }
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

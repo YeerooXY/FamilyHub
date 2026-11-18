@@ -1,0 +1,90 @@
+.music-admin {
+  grid-column:1 / -1;
+  width:100%;
+  max-width:1100px;
+  min-width:0;
+}
+.music-admin-heading {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px 20px;
+}
+.music-admin-heading h1,.music-admin-heading h2,.music-admin-heading p { margin:0; }
+.music-admin-heading p { margin-top:6px; }
+.music-admin-count {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:28px;
+  min-height:25px;
+  padding:2px 8px;
+  border:1px solid #ffffff2b;
+  border-radius:999px;
+  background:#ffffff10;
+  color:var(--ink);
+  font-size:.8rem;
+  font-weight:650;
+  line-height:1.2;
+  font-variant-numeric:tabular-nums;
+}
+.artist-mappings { display:grid; gap:16px; }
+.artist-mapping-actions {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+}
+.artist-mappings button:is(.primary,.quiet) {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  min-height:44px;
+  padding:0 12px;
+}
+.artist-mappings .music-icon { width:18px; height:18px; flex:none; }
+.artist-mapping-panel {
+  padding:16px 20px;
+  min-width:0;
+}
+.artist-mapping-panel h2 { display:flex; align-items:center; gap:8px; font-size:1.15rem; }
+.artist-mapping-search { position:relative; max-width:100%; }
+.artist-mapping-search .music-icon { position:absolute; top:13px; inset-inline-start:12px; pointer-events:none; }
+.artist-mapping-search input { width:260px; max-width:100%; padding-inline-start:38px; }
+.artist-mapping-list { list-style:none; padding:0; margin:12px 0 0; }
+.artist-mapping-list:empty,.artist-mapping-feedback:empty { display:none; }
+.artist-mapping-feedback { margin:0; min-height:0; }
+.artist-mapping-row { border-top:1px solid #ffffff17; padding:10px 0; }
+.artist-mapping-row:last-child { padding-bottom:0; }
+.artist-mapping-main { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; }
+.artist-mapping-copy { min-width:0; overflow-wrap:anywhere; }
+.artist-mapping-copy > div { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; }
+.artist-mapping-status { min-height:22px; }
+.artist-mapping-editor {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:end;
+  gap:12px;
+  margin-top:12px;
+  padding:12px;
+  border:1px solid #ffffff24;
+  border-radius:10px;
+  background:#ffffff07;
+}
+.artist-mapping-editor > div:not(.artist-mapping-actions) { flex:1 1 180px; min-width:0; }
+.artist-mapping-editor label { display:block; }
+.artist-mapping-editor label { margin-bottom:4px; }
+.artist-mapping-editor small { overflow-wrap:anywhere; }
+.artist-mapping-editor input { width:100%; }
+.artist-mapping-editor :is(small,.artist-mapping-feedback) { flex:1 0 100%; }
+.artist-mappings :is(button,input,h1,h2):focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+@media(max-width:720px) {
+  .artist-mapping-panel { padding:12px; }
+  .artist-mapping-search,.artist-mapping-search input { width:100%; }
+  .artist-mapping-editor .artist-mapping-actions { margin-inline-start:auto; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .artist-mappings button { transition:none; }
+}

@@ -1,40 +1,265 @@
+@implements IDisposable
+@using System.Globalization
 @inject MusicSession Session
-<section class="artist-mappings" aria-labelledby="artist-mappings-title">
-    <h2 id="artist-mappings-title">Artist mappings</h2>
-    <button @onclick="Load" disabled="@busy">Load artist mappings</button>
-    <p role="status">@message</p>
-    @foreach (var artist in artists)
-    {
-        <div><strong>@artist.Name</strong> <span>@artist.Confidence</span> <span>Deezer: @artist.DeezerId</span>
-            @if (artist.Candidates.Count > 0) { <span>Candidates: @string.Join(", ", artist.Candidates)</span> }
-            <button @onclick="() => Select(artist)">Edit @artist.Name</button>
+@inject IJSRuntime JS
+
+<section class="music-admin artist-mappings" aria-labelledby="artist-mappings-title" aria-busy="@(loading && mappings is null ? "true" : "false")">
+    <header class="music-admin-heading">
+        <div>
+            <h1 id="artist-mappings-title" tabindex="-1">Artist mappings</h1>
+            <p class="muted">Discovery uses each mapping to find the artist’s new releases on Deezer.</p>
         </div>
+        <div class="artist-mapping-actions">
+            <button class="quiet" @onclick="Load" disabled="@(Offline || loading || saving)"><MusicIcon Name="refresh" />Refresh</button>
+            @if (mappings is not null)
+            {
+                <button id="artist-mapping-add" class="primary" @onclick="BeginAdd" disabled="@(Editing || Offline || loading)"><MusicIcon Name="plus" />Add mapping</button>
+            }
+        </div>
+    </header>
+
+    <p class="artist-mapping-feedback entry-error" role="alert">@error</p>
+    <p class="artist-mapping-feedback" role="status">@StatusMessage</p>
+
+    @if (mappings is not null)
+    {
+        var visible = mappings.Where(Matches).ToList();
+        <section class="glass-panel artist-mapping-panel" aria-labelledby="artist-mapping-results">
+            <div class="music-admin-heading">
+                <h2 id="artist-mapping-results" tabindex="-1">Mappings <span class="music-admin-count">@visible.Count</span></h2>
+                <form class="artist-mapping-search" role="search" @onsubmit="SubmitSearch" @onsubmit:preventDefault>
+                    <label for="artist-mapping-search" class="sr">Search artist mappings</label>
+                    <MusicIcon Name="search" />
+                    <input id="artist-mapping-search" type="search" placeholder="Search artists or IDs" @bind="query" @bind:event="oninput" />
+                </form>
+            </div>
+
+            @if (adding)
+            {
+                @MappingForm()
+            }
+            @if (visible.Count == 0 && !adding)
+            {
+                <p class="muted">@(mappings.Count == 0 ? "No artist mappings yet." : "No mappings match your search.")</p>
+            }
+            <ul class="artist-mapping-list">
+                @foreach (var row in visible)
+                {
+                    var status = MappingStatus(row);
+                    <li class="artist-mapping-row" @key="row.Name">
+                        <div class="artist-mapping-main">
+                            <div class="artist-mapping-copy">
+                                <div><strong>@row.Name</strong><span class="music-admin-count artist-mapping-status">@status</span></div>
+                                <small class="muted">@(row.DeezerId is > 0 ? $"Deezer artist ID {row.DeezerId}" : status == "Quarantined" ? "Several Deezer artists match this name." : "Awaiting a Deezer match.")</small>
+                            </div>
+                            @if (editing?.Name != row.Name)
+                            {
+                                <button id="@EditButtonId(row.Name)" class="quiet" @onclick="() => BeginEdit(row)" aria-label="@($"Edit mapping for {row.Name}")" disabled="@(Editing || Offline || loading)"><MusicIcon Name="pencil" />Edit</button>
+                            }
+                        </div>
+                        @if (editing?.Name == row.Name)
+                        {
+                            @MappingForm()
+                        }
+                    </li>
+                }
+            </ul>
+        </section>
     }
-    <label>Artist name <input @bind="name" /></label>
-    <label>Deezer artist ID <input type="number" @bind="identifier" /></label>
-    <button @onclick="Save" disabled="@busy">Confirm mapping</button>
 </section>
+
 @code {
-    private List<ArtistMapping> artists = [];
-    private string name = "", message = "";
-    private long identifier;
-    private bool busy;
-    private void Select(ArtistMapping artist) { name = artist.Name; identifier = artist.DeezerId ?? 0; }
+    private sealed record SavedMapping(ArtistMapping Artist);
+    private List<ArtistMapping>? mappings;
+    private ArtistMapping? editing;
+    private string query = "", artistName = "", identifier = "", message = "";
+    private string? error, editError, focusTarget;
+    private bool adding, loading, saving, disposed, wasConnected;
+    private readonly CancellationTokenSource lifetime = new();
+    private bool Offline => !Session.Connected || Session.Api is null;
+    private bool Editing => editing is not null || adding;
+    private string StatusMessage => Offline ? "Connect to the server to load artist mappings." : loading && mappings is null ? "Loading artist mappings…" : message;
+
+    private RenderFragment MappingForm() => @<form class="artist-mapping-editor" @onsubmit="Save" @onsubmit:preventDefault>
+        @if (adding)
+        {
+            <div>
+                <label for="artist-mapping-name">Artist name</label>
+                <input id="artist-mapping-name" @bind="artistName" maxlength="120" disabled="@saving" />
+            </div>
+        }
+        <div>
+            <label for="artist-mapping-identifier">Deezer artist ID</label>
+            <input id="artist-mapping-identifier" type="text" inputmode="numeric" placeholder="Enter an artist ID" @bind="identifier" maxlength="19" disabled="@saving" />
+        </div>
+        <div class="artist-mapping-actions">
+            <button class="quiet" type="button" @onclick="CancelEdit" disabled="@saving">Cancel</button>
+            <button class="primary" type="submit" disabled="@(saving || Offline)">@(saving ? "Saving…" : "Save mapping")</button>
+        </div>
+        @if (editing?.Candidates is { Count: > 1 } candidates)
+        {
+            <small class="muted">Possible Deezer artist IDs: @string.Join(", ", candidates)</small>
+        }
+        @if (editError is not null)
+        {
+            <p class="artist-mapping-feedback entry-error" role="alert">@editError</p>
+        }
+    </form>;
+
+    protected override Task OnInitializedAsync()
+    {
+        Session.Changed += SessionChanged;
+        wasConnected = !Offline;
+        return Load();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusTarget is { } target)
+        {
+            focusTarget = null;
+            await JS.InvokeVoidAsync("familyhub.focus", target);
+        }
+    }
+
+    private void SessionChanged() => _ = InvokeAsync(async () =>
+    {
+        if (disposed || wasConnected == !Offline) return;
+        wasConnected = !Offline;
+        if (wasConnected && mappings is null) await Load();
+        if (!disposed) StateHasChanged();
+    });
+
     private async Task Load()
     {
-        if (busy || Session.Api is null) return;
-        busy = true;
-        try { artists = (await Session.Api.RequestJsonAsync<ArtistMappingPage>(HttpMethod.Get, "/api/admin/discovery")).Artists; message = ""; }
-        catch (Exception e) when (e is not OperationCanceledException) { message = "Artist mappings could not be loaded. Administrator access is required."; }
-        finally { busy = false; }
+        if (Offline || loading || saving || disposed || Session.Api is not { } api) return;
+        loading = true;
+        error = null;
+        message = "";
+        var token = lifetime.Token;
+        try
+        {
+            using var request = CancellationTokenSource.CreateLinkedTokenSource(token);
+            request.CancelAfter(TimeSpan.FromSeconds(10));
+            var result = await api.RequestJsonAsync<ArtistMappingPage>(HttpMethod.Get, "/api/admin/discovery", cancellationToken: request.Token);
+            if (!token.IsCancellationRequested) mappings = result.Artists.OrderBy(row => row.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (FamilyHubApiException failure) when (failure.StatusCode == 403)
+        {
+            mappings = null;
+            CancelEdit();
+            focusTarget = "artist-mappings-title";
+            error = "Switch to an administrator profile to view artist mappings.";
+        }
+        catch (Exception)
+        {
+            error = "Artist mappings could not be loaded. Try Refresh.";
+        }
+        finally { loading = false; }
     }
+
+    private bool Matches(ArtistMapping row)
+    {
+        var term = query.Trim();
+        return editing?.Name == row.Name || term.Length == 0 || row.Name.Contains(term, StringComparison.CurrentCultureIgnoreCase)
+            || row.Aliases.Any(alias => alias.Contains(term, StringComparison.CurrentCultureIgnoreCase))
+            || row.DeezerId?.ToString(CultureInfo.InvariantCulture).Contains(term, StringComparison.Ordinal) == true;
+    }
+
+    private Task SubmitSearch() => JS.InvokeVoidAsync("familyhub.focus", "artist-mapping-results").AsTask();
+
+    private static string MappingStatus(ArtistMapping row) => row.Status switch
+    {
+        "verified" => "Verified",
+        "quarantined" => "Quarantined",
+        _ => row.DeezerId is > 0 ? "Verified" : row.Candidates.Count > 1 ? "Quarantined" : "Uncertain"
+    };
+
+    private static string EditButtonId(string name) => "artist-mapping-edit-" + Uri.EscapeDataString(name);
+
+    private void BeginAdd()
+    {
+        adding = true;
+        artistName = identifier = message = "";
+        editError = null;
+        focusTarget = "artist-mapping-name";
+    }
+
+    private void BeginEdit(ArtistMapping row)
+    {
+        editing = row;
+        identifier = row.DeezerId is > 0 ? row.DeezerId.Value.ToString(CultureInfo.InvariantCulture) : "";
+        message = "";
+        editError = null;
+        focusTarget = "artist-mapping-identifier";
+    }
+
+    private void CancelEdit()
+    {
+        var previous = editing;
+        adding = false;
+        editing = null;
+        editError = null;
+        focusTarget = previous is null ? "artist-mapping-add" : EditFocus(previous);
+    }
+
+    private string EditFocus(ArtistMapping row) => Matches(row) ? EditButtonId(row.Name) : "artist-mapping-results";
+
     private async Task Save()
     {
-        if (busy || Session.Api is null) return;
-        busy = true;
-        try { await Session.Api.RequestJsonAsync<object>(HttpMethod.Post, "/api/admin/discovery", new { name, deezer_id = identifier }); message = "Mapping confirmed."; }
-        catch (Exception e) when (e is not OperationCanceledException) { message = "The mapping could not be saved. Check the artist ID and try again."; }
-        finally { busy = false; }
-        await Load();
+        if (!Editing || Offline || loading || saving || disposed || Session.Api is not { } api) return;
+        var name = editing?.Name ?? artistName.Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            editError = "Enter the artist’s name.";
+            focusTarget = "artist-mapping-name";
+            return;
+        }
+        if (!long.TryParse(identifier.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id <= 0)
+        {
+            editError = "Enter a positive Deezer artist ID.";
+            focusTarget = "artist-mapping-identifier";
+            return;
+        }
+        saving = true;
+        editError = null;
+        var token = lifetime.Token;
+        try
+        {
+            object payload = editing is { } row ? new { name, deezer_id = id, revision = row.Revision } : new { name, deezer_id = id, create = true };
+            using var request = CancellationTokenSource.CreateLinkedTokenSource(token);
+            request.CancelAfter(TimeSpan.FromSeconds(10));
+            var saved = (await api.RequestJsonAsync<SavedMapping>(HttpMethod.Post, "/api/admin/discovery", payload, request.Token)).Artist;
+            if (token.IsCancellationRequested) return;
+            if (adding) query = "";
+            mappings = (mappings ?? []).Where(mapping => mapping.Name != saved.Name).Append(saved)
+                .OrderBy(mapping => mapping.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+            CancelEdit();
+            focusTarget = EditFocus(saved);
+            message = $"Mapping saved for {saved.Name}.";
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (FamilyHubApiException failure) when (failure.StatusCode == 409)
+        {
+            editError = adding ? "A mapping already exists for this artist. Cancel and find it in the list." : "This mapping changed. Refresh the list, then reopen the mapping.";
+        }
+        catch (FamilyHubApiException failure) when (failure.StatusCode == 400)
+        {
+            editError = "Check the artist name and Deezer artist ID, then try again.";
+        }
+        catch (Exception)
+        {
+            editError = "The mapping could not be saved. Check your connection and try again.";
+        }
+        finally { saving = false; }
+    }
+
+    public void Dispose()
+    {
+        disposed = true;
+        Session.Changed -= SessionChanged;
+        lifetime.Cancel();
+        lifetime.Dispose();
     }
 }

@@ -8,9 +8,9 @@ import time
 import unittest
 from unittest.mock import patch
 
-from music_web.source_quality import SourceQuality, analyze, classify, spectrum, SIZE, RATE, ScanPaused, replace_saved, official_replacement
+from music_web.source_quality import (SourceQuality, analyze, classify, spectrum, SIZE, RATE, ScanPaused,
+                                      replace_saved, official_replacement, automatic_match)
 from music_web.playlists import PlaylistStore
-from music_web.listening_stats import ListeningStats
 from music_web.listening_stats import ListeningStats
 from test_music_web import Base
 import test_native_music_api as native
@@ -147,6 +147,48 @@ class QualityScanTests(Base):
         with patch('music_web.source_quality.shutil.move', side_effect=OSError('Archive unavailable')):
             with self.assertRaises(OSError):
                 replace_saved(*args, length=lambda saved: 100.0)
+
+    def test_undo_automatic_replacement_preserves_later_playlist_edits_and_restores_audio(self):
+        item, target, _, candidate = self.proposal()
+        native.NativeMusicApi.recording(self, source_id=native.SECOND, samples=b'\x03\x04' * 160)
+        original_audio = target.read_bytes()
+        store = PlaylistStore(self.ws)
+        pid = 'p' * 22
+        original = dict(source_id=native.FIRST, match=dict(id=native.FIRST), state='saved')
+        store.save('sample-a', dict(id=pid, name='Before replacement', tracks=[dict(original), dict(original)]))
+        saved = {}
+        for path in Path(self.ws).glob('yt-*'):
+            _, manifest, _ = self.intake.load_item(str(path))
+            saved[manifest['source']['id']] = dict(item=str(path), manifest=manifest)
+        replace_saved(self.ws, self.lib, native.FIRST, candidate, saved.get, store,
+                      self.state.catalogue_review, ListeningStats(self.ws), self.intake,
+                      automatic=dict(title='First', artist='Artist', damaged=True))
+        self.assertFalse(item.exists())
+        self.assertFalse(target.exists())
+        self.assertEqual(self.state.source_quality.snapshot()['fixed'][0]['id'], native.FIRST)
+        playlist = store.read('sample-a', pid)
+        playlist['name'] = 'Changed after replacement'
+        playlist['tracks'][1].update(source_id='other000000', match=dict(id='other000000'))
+        playlist['tracks'].append(dict(source_id=native.SECOND, match=candidate, state='saved'))
+        store.save('sample-a', playlist)
+        # A delayed playlist save can still refer to the original after its initial replacement.
+        late = 'q' * 22
+        store.save('sample-a', dict(id=late, tracks=[dict(original)]))
+        self.assertEqual(store.read('sample-a', late)['tracks'][0]['source_id'], native.SECOND)
+
+        admin, token = self.signed_in()
+        url = f'/api/catalogue/source-quality/{native.FIRST}/undo'
+        self.assertEqual(self.post(admin, token, url, json={}).status_code, 200)
+        self.assertEqual(self.post(admin, token, url, json={}).status_code, 200)
+        self.assertTrue(item.exists())
+        self.assertEqual(target.read_bytes(), original_audio)
+        restored = store.read('sample-a', pid)
+        self.assertEqual(restored['name'], 'Changed after replacement')
+        self.assertEqual([row['source_id'] for row in restored['tracks']], [native.FIRST, 'other000000', native.SECOND])
+        self.assertEqual(store.read('sample-a', late)['tracks'][0]['source_id'], native.FIRST)
+        snapshot = self.state.source_quality.snapshot()
+        self.assertEqual(snapshot['fixed'], [])
+        self.assertTrue(snapshot['songs'][0]['automatic_skipped'])
 
     def test_failed_archive_restores_review_in_memory_and_on_disk(self):
         item, target, manifest, candidate = self.proposal()
@@ -308,3 +350,48 @@ class QualitySnapshotTests(unittest.TestCase):
         self.assertIsNone(restored.rows['original']['proposed_replacement'])
         self.assertFalse(restored.rows['original']['replacement_checked'])
         self.assertIsNone(restored.snapshot()['songs'][0]['proposed_replacement'])
+
+
+class AutomaticMatchTests(unittest.TestCase):
+    def test_requires_same_title_credit_edition_and_duration(self):
+        track = dict(id=native.FIRST, title='First', artist='Artist', duration=180)
+        candidate = dict(id=native.SECOND, title='Artist - First (Official Audio)', channel='Artist - Topic', duration=183)
+        for channel in ('Artist - Topic', 'Artist Official', 'ArtistVEVO'):
+            with self.subTest(channel=channel):
+                self.assertEqual(automatic_match(track, dict(candidate, channel=channel))['id'], native.SECOND)
+        for changes in (dict(id=native.FIRST), dict(title='First (Live)'), dict(title='Another - First'),
+                        dict(channel='Different - Topic', kind='topic'), dict(channel='Artist Fan'),
+                        dict(channel='Artist'), dict(duration=183.01), dict(duration=None), dict(duration=float('nan'))):
+            with self.subTest(changes=changes):
+                self.assertIsNone(automatic_match(track, dict(candidate, **changes)))
+
+
+class AutomaticReplacementTests(Base):
+    extra = {'ADMIN_USERS': ['sample-a'], 'SOURCE_QUALITY_SCAN': True}
+
+    def test_background_scan_replaces_with_verified_better_audio(self):
+        scanner = self.state.source_quality
+        self.addCleanup(scanner.stop.set)
+        item, target, _, _ = native.NativeMusicApi.recording(self)
+        official, _, manifest, _ = native.NativeMusicApi.recording(self, source_id=native.SECOND, samples=b'\x03\x04' * 160)
+        manifest['source'].update(title='First', channel='Artist - Topic')
+        self.intake.write_manifest(str(official), manifest)
+        candidate = dict(id=native.SECOND, title='First', channel='Artist - Topic', url=manifest['source']['url'], duration=.02)
+
+        def measurement(path, *args, **kwargs):
+            return dict(verdict='suspect' if native.FIRST in str(path) else 'clean', bands_db=[])
+
+        with patch('music_web.source_quality.analyze', side_effect=measurement), patch.object(
+                self.intake, 'cmd_search', return_value=dict(results=[candidate])) as search:
+            scanner.scan_once()
+            for _ in range(100):
+                if scanner.snapshot()['fixed'] and not scanner.replace_lock.locked():
+                    break
+                time.sleep(.02)
+            search.assert_called_once()
+            self.assertTrue(search.call_args.args[0].youtube_background)
+        self.assertFalse(item.exists())
+        self.assertFalse(target.exists())
+        self.assertEqual(scanner.snapshot()['fixed'][0]['replaced_by'], native.SECOND)
+        self.assertEqual([kind for _, kind in self.state.catalogue_review.data['automatic_attempts']],
+                         ['source search', 'source replacement'])

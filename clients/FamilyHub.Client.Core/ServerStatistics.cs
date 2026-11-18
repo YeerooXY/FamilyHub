@@ -14,12 +14,22 @@ public sealed record ServerStatistics
     public List<ListenerStatistics> Profiles { get; init; } = [];
     public List<ServerWork> Jobs { get; init; } = [];
     public List<ServerWork> Workers { get; init; } = [];
+    [JsonPropertyName("worker_stages")] public List<WorkerStage>? WorkerStages { get; init; }
     public List<ListeningRecord> Records { get; init; } = [];
     [JsonPropertyName("wrapped_year")] public int? WrappedYear { get; init; }
     [JsonPropertyName("catalogue_paused")] public bool CataloguePaused { get; init; }
     [JsonPropertyName("storage_total_bytes")] public long StorageTotalBytes { get; init; }
     [JsonPropertyName("storage_free_bytes")] public long StorageFreeBytes { get; init; }
 }
+
+public sealed record WorkerStage
+{
+    public string Stage { get; init; } = "";
+    public int Queued { get; init; }
+    [JsonPropertyName("backing_off")] public int BackingOff { get; init; }
+    public int Running { get; init; }
+}
+
 public sealed record ListenerStatistics
 {
     public List<DailyListening> Daily { get; init; } = [];

@@ -14,8 +14,24 @@ from . import catalog_search
 from .resources import background_request
 
 
+def valid_artist_id(value):
+    return type(value) is int and 0 < value <= 2**63 - 1
+
+
 def normal(value):
     return re.sub(r'\W+', ' ', str(value).casefold()).strip()
+
+
+def artist_mapping(row):
+    identifier = row.get('deezer_id')
+    candidates = [value for value in row.get('candidates') or [] if valid_artist_id(value)]
+    if valid_artist_id(identifier):
+        status = 'verified'
+    elif len(candidates) > 1:
+        status = 'quarantined'
+    else:
+        status = 'uncertain'
+    return dict(row, deezer_id=identifier if valid_artist_id(identifier) else None, candidates=candidates, status=status)
 
 
 def recent_release(row, today):
@@ -152,7 +168,7 @@ class Discovery:
                             if not isinstance(row, dict): continue
                             who = row.get('artist') or {}
                             if (isinstance(who, dict) and normal(who.get('name')) in {normal(n) for n in artist['aliases']}
-                                    and normal(row.get('title')) == normal(song) and type(who.get('id')) is int):
+                                    and normal(row.get('title')) == normal(song) and valid_artist_id(who.get('id'))):
                                 matches.add(who['id'])
                     artist['candidates'] = sorted(matches)
                     if len(matches) != 1:
@@ -309,17 +325,24 @@ def register(app, workspace, body, admins, tracks, worker=True, allow_background
     @app.get('/api/admin/discovery')
     def discovery_admin():
         if g.user not in admins: abort(403)
-        return jsonify(artists=store.artists())
+        return jsonify(artists=[artist_mapping(row) for row in store.artists()])
 
     @app.post('/api/admin/discovery')
     def discovery_confirm():
         if g.user not in admins: abort(403)
         data = body()
         name, identifier = data.get('name'), data.get('deezer_id')
-        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120 or type(identifier) is not int or identifier <= 0:
+        if (not isinstance(name, str) or not 1 <= len(name.strip()) <= 120 or not normal(name)
+                or re.search(r'[\x00-\x1f\x7f]', name) or not valid_artist_id(identifier)):
             return jsonify(error='Enter an artist name and a positive Deezer artist ID.'), 400
         with store.lock:
-            row = next((a for a in store.artists() if normal(a['name']) == normal(name)), dict(name=name.strip(), aliases=[name.strip()], mbid=None, songs=[]))
+            row = next((a for a in store.artists() if normal(a['name']) == normal(name)), None)
+            if data.get('create') is True and row is not None:
+                return jsonify(error='A mapping already exists for this artist.'), 409
+            if 'revision' in data and (row is None or type(data['revision']) is not int or data['revision'] != row.get('revision', 0)):
+                return jsonify(error='This mapping changed. Refresh artist mappings and try again.'), 409
+            if row is None:
+                row = dict(name=name.strip(), aliases=[name.strip()], mbid=None, songs=[])
             row.update(deezer_id=identifier, confidence='admin_confirmed', next_refresh=0, updated_at=None, revision=row.get('revision', 0) + 1)
             store.put_artist(row)
-        return jsonify(artist=row)
+        return jsonify(artist=artist_mapping(row))

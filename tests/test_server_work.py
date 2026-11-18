@@ -1,4 +1,5 @@
 import unittest
+import threading
 import time
 from unittest.mock import patch
 from test_music_web import Base
@@ -101,7 +102,8 @@ class ServerWorkTests(Base):
         status.update(processed=1,title='Current song',message='Downloading',active_downloads=[dict(index=2,title='Current song',message='Purifying audio',download_bytes=20,download_total_bytes=40)])
         PlaylistStore(self.ws).save('sample-a',dict(id=pid,name='Requested playlist',revision=1,shared=True,tracks=[],preparation=status))
         coordinator=self.state.playlist_preparation;operation=coordinator._operation('sample-a',pid);operation.active=('sample-a',pid)
-        self.state.jobs['file']=dict(owner='sample-a',title='Current song',state='running',phase='fetch',message='Downloading',playlist_id=pid)
+        self.state.jobs['file']=dict(owner='sample-a',title='Current song',state='running',phase='fetch',
+                                    message='Downloading',playlist_id=pid,priority=20,created=time.time(),cancel=threading.Event())
         try:
             result=self.go(client,'GET','/api/server/stats')
             self.assertEqual(result.status_code,200,result.json);jobs=result.json['jobs'];self.assertEqual(len(jobs),1)
@@ -118,9 +120,30 @@ class ServerWorkTests(Base):
     def test_single_listening_request_has_requester_and_distinct_kind(self):
         client=self.app.test_client();token=self.go(client,'GET','/api/connect').json['csrf_token']
         self.post(client,token,'/api/profile/select',json={'profile_id':'sample-a'})
-        self.state.jobs['single']=dict(owner='sample-a',title='Single',state='queued',phase='fetch',message='Preparing song',current=True)
+        self.state.jobs['single']=dict(owner='sample-a',title='Single',state='queued',phase='fetch',
+                                      message='Preparing song',current=True,priority=0,created=time.time(),
+                                      queued_at=time.monotonic(),cancel=threading.Event())
         row=self.go(client,'GET','/api/server/stats').json['jobs'][0]
         self.assertEqual((row['owner'],row['kind'],row['title']),('sample-a','listening','Single'))
+
+    def test_stage_counts_distinguish_queued_backing_off_and_running(self):
+        client = self.app.test_client()
+        token = self.go(client, 'GET', '/api/connect').json['csrf_token']
+        self.post(client, token, '/api/profile/select', json={'profile_id': 'sample-a'})
+        governor = self.state.resources
+        self.state.jobs['waiting'] = dict(owner='sample-a', title='Waiting song', state='queued', priority=20,
+                                          url=self.intake.WATCH + 'abcdefghijk', created=time.time(),
+                                          queued_at=time.monotonic(), cancel=threading.Event())
+        with patch.object(governor, 'wake'), patch.object(self.intake.YOUTUBE, 'until', time.monotonic() + 60):
+            with governor.track('fetch'), governor.track('fetch', 'Transfer capacity'):
+                response = self.go(client, 'GET', '/api/server/stats')
+        self.assertEqual(response.status_code, 200, response.json)
+        stages = {row['stage']: row for row in response.json['worker_stages']}
+        self.assertEqual(stages['fetch'], dict(stage='fetch', queued=1, backing_off=1, running=1))
+        self.state.jobs['waiting']['retry_at'] = time.time() + 60
+        response = self.go(client, 'GET', '/api/server/stats')
+        stages = {row['stage']: row for row in response.json['worker_stages']}
+        self.assertEqual(stages['fetch'], dict(stage='fetch', queued=0, backing_off=1, running=0))
 
     def test_playlist_slot_only_reports_progress_for_current_download_phase(self):
         client = self.app.test_client()

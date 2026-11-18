@@ -153,6 +153,15 @@ def rank_matches(track, candidates, search=None):
         ranked.append((candidate["recommended"], -candidate["source_tier"], score, candidate))
     return [row for _, _, _, row in sorted(ranked, key=lambda item: item[:3], reverse=True)[:5]]
 
+
+def repoint_recording(track, old_id, replacement):
+    if replacement.get('automatic'):
+        original = {field: track[field] for field in ('source_id', 'match', 'state') if field in track}
+        track.setdefault('replacement_origins', {})[old_id] = original
+    track.update(source_id=replacement['new_id'], match=replacement['match'], state='saved')
+    track.pop('job_id', None)
+
+
 class PlaylistStore:
     def __init__(self,workspace): self.root=Path(workspace)/".playlists"
     def directory(self,user):
@@ -180,10 +189,10 @@ class PlaylistStore:
             replacements = json.loads(journal.read_text(encoding='utf-8'))
             for track in data['tracks']:
                 for _ in range(len(replacements)):
-                    replacement = replacements.get(track.get('source_id') or (track.get('match') or {}).get('id'), {})
+                    old_id = track.get('source_id') or (track.get('match') or {}).get('id')
+                    replacement = replacements.get(old_id, {})
                     if replacement.get('state') != 'done': break
-                    track.update(source_id=replacement['new_id'], match=replacement['match'], state='saved')
-                    track.pop('job_id', None)
+                    repoint_recording(track, old_id, replacement)
         folder=self.directory(user);folder.mkdir(parents=True,exist_ok=True)
         target=folder/(data["id"]+".json");temporary=target.with_suffix(".tmp")
         temporary.write_text(json.dumps(data,ensure_ascii=False),encoding="utf-8");temporary.replace(target)
@@ -229,7 +238,7 @@ class PlaylistStore:
                 old=matches.popleft()
                 track["added_at"]=old.get("added_at")
                 track["added_by"]=old.get("added_by")
-                for field in ("candidates","state","match","job_id","source_id"):
+                for field in ("candidates","state","match","job_id","source_id","replacement_origins"):
                     if field in old: track[field]=old[field]
             else:
                 track["added_at"]=datetime.now(timezone.utc).isoformat()

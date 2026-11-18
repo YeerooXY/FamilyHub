@@ -27,12 +27,13 @@ from . import app_updates
 from . import profile_artwork
 from .listening_versions import ListeningVersions
 from .catalogue_review import CatalogueReview, register as register_catalogue_review
+from .review_confidence import DEFAULT_AUTO_RESOLUTIONS_PER_HOUR
 from .source_quality import register as register_source_quality
 from .song_analysis import register as register_song_analysis
 from .finished_audio import FinishedAudio, prepare_record, activity as finished_audio_activity
 from .playlist_artwork import PlaylistArtwork, ArtworkError
 from .lyrics import LyricsCache
-from .worker_activity import WorkerActivity
+from .worker_activity import WorkerActivity, stage_summary
 from .resources import (ResourceGovernor, TransferResources, PROVIDERS, background_activity, background_request,
                         enabled, transfer_limit, waiting, runtime_capacity, background_command, audio_command)
 from . import link_playlists
@@ -101,6 +102,7 @@ DEFAULTS = {
     "FAMILY_PROFILES": False,
     "BROWSER_PLAYER": True,
     "ADMIN_USERS": [],
+    "AUTO_RESOLUTIONS_PER_HOUR": DEFAULT_AUTO_RESOLUTIONS_PER_HOUR,
     "SECRET_FILE": "/etc/familyhub/music-web.secret",
     "MAX_UPLOAD": MAX_UPLOAD,
     "REQUIRE_FINISHED_AUDIO": True,
@@ -188,7 +190,7 @@ def create_app(test_config=None):
         MAX_CONTENT_LENGTH=max_upload + (1 << 20),
         WTF_CSRF_TIME_LIMIT=None, WTF_CSRF_SSL_STRICT=False)  # origin is checked in guard()
     app.intake = load_intake(cfg["CLI_PATH"])
-    catalogue_review = CatalogueReview(ws)
+    catalogue_review = CatalogueReview(ws, cfg['AUTO_RESOLUTIONS_PER_HOUR'])
     from .playback_devices import PlaybackDevices
     listening_versions = ListeningVersions(ws, app.intake)
     finished_audio = FinishedAudio(ws, app.intake)
@@ -760,6 +762,11 @@ def create_app(test_config=None):
             return jsonify(result)
         disk = shutil.disk_usage(lib)
         with lock:
+            now = time.time()
+            deferred_fetches = 0
+            if app.intake.YOUTUBE.until <= time.monotonic():
+                deferred_fetches = sum(1 for j in jobs.values() if j['state'] == 'queued' and j.get('url')
+                    and not foreground(j) and j.get('retry_at', 0) > now and not j['cancel'].is_set())
             result.update(catalogue_paused=not background_idle(), storage_total_bytes=disk.total, storage_free_bytes=disk.free,
                 jobs=[dict(title=j["title"], owner=j["owner"], user=names.get(j["owner"], j["owner"]),
                            kind="listening" if j.get("current") else "upload" if j.get("read_local_tags") else "recording",
@@ -775,6 +782,7 @@ def create_app(test_config=None):
                 processed=tagging["processed"], total=tagging["total"], remaining=tagging["remaining"],
                 current_title=tagging["current_title"], download_bytes=0, download_total_bytes=None))
         result['workers'] = worker_snapshot(names, tagging, result['jobs'])
+        result['worker_stages'] = stage_summary(resources, deferred_fetches)
         return jsonify(result)
 
     def worker_snapshot(names, tagging, work):
@@ -1197,7 +1205,7 @@ def create_app(test_config=None):
                 if job["cancel"].is_set() or (job["state"] != "queued" and not analyzing):
                     continue
                 source = job.get("source_id")
-                is_foreground = foreground(job, analyzing)
+                is_foreground = bool(foreground(job, analyzing))
                 if source in sources:
                     reason = "same source"
                 elif not is_foreground and not analyzing and job.get("url") and app.intake.YOUTUBE.until > time.monotonic():
@@ -1664,30 +1672,74 @@ def create_app(test_config=None):
         return library_record(item)[0],item['manifest']['import']['library_sha256']
     def review_rate():
         if not allow('catalogue-review:'+g.user,20,60):raise ApiError("Wait before flagging more songs.",429)
-    register_catalogue_review(app,body,catalogue_review,review_recording,lambda:g.user in cfg['ADMIN_USERS'],review_rate)
+
+    def playlist_review_gaps():
+        owners = [profile['id'] for profile in profile_store.list()] if family_mode else [g.user]
+        gaps = []
+        with lock:
+            for owner in owners:
+                for playlist in playlist_store.list(owner):
+                    view = visible_playlist(playlist, owner)
+                    editable = owner == g.user or g.user in playlist.get('co_authors', [])
+                    for index, track in enumerate(playlist['tracks']):
+                        state = track.get('state', 'unmatched')
+                        if (track.get('source_id') or track.get('match')) and state != 'error':
+                            continue
+                        gaps.append(dict(playlist_id=playlist['id'], owner_id=owner, playlist_name=playlist['name'],
+                                         index=index, title=track['title'], artist=track['artist'],
+                                         artwork_url=view.get('cover_url', ''), state=state, can_edit=editable))
+        return gaps
+
+    register_catalogue_review(app, body, catalogue_review, review_recording, lambda: g.user in cfg['ADMIN_USERS'],
+                              review_rate, playlist_review_gaps)
     def replacement_busy(identifier):
         with lock:
             return any(j.get('source_id') == identifier and j['state'] in ('queued', 'running') for j in jobs.values())
 
-    def replace_source(user, identifier, candidate):
-        from .source_quality import replace_saved
+    def replace_source(user, identifier, candidate, automatic, expected_digest):
+        from .source_quality import analyze, automatic_match, replace_saved, ScanPaused
+        old = saved_source(identifier)
+        if not old or old['manifest']['audio']['sha256'] != expected_digest or app.intake.video_id(candidate['url']) != candidate['id']:
+            raise ValueError('The recording changed. Review it again.')
         def progress(*args, **kwargs): pass
         progress.source_replacement = True
         prepare_playlist_recording(user, dict(source_id=candidate['id'], match=candidate), progress)
         resources.wait_background()
+        if automatic:
+            new = saved_source(candidate['id'])
+            if not new:
+                raise ValueError('The suggested recording could not be prepared.')
+            _, manifest, audio = app.intake.load_item(new['item'])
+            candidate_source = dict(manifest['source'], duration=manifest['audio']['duration'])
+            if not automatic_match(dict(automatic, id=identifier), candidate_source):
+                raise ValueError('The prepared recording does not match the original artist, title and duration.')
+            quality = analyze(audio, manifest['audio']['duration'], background_idle, governor=resources)['verdict']
+            if quality == 'suspect' or automatic['damaged'] and quality != 'clean':
+                raise ValueError('The suggested recording has insufficient audio quality.')
         with app.app_context():
             g.user = user
             with app.extensions['music'].source_quality.scan_lock, lock, catalogue_review.lock, listening_stats.lock:
+                if automatic and not background_idle():
+                    raise ScanPaused()
                 replace_saved(ws, lib, identifier, candidate, saved_source, playlist_store,
                               catalogue_review, listening_stats, app.intake,
-                              length=lambda saved: library_record(saved)[0]['duration'])
+                              length=lambda saved: library_record(saved)[0]['duration'], automatic=automatic,
+                              expected_digest=expected_digest)
+
+    def undo_source(identifier, records):
+        from .source_quality import undo_saved
+        with app.extensions['music'].source_quality.scan_lock, lock, catalogue_review.lock:
+            if replacement_busy(identifier) or records.get(identifier, {}).get('state') == 'done' and saved_source(identifier):
+                raise ValueError('The original recording already exists or is being prepared.')
+            return undo_saved(ws, identifier, records, playlist_store)
 
     def background_idle():
         return bool(resources.background_slots(1))
 
     register_source_quality(app, ws, app.intake, background_idle, lambda: g.user in cfg['ADMIN_USERS'], catalogue_review,
                             cfg.get('SOURCE_QUALITY_SCAN', cfg['PUBLIC_ORIGIN'] != 'https://music.test'),
-                            replace=replace_source, busy=replacement_busy)
+                            replace=replace_source, busy=replacement_busy, undo=undo_source,
+                            automatic_user=next(iter(cfg['ADMIN_USERS']), None))
     def song_analysis_idle():
         with lock:
             return background_idle() and (idle_analysis or not any(
@@ -1731,8 +1783,7 @@ def create_app(test_config=None):
             if not os.path.exists(inbox): return
             try:
                 with open(inbox, encoding="utf-8") as handle: data = json.loads(handle.read(4 << 20))
-                applied = catalogue_review.apply_votes(data.get("votes", []), str(data.get("label", "AI vote"))[:80])
-                log.info("metadata votes: %d songs filled", applied)
+                catalogue_review.apply_votes(data.get("votes", []), str(data.get("label", "AI vote"))[:80], suggest_only=True)
             except (OSError, ValueError, AttributeError) as error:
                 log.warning("metadata votes: %s", type(error).__name__)
             with suppress(OSError): os.remove(inbox)

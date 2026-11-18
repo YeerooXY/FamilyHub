@@ -27,6 +27,9 @@ public sealed record ArtistMapping
 {
     public string Name { get; init; } = "";
     public string Confidence { get; init; } = "";
+    public string Status { get; init; } = "";
+    public int Revision { get; init; }
+    public List<string> Aliases { get; init; } = [];
     [JsonPropertyName("deezer_id")] public long? DeezerId { get; init; }
     public List<long> Candidates { get; init; } = [];
 }

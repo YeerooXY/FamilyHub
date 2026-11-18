@@ -74,7 +74,7 @@ else
         <div id="profile-menu" aria-label="Settings">
             <div class="settings-profile"><ProfileAvatar Profile="CurrentProfile" Size="32" /><strong>@Session.ProfileName</strong></div>
             @* Phones have no sidebar; these pages open from the profile menu instead. *@
-            @foreach (var tab in new[] { "Leaderboard", "Stats", "Review" })
+            @foreach (var tab in new[] { "Leaderboard", "Stats", "Review", "Artist mappings" })
             { <button class="profile-phone-link" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" />@NavLabel(tab)</button> }
             <hr class="profile-phone-link" />
             <button @onclick="SwitchProfile"><MusicIcon Name="player" />Switch profile</button>
@@ -89,13 +89,13 @@ else
     <button class="nav-button phone-nav" aria-label="Search" aria-current='@(view == "Search" ? "page" : null)' @onclick="OpenSearchTab"><MusicIcon Name="search" /><span class="nav-label">Search</span></button>
     <button class="nav-button phone-nav" aria-label="Playlists" aria-current='@(LibraryViews.Contains(view) ? "page" : null)' @onclick='() => Navigate("Playlists")'><MusicIcon Name="playlist" /><span class="nav-label">Playlists</span></button>
     <button id="open-library" class="nav-button desktop-nav" aria-label="Your library" title="Your library" aria-current='@(view == "Library" ? "page" : null)' @onclick='() => Navigate("Library")'><MusicIcon Name="library" /><span class="nav-label">Your library</span></button>
-    @foreach (var tab in new[] { "Downloads", "Playlists", "Review", "Leaderboard", "Stats" })
+    @foreach (var tab in new[] { "Downloads", "Playlists", "Review", "Artist mappings", "Leaderboard", "Stats" })
     { <button class="nav-button desktop-nav" aria-label="@NavLabel(tab)" title="@NavLabel(tab)" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" /><span class="nav-label">@NavLabel(tab)</span></button> }
     </nav>
     <div id="sidebar-resize" role="separator" tabindex="0" aria-label="Resize library sidebar" aria-orientation="vertical" aria-valuemin="72" aria-valuemax="420" aria-valuenow="@(sidebarCollapsed ? 72 : sidebarWidth)"></div>
 </aside>
 <div class="workspace"><main id="content" tabindex="-1">
-    @if (view != "Playlists" && view != "Review" && view != "Home") { <h1 id="view-title" tabindex="-1">@(view == "Downloads" ? "Downloaded" : view == "Preferences" ? "Settings" : view == "Stats" ? "Server stats" : view)</h1> }
+    @if (view is not ("Playlists" or "Review" or "Artist mappings" or "Home")) { <h1 id="view-title" tabindex="-1">@(view == "Downloads" ? "Downloaded" : view == "Preferences" ? "Settings" : view == "Stats" ? "Server stats" : view)</h1> }
     <p id="feedback" class="operation-status @(error is not null ? "error" : "")" role="status">@(error ?? radioProgress ?? (Session.DownloadingId is null ? Session.Message : ""))</p>
     @if (LibraryViews.Contains(view) && (view != "Playlists" || Selected is null))
     {
@@ -240,7 +240,7 @@ else
             </div>
             <PlaylistDetails @ref="playlistDetails" Playlist="selected" ReturnFocusId="playlist-menu-toggle" HideTrigger="true" />
             <PlaylistCoAuthors @ref="playlistAuthors" Playlist="selected" ReturnFocusId="playlist-menu-toggle" HideTrigger="true" />
-            @if (selected.CanEdit) { <PlaylistTransfer @ref="playlistTransfer" @key="PlaylistKey(selected)" Playlist="selected" /> }
+            @if (selected.CanEdit) { <PlaylistTransfer @ref="playlistTransfer" @key="PlaylistKey(selected)" Playlist="selected" InitialReviewIndex="initialPlaylistReviewIndex" /> }
             <div class="playlist-tools playlist-song-tools">
                 <div class="playlist-song-search @(songSearchOpen ? "is-open" : "")">
                     <button id="playlist-song-search-toggle" class="quiet" aria-label="Search in playlist" aria-expanded="@Aria(songSearchOpen)" aria-controls="playlist-song-search" @onclick="ToggleSongSearch"><MusicIcon Name="search" /></button>
@@ -280,7 +280,11 @@ else
     }
     else if (view == "Review")
     {
-        <CatalogueReviewPanel /><ArtistMappings @key="Session.User" />
+        <CatalogueReviewPanel OpenPlaylist="OpenPlaylistReviewGap" />
+    }
+    else if (view == "Artist mappings")
+    {
+        <ArtistMappings @key="(Session.Server, Session.User)" />
     }
     else if (view == "Stats")
     {
@@ -490,6 +494,7 @@ else
     private bool songPickerOpen, songPickerShown, playlistTransitionPending;
     private UploadSongs? playlistUploader;
     private PlaylistTransfer? playlistTransfer;
+    private int? initialPlaylistReviewIndex;
     private string songFilter = "";
     private List<MusicTrack> SongPickerMatches => Session.Library.Where(t => string.IsNullOrWhiteSpace(songFilter) || (t.Title + " " + t.Channel).Contains(songFilter, StringComparison.OrdinalIgnoreCase)).Take(61).ToList();
     private HashSet<string> songPickerRows = [];
@@ -643,6 +648,47 @@ else
         await Navigate("Playlists"); selectedId = PlaylistKey(playlist); playlistTransitionPending = true;
         songSearch = ""; songSort = "Custom order"; songSearchOpen = false; mixesOnly = false;
     }
+
+    private Task OpenPlaylistReviewGap(PlaylistReviewGap gap) => Run(async () =>
+    {
+        MusicPlaylist? FindPlaylist() => Session.Playlists.FirstOrDefault(p => p.Id == gap.PlaylistId
+            && (p.OwnerId == gap.OwnerId || p.OwnerId.Length == 0 && gap.OwnerId == Session.User));
+        var playlist = FindPlaylist();
+        if (playlist is null || playlist.Tracks.ElementAtOrDefault(gap.Index) is not { } current
+            || current.Title != gap.Title || current.Artist != gap.Artist)
+        {
+            await Session.RefreshAsync();
+            if (view != "Review") return;
+            playlist = FindPlaylist();
+        }
+        if (playlist is null)
+        {
+            error = "This playlist is unavailable. Refresh song review and try again.";
+            return;
+        }
+
+        bool SameSong(PlaylistTrack entry) => entry.Title == gap.Title && entry.Artist == gap.Artist;
+        var index = gap.Index >= 0 && gap.Index < playlist.Tracks.Count && SameSong(playlist.Tracks[gap.Index])
+            ? gap.Index : -1;
+        if (index < 0)
+        {
+            var matches = Enumerable.Range(0, playlist.Tracks.Count).Where(i => SameSong(playlist.Tracks[i])).Take(2).ToList();
+            if (matches.Count == 1) index = matches[0];
+        }
+
+        await OpenPlaylist(playlist);
+        if (index >= 0 && playlist.CanEdit && gap.CanEdit)
+        {
+            initialPlaylistReviewIndex = index;
+            pendingFocus = "playlist-transfer-progress";
+        }
+        else
+        {
+            songSearch = gap.Title;
+            songSearchOpen = true;
+            pendingFocus = "view-title";
+        }
+    });
     // Long lists render 50 songs at a time; phones slow down when every row is on the page.
     private const int ListPage = 50;
     private int shown = ListPage;
@@ -765,7 +811,7 @@ else
     private MusicTrack? NextTrack => Player.QueueIndex + 1 < Player.Queue.Count ? Player.Queue[Player.QueueIndex + 1] : null;
     private static string Genre(MusicTrack track) => string.IsNullOrWhiteSpace(track.Genre) ? "Unsorted" : track.Genre;
     private static string NavLabel(string tab) => tab switch { "Downloads" => "Downloaded", "Review" => "Song review", "Stats" => "Server stats", "Leaderboard" => "Leaderboard", _ => tab };
-    private static string NavIcon(string tab) => tab switch { "Library" => "library", "Search" => "search", "Downloads" => "down", "Playlists" => "playlist", "Review" => "pencil", "Stats" => "device", "Leaderboard" => "crown", _ => "queue" };
+    private static string NavIcon(string tab) => tab switch { "Library" => "library", "Search" => "search", "Downloads" => "down", "Playlists" => "playlist", "Review" => "pencil", "Artist mappings" => "link", "Stats" => "device", "Leaderboard" => "crown", _ => "queue" };
     private Task VolumeChanged(ChangeEventArgs args)
     {
         if (!double.TryParse(args.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value)) return Task.CompletedTask;
@@ -943,20 +989,23 @@ else
     private async Task Navigate(string tab)
     {
         if (tab != "Search") CancelSearch();
+        initialPlaylistReviewIndex = null;
         if (tab == "Playlists") selectedId = "";
         RememberView(tab); profileMenu = false; error = null; genre = "";
         if (tab == "Settings") server = Session.Server;
-        pendingFocus = "content";
+        pendingFocus = tab == "Artist mappings" ? "artist-mappings-title" : "content";
         await Task.CompletedTask;
     }
     private void GoBack()
     {
         if (!backViews.TryPop(out var tab)) return;
+        initialPlaylistReviewIndex = null;
         CancelSearch(); forwardViews.Push(view); view = tab; profileMenu = false; error = null;
     }
     private void GoForward()
     {
         if (!forwardViews.TryPop(out var tab)) return;
+        initialPlaylistReviewIndex = null;
         CancelSearch(); backViews.Push(view); view = tab; profileMenu = false; error = null;
     }
     private async Task Run(Func<Task> action)

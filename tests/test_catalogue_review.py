@@ -3,6 +3,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from music_web.catalogue_review import CatalogueReview, ReviewError, lookup, seed
+from music_web.catalog_search import candidates as store_candidates
+from music_web.catalogue_review import core_title, normal
+from music_web.playlists import PlaylistStore
 from test_music_web import Base
 import test_native_music_api as native
 FIRST=native.FIRST
@@ -26,6 +29,37 @@ class ReviewStore(unittest.TestCase):
         self.assertEqual(self.store.overrides(FIRST,'a'*64),dict(album='Album',genre='Drum and bass'))
         self.assertEqual(self.store.overrides(FIRST,'b'*64),{})
         self.assertEqual(self.store.snapshot()['metadata_total'],0)
+
+    def test_shared_rolling_rate_limit_survives_restart_and_yields_to_playback(self):
+        now = 10000
+        store = CatalogueReview(self.tmp.name, automatic_limit=2, clock=lambda: now)
+        store.observe(TRACK, {}, 'a'*64)
+        def resolve(row): return dict(values={'album': 'Album'})
+        self.assertFalse(store.process_one(lambda: False, resolve))
+        self.assertTrue(store.reserve_automatic('source search'))
+        self.assertTrue(store.process_one(lambda: True, resolve))
+        restarted = CatalogueReview(self.tmp.name, automatic_limit=2, clock=lambda: now)
+        self.assertFalse(restarted.reserve_automatic('source replacement'))
+        now += 3599
+        self.assertFalse(restarted.reserve_automatic())
+        now += 1
+        self.assertTrue(restarted.reserve_automatic('source replacement'))
+        self.assertTrue(restarted.reserve_automatic())
+        self.assertFalse(restarted.reserve_automatic())
+
+    def test_metadata_undo_preserves_a_later_manual_edit(self):
+        self.observe()
+        self.store.process_one(lambda: True, lambda row: dict(values={'album': 'Automatic album', 'genre': 'Rock'}))
+        store = CatalogueReview(self.tmp.name)
+        row = store.data['metadata'][FIRST]
+        store.edit_metadata(FIRST, row['revision'], {'album': 'Manual album'})
+        with self.assertRaises(ReviewError):
+            store.undo_metadata(FIRST, 'b'*64)
+        store.undo_metadata(FIRST, 'a'*64)
+        self.assertEqual(store.overrides(FIRST, 'a'*64), {'album': 'Manual album'})
+        self.assertEqual(store.snapshot()['metadata'][0]['missing'], ['genre'])
+        self.assertEqual(store.data['metadata_fixed'], {})
+        self.assertFalse(store.process_one(lambda: True, lambda row: self.fail('Undone metadata stays in review.')))
     def test_embedded_tags_are_used_without_lookup(self):
         self.store.observe({**TRACK,'channel':'Unknown artist'},{'artist':'Tagged artist','album':'Tagged album'},'a'*64)
         self.assertEqual(self.store.overrides(FIRST,'a'*64),dict(artist='Tagged artist',album='Tagged album'))
@@ -86,7 +120,7 @@ class ReviewStore(unittest.TestCase):
         details={'artist-credit':[{'name':'Artist'}],'releases':[{'title':'Album','status':'Official','release-group':{'primary-type':'Album'}}],'genres':[{'name':'punk','count':2}]}
         with patch('music_web.catalogue_review.musicbrainz',side_effect=[dict(recordings=[candidate]),details]):
             self.assertEqual(lookup(row)['values'],dict(album='Album',genre='punk'))
-        for bad in ({**candidate,'length':210000},{**candidate,'title':'Song (Live)'}):
+        for bad in ({**candidate,'length':183001},{**candidate,'title':'Song (Live)'},{**candidate,'score':89}):
             with patch('music_web.catalogue_review.musicbrainz',return_value=dict(recordings=[bad])):self.assertEqual(lookup(row)['values'],{})
         other={**candidate,'id':'b'*8+'-bbbb-bbbb-bbbb-'+'b'*12}
         # The same song released twice (single and album) is one match; different credits are not.
@@ -96,6 +130,9 @@ class ReviewStore(unittest.TestCase):
         remaster={**candidate,'title':'Song (Remastered 2011)'}
         with patch('music_web.catalogue_review.musicbrainz',side_effect=[dict(recordings=[remaster]),details]):
             self.assertEqual(lookup(row)['values'],dict(album='Album',genre='punk'))
+        boundary={**candidate,'length':183000,'score':90}
+        with patch('music_web.catalogue_review.musicbrainz',side_effect=[dict(recordings=[boundary]),details]):
+            self.assertEqual(lookup(row)['values'],dict(album='Album',genre='punk'))
     def test_missing_recording_genre_uses_the_artist(self):
         self.observe();row=self.store.snapshot()['metadata'][0]
         candidate=dict(id='a'*8+'-aaaa-aaaa-aaaa-'+'a'*12,title='Song',length=180000,score=100,**{'artist-credit':[{'artist':{'name':'Artist'}}]})
@@ -103,7 +140,9 @@ class ReviewStore(unittest.TestCase):
         with patch('music_web.catalogue_review.musicbrainz',side_effect=[dict(recordings=[candidate]),details,dict(genres=[{'name':'synth-pop','count':4}])]):
             self.assertEqual(lookup(row)['values'].get('genre'),'synth-pop')
         with patch('music_web.catalogue_review.musicbrainz',side_effect=[dict(recordings=[]),dict(artists=[{'name':'Artist','tags':[{'name':'hard rock','count':3}]}])]):
-            self.assertEqual(lookup(row)['values'].get('genre'),'Rock')
+            result = lookup(row)
+            self.assertEqual(result['suggested'].get('genre'),'Rock')
+            self.assertNotIn('genre', result['values'])
         self.assertIn('Remix',seed({},dict(TRACK,title='Artist - Song (Official Remix)'))['title'])
     def test_store_matches_fill_an_agreed_album_and_are_kept(self):
         self.observe();row=self.store.snapshot()['metadata'][0]
@@ -120,6 +159,16 @@ class ReviewStore(unittest.TestCase):
             self.assertEqual(lookup(row,lambda *a:compiled)['values'],dict(album='Song'),'compilations do not count')
         self.store.process_one(lambda:True,lambda row:dict(values={},source='Deezer/iTunes',candidates=single))
         self.assertEqual(self.store.snapshot()['metadata'][0]['candidates'][1]['album'],'Song - Single')
+
+    def test_deezer_filters_cover_artists_and_caps_duration_difference(self):
+        def row(name, duration, title='Song'):
+            return dict(title=title, duration=duration, artist={'name':name}, album={'title':'Album'})
+        from music_web import catalog_search
+        with patch.object(catalog_search, '_get', side_effect=[{'data': [
+            row('Cover artist', 180), row('Artist', 184), row('Artist', 180, 'Song (Live)'), row('Artist', 183)]}, {}]):
+            result = store_candidates({'artist':'Artist','title':'Song','duration':180},core_title,normal)
+        self.assertEqual(len(result), 1)
+        self.assertEqual((result[0]['source'], result[0]['artist']), ('Deezer', 'Artist'))
     def test_votes_fill_agreed_fields_and_suggest_the_rest(self):
         self.observe();self.store.process_one(lambda:True,lambda row:dict(values={},source='No unique title, artist and duration match'))
         vote=dict(id=FIRST,sha256='a'*64,values=dict(genre='Drum and bass',artist='Ignored'),suggested=dict(album='Maybe album'))
@@ -191,3 +240,24 @@ class ReviewApi(Base):
         self.assertEqual(self.go(admin, 'GET', '/api/catalogue/reports').json['reports'], [])
         for reason in ('trimming', '', None, ['bad_quality']):
             self.assertEqual(self.post(member, member_token, '/api/catalogue/reports', json=dict(id=FIRST, reason=reason)).status_code, 400)
+
+
+class PlaylistGapApi(Base):
+    extra = {'FAMILY_PROFILES': True, 'ADMIN_USERS': ['sample-a']}
+
+    def test_admin_sees_unresolved_matches_with_playlist_access(self):
+        store = PlaylistStore(self.ws)
+        for owner in ('sample-a', 'sample-b'):
+            store.save(owner, dict(id='p'*22, name=owner + ' playlist', tracks=[
+                dict(title='Unmatched song', artist='Artist', state='review'),
+                dict(title='Already matched', artist='Artist', state='ready', source_id=FIRST)]))
+        def review(owner):
+            client = self.app.test_client()
+            token = self.go(client, 'GET', '/api/connect').json['csrf_token']
+            self.post(client, token, '/api/profile/select', json={'profile_id': owner})
+            return self.go(client, 'GET', '/api/catalogue/review?limit=10').json
+        data = review('sample-a')
+        self.assertEqual(data['playlist_gaps_total'], 2)
+        self.assertEqual([(gap['owner_id'], gap['index'], gap['can_edit']) for gap in data['playlist_gaps']],
+                         [('sample-a', 0, True), ('sample-b', 0, False)])
+        self.assertNotIn('playlist_gaps', review('sample-b'))

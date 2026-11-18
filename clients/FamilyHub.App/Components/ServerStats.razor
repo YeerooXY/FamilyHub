@@ -151,6 +151,67 @@
         var used = Math.Max(0, server.StorageTotalBytes - server.StorageFreeBytes);
         var usedPercent = server.StorageTotalBytes > 0 ? Math.Clamp(100d * used / server.StorageTotalBytes, 0, 100) : 0;
         <div class="srv-grid">
+            <section class="stats-work srv-work glass-panel" aria-labelledby="stats-work-title">
+                <div class="stats-section-heading"><h2 id="stats-work-title">Worker activity</h2></div>
+                @if (server.WorkerStages is null)
+                {
+                    <p class="srv-work-empty">Update the server to see queue and retry counts.</p>
+                }
+                else if (server.WorkerStages.Count == 0)
+                {
+                    <p class="srv-work-empty">No resource jobs are waiting or running.</p>
+                }
+                else
+                {
+                    <ul class="srv-stage-cards">
+                    @foreach (var stage in server.WorkerStages)
+                    {
+                        var (title, icon) = StageDisplay(stage.Stage);
+                        <li class="srv-stage-card" @key="stage.Stage">
+                            <h3><MusicIcon Name="@icon" />@title</h3>
+                            <dl>
+                                <div><dt>Queued</dt><dd class="music-admin-count">@stage.Queued</dd></div>
+                                <div><dt>Backing off</dt><dd class="music-admin-count">@stage.BackingOff</dd></div>
+                                <div><dt>Running</dt><dd class="music-admin-count">@stage.Running</dd></div>
+                            </dl>
+                        </li>
+                    }
+                    </ul>
+                }
+                @if (server.Workers.Count > 0)
+                {
+                    <details class="srv-worker-details">
+                        <summary><MusicIcon Name="chevron-down" />Worker slots</summary>
+                        <ul class="srv-work-list">
+                        @foreach (var group in WorkGroups(server.Workers))
+                        {
+                            var working = group.Workers.Where(w => w.State == "working").ToList();
+                            var first = group.Workers[0];
+                            <li class="srv-work-row is-@(working.Count > 0 ? "working" : first.State)" @key="group.Name">
+                                <div class="srv-work-line">
+                                    <strong>@group.Name</strong>
+                                    <span class="srv-work-status">@(group.Workers.Count > 1 && working.Count > 0 ? $"{working.Count} of {group.Workers.Count} active" : Label(first.State))</span>
+                                </div>
+                                @if (working.Count == 0 && first.WaitingFor.Length > 0)
+                                {
+                                    <small class="srv-work-wait">Waiting for @(char.ToLowerInvariant(first.WaitingFor[0]) + first.WaitingFor[1..])</small>
+                                }
+                                @foreach (var job in working)
+                                {
+                                    var percent = job.Progress;
+                                    <div class="srv-work-job" @key="job.Id">
+                                        @if (!string.IsNullOrWhiteSpace(job.CurrentTitle)) { <span class="stats-current-action">@job.CurrentTitle</span> }
+                                        @if (job.Phase.Length > 0) { <small>@job.Phase</small> }
+                                        @if (percent is not null) { <div class="stats-meter" role="progressbar" aria-label="@job.Title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@percent.Value.ToString("0", Inv)"><i style="width:@percent.Value.ToString("0.###", Inv)%"></i></div> }
+                                        @if (job.Owner.Length > 0) { <span class="stats-job-requester"><ProfileAvatar Profile="WorkProfile(job)" Size="24" /><span>@job.User</span></span> }
+                                    </div>
+                                }
+                            </li>
+                        }
+                        </ul>
+                    </details>
+                }
+            </section>
             <section class="srv-savings glass-panel" aria-labelledby="srv-savings-title">
                 <h2 id="srv-savings-title">Savings</h2>
                 <div class="srv-figures">
@@ -163,39 +224,6 @@
                 <h2 id="srv-storage-title">Storage</h2>
                 <div class="srv-ring" style="--used:@usedPercent.ToString("0.#", Inv)" role="img" aria-label="@($"{usedPercent:0} percent of storage used")"><span><strong>@usedPercent.ToString("0", Inv)%</strong><small>used</small></span></div>
                 <dl class="srv-storage-facts"><div><dt>Used</dt><dd>@Bytes(used)</dd></div><div><dt>Free</dt><dd>@Bytes(server.StorageFreeBytes)</dd></div><div><dt>Total</dt><dd>@Bytes(server.StorageTotalBytes)</dd></div></dl>
-            </section>
-            <section class="stats-work srv-work glass-panel" aria-labelledby="stats-work-title"><div class="stats-section-heading"><h2 id="stats-work-title">Server work</h2><span class="srv-work-state @(server.Workers.Any(w => w.State == "working") ? "is-busy" : "")">@server.Workers.Count(w => w.State == "working") working / @server.Workers.Count slots</span></div>
-                <p class="stats-work-note">Acquisition slots share the audio encoding lanes. Lyrics are fetched when requested.</p>
-                @if (server.Workers.Count == 0) { <p class="stats-work-empty">Worker status is unavailable. Update the server to report its slots.</p> }
-                @if (server.Workers.Count > 0)
-                {
-                    <div class="srv-slot-map" role="img" aria-label="@($"{server.Workers.Count(w => w.State == "working")} of {server.Workers.Count} slots busy")">
-                    @foreach (var slot in server.Workers) { <i class="@(slot.State == "working" ? "is-busy" : "is-free")" title="@slot.Title" @key="slot.Id"></i> }
-                    </div>
-                    <p class="srv-slot-legend"><span><i class="is-free"></i>Free</span><span><i class="is-busy"></i>Busy</span></p>
-                }
-                <ul class="srv-work-list">
-                @foreach (var group in WorkGroups(server.Workers))
-                { var working = group.Workers.Where(w => w.State == "working").ToList(); var first = group.Workers[0];
-                    <li class="srv-work-row is-@(working.Count > 0 ? "working" : first.State)" @key="group.Name">
-                        <div class="srv-work-line">
-                            <strong>@group.Name</strong>
-                            @if (group.Workers.Count > 1) { <span class="srv-slots" aria-hidden="true">@foreach (var slot in group.Workers) { <i class="@(slot.State == "working" ? "is-busy" : "is-free")"></i> }</span> }
-                            <span class="srv-work-status">@(group.Workers.Count > 1 ? $"{working.Count} of {group.Workers.Count} working" : Label(first.State))</span>
-                        </div>
-                        @if (working.Count == 0 && first.WaitingFor.Length > 0) { <small class="srv-work-wait">Waiting for @(char.ToLowerInvariant(first.WaitingFor[0]) + first.WaitingFor[1..])</small> }
-                        @foreach (var job in working)
-                        { var percent = job.Progress;
-                            <div class="srv-work-job" @key="job.Id">
-                                @if (!string.IsNullOrWhiteSpace(job.CurrentTitle)) { <span class="stats-current-action">@job.CurrentTitle</span> }
-                                @if (job.Phase.Length > 0) { <small>@job.Phase</small> }
-                                @if (percent is not null) { <div class="stats-meter" role="progressbar" aria-label="@job.Title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@percent.Value.ToString("0", Inv)"><i style="width:@percent.Value.ToString("0.###", Inv)%"></i></div> }
-                                @if (job.Owner.Length > 0) { <span class="stats-job-requester"><ProfileAvatar Profile="WorkProfile(job)" Size="24" /><span>@job.User</span></span> }
-                            </div>
-                        }
-                    </li>
-                }
-                </ul>
             </section>
         </div>
     }
@@ -270,7 +298,7 @@
     private Task RefreshNow() => Refresh();
     private string Identity => Session.Server + "\n" + Session.User;
 
-    private async Task Refresh(bool background = false)
+    private async Task Refresh()
     {
         if (fetching || disposed || Offline) return;
         var identity = requestedIdentity = Identity;
@@ -317,7 +345,20 @@
         await JS.InvokeVoidAsync("familyhub.restoreStatsFocus");
         if (firstRender) await UpdateIdentity();
     }
-    // Numbered slots of one kind ("Acquisition / preparation 1".."12") show as one row with a slot strip.
+    private static (string Title, string Icon) StageDisplay(string stage) => stage switch
+    {
+        "analysis" => ("Audio analysis", "music"),
+        "fetch" => ("Downloads", "download"),
+        "finished" => ("Playback preparation", "player"),
+        "import" => ("Library imports", "library"),
+        "matching" => ("Playlist matching", "playlist"),
+        "opus" => ("Opus encoding", "device"),
+        "preview" => ("Audio previews", "play"),
+        "search" => ("Source lookup", "search"),
+        _ => (Label(stage), "queue")
+    };
+
+    // Numbered slots of the same kind share a row.
     private static IEnumerable<(string Name, List<ServerWork> Workers)> WorkGroups(IEnumerable<ServerWork> workers) =>
         workers.GroupBy(w => System.Text.RegularExpressions.Regex.Replace(w.Title, @"\s+\d+$", "")).Select(g => (g.Key, g.ToList()));
     // One row group per record, family-wide records first; records held by several people (listening streaks) are ranked inside their group.

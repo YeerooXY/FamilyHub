@@ -10,13 +10,14 @@ import unicodedata
 from .musicbrainz import read as musicbrainz, Throttled
 from .genres import group as genre_group
 from . import catalog_search
+from .review_confidence import DEFAULT_AUTO_RESOLUTIONS_PER_HOUR, MUSICBRAINZ_MIN_SCORE, close_duration
 
 ID=re.compile(r'(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})')
 UNKNOWN={'','unknown','unknown artist','unknown album','unsorted','selected recordings','youtube','local imports'}
 FIELDS=('artist','album','genre')
 # Raise when the lookup improves: automatic results from older versions are looked up again.
-# 3: Deezer and iTunes fill albums MusicBrainz lacks and keep their matches for the AI vote.
-LOOKUP_VERSION=3
+# 4: Require matching artist credits and playback length for automatic provider edits.
+LOOKUP_VERSION=4
 AUTOMATIC_SOURCES={'No unique title, artist and duration match','Deezer/iTunes','Lookup unavailable; review manually','MusicBrainz','File/source tags',''}
 # Failed lookups (MusicBrainz busy or unreachable) retry after 30 minutes, then 1, 2 and 4 hours.
 RETRY_SECONDS=(1800,3600,7200,14400)
@@ -38,7 +39,7 @@ def normal(value):
 def core_title(value):
     # "Song (feat. X)", "Song [Remastered 2011]" and "Song - Radio Edit" name the same song for matching.
     # Brackets naming a different performance (live, remix, acoustic...) stay part of the title.
-    value=re.sub(r'\s*[\[(][^\])]*[\])]',lambda m:m.group(0) if re.search(r'live|remix|acoustic|instrumental|slowed|sped|nightcore|cover|demo|karaoke|unplugged',m.group(0),re.I) else '',value or '')
+    value=re.sub(r'\s*[\[(][^\])]*[\])]',lambda m:m.group(0) if re.search(r'live|remix|acoustic|instrumental|slowed|sped|nightcore|cover|demo|karaoke|unplugged|version|re.record|mashup|reverb|8d',m.group(0),re.I) else '',value or '')
     value=re.sub(r'\s+(?:feat\.?|ft\.?|featuring)\s.*$','',value,flags=re.I)
     value=re.sub(r'\s+-\s+(?:radio edit|remaster(?:ed)?(?: \d{4})?|single version|original mix)$','',value,flags=re.I)
     return normal(value)
@@ -62,7 +63,7 @@ def seed(source,track):
     parts=re.split(r'\s+[-\u2013\u2014]\s+',title,maxsplit=1)
     if not source.get('track_title') and len(parts)==2:
         artist=source.get('artist') or parts[0];title=parts[1]
-    title=re.sub(r'\s*[\[(][^\])]*(?:official|audio|video|lyrics|release|hq|hd)[^\])]*[\])]',lambda m:m.group(0) if re.search(r'remix|live|acoustic|slowed|nightcore|instrumental',m.group(0),re.I) else '',title,flags=re.I).strip()
+    title=re.sub(r'\s*[\[(][^\])]*(?:official|audio|video|lyrics|release|hq|hd)[^\])]*[\])]',lambda m:m.group(0) if re.search(r'remix|live|acoustic|slowed|nightcore|instrumental|cover|sped|karaoke|demo|edit|version',m.group(0),re.I) else '',title,flags=re.I).strip()
     artist=re.sub(r'\s*-?\s*Topic$|VEVO$','',artist,flags=re.I).strip()
     return dict(title=title[:200],artist=artist[:120],duration=track.get('original_duration') or track.get('duration') or 0)
 
@@ -73,7 +74,7 @@ def lookup(row,search=None):
     found=(search or catalog_search.candidates)(row['seed'],core_title,normal)
     result['candidates']=found
     album=catalog_search.agreed_album(found,normal) if 'album' in still else ''
-    if album:
+    if album and any(c['source'] == 'Deezer' and c['album'] and c['album_type'] != 'compile' for c in found):
         result['values']['album']=result['suggested']['album']=text(album)
         if not result['source_url']:
             result['source']='Deezer/iTunes';result['source_url']=next((c['url'] for c in found if c['url'].startswith('https://')),'')
@@ -92,9 +93,11 @@ def musicbrainz_lookup(row):
     for candidate in found:
         artists=[normal(c.get('artist',{}).get('name',c.get('name',''))) for c in candidate.get('artist-credit',[]) if isinstance(c,dict)]
         duration=candidate.get('length')
-        if (core_title(candidate.get('title',''))==core_title(title) and normal(artist) in artists
-                and type(duration) in (int,float) and seed_info['duration']>0 and abs(duration/1000-seed_info['duration'])<=3
-                and int(candidate.get('score',0))>=90):exact.append(candidate)
+        credit=''.join(c.get('name',c.get('artist',{}).get('name',''))+c.get('joinphrase','')
+                       for c in candidate.get('artist-credit',[]) if isinstance(c,dict))
+        if (core_title(candidate.get('title',''))==core_title(title) and (normal(artist) in artists or normal(artist)==normal(credit))
+                and type(duration) in (int,float) and close_duration(seed_info['duration'],duration/1000)
+                and int(candidate.get('score',0))>=MUSICBRAINZ_MIN_SCORE):exact.append(candidate)
     exact={c['id']:c for c in exact if re.fullmatch(r'[0-9a-f-]{36}',c.get('id',''))}
     # The same song is often several MusicBrainz recordings (single, album, remaster). They count
     # as one match when every candidate credits the same artists; the best-scored one is read.
@@ -102,7 +105,11 @@ def musicbrainz_lookup(row):
     if not exact or len(credits)!=1:
         if 'genre' in row['missing'] and 'genre' not in values:
             genre=artist_genre(name=artist)
-            if genre:values['genre']=genre;suggested['genre']=genre
+            if genre:suggested['genre']=genre
+        return dict(values=values,suggested=suggested,source_url='',source='No unique title, artist and duration match')
+    if len(next(iter(credits))) > 1 and not any(normal(artist) == normal(''.join(
+            c.get('name', c.get('artist', {}).get('name', '')) + c.get('joinphrase', '')
+            for c in r['artist-credit'] if isinstance(c, dict))) for r in exact.values()):
         return dict(values=values,suggested=suggested,source_url='',source='No unique title, artist and duration match')
     identifier=max(exact.values(),key=lambda r:(int(r.get('score',0)),len(r.get('releases') or [])))['id']
     record=musicbrainz('recording/'+identifier,inc='artists+releases+genres')
@@ -117,7 +124,7 @@ def musicbrainz_lookup(row):
     if genres and genres[0].get('count',0)>0:suggested['genre']=str(genres[0]['name'])[:80]
     elif 'genre' in row['missing']:
         credited=next((c.get('artist',{}).get('id','') for c in record.get('artist-credit',[]) if isinstance(c,dict)),'')
-        genre=artist_genre(artist_id=credited,name=artist)
+        genre=artist_genre(artist_id=credited) if credited else ''
         if genre:suggested['genre']=genre
     for key,value in suggested.items():
         if key in row['missing'] and not missing(value):values.setdefault(key,value)
@@ -125,11 +132,13 @@ def musicbrainz_lookup(row):
 
 class CatalogueReview:
     MAX_ROWS=10000
-    def __init__(self,workspace):
+    def __init__(self,workspace,automatic_limit=DEFAULT_AUTO_RESOLUTIONS_PER_HOUR,clock=time.time):
         self.path=Path(workspace)/'.catalogue-review.json';self.lock=threading.RLock();self.dirty=False
+        self.automatic_limit, self.clock = max(0, int(automatic_limit)), clock
+        self.source_automation = False
         self.data=json.loads(self.path.read_text(encoding='utf-8')) if self.path.exists() else dict(trimming={},metadata={},overrides={})
         if not isinstance(self.data,dict):raise ReviewError('Invalid catalogue review store.')
-        for section in ('trimming','metadata','overrides','reports'):
+        for section in ('trimming','metadata','overrides','reports','metadata_fixed'):
             self.data.setdefault(section,{})
             if not isinstance(self.data[section],dict) or len(self.data[section])>self.MAX_ROWS:raise ReviewError('Invalid catalogue review store.')
         for row in self.data['metadata'].values():
@@ -142,10 +151,34 @@ class CatalogueReview:
                 row.update(state='queued',lookup_version=LOOKUP_VERSION,attempts=0);row.pop('retry_at',None);self.dirty=True
         if self.data.get('throttle_reset')!=1:self.data['throttle_reset']=1;self.dirty=True
 
+    def reserve_automatic(self, kind='metadata'):
+        """Count attempts across both workers and retain the rolling limit across restarts."""
+        with self.lock:
+            now = self.clock()
+            recent = [attempt for attempt in self.data.get('automatic_attempts', []) if attempt[0] > now - 3600]
+            if len(recent) >= self.automatic_limit:
+                return False
+            if self.source_automation and self.automatic_limit >= 3:
+                # Leave capacity for both audio searches and replacements while metadata is backlogged.
+                shares = {'metadata': self.automatic_limit * 2 // 3, 'source search': max(1, self.automatic_limit // 6)}
+                if kind in shares and sum(attempt[1] == kind for attempt in recent) >= shares[kind]:
+                    return False
+            self.data['automatic_attempts'] = recent + [[now, kind]]
+            self.dirty = True
+            self.flush()
+            return True
+
     def flush(self):
         with self.lock:
             if not self.dirty:return
             temporary=self.path.with_suffix('.tmp');temporary.write_text(json.dumps(self.data,ensure_ascii=False),encoding='utf-8');temporary.replace(self.path);self.dirty=False
+
+    def archived_ids(self):
+        try:
+            entries = json.loads(self.path.with_name('.replacements.json').read_text(encoding='utf-8'))
+        except FileNotFoundError:
+            return set()
+        return {identifier for identifier, entry in entries.items() if entry['state'] in ('done', 'undoing')}
 
     def overrides(self,identifier,digest):
         with self.lock:
@@ -166,11 +199,13 @@ class CatalogueReview:
                 return
             if not absent or len(self.data['metadata'])>=self.MAX_ROWS:return
             self.data['metadata'][identifier]=dict(id=identifier,sha256=digest,title=track['title'],current=current,missing=absent,seed=seed(source,track),
-                embedded={k:source.get(k,'') for k in ('artist','album')},state='queued',revision=1,suggested={},source='',source_url='')
+                embedded={k:source.get(k,'') for k in ('artist','album')},state='queued' if self.automatic_limit else 'review',
+                revision=1,suggested={},source='',source_url='')
             created=self.data['metadata'][identifier]
             trusted={key:re.sub(r'[\x00-\x1f\x7f]',' ',source[key])[:120] for key in ('artist','album') if key in absent and not missing(source.get(key))}
             if trusted:
-                self._apply(created,trusted);created['state']='queued' if created['missing'] else 'done'
+                self._apply(created,trusted)
+                if created['missing'] and self.automatic_limit:created['state']='queued'
             self.dirty=True
 
     def report_song(self, track, user, reason):
@@ -193,6 +228,22 @@ class CatalogueReview:
             self.data['reports'][key]['resolved'] = True
             self.dirty = True
             self.flush()
+
+    def resolve_many(self, section, identifiers):
+        with self.lock:
+            rows = self.data[section]
+            if section == 'reports':
+                pending = [rows[key] for key in identifiers if key in rows and not rows[key]['resolved']]
+                for row in pending:
+                    row['resolved'] = True
+            else:
+                pending = [rows[key] for key in identifiers if key in rows and rows[key]['state'] != 'done']
+                for row in pending:
+                    row['state'] = 'done'
+            if pending:
+                self.dirty = True
+                self.flush()
+            return len(pending)
 
     def flag_trim(self,track,digest,user,position=0):
         with self.lock:
@@ -229,12 +280,31 @@ class CatalogueReview:
             if not isinstance(values,dict) or not values or set(values)-set(FIELDS):raise ReviewError('Choose artist, album or genre fields.')
             self._apply(row,values);self.flush();return copy.deepcopy(row)
 
+    def undo_metadata(self, identifier, digest):
+        with self.lock:
+            fixed = self.data['metadata_fixed'].get(identifier)
+            row = self.data['metadata'].get(identifier)
+            saved = self.data['overrides'].get(identifier, {})
+            if not fixed or not row or digest != fixed['sha256'] or row['sha256'] != digest or saved.get('sha256') != digest:
+                raise ReviewError('This metadata fix is unavailable. Refresh Song review.', 409)
+            values = saved['values']
+            for key, applied in fixed['applied'].items():
+                if values.get(key) == applied and row['current'].get(key) == applied:
+                    values.pop(key)
+                    row['current'][key] = fixed['previous'][key]
+            row['missing'] = [key for key in FIELDS if missing(row['current'].get(key))]
+            row.update(state='review' if row['missing'] else 'done', revision=row['revision']+1)
+            del self.data['metadata_fixed'][identifier]
+            self.dirty = True
+            self.flush()
+
     def process_one(self,allowed,resolver=lookup):
         if not allowed():return False
         with self.lock:
             now=time.time()
-            row=next((r for r in self.data['metadata'].values() if r['state']=='queued' and r.get('retry_at',0)<=now),None)
-            if row is None:return False
+            archived = self.archived_ids()
+            row=next((r for r in self.data['metadata'].values() if r['id'] not in archived and r['state']=='queued' and r.get('retry_at',0)<=now),None)
+            if row is None or not self.reserve_automatic():return False
             row.update(state='processing',revision=row['revision']+1);version=row['revision'];captured=copy.deepcopy(row);self.dirty=True;self.flush()
         try:
             result=resolver(captured)
@@ -243,7 +313,10 @@ class CatalogueReview:
         except Throttled:result='throttled'
         except Exception:result=None
         with self.lock:
-            if row['revision']!=version or row['state']!='processing':return True
+            if self.data['metadata'].get(row['id']) is not row or row['revision']!=version or row['state']!='processing':return True
+            if not allowed() or row['id'] in self.archived_ids():
+                row.update(state='queued',revision=row['revision']+1)
+                self.dirty=True;self.flush();return True
             if result=='throttled':
                 # Being told to slow down is not the song's fault: try it again in two minutes
                 # without using one of its attempts.
@@ -258,11 +331,23 @@ class CatalogueReview:
             row['lookup_version']=LOOKUP_VERSION
             row.update(suggested=result.get('suggested',{}),source=result.get('source',''),source_url=result.get('source_url',''))
             if result.get('candidates'):row['candidates']=[{k:str(c.get(k,''))[:200] for k in ('source','artist','album','album_type','genre','url')} for c in result['candidates'][:6]]
-            self._apply(row,{k:v for k,v in result.get('values',{}).items() if k in row['missing']})
+            values = {k:v for k,v in result.get('values',{}).items() if k in row['missing'] and not missing(v)}
+            if values:
+                identifier, digest = row['id'], row['sha256']
+                fixes = self.data['metadata_fixed']
+                fixed = fixes.get(identifier)
+                if not fixed or fixed['sha256'] != digest:
+                    fixed = fixes[identifier] = dict(id=identifier, sha256=digest, title=row['title'],
+                        artist=row['seed']['artist'], previous={}, applied={})
+                for key, value in values.items():
+                    fixed['previous'].setdefault(key, row['current'].get(key, ''))
+                    fixed['applied'][key] = value
+                fixed['fixed_at'] = int(self.clock())
+            self._apply(row,values)
             self.flush()
         return True
 
-    def apply_votes(self,votes,label):
+    def apply_votes(self,votes,label, suggest_only=False):
         """Fills fields a model vote agreed on and shows the rest as suggestions; owner edits win."""
         applied=0
         with self.lock:
@@ -277,7 +362,7 @@ class CatalogueReview:
                 except ReviewError:continue
                 row['suggested']={**row.get('suggested',{}),**hints,**agreed}
                 row['source']=label;row['ai_vote']=True
-                if agreed:self._apply(row,agreed);applied+=1
+                if agreed and not suggest_only:self._apply(row,agreed);applied+=1
                 else:row['revision']+=1;self.dirty=True
             self.flush()
         return applied
@@ -285,7 +370,8 @@ class CatalogueReview:
     def progress(self):
         # Server work row for the tagger: this lookup pass's songs, done and left.
         with self.lock:
-            rows=self.data['metadata'].values()
+            archived = self.archived_ids()
+            rows = [row for row in self.data['metadata'].values() if row['id'] not in archived]
             left=[r for r in rows if r['state'] in ('queued','processing')]
             if not left:return None
             done=sum(1 for r in rows if r.get('lookup_version')==LOOKUP_VERSION and r['state'] not in ('queued','processing'))
@@ -297,15 +383,16 @@ class CatalogueReview:
     def snapshot(self,query="",limit=100):
         with self.lock:
             self.flush()
-            trim=[copy.deepcopy(r) for r in self.data['trimming'].values() if r['state']!='done']
-            metadata=[copy.deepcopy(r) for r in self.data['metadata'].values() if r['state']!='done']
+            archived = self.archived_ids()
+            trim=[copy.deepcopy(r) for r in self.data['trimming'].values() if r['id'] not in archived and r['state']!='done']
+            metadata=[copy.deepcopy(r) for r in self.data['metadata'].values() if r['id'] not in archived and r['state']!='done']
             if query:
                 wanted=normal(query);trim=[r for r in trim if wanted in normal(r['title']+' '+r['artist'])];metadata=[r for r in metadata if wanted in normal(r['title']+' '+r['current']['artist'])]
             metadata.sort(key=lambda row:(row['state']!='review',row['title'].casefold()))
             return dict(trimming=trim[:limit],metadata=metadata[:limit],trimming_total=len(trim),metadata_total=len(metadata))
 
 
-def register(app,body,review,recording,admin,rate):
+def register(app,body,review,recording,admin,rate,playlist_gaps=lambda: []):
     import math
     from flask import g,jsonify,request
     @app.errorhandler(ReviewError)
@@ -317,7 +404,30 @@ def register(app,body,review,recording,admin,rate):
         try:limit=int(request.args.get('limit','100'))
         except ValueError:raise ReviewError('Choose a valid review page size.')
         if not 1<=limit<=review.MAX_ROWS:raise ReviewError('Choose a valid review page size.')
-        return jsonify(**review.snapshot(query,limit),can_edit=admin())
+        editable = admin()
+        extra = {}
+        if editable:
+            gaps = playlist_gaps()
+            if query:
+                wanted = normal(query)
+                gaps = [row for row in gaps if wanted in normal(' '.join(row[k] for k in ('title', 'artist', 'playlist_name')))]
+            with review.lock:
+                archived = review.archived_ids()
+                fixed = [dict(id=row['id'], title=row['title'], artist=row['artist'], fixed_at=row['fixed_at'], fields=list(row['applied']))
+                         for row in review.data['metadata_fixed'].values() if row['id'] not in archived
+                         and review.data['metadata'][row['id']]['sha256'] == row['sha256']]
+            extra = dict(playlist_gaps=gaps[:limit], playlist_gaps_total=len(gaps), metadata_fixed=fixed)
+        return jsonify(**review.snapshot(query,limit),can_edit=editable,**extra)
+
+    @app.post('/api/catalogue/<section>/resolve-all')
+    def resolve_many(section):
+        if section not in ('reports', 'trimming'): raise ReviewError('Choose song reports or trimming requests.', 404)
+        if not admin(): raise ReviewError('Only the admin can resolve song reviews.', 403)
+        identifiers = body(32768).get('ids')
+        if not isinstance(identifiers, list) or not 1 <= len(identifiers) <= 100 or any(
+                not isinstance(key, str) or not key or len(key) > 256 for key in identifiers):
+            raise ReviewError('Choose up to 100 requests to resolve.')
+        return jsonify(resolved=review.resolve_many(section, dict.fromkeys(identifiers)))
 
     @app.post('/api/catalogue/reports')
     def report_song():
@@ -363,3 +473,10 @@ def register(app,body,review,recording,admin,rate):
         data=body(4096)
         recording(identifier)
         return jsonify(metadata=review.edit_metadata(identifier,data.get('revision'),data.get('values')))
+
+    @app.post('/api/catalogue/metadata/<identifier>/undo')
+    def undo_metadata(identifier):
+        if not admin(): raise ReviewError('Only the admin can undo metadata fixes.', 403)
+        _, digest = recording(identifier)
+        review.undo_metadata(identifier, digest)
+        return jsonify(state='undone')
