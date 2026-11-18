@@ -106,6 +106,8 @@ public partial class MainPage : ContentPage
     {
         lastRefresh = DateTime.UtcNow;
         await session.RefreshLibraryAutomaticallyAsync();
+        // Offline: look for the server every 30 seconds instead of every three minutes.
+        if (refreshTimer is not null) refreshTimer.Interval = session.Connected ? TimeSpan.FromMinutes(3) : TimeSpan.FromSeconds(30);
     }
 
 	[Microsoft.JSInterop.JSInvokable("UpdateWindowChrome")]

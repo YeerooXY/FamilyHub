@@ -389,11 +389,13 @@ body[data-view=search] .workspace>main { display:flex; flex-direction:column; ov
  .playlist-hero { flex-direction:column; align-items:flex-start; gap:20px; padding:20px; }
  .playlist-hero>.cover,.playlist-image-picker { width:136px; height:136px; }
  .image-picker-caption { opacity:1; }
- .song-row { grid-template-columns:minmax(0,1fr) 28px; gap:0 8px; padding:10px 4px; }
+ .song-row { grid-template-columns:minmax(0,1fr) auto 28px; gap:0 8px; padding:10px 4px; }
  .song-row .song-primary,#pick .song-row .song-primary { grid-template-columns:60px minmax(0,1fr); gap:12px; min-height:68px; }
  .song-row .song-artwork,.search-results .song-artwork { width:60px; height:60px; }
  .song-row .song-primary .time { display:none; }
- .row-actions { grid-column:1/-1; }
+ /* The add-to-playlist button stays level with the song, whatever the title length. */
+ .row-actions { grid-column:2; grid-row:1; }
+ .song-row:not(.has-playlist-columns) .storage-state { grid-column:3; grid-row:1; }
  .song-row .song-text strong { font-size:15px; }
  .artwork-play { opacity:1; background:#0003; }
  .artwork-play .icon { width:22px; height:22px; }
@@ -573,7 +575,6 @@ body[data-view="playlists"] .workspace>main::-webkit-scrollbar-track, .sidebar-p
 .search-results { display:block; }
 .search-results .song-row { margin-bottom:2px; }
 @media(max-width:720px) {
-    .search-results .song-row { min-height:140px; grid-template-rows:minmax(68px,auto) 44px; row-gap:8px; }
     .search-results .row-actions { align-self:center; }
 }
 

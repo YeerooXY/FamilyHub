@@ -529,13 +529,32 @@ public sealed class MusicSession
         PlaybackPreferences = preferences; StorePreferences(preferences, false); Changed?.Invoke();
     }
 
+    // A phone waking up or switching networks drops a request or two while the VPN reconnects.
+    // Automatic refreshes try again a few times before saying the server is unavailable.
+    private static readonly TimeSpan[] quietRetries = [TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(8), TimeSpan.FromSeconds(20)];
+    private bool retryingQuietly;
     public async Task RefreshLibraryAutomaticallyAsync()
     {
-        if (string.IsNullOrEmpty(User) || DownloadingId is not null) return;
-        if (!Connected) { await ReconnectAsync(); return; }
-        if (!await connectionLock.WaitAsync(0)) return;
-        try { await RefreshAsync(); }
-        finally { connectionLock.Release(); }
+        if (string.IsNullOrEmpty(User) || DownloadingId is not null || retryingQuietly) return;
+        var version = accountVersion;
+        retryingQuietly = true;
+        try
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                if (attempt == quietRetries.Length) retryingQuietly = false;
+                if (!Connected) await ReconnectAsync();
+                else if (await connectionLock.WaitAsync(0))
+                {
+                    try { await RefreshAsync(); }
+                    finally { connectionLock.Release(); }
+                }
+                else return;
+                if (Connected || !retryingQuietly || version != accountVersion || string.IsNullOrEmpty(User)) return;
+                await Task.Delay(quietRetries[attempt]);
+            }
+        }
+        finally { retryingQuietly = false; }
     }
 
     // This month's top listener wears a crown on their picture everywhere in the app.
@@ -594,6 +613,7 @@ public sealed class MusicSession
     private void OfflineError(Exception error)
     {
         Connected = false;
+        if (retryingQuietly && error is not FamilyHubApiException { StatusCode: 401 }) { Changed?.Invoke(); return; }
         SetMessage(error is FamilyHubApiException { StatusCode: 401 }
             ? "Reconnect to your server. Downloaded songs are available offline."
             : "Server unavailable. Downloaded songs are available offline.");
