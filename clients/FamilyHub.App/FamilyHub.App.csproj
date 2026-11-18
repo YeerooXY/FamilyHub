@@ -25,7 +25,7 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
-    <MauiIcon Include="Resources\AppIcon\familyhub.png" Color="#07101F" Resize="true" BaseSize="1024,1024" />
+    <MauiIcon Include="Resources\AppIcon\familyhub.svg" ForegroundFile="Resources\AppIcon\familyhub_foreground.svg" ForegroundScale="1" Color="#000000" Resize="true" BaseSize="1024,1024" />
     <MauiSplashScreen Include="Resources\Splash\splash.png" Color="#07101F" Resize="true" BaseSize="128,128" />
     <MauiImage Include="Resources\Images\*" />
     <MauiFont Include="Resources\Fonts\*" />

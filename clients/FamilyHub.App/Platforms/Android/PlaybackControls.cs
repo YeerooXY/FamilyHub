@@ -126,7 +126,7 @@ internal sealed class PlaybackControls
     {
         var playing = state is PlaybackStateCode.Playing or PlaybackStateCode.Buffering;
         var builder = Build.VERSION.SdkInt >= BuildVersionCodes.O ? new Notification.Builder(context, Channel) : new Notification.Builder(context);
-        builder.SetSmallIcon(Resource.Mipmap.familyhub)
+        builder.SetSmallIcon(Resource.Drawable.ic_stat_music)
             .SetContentTitle(track.Title)
             .SetContentText(track.Channel)
             .SetVisibility(NotificationVisibility.Public)

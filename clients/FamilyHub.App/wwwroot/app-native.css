@@ -852,3 +852,6 @@ body::before { content:""; position:fixed; inset:0 0 auto; z-index:1000; height:
 .placeholder-action { width:76px; height:32px; justify-self:end; }
 @media(max-width:720px) { .song-placeholder { grid-template-columns:60px minmax(0,1fr) 60px; gap:12px; min-height:100px; }.placeholder-cover { width:60px; height:60px; }.placeholder-action { width:52px; } }
 @media(prefers-reduced-motion:reduce) { .search-loading.song-placeholders,.song-placeholder,.song-placeholder span { animation:none; transition:none; } }
+
+/* Keep the 24 px icon family at 2 CSS px when controls resize it. */
+.music-icon :is(path, circle, ellipse, rect, line, polyline, polygon) { vector-effect:non-scaling-stroke; }
