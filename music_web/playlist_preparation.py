@@ -547,7 +547,7 @@ class PlaylistPreparation:
             if not candidates or not self.allow_background():
                 return False
             with self.condition:
-                cap = self.resources.background_slots(self.capacity) if self.resources else self.capacity
+                cap = self.resources.background_slots(self.capacity, 3) if self.resources else self.capacity
                 if self.waiters or self.inflight >= cap or len(self.backlog_running) >= cap or not admit():
                     return False
                 self.inflight += 1
@@ -582,7 +582,7 @@ class PlaylistPreparation:
                     current = self._backlog_entry(key, original)
                     if (track["state"] != "saved" and current is not None
                             and not current.get("auto_download_paused") and not self.is_active(owner, pid)
-                            and (not self.resources or self.resources.background_slots(1)) and admit()):
+                            and (not self.resources or self.resources.background_slots(1, 1)) and admit()):
                         try:
                             job = acquire(owner, pid, row)
                         except Exception:
