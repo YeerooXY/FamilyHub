@@ -14,6 +14,19 @@ from types import SimpleNamespace
 from collections import defaultdict, deque
 from .resources import background_request
 
+def track_identities(track):
+    """Keys that make two playlist entries the same song: recording, Spotify URI or normalized title and artist."""
+    source = track.get("source_id") or (track.get("match") or {}).get("id")
+    uri = track.get("spotify_uri")
+    result = {("source", source)} if source else set()
+    if uri: result.add(("uri", uri))
+    # Duplicate checks must retain non-Latin titles that search normalization strips.
+    title, artist = (re.sub(r"[^\w]+", " ", unicodedata.normalize("NFKC", value).casefold()).strip()
+                     for value in (track["title"], track["artist"]))
+    if title and artist: result.add(("song", title, artist))
+    return result
+
+
 class PlaylistError(ValueError):
     pass
 
@@ -212,20 +225,10 @@ class PlaylistStore:
             if append: raise
             previous={"tracks":[]}
         if append:
-            def keys(track):
-                source = track.get("source_id") or (track.get("match") or {}).get("id")
-                uri = track.get("spotify_uri")
-                result = {("source", source)} if source else set()
-                if uri: result.add(("uri", uri))
-                # Duplicate checks must retain non-Latin titles that search normalization strips.
-                title, artist = (re.sub(r"[^\w]+", " ", unicodedata.normalize("NFKC", value).casefold()).strip()
-                                 for value in (track["title"], track["artist"]))
-                if title and artist: result.add(("song", title, artist))
-                return result
-            seen = {key for track in previous["tracks"] for key in keys(track)}
+            seen = {key for track in previous["tracks"] for key in track_identities(track)}
             fresh = []
             for track in data["tracks"]:
-                identities = keys(track)
+                identities = track_identities(track)
                 duplicate = bool(identities & seen)
                 seen.update(identities)
                 if not duplicate: fresh.append(track)
@@ -239,6 +242,16 @@ class PlaylistStore:
             data["revision"] = previous.get("revision", 0) + 1
             self.save(user, data)
             return data
+        # A source can list one song twice (Spotify allows it); a playlist keeps the first.
+        seen = set()
+        unique = []
+        for track in data["tracks"]:
+            # Only the same recording or Spotify entry repeats; two different recordings may share title and artist.
+            identities = {key for key in track_identities(track) if key[0] != "song"}
+            if identities & seen: continue
+            seen.update(identities)
+            unique.append(track)
+        data["tracks"] = unique
         occurrences=defaultdict(deque)
         for track in previous["tracks"]:
             if track.get("spotify_uri"): occurrences[track["spotify_uri"]].append(track)

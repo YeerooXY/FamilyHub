@@ -255,22 +255,24 @@ class NativeMusicApi(Base):
         self.assertEqual(len(tracks), 205)
         self.assertEqual(len({track['id'] for track in tracks}), 205)
 
-    def test_playlist_duplicates_reorder_rename_remove_and_delete(self):
+    def test_playlist_rejects_duplicates_reorder_rename_remove_and_delete(self):
         self.recording()
         self.recording(SECOND, 'Second')
         client, token = self.signed_in()
         playlist = self.create(client, token)
-        for source_id in (FIRST, SECOND, FIRST):
+        for source_id in (FIRST, SECOND):
             response = self.mutate(client, token, playlist, {'add_source_id': source_id})
             self.assertEqual(response.status_code, 200, response.json)
             playlist = response.json['playlist']
-        self.assertEqual([track['source_id'] for track in playlist['tracks']], [FIRST, SECOND, FIRST])
+        repeated = self.mutate(client, token, playlist, {'add_source_id': FIRST})
+        self.assertEqual(repeated.status_code, 409)
+        self.assertEqual([track['source_id'] for track in playlist['tracks']], [FIRST, SECOND])
         playlist = self.mutate(client, token, playlist, {'move_from': 1, 'move_to': 0}).json['playlist']
-        self.assertEqual([track['title'] for track in playlist['tracks']], ['Second', 'First', 'First'])
+        self.assertEqual([track['title'] for track in playlist['tracks']], ['Second', 'First'])
         playlist = self.mutate(client, token, playlist, {'name': ' Night drive '}).json['playlist']
         self.assertEqual(playlist['name'], 'Night drive')
         playlist = self.mutate(client, token, playlist, {'remove_index': 1}).json['playlist']
-        self.assertEqual([track['source_id'] for track in playlist['tracks']], [SECOND, FIRST])
+        self.assertEqual([track['source_id'] for track in playlist['tracks']], [SECOND])
         listed = self.go(client, 'GET', '/api/playlists').json['playlists'][0]
         self.assertEqual(listed, playlist)
         self.assertEqual(self.mutate(client, token, playlist, method='DELETE').status_code, 200)

@@ -253,7 +253,7 @@ else
             </div>
             <PlaylistDetails @ref="playlistDetails" Playlist="selected" ReturnFocusId="playlist-menu-toggle" HideTrigger="true" />
             <PlaylistCoAuthors @ref="playlistAuthors" Playlist="selected" ReturnFocusId="playlist-menu-toggle" HideTrigger="true" />
-            @if (selected.CanEdit) { <PlaylistTransfer @ref="playlistTransfer" @key="PlaylistKey(selected)" Playlist="selected" InitialReviewIndex="initialPlaylistReviewIndex" /> }
+            @if (selected.CanEdit) { <PlaylistTransfer @ref="playlistTransfer" @key="PlaylistKey(selected)" Playlist="selected" AddSongsRequested='() => addSongs?.Open("transfer-import", selected)' InitialReviewIndex="initialPlaylistReviewIndex" /> }
             <div class="playlist-tools playlist-song-tools">
                 <div class="playlist-song-search @(songSearchOpen ? "is-open" : "")">
                     <button id="playlist-song-search-toggle" class="quiet" aria-label="Search in playlist" aria-expanded="@Aria(songSearchOpen)" aria-controls="playlist-song-search" @onclick="ToggleSongSearch"><MusicIcon Name="search" /></button>
@@ -332,6 +332,8 @@ else
         </section>
     }
 </main></div>
+<RemoteNowPlaying TakeOver="TakeOverFromBar" />
+<DeviceStrip />
 <footer class="player-bar @(playerExpanded && !lyricsOpen ? "is-expanded" : "")" @onkeydown="PlayerKeyDown">
     @if (playerExpanded)
     {
@@ -502,6 +504,36 @@ else
     }
     private bool songPickerOpen, songPickerShown, playlistTransitionPending;
     private AddSongs? addSongs;
+    private Task TakeOverFromBar(PlaybackDevice device) => RunPlayback(async () =>
+    {
+        if (Session.Api is not { } api) return;
+        var activation = Session.PlaybackActivation;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+        await Session.RequestPlaybackCheckInAsync().WaitAsync(timeout.Token);
+        if (!ReferenceEquals(api, Session.Api) || activation != Session.PlaybackActivation || Player.FollowingHost) return;
+        var receipt = await api.TakeOverPlaybackAsync(device.Id, Session.DeviceId, timeout.Token);
+        if (!ReferenceEquals(api, Session.Api)) return;
+        var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnCommand(PlaybackHandover command)
+        {
+            if (command.Action == "play" && command.Id == receipt.Id) received.TrySetResult();
+        }
+        Session.PlaybackHandedOver += OnCommand;
+        try
+        {
+            if (!Session.HasReceivedPlaybackCommand(receipt.Id))
+            {
+                _ = Session.RequestPlaybackCheckInAsync();
+                await received.Task.WaitAsync(timeout.Token);
+            }
+            if (receipt.SourcePaused == false) Session.SetMessage($"Could not confirm playback paused on {device.Name}.");
+        }
+        catch (OperationCanceledException)
+        {
+            error = "This device did not receive playback. Try again.";
+        }
+        finally { Session.PlaybackHandedOver -= OnCommand; }
+    });
     private IReadOnlyList<LibraryAddition> additionJobs = [];
     private string? additionIdentity;
     private IReadOnlyList<LibraryAddition> CurrentAdditionJobs => additionIdentity == AppearanceKey ? additionJobs : [];

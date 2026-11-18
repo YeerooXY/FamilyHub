@@ -9,8 +9,7 @@
         <div class="transfer-actions">
             @if (Playlist.Tracks.Count == 0)
             {
-                <button id="transfer-spotify" class="primary" @onclick='() => OpenImport("spotify")' aria-disabled="@Aria(Working || requesting)"><MusicIcon Name="playlist" />Import from Spotify</button>
-                <button id="transfer-youtube" @onclick='() => OpenImport("youtube")' aria-disabled="@Aria(Working || requesting)"><MusicIcon Name="play" />Import from YouTube</button>
+                <button id="transfer-import" class="primary" @onclick="AddSongsRequested" aria-haspopup="dialog"><MusicIcon Name="plus" />Add songs</button>
             }
             else if (!AllOnServer)
             {
@@ -92,10 +91,10 @@
         <button class="quiet" @onclick="SearchChoicesAgain" aria-disabled="@Aria(reviewLoading || requesting)"><MusicIcon Name="search" />Search again</button>
     </dialog>
     <dialog id="transfer-import-dialog" class="glass-dialog" aria-labelledby="transfer-import-heading">
-        <h2 id="transfer-import-heading">@(appendImport ? "Import playlist link" : "Import from " + (provider == "spotify" ? "Spotify" : "YouTube"))</h2>
+        <h2 id="transfer-import-heading">Import playlist link</h2>
         <form @onsubmit="Import" @onsubmit:preventDefault>
-            <label for="transfer-url">@(provider == "spotify" ? "Playlist or artist link" : "Public playlist link")</label><input id="transfer-url" type="url" @bind="url" required />
-            @if (appendImport) { <p>Spotify, YouTube, Deezer or SoundCloud. Songs already in this playlist are skipped.</p> }
+            <label for="transfer-url">Playlist link</label><input id="transfer-url" type="url" @bind="url" required />
+            <p>Spotify, YouTube, Deezer or SoundCloud. Songs already in this playlist are skipped.</p>
             <p class="entry-error" role="status">@error</p>
             <div class="actions"><button class="primary" type="submit" aria-disabled="@Aria(requesting)">@(requesting ? "Starting..." : "Import playlist")</button><button type="button" @onclick="CloseImport">Cancel</button></div>
         </form>
@@ -105,6 +104,8 @@
 @code {
     [Parameter, EditorRequired] public MusicPlaylist Playlist { get; set; } = null!;
     [Parameter] public EventCallback Updated { get; set; }
+    /// <summary>Opens the combined Add songs dialog for this playlist (links, files and folders).</summary>
+    [Parameter] public EventCallback AddSongsRequested { get; set; }
     [Parameter] public int? InitialReviewIndex { get; set; }
     private bool NeedsAttention(PlaylistTrack track) => track.State is "review" or "error"
         && !(track.RecordingId is { Length: > 0 } id && Session.Library.Any(song => song.Id == id));
@@ -258,7 +259,7 @@
         if (controls.Count > 0) controls.Add("review-recordings-summary");
         if (Status is { } status)
             controls.UnionWith(status.Recent.Where(RecentNeedsAttention).Select(item => "review-recent-" + item.Index));
-        if (Playlist.Tracks.Count == 0) controls.UnionWith(["transfer-spotify", "transfer-youtube"]);
+        if (Playlist.Tracks.Count == 0) controls.Add("transfer-import");
         else if (!AllOnServer)
         {
             controls.Add("transfer-download");
@@ -283,7 +284,7 @@
         OpenImport("auto"); appendImport = true;
         await InvokeAsync(StateHasChanged);
     }
-    private Task CloseImport() => JS.InvokeVoidAsync("familyhub.closeDialog", "transfer-import-dialog", appendImport ? "playlist-menu-toggle" : "transfer-" + provider).AsTask();
+    private Task CloseImport() => JS.InvokeVoidAsync("familyhub.closeDialog", "transfer-import-dialog", Playlist.Tracks.Count == 0 ? "transfer-import" : "playlist-menu-toggle").AsTask();
     private async Task Import()
     {
         if (requesting || Working) return;

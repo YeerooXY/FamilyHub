@@ -1,0 +1,110 @@
+@implements IDisposable
+@inject MusicPlayer Player
+@inject MusicSession Session
+@inject IJSRuntime JS
+@using System.Diagnostics
+
+@if (Device is { Track: { } track } device)
+{
+    <div id="remote-now-playing" class="remote-mini" role="group" aria-label="@("Playback on " + device.Name)">
+        <button id="remote-take-over" class="remote-mini-main" @onclick="() => ConnectAsync(device)" disabled="@(connectingDevice is not null)" aria-label="@($"Move {track.Title} to this device")">
+            <span class="remote-mini-icon"><MusicIcon Name="@(device.Kind is "android" or "iphone" ? "phone" : "device")" /></span>
+            <span class="remote-mini-copy">
+                <strong>@track.Title</strong>
+                @if (connectingDevice is not null)
+                {
+                    <small role="status">Connecting...</small>
+                }
+                else
+                {
+                    <small><span class="remote-mini-device">@device.Name</span> · @track.Channel</small>
+                }
+            </span>
+        </button>
+        <span class="remote-mini-state" aria-hidden="true"><MusicIcon Name="@(device.IsPlaying ? "pause" : "play")" /></span>
+        @{ var duration = device.Duration ?? Session.Library.Concat(Session.Downloads).FirstOrDefault(s => s.Id == track.Id)?.Duration ?? 0;
+           var position = Math.Clamp(device.PositionAt(Elapsed) ?? 0, 0, Math.Max(0, duration)); }
+        @if (duration > 0 && Fresh && connectingDevice is null)
+        {
+            <span class="remote-mini-progress" aria-hidden="true"><span @key="checkedAt" class="@(device.IsPlaying && device.Position is not null && position < duration ? "is-running" : "")"
+                  style="--from:@Number(position / duration * 100);--seconds:@Number(duration - position)s;width:@Number(position / duration * 100)%"></span></span>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public EventCallback<PlaybackDevice> TakeOver { get; set; }
+    private PlaybackDevice? device;
+    private PlaybackDevice? connectingDevice;
+    private long checkedAt;
+    private CancellationTokenSource? loop;
+    private bool Fresh => device is not null && device.Age + Elapsed < PlaybackDevice.OnlineSeconds;
+    private double Elapsed => Stopwatch.GetElapsedTime(checkedAt).TotalSeconds;
+    private PlaybackDevice? Device => connectingDevice ?? (Player.RemoteActive || Player.FollowingHost || Player.PlaybackRequested ? null : device);
+    private static string Number(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    private async Task ConnectAsync(PlaybackDevice source)
+    {
+        if (connectingDevice is not null || !Fresh) return;
+        connectingDevice = source;
+        try { await TakeOver.InvokeAsync(source); }
+        finally { connectingDevice = null; }
+    }
+
+    private async Task HideWhenExpiredAsync(PlaybackDevice snapshot, long receivedAt, CancellationToken token)
+    {
+        var remaining = PlaybackDevice.OnlineSeconds - snapshot.Age - Stopwatch.GetElapsedTime(receivedAt).TotalSeconds;
+        try
+        {
+            if (remaining > 0) await Task.Delay(TimeSpan.FromSeconds(remaining), token);
+            await InvokeAsync(() => HideDeviceAsync(snapshot, token));
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task HideDeviceAsync(PlaybackDevice snapshot, CancellationToken token)
+    {
+        if (token.IsCancellationRequested || !ReferenceEquals(device, snapshot)) return;
+        await JS.InvokeVoidAsync("familyhub.focusIfWithin", "#remote-take-over", "play");
+        if (token.IsCancellationRequested || !ReferenceEquals(device, snapshot)) return;
+        device = null;
+        StateHasChanged();
+    }
+
+    protected override void OnInitialized()
+    {
+        var token = (loop = new CancellationTokenSource()).Token;
+        _ = Task.Run(async () =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    if (Session.UiActive && Session.Api is { } api && !Player.RemoteActive && !Player.PlaybackRequested && !Player.FollowingHost)
+                    {
+                        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(4));
+                        var found = (await api.GetPlaybackDevicesAsync(Session.DeviceId, timeout.Token, background: true)).Devices
+                            .Where(d => !d.This && d.Track is not null && d.QueueRevision > 0 && d.Age < PlaybackDevice.OnlineSeconds)
+                            .OrderByDescending(d => d.IsPlaying || d.Status == "buffering").ThenBy(d => d.Age).FirstOrDefault();
+                        var receivedAt = Stopwatch.GetTimestamp();
+                        await InvokeAsync(async () =>
+                        {
+                            if (token.IsCancellationRequested || !ReferenceEquals(Session.Api, api)) return;
+                            if (found is null)
+                            {
+                                if (device is { } snapshot) await HideDeviceAsync(snapshot, token);
+                                return;
+                            }
+                            device = found; checkedAt = receivedAt; StateHasChanged();
+                            _ = HideWhenExpiredAsync(found, receivedAt, token);
+                        });
+                    }
+                    else if (device is { } snapshot) await InvokeAsync(() => HideDeviceAsync(snapshot, token));
+                }
+                catch (Exception e) when (e is HttpRequestException or FamilyHubApiException or OperationCanceledException) { }
+                try { await Task.Delay(5000, token); } catch (OperationCanceledException) { }
+            }
+        });
+    }
+    public void Dispose() { loop?.Cancel(); loop?.Dispose(); }
+}

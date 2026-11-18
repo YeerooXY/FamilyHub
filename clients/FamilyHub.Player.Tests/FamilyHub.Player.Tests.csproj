@@ -12,5 +12,6 @@
     <Compile Include="../FamilyHub.App/Services/IAudioDeck.cs" Link="IAudioDeck.cs" />
     <Compile Include="../FamilyHub.App/Services/DeckCrossfade.cs" Link="DeckCrossfade.cs" />
     <Compile Include="../FamilyHub.Client.Core/CrossfadeEnvelope.cs" Link="CrossfadeEnvelope.cs" />
+    <Compile Include="../FamilyHub.Client.Core/ListeningJournal.cs" Link="ListeningJournal.cs" />
   </ItemGroup>
 </Project>

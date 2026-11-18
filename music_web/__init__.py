@@ -746,10 +746,14 @@ def create_app(test_config=None):
         identity = listener_identity()
         background = background_activity()
         room_heartbeat = app.extensions["listening_rooms"].playback_heartbeat if background else None
-        command, controls = playback_devices.report(g.user, device, data.get("device_info"), data["playing"],
-                                                   track, data.get("position"), identity,
-                                                   background=background, room_heartbeat=room_heartbeat)
-        return jsonify(ok=True, counters_accepted=counters is not None, command=command, controls=controls)
+        device_info = data.get("device_info")
+        playback_fields = {key: data[key] for key in ("status", "duration", "queue", "queue_rev", "epoch", "local_play", "acks") if key in data}
+        if playback_fields:
+            device_info = {**(device_info if isinstance(device_info, dict) else {}), **playback_fields}
+        command, controls, epoch = playback_devices.report(g.user, device, device_info, data["playing"],
+                                                          track, data.get("position"), identity,
+                                                          background=background, room_heartbeat=room_heartbeat)
+        return jsonify(ok=True, counters_accepted=counters is not None, command=command, controls=controls, epoch=epoch)
 
     @app.get("/api/server/stats")
     def server_stats():
@@ -1586,6 +1590,8 @@ def create_app(test_config=None):
                 item = saved_source(source_id)
                 if not item:
                     raise ApiError("Save this recording to the server library first.", 404)
+                if any((row.get("source_id") or (row.get("match") or {}).get("id")) == source_id for row in tracks):
+                    raise ApiError("This song is already in the playlist.", 409)
                 append_saved_entry(tracks, g.user, source_id, item)
             elif operation in ({"remove_index"}, {"move_from", "move_to"}):
                 if any(type(data[key]) is not int or not 0 <= data[key] < len(tracks) for key in operation):

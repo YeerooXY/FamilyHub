@@ -152,7 +152,7 @@ class PlaylistCoAuthors(Base):
         forged = self.patch(other, ot, pid, owner_id='sample-a', revision=p['revision'], add_source_id=native.FIRST, added_by='sample-a')
         self.assertEqual(forged.status_code, 400)
 
-    def test_reimport_keeps_each_occurrences_author_and_ignores_supplied_authors(self):
+    def test_reimport_keeps_the_first_occurrence_author_and_ignores_supplied_authors(self):
         store = PlaylistStore(self.ws); pid = 'A' * 22
         track = dict(title='One', artist='Artist', duration=1, spotify_uri='spotify:track:one')
         store.save('sample-a', dict(id=pid, name='Mix', tracks=[
@@ -160,5 +160,5 @@ class PlaylistCoAuthors(Base):
         imported = store.import_playlist('sample-a', dict(id=pid, name='Mix', tracks=[
             dict(track, added_by='forged'), dict(track, added_by='forged'),
             dict(track, spotify_uri='spotify:track:new', added_by='forged')]))
-        self.assertEqual([t.get('added_by') for t in imported['tracks']], ['sample-b', None, 'sample-a'])
+        self.assertEqual([t.get('added_by') for t in imported['tracks']], ['sample-b', 'sample-a'])  # a song repeated in the source is added once
         self.assertEqual(imported['tracks'][0]['added_at'], '2026-11-15T12:00:00Z')

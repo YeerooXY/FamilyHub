@@ -172,3 +172,24 @@ button.device-option:hover:not([aria-disabled=true]),button.device-option:focus-
  .player-tools-backdrop { display:block; position:fixed; inset:0; width:100vw; height:100vh; border:0; border-radius:0; background:#0005; z-index:31; }
  .player-bar .player-tools-backdrop:hover,.player-bar .player-tools-backdrop:active { transform:none; }
 }
+
+/* Second mini player and "Listening on" strip (another device of this profile is playing). */
+.remote-mini { position:relative; display:flex; align-items:center; gap:4px; margin:0 8px 6px; padding:0 8px 0 0; overflow:hidden; border-radius:10px; background:color-mix(in srgb,#56d58e 22%,#1c1c1c); }
+.remote-mini-main { display:flex; align-items:center; gap:12px; flex:1; min-width:0; min-height:56px; padding:8px 8px 8px 12px; border:0; text-align:left; color:var(--ink); background:transparent; }
+.remote-mini-icon { display:grid; place-items:center; width:40px; height:40px; flex-shrink:0; border-radius:8px; color:#56d58e; background:#0000004d; }
+.remote-mini-icon .icon { width:22px; height:22px; }
+.remote-mini-copy { display:grid; gap:2px; min-width:0; }
+.remote-mini-copy strong,.remote-mini-copy small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.remote-mini-copy strong { font-size:14px; }
+.remote-mini-copy small { font-size:12px; color:#ffffffb8; }
+.remote-mini-device { color:#56d58e; font-weight:700; }
+.remote-mini-state { display:grid; place-items:center; width:44px; height:44px; flex-shrink:0; color:var(--ink); }
+.remote-mini-state .icon { width:22px; height:22px; }
+.remote-mini-progress { position:absolute; inset:auto 0 0 0; height:3px; background:#ffffff26; }
+.remote-mini-progress span { display:block; height:100%; background:var(--ink); }
+.remote-mini-progress span.is-running { animation:remote-mini-fill var(--seconds) linear forwards; }
+@keyframes remote-mini-fill { from { width:calc(var(--from) * 1%); } to { width:100%; } }
+@media (prefers-reduced-motion:reduce) { .remote-mini-progress span.is-running { animation:none; } }
+.device-strip { display:flex; align-items:center; gap:8px; margin:0 8px; padding:4px 12px; font-size:12px; color:#56d58e; border-radius:8px 8px 0 0; background:#56d58e1f; }
+.device-strip .icon { width:16px; height:16px; }
+.device-strip strong { font-weight:700; }

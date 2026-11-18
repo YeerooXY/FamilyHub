@@ -12,6 +12,7 @@ public sealed record ListeningCounter(
 public sealed record ActivityReceipt
 {
     [JsonPropertyName("counters_accepted")] public bool CountersAccepted { get; init; }
+    [JsonPropertyName("epoch")] public long? Epoch { get; init; }
     /// <summary>A playback transfer or pause when another device of this profile becomes active.</summary>
     [JsonPropertyName("command")] public PlaybackHandover? Command { get; init; }
     /// <summary>Play, pause, next, previous or seek sent by the device that handed playback here.</summary>
@@ -32,20 +33,35 @@ public sealed record PlaybackHandover
     [JsonPropertyName("playing")] public bool Playing { get; init; }
     [JsonPropertyName("device_id")] public string DeviceId { get; init; } = "";
     [JsonPropertyName("activation")] public long Activation { get; init; }
+    [JsonPropertyName("epoch")] public long? Epoch { get; init; }
     [JsonPropertyName("position")] public double? Position { get; init; }
+    [JsonPropertyName("status")] public string? Status { get; init; }
+    [JsonPropertyName("duration")] public double? Duration { get; init; }
     [JsonPropertyName("track")] public PlaybackDeviceTrack? Track { get; init; }
 }
 public sealed record PlaybackDevice
 {
+    public const double OnlineSeconds = 15;
     [JsonPropertyName("id")] public string Id { get; init; } = "";
     [JsonPropertyName("name")] public string Name { get; init; } = "";
     [JsonPropertyName("kind")] public string Kind { get; init; } = "";
     [JsonPropertyName("playing")] public bool Playing { get; init; }
+    [JsonPropertyName("status")] public string? Status { get; init; }
+    [JsonPropertyName("duration")] public double? Duration { get; init; }
+    [JsonPropertyName("queue_rev")] public long? QueueRevision { get; init; }
     [JsonPropertyName("track")] public PlaybackDeviceTrack? Track { get; init; }
     [JsonPropertyName("position")] public double? Position { get; init; }
     /// <summary>Seconds since the device last checked in.</summary>
     [JsonPropertyName("age")] public double Age { get; init; }
     [JsonPropertyName("this")] public bool This { get; init; }
+    [JsonIgnore] public bool IsPlaying => Status is null ? Playing : Status == "playing";
+
+    public double? PositionAt(double elapsed)
+    {
+        if (Position is not { } position) return null;
+        if (IsPlaying && Age + elapsed <= OnlineSeconds) position += Math.Max(0, Age + elapsed);
+        return Duration is > 0 and var duration ? Math.Min(position, duration) : position;
+    }
 }
 public sealed record PlaybackDeviceTrack
 {
@@ -54,7 +70,12 @@ public sealed record PlaybackDeviceTrack
     [JsonPropertyName("channel")] public string Channel { get; init; } = "";
 }
 public sealed record PlaybackDevicesResponse { [JsonPropertyName("devices")] public List<PlaybackDevice> Devices { get; init; } = []; }
-public sealed record PlaybackTransferReceipt { [JsonPropertyName("target")] public string Target { get; init; } = ""; }
+public sealed record PlaybackTransferReceipt
+{
+    [JsonPropertyName("id")] public string Id { get; init; } = "";
+    [JsonPropertyName("target")] public string Target { get; init; } = "";
+    [JsonPropertyName("source_paused")] public bool? SourcePaused { get; init; }
+}
 
 // Daily counters survive closing the app; the server credits only their growth.
 public sealed class ListeningJournal

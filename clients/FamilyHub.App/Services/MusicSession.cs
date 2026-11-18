@@ -89,14 +89,30 @@ public sealed class MusicSession
     }
     public void InvalidateListeningBaseline() => listeningJournal?.InvalidateBaseline();
     public void FlushListening() => listeningJournal?.Flush();
-    private DateTime lastActivity;
+    private sealed record Activity(bool Playing, double? Position, bool FollowingHost, string RemoteDeviceId,
+        bool Background, string? Status, double? Duration, MusicTrack? Track, bool Force);
+    private long lastActivity;
     private bool lastActivityPlaying, activityInFlight;
-    private (bool Playing, double? Position, bool FollowingHost, string RemoteDeviceId, bool Background)? pendingActivity;
+    private Activity? pendingActivity;
+    private TaskCompletionSource? pendingActivityCompletion;
     private string lastActivityTrackId = "";
+    private string? lastActivityStatus;
+    private double? lastActivityDuration;
+    private string lastActivityRemoteDevice = "";
+    private bool lastActivityFollowingHost;
     private FamilyHubApi? lastActivityApi;
     private long activitySequence, activationWatermark, lastActivityActivation;
+    private long? playbackEpoch, localPlaybackEpoch;
+    private long queueRevision, sentQueueRevision;
+    private string[] queueIds = [];
+    private int activityQueueIndex = -1;
+    private readonly HashSet<string> pendingAcks = [];
     public long PlaybackActivation { get; private set; }
-    public void MarkLocalPlayback() => PlaybackActivation = Math.Max(DateTime.UtcNow.Ticks, Math.Max(PlaybackActivation, activationWatermark) + 1);
+    public void MarkLocalPlayback()
+    {
+        localPlaybackEpoch = playbackEpoch ?? 0;
+        PlaybackActivation = Math.Max(DateTime.UtcNow.Ticks, Math.Max(PlaybackActivation, activationWatermark) + 1);
+    }
     /// <summary>This app's id in "Connect to a device"; new on every start, like the activity device.</summary>
     public string DeviceId => activityDevice;
     public static string DeviceName => DeviceInfo.Current.Platform == DevicePlatform.WinUI ? Environment.MachineName : DeviceInfo.Current.Name is { Length: > 0 } name ? name : DeviceInfo.Current.Model;
@@ -106,46 +122,107 @@ public sealed class MusicSession
     public event Action<PlaybackHandover>? PlaybackHandedOver;
     /// <summary>Raised for each play/pause/next/previous/seek the controlling device sends.</summary>
     public event Action<PlaybackControl>? RemoteControlReceived;
+    public event Func<Task>? PlaybackCheckInRequested;
+    // Keep delivered handover IDs after acknowledgement so a retained command cannot restart playback.
     private readonly HashSet<string> handovers = [], controlsSeen = [];
-    public async Task ReportPlaybackActivityAsync(bool playing, double? position = null, bool followingHost = false, string remoteDeviceId = "", bool background = true)
+    public Task RequestPlaybackCheckInAsync() => PlaybackCheckInRequested?.Invoke() ?? Task.CompletedTask;
+    public bool HasReceivedPlaybackCommand(string id) { lock (handovers) return handovers.Contains(id); }
+    private bool RememberPlaybackCommand(string id) { lock (handovers) return handovers.Add(id); }
+    public void RetryPauseCommand(string id) { lock (handovers) handovers.Remove(id); }
+    public bool IsCurrentPlaybackCommand(PlaybackHandover command) => command.Epoch is null || command.Epoch == playbackEpoch;
+    public void AcknowledgePlaybackCommand(string id)
+    {
+        pendingAcks.Add(id);
+        _ = RequestPlaybackCheckInAsync();
+    }
+
+    public Task ReportPlaybackActivityAsync(bool playing, double? position = null, bool followingHost = false, string remoteDeviceId = "", bool background = true,
+        string? status = null, double? duration = null, MusicTrack? track = null, IReadOnlyList<MusicTrack>? queue = null, int queueIndex = -1, bool force = false)
     {
         if (DateTime.UtcNow - lastHistorySync > TimeSpan.FromMinutes(1)) { lastHistorySync = DateTime.UtcNow; _ = SyncHistoryAsync(); }
+        if (queue is not null && (queueIndex != activityQueueIndex || !queue.Select(t => t.Id).SequenceEqual(queueIds)))
+        {
+            queueIds = queue.Select(t => t.Id).ToArray();
+            activityQueueIndex = queueIndex;
+            queueRevision++;
+        }
+        return SendPlaybackActivityAsync(new(playing, position, followingHost, remoteDeviceId, background, status, duration, status is null ? activityTrack : track, force));
+    }
+
+    private async Task SendPlaybackActivityAsync(Activity activity)
+    {
         var api = Api;
         if (!Connected || api is null) return;
-        if (activityInFlight) { pendingActivity = (playing, position, followingHost, remoteDeviceId, background && pendingActivity?.Background != false); return; }
-        var currentTrack = playing ? activityTrack : null;
-        var trackId = currentTrack?.Id ?? "";
+        if (activityInFlight)
+        {
+            pendingActivity = activity with { Background = activity.Background && pendingActivity?.Background != false, Force = activity.Force || pendingActivity?.Force == true };
+            if (activity.Force)
+            {
+                pendingActivityCompletion ??= new(TaskCreationOptions.RunContinuationsAsynchronously);
+                await pendingActivityCompletion.Task;
+            }
+            return;
+        }
+        var trackId = activity.Track?.Id ?? "";
         var activation = PlaybackActivation;
         var profileVersion = accountVersion;
-        var activityAt = DateTime.UtcNow;
+        var activityAt = Environment.TickCount64;
+        var sameApi = ReferenceEquals(api, lastActivityApi);
+        var revision = queueRevision;
+        // After a minute without a check-in the server discards the device and its queue.
+        var queueChanged = !sameApi || revision != sentQueueRevision || activityAt - lastActivity >= 60_000;
+        var localPlay = activity.Playing && !activity.FollowingHost && activity.RemoteDeviceId.Length == 0 && activity.Status != "paused"
+            && activation != 0 && activation != lastActivityActivation;
+        var acks = pendingAcks.ToArray();
         // Allow timer jitter around five-second check-ins (server expiry is 15 seconds).
-        if (ReferenceEquals(api, lastActivityApi) && activation == lastActivityActivation && trackId == lastActivityTrackId && playing == lastActivityPlaying && activityAt - lastActivity < TimeSpan.FromSeconds(4.8)) return;
+        if (!activity.Force && acks.Length == 0 && !queueChanged && !localPlay && trackId == lastActivityTrackId
+            && activity.Playing == lastActivityPlaying && activity.Status == lastActivityStatus && activity.Duration == lastActivityDuration
+            && activity.FollowingHost == lastActivityFollowingHost && activity.RemoteDeviceId == lastActivityRemoteDevice && activityAt - lastActivity < 4800) return;
+        PlaybackResume? snapshot = null;
+        if (queueChanged && revision != 0 && activityQueueIndex >= 0 && activityQueueIndex < queueIds.Length)
+        {
+            var start = Math.Min(activityQueueIndex, Math.Max(0, queueIds.Length - 1000));
+            snapshot = new() { TrackIds = queueIds.Skip(start).Take(1000).ToList(), Index = activityQueueIndex - start };
+            if (!snapshot.IsValid) snapshot = null;
+        }
+        if (queueChanged && revision != 0) snapshot ??= new() { Index = -1 };
         activityInFlight = true;
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
             var journal = listeningJournal;
             var counters = journal?.Pending();
-            var receipt = await api.ReportPlaybackActivityAsync(activityDevice, playing, timeout.Token, counters, journal?.DeviceId, currentTrack, DeviceName, DeviceKind, position, activation, ++activitySequence, followingHost, remoteDeviceId, background);
+            var receipt = await api.ReportPlaybackActivityAsync(activityDevice, activity.Playing, timeout.Token, counters, journal?.DeviceId, activity.Track, DeviceName, DeviceKind,
+                activity.Position, activation, ++activitySequence, activity.FollowingHost, activity.RemoteDeviceId, activity.Background,
+                activity.Status, activity.Duration, snapshot, revision, localPlay ? localPlaybackEpoch : playbackEpoch, localPlay, acks);
             if (receipt.CountersAccepted && journal is not null && counters is { Count: > 0 }) journal.Acknowledge(counters);
             if (profileVersion != accountVersion || !ReferenceEquals(api, Api)) return;
+            var epoch = receipt.Epoch ?? receipt.Command?.Epoch;
+            var serverRestarted = epoch < playbackEpoch;
+            playbackEpoch = epoch ?? playbackEpoch;
+            pendingAcks.ExceptWith(acks);
+            lastActivity = activityAt; lastActivityPlaying = activity.Playing; lastActivityTrackId = trackId; lastActivityApi = api;
+            if (localPlay) lastActivityActivation = activation;
+            lastActivityStatus = activity.Status; lastActivityDuration = activity.Duration;
+            lastActivityFollowingHost = activity.FollowingHost; lastActivityRemoteDevice = activity.RemoteDeviceId;
+            sentQueueRevision = serverRestarted && snapshot is null ? 0 : revision;
             if (receipt.Command is { } command) activationWatermark = Math.Max(activationWatermark, command.Activation);
-            if (activation == PlaybackActivation && !followingHost)
+            if (activation == PlaybackActivation && !activity.FollowingHost)
             {
-                if (receipt.Command is { } handover && (handover is { Action: "play", Resume.IsValid: true } || handover is { Action: "pause", DeviceId.Length: 32 }) && handovers.Add(handover.Id))
+                if (receipt.Command is { } handover && (handover is { Action: "play", Resume.IsValid: true } || handover is { Action: "pause", DeviceId.Length: 32 }) && RememberPlaybackCommand(handover.Id))
                     PlaybackHandedOver?.Invoke(handover);
                 foreach (var control in receipt.Controls) if (controlsSeen.Add(control.Id)) RemoteControlReceived?.Invoke(control);
             }
             else if (activation != PlaybackActivation) PlaybackActivation = Math.Max(PlaybackActivation, activationWatermark + 1);
-            lastActivity = activityAt; lastActivityPlaying = playing; lastActivityTrackId = trackId; lastActivityApi = api; lastActivityActivation = activation;
         }
         catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException or ObjectDisposedException) { }
         finally
         {
             activityInFlight = false;
             var pending = pendingActivity; pendingActivity = null;
-            if (profileVersion == accountVersion && pending is { } next)
-                await ReportPlaybackActivityAsync(next.Playing, next.Position, next.FollowingHost, next.RemoteDeviceId, next.Background);
+            var completion = pendingActivityCompletion; pendingActivityCompletion = null;
+            try { if (pending is { } next) await SendPlaybackActivityAsync(next); }
+            finally { completion?.TrySetResult(); }
         }
     }
 
@@ -195,10 +272,12 @@ public sealed class MusicSession
         #if IOS
         DownloadStorage.Configure(Offline.RootDirectory);
 #endif
-        accountVersion++; TopListenerId = null; topListenerChecked = default;
+        accountVersion++; pendingActivity = null; TopListenerId = null; topListenerChecked = default;
         if (!sameAccount)
         {
-            PlaybackActivation = 0; activationWatermark = 0; handovers.Clear(); controlsSeen.Clear();
+            PlaybackActivation = 0; activationWatermark = 0; controlsSeen.Clear();
+            lock (handovers) handovers.Clear();
+            playbackEpoch = null; localPlaybackEpoch = null; pendingAcks.Clear(); queueIds = []; activityQueueIndex = -1; queueRevision = 0;
             playbackCaches.Clear();
             cachedEditions.Clear();
             playbackRecords.Clear();

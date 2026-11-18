@@ -320,15 +320,28 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
     Check(player.Playing && session.LocalPlays == 2, "Remote play echoed a local activation");
     await player.PauseLocallyAsync(); WindowsAudioPlayer.Last!.SetPlaying(true);
     Check(player.PlaybackRequested && session.LocalPlays == 3, "Native transport play did not activate playback");
-    await player.ApplyPlaybackCommandAsync(new() { Action = "play", Resume = new() { TrackIds = [tracks[3].Id], Index = 0, Position = 8 }, Playing = true }, tracks);
-    Check(player.Current == tracks[3] && player.Playing && player.Position == 8 && session.LocalPlays == 3,
+    var takeover = new PlaybackHandover { Id = "takeover", Action = "play", Resume = new() { TrackIds = [tracks[3].Id], Index = 0, Position = 8 }, Playing = true };
+    var applied = await player.ApplyPlaybackCommandAsync(takeover, tracks);
+    Check(applied && player.Current == tracks[3] && player.Playing && player.Position == 8 && WindowsAudioPlayer.Last!.StartedAt == 8 && session.LocalPlays == 3,
         "Manual transfer echoed a local activation or lost its checkpoint");
+    applied = await player.ApplyPlaybackCommandAsync(takeover with { Id = "paused-takeover", Playing = false }, tracks);
+    Check(applied && !player.Playing && player.Current == tracks[3] && player.Position == 8,
+        "Paused takeover failed to restore the checkpoint and report success");
     player.EnterRemote(new string('b', 32), "Pixel", 9, true);
     await player.PlayAsync(tracks[5], tracks);
     Check(!player.RemoteActive && player.Playing && session.LocalPlays == 4, "Choosing a song did not take playback back");
     var activations = session.LocalPlays;
     WindowsAudioPlayer.Last!.RaiseEnded(); await Task.Yield();
     Check(session.LocalPlays == activations, "Automatic queue advancement activated playback");
+}
+{
+    var (session, player) = Setup(); session.Delay = true;
+    var takeover = player.ApplyPlaybackCommandAsync(new() { Id = "superseded-takeover", Action = "play", Playing = true,
+        Resume = new() { TrackIds = [tracks[1].Id], Index = 0, Position = 8 } }, tracks);
+    Check(!takeover.IsCompleted, "Takeover reported success before playback was prepared");
+    await player.StopAsync();
+    session.Complete(0);
+    Check(!await takeover, "Superseded takeover reported success");
 }
 {
     var (session, player) = Setup(); session.Delay = true;
@@ -380,6 +393,7 @@ public static class MainThread
 {
     public static Task InvokeOnMainThreadAsync(Action action) { action(); return Task.CompletedTask; }
     public static Task InvokeOnMainThreadAsync(Func<Task> action) => action();
+    public static Task<T> InvokeOnMainThreadAsync<T>(Func<Task<T>> action) => action();
     public static void BeginInvokeOnMainThread(Action action) => action();
 }
 namespace CommunityToolkit.Maui.Views { public sealed class MediaElement { } }
@@ -393,14 +407,6 @@ namespace FamilyHub.Client.Core
         public bool IsValid => TrackIds.Count > 0 && Index >= 0 && Index < TrackIds.Count && double.IsFinite(Position);
     }
     public sealed class FamilyHubApiException : Exception { }
-    public sealed record PlaybackDeviceTrack { public string Id { get; init; } = ""; }
-    public sealed record PlaybackHandover
-    {
-        public string Action { get; init; } = ""; public string DeviceId { get; init; } = ""; public string FromName { get; init; } = "";
-        public bool Playing { get; init; } public double? Position { get; init; } public PlaybackResume? Resume { get; init; }
-        public PlaybackDeviceTrack? Track { get; init; }
-    }
-    public sealed record PlaybackControl { public string Action { get; init; } = ""; public double? Position { get; init; } }
 }
 namespace FamilyHub.App.Services
 {
@@ -456,6 +462,7 @@ namespace FamilyHub.App.Services
         public bool PlaybackRequested { get; private set; }
         public string? Title { get; private set; }
         public double Position { get; private set; }
+        public double? StartedAt { get; private set; }
         public double Duration => Title is null ? 0 : 30;
         public double Volume { get; set; }
         public bool SupportsPlaybackRate => true;
@@ -465,8 +472,15 @@ namespace FamilyHub.App.Services
         public Task SeekAsync(double seconds) { Seek(seconds); return Task.CompletedTask; }
         public void RefreshPosition() { }
         public void PlayFile(string path, string title, string artist, bool play = true, bool background = false)
-        { if (path == "fail") throw new IOException(); Position = 0; Title = title; PlaybackRequested = play; Changed?.Invoke(); }
-        public void SetPlaying(bool play) { PlaybackRequested = play; Changed?.Invoke(); }
+        {
+            if (path == "fail") throw new IOException();
+            Position = 0; StartedAt = null; Title = title; SetPlaying(play);
+        }
+        public void SetPlaying(bool play)
+        {
+            if (play) StartedAt ??= Position;
+            PlaybackRequested = play; Changed?.Invoke();
+        }
         public void RaiseEnded() => Ended?.Invoke();
         public void Seek(double seconds) { Position = seconds; Seeks++; Changed?.Invoke(); }
         public void Tick(double seconds) { Position += seconds * PlaybackRate; Changed?.Invoke(); }

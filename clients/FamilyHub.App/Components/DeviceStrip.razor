@@ -1,0 +1,16 @@
+@implements IDisposable
+@inject MusicPlayer Player
+
+@* Spotify's "Listening on" strip: this device is the remote for another one of your devices. *@
+@if (Player.RemoteActive)
+{
+    <div id="device-strip" class="device-strip" role="status">
+        <MusicIcon Name="device" /><span>Listening on <strong>@Player.RemoteDeviceName</strong></span>
+    </div>
+}
+
+@code {
+    protected override void OnInitialized() => Player.Changed += Changed;
+    private void Changed() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Player.Changed -= Changed;
+}

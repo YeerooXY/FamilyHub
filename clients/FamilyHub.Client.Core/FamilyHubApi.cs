@@ -76,12 +76,30 @@ public sealed class FamilyHubApi : IDisposable
     public Task<ServerStatistics> GetServerStatsAsync(CancellationToken cancellationToken = default, bool leaderboard = false, bool background = false) =>
         RequestJsonAsync<ServerStatistics>(HttpMethod.Get, leaderboard ? "/api/server/stats?leaderboard=1" : "/api/server/stats", cancellationToken: cancellationToken, background: background);
 
-    public Task<ActivityReceipt> ReportPlaybackActivityAsync(string deviceId, bool playing, CancellationToken cancellationToken = default, IReadOnlyList<ListeningCounter>? counters = null, string? counterDeviceId = null, MusicTrack? track = null, string? deviceName = null, string? deviceKind = null, double? position = null, long activation = 0, long sequence = 0, bool followingHost = false, string remoteDeviceId = "", bool background = false) =>
-        RequestJsonAsync<ActivityReceipt>(HttpMethod.Post, "/api/playback/activity", new { device_id = deviceId, playing, counters, counter_device_id = counterDeviceId, track = track is null ? null : new { id = track.Id, title = track.Title, channel = track.Channel },
-            device_info = deviceName is null ? null : new { name = deviceName, kind = deviceKind, activation, sequence, following_host = followingHost, remote_device = remoteDeviceId }, position }, cancellationToken, background);
+    public Task<ActivityReceipt> ReportPlaybackActivityAsync(string deviceId, bool playing, CancellationToken cancellationToken = default, IReadOnlyList<ListeningCounter>? counters = null, string? counterDeviceId = null, MusicTrack? track = null, string? deviceName = null, string? deviceKind = null, double? position = null, long activation = 0, long sequence = 0, bool followingHost = false, string remoteDeviceId = "", bool background = false,
+        string? status = null, double? duration = null, PlaybackResume? queue = null, long? queueRevision = null, long? epoch = null, bool localPlay = false, IReadOnlyList<string>? acks = null)
+    {
+        Dictionary<string, object?>? deviceInfo = null;
+        if (deviceName is not null)
+        {
+            deviceInfo = new() { ["name"] = deviceName, ["kind"] = deviceKind, ["activation"] = activation, ["sequence"] = sequence, ["following_host"] = followingHost, ["remote_device"] = remoteDeviceId };
+            if (status is not null) deviceInfo["status"] = status;
+            if (duration is not null) deviceInfo["duration"] = duration;
+            if (queue is not null) deviceInfo["queue"] = new { track_ids = queue.TrackIds, index = queue.Index };
+            if (queueRevision is not null) deviceInfo["queue_rev"] = queueRevision;
+            if (epoch is not null) deviceInfo["epoch"] = epoch;
+            if (epoch is not null || localPlay) deviceInfo["local_play"] = localPlay;
+            if (acks is { Count: > 0 }) deviceInfo["acks"] = acks;
+        }
+        return RequestJsonAsync<ActivityReceipt>(HttpMethod.Post, "/api/playback/activity", new { device_id = deviceId, playing, counters, counter_device_id = counterDeviceId, track = track is null ? null : new { id = track.Id, title = track.Title, channel = track.Channel },
+            device_info = deviceInfo, position }, cancellationToken, background);
+    }
 
     public Task<PlaybackDevicesResponse> GetPlaybackDevicesAsync(string deviceId, CancellationToken cancellationToken = default, bool background = false) =>
         RequestJsonAsync<PlaybackDevicesResponse>(HttpMethod.Get, "/api/playback/devices?device_id=" + Uri.EscapeDataString(deviceId), cancellationToken: cancellationToken, background: background);
+
+    public Task<PlaybackTransferReceipt> TakeOverPlaybackAsync(string fromDevice, string toDevice, CancellationToken cancellationToken = default) =>
+        RequestJsonAsync<PlaybackTransferReceipt>(HttpMethod.Post, "/api/playback/takeover", new { from = fromDevice, to = toDevice }, cancellationToken);
 
     public Task ControlPlaybackAsync(string fromDevice, string toDevice, string action, double? position = null, CancellationToken cancellationToken = default) =>
         RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/playback/control", new { from = fromDevice, to = toDevice, action, position }, cancellationToken);

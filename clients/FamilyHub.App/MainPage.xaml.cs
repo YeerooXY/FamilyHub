@@ -64,6 +64,7 @@ public partial class MainPage : ContentPage
     private double lastPlaybackPosition;
     private string lastPlaybackIdentity = "";
     private long lastUserPlaybackRevision;
+    private long lastActivityControlRevision, lastActivitySeekRevision;
     private void SavePlayback(bool background = true)
     {
         if (restoringPlayback || restoredProfile != session.Server + "|" + session.User) return;
@@ -78,10 +79,24 @@ public partial class MainPage : ContentPage
         if (player.Seeking) return;
         var background = player.UserPlaybackRevision == lastUserPlaybackRevision;
         lastUserPlaybackRevision = player.UserPlaybackRevision;
-        _ = session.ReportPlaybackActivityAsync(player.Playing, player.Position, player.FollowingHost, player.RemoteDeviceId, background);
+        var force = lastActivityControlRevision != player.ControlRevision || lastActivitySeekRevision != player.SeekRevision;
+        lastActivityControlRevision = player.ControlRevision; lastActivitySeekRevision = player.SeekRevision;
+        _ = CheckInPlaybackAsync(background, force);
         var identity = player.Current?.Id + ":" + player.QueueIndex + ":" + player.Queue.Count + ":" + player.PlaybackRequested + ":" + player.ControlRevision + ":" + player.Shuffle;
         if (identity != lastPlaybackIdentity || !player.Playing && Math.Abs(player.Position - lastPlaybackPosition) > .25 || player.Playing && DateTime.UtcNow - lastPlaybackSave > TimeSpan.FromSeconds(15))
         { lastPlaybackIdentity = identity; SavePlayback(background); }
+    }
+    private Task CheckInPlaybackAsync(bool background = true, bool force = false)
+    {
+        if (player.Seeking && !force) return Task.CompletedTask;
+        var local = !player.RemoteActive && !player.FollowingHost;
+        var track = local ? player.Current : null;
+        var playing = !player.RemoteActive && player.Playing;
+        var status = !player.PlaybackRequested ? "paused" : player.Preparing || !playing ? "buffering" : "playing";
+        var duration = player.Duration > 0 ? player.Duration : track?.Duration;
+        if (duration is not (> 0 and <= 86400)) duration = null;
+        return session.ReportPlaybackActivityAsync(playing, track is null ? null : player.Position, player.FollowingHost, player.RemoteDeviceId, background,
+            status, track is null ? null : duration, track, local ? player.Queue : [], local ? player.QueueIndex : -1, force);
     }
     // While this device's music plays elsewhere, mirror that device's song, position and state.
     private int remoteMisses;
@@ -99,8 +114,7 @@ public partial class MainPage : ContentPage
             if (!ReferenceEquals(api, session.Api) || !player.RemoteActive || player.RemoteDeviceId != target) return;
             if (device is null) { if (++remoteMisses >= 3) player.LeaveRemote(); return; }
             remoteMisses = 0;
-            var position = device.Position is { } seconds ? seconds + (device.Playing ? device.Age : 0) : (double?)null;
-            player.ApplyRemoteState(device.Track?.Id ?? "", device.Playing, position);
+            player.ApplyRemoteState(device.Track?.Id ?? "", device.IsPlaying, device.PositionAt(0), device.Age, device.Duration);
         }
         catch (Exception error) when (error is HttpRequestException or FamilyHub.Client.Core.FamilyHubApiException or OperationCanceledException) { }
         finally { followingRemote = false; }
@@ -195,7 +209,7 @@ public partial class MainPage : ContentPage
         activityTimer = Dispatcher.CreateTimer();
         // Five-second check-ins stay within the server's 15-second device expiry.
         activityTimer.Interval = TimeSpan.FromSeconds(5);
-        activityTimer.Tick += (_, _) => { if (player.Playing && DateTime.UtcNow - lastPlaybackSave >= TimeSpan.FromSeconds(15)) SavePlayback(); session.ObserveListening(player.Preparing || player.Seeking ? null : player.Current, player.QueueIndex, player.Position, player.Playing); _ = session.ReportPlaybackActivityAsync(player.Playing, player.Position, player.FollowingHost, player.RemoteDeviceId); _ = FollowRemoteAsync(); };
+        activityTimer.Tick += (_, _) => { if (player.Playing && DateTime.UtcNow - lastPlaybackSave >= TimeSpan.FromSeconds(15)) SavePlayback(); session.ObserveListening(player.Preparing || player.Seeking ? null : player.Current, player.QueueIndex, player.Position, player.Playing); _ = CheckInPlaybackAsync(); _ = FollowRemoteAsync(); };
         activityTimer.Start();
         remoteTimer = Dispatcher.CreateTimer();
         remoteTimer.Interval = TimeSpan.FromMilliseconds(500);
@@ -207,6 +221,7 @@ public partial class MainPage : ContentPage
         AudioRouting.Start(audio, audioNext);
 #endif
         player.Changed += PlaybackChanged; session.Changed += RestorePlayback;
+        session.PlaybackCheckInRequested += () => MainThread.InvokeOnMainThreadAsync(() => CheckInPlaybackAsync(force: true));
         session.RemoteControlReceived += control =>
         {
             var activation = session.PlaybackActivation; var api = session.Api;
@@ -222,9 +237,33 @@ public partial class MainPage : ContentPage
             var activation = session.PlaybackActivation; var api = session.Api;
             Dispatcher.Dispatch(async () =>
             {
-                if (activation != session.PlaybackActivation || !ReferenceEquals(api, session.Api)) return;
-                try { await player.ApplyPlaybackCommandAsync(handover, session.Library.Concat(session.Downloads)); }
-                catch (Exception error) when (error is InvalidOperationException or IOException) { }
+                if (!ReferenceEquals(api, session.Api)) return;
+                var pause = handover.Action == "pause";
+                var applied = false;
+                try
+                {
+                    if (activation != session.PlaybackActivation || !session.IsCurrentPlaybackCommand(handover) || player.FollowingHost) return;
+                    if (handover.Resume is { IsValid: true } resume &&
+                        !session.Library.Concat(session.Downloads).Any(track => track.Id == resume.TrackIds[resume.Index]))
+                    {
+                        await session.RefreshAsync(background: true);
+                        if (activation != session.PlaybackActivation || !session.IsCurrentPlaybackCommand(handover) || !ReferenceEquals(api, session.Api)) return;
+                    }
+                    if (await player.ApplyPlaybackCommandAsync(handover, session.Library.Concat(session.Downloads))
+                        && ReferenceEquals(api, session.Api))
+                    {
+                        applied = true;
+                        session.AcknowledgePlaybackCommand(handover.Id);
+                    }
+                }
+                catch (Exception error) when (error is InvalidOperationException or IOException or HttpRequestException or FamilyHub.Client.Core.FamilyHubApiException or OperationCanceledException)
+                {
+                    if (ReferenceEquals(api, session.Api)) session.SetMessage(error.Message);
+                }
+                finally
+                {
+                    if (pause && !applied && ReferenceEquals(api, session.Api)) session.RetryPauseCommand(handover.Id);
+                }
             });
         };
         blazorWebView.UrlLoading += (_, args) => { if (args.Url.Host != "0.0.0.1") args.UrlLoadingStrategy = Microsoft.AspNetCore.Components.WebView.UrlLoadingStrategy.CancelLoad; };

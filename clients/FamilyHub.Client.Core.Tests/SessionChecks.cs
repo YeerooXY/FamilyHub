@@ -22,6 +22,9 @@ internal static class SessionChecks
         var checkpointCount = 0;
         PlaybackHandover? activityCommand = null;
         var activityReports = new List<JsonElement>();
+        JsonElement activityBody = default;
+        long? ownershipEpoch = null;
+        var rejectActivity = false;
         Action? duringActivity = null;
         var searchOffsets = new List<int>();
         var audioRequests = 0;
@@ -71,10 +74,19 @@ internal static class SessionChecks
             if (request.RequestUri.AbsolutePath == "/api/playback/activity")
             {
                 using var body = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                activityBody = body.RootElement.Clone();
                 activityReports.Add(body.RootElement.GetProperty("device_info").Clone());
-                var response = Json(JsonSerializer.Serialize(new { counters_accepted = true, command = activityCommand }, FamilyHubApi.JsonOptions));
+                if (rejectActivity) return new(HttpStatusCode.ServiceUnavailable);
+                var response = Json(JsonSerializer.Serialize(new { counters_accepted = true, command = activityCommand, epoch = ownershipEpoch }, FamilyHubApi.JsonOptions));
                 var callback = duringActivity; duringActivity = null; callback?.Invoke();
                 return response;
+            }
+            if (request.RequestUri.AbsolutePath == "/api/playback/takeover")
+            {
+                using var body = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                Check(request.Method == HttpMethod.Post && body.RootElement.GetProperty("from").GetString() == new string('b', 32)
+                    && body.RootElement.GetProperty("to").GetString()?.Length == 32, "Takeover posted the wrong devices");
+                return Json("""{"id":"takeover","target":"Windows","source_paused":false}""");
             }
             if (request.RequestUri!.AbsolutePath == "/api/search")
             {
@@ -117,14 +129,32 @@ internal static class SessionChecks
                 Activation = DateTime.UtcNow.AddDays(1).Ticks, Position = 12, Track = new() { Id = recording.Id } };
             await session.ReportPlaybackActivityAsync(true, 3);
             Check(handedOver == 1 && session.PlaybackActivation == localActivation, "Pause command was dropped or echoed a local activation");
+            Check(activityReports[^1].GetProperty("epoch").GetInt64() == 0 && activityReports[^1].GetProperty("local_play").GetBoolean(),
+                "First local play omitted its initial ownership epoch");
             await session.ReportPlaybackActivityAsync(false, 12, remoteDeviceId: new string('b', 32));
             Check(handedOver == 1 && activityReports[^1].GetProperty("remote_device").GetString() == new string('b', 32), "Pause command was redelivered or remote target was omitted");
+            session.RetryPauseCommand("phone-active");
+            await session.ReportPlaybackActivityAsync(false, 12, remoteDeviceId: new string('b', 32), force: true);
+            Check(handedOver == 2, "An unapplied pause could not be delivered again");
             session.MarkLocalPlayback();
             Check(session.PlaybackActivation > activityCommand.Activation, "Takeback did not advance beyond the remote activation watermark");
-            await session.ReportPlaybackActivityAsync(true, 12);
+            var takebackActivation = session.PlaybackActivation;
+            await session.ReportPlaybackActivityAsync(false, 12, status: "paused");
+            Check(!activityReports[^1].TryGetProperty("local_play", out var pausedLocalPlay) || !pausedLocalPlay.GetBoolean(),
+                "Leaving remote playback claimed ownership while paused");
+            await session.ReportPlaybackActivityAsync(false, 12, status: "buffering");
+            Check(!activityReports[^1].TryGetProperty("local_play", out var bufferingLocalPlay) || !bufferingLocalPlay.GetBoolean(),
+                "Preparing local playback claimed ownership while buffering");
+            await session.ReportPlaybackActivityAsync(true, 12, status: "playing");
+            Check(activityReports[^1].TryGetProperty("local_play", out var startedLocalPlay) && startedLocalPlay.GetBoolean()
+                && activityReports[^1].GetProperty("activation").GetInt64() == takebackActivation,
+                "The paused check-in consumed the activation needed for local playback");
+            await session.ReportPlaybackActivityAsync(true, 12, status: "playing", force: true);
+            Check(!activityReports[^1].TryGetProperty("local_play", out var repeatedLocalPlay) || !repeatedLocalPlay.GetBoolean(),
+                "Continued playback claimed ownership again");
             activityCommand = activityCommand with { Id = "follower-pause" };
             await session.ReportPlaybackActivityAsync(false, followingHost: true);
-            Check(handedOver == 1 && activityReports[^1].GetProperty("following_host").GetBoolean(), "Follower received arbitration commands or omitted its exemption");
+            Check(handedOver == 2 && activityReports[^1].GetProperty("following_host").GetBoolean(), "Follower received arbitration commands or omitted its exemption");
             activityCommand = activityCommand with { Id = "stale-pause", Activation = activityCommand.Activation + 100 };
             var staleActivation = activityCommand.Activation;
             duringActivity = () =>
@@ -135,9 +165,79 @@ internal static class SessionChecks
             session.MarkLocalPlayback();
             var beforePending = activityReports.Count;
             await session.ReportPlaybackActivityAsync(true, 14);
-            Check(handedOver == 1 && activityReports.Count == beforePending + 2, "Stale pause interrupted a newer local action or deferred activation waited for the timer");
+            Check(handedOver == 2 && activityReports.Count == beforePending + 2, "Stale pause interrupted a newer local action or deferred activation waited for the timer");
             Check(activityReports[^1].GetProperty("activation").GetInt64() > staleActivation, "Deferred local action did not advance past the stale response");
             Check(activityReports.Select(r => r.GetProperty("sequence").GetInt64()).SequenceEqual(Enumerable.Range(1, activityReports.Count).Select(i => (long)i)), "Activity reports lost monotonic ordering");
+            activityCommand = null;
+            ownershipEpoch = 42;
+            await session.ReportPlaybackActivityAsync(false, 12, status: "paused", duration: 180, track: recording, queue: [recording], queueIndex: 0);
+            var paused = activityReports[^1];
+            Check(paused.GetProperty("status").GetString() == "paused" && paused.GetProperty("duration").GetInt32() == 180
+                && paused.GetProperty("queue").GetProperty("track_ids")[0].GetString() == recording.Id
+                && activityBody.GetProperty("position").GetDouble() == 12 && activityBody.GetProperty("track").GetProperty("id").GetString() == recording.Id,
+                "Paused check-in lost its track, position, or queue");
+            var revision = paused.GetProperty("queue_rev").GetInt64();
+            session.AcknowledgePlaybackCommand("pause-1");
+            rejectActivity = true;
+            await session.ReportPlaybackActivityAsync(false, 30, status: "paused", duration: 180, track: recording, queue: [recording], queueIndex: 0, force: true);
+            rejectActivity = false;
+            await session.ReportPlaybackActivityAsync(false, 30, status: "paused", duration: 180, track: recording, queue: [recording], queueIndex: 0, force: true);
+            var seek = activityReports[^1];
+            Check(!seek.TryGetProperty("queue", out _) && seek.GetProperty("queue_rev").GetInt64() == revision
+                && seek.GetProperty("epoch").GetInt64() == 42 && !seek.GetProperty("local_play").GetBoolean()
+                && seek.GetProperty("acks")[0].GetString() == "pause-1" && activityBody.GetProperty("position").GetDouble() == 30,
+                "Completed seek was throttled, resent the queue, or omitted the pause acknowledgment");
+            await session.ReportPlaybackActivityAsync(false, 30, status: "paused", duration: 180, track: recording, queue: [recording, recording], queueIndex: 1);
+            var edited = activityReports[^1];
+            Check(edited.GetProperty("queue_rev").GetInt64() == revision + 1 && edited.GetProperty("queue").GetProperty("index").GetInt32() == 1
+                && !edited.TryGetProperty("acks", out _), "Queue changes waited for the timer or a successful acknowledgment was repeated");
+            ownershipEpoch = 43;
+            duringActivity = () =>
+            {
+                session.MarkLocalPlayback();
+                _ = session.ReportPlaybackActivityAsync(true, 31, status: "playing", duration: 180, track: recording);
+            };
+            await session.ReportPlaybackActivityAsync(false, 30, force: true);
+            var localPlay = activityReports[^1];
+            Check(localPlay.GetProperty("local_play").GetBoolean() && localPlay.GetProperty("epoch").GetInt64() == 42,
+                "A queued local play claimed an ownership epoch issued after the user pressed play");
+            var takeover = await session.Api!.TakeOverPlaybackAsync(new string('b', 32), session.DeviceId);
+            Check(takeover is { Id: "takeover", Target: "Windows", SourcePaused: false }, "Takeover receipt lost the source pause result");
+            activityCommand = new() { Id = takeover.Id, Action = "play", Epoch = ownershipEpoch, Playing = true,
+                Resume = new() { TrackIds = [recording.Id], Index = 0, Position = 31 } };
+            var beforeTakeover = handedOver;
+            await session.ReportPlaybackActivityAsync(false, 30, force: true);
+            await session.ReportPlaybackActivityAsync(false, 30, force: true);
+            Check(handedOver == beforeTakeover + 1 && session.HasReceivedPlaybackCommand(takeover.Id)
+                && !activityReports[^1].TryGetProperty("acks", out _),
+                "A retained play was dispatched again or acknowledged before it was applied");
+            Task SendTakeoverAck() => session.ReportPlaybackActivityAsync(true, 31, status: "playing", track: recording, force: true);
+            Task? requestedCheckIn = null;
+            Task OnTakeoverAck() => requestedCheckIn = SendTakeoverAck();
+            session.PlaybackCheckInRequested += OnTakeoverAck;
+            rejectActivity = true;
+            session.AcknowledgePlaybackCommand(takeover.Id);
+            session.PlaybackCheckInRequested -= OnTakeoverAck;
+            await (requestedCheckIn ?? throw new Exception("Applying a takeover did not request an immediate check-in"));
+            Check(activityReports[^1].GetProperty("acks")[0].GetString() == takeover.Id,
+                "The immediate check-in omitted the takeover ID");
+            rejectActivity = false;
+            // Return the retained command again to exercise deduplication even after the ack is sent.
+            await SendTakeoverAck();
+            Check(handedOver == beforeTakeover + 1 && activityReports[^1].GetProperty("acks")[0].GetString() == takeover.Id,
+                "A failed check-in lost the play acknowledgement or replayed the command");
+            await SendTakeoverAck();
+            Check(handedOver == beforeTakeover + 1 && !activityReports[^1].TryGetProperty("acks", out _),
+                "A successful check-in lost the handled play ID or kept sending its acknowledgement");
+            activityCommand = null;
+            ownershipEpoch = 0;
+            await session.ReportPlaybackActivityAsync(false, 30, status: "paused", duration: 180, track: recording, force: true);
+            await session.ReportPlaybackActivityAsync(false, 30, status: "paused", duration: 180, track: recording);
+            Check(activityReports[^1].GetProperty("epoch").GetInt64() == 0 && activityReports[^1].GetProperty("queue").GetProperty("index").GetInt32() == 1,
+                "Check-in did not restore the queue after server ownership reset");
+            var device = new PlaybackDevice { Status = "playing", Position = 10, Age = 13, Duration = 24 };
+            Check(device.PositionAt(1) == 24 && device.PositionAt(3) == 10 && (device with { Status = "paused" }).PositionAt(1) == 10,
+                "Remote position advanced while paused or stale, or went past duration");
             await session.SavePlaybackAsync(new() { TrackIds = [recording.Id], Index = 0, Position = 17 });
             await session.SavePlaybackAsync(new() { TrackIds = [recording.Id], Index = 0, Position = 18 });
             Check(checkpointCount == 1 && remotePlayback?.Position == 18, "Repeated saves did not use position checkpoints");

@@ -55,6 +55,16 @@
 <aside class="workspace-rail" hidden><h2>Now playing</h2><div id="rail-cover"></div><h3 id="rail-title">Choose a song</h3><p id="rail-artist" class="note"></p><h2>Next song</h2><div class="next-track"><div id="next-cover"></div><div><strong id="next-title"></strong><p id="next-artist" class="note"></p></div></div><p id="next-readiness" class="sr" role="status"></p></aside>
 </div>
 <footer id="status" class="player-bar">
+<div id="remote-playback" hidden>
+  <button id="takeover" type="button">
+    <span id="remote-playing-icon">{{ icon('pause') }}</span>
+    <span id="remote-paused-icon" hidden>{{ icon('play') }}</span>
+    <strong id="remote-title"></strong>
+    <span id="remote-device"></span>
+    <span class="remote-progress-track" aria-hidden="true"><span id="remote-progress"></span></span>
+  </button>
+</div>
+<p id="handoff-message" role="status"></p>
 <button id="show-queue" class="now-playing" type="button" aria-label="Open playback queue"><span id="now-cover"></span><span class="now-copy"><strong id="now-title">Choose a song</strong><span id="now-artist"></span><span id="bar-next">Up next</span></span></button>
 <div class="transport"><div class="transport-buttons"><button id="previous" type="button" class="quiet" aria-label="Previous song">{{ icon('previous') }}</button><button id="play" type="button" class="primary round" aria-label="Play">{{ icon('play') }}</button><button id="next" type="button" class="quiet" aria-label="Next song">{{ icon('next') }}</button></div><div class="seek-row"><span id="elapsed">0:00</span><input id="seek" type="range" aria-label="Playback position" min="0" max="100" step="0.1" value="0" disabled><span id="total">0:00</span></div><p id="playback-state" class="sr" role="status"></p></div>
 <div class="player-tools"><button id="shuffle-toggle" type="button" class="quiet" aria-label="Shuffle" aria-pressed="false">{{ icon('shuffle') }}</button><button id="recommend-similar" type="button" class="quiet" aria-label="Recommend similar" title="Recommend similar" aria-controls="similar-panel">{{ icon('music') }}</button><label class="sr" for="volume">Volume</label>{{ icon('volume') }}<input id="volume" type="range" min="0" max="1" step="0.01" value="1"></div>

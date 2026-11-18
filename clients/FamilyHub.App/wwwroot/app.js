@@ -1,6 +1,6 @@
 let lastFocusId = "";
 document.addEventListener("focusin", event => { if (event.target !== document.body) lastFocusId = event.target.id; });
-window.familyhub = { retainFocus(id) { if (document.activeElement === document.body) document.getElementById(id)?.focus(); }, restoreFocus(removedId, successorId) {
+window.familyhub = { press(id) { document.getElementById(id)?.click(); }, retainFocus(id) { if (document.activeElement === document.body) document.getElementById(id)?.focus(); }, restoreFocus(removedId, successorId) {
     if (document.activeElement?.id === removedId || (document.activeElement === document.body && lastFocusId === removedId)) document.getElementById(successorId)?.focus();
 }, view(name) { document.body.dataset.view = name; const content = document.getElementById("content"); if (content) content.scrollTop = 0; if (document.activeElement === document.body) document.getElementById("content")?.focus(); }, focus(id) { const target = document.getElementById(id); if (target) target.focus(); else requestAnimationFrame(() => document.getElementById(id)?.focus()); } };
 document.addEventListener('click', event => { if(event.target.closest('[aria-disabled="true"]')) { event.preventDefault(); event.stopImmediatePropagation(); } },true);
