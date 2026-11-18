@@ -758,6 +758,7 @@ def create_app(test_config=None):
             return True
 
     def job_budget(job):
+        app.intake.CONTROL.background = analyzing_job(job)
         if yields_to_listener(job):
             raise PlaybackYield()
         budget()
@@ -1307,6 +1308,11 @@ def create_app(test_config=None):
             playlist_store.save(owner, playlist)
             return jsonify(playlist=visible_playlist(playlist, owner))
 
+    def matching_search(args):
+        args.youtube_caller = "matching"
+        args.youtube_background = True
+        return app.intake.cmd_search(args)
+
     def match_playlist_recording(user, track, progress):
         source = track.get("source_id") or (track.get("match") or {}).get("id")
         if source:
@@ -1322,14 +1328,14 @@ def create_app(test_config=None):
             return library_record(saved_source(ready["id"]))[0]
         # Re-evaluate persisted choices before making another network request.
         if track.get("candidates"):
-            track["candidates"] = rank_matches(track, track["candidates"], search=app.intake.cmd_search)
+            track["candidates"] = rank_matches(track, track["candidates"], search=matching_search)
             cached = preferred_match(track["candidates"])
             if cached is not None:
                 return cached
         progress("Searching YouTube")
         query = (track["artist"].split(",")[0] + " " + track["title"])[:200]
-        found = app.intake.cmd_search(SimpleNamespace(query=query, limit=30, offset=0))["results"]
-        track["candidates"] = rank_matches(track, found, search=app.intake.cmd_search)
+        found = matching_search(SimpleNamespace(query=query, limit=30, offset=0))["results"]
+        track["candidates"] = rank_matches(track, found, search=matching_search)
         return preferred_match(track["candidates"])
 
     def prepare_playlist_recording(user, track, progress):
@@ -1619,9 +1625,9 @@ def create_app(test_config=None):
         track = playlist["tracks"][index]
         if not allow("search:" + g.user, 40, 60): raise ApiError("Search limit reached. Resume matching in a minute.", 429)
         query = (track["artist"].split(",")[0] + " " + track["title"])[:200]
-        try: found = app.intake.cmd_search(SimpleNamespace(query=query, limit=30, offset=0))["results"]
+        try: found = matching_search(SimpleNamespace(query=query, limit=30, offset=0))["results"]
         except Exception: raise ApiError("Could not find recordings. Try again.", 502)
-        candidates = rank_matches(track, found, search=app.intake.cmd_search)
+        candidates = rank_matches(track, found, search=matching_search)
         with lock:
             owner = editable_playlist_owner(pid, data)
             playlist = playlist_store.read(owner, pid)

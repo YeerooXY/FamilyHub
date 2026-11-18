@@ -840,3 +840,15 @@ body::before { content:""; position:fixed; inset:0 0 auto; z-index:1000; height:
  .playlist-column-headings::before { content:''; position:absolute; inset:0 -24px; z-index:-1; background:color-mix(in srgb,rgb(var(--playlist-tint,80 90 120)) 20%,#0b0d14); opacity:0; transition:opacity .15s; }
  @container scroll-state(stuck: top) { .playlist-column-headings::before { opacity:1; } }
 }
+
+/* Search placeholders reserve the same cover, metadata and actions as song rows. */
+.search-loading.song-placeholders { width:100%; max-width:none; height:auto; padding:0; background:none; border:0; box-shadow:none; }
+.song-placeholder { display:grid; grid-template-columns:76px minmax(0,1fr) 92px; align-items:center; gap:16px; min-height:100px; padding:12px 8px; }
+.placeholder-cover,.placeholder-text>span,.placeholder-action { display:block; background:var(--border,#ffffff14); border-radius:5px; }
+.placeholder-cover { width:76px; height:76px; }
+.placeholder-text { display:grid; gap:10px; }
+.placeholder-text>span { width:60%; max-width:320px; height:14px; }
+.placeholder-text>span+span { width:40%; max-width:200px; height:10px; }
+.placeholder-action { width:76px; height:32px; justify-self:end; }
+@media(max-width:720px) { .song-placeholder { grid-template-columns:60px minmax(0,1fr) 60px; gap:12px; min-height:100px; }.placeholder-cover { width:60px; height:60px; }.placeholder-action { width:52px; } }
+@media(prefers-reduced-motion:reduce) { .search-loading.song-placeholders,.song-placeholder,.song-placeholder span { animation:none; transition:none; } }

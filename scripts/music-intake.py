@@ -5,7 +5,7 @@ Stdlib orchestration around yt-dlp, ffprobe and ffmpeg (all found on PATH).
 Each staged item is one directory holding the audio bytes and manifest.json.
 Staged bytes are never modified; a trim derives a new item. See docs/MUSIC_INTAKE.md.
 """
-import argparse, contextlib, hashlib, json, math, os, queue, re, shutil, signal, stat, subprocess, sys, tempfile, threading, time, urllib.parse
+import argparse, collections, logging, contextlib, hashlib, json, math, os, queue, re, shutil, signal, stat, subprocess, sys, tempfile, threading, time, urllib.parse
 
 IMPORT_DIR = "Local Imports"
 WATCH = "https://www.youtube.com/watch?v="
@@ -386,6 +386,164 @@ def listening_query(query):
     return query + " official audio"
 
 
+class YouTubeGate:
+    """Process-wide request queue; foreground waiters precede background work."""
+    def __init__(self):
+        self.condition = threading.Condition()
+        self.active = False
+        self.users = 0
+        self.last = float('-inf')
+        self.spacing = 1.0
+        self.until = self.backoff = 0
+        self.counts = collections.Counter()
+        self.refusals = collections.Counter()
+        self.reported = time.monotonic()
+
+    @contextlib.contextmanager
+    def request(self, caller, background=False):
+        with self.condition:
+            self.users += not background
+            try:
+                while True:
+                    cancel = getattr(CONTROL, "cancel", None)
+                    if cancel and cancel.is_set():
+                        raise IntakeError("YouTube request cancelled")
+                    budget = getattr(CONTROL, "budget", None)
+                    if budget:
+                        budget()
+                    if caller == "fetch":
+                        current_background = getattr(CONTROL, "background", background)
+                        self.users += int(background) - int(current_background)
+                        background = current_background
+                    now = time.monotonic()
+                    delay = max(self.last + self.spacing - now, self.until - now if background else 0)
+                    if not self.active and not (background and self.users) and delay <= 0:
+                        break
+                    self.condition.wait(.2)
+                self.active = True
+                self.last = now
+                self.counts[caller] += 1
+            finally:
+                self.users -= not background
+        try:
+            yield
+        finally:
+            with self.condition:
+                now = time.monotonic()
+                if now - self.reported >= 600:
+                    logging.getLogger(__name__).info(
+                        "youtube requests last 10 min: %s; refused %s (%s)",
+                        ", ".join(f"{key} {self.counts[key]}" for key in ("search", "matching", "quality", "fetch")),
+                        sum(self.refusals.values()), dict(self.refusals))
+                    self.counts.clear()
+                    self.refusals.clear()
+                    self.reported = now
+                self.active = False
+                self.condition.notify_all()
+
+    def result(self, caller, rc, error):
+        refused = rc and re.search(r"\b(?:403|429)\b|too many requests|rate.?limit|forbidden", error, re.I)
+        with self.condition:
+            if refused:
+                self.refusals[caller] += 1
+                self.backoff = min(1800, self.backoff * 2 or 300)
+                self.until = time.monotonic() + self.backoff
+            elif not rc:
+                self.until = self.backoff = 0
+            self.condition.notify_all()
+        return bool(refused)
+
+
+YOUTUBE = YouTubeGate()
+SEARCH_CACHE = collections.OrderedDict()
+SEARCH_CACHE_LOCK = threading.Lock()
+SEARCH_CACHE_TTL = 6 * 3600
+
+
+class YouTubeDeferred(IntakeError):
+    pass
+
+
+def youtube_run(command, timeout, what, want_stdout=False, caller="fetch", background=None):
+    if background is None:
+        background = getattr(CONTROL, "background", False)
+    # Background refusals are retried after cooldown, never persisted as failed matches.
+    while True:
+        with YOUTUBE.request(caller, background):
+            result = run(command, timeout, what, want_stdout)
+            refused = YOUTUBE.result(caller, result[0], result[2])
+        if background and refused:
+            if caller == "fetch":
+                continue
+            raise YouTubeDeferred("YouTube cooldown")
+        return result
+
+
+def search_entries(query, offset, caller, background):
+    if background:
+        with YOUTUBE.condition:
+            while YOUTUBE.until > time.monotonic():
+                cancel = getattr(CONTROL, "cancel", None)
+                if cancel and cancel.is_set():
+                    raise IntakeError("search cancelled")
+                budget = getattr(CONTROL, "budget", None)
+                if budget:
+                    budget()
+                YOUTUBE.condition.wait(.2)
+    key = " ".join(query.casefold().split())
+    # Reserve a query without holding the cache lock during pacing or network work.
+    while True:
+        with SEARCH_CACHE_LOCK:
+            now = time.monotonic()
+            for old in list(SEARCH_CACHE):
+                if now - SEARCH_CACHE[old]["created"] >= SEARCH_CACHE_TTL:
+                    del SEARCH_CACHE[old]
+            cached = SEARCH_CACHE.get(key)
+            if cached is None:
+                cached = dict(created=now, entries=[], depth=0, extra=None, busy=threading.Lock())
+                SEARCH_CACHE[key] = cached
+            SEARCH_CACHE.move_to_end(key)
+            while len(SEARCH_CACHE) > 200:
+                SEARCH_CACHE.popitem(last=False)
+        if cached["busy"].acquire(timeout=.1):
+            break
+        cancel = getattr(CONTROL, "cancel", None)
+        if cancel and cancel.is_set():
+            raise IntakeError("search cancelled")
+    try:
+        depth = offset + SEARCH_POOL
+        if cached["depth"] < depth:
+            rc, out, err = youtube_run([tool("yt-dlp"), "--ignore-config", "--flat-playlist", "--dump-single-json",
+                f"ytsearch{depth}:{query}"], 120, "yt-dlp search", True, caller, background)
+            try:
+                entries = json.loads(out).get("entries") or [] if rc == 0 else None
+            except (ValueError, AttributeError):
+                entries = None
+            if not isinstance(entries, list):
+                raise IntakeError(f"yt-dlp search failed: {err or f'exit {rc}'}")
+            # Keep previously served provider positions stable when extending the pool.
+            cached["entries"].extend(entries[len(cached["entries"]):])
+            cached["depth"] = depth
+        entries = list(cached["entries"][offset:depth])
+        if not offset and listening_query(query) != query and sum(kind(e) == "topic" for e in entries if isinstance(e, dict)) < 3:
+            if cached["extra"] is None:
+                try:
+                    rc, out, _ = youtube_run([tool("yt-dlp"), "--ignore-config", "--flat-playlist", "--dump-single-json",
+                        f'ytsearch15:{query} "Provided to YouTube"'], 45, "art track search", True, caller, background)
+                    extra = json.loads(out).get("entries", []) if rc == 0 else []
+                    cached["extra"] = extra[:15] if isinstance(extra, list) else []
+                except YouTubeDeferred:
+                    raise
+                except (IntakeError, ValueError, AttributeError):
+                    cancel = getattr(CONTROL, "cancel", None)
+                    if cancel and cancel.is_set():
+                        raise IntakeError("search cancelled")
+            entries.extend(cached["extra"] or [])
+        return entries
+    finally:
+        cached["busy"].release()
+
+
 def cmd_search(args):
     query = args.query.strip()
     if not query or len(query) > 200 or any(ord(c) < 32 for c in query):
@@ -395,28 +553,14 @@ def cmd_search(args):
     offset = getattr(args, "offset", 0)
     if type(offset) is not int or not 0 <= offset <= 3000:
         raise IntakeError("invalid search offset")
-    paging = ["--playlist-start", str(offset + 1), "--playlist-end", str(offset + SEARCH_POOL)] if offset else []
-    rc, out, err = run([tool("yt-dlp"), "--ignore-config", "--flat-playlist", "--dump-single-json", *paging,
-                        f"ytsearch{offset + SEARCH_POOL}:{query}"], 120, "yt-dlp search", True)
-    try:
-        entries = json.loads(out).get("entries") or [] if rc == 0 else None
-    except (ValueError, AttributeError):
-        entries = None
-    if entries is None:
-        raise IntakeError(f"yt-dlp search failed: {err or f'exit {rc}'}")
-    # Artist channels can contain Art Tracks without a '- Topic' suffix. Search their
-    # standard distributor description too; no per-result extraction or audio download.
-    if not offset and listening_query(query) != query and sum(kind(e) == "topic" for e in entries if isinstance(e, dict)) < 3:
+    caller = getattr(args, "youtube_caller", "search")
+    background = getattr(args, "youtube_background", caller != "search")
+    while True:
         try:
-            rc2, extra, _ = run([tool("yt-dlp"), "--ignore-config", "--flat-playlist", "--dump-single-json",
-                f'ytsearch15:{query} "Provided to YouTube"'], 45, "art track search", True)
-            additional = json.loads(extra).get("entries", []) if rc2 == 0 else []
-            if isinstance(additional, list):
-                entries.extend(additional[:15])
-        except (IntakeError, ValueError, AttributeError):
-            cancel = getattr(CONTROL, "cancel", None)
-            if cancel and cancel.is_set():
-                raise IntakeError("search cancelled")
+            entries = search_entries(query, offset, caller, background)
+            break
+        except YouTubeDeferred:
+            continue
     positions, found = {}, []
     for e in entries:
         if not isinstance(e, dict) or not VID_RE.fullmatch(str(e.get("id") or "")):
@@ -458,7 +602,7 @@ def cmd_fetch(args):
     tool("ffmpeg"), tool("ffprobe")
     # bestaudio only: without an audio-only format yt-dlp fails here; nothing substitutes a video download.
     base = [tool("yt-dlp"), "--ignore-config", "--no-playlist", "-f", "bestaudio"]
-    rc, out, err = run(base + ["--dump-single-json", "--", url], 120, "yt-dlp metadata", True)
+    rc, out, err = youtube_run(base + ["--dump-single-json", "--", url], 120, "yt-dlp metadata", True)
     try:
         meta = json.loads(out) if rc == 0 else None
     except ValueError:
@@ -480,7 +624,7 @@ def cmd_fetch(args):
         dl = os.path.join(tmp, "dl")
         os.mkdir(dl)
         # --extract-audio with --audio-format best keeps the source codec; it changes the container at most.
-        rc, _, err = run(base + ["--no-overwrites", "--no-progress", "--match-filter", "!is_live",
+        rc, _, err = youtube_run(base + ["--no-overwrites", "--no-progress", "--match-filter", "!is_live",
                                  "--max-filesize", "2G", "--extract-audio", "--audio-format", "best",
                                  "--paths", dl, "--output", "source.%(ext)s", "--", url], 1800, "yt-dlp download")
         files = os.listdir(dl)
@@ -575,7 +719,33 @@ def hls_command(audio, root):
             "seg%05d.m4s", "index.m3u8"]
 
 
-def pump_preview(command, spool, root, cancel, notify=lambda: None, budget=lambda: None,
+def pump_preview(command, *args, **kwargs):
+    # Each attempt owns these newly created paths; a refusal leaves a partial spool.
+    spool = args[0] if args else kwargs["spool"]
+    root = args[1] if len(args) > 1 else kwargs["root"]
+    while True:
+        background = getattr(CONTROL, "background", False)
+        retry_paths = not os.path.lexists(root) and not os.path.lexists(spool)
+        with YOUTUBE.request("fetch", background):
+            try:
+                result = _pump_preview(command, *args, **kwargs)
+            except IntakeError as error:
+                refused = YOUTUBE.result("fetch", 1, str(error))
+                if not (background and refused and retry_paths):
+                    raise
+                # The pump has stopped its processes before these owned paths are removed.
+                root_path = os.path.abspath(root)
+                if os.path.realpath(root) != root_path or os.path.dirname(root_path) == root_path:
+                    raise
+                shutil.rmtree(root_path)
+                if os.path.exists(spool):
+                    os.unlink(spool)
+            else:
+                YOUTUBE.result("fetch", 0, "")
+                return result
+
+
+def _pump_preview(command, spool, root, cancel, notify=lambda: None, budget=lambda: None,
                  max_bytes=2 << 30, timeout=1800, idle=45, progress=lambda **fields: None, total_bytes=None):
     """One source, exact spool and a detachable bounded encoder branch; no browser owns the pipe."""
     os.mkdir(root, 0o700)
@@ -584,6 +754,7 @@ def pump_preview(command, spool, root, cancel, notify=lambda: None, budget=lambd
     stopped = threading.Event()
     errors = []
     procs, threads = [], []
+    source_error = tempfile.TemporaryFile()
     digest, size, preview_ok = hashlib.sha256(), 0, False
     def read_source():
         try:
@@ -616,7 +787,7 @@ def pump_preview(command, spool, root, cancel, notify=lambda: None, budget=lambd
             with contextlib.suppress(OSError):
                 encoder.stdin.close()
     try:
-        source = spawn(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        source = spawn(command, stdout=subprocess.PIPE, stderr=source_error, stdin=subprocess.DEVNULL)
         procs.append(source)
         encoder = spawn(hls_command("pipe:0", root), cwd=root, stdin=subprocess.PIPE,
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -662,7 +833,9 @@ def pump_preview(command, spool, root, cancel, notify=lambda: None, budget=lambd
             os.fsync(out.fileno())
         remaining = max(.1, timeout - (time.monotonic() - started))
         if source.wait(timeout=min(30, remaining)) or not size:
-            raise IntakeError("source acquisition failed")
+            source_error.seek(max(0, source_error.seek(0, os.SEEK_END) - 600))
+            error = re.sub(r"https?://\S+", "[url]", source_error.read().decode("utf-8", "replace"))
+            raise IntakeError(f"source acquisition failed: {error}")
         progress(download_bytes=size, download_total_bytes=size)
         if attached:
             while encoder.poll() is None:
@@ -685,6 +858,7 @@ def pump_preview(command, spool, root, cancel, notify=lambda: None, budget=lambd
         stopped.set()
         for proc in procs:
             stop_process(proc)
+        source_error.close()
         for thread in threads:
             thread.join(timeout=5)
         for proc in procs:

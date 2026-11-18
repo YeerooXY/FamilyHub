@@ -204,10 +204,14 @@ class SourceQuality:
                             return
                         query = (row['artist'].split(',')[0] + ' ' + row['title'])[:200]
                         with self.activity.track(row['title']):
-                            found = self.intake.cmd_search(SimpleNamespace(query=query, limit=30, offset=0))['results']
+                            def search(args):
+                                args.youtube_caller = 'quality'
+                                args.youtube_background = True
+                                return self.intake.cmd_search(args)
+                            found = search(SimpleNamespace(query=query, limit=30, offset=0))['results']
                             if not self.idle():
                                 return
-                            row['proposed_replacement'] = official_replacement(row, found, search=self.intake.cmd_search)
+                            row['proposed_replacement'] = official_replacement(row, found, search=search)
                         row['replacement_checked'] = True
                         self.save(key, row)
                 except ScanPaused:

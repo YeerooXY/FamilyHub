@@ -348,6 +348,13 @@ def entry(n, title="Song", channel="Someone", **extra):
 
 
 class SearchRanking(unittest.TestCase):
+    def setUp(self):
+        mi.SEARCH_CACHE.clear()
+        self.gate = mock.patch.object(mi, "YOUTUBE", mi.YouTubeGate())
+        self.gate.start()
+        self.addCleanup(self.gate.stop)
+        mi.YOUTUBE.spacing = 0
+
     def test_album_lookup_does_not_promote_other_songs_or_tribute_artists(self):
         general = [entry(1, "Artist Thriller (Official Audio)")]
         albums = [entry(2, "Another Song", "Artist - Topic"), entry(3, "Thriller", "Artist",
@@ -370,7 +377,7 @@ class SearchRanking(unittest.TestCase):
             mi.cmd_search(SimpleNamespace(query="artist", limit=30, offset=30))
         command = run.call_args.args[0]
         self.assertIn("ytsearch60:artist", command)
-        self.assertEqual(command[command.index("--playlist-start")+1], "31")
+        self.assertNotIn("--playlist-start", command)
         self.assertEqual(run.call_count, 1)
 
     def test_album_on_primary_artist_channel_keeps_duet_eligible(self):
