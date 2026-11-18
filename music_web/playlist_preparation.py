@@ -349,7 +349,7 @@ class PlaylistPreparation:
                 with self.condition:
                     if operation.stop.is_set(): raise InterruptedError()
                     chosen = min(self.waiters,key=lambda row:self.served.get(row[1],-1))
-                    cap = self.resources.background_slots(self.capacity) if self.resources else self.capacity
+                    cap = self.resources.background_slots(self.capacity, 3) if self.resources else self.capacity
                     if self.inflight < cap and chosen[0] is ticket and allowed:
                         self.waiters.remove((ticket,key))
                         self.inflight += 1; self.dispatch += 1; self.served[key] = self.dispatch

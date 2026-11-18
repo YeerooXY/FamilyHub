@@ -197,10 +197,13 @@ class ResourceGovernor:
             state = next((state for state in reversed(PRESENCE) if state in states), "offline")
             return state, *PRESENCE[state]
 
-    def background_slots(self, limit):
+    def background_slots(self, limit, floor=0):
+        """Background slots: `floor` stays available while people are online; the rest returns
+        one per second after everyone leaves."""
         with self.condition:
             elapsed = self.clock() - self.handback
-            return limit if elapsed >= limit else max(0, int(elapsed)) if elapsed >= 0 else 0
+            idle = limit if elapsed >= limit else max(0, int(elapsed)) if elapsed >= 0 else 0
+            return max(min(floor, limit), idle)
 
     def background_delay(self, slot):
         with self.condition:
@@ -383,6 +386,10 @@ class TransferResources:
         self.waiters = {"transfer": [], "scratch": []}
         self.active = self.active_background = self.reserved = 0
 
+    def background_floor(self):
+        # Background downloads keep the base transfers not reserved for people online.
+        return max(1, self.capacity - self.governor.reservations()[2]) if self.governor else self.capacity
+
     def wake(self):
         with self.condition:
             self.condition.notify_all()
@@ -402,7 +409,7 @@ class TransferResources:
                 while True:
                     if cancelled():
                         raise error("acquisition cancelled")
-                    if not size and self.governor and defer and background() and not self.governor.background_slots(1):
+                    if not size and self.governor and defer and background() and not self.governor.background_slots(1, self.background_floor()):
                         defer()
                     delay = None
                     if min(queue, key=lambda row: row[1]()) == ticket:
@@ -418,7 +425,7 @@ class TransferResources:
                             admitted_background = background()
                             if self.governor:
                                 if admitted_background:
-                                    capacity = self.governor.background_slots(self.idle_capacity)
+                                    capacity = self.governor.background_slots(self.idle_capacity, self.background_floor())
                                 elif self.active - self.active_background < self.capacity:
                                     capacity = max(capacity, min(self.active + 1, self.idle_capacity))
                                 if admitted_background and capacity <= self.active < self.idle_capacity:
