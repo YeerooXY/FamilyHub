@@ -153,8 +153,16 @@ def rank_matches(track, candidates, search=None):
         ranked.append((candidate["recommended"], -candidate["source_tier"], score, candidate))
     return [row for _, _, _, row in sorted(ranked, key=lambda item: item[:3], reverse=True)[:5]]
 
+def entry_identity(track):
+    match = track.get("match") or {}
+    return [track.get(key) for key in ("title", "artist", "duration", "spotify_uri", "added_at", "source_id")] + [
+        match.get("id"), match.get("url")]
+
+
 class PlaylistStore:
-    def __init__(self,workspace): self.root=Path(workspace)/".playlists"
+    def __init__(self, workspace):
+        self.root = Path(workspace) / ".playlists"
+        self.changed = lambda owner, pid: None
     def directory(self,user):
         return self.root/hashlib.sha256(user.encode()).hexdigest()
     def read(self,user,pid):
@@ -176,17 +184,20 @@ class PlaylistStore:
     def save(self,user,data):
         self._backfill_added_at(data)
         journal = self.root.parent / '.replacements.json'
-        if journal.exists():
-            replacements = json.loads(journal.read_text(encoding='utf-8'))
-            for track in data['tracks']:
-                for _ in range(len(replacements)):
-                    replacement = replacements.get(track.get('source_id') or (track.get('match') or {}).get('id'), {})
-                    if replacement.get('state') != 'done': break
-                    track.update(source_id=replacement['new_id'], match=replacement['match'], state='saved')
-                    track.pop('job_id', None)
+        replacements = json.loads(journal.read_text(encoding='utf-8')) if journal.exists() else {}
+        for track in data['tracks']:
+            for _ in range(len(replacements)):
+                replacement = replacements.get(track.get('source_id') or (track.get('match') or {}).get('id'), {})
+                if replacement.get('state') != 'done': break
+                track.update(source_id=replacement['new_id'], match=replacement['match'], state='saved')
+                track.pop('job_id', None)
+            retry = track.get("backlog_retry")
+            if retry and (track.get("state") == "saved" or retry["entry"] != entry_identity(track)):
+                track.pop("backlog_retry")
         folder=self.directory(user);folder.mkdir(parents=True,exist_ok=True)
         target=folder/(data["id"]+".json");temporary=target.with_suffix(".tmp")
         temporary.write_text(json.dumps(data,ensure_ascii=False),encoding="utf-8");temporary.replace(target)
+        self.changed(user, data["id"])
     def import_playlist(self,user,data,append=False,actor=None):
         try: previous=self.read(user,data["id"])
         except PlaylistError:
@@ -229,7 +240,7 @@ class PlaylistStore:
                 old=matches.popleft()
                 track["added_at"]=old.get("added_at")
                 track["added_by"]=old.get("added_by")
-                for field in ("candidates","state","match","job_id","source_id"):
+                for field in ("candidates","state","match","job_id","source_id","backlog_retry"):
                     if field in old: track[field]=old[field]
             else:
                 track["added_at"]=datetime.now(timezone.utc).isoformat()
@@ -246,6 +257,7 @@ class PlaylistStore:
     def delete(self,user,pid):
         self.read(user,pid)
         (self.directory(user)/(pid+".json")).unlink()
+        self.changed(user, pid)
     def list(self,user):
         folder=self.directory(user)
         return [self.read(user,p.stem) for p in sorted(folder.glob("*.json"))[:100]]

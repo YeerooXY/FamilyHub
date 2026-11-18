@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 from music_web.playlist_preparation import PlaylistPreparation, _PlaylistOperation
 from music_web.playlists import PlaylistStore
+from music_web.resources import ResourceGovernor, background_request
 from tests.test_music_web import Base
 
 PID = "p" * 22
@@ -30,63 +31,92 @@ class CoordinatorTests(unittest.TestCase):
         self.assertFalse(coordinator.thread.is_alive())
         return coordinator.status("alex", PID)
 
-    def test_idle_queue_starts_three_playlists_then_picks_up_the_next_batch(self):
-        release=threading.Event();called=[]
-        def prepare(user,track,progress):called.append(track['title']);release.wait(2);return dict(candidate(),saved=True)
-        coordinator=PlaylistPreparation(self.store,self.lock,prepare)
-        for n in range(4):
-            pid=str(n)*22
-            self.store.save('alex',dict(id=pid,name=str(n),revision=1,tracks=[dict(entry(str(n)),state='ready',source_id='abcdefghijk',match=candidate())]))
-        self.assertEqual(coordinator.queue_idle(['alex'],lambda:False),[])
-        try:
-            selected=coordinator.queue_idle(['alex'],lambda:True)
-            self.assertEqual(len(selected),3)
-            self.assertEqual(coordinator.queue_idle(['alex'],lambda:True),[])
-        finally:release.set()
-        for op in list(coordinator.operations.values()):
-            if op.thread:op.thread.join(3)
-        self.assertEqual(len(coordinator.queue_idle(['alex'],lambda:True)),1)
-        coordinator.thread.join(3)
-        self.assertEqual(sorted(called),['0','1','2','3'])
-        self.assertEqual(coordinator.queue_idle(['alex'],lambda:True),[])
+    def backlog(self, match, resources=None):
+        prepare = lambda *_: dict(candidate(), saved=True)
+        coordinator = PlaylistPreparation(self.store, self.lock, prepare, match, resources=resources)
+        self.store.changed = coordinator.backlog_changed
+        return coordinator
 
-    def test_idle_queue_refills_a_free_place_while_other_playlists_run(self):
-        release=threading.Event()
-        def prepare(user,track,progress):
-            if track['title']=='0': release.wait(2)
-            return dict(candidate(),saved=True)
-        coordinator=PlaylistPreparation(self.store,self.lock,prepare)
-        self.store.save('alex',dict(id='0'*22,name='0',revision=1,tracks=[dict(entry('0'),state='ready',source_id='abcdefghijk',match=candidate())]))
-        try:
-            self.assertEqual(coordinator.queue_idle(['alex'],lambda:True),[('alex','0'*22)])
-            self.store.save('alex',dict(id='1'*22,name='1',revision=1,tracks=[dict(entry('1'),state='ready',source_id='abcdefghijk',match=candidate())]))
-            self.assertEqual(coordinator.queue_idle(['alex'],lambda:True),[('alex','1'*22)])
-        finally:release.set()
-        for op in list(coordinator.operations.values()):
-            if op.thread:op.thread.join(3)
+    def sweep(self, coordinator, refresh=False, admit=lambda: True, acquire=None):
+        return coordinator.sweep(["alex", "bea"], admit, acquire or (lambda *_: {"state": "done"}),
+                                 lambda *_: dict(candidate(), saved=True), refresh=refresh)
 
-    def test_idle_matching_downloads_approved_choices_and_preserves_review_pool(self):
-        tracks=[entry('New'),dict(entry('Review'),state='review',match=candidate()),dict(entry('Failed'),state='error')]
-        self.store.save('alex',dict(id=PID,name='List',revision=1,tracks=tracks))
-        matched=[];downloaded=[]
-        def match(user,track,progress):matched.append(track['title']);return candidate()
-        def prepare(user,track,progress):downloaded.append(track['title']);return dict(candidate(),saved=True)
-        coordinator=PlaylistPreparation(self.store,self.lock,prepare,match)
-        self.assertEqual(coordinator.queue_idle(['alex'],lambda:True),[('alex',PID)])
-        status=self.finish(coordinator)
-        self.assertEqual(matched,['New']);self.assertEqual(downloaded,['New'])
-        self.assertEqual([t['state'] for t in self.store.read('alex',PID)['tracks']],['saved','review','error'])
-        self.assertTrue(status['automatic'])
-        self.assertEqual(coordinator.queue_idle(['alex'],lambda:True),[])
+    def save_tracks(self, owner, pid, *tracks, **options):
+        self.store.save(owner, dict(id=pid, name="List", revision=1, tracks=list(tracks), **options))
 
-    def test_manual_pause_is_not_overridden_by_idle_queue(self):
-        data=dict(id=PID,name='List',revision=1,tracks=[dict(entry(),state='ready',source_id='abcdefghijk',match=candidate())])
-        self.store.save('alex',data)
-        coordinator=PlaylistPreparation(self.store,self.lock,lambda user,track,progress:dict(candidate(),saved=True))
-        coordinator.pause('alex',PID)
-        self.assertEqual(coordinator.queue_idle(['alex'],lambda:True),[])
-        coordinator.start('alex',PID);self.finish(coordinator)
-        self.assertFalse(self.store.read('alex',PID)['auto_download_paused'])
+    def test_backlog_takes_turns_by_owner_and_playlist_while_downloads_run(self):
+        calls, jobs = [], []
+
+        def match(owner, track, _progress):
+            self.assertTrue(background_request.get())
+            calls.append((owner, track["title"]))
+            return candidate()
+
+        def acquire(*_):
+            job = {"state": "running"}
+            jobs.append(job)
+            return job
+
+        coordinator = self.backlog(match)
+        self.save_tracks("alex", PID, entry("A1"), entry("A2"))
+        self.save_tracks("alex", "q" * 22, dict(entry("B"), state="error"))
+        self.save_tracks("bea", PID, dict(entry("C"), state="review"), entry("D"))
+        self.assertTrue(self.sweep(coordinator, refresh=True, acquire=acquire))
+        self.assertTrue(self.sweep(coordinator, acquire=acquire))
+        self.assertTrue(self.sweep(coordinator, acquire=acquire))
+        self.assertFalse(self.sweep(coordinator, acquire=acquire))
+        self.assertEqual(calls, [("alex", "A1"), ("bea", "C"), ("alex", "B")])
+        self.assertEqual(coordinator.backlog_counts, dict(backlog_pending=2, backlog_backing_off=0, backlog_running=3))
+        jobs[0]["state"] = jobs[1]["state"] = "done"
+        self.assertTrue(self.sweep(coordinator, acquire=acquire))
+        self.assertTrue(self.sweep(coordinator, acquire=acquire))
+        self.assertEqual(calls[-2:], [("bea", "D"), ("alex", "A2")])
+
+    def test_backoff_survives_restart_and_resets_when_manual_prepare_runs(self):
+        match = lambda *_: None
+        self.save_tracks("alex", PID, entry())
+        time_now = 1000
+        with patch("music_web.playlist_preparation.time.time", side_effect=lambda: time_now):
+            coordinator = self.backlog(match)
+            for delay in (1, 6, 24, 72, 72):
+                self.assertTrue(self.sweep(coordinator, refresh=True))
+                retry = self.store.read("alex", PID)["tracks"][0]["backlog_retry"]
+                self.assertEqual(retry["at"], time_now + delay * 3600)
+                coordinator = self.backlog(match)
+                self.assertFalse(self.sweep(coordinator, refresh=True))
+                self.assertEqual(coordinator.backlog_counts["backlog_backing_off"], 1)
+                time_now = retry["at"]
+            coordinator.start("alex", PID, mode="match")
+            self.finish(coordinator)
+            self.assertEqual(self.store.read("alex", PID)["tracks"][0]["backlog_retry"]["failures"], 1)
+            data = self.store.read("alex", PID)
+            data["tracks"][0].update(match=candidate(), source_id="abcdefghijk")
+            self.store.save("alex", data)
+            self.assertNotIn("backlog_retry", self.store.read("alex", PID)["tracks"][0])
+
+    def test_backlog_waits_for_presence_handback_and_dispatch_admission(self):
+        now = 0
+        resources = ResourceGovernor(clock=lambda: now)
+        self.addCleanup(lambda: resources.reporter.cancel() if resources.reporter else None)
+        coordinator = self.backlog(lambda *_: None, resources)
+        self.save_tracks("alex", PID, entry())
+        resources.presence("alex", "listening", 20)
+        self.assertFalse(self.sweep(coordinator, refresh=True))
+        resources.close("alex")
+        self.assertFalse(self.sweep(coordinator))
+        now = 1
+        self.assertFalse(self.sweep(coordinator, admit=lambda: False))
+        self.assertTrue(self.sweep(coordinator))
+
+    def test_manual_pause_and_import_without_downloads_exclude_playlists(self):
+        coordinator = self.backlog(lambda *_: self.fail("Paused entry was searched"))
+        self.save_tracks("alex", PID, entry())
+        self.save_tracks("bea", PID, entry(), auto_download_paused=True)
+        coordinator.pause("alex", PID)
+        self.assertFalse(self.sweep(coordinator, refresh=True))
+        coordinator.start("alex", PID)
+        self.finish(coordinator)
+        self.assertFalse(self.store.read("alex", PID)["auto_download_paused"])
 
     def test_new_playlist_gets_next_slot_and_combined_bulk_work_stays_at_three(self):
         second='q'*22
@@ -531,6 +561,56 @@ class PreparationApiTests(Base):
         self.assertEqual(search.call_args.args[0].limit, 30)
         stored = PlaylistStore(self.ws).read("sample-a", playlist["id"])
         self.assertEqual(stored["tracks"][0]["source_id"], "abcdefghijk")
+
+
+class BacklogApiTests(Base):
+    extra = {"AUTO_PLAYLIST_DOWNLOADS": True}
+    check_presence = True
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(self.stop_backlog)
+
+    def stop_backlog(self):
+        self.state.auto_playlist_stop.set()
+        self.state.resources.changed()
+        self.state.auto_playlist_thread.join(3)
+        self.assertFalse(self.state.auto_playlist_thread.is_alive())
+
+    def test_playlist_change_and_presence_handback_wake_the_background_dispatcher(self):
+        coordinator = self.state.playlist_preparation
+        self.state.resources.presence("listener", "listening", 30)
+        self.intake.YOUTUBE.until = time.monotonic() + 1.5
+        downloaded = threading.Event()
+
+        def fail_fetch(_args):
+            self.assertTrue(self.intake.CONTROL.background)
+            downloaded.set()
+            raise self.intake.IntakeError("Recording removed")
+
+        def search(args):
+            self.assertTrue(args.youtube_background)
+            self.assertGreaterEqual(time.monotonic(), self.intake.YOUTUBE.until)
+            return {"results": [] if args.query.endswith("Missing") else [dict(candidate(), kind="topic")]}
+
+        with patch.object(self.intake, "cmd_search", side_effect=search) as find, \
+                patch.object(self.intake, "cmd_fetch", side_effect=fail_fetch):
+            coordinator.store.save("sample-a", dict(id=PID, name="Backlog", revision=1, tracks=[
+                dict(entry("Missing"), state="review"), dict(entry(), state="error")]))
+            self.assertFalse(downloaded.wait(.1))
+            find.assert_not_called()
+            self.state.resources.close("listener")
+            self.assertTrue(downloaded.wait(4), "backlog did not reach the acquisition dispatcher")
+            for _ in range(100):
+                tracks = coordinator.store.read("sample-a", PID)["tracks"]
+                if all("backlog_retry" in track for track in tracks):
+                    break
+                time.sleep(.02)
+            self.assertEqual([track["state"] for track in tracks], ["review", "error"])
+            self.assertEqual([track["backlog_retry"]["failures"] for track in tracks], [1, 1])
+            self.assertEqual(tracks[1]["source_id"], "abcdefghijk")
+            self.assertEqual(find.call_count, 3)
+            self.assertTrue(next(iter(self.state.jobs.values()))["playlist_import"])
 
 
 class RecordingReviewApiTests(Base):

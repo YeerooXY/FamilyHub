@@ -104,6 +104,12 @@ for (var run = 0; run < 100; run++)
     await player.PlayAsync(tracks[0], tracks); player.AddToQueue(tracks[5]); player.AddToQueue(tracks[7]);
     Check(player.Queue[1].Id == tracks[5].Id && player.Queue[2].Id == tracks[7].Id, "Manual queue did not take FIFO priority");
     var count = player.Queue.Count; player.AddToQueue(tracks[5]); Check(player.Queue.Count == count, "Repeated queue click duplicated a pending entry");
+    player.AddToQueue([tracks[3], tracks[4]], playNext: false);
+    Check(player.Queue.Skip(1).Take(4).Select(t => t.Id).SequenceEqual(new[] { tracks[5].Id, tracks[7].Id, tracks[3].Id, tracks[4].Id }),
+        "Playlist append changed manual queue order");
+    player.AddToQueue([tracks[4], tracks[6], tracks[1]], playNext: true);
+    Check(player.Current?.Title == tracks[0].Title && player.Queue.Skip(1).Take(3).Select(t => t.Title)
+        .SequenceEqual(new[] { tracks[4].Title, tracks[1].Title, tracks[5].Title }), "Play next did not insert the playlist ahead of the queue");
     await player.StopAsync();
 }
 {
@@ -419,12 +425,12 @@ namespace FamilyHub.App.Services
         private readonly List<TaskCompletionSource<string>> requests = [];
         public string? LocalPath(MusicTrack track) => Delay ? null : FailPlayback ? "fail" : "fixture";
         public Task<string?> GetCachedPlaybackPathAsync(MusicTrack track, CancellationToken token) => Task.FromResult<string?>(null);
-        public Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken token, bool allowPreview = false) => Task.FromResult(track);
+        public Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken token, bool allowPreview = false, bool background = false) => Task.FromResult(track);
         public bool CanStream => false;
         public void StreamingFailed() { }
         public static bool IsStream(string source) => source.StartsWith("https://", StringComparison.Ordinal);
-        public Task<string> StreamPlaybackAsync(MusicTrack track, double lead, CancellationToken token) => throw new InvalidOperationException("Streaming is off in tests.");
-        public Task<string> CachePlaybackAsync(MusicTrack track, CancellationToken token, double lead = 0)
+        public Task<string> StreamPlaybackAsync(MusicTrack track, double lead, CancellationToken token, bool background = false) => throw new InvalidOperationException("Streaming is off in tests.");
+        public Task<string> CachePlaybackAsync(MusicTrack track, CancellationToken token, double lead = 0, bool background = false)
         { var request = new TaskCompletionSource<string>(); requests.Add(request); return request.Task; }
         public void Complete(int i) => requests[i].SetResult("fixture");
         public void Fail(int i) => requests[i].SetException(new IOException("Old request failed"));
@@ -458,7 +464,7 @@ namespace FamilyHub.App.Services
         public bool TransportEnabled { private get; set; }
         public Task SeekAsync(double seconds) { Seek(seconds); return Task.CompletedTask; }
         public void RefreshPosition() { }
-        public void PlayFile(string path, string title, string artist, bool play = true)
+        public void PlayFile(string path, string title, string artist, bool play = true, bool background = false)
         { if (path == "fail") throw new IOException(); Position = 0; Title = title; PlaybackRequested = play; Changed?.Invoke(); }
         public void SetPlaying(bool play) { PlaybackRequested = play; Changed?.Invoke(); }
         public void RaiseEnded() => Ended?.Invoke();

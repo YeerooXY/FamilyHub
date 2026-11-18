@@ -761,7 +761,12 @@ public sealed class MusicSession
             : "Server unavailable. Downloaded songs are available offline.");
     }
 
-    public MusicTrack? Resolve(PlaylistTrack entry) => entry.RecordingId is { } id ? libraryById.GetValueOrDefault(id) ?? downloadsById.GetValueOrDefault(id) : null;
+    public MusicTrack? Resolve(PlaylistTrack entry)
+    {
+        if (entry.RecordingId is not { } id) return null;
+        return libraryById.GetValueOrDefault(id) ?? downloadsById.GetValueOrDefault(id)
+            ?? (Connected && entry.State == "saved" && entry.Match is { DownloadUrl.Length: > 0 } saved && saved.Id == id ? saved : null);
+    }
     public MusicTrack CurrentRecording(MusicTrack track) =>
         libraryById.TryGetValue(track.Id, out var current) && (Connected || current.DownloadSha256 == track.DownloadSha256) ? current : track;
 

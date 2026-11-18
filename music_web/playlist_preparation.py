@@ -4,19 +4,33 @@ import time
 from contextlib import ExitStack
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
-from .playlists import PlaylistError, rank_matches, preferred_match
+from .playlists import PlaylistError, entry_identity, rank_matches, preferred_match
 from .worker_activity import WorkerActivity
 from .resources import observe, background_request, enabled
 
 
+RETRY_DELAYS = (3600, 6 * 3600, 24 * 3600, 72 * 3600)
+
+
+def record_attempt(track, previous):
+    track.pop("backlog_retry", None)
+    if track["state"] in ("review", "error"):
+        identity = entry_identity(track)
+        retry = previous if previous and previous["entry"] == identity else {}
+        failures = min(retry.get("failures", 0) + 1, len(RETRY_DELAYS))
+        track["backlog_retry"] = {"entry": identity, "failures": failures,
+                                  "at": time.time() + RETRY_DELAYS[failures - 1]}
+
+
 class _PlaylistOperation:
-    def __init__(self, store, lock, prepare, match=None, read=None, download_workers=1):
+    def __init__(self, store, lock, prepare, match=None, read=None, download_workers=1, finished=lambda: None):
         self.download_workers = max(1, min(3, download_workers))
         self.store, self.lock, self.prepare = store, lock, prepare
         self.match, self.read = match, read
         self.thread = None
         self.stop = threading.Event()
         self.active = None
+        self.finished = finished
 
     def status(self, user, pid):
         with self.lock:
@@ -169,7 +183,9 @@ class _PlaylistOperation:
         finally:
             if not delegated:
                 with self.lock:
-                    if self.active == (user, pid): self.active = None
+                    if self.active == (user, pid):
+                        self.active = None
+                        self.finished()
 
     def _run(self, user, pid, mode, start_index=0):
         phase_succeeded = False
@@ -245,6 +261,7 @@ class _PlaylistOperation:
                 except Exception:
                     track["state"] = "error"
                     if mode == "download": progress("Recording preparation failed", file_phase="error")
+                record_attempt(track, track.get("backlog_retry"))
                 return track
 
             with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="playlist-match" if workers > 1 else "playlist-save") as pool:
@@ -311,6 +328,7 @@ class _PlaylistOperation:
                             data["preparation"].update(state="paused", active_searches=0, message="Paused")
                             self.store.save(user, data)
                         self.active = None
+                        self.finished()
             if download_next:
                 self._run(user, pid, "download")
 
@@ -329,7 +347,12 @@ class PlaylistPreparation:
         self.condition = resources.condition if resources else threading.Condition()
         self.capacity = 6 if resources and enabled("FAMILYHUB_IDLE_PLAYLISTS") else self.WORKERS
         self.waiters, self.served, self.inflight, self.dispatch = [], {}, 0, 0
-        self.auto_served = {}
+        self.backlog_wake = threading.Event()
+        self.backlog_dirty = set()
+        self.backlog_playlists = {}
+        self.backlog_running = {}
+        self.backlog_served = {}
+        self.backlog_counts = dict(backlog_pending=0, backlog_backing_off=0, backlog_running=0)
         self.activity = WorkerActivity('playlist', 'Playlist matching / preparation', self.capacity)
         self.resources = resources
 
@@ -372,6 +395,7 @@ class PlaylistPreparation:
                     held = False
                     self.inflight -= 1
                     self.condition.notify_all()
+                    self.backlog_wake.set()
 
         token = background_request.set(True)
         state()
@@ -413,7 +437,8 @@ class PlaylistPreparation:
                         operation.update(user,pid,message="Reading playlist")
                         return self.read(provider,url,progress)
                 return self._execute(key, operation, execute)
-            operation = _PlaylistOperation(self.store,self.lock,wrap(self.prepare),wrap(self.match),read if self.read else None,self.download_workers)
+            operation = _PlaylistOperation(self.store,self.lock,wrap(self.prepare),wrap(self.match),
+                                           read if self.read else None,self.download_workers,self.backlog_wake.set)
             self.operations[key] = operation
         return self.operations[key]
 
@@ -428,14 +453,150 @@ class PlaylistPreparation:
 
     def start(self,user,pid,mode="download",actor=None):
         with self.lock:
+            if mode not in ("match", "download"):
+                raise ValueError("Choose matching or downloading.")
             self._admit(user,pid)
             operation=self._operation(user,pid)
             data=self.store.read(user,pid)
             if data.get("preparation", {}).get("append") and data["preparation"].get("phase") == "reading" and operation.active is None:
                 raise ValueError("Import the playlist link again to continue adding songs.")
-            data["auto_download_paused"]=False; self.store.save(user,data)
+            if mode == "download":
+                data["auto_download_paused"] = False
+            for track in data["tracks"]:
+                track.pop("backlog_retry", None)
+            for key in list(self.backlog_running):
+                if key[:2] == (user, pid):
+                    del self.backlog_running[key]
+            self.store.save(user, data)
             result=operation.start(user,pid,mode,actor); self.thread=operation.thread
             return result
+
+    def backlog_changed(self, owner, pid):
+        with self.lock:
+            self.backlog_dirty.add((owner, pid))
+            self.backlog_wake.set()
+
+    def _backlog_entry(self, key, original):
+        owner, pid, index = key
+        try:
+            data = self.store.read(owner, pid)
+            track = data["tracks"][index]
+            if (data["revision"], entry_identity(track), track.get("job_id"), track.get("candidates")) == original:
+                return data
+        except (PlaylistError, IndexError):
+            pass
+        return None
+
+    def _complete_backlog(self, key, track):
+        original, _, _ = self.backlog_running.pop(key)
+        data = self._backlog_entry(key, original)
+        if data is not None and not self.is_active(*key[:2]):
+            if track["state"] != "ready":
+                previous = data["tracks"][key[2]].get("backlog_retry")
+                record_attempt(track, previous)
+                track.pop("job_id", None)
+            data["tracks"][key[2]] = track
+            self.store.save(key[0], data)
+
+    def sweep(self, owners, admit, acquire, resolve, *, refresh=False):
+        """Start one background entry. Downloads finish through the acquisition dispatcher."""
+        with self.lock:
+            for key, (_, track, job) in list(self.backlog_running.items()):
+                if job is None or job["state"] in ("queued", "running"):
+                    continue
+                try:
+                    row = resolve(key[0], track["source_id"]) if job["state"] == "done" else None
+                except Exception:
+                    row = None
+                if row is not None:
+                    track.update(match=row, state="saved")
+                else:
+                    track["state"] = "error"
+                self._complete_backlog(key, track)
+            if refresh:
+                self.backlog_playlists = {(owner, data["id"]): data for owner in owners for data in self.store.list(owner)}
+                self.backlog_served = {key: turn for key, turn in self.backlog_served.items()
+                                       if key in self.backlog_playlists or len(key) == 1 and key[0] in owners}
+                self.backlog_dirty.clear()
+            for key in self.backlog_dirty.copy():
+                self.backlog_dirty.discard(key)
+                try:
+                    self.backlog_playlists[key] = self.store.read(*key)
+                except PlaylistError:
+                    self.backlog_playlists.pop(key, None)
+            pending = backing_off = 0
+            candidates = []
+            now = time.time()
+            for key, data in self.backlog_playlists.items():
+                if data.get("auto_download_paused") or self.is_active(*key):
+                    continue
+                first = None
+                for index, track in enumerate(data["tracks"]):
+                    if track.get("state") == "saved" or (*key, index) in self.backlog_running:
+                        continue
+                    if track.get("backlog_retry", {}).get("at", 0) > now:
+                        backing_off += 1
+                    else:
+                        pending += 1
+                        if first is None:
+                            first = index
+                if first is not None:
+                    candidates.append((*key, first))
+            self.backlog_counts = dict(backlog_pending=pending, backlog_backing_off=backing_off,
+                                       backlog_running=len(self.backlog_running))
+            if not candidates or not self.allow_background():
+                return False
+            with self.condition:
+                cap = self.resources.background_slots(self.capacity) if self.resources else self.capacity
+                if self.waiters or self.inflight >= cap or len(self.backlog_running) >= cap or not admit():
+                    return False
+                self.inflight += 1
+            key = min(candidates, key=lambda key: (self.backlog_served.get(key[:1], -1),
+                                                   self.backlog_served.get(key[:2], -1), key))
+            owner, pid, index = key
+            # The least recently served owner gets a turn, then their least recently served playlist.
+            self.backlog_served[key[:1]] = self.backlog_served[key[:2]] = time.monotonic_ns()
+            data = self.backlog_playlists[owner, pid]
+            track = deepcopy(data["tracks"][index])
+            original = (data["revision"], entry_identity(track), track.get("job_id"), track.get("candidates"))
+            self.backlog_running[key] = (original, track, None)
+            self.backlog_counts["backlog_pending"] -= 1
+            self.backlog_counts["backlog_running"] += 1
+        token = background_request.set(True)
+        try:
+            try:
+                with observe(self.resources, "matching"), self.activity.track(track["title"], owner=owner, playlist_id=pid):
+                    row = self.match(owner, track, lambda *_: None)
+                if row is not None and not row.get("id"):
+                    raise ValueError("Recording match has no source ID.")
+                state = "review"
+            except Exception:
+                row, state = None, "error"
+            with self.lock:
+                if key not in self.backlog_running:
+                    return True
+                if row is None:
+                    track["state"] = state
+                else:
+                    track.update(source_id=row["id"], match=row, state="saved" if row.get("saved") else "ready")
+                    current = self._backlog_entry(key, original)
+                    if (track["state"] != "saved" and current is not None
+                            and not current.get("auto_download_paused") and not self.is_active(owner, pid)
+                            and (not self.resources or self.resources.background_slots(1)) and admit()):
+                        try:
+                            job = acquire(owner, pid, row)
+                        except Exception:
+                            track["state"] = "error"
+                        else:
+                            self.backlog_running[key] = (original, track, job)
+                            return True
+                self._complete_backlog(key, track)
+        finally:
+            background_request.reset(token)
+            with self.condition:
+                self.inflight -= 1
+                self.condition.notify_all()
+        return True
 
     def begin_import(self,user,pid,revision,provider,url,download=True,name=None,append=False,actor=None):
         with self.lock:
@@ -443,7 +604,6 @@ class PlaylistPreparation:
             operation=self._operation(user,pid)
             result=operation.begin_import(user,pid,revision,provider,url,download,name,append,actor); self.thread=operation.thread
             return result
-
     def status(self,user,pid):
         with self.lock: return self._operation(user,pid).status(user,pid)
 
@@ -470,38 +630,3 @@ class PlaylistPreparation:
                     remaining=max(0,status.get('total',0)-processed),current_title=status.get('title',''),
                     files=deepcopy(status.get('active_downloads',[])),download_bytes=status.get('download_bytes',0),download_total_bytes=status.get('download_total_bytes')))
             return result
-
-
-    def queue_idle(self,owners,idle,limit=None):
-        """Keep up to `limit` playlists preparing, preserving manual pauses and recording reviews.
-        A finished playlist frees its place for the next one at the following check."""
-        if not idle() or not self.allow_background(): return []
-        with self.lock:
-            running={key for key,op in self.operations.items() if op.active is not None}
-            limit=min(limit if limit is not None else self.capacity, self.capacity, self.MAX_ACTIVE)-len(running)
-            if limit<=0: return []
-            candidates=[]
-            for owner in owners:
-                for data in self.store.list(owner):
-                    if (owner,data['id']) in running: continue
-                    prior=data.get('preparation',{})
-                    if data.get('auto_download_paused') or prior.get('state')=='error': continue
-                    if prior.get('state')=='paused' and not prior.get('automatic'): continue
-                    if prior.get('state')=='paused' and prior.get('message','').startswith('Operation stopped.'): continue
-                    tracks=data['tracks']
-                    unmatched=any(t.get('state','unmatched')=='unmatched' for t in tracks)
-                    ready=any(t.get('state')=='ready' and (t.get('source_id') or t.get('match')) for t in tracks)
-                    if unmatched or ready:
-                        key=(owner,data['id'])
-                        candidates.append((self.auto_served.get(key,-1),key,'match' if unmatched else 'download'))
-            selected=[]
-            for _,(owner,pid),mode in sorted(candidates)[:limit]:
-                if not idle() or not self.allow_background(): break
-                self.start(owner,pid,mode,actor=owner)
-                operation=self._operation(owner,pid)
-                operation.update(owner,pid,automatic=True,matched_only=True,download_after_matching=mode=='match')
-                self.auto_served[(owner,pid)]=time.monotonic()
-                selected.append((owner,pid))
-            valid={key for _,key,_ in candidates}|running
-            self.auto_served={key:value for key,value in self.auto_served.items() if key in valid}
-            return selected
