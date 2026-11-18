@@ -35,18 +35,24 @@
 .home-card>.cover { width:100%; height:auto; aspect-ratio:1; border-radius:8px; margin-bottom:4px; box-shadow:0 8px 20px #0005; }
 .home-card strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
 .home-card span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--muted); }
-.home-radio-row { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
-.home-radio { display:flex; align-items:center; gap:12px; min-width:0; min-height:88px; padding:12px; border:1px solid color-mix(in srgb,var(--accent-blue) 25%,transparent); border-radius:12px; text-align:left; color:var(--ink); background:color-mix(in srgb,var(--accent-blue) 10%,var(--panel-bg)); transition:background-color .18s ease; }
-.home-radio-current { grid-column:1 / -1; min-height:112px; background:linear-gradient(115deg,color-mix(in srgb,var(--accent-blue) 28%,var(--panel-bg)),var(--panel-bg)); }
+.home-radio-row { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr)); gap:12px; max-width:984px; }
+.home-radio { display:flex; align-items:center; gap:12px; min-width:0; max-width:320px; min-height:88px; padding:12px; border:1px solid color-mix(in srgb,var(--accent-blue) 25%,transparent); border-radius:12px; text-align:left; color:var(--ink); background:color-mix(in srgb,var(--accent-blue) 10%,var(--panel-bg)); transition:background-color .18s ease; }
+.home-radio-current { grid-column:1 / -1; width:100%; max-width:520px; min-height:112px; background:linear-gradient(115deg,color-mix(in srgb,var(--accent-blue) 28%,var(--panel-bg)),var(--panel-bg)); }
 .home-radio>.cover { width:56px; height:56px; flex-shrink:0; border-radius:8px; }
-.home-radio-current>.cover { width:80px; height:80px; }
-.home-radio>span:not(.cover) { display:grid; gap:6px; flex:1; min-width:0; }
-.home-radio strong,.home-radio small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.home-radio-current>.cover { width:144px; height:144px; }
+.home-radio-text { display:grid; gap:4px; min-width:0; }
+.home-radio-label { display:flex; align-items:center; gap:8px; }
+.home-radio strong,.home-radio small { overflow-wrap:anywhere; }
 .home-radio strong { font-size:15px; }.home-radio-current strong { font-size:22px; }
-.home-radio small { color:var(--muted); font-size:13px; }.home-radio>.icon { width:24px; height:24px; flex-shrink:0; color:var(--accent-blue); }
+.home-radio small { color:var(--muted); font-size:13px; }.home-radio-label>.icon { width:24px; height:24px; flex-shrink:0; color:var(--accent-blue); }
 .home-radio[aria-disabled=true] { opacity:.6; cursor:default; }
 .home-radio:focus-visible { outline:2px solid var(--focus,var(--accent-blue)); outline-offset:3px; }
-@media(max-width:900px) { .home-radio-row { grid-template-columns:minmax(0,1fr); }.home-radio-current strong { font-size:18px; } }
+@media(max-width:720px) {
+ .home-radio-row { grid-template-columns:minmax(0,360px); }
+ .home-radio:not(.home-radio-current) { max-width:360px; }
+ .home-radio-current>.cover { width:80px; height:80px; }
+ .home-radio-current strong { font-size:18px; }
+}
 
 /* Collapsed playlist bar: sticks to the top once the header scrolls away; takes no space. */
 .playlist-sticky { position:sticky; top:-24px; z-index:6; display:flex; align-items:center; gap:12px; height:64px; margin:-24px -24px -40px; padding:0 24px;

@@ -1103,7 +1103,7 @@ else
         playerToolsOpen = false; playerExpanded = false; lyricsOpen = false;
         await OpenPlaylist(radio);
         pendingFocus = "view-title";
-        radioProgress = "Preparing " + seed.Title + ". Finding radio songs...";
+        radioProgress = "Finding songs for " + radio.Name + "...";
         await InvokeAsync(StateHasChanged);
         if (revision != Player.ControlRevision || Player.FollowingHost) { radioProgress = null; return; }
         try { await Player.PlayAsync(seed, [seed], source: "radio"); }

@@ -43,6 +43,20 @@ class Radio(unittest.TestCase):
         self.assertEqual(radio.seed("koven shockone", "Collecting Thoughts", read=pages.__getitem__)[0], "familyhub-radio:track:70")
         self.assertEqual(radio.seed("mazare runn", read=pages.__getitem__)[0], "familyhub-radio:artist:6")
 
+    def test_song_radio_names_preserve_meaningful_title_text(self):
+        def read(path):
+            rows = [{"id": 5, "name": "beton hofi"}] if path.startswith("search/artist?") else []
+            return {"data": rows}
+
+        for source, expected in (
+            ("BETON.HOFI - PÁNCZÉL (OFFICIAL AUDIO) [HD]", "PÁNCZÉL Radio"),
+            ("Colors (Original Life is Strange Inspired Song)", "Colors Radio"),
+            ("Tonight (Live) (Official Video) [Lyrics]", "Tonight (Live) Radio"),
+            ("Song (Original Sin) – Part II", "Song (Original Sin) – Part II Radio"),
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(radio.seed("beton hofi", source, read=read)[1], expected)
+
     def test_seed_separates_no_match_from_deezer_failure(self):
         empty = {"search?q=nobody+Song&limit=10": {"data": []}, "search/artist?q=nobody&limit=10": {"data": []}}
         with self.assertRaises(PlaylistError): radio.seed("nobody", "Song", read=empty.__getitem__)
