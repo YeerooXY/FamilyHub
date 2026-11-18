@@ -22,26 +22,43 @@ def _key(value):
     return re.sub(r"[^\w]+", " ", value.casefold()).strip()
 
 
+def _named_in(name, artist):
+    """True when a Deezer artist is named in the requested artist text: the app sends
+    collaborations as one normalized name, such as "koven shockone"."""
+    name = _key(name)
+    return bool(name) and f" {name} " in f" {_key(artist)} "
+
+
 def seed(artist, title="", read=_deezer):
-    """Finds the Deezer artist (and song) for a radio; returns (url, name)."""
+    """Finds the Deezer artist (and song) for a radio; returns (url, name).
+    Raises PlaylistError when nothing matches and OSError when Deezer fails."""
     artist = (artist or "").split(",")[0].strip()
     if not artist or len(artist) > 200 or len(title or "") > 300:
         raise PlaylistError("Choose a song or an artist for the radio.")
     from urllib.parse import urlencode
-    # "Artist - Song (Official Video)" names the song "Song".
+
+    def search(path):
+        # A Deezer error reply here is an outage or quota limit, not a missing artist.
+        try: return read(path).get("data") or []
+        except PlaylistError as error: raise OSError("Deezer search failed") from error
+    # "Artist - Song (Official Video) HD" names the song "Song".
     title = re.sub(r"^" + re.escape(artist) + r"\s*[-–—]\s*", "", (title or "").strip(), flags=re.I)
     title = re.sub(r"\s*[\[(][^\])]*[\])]", "", title).strip() or title
+    title = re.sub(r"\s+\b(?:HD|HQ|4K)$", "", title, flags=re.I).strip() or title
     if title:
-        clean = title
-        for row in read("search?" + urlencode(dict(q=artist + " " + clean, limit=10))).get("data") or []:
-            if _key(row.get("artist", {}).get("name")) == _key(artist) and _key(clean) in _key(row.get("title")):
-                return f"familyhub-radio:track:{int(row['id'])}", f"{title} Radio"
+        rows = search("search?" + urlencode(dict(q=artist + " " + title, limit=10)))
+        songs = [row for row in rows if _key(title) in _key(row.get("title"))]
+        for row in [r for r in songs if _key(r.get("artist", {}).get("name")) == _key(artist)] \
+                 + [r for r in songs if _named_in(r.get("artist", {}).get("name"), artist)]:
+            return f"familyhub-radio:track:{int(row['id'])}", f"{title} Radio"
     # Several artists can share a name; the one with the most fans is meant.
-    named = [row for row in read("search/artist?" + urlencode(dict(q=artist, limit=10))).get("data") or [] if _key(row.get("name")) == _key(artist)]
+    found = search("search/artist?" + urlencode(dict(q=artist, limit=10)))
+    named = [row for row in found if _key(row.get("name")) == _key(artist)] \
+        or [row for row in found if _named_in(row.get("name"), artist)]
     if named:
         row = max(named, key=lambda r: r.get("nb_fan") or 0)
         return f"familyhub-radio:artist:{int(row['id'])}", f"{row['name']} Radio" if not title else f"{title} Radio"
-    raise PlaylistError("No radio found for this artist.")
+    raise PlaylistError("No radio found for this song. Try a song by another artist.")
 
 
 def read_radio(url, name, progress=None, read=_deezer):

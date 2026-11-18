@@ -56,18 +56,21 @@
     // Lyrics for recently played songs; small enough to keep for the session.
     private static readonly Dictionary<string, SongLyrics> cache = [];
     private SongLyrics? lyrics;
-    private string? loadedFor;
+    private string? loadedFor, requestedFor;
+    private DateTime retryAt;
     private int active = -1, revealed = -1;
     private CancellationTokenSource? loading;
 
     public bool Available => lyrics is { State: "synced" or "plain" };
     private bool SeekAllowed => Player.CanSeek && !Player.FollowingHost;
 
-    protected override void OnInitialized() { Player.Changed += Changed; Load(); }
+    protected override void OnInitialized() { Player.Changed += Changed; Session.Changed += Changed; Load(); }
 
     private void Changed() => _ = InvokeAsync(() =>
     {
-        if (Player.Current?.Id != loadedFor) { Load(); StateHasChanged(); return; }
+        // A phone can be offline when the song starts (screen off, refresh timeout); ask again once it reconnects.
+        if (Player.Current?.Id != loadedFor || (loadedFor is not null && lyrics is null && requestedFor is null && Session.Connected && DateTime.UtcNow >= retryAt))
+        { Load(); StateHasChanged(); return; }
         // Redraw only when the highlighted line moves, not on every progress update.
         var next = ActiveLine();
         if (next != active) { active = next; StateHasChanged(); }
@@ -108,11 +111,12 @@
     private void Load()
     {
         loading?.Cancel();
-        loadedFor = Player.Current?.Id; lyrics = null; active = revealed = -1;
+        loadedFor = Player.Current?.Id; requestedFor = null; lyrics = null; active = revealed = -1;
         shift = loadedFor is { } song ? Preferences.Default.Get(ShiftKey(song), 0d) : 0;
         if (loadedFor is not { } id || Session.Api is not { } api || !Session.Connected) { _ = Collapse(); return; }
         lock (cache) if (cache.TryGetValue(id, out var known)) { lyrics = known; active = ActiveLine(); return; }
         var cancel = loading = new CancellationTokenSource();
+        requestedFor = id;
         _ = Task.Run(async () =>
         {
             try
@@ -121,7 +125,9 @@
                 lock (cache) { if (cache.Count >= 60) cache.Clear(); cache[id] = result; }
                 await InvokeAsync(() => { if (loadedFor != id) return; lyrics = result; active = ActiveLine(); StateHasChanged(); });
             }
-            catch (Exception) { /* No lyrics card when the server cannot answer. */ }
+            // No lyrics card while the server cannot answer; try again in half a minute.
+            catch (Exception) when (!cancel.IsCancellationRequested) { await InvokeAsync(() => { if (loadedFor == id) { requestedFor = null; retryAt = DateTime.UtcNow.AddSeconds(30); } }); }
+            catch (Exception) { }
         });
         _ = Collapse();
     }
@@ -154,5 +160,5 @@
         else if (revealed == -1) revealed = -2;
     }
 
-    public void Dispose() { Player.Changed -= Changed; loading?.Cancel(); }
+    public void Dispose() { Player.Changed -= Changed; Session.Changed -= Changed; loading?.Cancel(); }
 }

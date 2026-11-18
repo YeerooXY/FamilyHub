@@ -135,7 +135,7 @@ else
                     <span class="crossfade-scale" aria-hidden="true">12 s</span>
                 </div>
                 <p class="setting-help">The end of a song fades into the start of the next. At 0 each song plays to the end.</p>
-                <div class="setting-row"><label for="volume-level">Volume level</label><select id="volume-level" value="@Session.PlaybackPreferences.VolumeLevel" @onchange='args => Session.SavePreferencesAsync(Player.Volume, Session.PlaybackPreferences.Shuffle, volumeLevel: args.Value?.ToString() ?? "normal")'><option value="loud">Loud</option><option value="normal">Normal</option><option value="quiet">Quiet</option></select></div>
+                <div class="setting-row"><label for="volume-level">Volume level</label><select id="volume-level" value="@Session.PlaybackPreferences.VolumeLevel" @onchange='args => Session.SavePreferencesAsync(SavedVolume, Session.PlaybackPreferences.Shuffle, volumeLevel: args.Value?.ToString() ?? "normal")'><option value="loud">Loud</option><option value="normal">Normal</option><option value="quiet">Quiet</option></select></div>
                 <p class="setting-help">Evens out volume between songs. Normal matches Spotify.</p>
                 <div class="setting-row"><label for="streaming-wifi">Streaming on Wi-Fi</label><select id="streaming-wifi" value="@Session.StreamingQualityWifi" @onchange="SetStreamingQualityWifi" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
                 <div class="setting-row"><label for="streaming-mobile">Streaming on mobile data</label><select id="streaming-mobile" value="@Session.StreamingQualityMobile" @onchange="SetStreamingQualityMobile" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
@@ -760,7 +760,11 @@ else
     private void ResetProfileView() { CancelSearch(); backViews.Clear(); forwardViews.Clear(); view = "Home"; profileMenu = false; addingProfile = false; selectedId = ""; searchResults = []; recommendations = null; filter = ""; genre = ""; pendingFocus = "content"; }
     private async Task ToggleRepeat() { Player.RepeatMode = Player.RepeatMode switch { "off" => "all", "all" => "one", _ => "off" }; await SavePlaybackPreferences(); }
     private async Task ToggleShuffle() { Player.ToggleShuffle(); await SavePlaybackPreferences(); }
-    private Task SavePlaybackPreferences() => Session.SavePreferencesAsync(Player.Volume, Player.FollowingHost ? Session.PlaybackPreferences.Shuffle : Player.Shuffle, repeatMode: Player.RepeatMode);
+    // Phones hide the volume slider and use the hardware buttons, so the profile volume set on a PC
+    // is not applied there, and a phone does not overwrite it.
+    private static bool PhoneVolume => OperatingSystem.IsAndroid() || OperatingSystem.IsIOS();
+    private double SavedVolume => PhoneVolume ? Session.PlaybackPreferences.Volume : Player.Volume;
+    private Task SavePlaybackPreferences() => Session.SavePreferencesAsync(SavedVolume, Player.FollowingHost ? Session.PlaybackPreferences.Shuffle : Player.Shuffle, repeatMode: Player.RepeatMode);
     // Crossfade 0 turns Auto DJ blending off; 1-12 seconds turns it on at that length.
     private int? crossfadePreview;
     private int CrossfadeShown => crossfadePreview ?? (Session.PlaybackPreferences.AutoDj ? Session.PlaybackPreferences.CrossfadeSeconds : 0);
@@ -772,7 +776,7 @@ else
         Player.AutoDj = seconds > 0;
         if (seconds > 0) Player.CrossfadeSeconds = seconds;
         crossfadePreview = null;
-        await Session.SavePreferencesAsync(Player.Volume, Player.Shuffle, Player.AutoDj, crossfadeSeconds: seconds > 0 ? seconds : Session.PlaybackPreferences.CrossfadeSeconds);
+        await Session.SavePreferencesAsync(SavedVolume, Player.Shuffle, Player.AutoDj, crossfadeSeconds: seconds > 0 ? seconds : Session.PlaybackPreferences.CrossfadeSeconds);
     }
     protected override async Task OnInitializedAsync()
     {
@@ -847,7 +851,7 @@ else
             if (appliedProfile != Session.Server + Session.User) unmutedVolume = Session.PlaybackPreferences.Volume > 0 ? Session.PlaybackPreferences.Volume : 1;
             appliedProfile = Session.Server + Session.User; appliedPreferences = Session.PlaybackPreferences;
             if (!Player.FollowingHost) { Player.AutoDj = appliedPreferences.AutoDj; Player.CrossfadeSeconds = appliedPreferences.CrossfadeSeconds; Player.RepeatMode = appliedPreferences.RepeatMode; }
-            await Player.SetVolumeAsync(appliedPreferences.Volume);
+            await Player.SetVolumeAsync(PhoneVolume ? 1 : appliedPreferences.Volume);
             if (!Player.FollowingHost && Player.Shuffle != appliedPreferences.Shuffle) Player.ToggleShuffle();
         }
         if (renderedSearching != searching)

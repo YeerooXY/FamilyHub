@@ -35,3 +35,16 @@ class Radio(unittest.TestCase):
         self.assertEqual(radio.seed("Pendulum", read=pages.__getitem__), ("familyhub-radio:artist:281", "Pendulum Radio"))
         with self.assertRaises(PlaylistError): radio.seed("", read=pages.__getitem__)
         with self.assertRaises(PlaylistError): radio.read_radio("https://evil.test/radio", "x", read=pages.__getitem__)
+
+    def test_seed_finds_one_artist_of_a_collaboration(self):
+        # The app sends "Koven & ShockOne" normalized as "koven shockone".
+        pages = {"search?q=koven+shockone+Collecting+Thoughts&limit=10": {"data": [song(70, "Koven", "Collecting Thoughts")]},
+                 "search/artist?q=mazare+runn&limit=10": {"data": [{"id": 6, "name": "RUNN", "nb_fan": 10}, {"id": 7, "name": "Runner", "nb_fan": 99}]}}
+        self.assertEqual(radio.seed("koven shockone", "Collecting Thoughts", read=pages.__getitem__)[0], "familyhub-radio:track:70")
+        self.assertEqual(radio.seed("mazare runn", read=pages.__getitem__)[0], "familyhub-radio:artist:6")
+
+    def test_seed_separates_no_match_from_deezer_failure(self):
+        empty = {"search?q=nobody+Song&limit=10": {"data": []}, "search/artist?q=nobody&limit=10": {"data": []}}
+        with self.assertRaises(PlaylistError): radio.seed("nobody", "Song", read=empty.__getitem__)
+        def failing(path): raise PlaylistError("Deezer could not find this playlist. Check that it is public.")
+        with self.assertRaises(OSError): radio.seed("nobody", "Song", read=failing)

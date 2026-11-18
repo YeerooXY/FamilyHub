@@ -1207,7 +1207,10 @@ def create_app(test_config=None):
         if not isinstance(artist, str) or not isinstance(title, str): raise ApiError("Choose a song or an artist for the radio.")
         if not allow("radio:" + g.user, 10, 60): raise ApiError("Wait a minute before starting another radio.", 429)
         try: url, name = radio.seed(artist, title)
-        except (OSError, ValueError): raise ApiError("Radio is unavailable right now. Try again later.", 503)
+        except PlaylistError as error: raise ApiError(str(error), 404)
+        except (OSError, ValueError) as error:
+            app.logger.warning("radio seed failed: %s", type(error).__name__)
+            raise ApiError("Radio is unavailable right now. Try again later.", 503)
         with lock:
             if len(playlist_store.list(g.user)) >= 100:
                 raise ApiError("You can save up to 100 playlists.")
