@@ -123,7 +123,7 @@ class ForegroundAdmissionTests(Base):
             self.clock.return_value += seconds
             governor._changed()
 
-    def test_opening_app_stops_new_background_starts_and_current_song_gets_a_slot(self):
+    def test_opening_app_keeps_base_background_and_current_song_gets_a_slot(self):
         self.fake_ok()
         client, token = self.signed_in()
         started, urgent, last = threading.Semaphore(0), threading.Event(), threading.Event()
@@ -146,10 +146,11 @@ class ForegroundAdmissionTests(Base):
                 mock.patch.object(self.intake, "cmd_preview", side_effect=self.intake.IntakeError("fixture")):
             queued = self.post(client, token, "/api/library/additions", json={"urls": sources})
             self.assertEqual(queued.status_code, 202)
-            self.assertFalse(started.acquire(timeout=.05))
+            # Library additions keep their usual background slots while their owner is online.
+            self.assertTrue(started.acquire(timeout=1))
             self.advance(30)
             try:
-                self.assertTrue(all(started.acquire(timeout=1) for _ in range(12)))
+                self.assertTrue(all(started.acquire(timeout=1) for _ in range(11)))
                 self.assertFalse(last.is_set())
                 listener, listener_token = self.signed_in("sample-b")
                 self.assertEqual(self.state.resources.reservations(), ("online-idle", 1, 1))
@@ -161,7 +162,6 @@ class ForegroundAdmissionTests(Base):
             finally:
                 release.set()
             self.assertEqual(self.wait(client, queued.json["jobs"][0]["id"])["state"], "done")
-            self.assertFalse(last.is_set())
             self.advance(16)
             self.assertTrue(last.wait(1))
             self.assertEqual(self.wait(client, queued.json["jobs"][-1]["id"])["state"], "done")

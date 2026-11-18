@@ -876,7 +876,7 @@ def create_app(test_config=None):
         def defer():
             raise AcquisitionDeferred()
         def defer_youtube(cooling):
-            if cooling or not resources.background_slots(1):
+            if cooling:
                 defer()
         intake.CONTROL.defer_youtube = defer_youtube
         try:
@@ -1080,6 +1080,12 @@ def create_app(test_config=None):
     workers = max(8, background_workers + 4)
     idle_acquisitions = workers if enabled("FAMILYHUB_IDLE_ACQUISITION") else background_workers
     idle_analysis = enabled("FAMILYHUB_IDLE_ANALYSIS")
+
+    def background_cap():
+        # People online reserve a little capacity, but playlist imports and library additions keep
+        # their usual slots; only the extra idle capacity waits for everyone to leave.
+        _, reserved_cpu, _ = resources.reservations()
+        return max(max(1, background_workers - reserved_cpu), resources.background_slots(idle_acquisitions))
     # Keep a dispatch lane reclaimable even when all ordinary slots are doing work.
     acquisition_slots = [None] * (workers + 1)
 
@@ -1093,7 +1099,7 @@ def create_app(test_config=None):
             sources = {j.get("source_id") for j, analyzing in active if not analyzing and j.get("source_id")}
             background = sum(not foreground(j, analyzing) for j, analyzing in active)
             used = len(active)
-            cap = resources.background_slots(idle_acquisitions)
+            cap = background_cap()
             ordered = sorted(jobs.values(), key=lambda j: (j["priority"] + (20 if j["state"] == "done" else 0), j["created"]))
             for job in ordered:
                 analyzing = job["state"] == "done" and job.get("analysis_state") == "pending" and not job.get("analyzing")
@@ -1134,7 +1140,7 @@ def create_app(test_config=None):
         with suppress(OSError):
             free = shutil.disk_usage(ws).free >> 20
         return dict(online=online, acquisition=f"{acquisitions}/{len(acquisition_slots)}",
-                    acquisition_background_cap=resources.background_slots(idle_acquisitions),
+                    acquisition_background_cap=background_cap(),
                     transfer=f"{active}/{transfers.idle_capacity}", scratch_reserved_MiB=reserved >> 20,
                     scratch_free_MiB=free, rss_MiB=runtime_capacity(rss_only=True),
                     youtube_cooldown_s=max(0, round(app.intake.YOUTUBE.until - time.monotonic())))
@@ -1183,7 +1189,7 @@ def create_app(test_config=None):
                     now = time.monotonic()
                     cooldown = app.intake.YOUTUBE.until - now
                     wall_now = time.time()
-                    cap = resources.background_slots(idle_acquisitions)
+                    cap = background_cap()
                     wait_times = []
                     if len(active) < workers and background < idle_acquisitions:
                         if any(not foreground(j, a) for j, a in pending) and cap <= background:

@@ -173,7 +173,7 @@ class LibraryAdditionTests(Base):
             result = self.post(c, token, '/api/library/additions', json={'urls': [URL, 'not a url']})
             self.assertEqual(result.status_code, 400)
             fetch.assert_not_called()
-        # An existing room holds background admission while this request queues links.
+        # An existing room reserves capacity; library additions still keep their base background slots.
         self.state.resources.room('fixture', time.monotonic() + 30)
         result = self.post(c, token, '/api/library/additions', json={'urls': [URL, 'https://youtu.be/dQw4w9WgXcQ']})
         self.assertEqual(result.status_code, 202)
@@ -183,7 +183,7 @@ class LibraryAdditionTests(Base):
         self.assertEqual(again.json['jobs'][0]['id'], jid)
         self.assertEqual(self.state.jobs[jid]['priority'], 20)
         self.assertTrue(self.state.jobs[jid]['playlist_import'])
-        self.assertEqual(self.state.jobs[jid]['state'], 'queued')
+        self.assertIn(self.state.jobs[jid]['state'], ('queued', 'running'))
         other, _ = self.signed_in('sample-b')
         self.assertEqual(self.go(other, 'GET', '/api/library/additions').json['jobs'], [])
         self.state.jobs[jid]['cancel'].set()
