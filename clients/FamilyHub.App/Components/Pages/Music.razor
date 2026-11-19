@@ -295,9 +295,8 @@ else
     else if (view == "Stats")
     {
         <div class="server-work-page">
-            <ServerStats>
-                <CatalogueReviewPanel OpenPlaylist="OpenPlaylistReviewGap" />
-            </ServerStats>
+            <ServerStats />
+            <CatalogueReviewPanel OpenPlaylist="OpenPlaylistReviewGap" />
             <details class="server-work-mappings glass-panel" open="@mappingsOpen">
                 <summary id="artist-mappings-title" @onclick="ToggleMappings" @onclick:preventDefault><MusicIcon Name="chevron-down" />Artist mappings</summary>
                 @if (mappingsLoaded) { <ArtistMappings @key="(Session.Server, Session.User)" /> }
@@ -1289,7 +1288,7 @@ else
     {
         if (Session.LocalPath(track) is not null) return;
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
-        var saved = await Session.EnsureServerRecordingAsync(track, timeout.Token);
+        var saved = await Session.EnsureServerRecordingAsync(track, timeout.Token, background: true, prefetch: true);
         await Session.DownloadAsync([saved]);
     });
 }

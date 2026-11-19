@@ -221,7 +221,7 @@ def create_app(test_config=None):
     playback_devices = PlaybackDevices(presence=resources)
     transfers = TransferResources(transfer_limit(), lambda: min(
         MAX_CACHE_BYTES - scratch_size(ws, lib, app.intake), shutil.disk_usage(ws).free - MIN_FREE_BYTES),
-        resources)
+        resources, listener_scratch=2 * (2 << 30) + (64 << 20) + app.intake.MAX_SECONDS * 32000)
     app.extensions["music"].resources = resources
     app.intake.RESOURCES = resources
     app.intake.RESOURCE_TRACK = resources.track
@@ -777,19 +777,18 @@ def create_app(test_config=None):
         names = {p["id"]: p["name"] for p in profiles}
         leaderboard = request.args.get('leaderboard') == '1'
         chart = deezer_chart.snapshot() if leaderboard and family_mode else {}
-        with lock:
-            preferences = profile_store.read()['preferences'] if family_mode else {}
-            enabled = [p for p in profiles if not preferences.get(p['id'], {}).get('listening_history_paused')]
-            result = listening_stats.snapshot(enabled if leaderboard else profiles,
-                                              profile_store.subscription_history() if family_mode else None,
-                                              hidden={p['id'] for p in profiles if p not in enabled})
-            if leaderboard and family_mode:
-                year = listening_history.utc().year
-                additions = songs_added(year)
-                result['wrapped_year'] = year
-                for row in result['profiles']:
-                    wrapped = listening_history.wrapped(row['id'], year, chart)
-                    row['wrapped'] = dict(wrapped, songs_added=additions.get(row['id'], 0))
+        preferences = profile_store.read()['preferences'] if family_mode else {}
+        enabled = [p for p in profiles if not preferences.get(p['id'], {}).get('listening_history_paused')]
+        result = listening_stats.snapshot(enabled if leaderboard else profiles,
+                                          profile_store.subscription_history() if family_mode else None,
+                                          hidden={p['id'] for p in profiles if p not in enabled})
+        if leaderboard and family_mode:
+            year = listening_history.utc().year
+            additions = songs_added(year)
+            result['wrapped_year'] = year
+            for row in result['profiles']:
+                wrapped = listening_history.wrapped(row['id'], year, chart)
+                row['wrapped'] = dict(wrapped, songs_added=additions.get(row['id'], 0))
         if leaderboard:
             return jsonify(result)
         disk = shutil.disk_usage(lib)
@@ -1216,7 +1215,7 @@ def create_app(test_config=None):
 
     # Background work (playlist songs, analysis) scales with the server's cores, leaving half of
     # them for songs someone is waiting to hear; never fewer than eight slots in total.
-    background_workers = cfg.get("BACKGROUND_WORKERS") or (3 if cfg["PUBLIC_ORIGIN"] == "https://music.test" else max(2, min(8, (os.cpu_count() or 4) // 2)))
+    background_workers = cfg.get("BACKGROUND_WORKERS") or (3 if cfg["PUBLIC_ORIGIN"] == "https://music.test" else max(1, (resources.cpu_capacity + 1) // 2))
     workers = max(8, background_workers + 4)
     idle_acquisitions = workers if enabled("FAMILYHUB_IDLE_ACQUISITION") else background_workers
     idle_analysis = enabled("FAMILYHUB_IDLE_ANALYSIS")
@@ -1231,7 +1230,7 @@ def create_app(test_config=None):
 
     def foreground(job, analyzing=False):
         return not analyzing and (job.get("current") or not job.get("playlist_import") and (
-            job.get("priority", 20) <= 1 or job.get("search_preview") or job.get("explicit_preview")))
+            job.get("priority", 20) == 0))
 
     def resource_queue():
         with lock:
@@ -1738,18 +1737,17 @@ def create_app(test_config=None):
     def playlist_review_gaps():
         owners = [profile['id'] for profile in profile_store.list()] if family_mode else [g.user]
         gaps = []
-        with lock:
-            for owner in owners:
-                for playlist in playlist_store.list(owner):
-                    view = visible_playlist(playlist, owner)
-                    editable = owner == g.user or g.user in playlist.get('co_authors', [])
-                    for index, track in enumerate(playlist['tracks']):
-                        state = track.get('state', 'unmatched')
-                        if (track.get('source_id') or track.get('match')) and state != 'error':
-                            continue
-                        gaps.append(dict(playlist_id=playlist['id'], owner_id=owner, playlist_name=playlist['name'],
-                                         index=index, title=track['title'], artist=track['artist'],
-                                         artwork_url=view.get('cover_url', ''), state=state, can_edit=editable))
+        for owner in owners:
+            for playlist in playlist_store.list(owner, snapshot=True):
+                view = visible_playlist(playlist, owner)
+                editable = owner == g.user or g.user in playlist.get('co_authors', [])
+                for index, track in enumerate(playlist['tracks']):
+                    state = track.get('state', 'unmatched')
+                    if (track.get('source_id') or track.get('match')) and state != 'error':
+                        continue
+                    gaps.append(dict(playlist_id=playlist['id'], owner_id=owner, playlist_name=playlist['name'],
+                                     index=index, title=track['title'], artist=track['artist'],
+                                     artwork_url=view.get('cover_url', ''), state=state, can_edit=editable))
         return gaps
 
     register_catalogue_review(app, body, catalogue_review, review_recording, lambda: g.user in cfg['ADMIN_USERS'],
@@ -2244,7 +2242,11 @@ def create_app(test_config=None):
     @app.post("/api/jobs")
     def create_fetch():
         d = body()
-        generation(d, "listen")
+        prefetch = d.get("prefetch", False)
+        if type(prefetch) is not bool:
+            raise ApiError("Invalid prefetch request.")
+        if not prefetch:
+            generation(d, "listen")
         try:
             vid = app.intake.video_id(d.get("url") if isinstance(d.get("url"), str) and len(d["url"]) <= 200 else "")
         except app.intake.IntakeError:
@@ -2252,9 +2254,9 @@ def create_app(test_config=None):
         m = fetch_metadata(d, vid)
         if d.get("allow_new") is False and not saved_source(vid):
             raise ApiError("Enable Allow new music downloads and discovery to listen to this recording.", 403)
-        if not background_activity():
+        if not prefetch and not background_activity():
             resources.presence(listener_identity(), "listening")
-        job = new_job(g.user, "fetch", m, vid)
+        job = new_job(g.user, "fetch", m, vid, priority=10 if prefetch else 0, preserve_priority=prefetch)
         explicit = any(k in d for k in ("artist", "album", "track"))
         with job["publish"], lock:
             if explicit and job["meta"] != m:
@@ -2263,19 +2265,26 @@ def create_app(test_config=None):
                 job.update(meta=m, artist=m["artist"], title=m["title"])
             if explicit or "automatic_meta" not in job:
                 job["automatic_meta"] = not explicit
+            if job["state"] == "done" and job.get("item") and job["message"] == "Prepared":
+                # Promotion reuses the validated complete original, never fetches it again.
+                job.update(state="queued", message=STEP_TEXT["import"])
+            if prefetch:
+                job['background_requested'] = True
+                return start(job, app.intake.WATCH + vid, None, m)
             for other in jobs.values():
                 if other["owner"] == g.user:
                     other["current"] = other is job
+                    if other is not job and (other.get('background_requested') or other.get('library_addition')):
+                        other['priority'] = max(10, other['priority'])
                 obsolete_current = other.get("priority", 0) == 0
                 needs_slot = job["preview_state"] != "ready" and other["state"] == "running"
                 if (not other.get("playlist_import") and not other.get("analyzing") and other is not job
+                        and not other.get("library_addition")
+                        and not other.get("background_requested")
                         and other["owner"] == g.user and other.get("source_id") and (obsolete_current or needs_slot)):
                     cancel_acquisition(other)
                     if other["state"] == "queued":
                         other.update(state="cancelled", message="Cancelled")
-            if job["state"] == "done" and job.get("item") and job["message"] == "Prepared":
-                # Promotion reuses the validated complete original, never fetches it again.
-                job.update(state="queued", message=STEP_TEXT["import"])
             return start(job, app.intake.WATCH + vid, None, m)
 
     def addition_playlist(user, target):
@@ -2527,7 +2536,7 @@ def create_app(test_config=None):
 
     phone_encodes = threading.BoundedSemaphore(4)
 
-    def mobile_record(source_id, digest=None, quality="normal", lead=0):
+    def mobile_record(source_id, digest=None, quality="normal", lead=0, streaming=False):
         if quality not in mobile_audio.TIERS:
             raise ApiError("Invalid audio quality.", 400)
         if not re.fullmatch(r"(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})", source_id):
@@ -2540,10 +2549,13 @@ def create_app(test_config=None):
         if digest is not None and digest != source_hash:
             raise ApiError("Recording changed. Refresh the library.", 409)
         needs_encode = not os.path.lexists(mobile_audio.copy_path(item["item"], source_hash, quality))
+        if needs_encode and streaming and lead <= 0:
+            # The verified listening edition can stream while optional smaller copies warm later.
+            return track, original
         if needs_encode and not phone_encodes.acquire(blocking=False):
             raise ApiError("Mobile audio preparation is busy. Try again.", 503)
         try:
-            path = mobile_audio.prepare(app.intake, item["item"], original, source_hash, urgent=True, quality=quality, title=track['title'], lead=lead)
+            path = mobile_audio.prepare(app.intake, item["item"], original, source_hash, urgent=lead <= 0, quality=quality, title=track['title'], lead=lead)
         except (OSError, ValueError, app.intake.IntakeError):
             raise ApiError("Could not prepare mobile audio. Try again.", 503)
         finally:
@@ -2585,7 +2597,7 @@ def create_app(test_config=None):
                 raise ApiError("Recording unavailable.", 404)
             track, _ = library_record(item)
         else:
-            track, _ = mobile_record(source_id, quality=quality, lead=lead)
+            track, _ = mobile_record(source_id, quality=quality, lead=lead, streaming=request.args.get('stream') == '1')
         track["stream_url"] = stream_url(track["download_url"])
         return jsonify(track)
 
@@ -2916,4 +2928,9 @@ def create_app(test_config=None):
         log.warning("Could not restore the library addition queue")
     if automatic_downloads or metadata_lookup:
         auto_thread.start()
+    from .snapshots import bounded_snapshot
+    if cfg.get('STATUS_SNAPSHOTS', cfg['PUBLIC_ORIGIN'] != 'https://music.test'):
+        for rule in app.url_map.iter_rules():
+            if 'GET' in rule.methods and rule.rule in ('/api/server/stats', '/api/catalogue/review', '/api/catalogue/source-quality', '/api/catalogue/reports'):
+                app.view_functions[rule.endpoint] = bounded_snapshot(app.view_functions[rule.endpoint])
     return app

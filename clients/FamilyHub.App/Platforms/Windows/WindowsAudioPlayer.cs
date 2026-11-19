@@ -69,11 +69,12 @@ public sealed class WindowsAudioPlayer : IAudioDeck, IDisposable
     public void PlayFile(string path, string title, string artist, bool play = true, bool background = false)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
-        var nextStream = File.OpenRead(path);
+        var nextStream = MusicSession.IsStream(path) ? null : File.OpenRead(path);
         MediaSource? nextSource = null;
         try
         {
-            nextSource = MediaSource.CreateFromStream(nextStream.AsRandomAccessStream(), MimeType(path));
+            nextSource = nextStream is null ? MediaSource.CreateFromUri(new Uri(path))
+                : MediaSource.CreateFromStream(nextStream.AsRandomAccessStream(), MimeType(path));
             ReleaseSource();
             stream = nextStream; source = nextSource;
             // Each source gets its own native player. Events from a replaced source cannot
@@ -113,7 +114,7 @@ public sealed class WindowsAudioPlayer : IAudioDeck, IDisposable
         catch
         {
             if (ReferenceEquals(stream, nextStream)) ReleaseSource();
-            else { nextSource?.Dispose(); nextStream.Dispose(); }
+            else { nextSource?.Dispose(); nextStream?.Dispose(); }
             throw;
         }
     }

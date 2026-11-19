@@ -186,12 +186,12 @@ class PlaylistStore:
         self.changed = lambda owner, pid: None
     def directory(self,user):
         return self.root/hashlib.sha256(user.encode()).hexdigest()
-    def read(self,user,pid):
+    def read(self,user,pid, *, snapshot=False):
         if not re.fullmatch(r"[A-Za-z0-9]{22}",pid): raise PlaylistError("Invalid playlist.")
         try:
             data=json.loads((self.directory(user)/(pid+".json")).read_text(encoding="utf-8"))
             data.setdefault("revision",0)
-            if self._backfill_added_at(data): self.save(user, data)
+            if self._backfill_added_at(data) and not snapshot: self.save(user, data)
             return data
         except (OSError,ValueError): raise PlaylistError("Playlist not found.")
     @staticmethod
@@ -279,9 +279,9 @@ class PlaylistStore:
         self.read(user,pid)
         (self.directory(user)/(pid+".json")).unlink()
         self.changed(user, pid)
-    def list(self,user):
+    def list(self,user, *, snapshot=False):
         folder=self.directory(user)
-        return [self.read(user,p.stem) for p in sorted(folder.glob("*.json"))[:100]]
+        return [self.read(user,p.stem,snapshot=snapshot) for p in sorted(folder.glob("*.json"))[:100]]
 
 
 def fetch_youtube_playlist(url, intake):
