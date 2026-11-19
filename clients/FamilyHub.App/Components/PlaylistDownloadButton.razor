@@ -1,0 +1,21 @@
+@inject MusicSession Session
+
+@{
+    var downloading = Tracks.Any(track => track.Id == Session.DownloadingId);
+    var failed = Session.DownloadFailure is { } failure && Tracks.Any(track => track.Id == failure.TrackId);
+    var downloaded = Tracks.Count > 0 && Tracks.All(Session.KeptOnDevice);
+    var label = downloading ? "Downloading playlist to this device" : failed ? "Retry playlist download"
+        : downloaded ? (Tracks.Count == SongCount ? "Playlist downloaded" : "Available songs downloaded")
+        : "Download playlist to this device";
+}
+<button id="keep-playlist" class="quiet playlist-download" @onclick="Download" aria-label="@label" title="@label"
+        aria-disabled="@(!Session.Connected || Unavailable || Session.DownloadingId is not null || Tracks.Count == 0 ? "true" : "false")">
+    <MusicIcon Name="@(downloading ? "clock" : failed ? "refresh" : downloaded ? "device-check" : "download")" />
+</button>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<MusicTrack> Tracks { get; set; } = [];
+    [Parameter] public int SongCount { get; set; }
+    [Parameter] public bool Unavailable { get; set; }
+    [Parameter] public EventCallback Download { get; set; }
+}

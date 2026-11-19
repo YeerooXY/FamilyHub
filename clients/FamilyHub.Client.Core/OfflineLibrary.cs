@@ -155,6 +155,7 @@ public sealed class OfflineLibrary
                 if (response.Content.Headers.ContentLength is { } length && length != track.DownloadSize - offset)
                     throw new InvalidDataException("The download length does not match the library metadata.");
                 var received = offset;
+                var lastReport = 0L;
                 await using (var input = await response.Content.ReadAsStreamAsync(cancellationToken))
                 await using (var output = new FileStream(part, offset == 0 ? FileMode.Create : FileMode.Append, FileAccess.Write, FileShare.None, 65536, true))
                 {
@@ -165,7 +166,11 @@ public sealed class OfflineLibrary
                         if (received + count > track.DownloadSize) throw new InvalidDataException("The download exceeds its declared size.");
                         await output.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
                         received += count;
-                        progress?.Report(new(received, track.DownloadSize));
+                        if (progress is not null && (lastReport == 0 || System.Diagnostics.Stopwatch.GetElapsedTime(lastReport).TotalMilliseconds >= 250))
+                        {
+                            lastReport = System.Diagnostics.Stopwatch.GetTimestamp();
+                            progress.Report(new(received, track.DownloadSize));
+                        }
                     }
                     await output.FlushAsync(cancellationToken);
                 }

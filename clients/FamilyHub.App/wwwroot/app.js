@@ -275,11 +275,13 @@ window.familyhub.showPanel = (id, opener, focusId) => {
         });
     }
     if (!panel.matches(':popover-open')) panel.showPopover({source});
+    panel.style.removeProperty('--panel-top');
     const box = {width: panel.offsetWidth, height: panel.offsetHeight};
     const parent = source?.closest('[popover]');
     const left = parent ? anchor.left - box.width - 8 : (anchor?.right ?? innerWidth / 2) - box.width;
     panel.style.left = Math.max(8, Math.min(innerWidth - box.width - 8, left < 8 && parent ? anchor.right + 8 : left)) + 'px';
     panel.style.top = Math.max(8, Math.min(innerHeight - box.height - 8, parent ? anchor.top : (anchor?.bottom ?? 80) + 8)) + 'px';
+    panel.style.setProperty('--panel-top', panel.style.top);
     (document.getElementById(focusId) || panel.querySelector('button,input'))?.focus({preventScroll:true});
 };
 window.familyhub.showPlaylistPicker = opener => familyhub.showPanel('song-playlist-dialog', opener, 'playlist-picker-filter');

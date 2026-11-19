@@ -105,6 +105,7 @@ else
 <div class="workspace"><main id="content" tabindex="-1">
     @if (view is not ("Playlists" or "Home" or "Album")) { <h1 id="view-title" tabindex="-1">@(view == "Preferences" ? "Settings" : NavLabel(view))</h1> }
     <p id="feedback" class="operation-status @(error is not null ? "error" : "")" role="status">@(error ?? radioProgress ?? (Session.DownloadingId is null ? Session.Message : ""))</p>
+    @if (Session.DownloadingId is not null) { <DeviceDownloadProgress Status="@Session.DownloadStatus" /> }
     @if (LibraryViews.Contains(view) && (view != "Playlists" || Selected is null))
     {
         <div class="library-switch" role="group" aria-label="Library sections">@foreach (var (tab, label) in new[] { ("Playlists", "Playlists"), ("Library", "Songs"), ("Downloads", "Downloaded") }) { <button aria-pressed="@Aria(view == tab)" @onclick="() => Navigate(tab)">@label</button> }</div>
@@ -139,8 +140,7 @@ else
     {
         var source = view == "Downloads" ? Session.DeviceTracks : Session.Library;
         var tracks = source.Where(t => Matches(t, filter) && (genre.Length == 0 || GenreNames.Key(t.Genre) == genre)).ToList();
-        var kept = view == "Downloads" ? source.Count(Session.KeptOnDevice) : 0;
-        <div class="library-heading">@if (view == "Downloads") { <dl class="device-sizes"><div><dt>Downloaded</dt><dd>@kept @(kept == 1 ? "song" : "songs"), @Size(Session.DownloadedBytes)</dd></div><div><dt>Cached while playing</dt><dd>@(source.Count - kept) @(source.Count - kept == 1 ? "song" : "songs"), @Size(Math.Max(0, Session.DeviceBytes - Session.DownloadedBytes))</dd></div></dl> }
+        <div class="library-heading">@if (view == "Downloads") { <DeviceDownloadCounts Tracks="source" ShowSizes="true" /> }
         else { <p class="note">@source.Count recordings</p><button id="library-add-songs" class="quiet upload-open" aria-haspopup="dialog" @onclick='() => addSongs?.Open("library-add-songs")'><MusicIcon Name="plus" />Add songs</button> }</div>
         @if (CurrentAdditionJobs.Count > 0 && view == "Library")
         {
@@ -233,6 +233,7 @@ else
         else
         {
             var playlistPositions = VisiblePlaylistPositions(selected);
+            var deviceTracks = PlaylistDeviceTracks(selected);
             <div class="playlist-sticky" inert><PlaylistCover Playlist="selected" /><strong>@selected.Name</strong><button class="primary round" tabindex="-1" @onclick="() => PlayVisiblePlaylist(selected)" aria-label="Play playlist" aria-disabled="@Aria(playlistPositions.Count == 0 || Player.FollowingHost)"><MusicIcon Name="play" /></button></div>
             <section class="playlist-hero glass-panel">
                 <div class="playlist-band">
@@ -247,14 +248,16 @@ else
                     <span class="playlist-kind">@(selected.Shared ? "Shared playlist" : "Private playlist")</span>
                     <h1 id="view-title" tabindex="-1">@selected.Name</h1>
                     @if (!string.IsNullOrWhiteSpace(selected.Description)) { <p class="playlist-description">@selected.Description</p> }
-                    <div class="playlist-summary"><ProfileAvatar Profile="PlaylistOwner(selected)" Size="28" /><strong>@PlaylistOwner(selected).Name</strong><span>@selected.Tracks.Count songs</span><span>@PlaylistLength(selected)</span></div>
+                    <div class="playlist-summary"><ProfileAvatar Profile="PlaylistOwner(selected)" Size="28" /><strong>@PlaylistOwner(selected).Name</strong><span>@selected.Tracks.Count songs</span><span>@PlaylistLength(selected)</span>
+                        @if (selected.Tracks.Count > 0) { <DeviceDownloadCounts Tracks="deviceTracks" /> }
+                    </div>
                 </div>
                 </div>
                 </div>
             <div class="playlist-action-bar">
                 <button id="play-playlist" class="primary round playlist-play" @onclick="() => PlayVisiblePlaylist(selected)" aria-label="Play playlist" title="Play playlist" aria-disabled="@Aria(playlistPositions.Count == 0 || Player.FollowingHost)"><MusicIcon Name="play" /></button>
                 <button id="shuffle-playlist" class="quiet playlist-shuffle" @onclick="ToggleShuffle" aria-label="Shuffle playlist" title="Shuffle playlist" aria-pressed="@Aria(Player.Shuffle)" aria-disabled="@Aria(Player.FollowingHost)"><MusicIcon Name="shuffle" /></button>
-                <button id="keep-playlist" class="quiet playlist-download" @onclick="OpenPreload" aria-label="Download playlist to this device" title="Download to this device" aria-disabled="@Aria(!Session.Connected || busy || selected.Tracks.Count == 0)"><MusicIcon Name="download" /></button>
+                <PlaylistDownloadButton Tracks="deviceTracks" SongCount="selected.Tracks.Count" Unavailable="busy" Download="OpenPreload" />
                 @if (selected.CanManageAuthors)
                 { <button id="share-playlist" class="quiet playlist-sharing" aria-pressed="@Aria(selected.Shared)" aria-label="@(selected.Shared ? "Shared playlist; make private" : "Private playlist; share with family")" title="@(selected.Shared ? "Shared playlist" : "Private playlist")" aria-disabled="@Aria(!Session.Connected || busy)" @onclick="() => SharePlaylist(selected, !selected.Shared)"><MusicIcon Name="@(selected.Shared ? "people" : "person")" /></button> }
                 else { <span class="playlist-privacy" title="@(selected.Shared ? "Shared playlist" : "Private playlist")"><MusicIcon Name="@(selected.Shared ? "people" : "person")" /><span class="sr">@(selected.Shared ? "Shared playlist" : "Private playlist")</span></span> }
@@ -300,15 +303,12 @@ else
             {
                 var position = playlistPositions[visibleIndex];
                 var entry = selected.Tracks[position]; var track = Session.Resolve(entry);
-                @if (track is not null)
-                {
-                    <SongRow PlaylistColumns="true" Number="@(visibleIndex + 1)" Album="@PlaylistAlbum(entry, track)" AddedAt="@entry.AddedAt" AddedBy="@PlaylistContributor(selected, entry)" @key="(selected.Id, position)" Track="track" Current="@(Player.Current?.Id == track.Id)" Playing="ShowPause" Play="() => PlayEntry(selected, position)" AddToPlaylist="OpenPlaylistPicker" Queue="() => QueueTrack(track)" Keep="() => Download(track)" Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="Remove from playlist" />
-                }
-                else
-                {
-                    var metadata = new MusicTrack { Id = entry.SpotifyUri, Title = entry.Title, Channel = entry.Artist, Duration = entry.Duration };
-                    <SongRow PlaylistColumns="true" Number="@(visibleIndex + 1)" Album="@PlaylistAlbum(entry, track)" AddedAt="@entry.AddedAt" AddedBy="@PlaylistContributor(selected, entry)" @key="(selected.Id, position)" Track="metadata" FindRecording="true" Play="() => FindPlaylistRecording(entry)" Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="Remove from playlist" />
-                }
+                var metadata = track ?? new MusicTrack { Id = entry.SpotifyUri, Title = entry.Title, Channel = entry.Artist, Duration = entry.Duration };
+                <SongRow PlaylistColumns="true" Number="@(visibleIndex + 1)" Album="@PlaylistAlbum(entry, track)" AddedAt="@entry.AddedAt" AddedBy="@PlaylistContributor(selected, entry)"
+                    @key="(selectedId, position)" Track="metadata" FindRecording="@(track is null)" Current="@(track is not null && Player.Current?.Id == track.Id)" Playing="ShowPause"
+                    Play="() => track is null ? FindPlaylistRecording(entry) : PlayEntry(selected, position)" AddToPlaylist="OpenPlaylistPicker"
+                    Queue="() => QueueTrack(metadata)" Keep="() => Download(metadata)"
+                    Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="Remove from playlist" />
             }
             </div>
             @ShowMore(playlistPositions.Count)
@@ -402,8 +402,6 @@ else
         <button id="recommend-similar" class="quiet discover-button" @onclick="Recommend" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Play similar songs next" title="Play similar songs next"><MusicIcon Name="sparkle" /></button>
         <label class="sr" for="volume">Volume</label><button id="mute-toggle" class="quiet" @onclick="ToggleMute" aria-label="@(Player.Volume == 0 ? "Unmute" : "Mute")" title="@(Player.Volume == 0 ? "Unmute" : "Mute")" aria-pressed="@Aria(Player.Volume == 0)"><MusicIcon Name="@(Player.Volume == 0 ? "volume-off" : "volume")" /></button><span class="volume-meter" style="--volume-level:@((Player.Volume * 100).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture))%"><span class="volume-bars" aria-hidden="true"><span></span></span><input id="volume" type="range" min="0" max="1" step="0.01" value="@Player.Volume" @oninput="VolumeChanged" @onchange="SavePlaybackPreferences" /></span>
     </div>
-    @if (Session.DownloadingId is not null)
-    { <div class="download-progress" role="status"><span>@Session.Message</span><progress aria-label="Download progress" max="@(Session.Progress?.Total ?? 1)" value="@(Session.Progress?.Received ?? 0)"></progress><button id="pause-download" @onclick="PauseDownload">Pause download</button></div> }
 </footer>
 <ListeningRequests />
 }
@@ -513,10 +511,15 @@ else
     private string preloadQuality = "max";
     private List<MusicTrack> preloadTracks = [];
     private int preloadMissing;
+    private List<MusicTrack> PlaylistDeviceTracks(MusicPlaylist playlist) =>
+        playlist.Tracks.Select(Session.Resolve).OfType<MusicTrack>().DistinctBy(t => t.Id).ToList();
     private void OpenPreload()
     {
-        if (!Session.Connected || busy || Selected is not { } playlist) return;
-        preloadTracks = playlist.Tracks.Select(Session.Resolve).OfType<MusicTrack>().DistinctBy(t => t.Id).ToList();
+        if (!Session.Connected || busy || Session.DownloadingId is not null || Selected is not { } playlist) return;
+        preloadTracks = PlaylistDeviceTracks(playlist);
+        if (Session.DownloadFailure is { } failure && preloadTracks.Any(t => t.Id == failure.TrackId))
+            preloadTracks.RemoveAll(track => track.Id != failure.TrackId && Session.KeptOnDevice(track));
+        if (preloadTracks.Count == 0) return;
         preloadMissing = playlist.Tracks.Count(t => Session.Resolve(t) is null);
         preloadQuality = Session.DownloadQuality; error = null; preloadOpen = true;
     }
@@ -525,7 +528,7 @@ else
         if (busy || preloadTracks.Count == 0) return;
         Session.SetDownloadQuality(preloadQuality);
         await JS.InvokeVoidAsync("familyhub.closeDialog", "preload-dialog", "keep-playlist");
-        await Run(() => Session.DownloadAsync(preloadTracks));
+        await RunDeviceDownload(preloadTracks);
     }
     private bool songPickerOpen, songPickerShown, playlistTransitionPending;
     private AddSongs? addSongs;
@@ -972,6 +975,9 @@ else
             await InvokeAsync(StateHasChanged);
             return;
         }
+        if (wasDownloading && Session.DownloadingId is null)
+            await JS.InvokeVoidAsync("familyhub.restoreFocus", "pause-download", view == "Playlists" && Selected is not null ? "keep-playlist" : "content");
+        wasDownloading = Session.DownloadingId is not null;
         if (pendingFocus is { } target && (!EntryScreen || target is not ("artist-mappings-title" or "catalogue-review-title" or "view-title"))) { pendingFocus = null; await JS.InvokeVoidAsync("familyhub.focus", target); }
         if (AppUpdater.Platform is not null && Session.Api is not null && updateChecks.Add(Session.Server))
         { startupUpdate = null; _ = CheckStartupUpdate(Session.Server); }
@@ -1033,9 +1039,6 @@ else
             await JS.InvokeVoidAsync("familyhub.retainFocus", "q");
         }
         if (playlistTransitionPending) { playlistTransitionPending = false; await JS.InvokeVoidAsync("familyhub.finishPlaylistTransition"); }
-        if (wasDownloading && Session.DownloadingId is null)
-            await JS.InvokeVoidAsync("familyhub.restoreFocus", "pause-download", "show-queue");
-        wasDownloading = Session.DownloadingId is not null;
     }
     private void Changed() => _ = InvokeAsync(StateHasChanged);
     // The player reports progress five times a second. The seek bar and lyrics follow it
@@ -1317,8 +1320,6 @@ else
         if (start < 0) throw new InvalidOperationException("Download this song while connected to play it offline.");
         await Player.PlayAsync(entries[start].Track!, entries.Select(item => item.Track!), start, source: "playlist:" + playlist.Id);
     });
-    private async Task PauseDownload()
-    { await JS.InvokeVoidAsync("familyhub.focus", "content"); Session.CancelDownload(); }
     private Task Seek(ChangeEventArgs args) => double.TryParse(args.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var seconds) ? Player.SeekAsync(seconds) : Task.CompletedTask;
     private static bool Matches(MusicTrack track, string text) => (track.Title + " " + track.Channel).Contains(text, StringComparison.OrdinalIgnoreCase);
     private static string Time(double seconds) => TimeSpan.FromSeconds(Math.Max(0, seconds)).ToString(@"m\:ss");
@@ -1326,12 +1327,11 @@ else
     private RenderFragment TrackRow(MusicTrack track, List<MusicTrack> sequence, bool removable, int? position = null) => @<SongRow @key="(track.Id, position)" Track="track" Current="@(Player.Current?.Id == track.Id && (view != "Queue" || position == Player.QueueIndex))" Playing="ShowPause" Play="() => PlayRow(track, sequence, position)" AddToPlaylist="OpenPlaylistPicker" Queue="() => QueueTrack(track)" Keep="() => Download(track)" Remove="@(removable ? EventCallback.Factory.Create(this, () => RemoveDownload(track)) : default)" RemoveLabel="Remove download" />;
     private Task RemoveDownload(MusicTrack track) => Run(async () =>
     { if (Player.Current?.Id == track.Id) await Player.StopAsync(); await JS.InvokeVoidAsync("familyhub.focus", "library-filter"); await Session.RemoveDownloadAsync(track); });
-    private Task Download(MusicTrack track) => Run(async () =>
+    private Task Download(MusicTrack track) => Session.KeptOnDevice(track) ? Task.CompletedTask : RunDeviceDownload([track]);
+    private Task RunDeviceDownload(IEnumerable<MusicTrack> tracks) => Run(async () =>
     {
-        if (Session.LocalPath(track) is not null) return;
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
-        var saved = await Session.EnsureServerRecordingAsync(track, timeout.Token, background: true, prefetch: true);
-        await Session.DownloadAsync([saved]);
+        try { await Session.DownloadAsync(tracks); }
+        catch (Exception exception) { throw new InvalidOperationException(MusicSession.DownloadErrorMessage(exception) + " Try the download again.", exception); }
     });
 }
 

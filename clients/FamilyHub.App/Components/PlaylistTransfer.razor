@@ -11,10 +11,10 @@
             {
                 <button id="transfer-import" class="primary" @onclick="AddSongsRequested" aria-haspopup="dialog"><MusicIcon Name="plus" />Add songs</button>
             }
-            else if (!AllOnServer)
+            else
             {
-                <button id="transfer-download" @onclick='() => Start("download")' aria-disabled="@Aria(DownloadUnavailable)"><MusicIcon Name="cloud-check" />@(Status?.State == "paused" && (Status.Mode == "download" || Status.DownloadAfterMatching) ? "Resume server download" : Status?.DownloadAfterMatching == true ? "Download queued" : "Download to server")</button>
-                @if (Playlist.Tracks.Any(t => t.State is "unmatched" or "review" or "error" or "ready"))
+                <button id="transfer-download" @onclick='() => Start("download")' aria-disabled="@Aria(DownloadUnavailable)"><MusicIcon Name="@(AllOnServer ? "cloud-check" : "download")" />@DownloadLabel</button>
+                @if (!AllOnServer && Playlist.Tracks.Any(t => t.State is "unmatched" or "review" or "error" or "ready"))
                 {
                     <button id="transfer-match" class="quiet" @onclick='() => Start("match")' aria-disabled="@Aria(Working || requesting || !Session.Connected)"><MusicIcon Name="search" />@(Status?.State == "paused" && Status.Mode != "download" ? "Resume matching" : "Find recordings")</button>
                 }
@@ -25,7 +25,13 @@
             <div class="transfer-status glass-panel" aria-busy="@Aria(Working)">
                 <div class="transfer-heading" role="status" aria-atomic="true"><strong>@Heading</strong><span>@CountLabel</span></div>
                 <div class="transfer-meter @(Working && state.Phase == "reading" && state.Total == 0 ? "is-indeterminate" : "")" role="progressbar" aria-label="@Heading" aria-valuemin="0" aria-valuemax="@Math.Max(1, state.Total)" aria-valuenow="@(state.Total > 0 ? ProgressCount : (int?)null)"><span style="width:@Percent%"></span></div>
-                <div class="transfer-current"><span class="transfer-activity @(Working ? "is-active" : "")" aria-hidden="true"></span><span><strong>@state.Title</strong><small>@state.Message</small></span><button id="transfer-progress-action" class="quiet" @onclick="ProgressAction" aria-disabled="@Aria(requesting || state.State == "pausing")">@(Working ? state.State == "pausing" ? "Pausing..." : "Pause" : "Close")</button></div>
+                <div class="transfer-current">
+                    <span class="transfer-activity @(Working && watchError is null ? "is-active" : "")" aria-hidden="true"></span>
+                    <span><strong>@state.Title</strong><small>@(DownloadFailed ? "Some songs could not be downloaded to the server." : state.Message)</small></span>
+                    <button id="transfer-progress-action" class="quiet" @onclick="ProgressAction" aria-disabled="@Aria(requesting || watchError is null && state.State == "pausing")">
+                        @(watchError is not null ? "Reconnect to progress" : Working ? state.State == "pausing" ? "Pausing..." : "Pause" : "Close")
+                    </button>
+                </div>
                 @if (state.Mode == "download" && state.ActiveDownloads.Count > 0)
                 {
                     @foreach (var file in state.ActiveDownloads)
@@ -70,6 +76,11 @@
             </ul></details>
         }
         <p class="sr" role="status">@(appendImport && Status?.State == "done" ? "Playlist import finished." : "")</p>
+        @if (watchError is not null)
+        {
+            <p class="entry-error" role="status">@watchError</p>
+            @if (!ShowProgress) { <button id="transfer-reconnect" class="quiet" @onclick="ReconnectProgress" aria-disabled="@Aria(requesting)">Reconnect to progress</button> }
+        }
         @if (!string.IsNullOrEmpty(error)) { <p class="entry-error" role="alert">@error</p> }
     </section>
     <dialog id="transfer-review-dialog" class="glass-dialog transfer-review-dialog" aria-labelledby="transfer-review-heading">
@@ -191,16 +202,23 @@
         [JsonPropertyName("candidates")] public List<MusicTrack> Candidates { get; init; } = [];
     }
     private bool AllOnServer => Playlist.Tracks.Count > 0 && Playlist.Tracks.All(t => Session.Library.Any(song => song.Id == t.RecordingId));
-    private bool ShowProgress => !dismissed && Status is { State: not ("idle" or "done") };
-    private bool hadProgress;
+    private bool DownloadFailed => !AllOnServer && Status is { Mode: "download", State: "done", Failed: > 0 };
+    private bool ShowProgress => !dismissed && (Working || DownloadFailed || Status is { State: not ("idle" or "done") });
+    private bool hadProgress, hadReconnect;
     private TransferStatus? Status;
     private CancellationTokenSource? lifetime;
     private string key = "", provider = "spotify", url = "";
-    private string? error;
-    private bool requesting, dismissed, openDialog, closeDialog, polling, disposed, loadedSnapshot;
+    private string? error, watchError;
+    private bool requesting, dismissed, openDialog, closeDialog, polling, disposed, wasConnected;
+    private (string Phase, string State, int Processed, int Saved, int Found, int Review, int Failed)? published;
     private CancellationToken pollingToken;
-    private bool Working => Status?.State is "running" or "pausing";
-    private bool DownloadUnavailable => requesting || !Session.Connected || Working && Status?.DownloadAfterMatching == true || Status?.State == "pausing" || Working && Status?.Mode == "download";
+    private bool Working => Status?.State is "running" or "pausing" || Status is { State: "done", DownloadAfterMatching: true };
+    private bool DownloadUnavailable => AllOnServer || requesting || !Session.Connected || Working && Status?.DownloadAfterMatching == true || Status?.State == "pausing" || Working && Status?.Mode == "download";
+    private string DownloadLabel => AllOnServer ? "Playlist on server"
+        : Status is { Mode: "download", State: "running" or "pausing" } ? "Downloading to server"
+        : Status?.State == "paused" && (Status.Mode == "download" || Status.DownloadAfterMatching) ? "Resume server download"
+        : DownloadFailed ? "Retry server download"
+        : Status?.DownloadAfterMatching == true ? "Download queued" : "Download to server";
     private int ProgressCount => Status?.Phase == "reading" ? Status.Loaded : Status?.Processed ?? 0;
     private string Percent => (Status is { Total: > 0 } s ? Math.Clamp(ProgressCount * 100d / s.Total, 0, 100) : 0).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
     private string FileLabel => Status?.FilePhase switch { "saved" => "File size", "purifying" => "Purifying audio", "downloading" => "Downloading file", "error" => "Download failed", _ => "Preparing file" };
@@ -212,7 +230,7 @@
         : Status is { FilePhase: "downloading", DownloadTotalBytes: > 0 } d ? Math.Clamp(d.DownloadBytes * 100d / d.DownloadTotalBytes.Value, 0, 100) : null;
     private string FilePercentText => (FilePercent ?? 0).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
     private static string Size(long bytes) => bytes >= 1L << 30 ? $"{bytes / (double)(1L << 30):0.0} GB" : $"{bytes / (double)(1L << 20):0.0} MB";
-    private string Heading => Status?.Phase == "reading" ? "Reading playlist" : Status?.Mode == "download" ? "Downloading to server" : "Finding recordings";
+    private string Heading => DownloadFailed ? "Server download failed" : Status?.Phase == "reading" ? "Reading playlist" : Status?.Mode == "download" ? "Downloading to server" : "Finding recordings";
     private string CountLabel => Status is { Total: > 0 } s ? $"{ProgressCount} / {s.Total}" : "";
     private static string Aria(bool value) => value ? "true" : "false";
     private static string StateLabel(string state) => state switch { "saved" => "On server", "ready" => "Found", "review" => "Needs review", "error" => "Failed", "preparing" => "Purifying", _ => "Not checked" };
@@ -225,34 +243,30 @@
     protected override async Task OnParametersSetAsync()
     {
         var nextKey = Session.Server + "|" + Session.User + "|" + Playlist.OwnerId + "|" + Playlist.Id;
-        if (nextKey == key) return;
+        var reconnected = Session.Connected && !wasConnected;
+        wasConnected = Session.Connected;
+        if (nextKey == key)
+        {
+            if (reconnected) await ReconnectProgress();
+            return;
+        }
         lifetime?.Cancel(); lifetime?.Dispose(); lifetime = new();
-        key = nextKey; Status = null; error = null; dismissed = false; loadedSnapshot = false;
+        key = nextKey; Status = null; error = watchError = null; dismissed = requesting = false; published = null;
         if (!Playlist.CanEdit || !Session.Connected) return;
         var token = lifetime.Token;
-        try
-        {
-            var status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Get, PreparePath, cancellationToken: token);
-            if (token.IsCancellationRequested) return;
-            Status = status;
-            if (Working) _ = Poll(token);
-            else if (status.State != "idle")
-            {
-                await Session.RefreshAsync(background: true);
-                if (!token.IsCancellationRequested) await Updated.InvokeAsync();
-            }
-        }
-        catch (OperationCanceledException) { }
-        catch (HttpRequestException) { }
-        catch (FamilyHubApiException) { /* Explicit actions report compatibility or connection errors. */ }
+        await ReconnectProgress();
         if (token.IsCancellationRequested || InitialReviewIndex is not { } index) return;
         if (Working) { error = "Pause playlist preparation before choosing a recording."; return; }
         await OpenReview(index);
     }
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        var returnTo = Playlist.Tracks.Count > 0 ? "transfer-download" : "playlist-transfer-progress";
         if (hadProgress && !ShowProgress)
-            await JS.InvokeVoidAsync("familyhub.restoreFocus", "transfer-progress-action", "playlist-transfer-progress");
+            await JS.InvokeVoidAsync("familyhub.restoreFocus", "transfer-progress-action", returnTo);
+        if (hadReconnect && (watchError is null || ShowProgress))
+            await JS.InvokeVoidAsync("familyhub.restoreFocus", "transfer-reconnect", ShowProgress ? "transfer-progress-action" : returnTo);
+        hadReconnect = watchError is not null && !ShowProgress;
         hadProgress = ShowProgress;
         var controls = Playlist.Tracks.Select((track, index) => (track, index))
             .Where(row => NeedsAttention(row.track)).Select(row => "review-recording-" + row.index).ToHashSet();
@@ -260,10 +274,10 @@
         if (Status is { } status)
             controls.UnionWith(status.Recent.Where(RecentNeedsAttention).Select(item => "review-recent-" + item.Index));
         if (Playlist.Tracks.Count == 0) controls.Add("transfer-import");
-        else if (!AllOnServer)
+        else
         {
             controls.Add("transfer-download");
-            if (Playlist.Tracks.Any(t => t.State is "unmatched" or "review" or "error" or "ready")) controls.Add("transfer-match");
+            if (!AllOnServer && Playlist.Tracks.Any(t => t.State is "unmatched" or "review" or "error" or "ready")) controls.Add("transfer-match");
         }
         foreach (var removed in previousControls.Except(controls))
             await JS.InvokeVoidAsync("familyhub.restoreFocus", removed, "playlist-transfer-progress");
@@ -292,7 +306,7 @@
         try
         {
             Status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Post, Path + "/import", new { provider, url, revision = Playlist.Revision, append = appendImport, owner_id = Playlist.OwnerId }, lifetime!.Token);
-            dismissed = false; loadedSnapshot = false; closeDialog = true;
+            dismissed = false; published = null; watchError = null; closeDialog = true;
             _ = Poll(lifetime.Token);
         }
         catch (OperationCanceledException) { }
@@ -306,7 +320,7 @@
         try
         {
             Status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Post, PreparePath, new { mode }, lifetime!.Token);
-            dismissed = false; loadedSnapshot = true;
+            dismissed = false; published = null; watchError = null;
             _ = Poll(lifetime.Token);
         }
         catch (OperationCanceledException) { }
@@ -316,6 +330,7 @@
     private async Task ProgressAction()
     {
         if (requesting) return;
+        if (watchError is not null) { await ReconnectProgress(); return; }
         if (!Working)
         {
             await JS.InvokeVoidAsync("familyhub.focus", "playlist-transfer-progress");
@@ -338,33 +353,59 @@
             while (!token.IsCancellationRequested && Working)
             {
                 await Task.Delay(1500, token);
-                var status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Get, PreparePath, cancellationToken: token, background: true);
-                if (token.IsCancellationRequested) return;
-                Status = status;
-                if ((!loadedSnapshot && status.Phase != "reading") || !Working)
-                {
-                    loadedSnapshot = true;
-                    await Session.RefreshAsync(background: true);
-                    if (token.IsCancellationRequested) return;
-                    await Updated.InvokeAsync();
-                }
+                await ReadProgress(token);
                 await InvokeAsync(StateHasChanged);
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex)
         {
             if (!disposed && !token.IsCancellationRequested)
             {
-                error = "Progress connection interrupted. Reopen the playlist to reconnect; the server can keep working. " + FriendlyError(ex);
+                watchError = ProgressError(ex);
                 await InvokeAsync(StateHasChanged);
             }
         }
         finally { if (pollingToken == token) polling = false; }
     }
+    private async Task ReconnectProgress()
+    {
+        if (requesting || lifetime is null || !Session.Connected) return;
+        var token = lifetime.Token;
+        requesting = true;
+        try
+        {
+            await ReadProgress(token);
+            watchError = null;
+            if (Working) _ = Poll(token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex) { if (!token.IsCancellationRequested) watchError = ProgressError(ex); }
+        finally { if (!token.IsCancellationRequested) requesting = false; }
+    }
+    private async Task ReadProgress(CancellationToken token)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        var status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Get, PreparePath, cancellationToken: timeout.Token, background: true);
+        token.ThrowIfCancellationRequested();
+        Status = status;
+        var snapshot = (status.Phase, status.State, status.Processed, status.Saved, status.Found, status.Review, status.Failed);
+        if (status.State == "idle" || status.Phase == "reading" && Working || snapshot == published) return;
+        await Session.RefreshCatalogueAsync(timeout.Token);
+        token.ThrowIfCancellationRequested();
+        published = snapshot;
+        await Updated.InvokeAsync();
+    }
+    private static string ProgressError(Exception ex) => ex switch
+    {
+        FamilyHubApiException { StatusCode: 404 } => FriendlyError(ex),
+        OperationCanceledException => "The server took too long to report download progress.",
+        _ => "The app lost its connection to download progress. The server can keep working."
+    };
     private static string FriendlyError(Exception ex) => ex is FamilyHubApiException { StatusCode: 404 }
         ? "Update the FamilyHub server to use playlist import and server downloads."
-        : ex is HttpRequestException ? "Check the server connection and try again." : ex.Message;
+        : ex is HttpRequestException or FamilyHubApiException ? "Check the server connection and try again." : ex.Message;
     public void Dispose() { disposed = true; lifetime?.Cancel(); lifetime?.Dispose(); }
     private sealed record TransferStatus
     {
