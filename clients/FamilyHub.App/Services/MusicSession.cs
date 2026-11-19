@@ -1376,12 +1376,13 @@ public sealed class MusicSession
         Playlists.Add(created.Playlist); await SavePlaylistsAsync();
         return created.Playlist;
     }
-    public async Task CreatePlaylistAsync(string name)
+    public async Task<MusicPlaylist> CreatePlaylistAsync(string name)
     {
         var version = accountVersion;
         var playlist = await OnlineApi().CreatePlaylistAsync(name);
         EnsureCurrent(version);
         Playlists.Add(playlist); await SavePlaylistsAsync();
+        return playlist;
     }
     private sealed record ProfileImageResponse(ListenerProfile Profile);
     public async Task SetProfileImageAsync(string dataUri)
@@ -1431,7 +1432,9 @@ public sealed class MusicSession
     {
         if (!playlist.CanDelete) throw new InvalidOperationException("Only an admin can delete playlists.");
         var version = accountVersion;
-        await OnlineApi().DeletePlaylistAsync(playlist.Id, playlist.Revision, playlist.OwnerId);
+        try { await OnlineApi().DeletePlaylistAsync(playlist.Id, playlist.Revision, playlist.OwnerId); }
+        catch (FamilyHubApiException error) when (error.StatusCode == 409)
+        { EnsureCurrent(version); await RefreshAsync(); throw new InvalidOperationException(error.Message); }
         EnsureCurrent(version);
         Playlists.RemoveAll(p => p.Id == playlist.Id && p.OwnerId == playlist.OwnerId); await SavePlaylistsAsync();
     }

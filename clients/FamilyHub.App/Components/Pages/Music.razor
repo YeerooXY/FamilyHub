@@ -282,7 +282,7 @@ else
             @if (selected.CanEdit) { <PlaylistTransfer @ref="playlistTransfer" @key="PlaylistKey(selected)" Playlist="selected" AddSongsRequested='() => addSongs?.Open("transfer-import", selected)' InitialReviewIndex="initialPlaylistReviewIndex" /> }
             <div class="playlist-tools playlist-song-tools">
                 <div class="playlist-song-search @(songSearchOpen ? "is-open" : "")">
-                    <button id="playlist-song-search-toggle" class="quiet" aria-label="Search in playlist" aria-expanded="@Aria(songSearchOpen)" aria-controls="playlist-song-search" @onclick="ToggleSongSearch"><MusicIcon Name="search" /></button>
+                    <button id="playlist-song-search-toggle" class="quiet" aria-label="@(songSearchOpen ? "Close playlist search" : "Open playlist search")" aria-expanded="@Aria(songSearchOpen)" aria-controls="playlist-song-search" @onclick="ToggleSongSearch"><MusicIcon Name="search" /></button>
                     <input id="playlist-song-search" type="search" aria-label="Search in playlist" placeholder="Search in playlist" disabled="@(!songSearchOpen)" @bind="songSearch" @bind:event="oninput" @bind:after="PlaylistSearchChanged" @onkeydown="PlaylistSearchKey" />
                 </div>
                 <button id="playlist-mixes" class="quiet mix-filter" aria-pressed="@Aria(mixesOnly)" @onclick="ToggleMixFilter">Mixes with current song</button>
@@ -299,6 +299,7 @@ else
             { <p class="note">@(selected.Tracks.Count == 0 ? "No songs in this playlist." : "No matching songs.")</p> }
             <div class="playlist-column-headings"><span>#</span><span>Title</span><span class="playlist-column-label" title="Album">Album</span><span class="playlist-added-heading"><span class="playlist-column-label" title="Date added">Date added</span><span>Added by</span></span><span class="playlist-track-bpm">BPM</span><span class="playlist-track-key">Key</span><span aria-label="Duration"><MusicIcon Name="clock" /></span></div>
             <div class="library-list unified-song-list playlist-song-list">
+            @{ var canReorder = Session.Connected && selected.CanEdit && songSort == "Custom order" && string.IsNullOrWhiteSpace(songSearch) && !mixesOnly; }
             @for (var visibleIndex = 0; visibleIndex < Math.Min(playlistPositions.Count, Shown("playlist:" + selectedId)); visibleIndex++)
             {
                 var position = playlistPositions[visibleIndex];
@@ -308,6 +309,9 @@ else
                     @key="(selectedId, position)" Track="metadata" FindRecording="@(track is null)" Current="@(track is not null && Player.Current?.Id == track.Id)" Playing="ShowPause"
                     Play="() => track is null ? FindPlaylistRecording(entry) : PlayEntry(selected, position)" AddToPlaylist="OpenPlaylistPicker"
                     Queue="() => QueueTrack(metadata)" Keep="() => Download(metadata)"
+                    OptionsId="@PlaylistRowOptionsId(position)"
+                    MoveEarlier="@(canReorder && position > 0 ? EventCallback.Factory.Create(this, () => MoveEntry(selected, position, position - 1)) : default)"
+                    MoveLater="@(canReorder && position < selected.Tracks.Count - 1 ? EventCallback.Factory.Create(this, () => MoveEntry(selected, position, position + 1)) : default)"
                     Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="Remove from playlist" />
             }
             </div>
@@ -1314,6 +1318,13 @@ else
         await Navigate("Similar songs");
     });
     private void PlaylistCreated(MusicPlaylist playlist) { selectedId = PlaylistKey(playlist); pendingFocus = "view-title"; StateHasChanged(); }
+    private static string PlaylistRowOptionsId(int position) => $"playlist-row-options-{position}";
+    private Task MoveEntry(MusicPlaylist playlist, int from, int to) => Run(async () =>
+    {
+        await Session.EditPlaylistAsync(playlist, new { move_from = from, move_to = to });
+        shown = Math.Max(shown, to + 1);
+        pendingFocus = PlaylistRowOptionsId(to);
+    });
     private Task RemoveEntry(MusicPlaylist playlist, int index) => Run(async () => { await JS.InvokeVoidAsync("familyhub.focus", "content"); await Session.EditPlaylistAsync(playlist, new { remove_index = index }); pendingFocus = "view-title"; });
     private Task PlayPlaylist(List<MusicTrack> tracks) => RunPlayback(async () =>
     {

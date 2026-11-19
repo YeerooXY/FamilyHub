@@ -216,6 +216,17 @@ foreach (var body in new[] { "not json", "[]", "{\"error\":\"" + new string('x',
 }
 var sharedPlaylist = JsonSerializer.Deserialize<MusicPlaylist>("{\"id\":\"same\",\"owner_id\":\"other\",\"owner_name\":\"Sam\",\"shared\":true,\"can_edit\":false}")!;
 Check(sharedPlaylist.OwnerId == "other" && sharedPlaylist.OwnerName == "Sam" && sharedPlaylist.Shared && !sharedPlaylist.CanEdit, "Shared playlist ownership was lost");
+foreach (var (status, recovery) in new[] { (HttpStatusCode.Forbidden, "switch profiles"), (HttpStatusCode.GatewayTimeout, "Try again"),
+    (HttpStatusCode.InsufficientStorage, "Free up space"), (HttpStatusCode.ServiceUnavailable, "try again") })
+{
+    using var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(status))));
+    try { await api.GetLibraryAsync(); Check(false, "Failed request did not throw"); }
+    catch (FamilyHubApiException ex)
+    {
+        Check(ex.StatusCode == (int)status && ex.Message.Contains(recovery) && !ex.Message.Contains("HTTP"),
+            "Failed request did not explain how to recover");
+    }
+}
 
 using (var api = new FamilyHubApi(origin, new Handler(request =>
 {

@@ -27,11 +27,13 @@
     private string opener = "content", filter = "", name = "", message = "";
     private bool opening, saving, creating, creatingPlaylist, focusName;
     private HashSet<string> chosen = [];
+    private HashSet<string> initial = [];
     private static string Key(MusicPlaylist playlist) => playlist.OwnerId + ":" + playlist.Id;
     public void Open(MusicTrack value, string returnId)
     {
         track = value; opener = returnId; filter = name = message = ""; creating = false;
         chosen = Session.Playlists.Where(p => p.CanEdit && p.Tracks.Any(t => t.RecordingId == value.Id)).Select(Key).ToHashSet();
+        initial = new(chosen);
         opening = true; StateHasChanged();
     }
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -56,26 +58,33 @@
         saving = true; message = "";
         try
         {
-            var targets = Session.Playlists.Where(p => p.CanEdit).ToList();
+            var targets = new HashSet<string>(chosen);
+            targets.SymmetricExceptWith(initial);
             MusicTrack? saved = null;
             foreach (var target in targets)
             {
-                var playlist = Session.Playlists.First(p => p.Id == target.Id && p.OwnerId == target.OwnerId);
+                var playlist = Session.Playlists.FirstOrDefault(p => p.CanEdit && Key(p) == target)
+                    ?? throw new InvalidOperationException("A selected playlist is unavailable. Reopen Add to playlist to see the current list.");
                 var positions = playlist.Tracks.Select((t, i) => (t, i)).Where(row => row.t.RecordingId == track.Id).Select(row => row.i).Reverse().ToList();
-                if (chosen.Contains(Key(target)) && positions.Count == 0)
+                if (chosen.Contains(target))
                 {
-                    message = track.Saved ? "Saving playlist..." : "Saving recording to server...";
-                    await InvokeAsync(StateHasChanged);
-                    saved ??= await Session.EnsureServerRecordingAsync(track, CancellationToken.None, background: true, prefetch: true);
-                    await Session.EditPlaylistAsync(playlist, new { add_source_id = saved.Id });
+                    if (positions.Count == 0)
+                    {
+                        message = track.Saved ? "Saving playlist..." : "Saving recording to server...";
+                        await InvokeAsync(StateHasChanged);
+                        saved ??= await Session.EnsureServerRecordingAsync(track, CancellationToken.None, background: true, prefetch: true);
+                        await Session.EditPlaylistAsync(playlist, new { add_source_id = saved.Id });
+                    }
+                    initial.Add(target);
                 }
-                else if (!chosen.Contains(Key(target)))
+                else
                 {
                     foreach (var position in positions)
                     {
-                        playlist = Session.Playlists.First(p => p.Id == target.Id && p.OwnerId == target.OwnerId);
+                        playlist = Session.Playlists.First(p => Key(p) == target);
                         await Session.EditPlaylistAsync(playlist, new { remove_index = position });
                     }
+                    initial.Remove(target);
                 }
             }
             await Close();
