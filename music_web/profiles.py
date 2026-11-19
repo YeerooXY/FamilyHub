@@ -145,7 +145,8 @@ class ProfileStore:
 
     def playback(self, profile_id, value=None):
         self.get(profile_id)
-        data = self.read()
+        directory = self.path.parent / '.playback-state'
+        path = directory / (hashlib.sha256(profile_id.encode()).hexdigest() + '.json')
         if value is not None:
             ids = value.get("track_ids") if isinstance(value, dict) else None
             index = value.get("index") if isinstance(value, dict) else None
@@ -156,6 +157,11 @@ class ProfileStore:
                     or type(position) not in (int, float) or not math.isfinite(position) or not 0 <= position <= 86400):
                 raise ProfileError("Invalid saved playback position.")
             value = {"track_ids": ids, "index": index, "position": position, "updated_at": int(time.time() * 1000)}
-            data.setdefault("playback", {})[profile_id] = value
-            self.write(data)
-        return data.get("playback", {}).get(profile_id)
+            directory.mkdir(exist_ok=True)
+            temporary = path.with_suffix('.tmp')
+            temporary.write_text(json.dumps(value), encoding='utf-8')
+            temporary.replace(path)
+            return value
+        if path.exists():
+            return json.loads(path.read_text(encoding='utf-8'))
+        return self._load().get('playback', {}).get(profile_id)

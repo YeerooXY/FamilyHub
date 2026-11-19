@@ -89,7 +89,7 @@ def deezer_link(url):
     return match.groups()
 
 
-def _deezer(path, *, timeout=15, max_wait=None):
+def _deezer(path, *, timeout=15, max_wait=8):
     request = urllib.request.Request("https://api.deezer.com/" + path, headers={"Accept": "application/json"})
     with PROVIDERS["deezer"].request(max_wait=max_wait), urllib.request.build_opener(NoRedirect).open(request, timeout=timeout) as response:
         data = response.read(2 << 20)

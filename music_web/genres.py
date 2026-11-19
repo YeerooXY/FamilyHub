@@ -95,8 +95,9 @@ class GenreLabels:
             with self.lock:
                 self.cache[artist.casefold()] = {'genre': genre, 'musicbrainz_id': artist_id}
                 self.pending.pop(0)
-                try:
-                    temp = self.path.with_suffix('.tmp')
-                    temp.write_text(json.dumps(self.cache), encoding='utf-8'); temp.replace(self.path)
-                except OSError: pass
+                snapshot = dict(self.cache)
+            try:
+                temp = self.path.with_suffix('.tmp')
+                temp.write_text(json.dumps(snapshot), encoding='utf-8'); temp.replace(self.path)
+            except OSError: pass
             time.sleep(1.1)

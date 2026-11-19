@@ -130,11 +130,12 @@ class SongAnalysis:
                                          self.intake.tool('ffmpeg'), getattr(self.intake, 'RESOURCES', None))
                     if not isinstance(result, dict):
                         raise ValueError('Invalid song analysis')
+                    # scan_lock already serializes writers; readers need only publication.
+                    rows = {**self.rows, key: result}
+                    temporary = self.path.with_suffix('.tmp')
+                    temporary.write_text(json.dumps(rows, ensure_ascii=False), encoding='utf-8')
+                    temporary.replace(self.path)
                     with self.lock:
-                        rows = {**self.rows, key: result}
-                        temporary = self.path.with_suffix('.tmp')
-                        temporary.write_text(json.dumps(rows, ensure_ascii=False), encoding='utf-8')
-                        temporary.replace(self.path)
                         self.rows = rows
                 except ScanPaused:
                     return

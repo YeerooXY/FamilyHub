@@ -10,6 +10,7 @@ import unicodedata
 
 from .link_playlists import _deezer, _row
 from .playlists import PlaylistError
+from .catalog_search import first_artist, clean_title
 
 SIZE = 50
 PER_ARTIST = 4
@@ -34,14 +35,20 @@ def _named_in(name, artist):
 def seed(artist, title="", read=_deezer):
     """Finds the Deezer artist (and song) for a radio; returns (url, name).
     Raises PlaylistError when nothing matches and OSError when Deezer fails."""
-    artist = (artist or "").split(",")[0].strip()
+    original_artist = (artist or "").split(",")[0].strip()
+    title = clean_title(original_artist, title)
+    artist = first_artist(original_artist)
     if not artist or len(artist) > 200 or len(title or "") > 300:
         raise PlaylistError("Choose a song or an artist for the radio.")
     from urllib.parse import urlencode
 
     def search(path):
         # A Deezer error reply here is an outage or quota limit, not a missing artist.
-        try: return read(path).get("data") or []
+        try:
+            result = read(path)
+            if not isinstance(result, dict) or result.get('error') or not isinstance(result.get('data'), list):
+                raise OSError('Deezer search failed')
+            return result['data']
         except PlaylistError as error: raise OSError("Deezer search failed") from error
     title = (title or "").strip()
     parts = re.split(r"\s+[-–—]\s+", title, maxsplit=1)
@@ -81,11 +88,25 @@ def read_radio(url, name, progress=None, read=_deezer):
     else:
         artist_id = int(identifier)
     if type(artist_id) is not int: raise PlaylistError("No radio found for this song.")
-    mix = read(f"artist/{artist_id}/radio?limit=50").get("data") or []
-    related = (read(f"artist/{artist_id}/related?limit=8").get("data") or [])[:8]
+    failures = []
+
+    def optional(path):
+        try:
+            result = read(path)
+            if not isinstance(result, dict) or result.get('error') or not isinstance(result.get('data'), list):
+                raise OSError('Deezer radio failed')
+            return result['data']
+        except (OSError, ValueError, PlaylistError) as error:
+            failures.append(error)
+            return []
+
+    mix = optional(f"artist/{artist_id}/radio?limit=50")
+    if not mix:
+        mix = optional(f"artist/{artist_id}/top?limit=50")
+    related = optional(f"artist/{artist_id}/related?limit=8")[:8]
     tops = []
     for position, artist in enumerate(related):
-        tops.append(read(f"artist/{int(artist['id'])}/top?limit=5").get("data") or [])
+        tops.append(optional(f"artist/{int(artist['id'])}/top?limit=5"))
         if progress: progress(position + 1, len(related))
     # Interleave: two radio picks, then one related-artist top song, so the radio is not one artist.
     queue, tops_flat = [], [song for group in zip(*[t + [None] * (5 - len(t)) for t in tops]) for song in group if song] if tops else []
@@ -104,6 +125,27 @@ def read_radio(url, name, progress=None, read=_deezer):
         seen.add(key); per_artist[key[0]] = per_artist.get(key[0], 0) + 1
         rows.append(_row(song["title"], artist, song.get("duration"), "deezer:" + str(song.get("id", "")), (song.get("album") or {}).get("title", "")))
         if len(rows) >= SIZE: break
-    if not rows: raise PlaylistError("No songs found for this radio.")
+    if not rows or first and len(rows) == 1:
+        if failures:
+            raise OSError('Radio catalogue is unavailable. Try again later.')
+        raise PlaylistError("No songs found for this radio. Try another artist or choose songs from your library.")
     return {"id": hashlib.sha256(url.encode()).hexdigest()[:22], "name": name[:200], "url": url, "tracks": rows,
             "notice": f"{len(rows)} similar songs.", "description": "Songs like " + name.removesuffix(" Radio")}
+
+
+def related_library(artist, genre, tracks):
+    """Saved recordings remain useful when an external catalogue is empty or down."""
+    from .genres import genre_key
+    credit = _key(first_artist(artist))
+    wanted_genre = genre_key(genre or '')
+    result = []
+    for track in tracks:
+        name = track.get('channel', '')
+        parts = re.split(r'\s+[-\u2013\u2014]\s+', track.get('title', ''), maxsplit=1)
+        if len(parts) == 2:
+            name = parts[0]
+        same_artist = credit and _key(first_artist(name)) == credit
+        same_genre = wanted_genre not in ('', 'unsorted') and genre_key(track.get('genre') or '') == wanted_genre
+        if same_artist or same_genre:
+            result.append(track)
+    return result[:SIZE]

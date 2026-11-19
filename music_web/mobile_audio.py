@@ -21,6 +21,7 @@ WANTED_SECONDS = 14 * 86400
 
 
 _listening = PriorityLane()
+_downloads = PriorityLane()
 _inflight_lock = threading.Lock()
 _inflight = {}
 
@@ -34,7 +35,7 @@ def copy_path(item, digest, quality):
     return os.path.join(item, f".{TIERS[quality][1]}-{digest}.opus")
 
 
-def prepare(intake, item, source, digest, urgent=False, quality="normal", title='', lead=0, offline_only=False):
+def prepare(intake, item, source, digest, urgent=False, quality="normal", title='', lead=0, offline_only=False, requested=False):
     path = copy_path(item, digest, quality)
     if urgent:
         _wanted[quality] = time.time()
@@ -48,7 +49,7 @@ def prepare(intake, item, source, digest, urgent=False, quality="normal", title=
     with observe(governor, "opus", "encoder lane") as state:
         while True:
             state("encoder lane")
-            with (_listening.turn(lead) if urgent else _encoding):
+            with (_listening.turn(lead) if urgent else _downloads.turn(lead) if requested else _encoding):
                 if os.path.lexists(path):
                     intake.regular_file(path, "mobile audio")
                     return path
@@ -182,6 +183,7 @@ class Warmer:
         control = getattr(self.intake, "CONTROL", None)
         if control is not None:
             control.background = True
+            control.priority = lambda: 3
         while not self.stop.is_set():
             if not self.idle():
                 with self.cv:

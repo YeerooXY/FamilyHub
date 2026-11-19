@@ -254,10 +254,20 @@ def register(app, workspace, body, profiles, admins, metadata, profile_lock, *, 
 
     store = ListeningHistory(workspace, track_metadata=track_metadata)
     app.extensions['listening_history'] = store
+    prune_slot = threading.BoundedSemaphore(1)
 
     @app.before_request
     def prune_listening_history():
-        store.prune()
+        if store.last_prune and store.utc() - store.last_prune < timedelta(hours=24):
+            return
+        if not prune_slot.acquire(blocking=False):
+            return
+        def prune():
+            try:
+                store.prune()
+            finally:
+                prune_slot.release()
+        threading.Thread(target=prune, name='history-prune', daemon=True).start()
 
     def reader():
         target = request.args.get('profile', g.user)

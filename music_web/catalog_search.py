@@ -14,13 +14,24 @@ _genres = {}
 
 def _get(service, url):
     request = urllib.request.Request(url, headers={'User-Agent': 'FamilyHubMusic/0.1', 'Accept': 'application/json', 'Accept-Language': 'en'})
-    with PROVIDERS[service].request(), urllib.request.build_opener(NoRedirect).open(request, timeout=10) as response:
+    with PROVIDERS[service].request(max_wait=8), urllib.request.build_opener(NoRedirect).open(request, timeout=10) as response:
         data = response.read(1048577)
     if len(data) > 1048576: raise ValueError('Store response is too large.')
-    return json.loads(data)
+    result = json.loads(data)
+    if not isinstance(result, dict) or result.get('error'):
+        raise ValueError('The music catalogue is unavailable. Try again later.')
+    return result
 
 def first_artist(artist):
     return re.split(r'\s*(?:,|&| x | feat\.?\s| ft\.?\s)\s*', artist or '', flags=re.I)[0].strip()
+
+
+def clean_title(artist, title):
+    from .radio import _key, _TITLE_SUFFIX
+    parts = re.split(r'\s+[-\u2013\u2014]\s+', title or '', maxsplit=1)
+    if len(parts) == 2 and _key(first_artist(parts[0])) == _key(first_artist(artist)):
+        title = parts[1]
+    return _TITLE_SUFFIX.sub('', title or '').strip()
 
 def album_key(normal, title):
     # "Song - Single", "Song (Single)" and "Song" name the same release across stores.
@@ -29,15 +40,16 @@ def album_key(normal, title):
 
 def candidates(seed, core_title, normal):
     """Store results matching the song's title, artist and length, at most 3 per store."""
-    title, artist, duration = seed.get('title', ''), first_artist(seed.get('artist', '')), seed.get('duration') or 0
+    title = clean_title(seed.get('artist', ''), seed.get('title', ''))
+    artist, duration = first_artist(seed.get('artist', '')), seed.get('duration') or 0
     wanted = core_title(title)
-    credit = normal(seed.get('artist', ''))
+    credit = normal(artist)
     if not wanted or not credit or duration <= 0: return []
     term = artist + ' ' + re.sub(r'\s*[\[(][^\])]*[\])]', '', title).strip()
     found = []
     try:
         for row in (_get('deezer', 'https://api.deezer.com/search?' + urllib.parse.urlencode(dict(q=term, limit=10))).get('data') or [])[:10]:
-            if core_title(row.get('title', '')) != wanted or normal((row.get('artist') or {}).get('name')) != credit: continue
+            if core_title(row.get('title', '')) != wanted or normal(first_artist((row.get('artist') or {}).get('name'))) != credit: continue
             if not close_duration(duration, row.get('duration')): continue
             album = row.get('album') or {}
             identifier = album.get('id')
@@ -52,7 +64,7 @@ def candidates(seed, core_title, normal):
     except (OSError, ValueError): pass
     try:
         for row in (_get('itunes', 'https://itunes.apple.com/search?' + urllib.parse.urlencode(dict(term=term, entity='song', limit=10))).get('results') or [])[:10]:
-            if core_title(row.get('trackName', '')) != wanted or normal(row.get('artistName')) != credit: continue
+            if core_title(row.get('trackName', '')) != wanted or normal(first_artist(row.get('artistName'))) != credit: continue
             if not close_duration(duration, (row.get('trackTimeMillis') or 0) / 1000): continue
             album = str(row.get('collectionName', ''))[:120]
             kind = 'compile' if row.get('collectionArtistName', '').casefold() == 'various artists' else ('single' if album.endswith(' - Single') else 'ep' if album.endswith(' - EP') else 'album')

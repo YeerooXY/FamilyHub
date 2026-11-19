@@ -181,11 +181,19 @@ class CatalogueReview:
         return {identifier for identifier, entry in entries.items() if entry['state'] in ('done', 'undoing')}
 
     def overrides(self,identifier,digest):
-        with self.lock:
-            row=self.data['overrides'].get(identifier,{})
-            return dict(row.get('values',{})) if row.get('sha256')==digest else {}
+        # Override entries are replaced whole; a slow review save cannot stall playback.
+        row=self.data['overrides'].get(identifier,{})
+        return dict(row.get('values',{})) if row.get('sha256')==digest else {}
 
     def observe(self,track,source,digest):
+        if not self.lock.acquire(blocking=False):
+            return  # The next library scan retries optional metadata observation.
+        try:
+            self._observe(track,source,digest)
+        finally:
+            self.lock.release()
+
+    def _observe(self,track,source,digest):
         identifier=track['id'];current=dict(artist=track['channel'],album=track.get('library_album',''),genre=track.get('genre',''))
         absent=[key for key in FIELDS if missing(current[key])]
         with self.lock:
@@ -287,11 +295,12 @@ class CatalogueReview:
             saved = self.data['overrides'].get(identifier, {})
             if not fixed or not row or digest != fixed['sha256'] or row['sha256'] != digest or saved.get('sha256') != digest:
                 raise ReviewError('This metadata fix is unavailable. Refresh the review in Server work.', 409)
-            values = saved['values']
+            values = dict(saved['values'])
             for key, applied in fixed['applied'].items():
                 if values.get(key) == applied and row['current'].get(key) == applied:
                     values.pop(key)
                     row['current'][key] = fixed['previous'][key]
+            self.data['overrides'][identifier] = dict(saved, values=values)
             row['missing'] = [key for key in FIELDS if missing(row['current'].get(key))]
             row.update(state='review' if row['missing'] else 'done', revision=row['revision']+1)
             del self.data['metadata_fixed'][identifier]
