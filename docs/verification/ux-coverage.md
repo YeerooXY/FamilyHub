@@ -1,5 +1,47 @@
 # Interface verification
 
+## 19 November 2026 — Music Home shelves, album details and Search
+
+Headless Playwright rendered the built Windows Razor components in a local
+Blazor host with synthetic tracks and artwork. The host emulated the MAUI
+dispatcher, cache hit and audio deck. The web discovery checks used the rendered
+Flask template and browser assets with fixture API responses. All captures use
+reduced motion.
+
+| Profile | Playlist and album tile width | Screenshots |
+| --- | ---: | --- |
+| Windows Chromium, 1280 × 900 | 224 px | [Home](music-home-tiles/windows-1280.png) · [Playlists and albums](music-home-tiles/windows-1280-playlists-albums.png) · [Album](music-home-tiles/windows-1280-album.png) · [Empty Search](music-home-tiles/windows-1280-search.png) |
+| Windows Chromium, 2000 × 1060 | 248 px | [Home](music-home-tiles/windows-2000.png) · [Playlists and albums](music-home-tiles/windows-2000-playlists-albums.png) |
+| macOS Safari engine emulated on Windows, 1440 × 900 | 248 px | [Home](music-home-tiles/mac-webkit-emulated.png) · [Playlists and albums](music-home-tiles/mac-webkit-emulated-playlists-albums.png) |
+| Pixel 7 Chromium profile emulated on Windows, 412 × 839 | 148 px | [Home](music-home-tiles/android-chromium-emulated.png) · [Playlists and albums](music-home-tiles/android-chromium-emulated-playlists-albums.png) · [Album](music-home-tiles/android-chromium-emulated-album.png) · [Empty Search](music-home-tiles/android-chromium-emulated-search.png) |
+| iPhone 13 WebKit profile emulated on Windows, 390 × 664 | 148 px | [Home](music-home-tiles/iphone-webkit-emulated.png) · [Playlists](music-home-tiles/iphone-webkit-emulated-playlists.png) · [Albums](music-home-tiles/iphone-webkit-emulated-playlists-albums.png) · [Album](music-home-tiles/iphone-webkit-emulated-album.png) · [Empty Search](music-home-tiles/iphone-webkit-emulated-search.png) |
+| Flask discovery, Windows Chromium and emulated Pixel 7 | — | [Windows](music-home-tiles/web-windows-1280.png) · [Pixel 7](music-home-tiles/web-android-emulated.png) |
+
+- Home layout checks covered the tile cap, square artworks and missing-cover tile,
+  matching radio and recent tile styles, shelf arrow alignment and scrolling,
+  and page overflow. The existing Playwright Home fixture also exercised
+  hover, keyboard focus, save-button targets and reduced motion at six widths or profiles.
+- Album and playlist tiles opened details with the player idle. The explicit
+  album play control started the fixture deck. Back returned focus to the album tile.
+  Empty Search kept the search controls visible and the results pane clear. On
+  phone profiles the Search tab focused the accessible heading.
+- The radio fixture delayed the create response by 2.5 seconds. The selected song
+  started during the delay, then the remaining tracks appeared in the queue
+  through a preparation request carrying the background activity header.
+- Discovery and radio passed 20 Python tests. Discovery coverage included a
+  13-track album, duplicate cover art across artists, separate remix releases,
+  the artist cap, and first-round artist rotation. The portable client passed
+  891 checks. The player checks passed on an isolated retry after a crossfade
+  envelope timing assertion failed in the first run. The Windows build completed
+  with two existing nullability warnings in `MainPage.xaml.cs`.
+
+Full assistive-technology checks, physical Mac and phone checks, native OS fonts
+and keyboard behavior, and audible playback against a live server remain open.
+The album checks cover the normal opening and play path. The Search checks cover
+empty and cleared input. Broader error, loading and accessibility coverage remains
+open for those screens. WebKit rendered the fixture art and reported its
+cross-origin canvas sampling restriction during artwork processing.
+
 ## 17 November 2026 — Home and playlists
 
 Scope: playlist contributor pictures/names, playlist owner bylines, cover cropping,

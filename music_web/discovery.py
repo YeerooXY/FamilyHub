@@ -10,6 +10,7 @@ import urllib.error
 import urllib.request
 from functools import lru_cache
 from email.utils import parsedate_to_datetime
+from collections import Counter
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
@@ -23,6 +24,13 @@ def valid_artist_id(value):
 
 def normal(value):
     return re.sub(r'\W+', ' ', str(value).casefold()).strip()
+
+
+def release_title_key(title):
+    # Strip remix credits while keeping unrelated subtitles and meaningful editions.
+    base = re.sub(r'\s*(?:\([^()]*\bremix(?:es)?\b[^()]*\)|\[[^\[\]]*\bremix(?:es)?\b[^\[\]]*\])\s*$', '', title, flags=re.I)
+    base = re.sub(r'\s+[-–—]\s+.*\bremix(?:es)?\b.*$', '', base, flags=re.I)
+    return normal(base) or normal(title)
 
 
 def cover_hash(*records):
@@ -278,26 +286,41 @@ class Discovery:
         with self.db() as db:
             states = dict(db.execute('SELECT id,state FROM states WHERE profile=?', (profile,)))
             releases = [json.loads(r[0]) for r in db.execute('SELECT data FROM releases')]
-        result, seen = [], set()
-        for row in sorted(releases, key=lambda r: r["release_date"], reverse=True):
+        candidates = []
+        today = date.today()
+        for row in releases:
             artist = artists.get(row['artist_id'])
             if not artist or states.get(row['id']) == 'dismissed': continue
             aliases = aliases_by_id.get(row['artist_id'], set())
             if any((alias, normal(row['title'])) in known for alias in aliases): continue
-            key = (row['artist_id'], normal(row['title']))
-            if key in seen: continue
-            seen.add(key)
-            if not recent_release(dict(id=row['source_ids']['album'], record_type='single', title=row['album'], release_date=row['release_date']), date.today()): continue
+            if not recent_release(dict(id=row['source_ids']['album'], record_type='single', title=row['album'], release_date=row['release_date']), today): continue
             row = dict(row, artist=artist['name'], source_url='https://www.deezer.com/track/' + str(row['source_ids']['track']))
             legacy = 'cover_hash' not in row
             digest = row.pop('cover_hash', None) or cover_hash(row)
             image_id = digest or (f"album-{row['source_ids']['album']}" if legacy else None)
-            result.append(dict(row, cover=cover_address(digest) if digest else None,
+            candidates.append(dict(row, cover=cover_address(digest) if digest else None,
                                cover_url=f'/api/discovery/covers/{image_id}.jpg' if image_id else None,
                                seen=states.get(row['id']) == 'seen', updated_at=artist.get('updated_at'),
                                stale=time.time() - (artist.get('updated_at') or 0) > 86400,
                                reason='Followed artist' if normal(artist['name']) in follows else 'Artist you play'))
-        return sorted(result, key=lambda r: (r['reason'] == 'Followed artist', r['release_date']), reverse=True)[:100]
+        candidates.sort(key=lambda r: (r['reason'] == 'Followed artist', r['release_date']), reverse=True)
+        result, used = [], set()
+        per_artist = Counter()
+        # Give each eligible artist a slot before offering anyone a second release.
+        for limit in (1, 2):
+            for row in candidates:
+                artist = row['artist_id']
+                if per_artist[artist] >= limit: continue
+                keys = {('album', row['source_ids']['album']), ('song', artist, release_title_key(row['title']))}
+                if row['album']:
+                    keys.add(('album title', artist, release_title_key(row['album'])))
+                if row['cover']:
+                    keys.add(('cover', row['cover']))
+                if keys & used: continue
+                used.update(keys)
+                per_artist[artist] += 1
+                result.append(row)
+        return result
 
     def start(self, allow_background=lambda: True):
         with self.lock:

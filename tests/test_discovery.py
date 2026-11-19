@@ -38,11 +38,39 @@ class DiscoveryTests(unittest.TestCase):
             clock.fromisoformat.side_effect = date.fromisoformat
             return self.store.refresh_one()
 
-    def items(self, profile='a'):
+    def items(self, profile='a', selected=('artist',)):
         with patch('music_web.discovery.date') as clock:
             clock.today.return_value = date(2026, 11, 18)
             clock.fromisoformat.side_effect = date.fromisoformat
-            return self.store.items(profile, ['artist'], set(), self.tracks)
+            return self.store.items(profile, selected, set(), self.tracks)
+
+    def test_shelf_spreads_artists_and_caps_albums_and_cover_art(self):
+        for name, identifier in [('Artist', 42), ('Second Artist', 43), ('Third Artist', 44)]:
+            self.store.put_artist(dict(name=name, deezer_id=identifier))
+        rows = []
+
+        def add(artist, album, track, title, day, cover=None, album_title=None):
+            row = dict(id=f'{album}:{track}', artist_id=artist, album=album_title or f'Release {album}',
+                       title=title, release_date=f'2026-11-{day:02}', cover_hash=cover,
+                       source_ids=dict(artist=artist, album=album, track=track))
+            rows.append((row['id'], artist, json.dumps(row)))
+
+        shared_cover = 'a' * 32
+        for index in range(13):
+            add(42, 1, 100 + index, f'Song {index}', 18, shared_cover if index == 0 else None)
+        add(42, 2, 200, 'Another song', 17, shared_cover)
+        add(42, 3, 300, 'Song 0 (Guest Remix)', 16)
+        add(42, 4, 400, 'Song 0 - VIP Remix', 15)
+        add(42, 5, 500, 'Different title', 14, album_title='Release 1 [Remixes]')
+        add(42, 6, 600, 'Second release', 13)
+        add(42, 7, 700, 'Third release', 12)
+        add(43, 8, 800, 'Shared artwork', 17, shared_cover)
+        add(43, 9, 900, 'Second artist song', 11)
+        add(44, 10, 1000, 'Third artist song', 10)
+        with self.store.db() as db:
+            db.executemany('INSERT INTO releases VALUES (?,?,?)', rows)
+        items = self.items(selected=('artist', 'second artist', 'third artist'))
+        self.assertEqual([row['id'] for row in items], ['1:100', '9:900', '10:1000', '6:600'])
 
     def test_song_identity_daily_cache_known_recordings_and_private_states(self):
         self.assertTrue(self.refresh())

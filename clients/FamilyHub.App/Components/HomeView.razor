@@ -11,22 +11,19 @@
         <h2 id="home-radio-title">Radio</h2>
         @if (radioSeeds.Count > 0)
         {
-            <div class="home-radio-row">
+            <div class="home-shortcuts">
                 @for (var i = 0; i < radioSeeds.Count; i++)
                 {
                     var seed = radioSeeds[i];
                     var title = Similarity.RadioTitle(seed);
-                    <button id="@("home-radio-" + i)" class="home-radio @(i == 0 ? "home-radio-current" : "")" @onclick="() => StartRadio.InvokeAsync(seed)"
+                    <button id="@("home-radio-" + i)" class="home-shortcut" @onclick="() => StartRadio.InvokeAsync(seed)"
                             aria-disabled="@(!Session.Connected || RadioBusy || FollowingHost ? "true" : "false")" aria-label="Start @title Radio">
                         <TrackCover Track="seed" />
-                        <span class="home-radio-text">
-                            <span class="home-radio-label"><strong>@title Radio</strong><MusicIcon Name="radio" /></span>
-                            <small>@seed.Channel</small>
-                        </span>
+                        <span><span aria-hidden="true">📻</span> @title</span>
                     </button>
                 }
             </div>
-            <p class="home-save-status" role="status">@(RadioBusy ? "Finding songs for radio..." : !Session.Connected ? "Connect to start radio." : FollowingHost ? "Leave the listening session to start radio." : "")</p>
+            <p class="home-save-status" role="status">@(!Session.Connected ? "Connect to start radio." : FollowingHost ? "Leave the listening session to start radio." : "")</p>
         }
         else
         {
@@ -49,7 +46,7 @@
 
     @if (Session.Playlists.Count > 0)
     {
-        <section class="home-section" aria-labelledby="home-playlists-title">
+        <section class="home-section home-collection" aria-labelledby="home-playlists-title">
             <div class="home-section-heading"><h2 id="home-playlists-title">Your playlists</h2></div>
             <ShelfArrows Target="home-playlists-shelf" Label="your playlists"><div class="home-shelf" id="home-playlists-shelf">
                 @foreach (var playlist in Session.Playlists.Take(10))
@@ -62,16 +59,17 @@
 
     @if (albums.Count > 0)
     {
-        <section class="home-section" aria-labelledby="home-albums-title">
+        <section class="home-section home-collection" aria-labelledby="home-albums-title">
             <div class="home-section-heading"><h2 id="home-albums-title">Albums for you</h2></div>
             <ShelfArrows Target="home-albums-shelf" Label="albums"><div class="home-shelf" id="home-albums-shelf">
                 @foreach (var album in albums)
                 {
                     var busy = saving == album.Key; var saved = !busy && HasPlaylist(album);
+                    var opener = "home-album-" + album.Tracks[0].Id;
                     <div class="home-card-holder" @key="album.Key">
-                        <button class="home-card" @onclick="() => PlayTracks.InvokeAsync(album.Tracks)" aria-label="Play @album.Name by @album.Artist"><TrackCover Track="album.Tracks[0]" /><strong>@album.Name</strong><span>@album.Artist</span></button>
+                        <button id="@opener" class="home-card" @onclick="() => OpenAlbum.InvokeAsync((album.Name, album.Artist, album.Tracks, opener))" aria-label="Open @album.Name by @album.Artist"><TrackCover Track="album.Tracks[0]" /><strong>@album.Name</strong><span>@album.Artist</span></button>
                         <button class="home-card-save @(saved ? "is-saved" : "")" @onclick="() => SaveAlbum(album)" aria-disabled="@(saved || busy || saving is not null || !Session.Connected ? "true" : "false")"
-                                aria-busy="@(busy ? "true" : "false")" aria-label="Save album as playlist" title="@(saved ? "Saved as a playlist" : "Save " + album.Name + " as playlist")"><MusicIcon Name="@(saved ? "check" : "plus")" /><span class="sr">@(saved ? "Saved" : album.Name)</span></button>
+                                aria-busy="@(busy ? "true" : "false")" aria-label="@(saved ? album.Name + " saved as a playlist" : "Save " + album.Name + " as a playlist")" title="@(saved ? "Saved as a playlist" : "Save " + album.Name + " as playlist")"><MusicIcon Name="@(saved ? "check" : "plus")" /></button>
                     </div>
                 }
             </div></ShelfArrows>
@@ -83,6 +81,7 @@
 
 @code {
     [Parameter] public EventCallback<MusicPlaylist> OpenPlaylist { get; set; }
+    [Parameter] public EventCallback<(string Name, string Artist, List<MusicTrack> Tracks, string Opener)> OpenAlbum { get; set; }
     [Parameter] public EventCallback<List<MusicTrack>> PlayTracks { get; set; }
     [Parameter] public EventCallback<MusicTrack> StartRadio { get; set; }
     [Parameter] public MusicTrack? CurrentTrack { get; set; }
