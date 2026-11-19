@@ -51,7 +51,7 @@ else if (EntryScreen)
                 <div class="connect-fields"><label class="sr" for="server">Server address</label><input id="server" type="url" @bind="server" placeholder="Server address" autocomplete="url" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url" required /><button class="primary" type="submit" aria-disabled="@Aria(busy)">@(busy ? "Connecting..." : "Connect")</button></div>
                 <Notice Level="@(error is null ? Session.MessageLevel : "error")" Message="@(error ?? EntryMessage)" />
                 @if (!string.IsNullOrEmpty(Session.User)) { <button class="quiet change-server" type="button" @onclick='() => Navigate("Library")'>Back</button> }
-                <AppUpdate @key="Session.Server" />
+                <AppUpdate @key="Session.Server" InitialRelease="startupUpdate" />
             </form>
         }
     </main>
@@ -394,7 +394,7 @@ else
     </div><SeekBar /></div>
     @if (Player.Current is not null) { <LyricsView Expanded="lyricsOpen" ExpandedChanged="SetLyricsOpen" AvailabilityChanged="LyricsAvailabilityChanged" /> }
     <button id="player-more" class="quiet player-more" aria-label="Player options" aria-expanded="@Aria(playerToolsOpen)" aria-controls="player-options" @onclick="TogglePlayerTools"><MusicIcon Name="more" /></button>
-    @if (playerToolsOpen) { <button class="player-tools-backdrop" aria-label="Close player options" @onclick="ClosePlayerTools"></button> }
+    @if (playerToolsOpen) { <div class="player-tools-backdrop" aria-hidden="true" @onclick="ClosePlayerTools"></div> }
     <div id="player-options" class="player-tools @(playerToolsOpen ? "is-open" : "")" @onkeydown="PlayerToolsKeyDown" @onkeydown:stopPropagation="true">
         <button id="player-options-close" class="quiet player-tools-close" aria-label="Close player options" @onclick="ClosePlayerTools"><MusicIcon Name="close" /></button>
         @if (Player.Current is { } sheetSong)
@@ -496,7 +496,7 @@ else
     private Task ClearHistory() => Run(async () =>
     {
         try { await Session.ClearListeningHistoryAsync(); }
-        catch (Exception failure) when (failure is FamilyHubApiException or HttpRequestException or IOException)
+        catch (Exception failure) when (failure is FamilyHubApiException { RequiresSignIn: false } or HttpRequestException or IOException)
         {
             error = "Could not clear listening history. Try again.";
             return;
@@ -1133,6 +1133,11 @@ else
         if (busy) return;
         busy = true; error = null; playbackRetry = null; searchFailed = false;
         try { await action(); }
+        catch (FamilyHubApiException failure) when (failure.RequiresSignIn && !EntryScreen)
+        {
+            await Session.ReconnectAsync();
+            error = Session.Connected ? "Your session was restored. Try the action again." : failure.Message;
+        }
         catch (Exception exception) { error = NoticeText.Error(exception); }
         finally { busy = false; }
     }
@@ -1149,7 +1154,15 @@ else
             playbackRetry = action;
         }
     }
-    private Task Connect() => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); await Session.ConnectServerAsync(server); ResetProfileView(); });
+    private Task Connect() => Run(async () =>
+    {
+        await Session.ConnectServerAsync(server, async () =>
+        {
+            await Session.SavePlaybackAsync(Player.CaptureResume());
+            await Player.StopAsync();
+        });
+        ResetProfileView();
+    });
     private void CancelSearch()
     {
         searchVersion++; searchCancellation?.Cancel(); searchCancellation?.Dispose();

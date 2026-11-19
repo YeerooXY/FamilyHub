@@ -52,7 +52,21 @@ class FamilyProfiles(Base):
         self.assertEqual(self.go(client, 'GET', '/login').status_code, 302)
         with client.session_transaction(base_url=ORIGIN) as session:
             self.assertTrue(session.permanent)
-        self.assertEqual(self.post(client, bootstrap['csrf_token'], '/api/playlists', json={'name': 'Old token'}).status_code, 400)
+        stale = self.post(client, bootstrap['csrf_token'], '/api/playlists', json={'name': 'Old token'})
+        self.assertEqual(stale.status_code, 400)
+        self.assertEqual(stale.json['code'], 'csrf')
+
+    def test_stale_account_forms_link_back_to_a_fresh_page(self):
+        client, old_token = self.select()
+        _, new_token = self.select('sample-b', client)
+        for path in ('/login', '/logout'):
+            with self.subTest(path=path):
+                response = self.go(client, 'POST', path, data={'csrf_token': old_token, 'profile_id': 'sample-a'})
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(b'href="/">Reload FamilyHub</a>', response.data)
+                self.assertIn(b'data-user="sample-b"', self.go(client, 'GET', '/').data)
+        response = self.go(client, 'POST', '/logout', data={'csrf_token': new_token}, follow_redirects=True)
+        self.assertIn(b'Choose your profile', response.data)
 
     def test_bootstrap_selection_and_creation_keep_host_origin_csrf_guards(self):
         client, bootstrap = self.bootstrap()

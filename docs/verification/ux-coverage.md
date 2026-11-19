@@ -1,5 +1,11 @@
 # Interface verification
 
+## 19 November 2026 — Accounts, settings and resilience
+
+Account, settings, update, playback recovery and empty statistics checks used the
+local fixture server, the Windows shell and four browser profiles. The
+[verification record](accounts-resilience-2026-11-19.md) lists cases and device limits.
+
 ## 19 November 2026 · Notices and recovery
 
 The native and web notice audit, pixel measurements, keyboard paths and captures are in the [notice verification record](notices-2026-11-19/README.md). Physical Mac and phone behavior and screen-reader speech remain open.

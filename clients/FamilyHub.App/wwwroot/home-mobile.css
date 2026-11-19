@@ -322,8 +322,6 @@ body:has(.lyrics-view) .workspace>main { visibility:hidden; }
 body.native-hidden *,body.native-hidden *::before,body.native-hidden *::after { animation-play-state:paused !important; }
 
 /* Report song: icon-only toolbar button (the phone options sheet keeps its row label) and a roomy dialog. */
-#report-song .report-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
-.player-tools.is-open #report-song .report-label { position:static; width:auto; height:auto; overflow:visible; clip-path:none; }
 .report-dialog { width:min(520px,calc(100vw - 32px)); padding:24px; border-radius:16px; }
 .report-dialog header { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:14px; margin-bottom:20px; }
 .report-dialog header>.icon { width:28px; height:28px; color:#f5b041; }

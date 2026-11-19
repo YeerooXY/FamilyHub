@@ -138,7 +138,14 @@ internal static class SessionChecks
         var session = new MusicSession(Api);
         try
         {
-            await session.ConnectServerAsync("https://profiles.test");
+            var beforeSwitch = 0;
+            await session.ConnectServerAsync("https://profiles.test/", () =>
+            {
+                Check(session.Server.Length == 0, "Server changed before the old playback could be saved");
+                beforeSwitch++;
+                return Task.CompletedTask;
+            });
+            Check(beforeSwitch == 1 && session.Server == "https://profiles.test/", "Successful server change skipped cleanup");
             Check(session.NeedsProfileSelection && session.Profiles.Count == 2, "Connected profile chooser missing");
             await session.SelectProfileAsync("alex");
             Check(session.Connected && session.ProfileName == "Alex", "Online profile selection failed");
@@ -149,6 +156,19 @@ internal static class SessionChecks
             Check(session.Playlists.Single().Revision == 2, "Delete conflict did not refresh the playlist revision");
             await session.DeletePlaylistAsync(session.Playlists.Single());
             Check(playlistDeleted && session.Playlists.Count == 0, "Delete did not recover after refresh");
+            reachable = false;
+            try
+            {
+                await session.ConnectServerAsync("https://unreachable.test/", () => { beforeSwitch++; return Task.CompletedTask; });
+                Check(false, "Unreachable server was accepted");
+            }
+            catch (InvalidOperationException error)
+            {
+                Check(error.Message.Contains("Check the address"), "Failed server change did not explain how to recover");
+            }
+            finally { reachable = true; }
+            Check(beforeSwitch == 1 && session.Connected && session.User == "alex" && session.Server == "https://profiles.test/",
+                "Failed server change stopped the current account or discarded its playback");
             var previewTrack = await session.EnsureServerRecordingAsync(recording with { DownloadUrl = "" }, CancellationToken.None, allowPreview: true);
             Check(previewTrack.PlaybackVersion == "preview-hls", "Acquisition waited past the ready preview");
             var previewStream = await session.StreamPlaybackAsync(previewTrack, 0, CancellationToken.None);

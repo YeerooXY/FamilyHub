@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from flask import Flask, Response, abort, g, jsonify, redirect, render_template, request, session, send_file
-from flask_wtf.csrf import CSRFProtect, generate_csrf
+from flask_wtf.csrf import CSRFError, CSRFProtect, generate_csrf
 from werkzeug.exceptions import HTTPException
 from .genres import GenreLabels, artist_name, genre_key, genre_label, most_common_genre
 from .playlist_preparation import PlaylistPreparation
@@ -396,6 +396,15 @@ def create_app(test_config=None):
             app.logger.warning("Rejected %s %s: %s", request.method, request.path, (e.description or "")[:120])
         text = HTTP_TEXT.get(e.code, "Request failed.")
         return (jsonify(error=text) if request.path.startswith("/api/") else text), e.code
+
+    @app.errorhandler(CSRFError)
+    def csrf_error(error):
+        if request.endpoint in ("login", "logout") and request.method == "POST":
+            return render_template("account_retry.html"), 400
+        if request.path.startswith("/api/"):
+            app.logger.warning("Rejected %s %s: %s", request.method, request.path, error.description)
+            return jsonify(error="Your session changed. Reload FamilyHub and try again.", code="csrf"), 400
+        return http_error(error)
 
     # ---- sign in ----
     def require_family():

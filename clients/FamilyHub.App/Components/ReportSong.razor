@@ -1,7 +1,7 @@
 @inject MusicSession Session
 @inject MusicPlayer Player
 @inject IJSRuntime JS
-<button id="report-song" class="quiet trim-request" aria-haspopup="dialog" aria-label="Report song" title="Report song" @onclick="Open"><MusicIcon Name="alert" /><span class="report-label">Report song</span></button>
+<button id="report-song" class="quiet trim-request" aria-haspopup="dialog" aria-label="Report song" title="Report song" @onclick="Open"><MusicIcon Name="alert" /></button>
 <dialog id="report-song-dialog" class="animated-dialog report-dialog" aria-labelledby="report-song-title" aria-describedby="report-song-track" data-return-focus="report-song">
     <header>
         <MusicIcon Name="alert" />

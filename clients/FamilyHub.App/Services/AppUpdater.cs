@@ -41,7 +41,6 @@ public static class AppUpdater
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(15));
             using var response = await api.OpenAppUpdateAsync(release, timeout.Token);
-            response.EnsureSuccessStatusCode();
             if (response.Content.Headers.ContentLength is long size && size != release.Size)
                 throw new InvalidDataException("The update download has an unexpected size. Check for updates again.");
             var archive = Path.Combine(stage, "update.zip");

@@ -203,6 +203,12 @@ using (var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new H
         Check(error.Message == "The server is busy. Wait a moment and try again.", "A raw response code reached the UI");
     }
 }
+using (var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+    { Content = new StringContent("<html>Unrelated server</html>") }))))
+{
+    try { await api.ConnectAsync(); Check(false, "Unrelated server was accepted"); }
+    catch (InvalidDataException error) { Check(error.Message.Contains("address points to FamilyHub"), "Unrelated server exposed a parser error"); }
+}
 foreach (var detail in new[] { "Another playlist operation is running. Wait for it to finish.", "This playlist changed. Refresh it before editing." })
 {
     using var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict)
@@ -215,6 +221,37 @@ using (var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new H
 {
     try { await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, "/api/search", new { query = "Artist" }); Check(false, "Unavailable search did not throw"); }
     catch (FamilyHubApiException ex) { Check(ex.StatusCode == 503 && ex.Message == "YouTube is limiting searches right now. Try again in a moment.", "Search limitation message was discarded"); }
+}
+foreach (var (status, recovery) in new[]
+{
+    (HttpStatusCode.Unauthorized, "Sign in"), (HttpStatusCode.Forbidden, "Check your access"),
+    (HttpStatusCode.NotFound, "unavailable"), (HttpStatusCode.TooManyRequests, "Wait"),
+    (HttpStatusCode.ServiceUnavailable, "busy"), (HttpStatusCode.GatewayTimeout, "timed out")
+})
+{
+    using var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(status))));
+    var release = new AppRelease("0.1.72", new string('a', 64), 12, "/api/app-updates/windows-x64/package");
+    foreach (Func<Task> request in new Func<Task>[]
+        { () => api.GetServerStatsAsync(), () => api.OpenAppUpdateAsync(release) })
+    {
+        try { await request(); Check(false, "Server refusal did not throw"); }
+        catch (FamilyHubApiException ex)
+        {
+            Check(ex.StatusCode == (int)status && ex.Message.Contains(recovery) && !ex.Message.Contains("HTTP"),
+                "Server refusal did not give a recovery instruction");
+        }
+    }
+}
+foreach (var (code, stale) in new[] { ("csrf", true), ("invalid", false) })
+{
+    using var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+        { Content = System.Net.Http.Json.JsonContent.Create(new { code, error = "Check your input." }) })));
+    try { await api.GetLibraryAsync(); Check(false, "Bad request did not throw"); }
+    catch (FamilyHubApiException ex)
+    {
+        Check(ex.StatusCode == 400 && ex.RequiresSignIn == stale
+            && ex.Message.Contains(stale ? "Reconnect" : "Check your input"), "CSRF rejection was confused with another bad request");
+    }
 }
 foreach (var body in new[] { "not json", "[]", "{\"error\":\"" + new string('x', 5000) + "\"}" })
 {

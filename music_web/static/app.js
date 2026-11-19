@@ -1053,10 +1053,15 @@ async function loadLibrary() {
   notice("library-error", "");
   if (!libraryFingerprint) notice("library-status", "Loading library…");
   try {
-    const { results, genres = [], genre_keys = {} } = await api("/api/library?genre_filters=1");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const { results, genres = [], genre_keys = {} } = await api("/api/library?genre_filters=1", { signal: controller.signal })
+      .catch(error => { throw controller.signal.aborted ? new Error("The library request timed out.") : error; })
+      .finally(() => clearTimeout(timeout));
     if (version !== libraryVersion) return;
     notice("library-status", "");
     if (document.hidden) { libraryDeferred = true; return; }
+    if (!Array.isArray(results)) throw new Error("The server returned an unreadable library.");
     results.forEach(t => savedSources.add(sourceKey(t)));
     pool = [...new Map([...pool, ...results].map((r) => [sourceKey(r), r])).values()];
     const list = $("library-list"), active = document.activeElement;
@@ -1214,10 +1219,11 @@ function closeProfile(restore=false) {
   $("profile-toggle").setAttribute("aria-expanded", "false");
   if (restore) $("profile-toggle").focus();
 }
-$("profile-toggle").addEventListener("click", () => {
+$("profile-toggle").addEventListener("click", event => {
   const open = $("profile-menu").hidden;
   $("profile-menu").hidden = !open;
   $("profile-toggle").setAttribute("aria-expanded", String(open));
+  if (open && event.detail === 0) $("nav-settings").focus({preventScroll:true});
 });
 $("nav-settings").addEventListener("click", () => { closeProfile(); $("view-title").focus(); });
 document.addEventListener("keydown", e => { if(e.key === "Escape" && !$("profile-menu").hidden) { e.preventDefault(); closeProfile(true); } });
