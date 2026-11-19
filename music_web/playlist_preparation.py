@@ -179,7 +179,9 @@ class _PlaylistOperation:
         except PlaylistError as error:
             self.update(user, pid, state="error", message=str(error))
         except Exception:
-            self.update(user, pid, state="error", message="Could not read the public playlist. Check its link and try again.")
+            message = ("Radio is unavailable right now. Try another artist or choose songs from your library."
+                       if provider == 'radio' else "Could not read the public playlist. Check its link and try again.")
+            self.update(user, pid, state="error", message=message)
         finally:
             if not delegated:
                 with self.lock:

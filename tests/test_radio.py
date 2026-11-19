@@ -18,6 +18,32 @@ PAGES = {
 
 
 class Radio(unittest.TestCase):
+    def test_valmar_featured_artist_and_upload_noise_are_removed_before_search(self):
+        requested = []
+        def read(path):
+            requested.append(path)
+            return {'data': [song(99, 'VALMAR', 'Álmatlan esték')]}
+        result = radio.seed('VALMAR ft. Nemazalany & Sofi',
+                            'VALMAR ft. Nemazalany & Sofi - Almatlan estek (Official Music Video)', read=read)
+        self.assertEqual(result[0], 'familyhub-radio:track:99')
+        self.assertEqual(requested, ['search?q=VALMAR+Almatlan+estek&limit=10'])
+
+    def test_empty_artist_radio_falls_back_to_top_tracks(self):
+        pages = {'artist/1/radio?limit=50': {'data': []}, 'artist/1/related?limit=8': {'data': []},
+                 'artist/1/top?limit=50': {'data': [song(21, 'VALMAR', 'Other song')]}}
+        result = radio.read_radio('familyhub-radio:artist:1', 'VALMAR Radio', read=pages.__getitem__)
+        self.assertEqual(result['tracks'][0]['title'], 'Other song')
+
+    def test_error_payload_is_not_an_empty_search(self):
+        with self.assertRaises(OSError):
+            radio.seed('VALMAR', read=lambda _: {'error': {'code': 4}})
+
+    def test_library_fallback_matches_primary_credit_or_known_genre(self):
+        rows = [dict(id='one', title='VALMAR ft. Sofi - Other', channel='Uploader'),
+                dict(id='two', title='Other song', channel='Other', genre='Pop'),
+                dict(id='three', title='Unknown', channel='Other', genre='Unsorted')]
+        self.assertEqual(radio.related_library('VALMAR ft. Nemazalany', 'Pop', rows), rows[:2])
+
     def test_seed_song_first_variety_and_no_variants(self):
         data = radio.read_radio("familyhub-radio:track:9", "Dynamite Radio", read=PAGES.__getitem__)
         titles = [(r["artist"], r["title"]) for r in data["tracks"]]

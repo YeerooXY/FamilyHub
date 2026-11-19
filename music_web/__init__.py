@@ -196,6 +196,9 @@ def create_app(test_config=None):
     finished_audio = FinishedAudio(ws, app.intake)
     genre_labels = GenreLabels(ws, enabled=cfg.get("GENRE_LOOKUP", cfg["PUBLIC_ORIGIN"] != "https://music.test"))
     sessions, jobs, hits, lock = {}, OrderedDict(), {}, threading.RLock()
+    session_lock = threading.RLock()
+    playback_state_lock = threading.RLock()
+    catalogue_lock = threading.RLock()
     dispatch_wake = threading.Event()
     automatic_downloads = cfg.get("AUTO_PLAYLIST_DOWNLOADS", cfg["PUBLIC_ORIGIN"] != "https://music.test")
     backlog_wake = threading.Event()
@@ -208,7 +211,10 @@ def create_app(test_config=None):
     saved_lock = threading.RLock()
     searches = {}
     search_cache = OrderedDict()
+    radio_sources = OrderedDict()
     bulk_path = os.path.join(ws, ".library-additions.json")
+    bulk_file_lock = threading.Lock()
+    bulk_revision = bulk_saved_revision = 0
     app.extensions["music"] = SimpleNamespace(sessions=sessions, jobs=jobs)
     log = logging.getLogger("music_web")
     resources = ResourceGovernor(lambda: resource_queue(), lambda: resource_metrics())
@@ -234,9 +240,9 @@ def create_app(test_config=None):
     def cancel_acquisition(job):
         with job_changed:
             job["cancel"].set()
-            if job.get("library_addition") and job["state"] in ("queued", "running"):
-                save_bulk_queue()
             job_changed.notify_all()
+        if job.get("library_addition") and job["state"] in ("queued", "running"):
+            save_bulk_queue()
         transfers.wake()
         resource_changed()
 
@@ -256,7 +262,7 @@ def create_app(test_config=None):
 
     def current():
         sid = session.get("sid")
-        with lock:
+        with session_lock:
             s = sessions.get(sid) if isinstance(sid, str) else None
             if s and s["expiry"] > time.time():
                 return s["user"]
@@ -330,7 +336,7 @@ def create_app(test_config=None):
             return
         sid = listener_identity()[1]
         background = background_activity()
-        with lock:
+        with session_lock:
             signed_in = sessions.get(sid)
             first_background = signed_in is not None and background and not signed_in.get("activity_header")
             if first_background:
@@ -397,7 +403,7 @@ def create_app(test_config=None):
             raise ApiError("Family profiles are not enabled on this server.", 409)
 
     app_updates.register(app, ws, require_family)
-    profile_artwork.register(app, ws, profile_store, require_family, lock, resources)
+    profile_artwork.register(app, ws, profile_store, require_family, catalogue_lock, resources)
 
     @app.errorhandler(ProfileError)
     def profile_error(error):
@@ -407,7 +413,7 @@ def create_app(test_config=None):
         old = session.get("sid")
         session.clear()
         sid = secrets.token_urlsafe(32)
-        with lock:
+        with session_lock:
             sessions.pop(old, None)
             now = time.time()
             for key in [key for key, value in sessions.items() if value["expiry"] <= now]:
@@ -422,14 +428,14 @@ def create_app(test_config=None):
     @app.get("/api/connect")
     def family_connect():
         require_family()
-        with lock:
+        with catalogue_lock:
             profiles = profile_store.list()
         return jsonify(family_profiles=True, server_name="FamilyHub Music", profiles=profiles, csrf_token=generate_csrf())
 
     @app.post("/api/profiles")
     def create_family_profile():
         require_family()
-        with lock:
+        with catalogue_lock:
             profile = profile_store.create(body().get("name"))
         return jsonify(profile=profile), 201
 
@@ -437,7 +443,7 @@ def create_app(test_config=None):
     def select_family_profile():
         require_family()
         background = background_activity()
-        with lock:
+        with catalogue_lock:
             profile = profile_store.get(body().get("profile_id"))
             preferences = profile_store.preferences(profile["id"])
             establish_session(profile["id"], True, activity_header=background)
@@ -451,7 +457,7 @@ def create_app(test_config=None):
     @app.route("/api/profile/playback", methods=["GET", "PUT", "PATCH"])
     def family_playback():
         require_family()
-        with lock:
+        with playback_state_lock:
             if request.method in ("PUT", "PATCH"):
                 data = body(65536)
                 if data.get("profile_id") != g.user:
@@ -472,7 +478,7 @@ def create_app(test_config=None):
     @app.route("/api/profile/preferences", methods=["GET", "PATCH"])
     def family_preferences():
         require_family()
-        with lock:
+        with catalogue_lock:
             changes = body() if request.method == "PATCH" else None
             preferences = profile_store.preferences(g.user, changes)
             if changes and changes.get('listening_history_paused') is True:
@@ -489,7 +495,7 @@ def create_app(test_config=None):
             return redirect("/") if current() else page()
         if family_mode:
             try:
-                with lock:
+                with catalogue_lock:
                     profile = profile_store.create(request.form.get("name")) if request.form.get("action") == "create" else profile_store.get(request.form.get("profile_id"))
                     establish_session(profile["id"], True)
             except ProfileError as error:
@@ -510,7 +516,7 @@ def create_app(test_config=None):
     @app.post("/logout")
     def logout():
         resources.close(listener_identity())
-        with lock:
+        with session_lock:
             sessions.pop(session.get("sid"), None)
         session.clear()
         return redirect("/login")
@@ -566,7 +572,7 @@ def create_app(test_config=None):
         if job.get("temporary_item") and job.get("source_id") and path and not any(
                 other is not job and (other.get("item") == path or
                     other.get("source_id") == job.get("source_id") and other["state"] in ("queued", "running"))
-                for other in jobs.values()):
+                for other in list(jobs.values())):
             if os.path.dirname(os.path.abspath(path)) != ws or not app.intake.inside(path, ws):
                 raise app.intake.IntakeError("temporary cache escaped workspace")
             directory, manifest, _ = app.intake.load_item(path)
@@ -576,17 +582,44 @@ def create_app(test_config=None):
                 targets = [os.path.join(directory, name) for name in os.listdir(directory)]
                 for target in targets:
                     app.intake.regular_file(target, "temporary cache file")
-                for target in targets:
-                    os.chmod(target, 0o600)
-                shutil.rmtree(directory)
+                with lock:
+                    if any(other.get('item') == path or other.get('source_id') == job['source_id']
+                           and other['state'] in ('queued', 'running') for other in jobs.values()):
+                        return
+                    retired = os.path.join(ws, '.retired-' + secrets.token_hex(8))
+                    os.replace(directory, retired)
+                for target in os.listdir(retired):
+                    os.chmod(os.path.join(retired, target), 0o600)
+                shutil.rmtree(retired)
+
+    cleanup_pending = deque()
+    cleanup_thread = None
+
+    def retire(job, preview_only=False):
+        nonlocal cleanup_thread
+        # Called with the jobs lock. Only the cleanup worker touches retired files.
+        cleanup_pending.append((dict(job), preview_only))
+        if cleanup_thread is not None:
+            return
+        def clean():
+            nonlocal cleanup_thread
+            while True:
+                with lock:
+                    if not cleanup_pending:
+                        cleanup_thread = None
+                        return
+                    old, preview = cleanup_pending.popleft()
+                with suppress(OSError, app.intake.IntakeError):
+                    remove_preview(old['id']) if preview else discard(old)
+        cleanup_thread = threading.Thread(target=clean, name='retired-audio', daemon=True)
+        cleanup_thread.start()
 
     def new_job(user, step, m, source_id=None, priority=0, save=True, library_addition=False, *, preserve_priority=False):
         with lock:
             now = time.time()
             for old in list(jobs.values()):
                 if old["state"] not in ("queued", "running") and not old.get("analyzing") and now - old.get("accessed", old["created"]) > PREVIEW_TTL:
-                    with suppress(OSError, app.intake.IntakeError):
-                        discard(old)
+                    retire(old)
                     jobs.pop(old["id"], None)
             if source_id:
                 found = next((j for j in jobs.values() if j["owner"] == user and j.get("source_id") == source_id
@@ -610,8 +643,7 @@ def create_app(test_config=None):
                    "cancel": threading.Event(), "publish": threading.Lock(), "current": False}
             jobs[job["id"]] = job
             for k in [k for k, v in jobs.items() if v["state"] not in ("queued", "running") and not v.get("current") and not v.get("analyzing")][:max(0, len(jobs) - MAX_JOBS)]:
-                with suppress(OSError, app.intake.IntakeError):
-                    discard(jobs[k])
+                retire(jobs[k])
                 del jobs[k]
             return job
 
@@ -664,16 +696,22 @@ def create_app(test_config=None):
         key = (source_id, imported)
         with saved_lock:
             cached = saved_cache.get(key)
-            if cached:
-                result, signature = cached
-                try:
-                    if source_signature(result) == signature:
-                        saved_cache.move_to_end(key)
-                        return result
-                except (OSError, app.intake.IntakeError):
-                    pass
-                del saved_cache[key]
-            entry = validate_source(source_id, imported)
+        if cached:
+            result, signature = cached
+            try:
+                if source_signature(result) == signature:
+                    with saved_lock:
+                        if key in saved_cache:
+                            saved_cache.move_to_end(key)
+                    return result
+            except (OSError, app.intake.IntakeError):
+                pass
+            with saved_lock:
+                if saved_cache.get(key) is cached:
+                    del saved_cache[key]
+        # Hashing a cold song must not hold the library-wide cache mutex.
+        entry = validate_source(source_id, imported)
+        with saved_lock:
             if entry:
                 saved_cache[key] = entry
                 while len(saved_cache) > MAX_VERIFIED_SOURCES:
@@ -720,6 +758,7 @@ def create_app(test_config=None):
     from .profiles import file_version
 
     history_markers = {}
+    statistics_slot = threading.BoundedSemaphore(1)
 
     @app.post("/api/playback/activity")
     def playback_activity():
@@ -741,25 +780,6 @@ def create_app(test_config=None):
         if isinstance(track_ids, list) and len(track_ids) > 1000:
             raise ApiError("Invalid playback queue.", 400)
         counters = data.get("counters")
-        with lock:
-            preferences = profile_store.preferences(g.user) if family_mode else {}
-            paused = preferences.get('listening_history_paused', False)
-            if not paused:
-                if counters is not None:
-                    # Day-only legacy counters cannot separate plays on the day of a clear or resume.
-                    try:
-                        version = file_version(listening_history.path(g.user).with_suffix('.cleared'))
-                    except FileNotFoundError:
-                        version = None
-                    cached_version, cleared = history_markers.get(g.user, (None, None))
-                    if version != cached_version:
-                        cleared = listening_history.cleared_at(g.user) if version is not None else None
-                        history_markers[g.user] = version, cleared
-                    after_day = max(cleared or '', preferences.get('listening_history_resumed_at', ''))[:10]
-                    try: listening_stats.sync(g.user, data.get("counter_device_id") or device, counters, after_day=after_day)
-                    except ValueError as error: raise ApiError(str(error), 400)
-                try: listening_stats.heartbeat(g.user, device, data["playing"], count_time=counters is None, track=track)
-                except ValueError as error: raise ApiError(str(error), 429)
         # The same check-in lists this device for "Connect to a device" and collects a transfer sent to it.
         if track and data["playing"] and opus_warmer and re.fullmatch(r"(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})", track["id"]):
             opus_warmer.now_playing(track["id"])
@@ -769,7 +789,48 @@ def create_app(test_config=None):
         command, controls, epoch = playback_devices.report(g.user, device, device_info, data["playing"],
                                                           track, data.get("position"), identity,
                                                           background=background, room_heartbeat=room_heartbeat)
-        return jsonify(ok=True, counters_accepted=counters is not None, command=command, controls=controls, epoch=epoch)
+        owner = g.user
+        completed, errors = threading.Event(), []
+
+        def persist_activity():
+            try:
+                # Keep history clear/resume and cumulative-counter writes serialized,
+                # without making Connect wait for that lock or a slow checkpoint.
+                with catalogue_lock:
+                    preferences = profile_store.preferences(owner) if family_mode else {}
+                    if preferences.get('listening_history_paused', False):
+                        return
+                    if counters is not None:
+                        try:
+                            version = file_version(listening_history.path(owner).with_suffix('.cleared'))
+                        except FileNotFoundError:
+                            version = None
+                        cached_version, cleared = history_markers.get(owner, (None, None))
+                        if version != cached_version:
+                            cleared = listening_history.cleared_at(owner) if version is not None else None
+                            history_markers[owner] = version, cleared
+                        after_day = max(cleared or '', preferences.get('listening_history_resumed_at', ''))[:10]
+                        try: listening_stats.sync(owner, data.get("counter_device_id") or device, counters, after_day=after_day)
+                        except ValueError as error: raise ApiError(str(error), 400)
+                    try: listening_stats.heartbeat(owner, device, data["playing"], count_time=counters is None, track=track)
+                    except ValueError as error: raise ApiError(str(error), 429)
+            except Exception as error:
+                errors.append(error)
+                log.warning('Listening statistics write failed: %s', type(error).__name__)
+            finally:
+                statistics_slot.release()
+                completed.set()
+
+        accepted = False
+        if statistics_slot.acquire(blocking=False):
+            threading.Thread(target=persist_activity, name='listening-statistics', daemon=True).start()
+            if completed.wait(.05):
+                if errors:
+                    if isinstance(errors[0], ApiError):
+                        raise errors[0]
+                else:
+                    accepted = counters is not None
+        return jsonify(ok=True, counters_accepted=accepted, command=command, controls=controls, epoch=epoch)
 
     @app.get("/api/server/stats")
     def server_stats():
@@ -896,7 +957,7 @@ def create_app(test_config=None):
     def download_progress(job, **fields):
         # Account for new spool bytes between scans; a concurrent scan may count
         # these bytes twice temporarily, which conservatively reduces admission.
-        with job_changed, budget_lock:
+        with budget_lock, job_changed:
             budget_cache["size"] += max(0, fields.get("download_bytes", 0) - job.get("download_bytes", 0))
             job.update(fields)
             now = time.monotonic()
@@ -925,7 +986,7 @@ def create_app(test_config=None):
                 cached = [j for j in jobs.values() if j["preview_state"] == "ready"]
                 victims = preview_victims(cached, job)
                 for old in victims[:max(0, len(cached) - MAX_PREVIEWS)]:
-                    remove_preview(old["id"])
+                    retire(old, preview_only=True)
                     old["assets"].clear()
                     old["preview_state"] = "expired"
         except (OSError, app.intake.IntakeError):
@@ -936,27 +997,35 @@ def create_app(test_config=None):
             job["state"], job["message"] = state, message
             if state in ("done", "error"):
                 job["phase"] = state
-            if job.get("library_addition") and state in ("done", "error", "cancelled"):
-                save_bulk_queue()
             job_changed.notify_all()
             if automatic_downloads and state in ("done", "error", "cancelled"):
                 backlog_wake.set()
+        if job.get("library_addition") and state in ("done", "error", "cancelled"):
+            save_bulk_queue()
 
     def save_bulk_queue():
-        rows = [{key: j[key] for key in ("id", "owner", "source_id", "meta", "created", "retry_at", "retries", "addition_playlists") if key in j}
-                for j in jobs.values() if j.get("library_addition") and j["state"] in ("queued", "running")
-                and not j["cancel"].is_set()]
-        temporary = bulk_path + ".tmp"
-        try:
-            with open(temporary, "w", encoding="utf-8") as stream:
-                json.dump(rows, stream)
-            os.replace(temporary, bulk_path)
-        except OSError:
-            log.warning("Could not write the library addition queue")
-            with suppress(OSError):
-                os.unlink(temporary)
-            return False
-        return True
+        nonlocal bulk_revision, bulk_saved_revision
+        with lock:
+            rows = [{key: j[key] for key in ("id", "owner", "source_id", "meta", "created", "retry_at", "retries", "addition_playlists") if key in j}
+                    for j in jobs.values() if j.get("library_addition") and j["state"] in ("queued", "running")
+                    and not j["cancel"].is_set()]
+            bulk_revision += 1
+            revision = bulk_revision
+        with bulk_file_lock:
+            if revision <= bulk_saved_revision:
+                return True
+            temporary = bulk_path + ".tmp"
+            try:
+                with open(temporary, "w", encoding="utf-8") as stream:
+                    json.dump(rows, stream)
+                os.replace(temporary, bulk_path)
+                bulk_saved_revision = revision
+            except OSError:
+                log.warning("Could not write the library addition queue")
+                with suppress(OSError):
+                    os.unlink(temporary)
+                return False
+            return True
 
     addition_counts, addition_checked = {}, None
     addition_lock = threading.Lock()
@@ -999,7 +1068,7 @@ def create_app(test_config=None):
         intake.CONTROL.cancel = job["cancel"]
         # Background work runs at lower CPU priority so a listener's song is served first.
         intake.CONTROL.background = analyzing_job(job)
-        intake.CONTROL.priority = lambda: analyzing_job(job)
+        intake.CONTROL.priority = lambda: work_priority(job)
         intake.CONTROL.budget = lambda: job_budget(job)
         intake.CONTROL.publish = job["publish"]
         intake.CONTROL.committed = lambda: job.update(committed=True)
@@ -1020,7 +1089,7 @@ def create_app(test_config=None):
                     item = {"item": path, "manifest": manifest}
                 if not item:
                     def lease(size=0):
-                        return transfers.lease(size=size, background=lambda: analyzing_job(job),
+                        return transfers.lease(size=size, background=lambda: work_priority(job),
                                                cancelled=job["cancel"].is_set, error=intake.IntakeError,
                                                defer=defer)
                     intake.CONTROL.transfer = lease
@@ -1074,8 +1143,7 @@ def create_app(test_config=None):
                         ready_count = sum(j["preview_state"] == "ready" for j in jobs.values())
                         cached = preview_victims(jobs.values(), job)
                         for old in cached[:max(0, ready_count - MAX_PREVIEWS + 1)]:
-                            with suppress(OSError):
-                                remove_preview(old["id"])
+                            retire(old, preview_only=True)
                             old["assets"].clear()
                             old["preview_state"] = "expired"
                     preview = intake.cmd_preview(SimpleNamespace(item=item["item"], output=root,
@@ -1143,7 +1211,7 @@ def create_app(test_config=None):
                     job.update(retries=retries, retry_at=time.time() + 30 * 2 ** (retries - 1) + random.uniform(0, 10),
                                phase="queued")
                     settle(job, "queued", "Waiting to retry")
-                    save_bulk_queue()
+                save_bulk_queue()
                 return
             reason = upload_failure(e) if isinstance(e, intake.IntakeError) else None
             log.warning("job %s failed at %s: %s%s", job["id"], step, type(e).__name__, f" ({reason[0]})" if reason else "")
@@ -1165,7 +1233,7 @@ def create_app(test_config=None):
                 remove_preview(job["id"])
             job["assets"].clear()
             job["preview_state"] = "expired"
-        with lock:
+        with catalogue_lock:
             if job.get("committed") and job.get("addition_playlists"):
                 messages = [append_library_song(job["owner"], target, job["source_id"])
                             for target in job["addition_playlists"]]
@@ -1213,6 +1281,13 @@ def create_app(test_config=None):
         # True for work nobody is waiting on: beat analysis and background playlist songs.
         return bool(job.get("analyzing")) or not (foreground(job) or job.get("shared_foreground"))
 
+    def work_priority(job, analyzing=False):
+        if analyzing or job.get('analyzing'):
+            return 3
+        if foreground(job) or job.get('shared_foreground'):
+            return 0
+        return 1 if job.get('requested_download') or job.get('library_addition') else 2
+
     # Background work (playlist songs, analysis) scales with the server's cores, leaving half of
     # them for songs someone is waiting to hear; never fewer than eight slots in total.
     background_workers = cfg.get("BACKGROUND_WORKERS") or (3 if cfg["PUBLIC_ORIGIN"] == "https://music.test" else max(1, (resources.cpu_capacity + 1) // 2))
@@ -1239,14 +1314,17 @@ def create_app(test_config=None):
             background = sum(not foreground(j, analyzing) for j, analyzing in active)
             used = len(active)
             cap = background_cap()
-            ordered = sorted(jobs.values(), key=lambda j: (j["priority"] + (20 if j["state"] == "done" else 0), j["created"]))
+            ordered = sorted(jobs.values(), key=lambda j: (
+                work_priority(j, j["state"] == "done"), j["priority"], j["created"]))
             for job in ordered:
                 analyzing = job["state"] == "done" and job.get("analysis_state") == "pending" and not job.get("analyzing")
                 if job["cancel"].is_set() or (job["state"] != "queued" and not analyzing):
                     continue
                 source = job.get("source_id")
                 is_foreground = bool(foreground(job, analyzing))
-                if source in sources:
+                if job.get('pending_persistence'):
+                    reason = 'saving queue'
+                elif source in sources:
                     reason = "same source"
                 elif not is_foreground and not analyzing and job.get("url") and app.intake.YOUTUBE.until > time.monotonic():
                     reason = "YouTube cooldown"
@@ -1297,20 +1375,24 @@ def create_app(test_config=None):
             active, last_served = {}, {}
             dispatch_number = 0
             while True:
+                dispatch_wake.clear()
+                for future in list(active):
+                    if not future.done():
+                        continue
+                    with lock:
+                        job, analyzing, slot = active.pop(future)
+                        acquisition_slots[slot] = None
+                        if automatic_downloads:
+                            backlog_wake.set()
+                    if future.exception() is not None:
+                        log.warning("job %s worker failed: %s", job["id"], type(future.exception()).__name__)
+                        if analyzing:
+                            with lock:
+                                job.update(analysis_state="done", analyzing=False)
+                        else:
+                            # Terminal queue persistence must not run inside the scheduler lock.
+                            settle(job, "error", "Recording preparation failed.")
                 with lock, resources.condition:
-                    dispatch_wake.clear()
-                    for future in list(active):
-                        if future.done():
-                            job, analyzing, slot = active.pop(future)
-                            acquisition_slots[slot] = None
-                            if automatic_downloads:
-                                backlog_wake.set()
-                            if future.exception() is not None:
-                                log.warning("job %s worker failed: %s", job["id"], type(future.exception()).__name__)
-                                if analyzing:
-                                    job.update(analysis_state="done", analyzing=False)
-                                else:
-                                    settle(job, "error", "Recording preparation failed.")
                     # Optional beat analysis reads a published recording and owns
                     # its own WAV; it must not delay another listener's playback.
                     sources = {job.get("source_id") for job, analyzing, _ in active.values()
@@ -1324,7 +1406,7 @@ def create_app(test_config=None):
                     background = sum(analyzing_job(job) for job, _, _ in active.values())
                     extra = any(a or j.get("priority", 20) > 0 for j, a, _ in active.values())
                     pending = [(j, False) for j in jobs.values() if j["state"] == "queued"
-                               and not j["cancel"].is_set() and j.get("source_id") not in sources]
+                               and not j.get('pending_persistence') and not j["cancel"].is_set() and j.get("source_id") not in sources]
                     pending += [(j, True) for j in jobs.values() if j["state"] == "done"
                                 and j.get("analysis_state") == "pending" and not j.get("analyzing")
                                 and not j["cancel"].is_set() and j.get("source_id") not in sources]
@@ -1350,7 +1432,7 @@ def create_app(test_config=None):
                                        and (a or j.get("retry_at", 0) <= wall_now)))]
                     if pending:
                         job, analyzing = min(pending, key=lambda pair: (
-                            not foreground(*pair),
+                            work_priority(*pair),
                             pair[0]["priority"] + (20 if pair[1] else 0),
                             last_served.get((pair[0]["priority"] + (20 if pair[1] else 0), pair[0]["owner"], pair[0].get("playlist_id")), -1),
                             pair[0]["created"]))
@@ -1421,7 +1503,7 @@ def create_app(test_config=None):
     def playlist_cover(owner, pid, digest):
         if not re.fullmatch(r'[0-9a-f]{64}', digest):
             abort(404)
-        with lock:
+        with catalogue_lock:
             playlist = playlist_store.read(owner, pid)
             if owner != g.user and not (family_mode and (playlist.get('shared') is True or g.user in playlist.get('co_authors', []) or g.user in cfg['ADMIN_USERS'])):
                 abort(403)
@@ -1437,7 +1519,7 @@ def create_app(test_config=None):
         for recording in recordings.values():
             key = (normalized(recording["title"]), normalized(recording["channel"].split(",")[0]))
             available.setdefault(key, []).append(recording)
-        with lock:
+        with catalogue_lock:
             playlists = []
             owners = [g.user] + ([p["id"] for p in profile_store.list() if p["id"] != g.user] if family_mode else [])
             for owner in owners:
@@ -1479,7 +1561,7 @@ def create_app(test_config=None):
         data = body()
         target = data.get("target_id")
         if target is not None:
-            with lock:
+            with catalogue_lock:
                 existing = playlist_store.read(g.user, target)
                 if playlist_preparation.is_active(g.user, target):
                     raise ApiError("Wait for this playlist operation to finish.", 409)
@@ -1487,7 +1569,7 @@ def create_app(test_config=None):
                     raise ApiError("Import into an empty, unchanged playlist.", 409)
         playlist = (fetch_youtube_playlist(data.get("url"), app.intake) if request.path.endswith("/youtube")
                     else fetch_playlist(data.get("url")))
-        with lock:
+        with catalogue_lock:
             if target is not None:
                 existing = playlist_store.read(g.user, target)
                 if playlist_preparation.is_active(g.user, target):
@@ -1508,7 +1590,7 @@ def create_app(test_config=None):
     @app.post("/api/playlists")
     def create_playlist():
         name = playlist_name(body().get("name"))
-        with lock:
+        with catalogue_lock:
             if len(playlist_store.list(g.user)) >= 100:
                 raise ApiError("You can save up to 100 playlists.")
             pid = "".join(secrets.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789") for _ in range(22))
@@ -1524,19 +1606,33 @@ def create_app(test_config=None):
         artist, title = data.get("artist"), data.get("title", "")
         if not isinstance(artist, str) or not isinstance(title, str): raise ApiError("Choose a song or an artist for the radio.")
         if not allow("radio:" + g.user, 10, 60): raise ApiError("Wait a minute before starting another radio.", 429)
+        fallback = []
         try: url, name = radio.seed(artist, title)
-        except PlaylistError as error: raise ApiError(str(error), 404)
-        except (OSError, ValueError) as error:
+        except (PlaylistError, OSError, ValueError) as error:
             app.logger.warning("radio seed failed: %s", type(error).__name__)
-            raise ApiError("Radio is unavailable right now. Try again later.", 503)
-        with lock:
+            fallback = radio.related_library(artist, genre_labels.get(artist), library_tracks())
+            fallback = [t for t in fallback if radio._key(radio.clean_title(artist, t['title'])) != radio._key(radio.clean_title(artist, title))]
+            if not fallback:
+                raise ApiError("Radio could not find songs. Try another artist or choose songs from your library.",
+                               404 if isinstance(error, PlaylistError) else 503)
+            url, name = '', (radio.clean_title(artist, title) or artist) + ' Radio'
+        with catalogue_lock:
             if len(playlist_store.list(g.user)) >= 100:
                 raise ApiError("You can save up to 100 playlists.")
             pid = "".join(secrets.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789") for _ in range(22))
             playlist = {"id": pid, "name": name[:200], "revision": 1, "tracks": [], "notice": "", "url": "", "shared": True,
                         "description": "Songs like " + name.removesuffix(" Radio")[:180], "radio": True}
+            if url:
+                radio_sources[url] = artist, title
+                while len(radio_sources) > 128:
+                    radio_sources.popitem(last=False)
+            playlist['tracks'] = [dict(title=t['title'], artist=t['channel'], duration=t['duration'],
+                                       spotify_uri='library:' + t['id'], candidates=[],
+                                       source_id=t['id'], state='saved', match=t) for t in fallback]
             playlist_store.save(g.user, playlist)
-        try: playlist_preparation.begin_import(g.user, pid, 1, "radio", url, True, name[:200])
+        try:
+            if not fallback:
+                playlist_preparation.begin_import(g.user, pid, 1, "radio", url, True, name[:200])
         except ValueError as error: raise ApiError(str(error), 409)
         return jsonify(playlist=visible_playlist(playlist_store.read(g.user, pid), g.user)), 201
 
@@ -1544,9 +1640,19 @@ def create_app(test_config=None):
     def edit_playlist(pid):
         data = body(751024 if request.method == "PATCH" else 8192)
         owner = data.get("owner_id", g.user)
+        prepared_cover = None
+        details = data.get('details')
+        image = details.get('cover_image') if isinstance(details, dict) else data.get('cover_image')
+        if request.method == 'PATCH' and image is not None:
+            with catalogue_lock:
+                editable_playlist_owner(pid, data)
+                if data.get('revision') != playlist_store.read(owner, pid)['revision']:
+                    raise ApiError('This playlist changed. Refresh it before editing.', 409)
+            # Encode before taking the transaction lock; revision is checked again below.
+            prepared_cover = playlist_artwork.save(owner, pid, image)
         if request.method == "DELETE" and family_mode and g.user not in cfg["ADMIN_USERS"]:
             raise ApiError("Only an admin can delete playlists.", 403)
-        with lock:
+        with catalogue_lock:
             if family_mode: profile_store.get(owner)
             playlist = playlist_store.read(owner, pid)
             operation = set(data) - {"revision", "owner_id"}
@@ -1575,14 +1681,18 @@ def create_app(test_config=None):
                 if "shared" in details:
                     if owner != g.user: raise ApiError("Only the owner can change sharing.", 403)
                     if type(details["shared"]) is not bool: raise ApiError("Shared must be true or false.")
-                digest = playlist_artwork.save(owner, pid, details["cover_image"]) if "cover_image" in details else None
+                if "cover_image" in details and prepared_cover is None:
+                    raise ArtworkError('Choose a JPEG or PNG image.')
+                digest = prepared_cover
                 playlist.update(name=name, description=description)
                 if "shared" in details: playlist["shared"] = details["shared"]
                 if digest: playlist["cover_sha256"] = digest
             elif operation == {"name"}:
                 playlist["name"] = playlist_name(data["name"])
             elif operation == {"cover_image"}:
-                playlist['cover_sha256'] = playlist_artwork.save(owner, pid, data['cover_image'])
+                if prepared_cover is None:
+                    raise ArtworkError('Choose a JPEG or PNG image.')
+                playlist['cover_sha256'] = prepared_cover
             elif operation == {"co_authors"}:
                 require_family()
                 authors = data["co_authors"]
@@ -1654,7 +1764,7 @@ def create_app(test_config=None):
         track["candidates"] = rank_matches(track, found, search=matching_search)
         return preferred_match(track["candidates"])
 
-    def queue_playlist_recording(user, pid, row, source_replacement=False):
+    def queue_playlist_recording(user, pid, row, source_replacement=False, requested=False):
         with app.app_context():
             g.user = user
             source = app.intake.video_id(row["url"])
@@ -1666,6 +1776,8 @@ def create_app(test_config=None):
                     job["playlist_id"] = pid
                 if source_replacement:
                     job["source_replacement"] = True
+                if requested:
+                    job['requested_download'] = True
                 job.setdefault("automatic_meta", True)
                 if job["state"] == "done":
                     job.update(state="queued", message=STEP_TEXT["import"])
@@ -1680,12 +1792,13 @@ def create_app(test_config=None):
             if row.get("saved"): return row
             track.update(source_id=row["id"], match=row)
             job = queue_playlist_recording(user, getattr(progress, "playlist_id", None), row,
-                                           getattr(progress, "source_replacement", False))
+                                           getattr(progress, "source_replacement", False),
+                                           requested=not getattr(progress, 'source_replacement', False))
             release = getattr(progress, "release_slot", None)
             if release:
                 release()
             last_progress = None
-            with waiting("acquisition"), job_changed:
+            with waiting("acquisition"):
                 while job["state"] in ("queued", "running"):
                     if job["state"] == "queued" and getattr(progress, "stopped", lambda: False)():
                         raise InterruptedError()
@@ -1697,7 +1810,9 @@ def create_app(test_config=None):
                     if snapshot != last_progress:
                         progress(message, **fields)
                         last_progress = snapshot
-                    job_changed.wait()
+                    with job_changed:
+                        if job['state'] in ('queued', 'running'):
+                            job_changed.wait(timeout=1)
             if job["state"] != "done": raise ValueError("Recording preparation failed.")
             ready = library_record(saved_source(row["id"]))[0]
             progress("Ready on server", file_phase="saved", download_bytes=job.get("download_bytes", 0),
@@ -1713,12 +1828,23 @@ def create_app(test_config=None):
                 return fetch_playlist(url, progress=progress)
         if provider == "soundcloud": return link_playlists.fetch_soundcloud_playlist(url, app.intake, progress)
         if provider == "deezer": return link_playlists.fetch_deezer_playlist(url, progress)
-        if provider == "radio": return radio.read_radio(url, "Radio", progress)
+        if provider == "radio":
+            try:
+                return radio.read_radio(url, "Radio", progress)
+            except (OSError, ValueError, PlaylistError):
+                artist, title = radio_sources.get(url, ('', ''))
+                found = radio.related_library(artist, genre_labels.get(artist), library_tracks())
+                found = [t for t in found if radio._key(radio.clean_title(artist, t['title'])) != radio._key(radio.clean_title(artist, title))]
+                if not found:
+                    raise
+                return dict(name='Radio', url=url, tracks=[dict(title=t['title'], artist=t['channel'],
+                            duration=t['duration'], spotify_uri='library:' + t['id'], candidates=[],
+                            source_id=t['id'], state='saved', match=t) for t in found])
         data = fetch_youtube_playlist(url, app.intake)
         progress(len(data["tracks"]), len(data["tracks"]))
         return data
 
-    playlist_preparation = PlaylistPreparation(playlist_store, lock, prepare_playlist_recording,
+    playlist_preparation = PlaylistPreparation(playlist_store, catalogue_lock, prepare_playlist_recording,
                                                match_playlist_recording, read_imported_playlist, download_workers=background_workers,
                                                resources=resources)
     app.extensions["music"].playlist_preparation = playlist_preparation
@@ -1778,7 +1904,7 @@ def create_app(test_config=None):
                 raise ValueError('The suggested recording has insufficient audio quality.')
         with app.app_context():
             g.user = user
-            with app.extensions['music'].source_quality.scan_lock, lock, catalogue_review.lock, listening_stats.lock:
+            with app.extensions['music'].source_quality.scan_lock, catalogue_lock, catalogue_review.lock, listening_stats.lock:
                 if automatic and not background_idle():
                     raise ScanPaused()
                 replace_saved(ws, lib, identifier, candidate, saved_source, playlist_store,
@@ -1788,7 +1914,7 @@ def create_app(test_config=None):
 
     def undo_source(identifier, records):
         from .source_quality import undo_saved
-        with app.extensions['music'].source_quality.scan_lock, lock, catalogue_review.lock:
+        with app.extensions['music'].source_quality.scan_lock, catalogue_lock, catalogue_review.lock:
             if replacement_busy(identifier) or records.get(identifier, {}).get('state') == 'done' and saved_source(identifier):
                 raise ValueError('The original recording already exists or is being prepared.')
             return undo_saved(ws, identifier, records, playlist_store)
@@ -1945,7 +2071,7 @@ def create_app(test_config=None):
         if not allow("playlist-import:" + g.user, 10, 60):
             raise ApiError("Wait a minute before importing another playlist.", 429)
         try:
-            with lock:
+            with catalogue_lock:
                 owner = editable_playlist_owner(pid, data)
                 status = playlist_preparation.begin_import(owner, pid, data.get("revision"), provider, url, data.get("download", True) is not False, name.strip() if name else None, append=data.get("append", False), actor=g.user)
         except ValueError as error: raise ApiError(str(error), 409)
@@ -1964,12 +2090,13 @@ def create_app(test_config=None):
     def prepare_playlist(pid):
         try:
             data = body() if request.method != "GET" else {}
-            with lock:
+            with catalogue_lock:
                 owner = editable_playlist_owner(pid, data)
                 if request.method == "POST": status = playlist_preparation.start(owner, pid, data.get("mode", "download"), actor=g.user)
                 elif request.method == "DELETE":
                     status = playlist_preparation.pause(owner, pid)
-                    job_changed.notify_all()
+                    with job_changed:
+                        job_changed.notify_all()
                 else: status = playlist_preparation.status(owner, pid)
         except ValueError as error: raise ApiError(str(error), 409)
         return jsonify(status)
@@ -1977,7 +2104,7 @@ def create_app(test_config=None):
     @app.get("/api/playlists/<pid>/match")
     def playlist_candidates(pid):
         index = request.args.get("index", type=int)
-        with lock:
+        with catalogue_lock:
             owner = editable_playlist_owner(pid, {})
             playlist = playlist_store.read(owner, pid)
             if "revision" in request.args and request.args.get("revision", type=int) != playlist["revision"]:
@@ -2003,7 +2130,7 @@ def create_app(test_config=None):
     @app.post("/api/playlists/<pid>/recording")
     def choose_playlist_recording(pid):
         data = body()
-        with lock:
+        with catalogue_lock:
             owner = editable_playlist_owner(pid, data)
             playlist = playlist_store.read(owner, pid)
             if playlist_preparation.is_active(owner, pid):
@@ -2040,7 +2167,7 @@ def create_app(test_config=None):
     def match_playlist_track(pid):
         data = body()
         index = data.get("index")
-        with lock:
+        with catalogue_lock:
             owner = editable_playlist_owner(pid, data)
             playlist = playlist_store.read(owner, pid)
             if playlist_preparation.is_active(owner, pid):
@@ -2060,7 +2187,7 @@ def create_app(test_config=None):
         try: found = manual_search(SimpleNamespace(query=query, limit=30, offset=0))["results"]
         except Exception: raise ApiError("Could not find recordings. Try again.", 502)
         candidates = rank_matches(track, found, search=manual_search)
-        with lock:
+        with catalogue_lock:
             owner = editable_playlist_owner(pid, data)
             playlist = playlist_store.read(owner, pid)
             if playlist["revision"] != revision:
@@ -2074,7 +2201,7 @@ def create_app(test_config=None):
     @app.post("/api/playlists/<pid>/download")
     def download_playlist_track(pid):
         data = body(); index, choice = data.get("index"), data.get("choice")
-        with lock:
+        with catalogue_lock:
             playlist = playlist_store.read(g.user, pid)
             if type(index) is not int or not 0 <= index < len(playlist["tracks"]): raise ApiError("Invalid playlist entry.")
             if playlist_preparation.is_active(g.user, pid):
@@ -2086,6 +2213,7 @@ def create_app(test_config=None):
             m = fetch_metadata(row, vid)
             job = new_job(g.user, "fetch", m, vid, 20, True)
             job["playlist_import"] = True
+            job['requested_download'] = True
             job.setdefault("automatic_meta", True)
             if job["state"] == "done" and job.get("item") and job["message"] == "Prepared": job.update(state="queued", message=STEP_TEXT["import"])
             track.update(source_id=vid, match=row, job_id=job["id"], state="queued")
@@ -2108,10 +2236,14 @@ def create_app(test_config=None):
         seed_artist = data.get("seed_artist", "") if recommendation else ""
         if not isinstance(seed_artist, str) or len(seed_artist) > 120 or any(ord(c) < 32 for c in seed_artist):
             raise ApiError("Invalid recommendation artist.")
+        if recommendation:
+            seed_artist = radio.first_artist(seed_artist)
         search_key = (g.user, recommendation)
         q = q.strip() if isinstance(q, str) else ""
         if not 1 <= len(q) <= 200 or any(ord(c) < 32 or ord(c) == 127 for c in q):
             raise ApiError("Enter 1 to 200 characters to search.")
+        if recommendation and seed_artist:
+            q = seed_artist + ' official audio'
         block = offset // 30 * 30
         page_offset = offset - block
         def page(found, complete=True):
@@ -2120,9 +2252,11 @@ def create_app(test_config=None):
             next_page = offset + 8 if page_offset + 8 < len(found) else block + 30 if full and block + 30 < 3000 else None
             results = [{k: r.get(k) for k in ("id", "url", "title", "channel", "duration", "kind")} for r in found[page_offset:page_offset + 8]]
             if recommendation:
-                for track in results:
-                    track["genre"] = genre_labels.get(artist_name(track, {"artist": track.get("channel") or ""}))
-                return jsonify(results=results, next_offset=next_page, seed_genre=genre_labels.get(seed_artist))
+                for track, original in zip(results, found[page_offset:page_offset + 8]):
+                    track["genre"] = original.get('genre') or genre_labels.get(artist_name(track, {"artist": track.get("channel") or ""}))
+                return jsonify(results=results, next_offset=next_page, seed_genre=genre_labels.get(seed_artist),
+                               state='ready' if results else 'empty',
+                               message='' if results else 'No similar recordings found. Choose another artist or add songs from your library.')
             return jsonify(results=results, next_offset=next_page, complete=complete)
         cache_key = (g.user, recommendation, q.casefold(), block)
         with lock:
@@ -2144,11 +2278,12 @@ def create_app(test_config=None):
             if not allow("search:" + g.user, 40, 60):
                 raise ApiError("Too many searches. Wait a minute.", 429)
             for job in jobs.values():
-                if not job.get("playlist_import") and not recommendation and not block and job["owner"] == g.user and job.get("search_preview") and not job.get("current") and job["state"] in ("queued", "running"):
+                if not job.get("playlist_import") and not job.get("library_addition") and not recommendation and not block and job["owner"] == g.user and job.get("search_preview") and not job.get("current") and job["state"] in ("queued", "running"):
                     cancel_acquisition(job)
                     if job["state"] == "queued":
                         job.update(state="cancelled", message="Cancelled")
         app.intake.CONTROL.cancel = cancel
+        search_failed = False
         try:
             for attempt in range(3):
                 if cancel.is_set():
@@ -2169,19 +2304,31 @@ def create_app(test_config=None):
                     if cancel.wait((1.5, 4)[attempt]):
                         raise ApiError("A newer search replaced this request.", 409)
         except ApiError:
-            raise
+            if not recommendation or cancel.is_set():
+                raise
+            found, complete = [], True
+            search_failed = True
         except Exception as e:
             log.warning("search failed: %s", type(e).__name__)
-            raise ApiError("Search failed. Try again later.", 502)
+            if not recommendation:
+                raise ApiError("Search failed. Try again later.", 502)
+            found, complete = [], True
+            search_failed = True
         finally:
             app.intake.CONTROL.cancel = None
+        if recommendation and not radio.related_library(seed_artist, genre_labels.get(seed_artist), found):
+            found = recommendation_fallback(seed_artist, found)
+            complete = True
+        if recommendation and search_failed and not found:
+            raise ApiError('Similar songs are unavailable right now. Try again later or add songs from your library.', 503)
         with lock:
             if cancel.is_set():
                 raise ApiError("A newer search replaced this request.", 409)
             selected = selections.setdefault(g.user, {})
             selected.update({r["id"]: r for r in found})
             selections[g.user] = dict(list(selected.items())[-100:])
-            search_cache[cache_key] = (time.time(), found, complete)
+            if found or not recommendation:
+                search_cache[cache_key] = (time.time(), found, complete)
             while len(search_cache) > 32:
                 search_cache.popitem(last=False)
         if not complete:
@@ -2214,6 +2361,32 @@ def create_app(test_config=None):
             threading.Thread(target=enrich, daemon=True, name="search-enrichment").start()
         return page(found, complete)
 
+    def recommendation_fallback(artist, found):
+        local = radio.related_library(artist, genre_labels.get(artist), library_tracks())
+        if local:
+            return local
+        try:
+            url, _ = radio.seed(artist)
+            identifier = radio.URL.fullmatch(url).group(2)
+            top = link_playlists._deezer(f'artist/{identifier}/top?limit=5')
+            if top.get('error') or not isinstance(top.get('data'), list):
+                raise OSError('Catalogue unavailable')
+            for song in top['data'][:3]:
+                title = radio.clean_title(artist, song.get('title', ''))
+                if not title:
+                    continue
+                result = app.intake.cmd_search(SimpleNamespace(query=(artist + ' ' + title)[:200],
+                                               limit=8, offset=0, main_only=True))
+                found.extend(result['results'])
+                if radio.related_library(artist, '', found):
+                    return found
+        except PlaylistError:
+            return found
+        except (OSError, ValueError, app.intake.IntakeError):
+            if not found:
+                raise ApiError('Similar songs are unavailable right now. Try again later or add songs from your library.', 503)
+        return found
+
     def fetch_metadata(d, vid):
         if any(k in d for k in ("artist", "album", "track")):
             return meta(d)
@@ -2230,7 +2403,7 @@ def create_app(test_config=None):
             return
         if type(value) is not int or not 0 <= value <= 2**53 - 1:
             raise ApiError("Invalid request sequence.")
-        with lock:
+        with session_lock:
             record = sessions.get(session.get("sid"))
             if not record or record["expiry"] <= time.time():
                 raise ApiError(HTTP_TEXT[401], 401)
@@ -2386,13 +2559,13 @@ def create_app(test_config=None):
                 raise ApiError("Enter YouTube video links separated by spaces or new lines.")
             if source not in sources: sources.append(source)
         result = []
-        with lock:
+        with catalogue_lock:
             target = data.get("playlist")
             addition_playlist(g.user, target)
             modified = []
             saved = []
-            pending = sum(j["owner"] == g.user and j.get("library_addition") and j["state"] in ("queued", "running") for j in jobs.values())
-            active_sources = {j.get("source_id") for j in jobs.values() if j["owner"] == g.user
+            pending = sum(j["owner"] == g.user and j.get("library_addition") and j["state"] in ("queued", "running") for j in list(jobs.values()))
+            active_sources = {j.get("source_id") for j in list(jobs.values()) if j["owner"] == g.user
                               and j["state"] in ("queued", "running") and not j["cancel"].is_set()}
             additions = sum(source not in active_sources and not saved_source(source) for source in sources)
             if pending + additions > 200:
@@ -2404,45 +2577,51 @@ def create_app(test_config=None):
                     result.append(row)
                     saved.append(row)
                     continue
-                job = next((j for j in jobs.values() if j["owner"] == g.user and j.get("source_id") == source
-                            and j["state"] in ("queued", "running") and not j["cancel"].is_set()), None)
-                if job is None:
-                    try:
-                        m = fetch_metadata({}, source)
-                        job = new_job(g.user, "fetch", m, source, 20, True, library_addition=True)
-                    except ApiError as error:
-                        result.append(dict(source_id=source, state="error", saved=False, title=source, message=error.message))
-                        continue
-                    job.update(library_addition=True, playlist_import=True, automatic_meta=True)
-                    if job["state"] == "done" and not job.get("committed"):
-                        job.update(state="queued", message=STEP_TEXT["import"])
-                    if "url" not in job:
-                        job.update(url=app.intake.WATCH + source, tmp=None, state="queued")
-                    modified.append((job, None))
-                else:
-                    modified.append((job, {key: job[key] for key in ("save", "library_addition", "addition_playlists") if key in job}))
-                    job["save"] = True
-                    job["library_addition"] = True
-                if target is not None and target not in job.get("addition_playlists", []):
-                    job["addition_playlists"] = [*job.get("addition_playlists", []), target]
-                result.append(public(job))
+                with lock:
+                    job = next((j for j in list(jobs.values()) if j["owner"] == g.user and j.get("source_id") == source
+                                and j["state"] in ("queued", "running") and not j["cancel"].is_set()), None)
+                    if job is None:
+                        try:
+                            m = fetch_metadata({}, source)
+                            job = new_job(g.user, "fetch", m, source, 20, True, library_addition=True)
+                        except ApiError as error:
+                            result.append(dict(source_id=source, state="error", saved=False, title=source, message=error.message))
+                            continue
+                        job.update(library_addition=True, playlist_import=True, automatic_meta=True, pending_persistence=True)
+                        if job["state"] == "done" and not job.get("committed"):
+                            job.update(state="queued", message=STEP_TEXT["import"])
+                        if "url" not in job:
+                            job.update(url=app.intake.WATCH + source, tmp=None, state="queued")
+                        modified.append((job, None))
+                    else:
+                        modified.append((job, {key: job[key] for key in ("save", "library_addition", "addition_playlists") if key in job}))
+                        job["save"] = True
+                        job["library_addition"] = True
+                    if target is not None and target not in job.get("addition_playlists", []):
+                        job["addition_playlists"] = [*job.get("addition_playlists", []), target]
+                    result.append(public(job))
             if modified:
                 if not save_bulk_queue():
-                    for job, previous in modified:
-                        if previous is None:
-                            jobs.pop(job["id"], None)
-                        else:
-                            for key in ("save", "library_addition", "addition_playlists"):
-                                job.pop(key, None)
-                            job.update(previous)
+                    with lock:
+                        for job, previous in modified:
+                            if previous is None:
+                                jobs.pop(job["id"], None)
+                            else:
+                                for key in ("save", "library_addition", "addition_playlists"):
+                                    job.pop(key, None)
+                                job.update(previous)
                     raise ApiError("Could not save the library queue. Try again.", 503)
+                with lock:
+                    for job, _ in modified:
+                        job.pop('pending_persistence', None)
                 wake_dispatch()
             if target is not None:
                 for row in saved:
                     error = append_library_song(g.user, target, row["source_id"])
                     if error:
                         row["playlist_error"] = error
-            job_changed.notify_all()
+            with job_changed:
+                job_changed.notify_all()
         return jsonify(jobs=result), 202
 
     @app.post("/api/jobs/<job_id>/cancel")
@@ -2474,7 +2653,7 @@ def create_app(test_config=None):
         if data is None:
             try:
                 url = f"https://i.ytimg.com/vi/{source_id}/hqdefault.jpg"
-                with PROVIDERS["youtube-images"].request(), urllib.request.urlopen(url, timeout=5) as response:
+                with PROVIDERS["youtube-images"].request(max_wait=2), urllib.request.urlopen(url, timeout=5) as response:
                     if response.geturl() != url or response.headers.get_content_type() != "image/jpeg":
                         abort(404)
                     data = response.read(262145)
@@ -2534,7 +2713,8 @@ def create_app(test_config=None):
         track.update(channel=metadata.get('artist',track['channel']),library_album=metadata.get('album',track['library_album']),genre=metadata.get('genre',track['genre']))
         return track, target
 
-    phone_encodes = threading.BoundedSemaphore(4)
+    phone_encodes = threading.BoundedSemaphore(2)
+    listener_encodes = threading.BoundedSemaphore(2)
 
     def mobile_record(source_id, digest=None, quality="normal", lead=0, streaming=False):
         if quality not in mobile_audio.TIERS:
@@ -2549,39 +2729,48 @@ def create_app(test_config=None):
         if digest is not None and digest != source_hash:
             raise ApiError("Recording changed. Refresh the library.", 409)
         needs_encode = not os.path.lexists(mobile_audio.copy_path(item["item"], source_hash, quality))
+        urgent = not background_activity() and lead <= 0
         if needs_encode and streaming and lead <= 0:
             # The verified listening edition can stream while optional smaller copies warm later.
             return track, original
-        if needs_encode and not phone_encodes.acquire(blocking=False):
+        slots = listener_encodes if urgent else phone_encodes
+        if needs_encode and not slots.acquire(blocking=False):
             raise ApiError("Mobile audio preparation is busy. Try again.", 503)
+        previous_background = getattr(app.intake.CONTROL, 'background', False)
+        previous_priority = getattr(app.intake.CONTROL, 'priority', None)
+        app.intake.CONTROL.background = not urgent
+        app.intake.CONTROL.priority = lambda: 0 if urgent else 1
         try:
-            path = mobile_audio.prepare(app.intake, item["item"], original, source_hash, urgent=lead <= 0, quality=quality, title=track['title'], lead=lead)
+            path = mobile_audio.prepare(app.intake, item["item"], original, source_hash, urgent=urgent,
+                                        requested=not urgent, quality=quality, title=track['title'], lead=lead)
+            track["playback_version"] = mobile_audio.TIERS[quality][1]
+            if os.path.getsize(path) >= track["download_size"]:
+                track["playback_source_sha256"] = source_hash
+                return track, original
+            # Installed clients validate this legacy route name. The metadata and MIME
+            # type identify the actual Opus file; keeping the URL preserves compatibility.
+            download_url = f"/api/library/{source_id}/playback/{source_hash}/audio.m4a"
+            if quality != "normal":
+                download_url += f"?quality={quality}"
+            track.update(download_url=download_url,
+                         download_size=os.path.getsize(path), download_sha256=app.intake.sha256_file(path),
+                         download_extension=".opus", playback_source_sha256=source_hash,
+                         playback_version=mobile_audio.TIERS[quality][1])
+            try:
+                measured = profile(app.intake, item["item"], {"audio": {
+                    "sha256": track["download_sha256"], "duration": track["duration"], "file": path}}, measure=True)
+            except (OSError, ValueError, app.intake.IntakeError):
+                raise ApiError("Could not measure mobile audio. Try again.", 503)
+            track.update(lufs=measured["lufs"], true_peak=measured["true_peak"],
+                         playback_gain_db=min(12, -16 - measured["lufs"], -1.5 - measured["true_peak"]))
+            return track, path
         except (OSError, ValueError, app.intake.IntakeError):
             raise ApiError("Could not prepare mobile audio. Try again.", 503)
         finally:
             if needs_encode:
-                phone_encodes.release()
-        track["playback_version"] = mobile_audio.TIERS[quality][1]
-        if os.path.getsize(path) >= track["download_size"]:
-            track["playback_source_sha256"] = source_hash
-            return track, original
-        # Installed clients validate this legacy route name. The metadata and MIME
-        # type identify the actual Opus file; keeping the URL preserves compatibility.
-        download_url = f"/api/library/{source_id}/playback/{source_hash}/audio.m4a"
-        if quality != "normal":
-            download_url += f"?quality={quality}"
-        track.update(download_url=download_url,
-                     download_size=os.path.getsize(path), download_sha256=app.intake.sha256_file(path),
-                     download_extension=".opus", playback_source_sha256=source_hash,
-                     playback_version=mobile_audio.TIERS[quality][1])
-        try:
-            measured = profile(app.intake, item["item"], {"audio": {
-                "sha256": track["download_sha256"], "duration": track["duration"], "file": path}}, measure=True)
-        except (OSError, ValueError, app.intake.IntakeError):
-            raise ApiError("Could not measure mobile audio. Try again.", 503)
-        track.update(lufs=measured["lufs"], true_peak=measured["true_peak"],
-                     playback_gain_db=min(12, -16 - measured["lufs"], -1.5 - measured["true_peak"]))
-        return track, path
+                slots.release()
+            app.intake.CONTROL.background = previous_background
+            app.intake.CONTROL.priority = previous_priority
 
     @app.get("/api/library/<source_id>/playback-info")
     def playback_info(source_id):
@@ -2752,7 +2941,7 @@ def create_app(test_config=None):
             prepared.append(public(job))
         with lock:
             for job in jobs.values():
-                if not job.get("playlist_import") and job["owner"] == g.user and job.get("priority", 0) > 0 and job.get("source_id") not in requested:
+                if not job.get("playlist_import") and not job.get("library_addition") and job["owner"] == g.user and job.get("priority", 0) > 0 and job.get("source_id") not in requested:
                     if not job.get("committed") and job["state"] in ("queued", "running"):
                         cancel_acquisition(job)
                     if job["state"] == "queued":
@@ -2808,9 +2997,10 @@ def create_app(test_config=None):
         target_id = request.form.get("playlist_id")
         if target_id is not None:
             target = dict(id=target_id, owner_id=request.form.get("playlist_owner", g.user))
-            with lock:
+            with catalogue_lock:
                 addition_playlist(g.user, target)
-        job = new_job(g.user, "stage", m)
+        job = new_job(g.user, "stage", m, priority=20)
+        job.update(playlist_import=True, requested_download=True)
         if request.form.get("show_in_additions") == "true":
             job["show_in_additions"] = True
         if target_id is not None:
@@ -2895,7 +3085,7 @@ def create_app(test_config=None):
 
     from .listening_history import register as register_listening_history
     listening_history = register_listening_history(app, ws, body, profile_store, cfg["ADMIN_USERS"],
-        lambda: {t["id"]: t for t in library_tracks()}, lock, track_metadata=history_metadata,
+        lambda: {t["id"]: t for t in library_tracks()}, catalogue_lock, track_metadata=history_metadata,
         chart=deezer_chart, songs_added=songs_added, clear_totals=listening_stats.clear)
     from .discovery import register as register_discovery
     register_discovery(app, ws, body, cfg["ADMIN_USERS"], library_tracks,

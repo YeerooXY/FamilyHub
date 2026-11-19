@@ -179,6 +179,11 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
     Check(player.ReplaceUpcoming(current!.Id, [tracks[3], tracks[5]]), "Recommendations not queued");
     Check(player.Current == current && player.Playing && player.Queue.Skip(player.QueueIndex + 1).SequenceEqual(new[] { tracks[3], tracks[5] }), "Recommendations changed current playback or retained old queue");
     Check(!player.ReplaceUpcoming("old seed", [tracks[7]]), "Stale recommendation replaced queue");
+    var retained = player.Queue.ToArray();
+    Check(!player.ReplaceUpcoming(current.Id, []), "Empty recommendations were accepted");
+    Check(!player.ReplaceUpcoming(current.Id, [current]), "Seed-only radio was accepted");
+    Check(player.Queue.SequenceEqual(retained) && player.Current == current && player.Playing,
+        "Empty or seed-only recommendations changed playback or cleared the queue");
     await player.NextAsync(); Check(WindowsAudioPlayer.Last.Volume == 1, "Loudness gain leaked between songs");
     await player.PlayAsync(tracks[0] with { PlaybackGainDb = 12 }); Check(WindowsAudioPlayer.Last.Volume == 1, "Native gain exceeded unity");
     await player.PlayAsync(tracks[0] with { Lufs = -30, TruePeak = -20 });

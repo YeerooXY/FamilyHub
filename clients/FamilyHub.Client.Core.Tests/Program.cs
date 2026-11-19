@@ -241,6 +241,9 @@ Check(Similarity.Artist(new() { Title = "[Drum&Bass] - Muzzy - Endgame" }) == "m
 Check(Similarity.RadioTitle(new() { Title = "BETON.HOFI - PÁNCZÉL (OFFICIAL AUDIO) [HD]" }) == "PÁNCZÉL", "Radio title retained upload tags or artist prefix");
 Check(Similarity.RadioTitle(new() { Title = "Colors (Original Life is Strange Inspired Song)" }) == "Colors", "Radio title retained the upload description");
 Check(Similarity.RadioTitle(new() { Title = "Artist – Song (Live) [Lyrics]" }) == "Song (Live)", "Radio title lost the performance name");
+var valmar = new MusicTrack { Title = "VALMAR ft. Nemazalany & Sofi - Almatlan estek (Official Music Video)", Channel = "Uploader" };
+Check(Similarity.Artist(valmar) == "valmar" && Similarity.RadioTitle(valmar) == "Almatlan estek",
+    "Radio lookup retained featured credits or upload noise");
 Check(!Similarity.IsRecommendation(new() { Title = "Muzzy - Endgame HQ (second half)" }, new() { Title = "[Drum&Bass] - MUZZ - Endgame", Channel = "MUZZ" }), "Same song entered autoplay under another upload");
 Check(!Similarity.IsRecommendation(new() { Title = "Muzzy - Endgame" }, new() { Title = "Muzzy - Feeling Stronger (second half)" }), "Partial upload entered autoplay");
 Check(Similarity.IsRecommendation(new() { Title = "Muzzy - Endgame" }, new() { Title = "MUZZ - Lost Forever" }), "Artist alias rejected a different song");

@@ -425,7 +425,7 @@ class TransferResources:
                                 break
                         else:
                             capacity = self.capacity
-                            admitted_background = background()
+                            admitted_background = bool(background())
                             if self.governor:
                                 if admitted_background:
                                     capacity = self.governor.background_slots(self.idle_capacity, self.background_floor())

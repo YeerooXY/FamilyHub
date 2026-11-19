@@ -349,7 +349,7 @@ else
     @if (recommendations is not null && view == "Similar songs")
     {
         <section aria-label="Similar recordings"><p class="muted">Based on @recommendationTitle</p>
-            @if (recommendations.Count == 0) { <p>No similar recordings found.</p> }
+            @if (recommendations.Count == 0) { <p>No similar recordings found. Your queue is unchanged. Choose another artist or add songs from Library.</p> }
             @foreach (var track in recommendations) { @TrackRow(track, recommendations, false) }
         </section>
     }
@@ -1194,11 +1194,15 @@ else
     private async Task FillRadioQueue(MusicPlaylist radio, MusicTrack seed, string identity, CancellationToken token)
     {
         var api = Session.Api!;
-        var queued = new HashSet<string> { seed.Id };
+        var queued = Player.Queue.Select(t => t.Id).Append(seed.Id).ToHashSet();
         var songs = new HashSet<string> { Similarity.SongKey(seed) };
         var paused = false;
+        var started = false;
+        var revision = Player.UserPlaybackRevision;
+        var currentId = Player.Current?.Id;
         bool Current() => !token.IsCancellationRequested && identity == AppearanceKey && Session.Connected && !Player.FollowingHost && !Player.RemoteActive
-            && Player.Current is { } current && queued.Contains(current.Id) && Player.Queue.All(t => queued.Contains(t.Id));
+            && (started ? Player.Current is { } current && queued.Contains(current.Id) && Player.Queue.All(t => queued.Contains(t.Id))
+                        : Player.Current?.Id == currentId && Player.UserPlaybackRevision == revision);
         try
         {
             while (Current())
@@ -1209,14 +1213,30 @@ else
                 if (!Current()) return;
                 var playlist = Session.Playlists.FirstOrDefault(p => PlaylistKey(p) == PlaylistKey(radio));
                 if (playlist is null) return;
-                foreach (var track in Session.RankRecommendations(playlist.Tracks.Select(Session.Resolve).OfType<MusicTrack>()))
+                var candidates = Session.RankRecommendations(playlist.Tracks.Select(Session.Resolve).OfType<MusicTrack>())
+                    .Where(t => t.Id != seed.Id && Similarity.SongKey(t) != Similarity.SongKey(seed)).ToList();
+                if (!started && candidates.Count > 0)
+                {
+                    // Replace the queue only after a usable radio result arrives.
+                    if (Player.Current?.Id == seed.Id)
+                        Player.ReplaceUpcoming(seed.Id, candidates);
+                    else
+                        await Player.PlayAsync(seed, [seed, .. candidates], source: "radio");
+                    if (token.IsCancellationRequested || identity != AppearanceKey || Player.Current?.Id != seed.Id
+                        || Player.FollowingHost || Player.RemoteActive) return;
+                    started = true;
+                    queued = Player.Queue.Select(t => t.Id).Append(seed.Id).ToHashSet();
+                    songs = Player.Queue.Select(Similarity.SongKey).Append(Similarity.SongKey(seed)).ToHashSet();
+                }
+                foreach (var track in started ? candidates : [])
                     if (track is not null && songs.Add(Similarity.SongKey(track)) && queued.Add(track.Id)
                         && !Player.Queue.Any(t => t.Id == track.Id)) Player.AddToQueue(track, manual: false);
                 var ready = playlist.Tracks.Count(t => Session.Resolve(t) is not null);
                 var state = status.GetProperty("state").GetString();
                 if (state == "error")
                 {
-                    error = "Radio could not find songs. Try another radio.";
+                    error = started ? "Radio could not find more songs. Try another artist."
+                        : "Radio could not find songs. Your queue is unchanged. Retry from the radio playlist or choose another artist.";
                     return;
                 }
                 paused = state is "paused" or "pausing";
@@ -1225,7 +1245,11 @@ else
                     : $"Radio: {ready} of {playlist.Tracks.Count} songs ready.";
                 await InvokeAsync(StateHasChanged);
                 var downloadQueued = status.TryGetProperty("download_after_matching", out var download) && download.ValueKind == System.Text.Json.JsonValueKind.True;
-                if (paused || state == "done" && !downloadQueued) return;
+                if (paused || (state is "done" or "idle") && !downloadQueued)
+                {
+                    if (!started) error = "Radio has no songs ready. Your queue is unchanged. Retry from the radio playlist or choose another artist.";
+                    return;
+                }
                 await Task.Delay(1500, token);
             }
         }
@@ -1239,15 +1263,20 @@ else
         var identity = AppearanceKey;
         var origin = view;
         var originPlaylist = selectedId;
-        var revision = Player.UserPlaybackRevision + 1;
-        await Player.PlayAsync(seed, [seed], source: "radio");
+        var revision = Player.UserPlaybackRevision;
+        var currentId = Player.Current?.Id;
         bool RadioIsCurrent() => identity == AppearanceKey && !Player.FollowingHost && !Player.RemoteActive
-            && Player.Current?.Id == seed.Id && Player.UserPlaybackRevision == revision;
+            && Player.Current?.Id == currentId && Player.UserPlaybackRevision == revision;
         if (!RadioIsCurrent()) return;
 
         MusicPlaylist radio;
         radioProgress = "Finding radio songs...";
         try { radio = await Session.StartRadioAsync(Similarity.Artist(seed), Similarity.RadioTitle(seed)); }
+        catch (Exception)
+        {
+            if (!RadioIsCurrent()) return;
+            throw new InvalidOperationException("Radio is unavailable. Your queue is unchanged. Try again later or choose another artist.");
+        }
         finally { radioProgress = null; }
         if (!RadioIsCurrent()) return;
         radioCancellation = new();
@@ -1263,7 +1292,17 @@ else
     {
         if (Player.Current is null) throw new InvalidOperationException("Play a song first.");
         var seed = Player.Current;
-        recommendationTitle = seed.Title; recommendations = await Session.SimilarAsync(seed);
+        var identity = AppearanceKey;
+        recommendationTitle = seed.Title;
+        try { recommendations = await Session.SimilarAsync(seed); }
+        catch (Exception)
+        {
+            if (identity != AppearanceKey) return;
+            recommendations = Session.AutoplayQueue(seed).Where(t => t.Id != seed.Id).ToList();
+            if (recommendations.Count == 0)
+                throw new InvalidOperationException("Similar songs are unavailable. Your queue is unchanged. Try again later or add songs from Library.");
+        }
+        if (identity != AppearanceKey) return;
         if (recommendations.Count > 0 && !Player.ReplaceUpcoming(seed.Id, recommendations))
             throw new InvalidOperationException("The playing song changed. Press Similar songs again.");
         await Navigate("Similar songs");

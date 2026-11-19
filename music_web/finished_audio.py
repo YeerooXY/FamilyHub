@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import shutil
+import threading
 from .audio_profile import profile, measure_loudness as measurement
 from . import mobile_audio
 from .worker_activity import WorkerActivity
@@ -15,6 +16,7 @@ VERSION = "loudness-flac-v1"
 TARGET = -16
 PEAK = -1.5
 _encoding = PriorityLane()
+_listening = PriorityLane()
 activity = WorkerActivity('finished-audio', 'Finished audio')
 
 
@@ -51,6 +53,8 @@ class FinishedAudio:
         self.directory = os.path.join(workspace, ".finished-audio")
         self.intake = intake
         self.checked = {}
+        self.render_guard = threading.Lock()
+        self.rendering = {}
 
     def key(self, digest):
         if not re.fullmatch(r"[a-f0-9]{64}", digest):
@@ -87,7 +91,31 @@ class FinishedAudio:
         return row, path
 
     def prepare(self, source, digest, start=0, end=None, title='', background=lambda: False):
-        with observe(getattr(self.intake, "RESOURCES", None), "finished", "render lock") as running, _encoding.turn(background=background), activity.track(title):
+        existing = self.select(digest)
+        if existing:
+            return existing
+        # Separate listener renders from bulk renders; coalesce only identical output.
+        with (_encoding if background() else _listening).turn(background=background):
+            with self.render_guard:
+                pending = self.rendering.get(digest)
+                if pending is None:
+                    self.rendering[digest] = done = threading.Event()
+            if pending is not None:
+                if not pending.wait(900):
+                    raise ValueError('Finished audio preparation timed out')
+                existing = self.select(digest)
+                if existing:
+                    return existing
+                raise ValueError('Finished audio preparation failed. Try again.')
+            try:
+                return self._prepare(source, digest, start, end, title)
+            finally:
+                with self.render_guard:
+                    del self.rendering[digest]
+                done.set()
+
+    def _prepare(self, source, digest, start, end, title):
+        with observe(getattr(self.intake, "RESOURCES", None), "finished", "render lock") as running, activity.track(title):
             running()
             existing = self.select(digest)
             if existing:

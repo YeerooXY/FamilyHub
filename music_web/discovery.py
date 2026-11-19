@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
 from . import catalog_search
+from .radio import _key
 from .resources import PROVIDERS, background_request
 
 
@@ -110,6 +111,7 @@ class Discovery:
         self.wake = threading.Event()
         self.thread = None
         with self.db() as db:
+            db.execute('PRAGMA journal_mode=WAL')
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS refresh_state (key TEXT PRIMARY KEY, value REAL);
                 CREATE TABLE IF NOT EXISTS artists (name TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -205,7 +207,9 @@ class Discovery:
                 if not artist.get('deezer_id'):
                     matches = set()
                     for song in artist.get('songs', [])[:3]:
-                        query = urllib.parse.urlencode({'q': artist['name'] + ' ' + song, 'limit': 25})
+                        title = catalog_search.clean_title(artist['name'], song)
+                        primary = catalog_search.first_artist(artist['name'])
+                        query = urllib.parse.urlencode({'q': primary + ' ' + title, 'limit': 25})
                         data = self.request('search/track?' + query)
                         rows = data.get('data')
                         if not isinstance(rows, list):
@@ -213,8 +217,8 @@ class Discovery:
                         for row in rows:
                             if not isinstance(row, dict): continue
                             who = row.get('artist') or {}
-                            if (isinstance(who, dict) and normal(who.get('name')) in {normal(n) for n in artist['aliases']}
-                                    and normal(row.get('title')) == normal(song) and valid_artist_id(who.get('id'))):
+                            if (isinstance(who, dict) and _key(who.get('name')) in {_key(catalog_search.first_artist(n)) for n in artist['aliases']}
+                                    and _key(row.get('title')) == _key(title) and valid_artist_id(who.get('id'))):
                                 matches.add(who['id'])
                     artist['candidates'] = sorted(matches)
                     if len(matches) != 1:
