@@ -39,10 +39,14 @@ def valid_seconds(value):
 def playback_queue(value):
     if isinstance(value, dict):
         ids, index = value.get('track_ids'), value.get('index')
+        modes = {key: value[key] for key in ('shuffle', 'repeat_mode', 'autoplay') if key in value}
         if (isinstance(ids, list) and len(ids) <= 1000
                 and all(isinstance(item, str) and RECORDING.fullmatch(item) for item in ids)
-                and type(index) is int and (0 <= index < len(ids) if ids else index == -1)):
-            return dict(track_ids=list(ids), index=index)
+                and type(index) is int and (0 <= index < len(ids) if ids else index == -1)
+                and type(modes.get('shuffle', False)) is bool
+                and modes.get('repeat_mode', 'off') in ('off', 'all', 'one')
+                and type(modes.get('autoplay', True)) is bool):
+            return dict(track_ids=list(ids), index=index, **modes)
     raise DeviceError('Invalid playback queue.')
 
 

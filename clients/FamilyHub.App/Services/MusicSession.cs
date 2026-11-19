@@ -109,6 +109,7 @@ public sealed class MusicSession
     private string[] queueIds = [];
     private IReadOnlyList<MusicTrack>? observedQueue;
     private string[]? sentQueueIds;
+    private (bool? Shuffle, string? RepeatMode, bool? Autoplay) queueModes, sentQueueModes;
     private int sentQueueStart;
     private bool compactQueue = true;
     private int activityQueueIndex = -1;
@@ -143,7 +144,8 @@ public sealed class MusicSession
     }
 
     public Task ReportPlaybackActivityAsync(bool playing, double? position = null, bool followingHost = false, string remoteDeviceId = "", bool background = true,
-        string? status = null, double? duration = null, MusicTrack? track = null, IReadOnlyList<MusicTrack>? queue = null, int queueIndex = -1, bool force = false)
+        string? status = null, double? duration = null, MusicTrack? track = null, IReadOnlyList<MusicTrack>? queue = null, int queueIndex = -1, bool force = false,
+        bool? shuffle = null, string? repeatMode = null, bool? autoplay = null)
     {
         if (DateTime.UtcNow - lastHistorySync > TimeSpan.FromMinutes(1)) { lastHistorySync = DateTime.UtcNow; _ = SyncHistoryAsync(); }
         if (queue is not null)
@@ -151,8 +153,10 @@ public sealed class MusicSession
             var idsChanged = !ReferenceEquals(queue, observedQueue) && !queue.Select(t => t.Id).SequenceEqual(queueIds);
             observedQueue = queue;
             if (idsChanged) queueIds = queue.Select(t => t.Id).ToArray();
-            if (idsChanged || activityQueueIndex != queueIndex) queueRevision++;
+            var modes = (shuffle, repeatMode, autoplay);
+            if (idsChanged || activityQueueIndex != queueIndex || queueModes != modes) queueRevision++;
             activityQueueIndex = queueIndex;
+            queueModes = modes;
         }
         return SendPlaybackActivityAsync(new(playing, position, followingHost, remoteDeviceId, background, status, duration, status is null ? activityTrack : track, force));
     }
@@ -190,6 +194,7 @@ public sealed class MusicSession
             && activity.Playing == lastActivityPlaying && activity.Status == lastActivityStatus && activity.Duration == lastActivityDuration
             && activity.FollowingHost == lastActivityFollowingHost && activity.RemoteDeviceId == lastActivityRemoteDevice && activityAt - lastActivity < interval * 1000 - 200) return;
         var ids = queueIds;
+        var modes = queueModes;
         var start = 0;
         int? compactIndex = null;
         PlaybackResume? snapshot = null;
@@ -198,11 +203,15 @@ public sealed class MusicSession
             // Keep the published 1000-track window until the playhead leaves it.
             start = ReferenceEquals(sentQueueIds, ids) && activityQueueIndex >= sentQueueStart && activityQueueIndex < sentQueueStart + 1000
                 ? sentQueueStart : Math.Min(activityQueueIndex, Math.Max(0, ids.Length - 1000));
-            if (compactQueue && !needsFullQueue && ReferenceEquals(sentQueueIds, ids) && start == sentQueueStart)
+            if (compactQueue && !needsFullQueue && ReferenceEquals(sentQueueIds, ids) && start == sentQueueStart && modes == sentQueueModes)
                 compactIndex = activityQueueIndex - start;
             else
             {
-                snapshot = new() { TrackIds = ids.Skip(start).Take(1000).ToList(), Index = activityQueueIndex - start };
+                snapshot = new()
+                {
+                    TrackIds = ids.Skip(start).Take(1000).ToList(), Index = activityQueueIndex - start,
+                    Shuffle = modes.Shuffle, RepeatMode = modes.RepeatMode, Autoplay = modes.Autoplay
+                };
                 if (!snapshot.IsValid) snapshot = null;
             }
         }
@@ -228,6 +237,7 @@ public sealed class MusicSession
             lastActivityFollowingHost = activity.FollowingHost; lastActivityRemoteDevice = activity.RemoteDeviceId;
             sentQueueRevision = revision;
             sentQueueIds = serverRestarted ? null : ids;
+            sentQueueModes = modes;
             if (queueChanged) sentQueueStart = start;
             if (receipt.Command is { } command) activationWatermark = Math.Max(activationWatermark, command.Activation);
             if (activation == PlaybackActivation && !activity.FollowingHost)
@@ -306,7 +316,7 @@ public sealed class MusicSession
         {
             PlaybackActivation = 0; activationWatermark = 0; controlsSeen.Clear();
             lock (handovers) handovers.Clear();
-            playbackEpoch = null; localPlaybackEpoch = null; pendingAcks.Clear(); queueIds = []; activityQueueIndex = -1; queueRevision = 0;
+            playbackEpoch = null; localPlaybackEpoch = null; pendingAcks.Clear(); queueIds = []; activityQueueIndex = -1; queueRevision = 0; queueModes = default;
             playbackCaches.Clear();
             cachedEditions.Clear();
             playbackRecords.Clear();

@@ -85,7 +85,14 @@ public sealed class FamilyHubApi : IDisposable
             deviceInfo = new() { ["name"] = deviceName, ["kind"] = deviceKind, ["activation"] = activation, ["sequence"] = sequence, ["following_host"] = followingHost, ["remote_device"] = remoteDeviceId };
             if (status is not null) deviceInfo["status"] = status;
             if (duration is not null) deviceInfo["duration"] = duration;
-            if (queue is not null) deviceInfo["queue"] = new { track_ids = queue.TrackIds, index = queue.Index };
+            if (queue is not null)
+            {
+                var state = new Dictionary<string, object?> { ["track_ids"] = queue.TrackIds, ["index"] = queue.Index };
+                if (queue.Shuffle is { } shuffle) state["shuffle"] = shuffle;
+                if (queue.RepeatMode is { } repeatMode) state["repeat_mode"] = repeatMode;
+                if (queue.Autoplay is { } autoplay) state["autoplay"] = autoplay;
+                deviceInfo["queue"] = state;
+            }
             else if (queueIndex is not null) deviceInfo["queue"] = new { index = queueIndex };
             if (queueRevision is not null) deviceInfo["queue_rev"] = queueRevision;
             if (epoch is not null) deviceInfo["epoch"] = epoch;

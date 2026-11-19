@@ -91,9 +91,13 @@ public sealed class PlaybackConnection(MusicSession session, MusicPlayer player)
                 await receiverGate.WaitAsync(token);
                 entered = true;
             }
-            if (command.Resume is { IsValid: true } resume &&
-                !session.Library.Concat(session.Downloads).Any(track => track.Id == resume.TrackIds[resume.Index]))
-                await session.RefreshAsync(background: true).WaitAsync(token);
+            if (command.Resume is { IsValid: true } resume)
+            {
+                var known = session.Library.Concat(session.Downloads).Select(track => track.Id).ToHashSet();
+                if (!known.Contains(resume.TrackIds[resume.Index])
+                    || resume.TrackIds.Any(id => id.StartsWith("local-", StringComparison.Ordinal) && !known.Contains(id)))
+                    await session.RefreshAsync(background: true).WaitAsync(token);
+            }
             if (!Current()) return;
             async Task<bool> ConfirmAsync()
             {

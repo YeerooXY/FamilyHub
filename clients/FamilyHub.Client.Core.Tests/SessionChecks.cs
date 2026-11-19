@@ -96,8 +96,10 @@ internal static class SessionChecks
             {
                 using var body = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
                 var transfer = body.RootElement;
-                Check(!transfer.GetProperty("playing").GetBoolean() && transfer.GetProperty("resume").GetProperty("position").GetDouble() == 12,
-                    "Paused transfer changed play intent or dropped its position");
+                var resume = transfer.GetProperty("resume");
+                Check(!transfer.GetProperty("playing").GetBoolean() && resume.GetProperty("position").GetDouble() == 12
+                    && resume.GetProperty("shuffle").GetBoolean() && resume.GetProperty("repeat_mode").GetString() == "one"
+                    && !resume.GetProperty("autoplay").GetBoolean(), "Paused transfer lost its position or playback modes");
                 return Json("""{"id":"transfer","target":"Pixel"}""");
             }
             if (request.RequestUri.AbsolutePath == "/api/playback/handoff/transfer")
@@ -208,18 +210,31 @@ internal static class SessionChecks
             await session.ReportPlaybackActivityAsync(false, queue: [recording, recording], queueIndex: 0);
             var delta = activityReports[^1].GetProperty("queue");
             Check(delta.EnumerateObject().Count() == 1 && delta.GetProperty("index").GetInt32() == 0, "Index change retransmitted track ids");
+            var beforeModeChange = activityReports[^1].GetProperty("queue_rev").GetInt64();
+            await session.ReportPlaybackActivityAsync(false, queue: [recording, recording], queueIndex: 0,
+                shuffle: true, repeatMode: "one", autoplay: false);
+            var modeChange = activityReports[^1];
+            var fullQueue = modeChange.GetProperty("queue");
+            Check(modeChange.GetProperty("queue_rev").GetInt64() == beforeModeChange + 1
+                && fullQueue.GetProperty("track_ids").GetArrayLength() == 2 && fullQueue.GetProperty("shuffle").GetBoolean()
+                && fullQueue.GetProperty("repeat_mode").GetString() == "one" && !fullQueue.GetProperty("autoplay").GetBoolean(),
+                "A playback mode change without an index change did not publish the updated queue state");
             rejectCompact = true;
             var beforeRetry = activityReports.Count;
-            await session.ReportPlaybackActivityAsync(false, queue: [recording, recording], queueIndex: 1);
-            Check(activityReports.Count == beforeRetry + 2 && activityReports[^1].GetProperty("queue").GetProperty("track_ids").GetArrayLength() == 2,
-                "Server rejected an index change and did not receive the full queue");
+            await session.ReportPlaybackActivityAsync(false, queue: [recording, recording], queueIndex: 1,
+                shuffle: true, repeatMode: "one", autoplay: false);
+            Check(activityReports.Count == beforeRetry + 2
+                && activityReports[^1].GetProperty("queue").GetProperty("track_ids").GetArrayLength() == 2
+                && activityReports[^1].GetProperty("queue").GetProperty("repeat_mode").GetString() == "one",
+                "Server rejected an index change and did not receive the full queue with its playback modes");
             session.UiActive = false;
             var hiddenReports = activityReports.Count;
             await session.ReportPlaybackActivityAsync(false, force: true);
             Check(activityReports.Count == hiddenReports, "Hidden idle player sent a heartbeat");
             session.UiActive = true;
             var destination = new string('b', 32);
-            var transfer = await session.Api!.TransferPlaybackAsync(session.DeviceId, destination, new() { TrackIds = [recording.Id], Index = 0, Position = 12 }, false);
+            var transfer = await session.Api!.TransferPlaybackAsync(session.DeviceId, destination,
+                new() { TrackIds = [recording.Id], Index = 0, Position = 12, Shuffle = true, RepeatMode = "one", Autoplay = false }, false);
             statuses.Enqueue("pending"); statuses.Enqueue("ready");
             Check(await session.Api.WaitForHandoffAsync(transfer.Id, destination, CancellationToken.None) && statuses.Count == 0,
                 "Pending receipt completed before the target reported ready");
