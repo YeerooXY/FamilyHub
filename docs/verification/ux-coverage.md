@@ -1,5 +1,9 @@
 # Interface verification
 
+## 19 November 2026 · Notices and recovery
+
+The native and web notice audit, pixel measurements, keyboard paths and captures are in the [notice verification record](notices-2026-11-19/README.md). Physical Mac and phone behavior and screen-reader speech remain open.
+
 ## 19 November 2026 — Desktop frame, player and search header
 
 Frame and panel layout, player alignment and seek interactions, and the narrow desktop search flow were checked in the Windows build and browser profiles. The [desktop frame verification record](frame-black-2026-11-19/README.md) has pixel counts, captures, and coverage limits.

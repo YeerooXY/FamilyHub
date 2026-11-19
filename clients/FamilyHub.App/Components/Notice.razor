@@ -1,0 +1,39 @@
+<div id="@Id" class="fh-notice" data-level="@Level" data-attached="@(Attached ? "" : null)" data-notice-focus="@FocusTarget" hidden="@string.IsNullOrWhiteSpace(Message)">
+    <span class="fh-notice-copy">
+        <span class="fh-notice-icon"><MusicIcon Name="@Icon" /></span>
+        <span class="fh-notice-text" role="@(Level == "error" ? "alert" : "status")" aria-live="@(Level == "error" ? null : "polite")" aria-atomic="true">@Message</span>
+    </span>
+    @if (ActionLabel is not null)
+    {
+        @if (ActionHref is not null)
+        {
+            <a href="@ActionHref" class="fh-notice-action">@ActionLabel</a>
+        }
+        else
+        {
+            <button type="button" class="fh-notice-action" aria-disabled="@(Busy ? "true" : null)" @onclick="RunAction">@ActionLabel</button>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public string? Message { get; set; }
+    [Parameter] public string Level { get; set; } = "info";
+    [Parameter] public string? ActionLabel { get; set; }
+    [Parameter] public string? ActionHref { get; set; }
+    [Parameter] public EventCallback Action { get; set; }
+    [Parameter] public string FocusTarget { get; set; } = "#content";
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public bool Attached { get; set; }
+
+    private Task RunAction() => Busy ? Task.CompletedTask : Action.InvokeAsync();
+    private string Icon => Level switch
+    {
+        "success" => "check-circle-outline",
+        "warning" => "alert",
+        "error" => "error-circle",
+        "empty" => "music",
+        _ => "info-circle",
+    };
+}

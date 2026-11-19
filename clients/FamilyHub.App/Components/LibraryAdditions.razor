@@ -6,10 +6,13 @@
         @foreach (var job in Jobs.Take(limit))
         {
             <li class="library-addition" id="@(Prefix + "-addition-" + job.Key)" @key="job.Key" tabindex="-1">
-                <span><strong>@job.Title</strong>
+                <div class="library-addition-copy"><strong>@job.Title</strong>
                     @if (!string.IsNullOrEmpty(job.PlaylistError) || !string.IsNullOrWhiteSpace(job.Message) && (job.Pending || !job.Saved))
-                    { <small>@(job.PlaylistError ?? job.Message)</small> }
-                </span>
+                    {
+                        <Notice Level="@(job.Pending && job.PlaylistError is null ? "info" : "error")"
+                                Message="@NoticeText.Detail(job.PlaylistError ?? job.Message, "The server could not save this song. Try again.")" />
+                    }
+                </div>
                 <span class="music-admin-count">@Status(job)</span>
                 @if (Retry.HasDelegate && job.SourceId is { Length: 11 } && (job.State is "error" or "cancelled" && !job.Saved || job.PlaylistError is not null))
                 {

@@ -16,16 +16,17 @@
         {
             <label class="picker-choice" @key="Key(playlist)"><PlaylistCover Playlist="playlist" /><span><strong>@playlist.Name</strong><small>@playlist.Tracks.Count songs</small></span><input type="checkbox" aria-label="@playlist.Name" checked="@chosen.Contains(Key(playlist))" @onchange="args => Select(Key(playlist), args)" disabled="@saving" /></label>
         }
-        @if (!Session.Playlists.Any(p => p.CanEdit && p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))) { <p class="muted">No playlists found.</p> }
+        @if (!Session.Playlists.Any(p => p.CanEdit && p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))) { <Notice Level="empty" Message="@(filter.Length > 0 ? "No playlists match this search." : "You have no editable playlists.")"
+               ActionLabel="@(filter.Length > 0 ? "Reset playlist search" : null)" Action='() => filter = ""' FocusTarget="#playlist-picker-filter" /> }
     </div>
-    <p class="entry-error" role="status">@message</p>
+    <Notice Level="@(saving && !saveFailed ? "info" : "error")" Message="@message" />
     <div class="actions picker-footer"><button class="quiet" @onclick="Close" aria-disabled="@(saving ? "true" : "false")">Cancel</button><button id="playlist-picker-done" class="primary" @onclick="Save" aria-disabled="@(saving ? "true" : "false")">@(saving ? "Saving..." : "Done")</button></div>
 </div>
 
 @code {
     private MusicTrack? track;
     private string opener = "content", filter = "", name = "", message = "";
-    private bool opening, saving, creating, creatingPlaylist, focusName;
+    private bool opening, saving, creating, creatingPlaylist, focusName, saveFailed;
     private HashSet<string> chosen = [];
     private HashSet<string> initial = [];
     private static string Key(MusicPlaylist playlist) => playlist.OwnerId + ":" + playlist.Id;
@@ -49,13 +50,13 @@
         if (saving || creatingPlaylist || string.IsNullOrWhiteSpace(name)) return;
         creatingPlaylist = true;
         try { await Session.CreatePlaylistAsync(name.Trim()); chosen.Add(Key(Session.Playlists.Last())); await Save(); }
-        catch (Exception ex) { message = ex.Message; }
+        catch (Exception ex) { saveFailed = true; message = NoticeText.Error(ex, "The playlist could not be saved. Try again."); }
         finally { creatingPlaylist = false; }
     }
     private async Task Save()
     {
         if (saving || track is null) return;
-        saving = true; message = "";
+        saving = true; saveFailed = false; message = "";
         try
         {
             var targets = new HashSet<string>(chosen);
@@ -88,8 +89,9 @@
                 }
             }
             await Close();
+            if (targets.Count > 0) await JS.InvokeVoidAsync("FamilyHubNotices.toast", "Playlist selection saved.");
         }
-        catch (Exception ex) { message = ex.Message; }
+        catch (Exception ex) { saveFailed = true; message = NoticeText.Error(ex, "The playlist could not be saved. Try again."); }
         finally { saving = false; }
     }
 }

@@ -54,13 +54,13 @@ async function verify(browserType, profile, name) {
     await page.goto(origin + '/?short');
     if (!await query.isVisible()) await page.locator('#nav-search').click();
     await submit('timed out');
-    await status.filter({hasText:'The request timed out. Try again.'}).waitFor();
+    await status.filter({hasText:'The server took too long. Try again.'}).waitFor();
     assert.equal(await page.locator('#pick').getAttribute('aria-busy'), 'false');
     if (process.env.FAMILYHUB_FLOW_SCREENSHOTS) await page.screenshot({
       path: path.join(process.env.FAMILYHUB_FLOW_SCREENSHOTS, 'search-timeout-' + name + '.png')
     });
     await submit('retry');
-    await status.filter({hasText:'No results. Try different words.'}).waitFor();
+    await status.filter({hasText:'No songs match this search.'}).waitFor();
     console.log(name + ' passed partial results, focus, timeout, and retry');
   } finally { await browser.close(); }
 }

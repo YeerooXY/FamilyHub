@@ -9,7 +9,7 @@ else
 {
     <div class="setting-row"><span>Spotify Premium</span><button id="spotify-profile-choice" disabled="@(!Session.Connected)" @onclick="Choose">Choose</button></div>
 }
-@if (error is not null) { <p class="entry-error" role="status">@error</p> }
+@if (error is not null) { <Notice Level="error" Message="@error" /> }
 
 @code {
     private bool saving;
@@ -20,7 +20,7 @@ else
         if (saving) return;
         saving = true; error = null;
         try { await Session.SaveSpotifyStatusAsync(args.Value is true); }
-        catch (Exception exception) { error = exception.Message; }
+        catch (Exception exception) { error = NoticeText.Error(exception); }
         finally { saving = false; }
     }
 }

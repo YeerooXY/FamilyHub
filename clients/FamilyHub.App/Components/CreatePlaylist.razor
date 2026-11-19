@@ -19,7 +19,7 @@
                 <input id="new-playlist-url" type="url" @bind="link" @bind:event="oninput" @bind:after="LinkChanged" placeholder="Paste a playlist link" autocomplete="off" spellcheck="false" disabled="@(Files > 0)" />
                 @if (link.Length > 0) { <button type="button" class="create-link-clear" aria-label="Clear link" @onclick="ClearLink"><MusicIcon Name="close" /></button> }
             </div>
-            <p class="create-link-status" role="status">@LinkStatus</p>
+            <Notice Level="@(Source is null ? "warning" : "info")" Message="@LinkStatus" />
             <MusicProviders Sites="Sites" Detected="@Source" />
         </section>
 
@@ -37,7 +37,7 @@
             }
         </section>
 
-        <p class="entry-error" role="status">@error</p>
+        <Notice Level="error" Message="@error" />
         <div class="actions">
             <button type="button" @onclick="Close">Cancel</button>
             <button id="create-playlist-submit" class="primary" type="submit" aria-disabled="@Aria(busy || uploader?.Busy == true || (link.Length > 0 && Source is null))">@SubmitLabel</button>
@@ -137,8 +137,9 @@
                     new { provider = source, url = link.Trim(), revision = playlist.Revision, download, name = typed.Length > 0 ? typed : null });
             await JS.InvokeVoidAsync("familyhub.closeDialog", "create-playlist-dialog", "content");
             await Created.InvokeAsync(playlist);
+            await JS.InvokeVoidAsync("FamilyHubNotices.toast", source is null ? "Playlist created." : "Playlist import started.");
         }
-        catch (Exception exception) when (exception is not OperationCanceledException) { error = exception.Message; }
+        catch (Exception exception) when (exception is not OperationCanceledException) { error = NoticeText.Error(exception); }
         finally { busy = false; }
     }
 }

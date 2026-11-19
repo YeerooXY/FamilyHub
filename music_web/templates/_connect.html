@@ -17,7 +17,7 @@
       <label id="output-volume">{{ player_icon('quiet') }}<span class="sr">Output volume</span><input id="connect-volume" type="range" min="0" max="1" step="0.01" value="1">{{ player_icon('speaker') }}</label>
     </div>
     <div id="device-list"></div>
-    <p class="error" id="connect-message" role="status"></p>
+    <div id="connect-message" hidden></div>
     <div class="connect-help">
       <details><summary>Don't see your device?{{ player_icon('external') }}</summary><p>Open FamilyHub on the other device and sign in with the same profile.</p></details>
       <details><summary>What can I connect to?{{ player_icon('external') }}</summary><p>Other devices running FamilyHub with this profile.</p></details>

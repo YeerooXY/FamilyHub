@@ -23,7 +23,7 @@
                     </button>
                 }
             </div>
-            <p class="home-save-status" role="status">@(!Session.Connected ? "Connect to start radio." : FollowingHost ? "Leave the listening session to start radio." : "")</p>
+            <Notice Level="warning" Message="@(!Session.Connected ? "Connect to start radio." : FollowingHost ? "Leave the listening session to start radio." : "")" />
         }
         else
         {
@@ -73,7 +73,7 @@
                     </div>
                 }
             </div></ShelfArrows>
-            @if (saveMessage is not null) { <p class="home-save-status" role="status">@saveMessage</p> }
+            @if (saveMessage is not null) { <Notice Level="@(saving is null ? "error" : "info")" Message="@saveMessage" /> }
         </section>
     }
 
@@ -125,7 +125,8 @@
                     await Session.EditPlaylistAsync(current, new { add_source_id = track.Id });
             }
             albumDrafts.Remove(key);
-            saveMessage = $"Saved {album.Name} as a playlist.";
+            saveMessage = null;
+            await JS.InvokeVoidAsync("FamilyHubNotices.toast", $"Saved {album.Name} as a playlist.");
         }
         catch (Exception error) when (error is not OperationCanceledException) { saveMessage = "The album could not finish saving. Try again."; }
         finally { saving = null; }

@@ -1,0 +1,23 @@
+@page "/"
+@page "/server-work"
+@using Microsoft.AspNetCore.Components.Web
+@using FamilyHub.App.Components.Pages
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <base href="/" />
+    @foreach (var css in new[] { "shell", "app-native", "startup", "profile-images", "playlist-transfer", "server-stats", "player-native", "paddock-theme", "home-mobile", "stats-pages", "create-playlist", "music-admin", "notices" })
+    {
+        <link rel="stylesheet" href="/@(css).css" />
+    }
+</head>
+<body>
+    <div id="app"><Music @rendermode="new InteractiveServerRenderMode(prerender: false)" /></div>
+    <script src="/paddock-theme.js"></script>
+    <script src="/notices.js"></script>
+    <script src="/native.js"></script>
+    <script src="/_framework/blazor.web.js"></script>
+</body>
+</html>

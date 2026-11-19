@@ -182,8 +182,8 @@ using (var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new H
 foreach (var (status, guidance) in new[]
 {
     (HttpStatusCode.Unauthorized, "Sign in"),
-    (HttpStatusCode.Forbidden, "Reconnect"),
-    (HttpStatusCode.GatewayTimeout, "took too long"),
+    (HttpStatusCode.Forbidden, "Check your access"),
+    (HttpStatusCode.GatewayTimeout, "timed out"),
     (HttpStatusCode.ServiceUnavailable, "busy")
 })
 {
@@ -192,6 +192,15 @@ foreach (var (status, guidance) in new[]
     catch (FamilyHubApiException ex)
     {
         Check(ex.StatusCode == (int)status && ex.Message.Contains(guidance) && !ex.Message.Contains("HTTP"), "Request error lacked recovery guidance");
+    }
+}
+using (var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+    { Content = System.Net.Http.Json.JsonContent.Create(new { error = "HTTP/1.1 503 Service Unavailable" }) }))))
+{
+    try { await api.GetLibraryAsync(); Check(false, "Failed request did not throw"); }
+    catch (FamilyHubApiException error)
+    {
+        Check(error.Message == "The server is busy. Wait a moment and try again.", "A raw response code reached the UI");
     }
 }
 foreach (var detail in new[] { "Another playlist operation is running. Wait for it to finish.", "This playlist changed. Refresh it before editing." })

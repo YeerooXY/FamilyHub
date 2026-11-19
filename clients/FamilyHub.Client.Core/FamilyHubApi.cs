@@ -396,7 +396,9 @@ public sealed class FamilyHubApi : IDisposable
                     using var body = JsonDocument.Parse(buffer.AsMemory(0, length));
                     if (body.RootElement.ValueKind == JsonValueKind.Object && body.RootElement.TryGetProperty("error", out var error)
                         && error.ValueKind == JsonValueKind.String && error.GetString() is { Length: > 0 and <= 512 } detail
-                        && !detail.Any(char.IsControl)) message = detail;
+                        && !detail.Any(char.IsControl)
+                        && !Regex.IsMatch(detail, @"\b(?:HTTP(?:/\d+(?:\.\d+)?)?(?: status)?|status(?: code)?)\s*[:=]?\s*[45]\d{2}\b|^\s*[45]\d{2}\b", RegexOptions.IgnoreCase))
+                        message = detail;
                 }
             }
             catch (JsonException) { }

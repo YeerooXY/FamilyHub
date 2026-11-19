@@ -2,7 +2,7 @@
 (() => {
   let playlists=[], selected=null, busy=false, stopping=false;
   const choices=new Map(), feedback=$('playlist-feedback');
-  const say=text=>{feedback.textContent=text;};
+  const say=(text, level="info")=>notice(feedback, text, {level});
   const identity=p=>p ? (p.owner_id ? p.owner_id+':' : '')+p.id : '';
   function controls(value) {
     const stopFocused=document.activeElement===$('playlist-stop');
@@ -15,7 +15,7 @@
     $('playlist-detail').hidden=!selected; if(!selected)return;
     for(const id of ['playlist-match','playlist-download']) $(id).disabled=busy || selected.can_edit===false;
     $('playlist-name').textContent=selected.name;
-    $('playlist-notice').textContent=selected.notice;
+    notice('playlist-notice', selected.notice);
     const focus=document.activeElement?.dataset.playlistIndex;
     $('playlist-tracks').replaceChildren(...selected.tracks.map((track,index)=>{
       const select=el('select',{'aria-label':'Recording for '+track.title,'data-playlist-index':String(index)},el('option',{value:''},'Skip / choose a recording'));
@@ -34,15 +34,15 @@
     $('playlist-select').replaceChildren(el('option',{value:''},'Choose a playlist'),...playlists.map(p=>el('option',{value:identity(p)},p.name+' ('+p.tracks.length+')'+(p.can_edit===false?' · '+p.owner_name:''))));
     if(id){selected=playlists.find(p=>identity(p)===id)||null;$('playlist-select').value=id;} render();
   }
-  $('playlist-panel').addEventListener('toggle',()=>{if($('playlist-panel').open&&!busy)refresh().catch(e=>say(e.message));});
+  $('playlist-panel').addEventListener('toggle',()=>{if($('playlist-panel').open&&!busy)refresh().catch(e=>say(e.message, "error"));});
   $('playlist-select').addEventListener('change',()=>{selected=playlists.find(p=>identity(p)===$('playlist-select').value)||null;render();});
   $('spotify-playlist-form').addEventListener('submit',async event=>{
     event.preventDefault();if(busy)return;
     const submit=event.currentTarget.querySelector('button');
     if(document.activeElement===submit) $('spotify-playlist-url').focus();
     controls(true);say('Reading playlist…');
-    try { const result=await api('/api/playlists/spotify',{method:'POST',json:{url:$('spotify-playlist-url').value.trim()}});selected=result.playlist;for(const key of choices.keys())if(key.startsWith(identity(selected)+':'))choices.delete(key);await refresh();say(selected.tracks.length+' playlist entries loaded.'); }
-    catch(e){say(e.message);}finally{controls(false);render();}
+    try { const result=await api('/api/playlists/spotify',{method:'POST',json:{url:$('spotify-playlist-url').value.trim()}});selected=result.playlist;for(const key of choices.keys())if(key.startsWith(identity(selected)+':'))choices.delete(key);await refresh();say('');toast(selected.tracks.length+' playlist entries loaded.'); }
+    catch(e){say(e.message, "error");}finally{controls(false);render();}
   });
   $('playlist-stop').addEventListener('click',()=>{stopping=true;say('Stopping after the current song.');});
   $('playlist-match').addEventListener('click',async()=>{
@@ -55,7 +55,7 @@
         selected.tracks[index]=track;choices.delete(identity(selected)+':'+index);render();
       }
       say(stopping?'Matching stopped. You can resume.':'Matches ready. Review the recording choices, then save.');
-    }catch(e){say(e.message+' Completed matches are kept.');}finally{controls(false);render();}
+    }catch(e){say(e.message, 'error');}finally{controls(false);render();}
   });
   $('playlist-download').addEventListener('click',async()=>{
     if(!selected||selected.can_edit===false||busy)return;controls(true);stopping=false;render();let count=0;
@@ -73,12 +73,12 @@
         if(job.state!=='done')throw Error('Could not save '+selected.tracks[index].title+'. You can retry.');
         count++;await refresh();
       }
-      say((stopping?'Stopped. ':'')+count+' recordings saved.');await loadLibrary();
-    }catch(e){say(e.message);}finally{controls(false);await refresh().catch(()=>{});render();}
+      say(stopping ? 'Saving stopped. Resume to save the remaining recordings.' : '', stopping ? 'warning' : 'info');if (!stopping) toast(count+' recordings saved.');await loadLibrary();
+    }catch(e){say(e.message, "error");}finally{controls(false);await refresh().catch(()=>{});render();}
   });
   $('playlist-play').addEventListener('click',()=>{
     const tracks=selected?.tracks.map((t,index)=>t.state==='saved'&&t.match ? {...t.match,saved:true,playlistEntry:identity(selected)+':'+index} : null).filter(Boolean)||[];
-    if(!tracks.length){say('Save a matched recording first.');return;}
+    if(!tracks.length){say('This playlist has no saved recordings. Save a matched recording to play it.', 'warning');return;}
     queue=tracks.slice(1);manualQueue.clear();queue.forEach(t=>manualQueue.add(sourceKey(t)));
     renderQueue();listen(tracks[0],true);
   });

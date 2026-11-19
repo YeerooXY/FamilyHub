@@ -94,7 +94,7 @@
 .lb-empty { margin:0; font-size:14px; color:var(--muted); }
 @media(min-width:900px) {
  .leaderboard-page { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
- .leaderboard-page>.stats-toolbar,.leaderboard-page>.stats-status,.lb-podium,.lb-list { grid-column:1 / -1; }
+ .leaderboard-page>.stats-toolbar,.leaderboard-page>.fh-notice,.lb-podium,.lb-list { grid-column:1 / -1; }
 }
 
 /* Server */

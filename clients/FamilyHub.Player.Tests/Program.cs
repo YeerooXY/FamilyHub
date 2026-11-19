@@ -545,7 +545,7 @@ namespace FamilyHub.App.Services
         public void Complete(int i) => requests[i].SetResult("fixture");
         public void Fail(int i) => requests[i].SetException(new IOException("Old request failed"));
         public void TimeOut(int i) => requests[i].SetCanceled();
-        public void SetMessage(string value) => Messages.Add(value);
+        public void SetMessage(string value, string level = "info", bool playback = false) => Messages.Add(value);
         public void PinPlayback(string? id) { }
         public void PinPreparingPlayback(string? id) { }
         public void PinUpcomingPlayback(string? id) { }
