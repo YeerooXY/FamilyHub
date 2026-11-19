@@ -121,8 +121,12 @@ main.entry-screen { grid-column:1 / -1; grid-row:1 / -1; display:grid; place-ite
 }
 
 @media(min-width:721px) {
+ html,#app { background:#000; }
+ body,html body[data-theme] { --frame-bg:#000; height:100%; background:#000; }
+ #paddock-background,#app>blazor-focus-on-navigate { display:none; }
+ .header-search { width:clamp(280px,70%,460px); max-width:100%; }
  body.native-titlebar { padding-top:0; grid-template-rows:64px minmax(0,1fr) var(--player-height); }
- .native-titlebar .app-header { margin-inline:-8px; width:calc(100% + 16px); background:#07101f; }
+ .native-titlebar .app-header { margin-inline:-8px; width:calc(100% + 16px); }
 }
 
 /* Panel skies use the shared renderer; content stays above the decorative layer. */

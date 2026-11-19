@@ -1,6 +1,7 @@
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using System.Runtime.InteropServices;
 using Windows.Graphics;
 using NativeColor = Windows.UI.Color;
 
@@ -9,6 +10,17 @@ namespace FamilyHub.App.Services;
 /// <summary>Maps the web header to native non-client hit testing, keeping OS caption controls.</summary>
 internal static class WindowsWindowChrome
 {
+    private const int DwmwaBorderColor = 34;
+
+    [DllImport("dwmapi.dll", ExactSpelling = true)]
+    private static extern int DwmSetWindowAttribute(nint window, int attribute, in uint value, int size);
+
+    public static void SetBorderColor(Microsoft.UI.Xaml.Window window)
+    {
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+            DwmSetWindowAttribute(WinRT.Interop.WindowNative.GetWindowHandle(window), DwmwaBorderColor, 0, sizeof(uint));
+    }
+
     public static WindowChromeMetrics Update(MainPage page, FrameworkElement? webView,
         double headerHeight, WindowChromeRect[] interactiveRects, double devicePixelRatio)
     {

@@ -32,11 +32,13 @@ const html = `<!doctype html><meta name="viewport" content="width=device-width,i
     <button id="repeat-toggle" class="quiet">${icon}</button>
   </div>${seekMarkup}</div>
   <button id="player-more" class="quiet player-more">${icon}</button>
-</footer></div></body>`;
+</footer><blazor-focus-on-navigate></blazor-focus-on-navigate></div></body>`;
 
 const closeTo = (actual, expected, label) => assert(Math.abs(actual - expected) < 1, `${label}: ${actual} vs ${expected}`);
 const centerY = box => box.y + box.height / 2;
 const white = pixel => pixel.every(channel => channel >= 250);
+const violetAccent = [199, 163, 255];
+const blackBottom = png => png.data.subarray(-4 * png.width).every((channel, index) => index % 4 === 3 || channel === 0);
 async function seekPixels(page, input) {
     const box = await input.boundingBox();
     const { fraction, fillPosition } = await input.evaluate(node => ({
@@ -48,6 +50,7 @@ async function seekPixels(page, input) {
     const thumbX = box.x + 6 + (box.width - 12) * fraction;
     return {
         thumbX,
+        blackBottom: blackBottom(png),
         thumb: pixel(thumbX, centerY(box) + 3),
         fill: pixel(box.x + box.width * fillPosition / 2, centerY(box)),
         trackEdge: pixel(box.x + box.width * .9, centerY(box) - 2),
@@ -59,6 +62,7 @@ async function seekPixels(page, input) {
     for (const [name, engine, profile] of [
         ['Windows 1280', chromium, { viewport: { width: 1280, height: 900 } }],
         ['Windows 2000', chromium, { viewport: { width: 2000, height: 1060 } }],
+        ['Windows 850', chromium, { viewport: { width: 850, height: 641 } }],
         ['Mac WebKit', webkit, { viewport: { width: 1440, height: 900 } }],
         ['Android Chromium', chromium, devices['Pixel 7']],
         ['iPhone WebKit', webkit, devices['iPhone 13']]
@@ -98,7 +102,7 @@ async function seekPixels(page, input) {
                 assert.equal(await tip.isVisible(), true);
                 const dragged = await seekPixels(page, input);
                 assert(white(dragged.thumb));
-                assert.deepEqual(dragged.fill, [30, 215, 96]);
+                assert.deepEqual(dragged.fill, violetAccent);
                 if (cdp)
                     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
                 else
@@ -112,6 +116,9 @@ async function seekPixels(page, input) {
 
             const box = await input.boundingBox();
             const idle = await seekPixels(page, input);
+            const bar = await footer.boundingBox();
+            closeTo(bar.y + bar.height, profile.viewport.height, 'player bottom edge');
+            assert(idle.blackBottom, 'Every RGB pixel at the desktop bottom edge is black');
             assert.equal(await tip.isVisible(), false);
             assert.deepEqual(idle.thumb, [0, 0, 0]);
             assert.deepEqual(idle.fill, [238, 238, 238]);
@@ -121,7 +128,7 @@ async function seekPixels(page, input) {
             await page.mouse.move(pointerX, centerY(box));
             const hover = await seekPixels(page, input);
             assert(white(hover.thumb));
-            assert.deepEqual(hover.fill, [30, 215, 96]);
+            assert.deepEqual(hover.fill, violetAccent);
             const measureTip = async expectedX => {
                 assert(await tip.isVisible());
                 const rect = await tip.boundingBox();
@@ -183,6 +190,19 @@ async function seekPixels(page, input) {
             }
             closeTo(controls[2].x + 16, box.x + box.width / 2, 'transport centre');
             console.log(name, `tooltip gap ${gap}px, fixed playlist slot x=${short.x}px`);
+            if (name === 'Windows 850') {
+                await footer.evaluate(node => node.insertAdjacentHTML('afterend',
+                    '<div id="device-strip" class="device-strip" role="status">Playing on Kitchen</div>'));
+                assert((await seekPixels(page, input)).blackBottom, 'The device status row has a black bottom edge');
+                await footer.evaluate(node => {
+                    document.getElementById('device-strip').remove();
+                    node.classList.add('is-remote-peek');
+                    node.insertAdjacentHTML('afterend',
+                        '<section class="remote-mini"><span class="remote-mini-line">Playing on Kitchen</span></section>');
+                });
+                const remote = PNG.sync.read(await page.screenshot());
+                assert(blackBottom(remote), 'The remote player has a black bottom edge');
+            }
         } finally {
             await browser.close();
         }
