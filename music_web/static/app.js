@@ -36,7 +36,7 @@ async function api(path, { method = "GET", json, form, signal } = {}) {
   try { res = await fetch(path, init); } catch { throw new Error("Cannot reach the server."); }
   if (res.status === 401) { location.href = "/login"; throw new Error("Sign in required."); }
   let data = {};
-  try { data = await res.json(); } catch { /* non-JSON error body */ }
+  try { data = await res.json(); } catch (error) { if (signal?.aborted) throw error; }
   if (!res.ok) { const e = new Error(data.error || "Request failed."); e.status = res.status; throw e; }
   return data;
 }
@@ -991,9 +991,14 @@ async function loadLibrary() {
   if (libraryDeferred) return;
   $("library-error").textContent = "";
   try {
-    const { results, genres = [], genre_keys = {} } = await api("/api/library?genre_filters=1");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const { results, genres = [], genre_keys = {} } = await api("/api/library?genre_filters=1", { signal: controller.signal })
+      .catch(error => { throw controller.signal.aborted ? new Error("The library request timed out.") : error; })
+      .finally(() => clearTimeout(timeout));
     if (version !== libraryVersion) return;
     if (document.hidden) { libraryDeferred = true; return; }
+    if (!Array.isArray(results)) throw new Error("The server returned an unreadable library.");
     results.forEach(t => savedSources.add(sourceKey(t)));
     pool = [...new Map([...pool, ...results].map((r) => [sourceKey(r), r])).values()];
     const list = $("library-list"), active = document.activeElement;

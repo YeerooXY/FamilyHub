@@ -18,7 +18,7 @@
 <form method="post" action="/login">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <input type="hidden" name="profile_id" value="{{ profile.id }}">
-<button class="family-profile profile-{{ loop.index0 % 6 }}" type="submit"><span class="profile-avatar" aria-hidden="true">{{ profile.name[:1]|upper }}</span><span>{{ profile.name }}</span></button>
+<button class="family-profile profile-{{ loop.index0 % 6 }}" type="submit"><span class="profile-avatar" aria-hidden="true">{% if profile.image_url %}<img src="{{ profile.image_url }}" alt="" width="72" height="72">{% else %}{{ profile.name[:1]|upper }}{% endif %}</span><span>{{ profile.name }}</span></button>
 </form>
 {% endfor %}
 </div>
