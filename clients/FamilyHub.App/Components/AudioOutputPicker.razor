@@ -13,7 +13,7 @@
     <div class="connect-body">
         <div class="connect-handle" aria-hidden="true"></div>
         <div class="connect-header"><h2 id="audio-output-title">Connect</h2><button id="audio-output-close" class="quiet" aria-label="Close Connect" @onclick="Close"><MusicIcon Name="close" /></button></div>
-        @if (Connection.ConnectingTo is not null) { <p role="status" class="connect-empty">Connecting...</p> }
+        @if (Connection.ConnectingTo is not null) { <Notice Message="Connecting…" /> }
         <section class="connect-devices" aria-label="Devices">
             @{ var remote = RemoteSource;
                var here = !Player.RemoteActive && remote is null;
@@ -56,19 +56,19 @@
                     </span>
                 </button>
             }
-            @if (loadedDevices && here && !devices.Any(d => !d.This)) { <p class="connect-empty">Open FamilyHub on another computer or phone with this profile to play there.</p> }
+            @if (loadedDevices && here && !devices.Any(d => !d.This)) { <Notice Level="empty" Message="Open FamilyHub on another device with this profile to play there." /> }
         </section>
         @if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid())
         {
             <section class="connect-outputs" aria-labelledby="connect-outputs-title">
                 <h3 id="connect-outputs-title">Speakers on this device</h3>
-                @if (loading) { <p role="status" class="connect-empty">Loading audio outputs...</p> }
+                @if (loading) { <Notice Message="Loading audio outputs…" /> }
                 @foreach (var output in outputs)
                 { <button class="audio-output-option" @key="output.Id" aria-pressed="@(Player.AudioOutputId == output.Id ? "true" : "false")" @onclick="() => Select(output.Id)"><MusicIcon Name="@(Player.AudioOutputId == output.Id ? "check-circle" : "volume")" /><span>@output.Name</span></button> }
                 @if (OperatingSystem.IsAndroid()) { <button class="audio-output-option" @onclick="SystemPicker"><MusicIcon Name="volume" /><span>Choose audio output</span></button> }
             </section>
         }
-        @if (error is not null) { <p class="connect-error" role="status">@error</p> }
+        @if (error is not null) { <Notice Level="error" Message="@error" /> }
         <div class="connect-spacer"></div>
         <div class="connect-help">
             <button id="connect-help-missing" class="connect-help-row" aria-expanded="@Aria(help == "missing")" aria-controls="connect-help-missing-text" @onclick='() => ToggleHelp("missing")'><span>Don't see your device?</span><MusicIcon Name="chevron-down" /></button>

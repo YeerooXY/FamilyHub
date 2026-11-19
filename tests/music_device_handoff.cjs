@@ -150,9 +150,13 @@ async function run() {
 
         const sender = await open(true);
         const receiver = await open(false);
+        await receiver.locator('#library-list .song-primary').filter({ hasText: previous.title }).click();
+        await playing(receiver, previous.id);
+        await sender.waitForFunction(() => playbackEpoch > 0);
         const libraryRow = sender.locator('#library-list .song-primary').filter({ hasText: current.title });
         await libraryRow.click();
         await playing(sender, current.id);
+        await receiver.waitForFunction(() => decks[deckIndex].paused);
         await sender.evaluate(({ previous, next, last }) => {
             repeatMode = "all";
             history = [pool.find(track => track.id === previous.id)];
@@ -202,8 +206,18 @@ async function run() {
         await playing(sender, previous.id);
         assert.deepEqual(await sender.evaluate(() => [history.map(sourceKey), queue.map(sourceKey)]),
             [[], [current.id, next.id, last.id]], 'Repeat all must restart with the same playback order');
+        await sender.locator('#play').click();
+        await sender.waitForFunction(() => decks[deckIndex].paused && !checkingIn);
+        await receiver.evaluate(() => refreshRemotePlayback());
+        await receiver.waitForFunction(id => remoteDevice?.track?.id === id && remoteDevice.status === 'paused', previous.id);
+        await receiver.locator('#remote-line').click();
+        await receiver.waitForFunction(id => !handoff && currentTrack?.id === id && decks[deckIndex].paused, previous.id);
+        assert.deepEqual(await receiver.evaluate(() => queue.map(sourceKey)), [current.id, next.id, last.id],
+            'A paused handoff must retain the upcoming songs');
+        await receiver.locator('#play').click();
+        await playing(receiver, previous.id);
         assert.deepEqual(pageErrors, []);
-        console.log('PASS: confirmed browser handoff, unattended queue advance, return handoff, and repeat all.');
+        console.log('PASS: competing playback, playing and paused handoff, unattended queue advance, return handoff, and repeat all.');
     } finally {
         releaseAck();
         await browser?.close();

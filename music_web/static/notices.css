@@ -1,0 +1,137 @@
+:root {
+  --notice-surface: #161b26f5;
+  --notice-text: #f1f3f8;
+  --notice-muted: #b9c2d2;
+  --notice-border: #ffffff24;
+  --notice-accent: var(--accent-blue, #a9bff3);
+  --notice-success: #91ddb8;
+  --notice-warning: #f4cc88;
+  --notice-error: #ff9ca8;
+  --notice-gap: 10px;
+  --notice-icon-size: 20px;
+}
+
+.fh-notice {
+  --notice-tint: var(--notice-accent);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px var(--notice-gap);
+  width: fit-content;
+  max-width: min(100%, 640px);
+  min-width: 0;
+  padding: 10px 12px;
+  margin: 8px 0 12px;
+  border: 1px solid var(--notice-border);
+  border-radius: 12px;
+  background: var(--notice-surface);
+  color: var(--notice-text);
+  font: 500 14px/20px system-ui, sans-serif;
+  text-align: start;
+}
+.fh-notice[hidden], .fh-notice > .fh-notice-action[hidden] { display: none; }
+.fh-notice[data-level="success"] { --notice-tint: var(--notice-success); }
+.fh-notice[data-level="warning"] { --notice-tint: var(--notice-warning); }
+.fh-notice[data-level="error"] { --notice-tint: var(--notice-error); }
+.fh-notice[data-level="empty"] {
+  --notice-tint: var(--notice-muted);
+  background: #ffffff08;
+  color: var(--notice-muted);
+}
+.fh-notice > .fh-notice-copy {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--notice-gap);
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.fh-notice[data-level="empty"] > .fh-notice-copy { flex-basis: auto; }
+.fh-notice > .fh-notice-copy > .fh-notice-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 var(--notice-icon-size);
+  inline-size: var(--notice-icon-size);
+  block-size: var(--notice-icon-size);
+  color: var(--notice-tint);
+}
+.fh-notice .fh-notice-icon > svg {
+  display: block;
+  inline-size: var(--notice-icon-size);
+  block-size: var(--notice-icon-size);
+}
+.fh-notice .fh-notice-icon :is(path, circle, ellipse) { vector-effect: non-scaling-stroke; }
+.fh-notice .fh-notice-text { min-width: 0; overflow-wrap: anywhere; }
+.fh-notice .fh-notice-action {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 1 auto;
+  min-height: 34px;
+  max-width: calc(100% - 30px);
+  padding: 5px 10px;
+  margin: 0;
+  border: 1px solid #ffffff32;
+  border-radius: 8px;
+  background: #ffffff0c;
+  color: var(--notice-text);
+  font: inherit;
+  font-weight: 650;
+  text-align: center;
+  text-decoration: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  transform: none;
+}
+.fh-notice .fh-notice-action:not([aria-disabled="true"]):hover { background: #ffffff1e; transform: none; }
+.fh-notice .fh-notice-action:focus-visible, .fh-toast-stack .fh-notice:focus-visible {
+  outline: 2px solid var(--notice-accent);
+  outline-offset: 2px;
+}
+.fh-notice .fh-notice-action[aria-disabled="true"] { opacity: .65; cursor: wait; }
+#recovery {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 0 30px;
+}
+#recovery[hidden], #recovery > [hidden] { display: none; }
+#recovery > .fh-notice-action { margin: 0; max-width: 100%; }
+.fh-notice[data-attached] {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+.fh-toast-stack {
+  position: fixed;
+  inset: auto max(16px, env(safe-area-inset-right)) var(--notice-bottom, 16px) auto;
+  z-index: 70;
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  width: min(390px, calc(100% - max(16px, env(safe-area-inset-left)) - max(16px, env(safe-area-inset-right))));
+  max-height: var(--notice-toast-space, 50vh);
+  pointer-events: none;
+}
+.fh-toast-stack .fh-notice {
+  width: max-content;
+  max-width: 100%;
+  margin: 0;
+  box-shadow: 0 8px 24px #0006;
+  pointer-events: auto;
+  animation: fh-toast-enter 160ms ease-out both;
+}
+@keyframes fh-toast-enter { from { opacity: 0; transform: translateY(5px); } }
+@media (pointer: coarse) {
+  .fh-notice .fh-notice-action { min-height: 44px; }
+}
+@media (max-width: 480px) {
+  .fh-notice[data-level="error"] > .fh-notice-copy { flex-basis: 100%; }
+  .fh-notice[data-level="error"] > .fh-notice-action { margin-inline-start: 30px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fh-toast-stack .fh-notice { animation: none; }
+}

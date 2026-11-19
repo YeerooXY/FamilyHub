@@ -1,6 +1,7 @@
 "use strict";
 // Untrusted metadata is only ever written with textContent (via el()), never as HTML.
 const $ = (id) => document.getElementById(id);
+const {set: notice, toast} = window.FamilyHubNotices;
 const csrf = document.querySelector('meta[name="csrf-token"]').content;
 
 
@@ -28,16 +29,27 @@ function el(tag, attrs, ...kids) {
   return node;
 }
 
-async function api(path, { method = "GET", json, form, signal } = {}) {
+async function api(path, { method = "GET", json, form, signal, timeout, background } = {}) {
+  const deadline = timeout && AbortSignal.timeout(timeout);
+  if (deadline) signal = signal ? AbortSignal.any([signal, deadline]) : deadline;
   const init = { method, credentials: "same-origin", headers: { "X-CSRFToken": csrf }, signal };
+  if (background) init.headers["X-FamilyHub-Activity"] = "background";
   if (json) { init.body = JSON.stringify(json); init.headers["Content-Type"] = "application/json"; }
   if (form) init.body = form;
   let res;
-  try { res = await fetch(path, init); } catch { throw new Error("Cannot reach the server."); }
-  if (res.status === 401) { location.href = "/login"; throw new Error("Sign in required."); }
+  try { res = await fetch(path, init); }
+  catch { throw new Error(deadline?.aborted || signal?.reason?.name === "TimeoutError" ? "The server took too long. Try again." : "Cannot reach the server. Check your connection and try again."); }
+  if (res.status === 401) { location.href = "/login"; throw new Error("Your session expired. Sign in and try again."); }
   let data = {};
-  try { data = await res.json(); } catch { /* non-JSON error body */ }
-  if (!res.ok) { const e = new Error(data.error || "Request failed."); e.status = res.status; throw e; }
+  try { data = await res.json(); } catch {
+    if (deadline?.aborted) throw new Error("The server took too long. Try again.");
+  }
+  if (!res.ok) {
+    const detail = typeof data.error === "string" && !/\b(?:HTTP(?:\/\d+(?:\.\d+)?)?(?: status)?|status(?: code)?)\s*[:=]?\s*[45]\d{2}\b|^\s*[45]\d{2}\b/i.test(data.error) ? data.error : "";
+    const error = new Error(detail || "The server could not complete the request. Try again.");
+    error.status = res.status;
+    throw error;
+  }
   return data;
 }
 
@@ -105,7 +117,7 @@ function searchRow(track, context = "search") {
     manualQueue.add(key); queue.splice(position, 0, track);
     listeningHistory.record(track,"queued");
     renderQueue(); prepare();
-    $("status-text").textContent = track.title + " added to queue.";
+    toast(track.title + " added to queue.");
   });
   return el("li", {}, songButton(track, context), add);
 }
@@ -130,27 +142,49 @@ function renderResults(list) {
   if(hadFocus) (ul.querySelector("button") || $("q")).focus();
   requestAnimationFrame(refreshVisiblePreviews);
 }
+function appendSearchResults(results) {
+  const fresh = results.filter(t => !visibleResults.some(v => sourceKey(v) === sourceKey(t)));
+  visibleResults.push(...fresh);
+  $("results").append(...fresh.map(searchRow));
+  $("results-set").hidden = !visibleResults.length;
+  updateSongStates();
+  scheduleVisiblePreviews();
+  return fresh;
+}
 $("search-form").addEventListener("submit", async e => {
   clearTimeout(typingTimer);
   searchDirty = false;
   e.preventDefault(); setView("search");
   const q = $("q").value.trim(), out = $("search-status");
-  if(!q) { out.textContent = "Enter a song or artist."; $("q").focus(); return; }
+  if(!q) { notice(out, "Enter a song or artist.", {level:"warning"}); $("q").focus(); return; }
   if (e.submitter && matchMedia("(pointer: coarse)").matches) $("content").focus({preventScroll:true});
   const version = ++searchVersion;
   searchQuery = q; searchOffset = null; searchPreviewTracks = []; $("load-more-search").hidden = true;
   searchController?.abort(); searchController = new AbortController();
-  out.textContent = "Searching…";
-  out.classList.remove("is-error", "is-feedback");
+  const signal = AbortSignal.any([searchController.signal, AbortSignal.timeout(150000)]);
+  notice(out, "Searching…", {quiet:true});
   $("pick").setAttribute("aria-busy", "true");
   $("search-form").classList.add("is-searching");
   try {
-    const {results, next_offset} = await api("/api/search", {method:"POST", json:{query:q, include_long:$("include-long-mixes").checked}, signal:searchController.signal});
-    if(version !== searchVersion) return;
-    searchOffset = next_offset ?? null; $("load-more-search").hidden = searchOffset === null;
-    renderResults(results); out.textContent = results.length ? `${results.length} songs` : "No results. Try different words.";
-    out.classList.toggle("is-feedback", !results.length);
-  } catch(err) { if(version === searchVersion) { out.textContent = err.message; out.classList.add("is-error"); } }
+    const json = {query:q, include_long:$("include-long-mixes").checked};
+    let page = await api("/api/search", {method:"POST", json, signal});
+    if (version !== searchVersion) return;
+    renderResults(page.results);
+    while (page.complete === false) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (version !== searchVersion) return;
+      page = await api("/api/search", {method:"POST", json, signal, background:true});
+      if (version !== searchVersion) return;
+      appendSearchResults(page.results);
+    }
+    searchOffset = page.next_offset ?? null; $("load-more-search").hidden = searchOffset === null;
+    if (visibleResults.length) notice(out, visibleResults.length + " songs", {quiet:true});
+    else notice(out, "No songs match this search.", {level:"empty", fallback:"#view-title",
+      action:{label:"Edit search", run:() => $("q").focus()}});
+  } catch (error) {
+    if (version === searchVersion) notice(out, error.message, {level:"error", fallback:"#view-title",
+      action:{label:"Retry search", run:() => $("search-form").requestSubmit()}});
+  }
   finally { if(version === searchVersion) { $("pick").setAttribute("aria-busy", "false"); $("search-form").classList.remove("is-searching"); } }
 });
 $("q").addEventListener("input", () => {
@@ -158,32 +192,40 @@ $("q").addEventListener("input", () => {
   $("clear-search").hidden = !$("q").value;
   $("pick").setAttribute("aria-busy", "false"); $("search-form").classList.remove("is-searching");
   if ($("q").value.trim().length >= 2) typingTimer = setTimeout(() => $("search-form").requestSubmit(), 450);
-  else { searchQuery = ""; searchOffset = null; renderResults([]); $("search-status").textContent = ""; $("load-more-search").hidden = true; }
+  else { searchQuery = ""; searchOffset = null; renderResults([]); notice("search-status", ""); $("load-more-search").hidden = true; }
 });
 $("clear-search").addEventListener("click", () => { $("q").value = ""; $("q").dispatchEvent(new Event("input")); $("q").focus(); });
 $("content").addEventListener("scroll", scheduleVisiblePreviews, {passive:true});
 window.addEventListener("resize", scheduleVisiblePreviews);
 
 // ---- status ----
+function playbackNotice(message, level = "info", recovery = false) {
+  notice("status-text", message, {level});
+  const controls = $("recovery");
+  controls.hidden = !recovery;
+  if (controls.parentElement !== $("status-text")) $("status-text").append(controls);
+}
 function showJob(job) {
   statusJob = job;
   if (rememberSaved(job)) loadLibrary();
   updateSongStates();
   const active = unfinished(job);
-  $("cancel").disabled = !active;
+  $("cancel").hidden = !active;
   $("retry").disabled = !(job.media_url || job.source_id);
   $("status").hidden = false;
-  $("status-text").textContent = job.message;
   $("busy").hidden = !active;
-  $("recovery").hidden = !["error", "cancelled"].includes(job.state);
+  const failed = !active && !job.media_url;
+  $("retry").hidden = !failed;
+  const cancelled = job.state === "cancelled";
+  playbackNotice(cancelled ? "Playback preparation was cancelled." : failed ? "Playback could not be prepared." : active ? "Preparing playback…" : "",
+    cancelled ? "warning" : failed ? "error" : "info", failed || active);
   const player = decks[deckIndex];
   configureAudio(player, job);
   if (job.media_url && player.dataset.mediaUrl !== job.media_url) {
     loadPlayback(player, job.media_url);
     player.hidden = false;
-  } else if (job.source_id && !job.media_url && ["unavailable", "expired"].includes(job.preview_state) && !active) {
-    $("playback-state").textContent = "Playback could not be prepared. Use Retry playback or Open player.";
   }
+  updateTransport();
 }
 
 const unfinished = job => job?.state === "running" || job?.state === "queued";
@@ -229,7 +271,7 @@ function unlock() {
         node.connect(level).connect(gain).connect(masterGain); gains.push(gain);
         deck.volume = 1;
       });
-    } catch { $("mix-state").textContent = "Audio mixing is unavailable. Tracks play separately."; }
+    } catch { notice("mix-state", "Audio mixing is unavailable. Tracks play separately.", {level:"warning"}); }
   }
   if (audioContext?.state === "suspended") audioContext.resume().catch(() => {});
 }
@@ -247,16 +289,13 @@ function attach(player, url) {
     hls.on(Hls.Events.ERROR, (_, data) => {
       if (data.fatal) {
         player.dataset.failed = "true";
-        if (player === decks[deckIndex]) {
-          $("playback-state").textContent = "Playback failed. Use Retry playback.";
-          $("recovery").hidden = false;
-        }
+        if (player === decks[deckIndex]) playbackFailure("Audio could not load. Check your connection.");
       }
     });
   } else if (player.canPlayType("application/vnd.apple.mpegurl")) player.src = url;
   else {
     delete player.dataset.mediaUrl;
-    $("playback-state").textContent = "HLS playback is unavailable in this browser. Use Open player after saving.";
+    notice("status-text", "This browser cannot play the stream. Open the full library player from Settings.", {level:"warning"});
   }
 }
 function configureAudio(player, job) {
@@ -280,7 +319,10 @@ function startPlayback(player) {
   }
   if (wantPlayback) {
     const version = requestVersion;
-    safePlay(player).then(played => {
+    const playback = safePlay(player);
+    // play() can unpause immediately, before the event that reports the local action.
+    if (!player.paused && localPlayPending !== null) markPlaybackStarted();
+    playback.then(played => {
       if (!played && resuming && version === requestVersion && wantPlayback && player.paused) {
         showHandoffMessage("Press Play to continue on this device.");
       }
@@ -364,10 +406,10 @@ async function safePlay(player) {
   cueAudio(player);
   try {
     await player.play();
-    $("playback-state").textContent = "Playing";
+    notice("playback-state", "Playing", {quiet:true});
     return true;
   } catch {
-    $("playback-state").textContent = "Playback needs a tap. Use Play.";
+    notice("status-text", "Playback needs a tap. Use Play.", {level:"warning"});
     return false;
   }
 }
@@ -377,13 +419,13 @@ decks.forEach((player) => {
     if (player === decks[deckIndex] && startPosition !== null) startPlayback(player);
     else cueAudio(player);
   });
-  player.addEventListener("waiting", () => { if (player === decks[deckIndex]) $("playback-state").textContent = "Buffering"; });
-  player.addEventListener("playing", () => { if (player === decks[deckIndex]) $("playback-state").textContent = "Playing"; });
+  player.addEventListener("waiting", () => { if (player === decks[deckIndex]) notice("playback-state", "Buffering", {quiet:true}); });
+  player.addEventListener("playing", () => { if (player === decks[deckIndex]) notice("playback-state", "Playing", {quiet:true}); });
   player.addEventListener("pause", () => {
     if (player !== decks[deckIndex]) return;
     // Natural completion can dispatch pause just before the fade timer commits the handoff.
     if (blending && player.ended) return;
-    $("playback-state").textContent = "Paused";
+    notice("playback-state", "Paused", {quiet:true});
     if (blending) {
       ++blendVersion; blending = false; decks[1 - deckIndex].pause();
       gains.forEach((gain, i) => { gain.gain.cancelScheduledValues(audioContext.currentTime); gain.gain.value = i === deckIndex ? 1 : 0; });
@@ -391,9 +433,7 @@ decks.forEach((player) => {
   });
   player.addEventListener("error", () => {
     if (player !== decks[deckIndex] || !player.dataset.mediaUrl) return;
-    $("playback-state").textContent = "Playback failed. Use Retry playback.";
-    $("recovery").hidden = false;
-    $("retry").disabled = false;
+    playbackFailure("Audio could not load. Check your connection.");
   });
   player.addEventListener("ended", () => { if (player === decks[deckIndex] && wantPlayback && $("autoplay").checked && !blending) advance(false); });
   player.addEventListener("timeupdate", () => {
@@ -411,20 +451,22 @@ $("play").addEventListener("click", () => {
   else { setView("search"); $("q").focus(); }
 });
 $("retry").addEventListener("click", () => {
+  if (document.activeElement === $("retry")) $("play").focus({preventScroll:true});
   unlock(); const player = decks[deckIndex], url = player.dataset.mediaUrl;
   if (url) {
+    playbackNotice("");
     localPlayPending = playbackEpoch;
     wantPlayback = true;
     startPosition ??= player.currentTime;
     delete player.dataset.mediaUrl;
     loadPlayback(player, url, Boolean(currentTrack?.download_url && url === currentTrack.download_url));
   }
-  else if (currentTrack) listen(currentTrack);
+  else if (currentTrack) listen(currentTrack, true, "retry");
 });
 $("cancel").addEventListener("click", async () => {
   if (!statusJob) return;
   try { const data = await api(`/api/jobs/${statusJob.id}/cancel`, { method: "POST", json: {} }); showJob(data.job); }
-  catch (err) { $("playback-state").textContent = err.message; }
+  catch (err) { playbackNotice(err.message, "error", true); }
 });
 
 function playHere(local = true) {
@@ -434,7 +476,16 @@ function playHere(local = true) {
     if (local && player.paused) localPlayPending = playbackEpoch;
     wantPlayback = true;
     startPlayback(player);
-  } else if (currentTrack) listen(currentTrack, true, "queue", local);
+  } else if (currentTrack) listen(currentTrack, true, "retry", local);
+}
+
+function playbackFailure(message) {
+  playbackNotice(message, "error", true);
+  $("busy").hidden = true;
+  $("retry").disabled = false;
+  $("retry").hidden = false;
+  $("cancel").hidden = !unfinished(statusJob);
+  updateTransport();
 }
 
 async function listen(track, keepQueue = false, context = "search", local = true) {
@@ -459,7 +510,7 @@ async function listen(track, keepQueue = false, context = "search", local = true
     playbackSearchQuery = context === "search" && $("queue-mode").value === "order" ? searchQuery : null;
     const tail = index >= 0 && (context === "library" || $("queue-mode").value === "order") ? list.slice(index + 1).filter(t => $("queue-mode").value !== "mix" || songRecommendations.similar(similarSeed,t)) : [];
     queue = [...new Map([...queue.filter(t => manualQueue.has(sourceKey(t))), ...tail].filter(t => sourceKey(t) !== sourceKey(track)).map(t => [sourceKey(t), t])).values()];
-    for (const previous of list.slice(0, index)) heard.add(previous.url);
+    for (const previous of list.slice(0, index)) heard.add(sourceKey(previous));
   }
   if (currentTrack && loadedIndex >= 0 && loadedIndex !== deckIndex && !decks[deckIndex].paused && Number($("fade").value) > 0) {
     // A direct selection authorizes this incoming song even with discovery disabled.
@@ -492,13 +543,14 @@ async function listen(track, keepQueue = false, context = "search", local = true
   if (context !== "previous" && currentTrack && queueIdentity(currentTrack) !== queueIdentity(track)) history.push(currentTrack);
   currentTrack = track;
   stalled = false;
+  statusJob = null;
+  playbackNotice("");
   updateNowPlaying();
   if (directUrl) {
-    statusJob = null;
+    heard.add(sourceKey(track));
     currentJob = {source_id:sourceKey(track), media_url:directUrl, playback:{duration:track.duration}};
     configureAudio(player, currentJob);
     loadPlayback(player, directUrl, true);
-    $("recovery").hidden = true;
     $("busy").hidden = true;
     renderQueue(); prepare();
     return true;
@@ -511,11 +563,11 @@ async function listen(track, keepQueue = false, context = "search", local = true
       startPlayback(player);
     }
   }
-  $("status").hidden = false; $("status-text").textContent = "Preparing playback";
+  $("status").hidden = false; playbackNotice("Preparing playback…");
   try {
-    const { job } = await api("/api/jobs", { method: "POST", json: { ...track, allow_new: !keepQueue || requestedTrack(track) || $("allow-new").checked, generation: Date.now() * 1000 + version } });
+    const { job } = await api("/api/jobs", { method: "POST", timeout: 15000, json: { ...track, allow_new: !keepQueue || context === "retry" || requestedTrack(track) || $("allow-new").checked, generation: Date.now() * 1000 + version } });
     if (version !== requestVersion) return;
-    currentJob = job; heard.add(track.url);
+    currentJob = job; heard.add(sourceKey(track));
     showJob(job); scheduleJobs();
     await fillQueue();
     if (version !== requestVersion) return;
@@ -523,9 +575,8 @@ async function listen(track, keepQueue = false, context = "search", local = true
     return true;
   } catch (err) {
     if (version === requestVersion) {
-      $("status-text").textContent = err.message;
-      $("recovery").hidden = false;
-      $("retry").disabled = false;
+      playbackFailure(err.message);
+      renderQueue();
       return Boolean(cached?.media_url);
     }
   }
@@ -556,7 +607,7 @@ function renderQueueTimeline() {
     previous.dataset.signature=signature;
     if(focused) ([...previous.children].find(b=>b.dataset.source===source) || $("queue-history").querySelector("summary")).focus();
   }
-  $("queue-history-empty").hidden=Boolean(earlier.length);
+  notice("queue-history-empty", earlier.length ? "" : "No songs played in this queue.", {level:"empty"});
 }
 function renderQueue() {
   pruneQueue();
@@ -564,6 +615,8 @@ function renderQueue() {
   renderQueueTimeline();
   updateNext();
   const list = $("queue"), active = document.activeElement;
+  notice("queue-empty", queue.length ? "" : "No songs queued.", {level:"empty", fallback:"#queue-h",
+    action:{label:"Find a song", run:findMusic}});
   const focusedIndex = [...list.children].findIndex((li) => li.contains(active));
   list.replaceChildren(...queue.map((track, i) => {
     const remove = el("button", { type: "button", "aria-label": `Remove ${track.title}` }, "Remove");
@@ -581,7 +634,7 @@ async function prepare() {
   const sources = new Set([...wanted, ...previews].map(sourceKey));
   for (const key of prepared.keys()) if (!sources.has(key)) prepared.delete(key);
   try {
-    const { jobs } = await api("/api/queue", { method: "POST", json: {
+    const { jobs } = await api("/api/queue", { method: "POST", timeout: 15000, json: {
       tracks: wanted, previews,
       allow_new: $("allow-new").checked, preload_search:$("search-previews").checked, generation: Date.now() * 1000 + version } });
     if (version !== prepareVersion) return;
@@ -590,9 +643,9 @@ async function prepare() {
     updateSongStates();
     updateNext();
     scheduleJobs();
-    $("queue-state").textContent = jobs.length ? "Preparing next recording and up to five following recordings." : "Local mode prepares saved recordings only.";
+    notice("queue-state", jobs.length ? "Preparing queued recordings." : "", {quiet:true});
     preload();
-  } catch (err) { if (version === prepareVersion) $("queue-state").textContent = err.message; }
+  } catch (err) { if (version === prepareVersion) notice("queue-state", err.message, {level:"error"}); }
 }
 function upcoming() { return queue[0] && preparedJob(queue[0]); }
 const jobCue = (job) => job?.playback?.start || 0;
@@ -609,7 +662,7 @@ function preload() {
   const job = upcoming();
   if (failedPreparation(job)) {
     plan = null; planKey = "";
-    $("queue-state").textContent = "Next song could not prepare. Choose a song or retry it.";
+    notice("queue-state", "Next song could not prepare. Choose a song or retry it.", {level:"error"});
     return;
   }
   if (job?.media_url && !blending) { configureAudio(decks[1 - deckIndex], job); attach(decks[1 - deckIndex], job.media_url); }
@@ -621,7 +674,7 @@ function preload() {
       fade: Number($("fade").value), dj: $("dj").checked, current_rate: decks[deckIndex].playbackRate } }).then((data) => {
       if (version !== requestVersion || currentId !== currentJob?.id || nextId !== upcoming()?.id || key !== transitionKey() || failedPreparation(upcoming())) return;
       plan = data.plan; planKey = key;
-      $("mix-state").textContent = plan.mode === "Beat blend" ? "Beat blend. Phrase and downbeat alignment are unknown." : "Crossfade";
+      notice("mix-state", plan.mode === "Beat blend" ? "Beat blend. Phrase and downbeat alignment are unknown." : "Crossfade", {quiet:true});
       checkBlend();
     }).catch(() => { plan = null; }).finally(() => {
       planPending = false;
@@ -658,7 +711,7 @@ async function pollJob(previous) {
   if (previous !== currentJob && previous !== stage?.job) nextPreviewPoll = Date.now() + 2000;
   try {
     let job;
-    try { ({job} = await api("/api/jobs/" + encodeURIComponent(previous.id))); }
+    try { ({job} = await api("/api/jobs/" + encodeURIComponent(previous.id), {timeout: 15000})); }
     catch (error) { if (error.status !== 404) throw error; }
     if (prepared.get(previous.source_id)?.id === previous.id) {
       if (job) prepared.set(previous.source_id, job);
@@ -676,7 +729,10 @@ async function pollJob(previous) {
     updateSongStates();
     updateNext();
     preload();
-  } catch { jobPollAfter.set(previous, Date.now() + 2000); }
+  } catch (error) {
+    if (previous === currentJob && !previous.media_url) playbackFailure(error.message);
+    jobPollAfter.set(previous, Date.now() + 2000);
+  }
   finally { pollingJobs = false; scheduleJobs(); }
 }
 
@@ -687,8 +743,8 @@ function related(seed, candidates) {
     if (seed?.genre && r.genre && seed.genre.toLocaleLowerCase() === r.genre.toLocaleLowerCase()) score += 4;
     if (seed?.key && r.key && seed.key === r.key) score += 1;
     if (history.slice(-5).some((h) => h.channel === r.channel)) score -= 2;
-    if (history.slice(-10).some((h) => h.url === r.url)) score -= 6;
-    if (skipped.includes(r.url)) score -= 12;
+    if (history.slice(-10).some(h => sourceKey(h) === sourceKey(r))) score -= 6;
+    if (skipped.includes(sourceKey(r))) score -= 12;
     const a = currentJob?.analysis, b = prepared.get(r.id)?.analysis;
     if (a?.reliable && b?.reliable && Math.abs(a.bpm / b.bpm - 1) <= .06) score += 3;
     return { r, score };
@@ -696,7 +752,7 @@ function related(seed, candidates) {
   const ordered = [], counts = new Map();
   while (remaining.length) {
     const adjusted = ({ r, score }) => score - (counts.get(r.channel) || 0) * 3;
-    remaining.sort((a, b) => adjusted(b) - adjusted(a) || a.r.url.localeCompare(b.r.url));
+    remaining.sort((a, b) => adjusted(b) - adjusted(a) || sourceKey(a.r).localeCompare(sourceKey(b.r)));
     const { r } = remaining.shift(); ordered.push(r); counts.set(r.channel, (counts.get(r.channel) || 0) + 1);
   }
   return ordered;
@@ -721,7 +777,7 @@ async function advance(manual = false, local = manual) {
     }
     if (!manual && failedPreparation(upcoming())) { preload(); return; }
     if (manual) recordSkip();
-    if (manual && currentTrack) skipped = [...skipped.slice(-19), currentTrack.url];
+    if (manual && currentTrack) skipped = [...skipped.slice(-19), sourceKey(currentTrack)];
     const version = requestVersion;
     await fillQueue();
     if (version !== requestVersion) return;
@@ -736,7 +792,7 @@ async function advance(manual = false, local = manual) {
     if (next) await listen(next, true, "queue", local);
     else {
       renderQueue();
-      $("queue-state").textContent = "Queue is empty.";
+      notice("queue-state", "Queue is empty.", {quiet:true});
     }
   } finally { advancing = false; }
 }
@@ -749,7 +805,7 @@ let similarSeed = null, similarVersion = 0;
 async function discoverSimilar(seed) {
   const artist=artistName(seed).slice(0,120);
   if (!artist) return [];
-  const data=await api("/api/recommendations", {method:"POST", json:{query:artist + " official audio", seed_artist:artist}});
+  const data=await api("/api/recommendations", {method:"POST", timeout:15000, json:{query:artist + " official audio", seed_artist:artist}});
   if ((!seed.genre || seed.genre === "Unsorted") && data.seed_genre && data.seed_genre !== "Unsorted") seed.genre=data.seed_genre;
   return songRecommendations.unique(data.results.filter(t=>songRecommendations.similar(seed,t)),[seed]);
 }
@@ -757,19 +813,23 @@ $("recommend-similar").addEventListener("click", async () => {
   setView("queue");
   const panel=$("similar-panel"), status=$("similar-status"), list=$("similar-results");
   panel.hidden=false;
-  if (!currentTrack) { status.textContent="Play a song to find similar recordings."; return; }
+  if (!currentTrack) {
+    notice(status, "Play a song to find similar recordings.", {level:"empty", action:{label:"Find a song to play", run:findMusic}});
+    return;
+  }
   const version=++similarVersion;
   const seed=similarSeed={...currentTrack}; recommendationSeed="";
   panel.setAttribute("aria-busy","true");
-  list.replaceChildren(); status.textContent="Finding songs similar to " + seed.title + "…";
+  list.replaceChildren(); notice(status, "Finding songs similar to " + seed.title + "…");
   try {
     const found=await discoverSimilar(seed);
     if(version!==similarVersion)return;
     const candidates=songRecommendations.unique([...found,...pool].filter(t=>songRecommendations.similar(seed,t)),[seed]);
     list.replaceChildren(...related(seed,candidates).map(t=>searchRow(t,"recommendations")));
     updateSongStates();
-    status.textContent=candidates.length ? "Based on " + seed.title + ". Playing or queueing a new recording downloads it to the server." : "No similar recordings found. Try again after genre labels have loaded.";
-  } catch(error) { if(version===similarVersion)status.textContent=error.message; }
+    if (candidates.length) notice(status, "Based on " + seed.title + ". Playing or queueing a new recording saves it to the server.");
+    else notice(status, "No similar recordings found.", {level:"empty", action:{label:"Search for other songs", run:findMusic}});
+  } catch(error) { if (version === similarVersion) notice(status, error.message, {level:"error"}); }
   finally { if(version===similarVersion)panel.setAttribute("aria-busy","false"); }
 });
 async function fillQueue() {
@@ -783,18 +843,18 @@ async function fillQueue() {
     try {
       const results = await discoverSimilar(anchor);
       if (version !== requestVersion || anchor !== (similarSeed || currentTrack || recentSeed)) return;
-      const discovered = eligibleAutoplay(results).filter(t => !heard.has(t.url));
+      const discovered = eligibleAutoplay(results).filter(t => !heard.has(sourceKey(t)));
       pool = [...new Map([...pool, ...discovered].map(t => [sourceKey(t), t])).values()];
       queue = [...new Map([...queue, ...related(anchor, discovered)].map(t => [sourceKey(t), t])).values()].slice(0,Math.max(10, queue.length));
     } catch { if(version===requestVersion)recommendationSeed=""; }
   }
   if (queue.length < 10 && $("autoplay").checked) {
-    const eligible = [...new Map([...pool, ...visibleResults].map((r) => [r.url, r])).values()]
+    const eligible = [...new Map([...pool, ...visibleResults].map(r => [sourceKey(r), r])).values()]
       .filter((r) => (!r.duration || r.duration < 1800) && ($("allow-new").checked || r.saved) && !queue.some((q) => sourceKey(q) === sourceKey(r)));
-    let candidates = eligibleAutoplay(eligible).filter((r) => !heard.has(r.url));
+    let candidates = eligibleAutoplay(eligible).filter(r => !heard.has(sourceKey(r)));
     if ($("queue-mode").value !== "mix" && !queue.length && !candidates.length && $("allow-new").checked && currentTrack?.channel) {
       try { candidates = (await api("/api/search", { method: "POST", json: { query: currentTrack.channel + " audio" } })).results.filter((r) => r.url !== currentTrack.url); pool.push(...candidates); }
-      catch (err) { $("queue-state").textContent = err.message; }
+      catch (err) { notice("queue-state", err.message, {level:"error"}); }
     }
     if ($("queue-mode").value === "shuffle") {
       candidates = shuffled(candidates);
@@ -814,11 +874,12 @@ $("previous").addEventListener("click", () => previousTrack());
 $("library").addEventListener("click", async () => {
   try {
     const { results, genres = [], genre_keys = {} } = await api("/api/library?genre_filters=1"); pool = results;
-    const additions = results.filter((r) => r.url !== currentTrack?.url).slice(0, Math.max(0, 30 - queue.length));
+    const queued = new Set([sourceKey(currentTrack), ...queue.map(sourceKey)]);
+    const additions = results.filter(r => !queued.has(sourceKey(r))).slice(0, Math.max(0, 30 - queue.length));
     additions.forEach(track=>manualQueue.add(sourceKey(track)));
     queue.push(...additions);
     renderQueue(); await prepare();
-  } catch (err) { $("queue-state").textContent = err.message; }
+  } catch (err) { notice("queue-state", err.message, {level:"error"}); }
 });
 for (const id of ["allow-new", "search-previews", "autoplay", "queue-mode", "fade", "dj"]) $(id).addEventListener("change", async () => {
   unlock(); planKey = ""; plan = null; await fillQueue(); renderQueue(); prepare();
@@ -829,7 +890,7 @@ async function checkBlend(manual = false) {
   const outgoing = decks[deckIndex], next = upcoming();
   if (handoff?.stage || blending || (!manual && (repeatMode === "one" || !$("autoplay").checked)) || outgoing.paused || !plan?.fade || !next?.media_url || outgoing.currentTime < plan.out) return;
   if (gains.length !== 2 || audioContext?.state !== "running") {
-    $("mix-state").textContent = "Mixing needs an active audio session. Use Play; tracks otherwise play separately.";
+    notice("mix-state", "Mixing needs an active audio session. Use Play; tracks otherwise play separately.", {level:"warning"});
     return;
   }
   const oldIndex = deckIndex, nextIndex = 1 - oldIndex, incoming = decks[nextIndex];
@@ -875,7 +936,7 @@ async function checkBlend(manual = false) {
     outgoing.hidden = true; incoming.hidden = false;
     history.push(currentTrack);
     const queuedIndex = queue.indexOf(nextTrack); if (queuedIndex >= 0) queue.splice(queuedIndex, 1);
-    currentTrack = nextTrack; heard.add(currentTrack.url);
+    currentTrack = nextTrack; heard.add(sourceKey(currentTrack));
     stalled = incoming.readyState < 3;
     markPlaybackStarted();
     updateNowPlaying();
@@ -886,14 +947,14 @@ async function checkBlend(manual = false) {
       if (version !== requestVersion || currentJob?.id !== next.id) return;
       currentJob = job; showJob(job); scheduleJobs();
       await fillQueue(); renderQueue(); prepare();
-    }).catch((err) => { $("status-text").textContent = err.message; });
+    }).catch((err) => { notice("status-text", err.message, {level:"error"}); });
   }
   function ramp() {
     if (version !== requestVersion || blendId !== blendVersion) return;
     if (incoming.dataset.failed) {
       blending = false; incoming.pause();
       gains[oldIndex].gain.value = 1; gains[nextIndex].gain.value = 0;
-      $("playback-state").textContent = "Next song stopped buffering. Use Next to retry it.";
+      notice("status-text", "Next song stopped buffering. Use Next to retry it.", {level:"warning"});
       return;
     }
     const progressing = incoming.readyState >= 3 && !incoming.seeking && !incoming.paused;
@@ -934,7 +995,7 @@ function setView(view) {
   }
 }
 for(const view of Object.keys(viewSections)) $("nav-"+view)?.addEventListener("click",()=>setView(view));
-$("find-music").addEventListener("click",()=>{setView("search");$("q").focus();});
+function findMusic() { setView("search"); $("q").focus(); }
 $("show-queue").addEventListener("click",()=>{renderQueue();setView("queue");$("content").scrollTop=0;$("queue-h").focus({preventScroll:true});});
 let libraryFingerprint = "", libraryDeferred = false, libraryVersion = 0;
 let libraryGenre = "", searchDirty = false;
@@ -989,10 +1050,12 @@ async function loadLibrary() {
   const version = ++libraryVersion;
   libraryDeferred = document.hidden;
   if (libraryDeferred) return;
-  $("library-error").textContent = "";
+  notice("library-error", "");
+  if (!libraryFingerprint) notice("library-status", "Loading library…");
   try {
     const { results, genres = [], genre_keys = {} } = await api("/api/library?genre_filters=1");
     if (version !== libraryVersion) return;
+    notice("library-status", "");
     if (document.hidden) { libraryDeferred = true; return; }
     results.forEach(t => savedSources.add(sourceKey(t)));
     pool = [...new Map([...pool, ...results].map((r) => [sourceKey(r), r])).values()];
@@ -1008,7 +1071,6 @@ async function loadLibrary() {
     updateSongStates();
     if (index >= 0) (list.children[Math.min(index, list.children.length - 1)]?.querySelector("button") || $("refresh-library")).focus();
     $("library-count").textContent = results.length + (results.length === 1 ? " recording" : " recordings");
-    $("library-empty").hidden = Boolean(results.length);
     const selected = $("library-artist").value;
     const artists = [...new Set(results.map(t => t.channel || t.artist || "Unknown artist"))].sort((a,b) => a.localeCompare(b));
     $("library-artist").replaceChildren(el("option", {value:""}, "All artists"), ...artists.map(a => el("option", {value:a}, a)));
@@ -1017,8 +1079,9 @@ async function loadLibrary() {
     if (!currentTrack && !queue.length) { await fillQueue(); renderQueue(); prepare(); }
   } catch (err) {
     if (version !== libraryVersion) return;
-    $("library-count").textContent = "";
-    $("library-error").textContent = err.message + " Use Refresh to try again.";
+    notice("library-status", "");
+    notice("library-error", err.message, {level:"error", fallback:"#refresh-library",
+      action:{label:"Retry library", run:loadLibrary}});
   }
 }
 function filterLibrary() {
@@ -1029,6 +1092,13 @@ function filterLibrary() {
   for (const button of $("library-genres").children) button.setAttribute("aria-pressed", String(button.dataset.genre === libraryGenre));
   const count = rows.filter(row => !row.hidden).length;
   $("library-count").textContent = count + (count === 1 ? " recording" : " recordings");
+  const empty = libraryFingerprint && !count;
+  notice("library-empty", empty ? (rows.length ? "No songs match these filters." : "No saved songs.") : "", {
+    level:"empty", fallback:"#library-filter",
+    action: rows.length ? {label:"Reset library filters", run:() => {
+      $("library-filter").value = ""; $("library-artist").value = ""; chooseLibraryGenre("");
+    }} : {label:"Search music", run:findMusic}
+  });
 }
 $("library-artist").addEventListener("change", filterLibrary);
 $("library-filter").addEventListener("input", filterLibrary);
@@ -1067,10 +1137,10 @@ function updateTransport() {
     $("play").dataset.paused = String(player.paused);
   }
   $("play").setAttribute("aria-label", player.paused ? "Play" : "Pause");
-  $("play").setAttribute("aria-busy", String(Boolean(currentTrack && (!player.dataset.mediaUrl || (!player.paused && player.readyState < 3)))));
+  $("play").setAttribute("aria-busy", String($("recovery").hidden && Boolean(currentTrack && (!player.dataset.mediaUrl || (!player.paused && player.readyState < 3)))));
   $("elapsed").textContent = duration(player.currentTime) || "0:00";
   $("total").textContent = duration(total) || "0:00";
-  $("seek").disabled = !Number.isFinite(total) || total <= 0 || blending;
+  $("seek").disabled = !player.readyState || !Number.isFinite(total) || total <= 0 || blending;
   if (Number.isFinite(total) && total > 0) {
     $("seek").max = total;
     if (!seekingPointer) $("seek").value = player.currentTime;
@@ -1131,7 +1201,7 @@ function updateNext() {
     $("next-cover").dataset.source = sourceKey(track) || "";
     $("next-cover").replaceChildren(cover(track));
   }
-  $("next-readiness").textContent = !track ? "" : failedPreparation(job) ? "Preparation failed" : job?.media_url ? "Ready to play" : "Preparing audio";
+  notice("next-readiness", !track ? "" : failedPreparation(job) ? "Preparation failed" : job?.media_url ? "Ready to play" : "Preparing audio", {quiet:true});
   $("bar-next").textContent = track ? "Up next · " + track.title : "Up next · " + ($("autoplay").checked ? "No song queued" : "Autoplay off");
 }
 document.addEventListener("visibilitychange", () => {
@@ -1157,25 +1227,24 @@ async function moreSearch() {
   if (searchLoading || searchOffset === null) return;
   searchLoading = true;
   const version = searchVersion;
-  $("load-more-search").disabled = true;
+  $("load-more-search").setAttribute("aria-disabled", "true");
   try {
     const {results, next_offset} = await api("/api/search", {method:"POST", json:{query:searchQuery, offset:searchOffset, include_long:$("include-long-mixes").checked}});
     if (version !== searchVersion) return;
-    const fresh = results.filter(t => !visibleResults.some(v => sourceKey(v) === sourceKey(t)));
-    visibleResults.push(...fresh);
-    $("results").append(...fresh.map(searchRow));
-    if (playbackSearchQuery === searchQuery && currentTrack) { queue.push(...fresh.filter(t => !heard.has(t.url) && !queue.some(q => sourceKey(q) === sourceKey(t)))); renderQueue(); }
-    scheduleVisiblePreviews();
+    const fresh = appendSearchResults(results);
+    if (playbackSearchQuery === searchQuery && currentTrack) { queue.push(...fresh.filter(t => !heard.has(sourceKey(t)) && !queue.some(q => sourceKey(q) === sourceKey(t)))); renderQueue(); }
     searchOffset = next_offset ?? null;
     if (searchOffset === null && document.activeElement === $("load-more-search")) $("results").lastElementChild?.querySelector("button")?.focus();
     $("load-more-search").hidden = searchOffset === null;
-    $("search-status").textContent = visibleResults.length + " songs";
-    updateSongStates();
+    notice("search-status", visibleResults.length + " songs", {quiet:true});
     requestAnimationFrame(() => {
       if (version === searchVersion && document.body.dataset.view === "search" && searchOffset !== null && $("load-more-search").getBoundingClientRect().top < $("content").getBoundingClientRect().bottom + 100) moreSearch();
     });
-  } catch(e) { $("search-status").textContent = e.message; $("search-status").classList.add("is-error"); }
-  finally { searchLoading = false; $("load-more-search").disabled = false; }
+  } catch (error) {
+    if (version === searchVersion) notice("search-status", error.message, {level:"error",
+      fallback:"#view-title", action:{label:"Retry loading more songs", run:moreSearch}});
+  }
+  finally { searchLoading = false; $("load-more-search").removeAttribute("aria-disabled"); }
 }
 $("load-more-search").addEventListener("click", moreSearch);
 if ("IntersectionObserver" in window) new IntersectionObserver(entries => {
@@ -1203,7 +1272,7 @@ $("clear-history").addEventListener("click", () => {
   history=[]; renderQueueTimeline();
   capturePlaybackQueue();
   queuePlaybackCheckIn();
-  $("history-status").textContent="Listening history cleared.";
+  toast("Listening history cleared.");
 });
 
 // Device ownership and queue snapshots travel with the existing playback heartbeat.
@@ -1324,7 +1393,7 @@ async function checkIn() {
   localPlay = null;
   try { sessionStorage.setItem(deviceKey, JSON.stringify({id:deviceId, sequence, queueRev})); } catch {}
   try {
-    const {epoch, command, controls} = await api("/api/playback/activity", {method:"POST", json});
+    const {epoch, command, controls} = await api("/api/playback/activity", {method:"POST", json, timeout:8000});
     lastCheckIn = Date.now();
     lastReportedPlaying = json.playing;
     if (!deviceRegistered) {
@@ -1506,7 +1575,7 @@ const remoteBar = $("remote-playback"), remoteProgress = $("remote-progress");
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 let onlineDevices = [];
 let remoteDevice = null, remoteExpiry, remoteProgressTimer, readingDevices = false;
-let handoffMessageTimer, outputRevision = 0;
+let outputRevision = 0;
 const idleHere = () => decks[deckIndex].paused || decks[deckIndex].ended;
 const remoteAge = () => remoteDevice.age + (performance.now() - remoteDevice.receivedAt) / 1000;
 
@@ -1514,13 +1583,11 @@ function clearRemotePlayback() {
   remoteDevice = null;
   renderRemotePlayback();
 }
-function showHandoffMessage(message) {
-  if (handoff) message = "Connecting...";
-  const status = $("handoff-message");
-  status.textContent = message;
-  if ($("connect-panel").open) $("connect-message").textContent = message;
-  clearTimeout(handoffMessageTimer);
-  if (message && !handoff) handoffMessageTimer = setTimeout(() => { status.textContent = ""; }, 6000);
+function showHandoffMessage(message, level = "info") {
+  if (handoff) { message = "Connecting..."; level = "info"; }
+  const inConnect = $("connect-panel").open;
+  notice("handoff-message", inConnect ? "" : message, {level});
+  if (inConnect) notice("connect-message", message, {level});
 }
 function renderRemotePlayback() {
   clearTimeout(remoteExpiry);
@@ -1572,7 +1639,7 @@ async function refreshRemotePlayback() {
   readingDevices = true;
   const revision = outputRevision;
   try {
-    const {devices} = await api("/api/playback/devices?device_id=" + deviceId);
+    const {devices} = await api("/api/playback/devices?device_id=" + deviceId, {timeout:8000});
     if (document.hidden || revision !== outputRevision) return;
     onlineDevices = devices;
     if (!idleHere() || handoff) {
@@ -1589,7 +1656,7 @@ async function refreshRemotePlayback() {
       remoteDevice = {...row, status:row.status || (row.playing ? "playing" : "paused"), receivedAt:performance.now()};
     } else remoteDevice = null;
     renderRemotePlayback();
-  } catch { if ($("connect-panel").open && !handoff) $("connect-message").textContent = "Could not load devices. Check your connection and reopen Connect."; }
+  } catch { if ($("connect-panel").open && !handoff) notice("connect-message", "Could not load devices. Check your connection and reopen Connect.", {level:"error"}); }
   finally { readingDevices = false; }
 }
 function beginHandoff(target) {
@@ -1621,7 +1688,7 @@ async function choosePlaybackDevice(target) {
   pending.position = json.resume?.position ?? remoteDevice?.position;
   pending.status = json.resume ? (json.playing ? "playing" : "paused") : remoteDevice.status;
   try {
-    const result = await api("/api/playback/" + (json.resume ? "transfer" : "takeover"), {method:"POST", json});
+    const result = await api("/api/playback/" + (json.resume ? "transfer" : "takeover"), {method:"POST", json, timeout:8000});
     if (pending !== handoff) return;
     if (!result.id) throw new Error();
     watchHandoff(pending, result.id);
@@ -1634,9 +1701,10 @@ async function choosePlaybackDevice(target) {
 async function watchHandoff(pending, id) {
   if (pending.id) return;
   pending.id = id;
-  while (pending === handoff) {
+  const deadline = AbortSignal.timeout(18000);
+  while (pending === handoff && !deadline.aborted) {
     try {
-      const {state, target} = await api("/api/playback/handoff/" + encodeURIComponent(id));
+      const {state, target} = await api("/api/playback/handoff/" + encodeURIComponent(id), {signal:deadline});
       if (pending !== handoff) return;
       if (state !== "pending") {
         finishHandoff(pending, state === "ready" && target === pending.target);
@@ -1648,6 +1716,7 @@ async function watchHandoff(pending, id) {
     }
     await new Promise(resolve => setTimeout(resolve, 750));
   }
+  if (pending === handoff) finishHandoff(pending, false);
 }
 function finishHandoff(pending, ready, message = "Could not switch playback. Try again.") {
   const stage = pending.stage;
@@ -1678,7 +1747,7 @@ function finishHandoff(pending, ready, message = "Could not switch playback. Try
     localPlay = localPlayPending = startPosition = playbackSearchQuery = null;
     stalled = false; plan = null; planKey = "";
     ownsPlayback = true; remoteOwner = null;
-    $("playback-state").textContent = stage.player.paused ? "Paused" : "Playing";
+    notice("playback-state", stage.player.paused ? "Paused" : "Playing", {quiet:true});
     $("recovery").hidden = true;
     $("busy").hidden = !unfinished(stage.job);
     clearRemotePlayback();
@@ -1698,7 +1767,7 @@ function finishHandoff(pending, ready, message = "Could not switch playback. Try
       duration:pending.track.duration, status:pending.status, age:0, receivedAt:performance.now()};
   }
   renderRemotePlayback();
-  showHandoffMessage(ready ? "" : message);
+  showHandoffMessage(ready ? "" : message, ready ? "info" : "error");
   queuePlaybackCheckIn();
   refreshRemotePlayback();
 }
@@ -1715,7 +1784,7 @@ remoteBar.addEventListener("click", async event => {
   pendingRemoteControl = target;
   actionButton.setAttribute("aria-busy", "true");
   try {
-    await api("/api/playback/control", {method:"POST", json:{from:deviceId, to:target, action}});
+    await api("/api/playback/control", {method:"POST", timeout:8000, json:{from:deviceId, to:target, action}});
     if (remoteDevice?.id === target && (action === "play" || action === "pause")) {
       if (remoteDevice.status === "playing") remoteDevice.position += remoteAge();
       remoteDevice.age = 0;
@@ -1723,7 +1792,7 @@ remoteBar.addEventListener("click", async event => {
       remoteDevice.status = action === "play" ? "playing" : "paused";
       renderRemotePlayback();
     }
-  } catch { showHandoffMessage("Could not control playback. Check the connected device and try again."); }
+  } catch { showHandoffMessage("Could not control playback. Check the connected device and try again.", "error"); }
   finally {
     pendingRemoteControl = null;
     actionButton.removeAttribute("aria-busy");

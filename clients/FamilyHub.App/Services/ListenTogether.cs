@@ -247,6 +247,6 @@ public sealed class ListenTogether(MusicSession session, MusicPlayer player)
     {
         try { if (!LocallyPaused) await player.SynchronizeHostAsync(tracks, room.Index, position, room.Playing, room.AutoDj, room.Crossfading, room.FadePosition, room.FadeElapsed, room.FadeDuration, room.ControlRevision); if (LocallyPaused) await player.PauseLocallyAsync(); }
         catch (Exception error) when (error is HttpRequestException or IOException or InvalidOperationException or FamilyHubApiException or OperationCanceledException)
-        { if (run == generation) { Message = error.Message; Changed?.Invoke(); } }
+        { if (run == generation) { Message = "The listening session disconnected. Open Listen Together to rejoin."; Changed?.Invoke(); } }
     }
 }

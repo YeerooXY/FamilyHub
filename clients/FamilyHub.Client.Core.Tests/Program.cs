@@ -179,6 +179,30 @@ using (var api = new FamilyHubApi(origin, new Handler(async request =>
 }
 using (var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict)))))
     await Throws<InvalidOperationException>(() => api.ConnectAsync(), "Disabled family mode did not explain configuration");
+foreach (var (status, guidance) in new[]
+{
+    (HttpStatusCode.Unauthorized, "Sign in"),
+    (HttpStatusCode.Forbidden, "Check your access"),
+    (HttpStatusCode.GatewayTimeout, "timed out"),
+    (HttpStatusCode.ServiceUnavailable, "busy")
+})
+{
+    using var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(status))));
+    try { await api.GetLibraryAsync(); Check(false, "Failed request did not throw"); }
+    catch (FamilyHubApiException ex)
+    {
+        Check(ex.StatusCode == (int)status && ex.Message.Contains(guidance) && !ex.Message.Contains("HTTP"), "Request error lacked recovery guidance");
+    }
+}
+using (var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+    { Content = System.Net.Http.Json.JsonContent.Create(new { error = "HTTP/1.1 503 Service Unavailable" }) }))))
+{
+    try { await api.GetLibraryAsync(); Check(false, "Failed request did not throw"); }
+    catch (FamilyHubApiException error)
+    {
+        Check(error.Message == "The server is busy. Wait a moment and try again.", "A raw response code reached the UI");
+    }
+}
 foreach (var detail in new[] { "Another playlist operation is running. Wait for it to finish.", "This playlist changed. Refresh it before editing." })
 {
     using var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict)
@@ -201,6 +225,17 @@ foreach (var body in new[] { "not json", "[]", "{\"error\":\"" + new string('x',
 }
 var sharedPlaylist = JsonSerializer.Deserialize<MusicPlaylist>("{\"id\":\"same\",\"owner_id\":\"other\",\"owner_name\":\"Sam\",\"shared\":true,\"can_edit\":false}")!;
 Check(sharedPlaylist.OwnerId == "other" && sharedPlaylist.OwnerName == "Sam" && sharedPlaylist.Shared && !sharedPlaylist.CanEdit, "Shared playlist ownership was lost");
+foreach (var (status, recovery) in new[] { (HttpStatusCode.Forbidden, "switch profiles"), (HttpStatusCode.GatewayTimeout, "Try again"),
+    (HttpStatusCode.InsufficientStorage, "Free up space"), (HttpStatusCode.ServiceUnavailable, "try again") })
+{
+    using var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(status))));
+    try { await api.GetLibraryAsync(); Check(false, "Failed request did not throw"); }
+    catch (FamilyHubApiException ex)
+    {
+        Check(ex.StatusCode == (int)status && ex.Message.Contains(recovery) && !ex.Message.Contains("HTTP"),
+            "Failed request did not explain how to recover");
+    }
+}
 
 using (var api = new FamilyHubApi(origin, new Handler(request =>
 {

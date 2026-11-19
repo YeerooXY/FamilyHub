@@ -8,16 +8,16 @@
 <section aria-labelledby="catalogue-review-title" class="music-admin catalogue-review" aria-busy="@Aria(loading && data is null)">
     <header class="music-admin-heading catalogue-toolbar">
         <h2 id="catalogue-review-title" tabindex="-1">Songs that need work</h2>
-        <button class="quiet catalogue-control" aria-disabled="@Aria(Unavailable)" @onclick="Refresh">
+        <button id="catalogue-refresh" class="quiet catalogue-control" aria-disabled="@Aria(Unavailable)" @onclick="Refresh">
             <MusicIcon Name="refresh" />@(loading ? "Refreshing…" : "Refresh review")
         </button>
     </header>
     <p class="sr" role="status" aria-live="polite" aria-atomic="true">@announcement</p>
-    @if (error is not null) { <p class="entry-error" role="alert">@error</p> }
-    @if (error is not null && Online) { <button class="quiet" disabled="@Unavailable" @onclick="Refresh">Retry song review</button> }
-    @if (data?.SnapshotAgeSeconds > 1) { <p class="muted" role="status">Showing the last review snapshot. Refresh review to check for updates.</p> }
-    @if (!Online) { <p class="muted" role="status">@(data is null ? "Connect to the server to review songs." : "Server offline. Showing the last loaded review.")</p> }
-    else if (data is null && error is null) { <p class="muted" role="status">Loading song review…</p> }
+    <Notice Level="error" Message="@error" ActionLabel="@(error is not null && Online ? "Retry song review" : null)"
+        Action="Refresh" Busy="@Unavailable" FocusTarget="#catalogue-refresh" />
+    @if (data?.SnapshotAgeSeconds > 1) { <Notice Level="warning" Message="Showing the last review snapshot. Refresh to check for updates." /> }
+    @if (!Online) { <Notice Level="warning" Message="@(data is null ? "Connect to the server to review songs." : "Server offline. Showing the last loaded review.")" /> }
+    else if (data is null && error is null) { <Notice Message="Loading song review…" /> }
     @if (data is { } snapshot)
     {
         <div class="catalogue-categories" role="group" aria-label="Review categories">
@@ -60,7 +60,7 @@
                     }
                 }
             </header>
-            @if (Count(active) == 0) { <p class="catalogue-empty">@section.Empty</p> }
+            @if (Count(active) == 0) { <Notice Level="empty" Message="@section.Empty" /> }
             else
             {
                 @switch (active)
@@ -107,7 +107,7 @@
                                     @if (row.Candidate is { } candidate) { <p class="catalogue-reason">Official source · @candidate.Channel</p> }
                                     else if (row.ReplacementChecked) { <p class="catalogue-reason">No matching official source found.</p> }
                                     @if (row.Replacing) { <p class="catalogue-progress">@(row.Queued ? "Replacement queued" : "Replacing recording…")</p> }
-                                    @if (row.Error is not null) { <p class="entry-error" role="alert">@row.Error</p> }
+                                    @if (row.Error is not null) { <Notice Level="error" Message="@NoticeText.Detail(row.Error, "This replacement could not be checked. Refresh song review and try again.")" /> }
                                 </div>
                                 <div class="catalogue-actions">
                                     @if (YouTubePreview(row.Candidate) is { } url)
@@ -247,7 +247,7 @@
         {
             <a href="@editing.SourceUrl" target="_blank" rel="noopener noreferrer"><MusicIcon Name="external-link" />MusicBrainz recording</a>
         }
-        @if (editError is not null) { <p class="entry-error" role="alert">@editError</p> }
+        @if (editError is not null) { <Notice Level="error" Message="@editError" /> }
         <div class="actions"><button type="button" class="quiet" @onclick="Close">Cancel</button><button class="primary" aria-disabled="@Aria(Unavailable)">Save</button></div>
     </form>
 </dialog>
@@ -360,7 +360,7 @@
             }
         }
         catch (OperationCanceledException) when (disposed) { }
-        catch (Exception) { if (Identity == requestIdentity) error = "Could not load song review. Retry to load it."; }
+        catch (Exception) { if (Identity == requestIdentity) error = "Could not load song review."; }
         finally
         {
             loading = false;
@@ -495,7 +495,7 @@
         {
             var result = await change(api);
             if (disposed || Identity != requestIdentity) return;
-            announcement = result;
+            await JS.InvokeVoidAsync("FamilyHubNotices.toast", result);
             if (active == category) pendingFocus = "catalogue-category-title";
             if (reloadLibrary) await Session.RefreshAsync(background: true);
         }
@@ -548,7 +548,7 @@
             if (disposed || Identity != requestIdentity) return;
             await JS.InvokeVoidAsync("familyhub.closeDialog", "metadata-review-dialog", "catalogue-category-title");
             editing = null;
-            announcement = "Song details saved.";
+            await JS.InvokeVoidAsync("FamilyHubNotices.toast", "Song details saved.");
             saved = true;
             await Session.RefreshAsync(background: true);
         }
@@ -568,7 +568,7 @@
     }
 
     private static string SafeError(Exception failure, string fallback) =>
-        failure is FamilyHubApiException detail && !detail.Message.Contains("HTTP ", StringComparison.OrdinalIgnoreCase) ? detail.Message : fallback;
+        NoticeText.Error(failure, fallback);
 
     public void Dispose()
     {

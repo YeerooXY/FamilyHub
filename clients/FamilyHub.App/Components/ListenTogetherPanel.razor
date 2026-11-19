@@ -15,13 +15,13 @@
     {
         <div class="listening-session"><MusicIcon Name="people" /><div><strong>@(room.IsHost ? "You're hosting" : "Listening with " + room.HostName)</strong><p>@room.Listeners @(room.Listeners == 1 ? "listener" : "listeners")</p></div></div>
         <p class="setting-help">@(room.IsHost ? "People on this server can join your queue. You control playback and Auto DJ." : "The host controls songs, playback and Auto DJ. Your volume stays private.")</p>
-        @if (room.Queue is { Count: 0 }) { <p class="setting-help">@(room.IsHost ? "Choose a song or playlist when you're ready." : "Waiting for the host to choose a song.")</p> }
+        @if (room.Queue is { Count: 0 }) { <Notice Level="empty" Message="@(room.IsHost ? "Choose a song or playlist to start listening." : "Waiting for the host to choose a song.")" /> }
         @if (room.IsHost)
         {
             var guests = Session.Profiles.Where(p => p.Id != Session.User).ToList();
             <div class="session-invite">
                 <h3 id="invite-heading">Invite a listener</h3>
-                @if (guests.Count == 0) { <p class="setting-help">No other profiles on this server yet.</p> }
+                @if (guests.Count == 0) { <Notice Level="empty" Message="No other profiles on this server." /> }
                 else
                 {
                     <div class="invite-list" role="radiogroup" aria-labelledby="invite-heading">
@@ -34,7 +34,7 @@
                         }
                     </div>
                     <button id="send-invitation" class="primary session-action" @onclick="Invite" aria-disabled="@(busy || inviteUser.Length == 0 ? "true" : "false")">@(inviteUser.Length == 0 ? "Choose someone to invite" : "Invite " + guests.FirstOrDefault(p => p.Id == inviteUser)?.Name)</button>
-                    <p class="invite-status @(inviteStatus.Length > 0 ? "is-visible" : "")" role="status">@if (inviteStatus.Length > 0) { <MusicIcon Name="check" /> }@inviteStatus</p>
+                    <Notice Level="success" Message="@inviteStatus" />
                 }
             </div>
         }
@@ -50,11 +50,11 @@
             {
                 <button class="listening-room" @key="available.Id" @onclick="() => available.HostUser == Session.User ? Start() : Join(available.Id)" aria-disabled="@(busy ? "true" : "false")"><MusicIcon Name="people" /><span><strong>@available.HostName</strong><small>@available.Title</small></span><span>@(available.HostUser == Session.User ? "Resume hosting" : "Join")</span></button>
             }
-            @if (!Session.Connected) { <p class="setting-help">Server unavailable. Reconnecting...</p> }
-            else if (Together.Rooms.Count == 0) { <p class="listening-empty">No sessions available</p> }
+            @if (!Session.Connected) { <Notice Level="warning" Message="The server is unavailable. Reconnecting…" /> }
+            else if (Together.Rooms.Count == 0) { <Notice Level="empty" Message="No sessions are available." /> }
         </div>
     }
-    <p class="entry-error" role="status">@(error ?? Together.Message)</p>
+    <Notice Level="@(error is not null ? "error" : "info")" Message="@(error ?? Together.Message)" />
 </dialog>
 
 @code {
@@ -70,7 +70,7 @@
             inviteStatus = "Invitation sent to " + (Session.Profiles.FirstOrDefault(p => p.Id == inviteUser)?.Name ?? "listener");
             inviteUser = "";
         }
-        catch (Exception exception) { error = exception.Message; }
+        catch (Exception exception) { error = NoticeText.Error(exception); }
         finally { busy = false; }
     }
     private bool open, busy;
@@ -91,7 +91,7 @@
         while (open && !token.IsCancellationRequested)
         {
             try { if (Session.UiActive && Together.Room is null) await Together.RefreshAsync(background); }
-            catch (Exception e) when (e is HttpRequestException or FamilyHubApiException or OperationCanceledException) { error = e.Message; }
+            catch (Exception e) when (e is HttpRequestException or FamilyHubApiException or OperationCanceledException) { error = NoticeText.Error(e, "The listening session could not update. Try again."); }
             await InvokeAsync(StateHasChanged);
             background = true;
             try { await Task.Delay(3000, token); } catch (OperationCanceledException) { return; }
@@ -104,7 +104,7 @@
         if (busy) return;
         busy = true; error = null;
         try { await action(); await InvokeAsync(StateHasChanged); await JS.InvokeVoidAsync("familyhub.focus", "close-listening"); }
-        catch (Exception e) { error = e.Message; }
+        catch (Exception e) { error = NoticeText.Error(e, "The listening session could not update. Try again."); }
         finally { busy = false; }
     }
     private Task Start() => Act(Together.StartAsync);

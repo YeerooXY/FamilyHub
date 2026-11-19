@@ -6,7 +6,7 @@
 @if (Session.Connected && sourceIdentity == Session.Server + "|" + Session.User && requests.FirstOrDefault() is { } request)
 {
     <aside class="listening-poke glass-panel" aria-label="Listening request" role="status">
-        <MusicIcon Name="people" /><div><strong>@(request.Kind == "invite" ? request.Name + " invited you to listen." : request.Name + " wants to listen with you.")</strong><div class="actions">@if (Together.Room is null) { <button class="primary" @onclick="() => Accept(request)" aria-disabled="@(busy ? "true" : "false")">@(request.Kind == "invite" ? "Join session" : "Start session")</button> }<button class="quiet" @onclick="() => Dismiss(request)" aria-disabled="@(busy ? "true" : "false")">Dismiss</button></div>@if (error is not null) { <p class="entry-error">@error</p> }</div>
+        <MusicIcon Name="people" /><div><strong>@(request.Kind == "invite" ? request.Name + " invited you to listen." : request.Name + " wants to listen with you.")</strong><div class="actions">@if (Together.Room is null) { <button class="primary" @onclick="() => Accept(request)" aria-disabled="@(busy ? "true" : "false")">@(request.Kind == "invite" ? "Join session" : "Start session")</button> }<button class="quiet" @onclick="() => Dismiss(request)" aria-disabled="@(busy ? "true" : "false")">Dismiss</button></div>@if (error is not null) { <Notice Level="error" Message="@error" /> }</div>
     </aside>
 }
 
@@ -47,14 +47,14 @@
     {
         if (busy) return; busy = true; error = null;
         try { if (request.Kind == "invite" && request.RoomId is { } room) await Together.JoinAsync(room); else await Together.StartAsync(); await Remove(request); }
-        catch (Exception exception) { error = exception.Message; }
+        catch (Exception exception) { error = NoticeText.Error(exception); }
         finally { busy = false; }
     }
     private async Task Dismiss(ListeningPoke request)
     {
         if (busy) return; busy = true; error = null;
         try { await Remove(request); }
-        catch (Exception exception) { error = exception.Message; }
+        catch (Exception exception) { error = NoticeText.Error(exception); }
         finally { busy = false; }
     }
     private async Task Remove(ListeningPoke request)

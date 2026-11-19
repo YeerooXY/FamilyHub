@@ -49,7 +49,7 @@
         </section>
 
         @if (jobs.Count > 0) { <LibraryAdditions Jobs="jobs" Retry="Retry" Busy="Busy" /> }
-        <p class="entry-error" role="status">@(Session.Connected ? message : "Connect to the server to add songs.")</p>
+        <Notice Level="@(Session.Connected ? "error" : "warning")" Message="@(Session.Connected ? message : "Connect to the server to add songs.")" />
         <div class="actions">
             <button type="button" @onclick="Close">Close</button>
             <button id="add-songs-submit" type="submit" class="primary" aria-disabled="@(CanSubmit ? "false" : "true")">
@@ -166,7 +166,7 @@
             return true;
         }
         catch (OperationCanceledException) { return false; }
-        catch (FamilyHubApiException ex) { message = ex.Message; return false; }
+        catch (FamilyHubApiException ex) { message = NoticeText.Error(ex, "The songs could not be queued. Try again."); return false; }
         catch (Exception) { message = "Could not queue the songs. Check the connection and try again."; return false; }
         finally { posting = false; StartWatch(); }
     }

@@ -12,7 +12,7 @@
             <label class="coauthor-choice"><ProfileAvatar Profile="profile" Size="36" /><span>@profile.Name</span><input type="checkbox" checked="@chosen.Contains(profile.Id)" @onchange="args => Select(profile.Id, args)" disabled="@saving" /></label>
         }
         </div>
-        @if (error is not null) { <p class="entry-error" role="status">@error</p> }
+        @if (error is not null) { <Notice Level="error" Message="@error" /> }
         <div class="actions"><button class="quiet" @onclick="Close" aria-disabled="@(saving ? "true" : "false")">Cancel</button><button class="primary" @onclick="Save" aria-disabled="@(saving ? "true" : "false")">@(saving ? "Saving..." : "Done")</button></div>
     </dialog>
 }
@@ -32,7 +32,7 @@
         if (saving) return;
         saving = true; error = null;
         try { await Session.EditPlaylistAsync(Playlist, new { co_authors = chosen.ToArray() }); await Close(); }
-        catch (Exception exception) { error = exception.Message; }
+        catch (Exception exception) { error = NoticeText.Error(exception); }
         finally { saving = false; }
     }
 }

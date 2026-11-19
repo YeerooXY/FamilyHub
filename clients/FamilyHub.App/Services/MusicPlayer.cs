@@ -283,7 +283,7 @@ public sealed class MusicPlayer(MusicSession session)
             if (!ReferenceEquals(deck, owner) || preparing || blending || !sourceReady || !PlaybackRequested) return;
             await AdvanceAfterEndAsync();
         };
-        owner.Failed += message =>
+        owner.Failed += _message =>
         {
             var streamed = streamedDecks.Remove(owner);
             if (streamed) session.StreamingFailed();
@@ -298,7 +298,9 @@ public sealed class MusicPlayer(MusicSession session)
                     return;
                 }
                 FinishListening("stopped"); sourceReady = false; resumeStartPending = false;
-                PlaybackRequested = false; session.SetMessage(message); Changed?.Invoke();
+                PlaybackRequested = false;
+                session.SetMessage("Playback stopped. Retry the song or play a downloaded copy.", "error", playback: true);
+                Changed?.Invoke();
             }
             else { FinishIncomingListening("stopped"); incomingFailed = true; preparedTrack = null; if (streamed) attemptedNext = null; }
         };
@@ -314,7 +316,7 @@ public sealed class MusicPlayer(MusicSession session)
                 await NextCoreAsync(background: true);
             else { PlaybackRequested = false; deck?.SetPlaying(false); Changed?.Invoke(); }
         }
-        catch (Exception error) { session.SetMessage(error.Message); }
+        catch (Exception) { session.SetMessage("The next song could not start. Choose a song from the queue.", "error"); }
     }
 
     private readonly HashSet<IAudioDeck> streamedDecks = [];
@@ -440,7 +442,7 @@ public sealed class MusicPlayer(MusicSession session)
             eventFinalized = false; eventStarted = null;
         }
         if (Current?.Id != track.Id) resumePosition = null;
-        var previousQueue = queue.ToList(); var previousIndex = index; var previousTrack = Current;
+        var previousQueue = queue.ToList(); var previousIndex = index; var previousTrack = Current; var previousOrder = order;
         var previousManual = manualQueue.ToArray();
         var version = ++requestVersion;
         ControlRevision++; lastHostControl = -1; filteredDrift = 0; largeDriftSamples = 0;
@@ -462,7 +464,7 @@ public sealed class MusicPlayer(MusicSession session)
             var additions = queue.Skip(selected.Count).ToList();
             queueSnapshot = null; queue.Clear(); queue.AddRange(previousQueue); queue.AddRange(additions);
             manualQueue.Clear(); foreach (var entry in previousManual) manualQueue.Add(entry);
-            index = previousIndex; Current = previousTrack; PlaybackRequested = false; session.PinPlayback(null);
+            index = previousIndex; Current = previousTrack; order = previousOrder; PlaybackRequested = false; session.PinPlayback(null);
         }
         try
         {
@@ -476,7 +478,12 @@ public sealed class MusicPlayer(MusicSession session)
             resumeStartPending = PlaybackRequested && resumePosition is > 0;
             deck.PlayFile(path, track.Title, track.Channel, PlaybackRequested && !resumeStartPending, background);
         }
-        catch (OperationCanceledException) { if (version == requestVersion) { sourceReady = false; Restore(); } }
+        catch (OperationCanceledException error)
+        {
+            if (version != requestVersion) return;
+            sourceReady = false; Restore();
+            throw new InvalidOperationException("The server took too long to prepare this song. Try playing it again.", error);
+        }
         catch { if (version != requestVersion) return; sourceReady = false; Restore(); throw; }
         finally
         {
@@ -596,12 +603,12 @@ public sealed class MusicPlayer(MusicSession session)
             Changed?.Invoke(); WarmNext();
         }
         catch (OperationCanceledException) { }
-        catch (Exception error)
+        catch (Exception)
         {
             if (version == requestVersion && ReferenceEquals(deck, outgoing))
             {
                 blending = false; blendTarget = -1; preparedTrack = null; incoming.Stop(); blendGain = 0; ApplyVolumes();
-                session.SetMessage(error.Message); Changed?.Invoke();
+                session.SetMessage("The transition could not finish. Choose a song from the queue.", "error"); Changed?.Invoke();
                 if (outgoing.Duration > 0 && outgoing.Position >= outgoing.Duration - .1) await NextCoreAsync(background: true);
             }
         }

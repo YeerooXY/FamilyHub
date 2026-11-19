@@ -6,5 +6,5 @@
     <button class="shelf-arrow {{ direction }}" type="button" aria-label="{{ direction|capitalize }} releases" aria-controls="release-list" hidden>{{ player_icon('chevron') }}</button>
     {% endfor %}
   </div>
-  <p class="error" id="discovery-message" role="status"></p>
+  <div id="discovery-message" hidden></div>
 </section>

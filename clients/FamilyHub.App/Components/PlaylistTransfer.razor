@@ -78,16 +78,16 @@
         <p class="sr" role="status">@(appendImport && Status?.State == "done" ? "Playlist import finished." : "")</p>
         @if (watchError is not null)
         {
-            <p class="entry-error" role="status">@watchError</p>
+            <Notice Level="error" Message="@watchError" />
             @if (!ShowProgress) { <button id="transfer-reconnect" class="quiet" @onclick="ReconnectProgress" aria-disabled="@Aria(requesting)">Reconnect to progress</button> }
         }
-        @if (!string.IsNullOrEmpty(error)) { <p class="entry-error" role="alert">@error</p> }
+        @if (!string.IsNullOrEmpty(error)) { <Notice Level="error" Message="@error" /> }
     </section>
     <dialog id="transfer-review-dialog" class="glass-dialog transfer-review-dialog" aria-labelledby="transfer-review-heading">
         <div class="dialog-heading"><h2 id="transfer-review-heading">Review recording</h2><button id="transfer-review-close" class="quiet" aria-label="Close recording choices" @onclick="CloseReview"><MusicIcon Name="close" /></button></div>
         <p class="transfer-review-song"><strong>@reviewTitle</strong><span>@reviewArtist</span></p>
-        @if (reviewLoading) { <p role="status">Finding recording choices...</p> }
-        @if (!string.IsNullOrEmpty(reviewError)) { <p class="entry-error" role="alert">@reviewError</p> }
+        @if (reviewLoading) { <Notice Message="Finding recording choices…" /> }
+        @if (!string.IsNullOrEmpty(reviewError)) { <Notice Level="error" Message="@reviewError" /> }
         <div class="transfer-candidates" aria-busy="@Aria(reviewLoading)">
         @for (var i = 0; i < choices.Count; i++)
         {
@@ -98,7 +98,7 @@
             </article>
         }
         </div>
-        @if (!reviewLoading && choices.Count == 0 && string.IsNullOrEmpty(reviewError)) { <p>No recording choices found.</p> }
+        @if (!reviewLoading && choices.Count == 0 && string.IsNullOrEmpty(reviewError)) { <Notice Level="empty" Message="No recording choices found." /> }
         <button class="quiet" @onclick="SearchChoicesAgain" aria-disabled="@Aria(reviewLoading || requesting)"><MusicIcon Name="search" />Search again</button>
     </dialog>
     <dialog id="transfer-import-dialog" class="glass-dialog" aria-labelledby="transfer-import-heading">
@@ -106,7 +106,7 @@
         <form @onsubmit="Import" @onsubmit:preventDefault>
             <label for="transfer-url">Playlist link</label><input id="transfer-url" type="url" @bind="url" required />
             <p>Spotify, YouTube, Deezer or SoundCloud. Songs already in this playlist are skipped.</p>
-            <p class="entry-error" role="status">@error</p>
+            <Notice Level="error" Message="@error" />
             <div class="actions"><button class="primary" type="submit" aria-disabled="@Aria(requesting)">@(requesting ? "Starting..." : "Import playlist")</button><button type="button" @onclick="CloseImport">Cancel</button></div>
         </form>
     </dialog>
@@ -405,7 +405,7 @@
     };
     private static string FriendlyError(Exception ex) => ex is FamilyHubApiException { StatusCode: 404 }
         ? "Update the FamilyHub server to use playlist import and server downloads."
-        : ex is HttpRequestException or FamilyHubApiException ? "Check the server connection and try again." : ex.Message;
+        : NoticeText.Error(ex, "The playlist operation could not finish. Try again.");
     public void Dispose() { disposed = true; lifetime?.Cancel(); lifetime?.Dispose(); }
     private sealed record TransferStatus
     {

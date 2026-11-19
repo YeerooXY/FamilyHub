@@ -3,14 +3,15 @@
 @if (AppUpdater.Platform is not null && available is not null)
 {
     <div class="app-update @(Compact ? "compact-update" : "")">
-        <button id="@Id" type="button" aria-label="@Label" title="@(string.IsNullOrEmpty(message) ? Label : message)" @onclick="Update" aria-disabled="@(working ? "true" : "false")"><MusicIcon Name="download" />@if (!Compact) { @Label }</button>
-        <p class="quality-help" role="status">@message</p>
+        <button id="@Id" type="button" aria-label="@Label" title="@Label" @onclick="Update" aria-disabled="@(working ? "true" : "false")"><MusicIcon Name="download" />@if (!Compact) { @Label }</button>
+        @if (!Compact) { <Notice Level="@(failed ? "error" : "info")" Message="@message" /> }
     </div>
 }
 
 @code {
     [Parameter] public bool Compact { get; set; }
-    private bool working;
+    [Parameter] public bool VersionInHeading { get; set; }
+    private bool working, failed;
     [Parameter] public string Id { get; set; } = "app-update";
     [Parameter] public EventCallback<AppRelease> Available { get; set; }
     [Parameter] public AppRelease? InitialRelease { get; set; }
@@ -22,16 +23,17 @@
     }
     private AppRelease? available;
     private string message = "";
-    private static string DescribeRelease(AppRelease release) => AppUpdater.UpdatesInSideStore
-        ? $"Version {release.Version} is available. In SideStore, tap Update next to FamilyHub Music. Saved music and profiles are kept."
-        : $"Version {release.Version} available, {release.Size / (1024d * 1024):0} MB. " +
-          (AppUpdater.Platform == "windows-x64" ? "Playback stops when the app restarts. Saved music and profiles are kept." : "Open the downloaded APK to install it. Saved music and profiles are kept.");
+    private string DescribeRelease(AppRelease release) => (VersionInHeading ? "" : $"Version {release.Version} is available. ")
+        + (AppUpdater.UpdatesInSideStore
+            ? "In SideStore, tap Update next to FamilyHub Music."
+            : $"Download size is {release.Size / (1024d * 1024):0} MB. "
+                + (AppUpdater.Platform == "windows-x64" ? "Playback stops when the app restarts." : "Open the downloaded APK to install it."));
     private string Label => AppUpdater.UpdatesInSideStore ? "Open SideStore" : working ? "Downloading..." : AppUpdater.Platform == "windows-x64" ? "Download and restart" : "Download update";
 
     private async Task Update()
     {
         if (working || available is null) return;
-        working = true;
+        working = true; failed = false;
         try
         {
             var api = Session.Api ?? throw new InvalidOperationException("Connect to your FamilyHub server to check for updates.");
@@ -44,10 +46,14 @@
             if (AppUpdater.Platform == "android") message = "Open the downloaded APK to install the update.";
         }
         catch (FamilyHubApiException error) when (error.StatusCode == 404)
-        { message = "This update is unavailable. Try again later."; }
-        catch (OperationCanceledException) { message = "The update request timed out. Try again."; }
-        catch (HttpRequestException) { message = "Could not download the update. Check your connection and try again."; }
-        catch (Exception error) { message = error.Message; }
-        finally { working = false; }
+        { failed = true; message = "This update is unavailable. Try again later."; }
+        catch (OperationCanceledException) { failed = true; message = "The update request timed out. Try again."; }
+        catch (HttpRequestException) { failed = true; message = "Could not download the update. Check your connection and try again."; }
+        catch (Exception error) { failed = true; message = NoticeText.Error(error, "The update could not finish. Try again."); }
+        finally
+        {
+            working = false;
+            if (Compact && (failed || AppUpdater.Platform == "android")) Session.SetMessage(message, failed ? "error" : "info");
+        }
     }
 }

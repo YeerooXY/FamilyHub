@@ -375,7 +375,7 @@ body.native-hidden *,body.native-hidden *::before,body.native-hidden *::after { 
 .library-additions summary .music-admin-count { margin-inline-start:6px; }
 .addition-list { margin:0; padding:0; list-style:none; }
 .library-addition { display:flex; align-items:center; gap:8px 12px; padding-block:8px; border-top:1px solid #ffffff1c; }
-.library-addition > span:first-child { flex:1; min-width:0; overflow-wrap:anywhere; }
+.library-addition-copy { flex:1; min-width:0; overflow-wrap:anywhere; }
 .library-addition strong { display:block; }
 .library-addition small { display:block; color:var(--muted); }
 

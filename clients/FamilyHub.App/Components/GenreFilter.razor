@@ -21,7 +21,7 @@
                     @onmousedown:preventDefault @onclick="() => Choose(option.Key)">@option.Label</li>
             }
         </ul>
-        @if (editing && query.Length > 0 && suggestions.Count == 0) { <p class="genre-no-results" role="status">No matching genres.</p> }
+        @if (editing && query.Length > 0 && suggestions.Count == 0) { <Notice Level="empty" Message="No genres match this search." /> }
     </div>
     @if (top.Count > 0)
     {

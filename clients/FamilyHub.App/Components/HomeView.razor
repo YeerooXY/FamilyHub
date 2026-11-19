@@ -23,7 +23,7 @@
                     </button>
                 }
             </div>
-            <p class="home-save-status" role="status">@(!Session.Connected ? "Connect to start radio." : FollowingHost ? "Leave the listening session to start radio." : "")</p>
+            <Notice Level="warning" Message="@(!Session.Connected ? "Connect to start radio." : FollowingHost ? "Leave the listening session to start radio." : "")" />
         }
         else
         {
@@ -73,7 +73,7 @@
                     </div>
                 }
             </div></ShelfArrows>
-            @if (saveMessage is not null) { <p class="home-save-status" role="status">@saveMessage</p> }
+            @if (saveMessage is not null) { <Notice Level="@(saving is null ? "error" : "info")" Message="@saveMessage" /> }
         </section>
     }
 
@@ -103,26 +103,32 @@
     }
 
 
-    // Saving an album as a playlist: one at a time, named after the album.
     private string? saving, saveMessage;
-    private bool HasPlaylist(Album album) => Session.Playlists.Any(p => p.CanEdit && p.OwnerId == Session.User && p.Name == album.Name);
+    private readonly Dictionary<(string Server, string Owner, string Album), string> albumDrafts = [];
+    private bool HasPlaylist(Album album) => Session.Playlists.Any(p => p.OwnerId == Session.User && p.Name == album.Name &&
+        p.Tracks.Select(t => t.RecordingId).SequenceEqual(album.Tracks.Select(t => t.Id)));
     private async Task SaveAlbum(Album album)
     {
         if (saving is not null || HasPlaylist(album) || !Session.Connected) return;
         saving = album.Key; saveMessage = "Saving " + album.Name + "...";
         try
         {
-            await Session.CreatePlaylistAsync(album.Name);
-            var playlist = Session.Playlists.LastOrDefault(p => p.Name == album.Name && p.CanEdit) ?? throw new InvalidOperationException();
-            var failed = 0;
+            var key = (Server: Session.Server, Owner: Session.User, Album: album.Key);
+            var playlist = Session.Playlists.FirstOrDefault(p => p.OwnerId == key.Owner && p.Id == albumDrafts.GetValueOrDefault(key))
+                ?? await Session.CreatePlaylistAsync(album.Name);
+            albumDrafts[key] = playlist.Id;
             foreach (var track in album.Tracks)
             {
-                try { await Session.EditPlaylistAsync(playlist, new { add_source_id = track.Id }); }
-                catch (Exception error) when (error is not OperationCanceledException) { failed++; }
+                if (Session.Server != key.Server || Session.User != key.Owner) return;
+                var current = Session.Playlists.First(p => p.Id == playlist.Id && p.OwnerId == playlist.OwnerId);
+                if (!current.Tracks.Any(t => t.RecordingId == track.Id))
+                    await Session.EditPlaylistAsync(current, new { add_source_id = track.Id });
             }
-            saveMessage = failed == 0 ? $"Saved {album.Name} as a playlist." : $"Saved {album.Name}; {failed} {(failed == 1 ? "song" : "songs")} could not be added.";
+            albumDrafts.Remove(key);
+            saveMessage = null;
+            await JS.InvokeVoidAsync("FamilyHubNotices.toast", $"Saved {album.Name} as a playlist.");
         }
-        catch (Exception error) when (error is not OperationCanceledException) { saveMessage = "The playlist could not be saved. Try again."; }
+        catch (Exception error) when (error is not OperationCanceledException) { saveMessage = "The album could not finish saving. Try again."; }
         finally { saving = null; }
     }
 
