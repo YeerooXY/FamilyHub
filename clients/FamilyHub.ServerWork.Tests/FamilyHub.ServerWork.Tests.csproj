@@ -2,6 +2,7 @@
 <PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><RootNamespace>FamilyHub.ServerWork.Tests</RootNamespace></PropertyGroup>
 <ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App" /><ProjectReference Include="../../clients/FamilyHub.Client.Core.Tests/FamilyHub.Client.Core.Tests.csproj" /></ItemGroup>
 <ItemGroup>
+<RazorComponent Include="../../clients/FamilyHub.App/Components/AppUpdate.razor" Link="Components/AppUpdate.razor" />
 <RazorComponent Include="../../clients/FamilyHub.App/Components/ServerStats.razor" Link="Components/ServerStats.razor" />
 <RazorComponent Include="../../clients/FamilyHub.App/Components/CatalogueReviewPanel.razor" Link="Components/CatalogueReviewPanel.razor" />
 <RazorComponent Include="../../clients/FamilyHub.App/Components/MusicIcon.razor" Link="Components/MusicIcon.razor" />

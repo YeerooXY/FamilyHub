@@ -33,6 +33,39 @@ await renderer.Dispatcher.InvokeAsync(async () => {
     html = stats.ToHtmlString() + review.ToHtmlString();
     if (html.Contains("Retry server work") || html.Contains("Retry song review")) throw new Exception("Retry did not recover");
     Save("loaded", html);
+    FixtureHandler.Offline = true;
+    await session.RefreshAsync();
+    if (session.Connected || !stats.ToHtmlString().Contains("Use Refresh to reconnect"))
+        throw new Exception("Offline server work did not explain how to reconnect");
+    FixtureHandler.Offline = false;
+    await (Task)typeof(ServerStats).GetMethod("RefreshNow", BindingFlags.NonPublic | BindingFlags.Instance)!
+        .Invoke(activator.Instances[typeof(ServerStats)], null)!;
+    if (!session.Connected || stats.ToHtmlString().Contains("Use Refresh to reconnect"))
+        throw new Exception("Server work could not reconnect from its own Refresh button");
+    var leaderboard = await renderer.RenderComponentAsync<ServerStats>(ParameterView.FromDictionary(
+        new Dictionary<string, object?> { [nameof(ServerStats.Leaderboard)] = true }));
+    FixtureHandler.Block = true;
+    await Refresh(typeof(ServerStats));
+    if (!leaderboard.ToHtmlString().Contains("Retry leaderboard")) throw new Exception("Leaderboard did not name its retry");
+    FixtureHandler.Block = false;
+    await Refresh(typeof(ServerStats));
+    var empty = leaderboard.ToHtmlString();
+    if (!empty.Contains("No listening recorded for this period") || !empty.Contains("listening summary.")
+        || !empty.Contains("Alex") || empty.Contains("lb-wrapped-card") || empty.Contains("lb-place-1") || empty.Contains("stats-line-chart"))
+        throw new Exception("Empty leaderboard ranked a listener or omitted the Wrapped empty state and online profile");
+    foreach (var (platform, action, help) in new[]
+    {
+        ("windows-x64", "Download and restart", "Playback stops"),
+        ("android", "Download update", "downloaded APK"),
+        ("ios", "Open SideStore", "In SideStore, tap Update"),
+    })
+    {
+        AppUpdater.Platform = platform;
+        var update = await renderer.RenderComponentAsync<AppUpdate>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { [nameof(AppUpdate.InitialRelease)] = new AppRelease("0.1.72", new string('a', 64), 12, "/fixture") }));
+        var prompt = update.ToHtmlString();
+        if (!prompt.Contains(action) || !prompt.Contains(help)) throw new Exception($"{platform} did not render its update action");
+    }
     Console.WriteLine($"PASS rendered component timeouts in {watch.Elapsed.TotalSeconds:F2}s and successful retries");
 });
 await DownloadStateChecks.RunAsync();
@@ -54,8 +87,10 @@ sealed class Launcher {
 }
 sealed class FixtureHandler : HttpMessageHandler {
     public static bool Block = true;
+    public static bool Offline;
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) {
         var path=request.RequestUri!.AbsolutePath;
+        if (Offline) throw new HttpRequestException("Fixture server offline");
         if(Block && (path=="/api/server/stats" || path.StartsWith("/api/catalogue/"))) return new TaskCompletionSource<HttpResponseMessage>().Task;
         object data=path switch {
             "/api/connect" => new { family_profiles=true,csrf_token="boot",profiles=new[]{new{id="alex",name="Alex"}}},
@@ -63,11 +98,22 @@ sealed class FixtureHandler : HttpMessageHandler {
             "/api/library" => new {results=Array.Empty<object>()},
             "/api/playlists" => new {playlists=Array.Empty<object>()},
             "/api/catalogue/review" => new {can_edit=false,metadata=Array.Empty<object>(),trimming=Array.Empty<object>()},
+            "/api/server/stats" when request.RequestUri.Query == "?leaderboard=1" => new {wrapped_year=2026,daily=new[]{new{day="2026-11-19",seconds=0}},profiles=new[]{new{id="alex",name="Alex",online=true,wrapped=new{total_minutes=0,songs_added=0}}}},
             "/api/server/stats" => new {workers=new[]{new{id="acquisition-0",title="Listener",state="working",current_title="Veridis Quo"}},jobs=Array.Empty<object>(),worker_stages=new[]{new{stage="fetch",queued=24,backing_off=0,running=1}},storage_total_bytes=1000000000000L,storage_free_bytes=600000000000L},
             _ => new {} };
         return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK){Content=new StringContent(JsonSerializer.Serialize(data),Encoding.UTF8,"application/json")});
     }
 }
 namespace FamilyHub.App.Services { public sealed class MusicPlayer { public bool FollowingHost => false; public MusicTrack? Current => null; public double Position => 0; public Task PlayAsync(MusicTrack track)=>Task.CompletedTask; } }
+
+namespace FamilyHub.App.Services
+{
+    public static class AppUpdater
+    {
+        public static string? Platform { get; set; }
+        public static bool UpdatesInSideStore => Platform == "ios";
+        public static Task InstallAsync(FamilyHubApi api, AppRelease release, Action<int> progress) => Task.CompletedTask;
+    }
+}
 
 namespace FamilyHub.ServerWork.Tests.Components { public sealed class ListenerMenu : ComponentBase { [Parameter] public ListenerStatistics? Profile { get; set; } } }
