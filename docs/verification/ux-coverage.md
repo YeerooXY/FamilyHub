@@ -1,5 +1,11 @@
 # Interface verification
 
+## 19 November 2026 — Accounts, settings and resilience
+
+Account, settings, update, playback recovery and empty statistics checks used the
+local fixture server, the Windows shell and four browser profiles. The
+[verification record](accounts-resilience-2026-11-19.md) lists cases and device limits.
+
 ## 19 November 2026 — Music player bar
 
 Desktop and phone player layout, track states, keyboard focus, reduced motion, title truncation and playlist action placement were checked in headless Chromium and WebKit. The measurements, screenshots and device limits are in the [player bar verification record](player-bar-2026-11-19/README.md).

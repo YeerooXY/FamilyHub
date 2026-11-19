@@ -53,6 +53,7 @@ await renderer.Dispatcher.InvokeAsync(async () => {
     if (!empty.Contains("No listening recorded for this period") || !empty.Contains("listening summary.")
         || !empty.Contains("Alex") || empty.Contains("lb-wrapped-card") || empty.Contains("lb-place-1") || empty.Contains("stats-line-chart"))
         throw new Exception("Empty leaderboard ranked a listener or omitted the Wrapped empty state and online profile");
+    Save("leaderboard-empty", empty);
     foreach (var (platform, action, help) in new[]
     {
         ("windows-x64", "Download and restart", "Playback stops"),
@@ -70,8 +71,8 @@ await renderer.Dispatcher.InvokeAsync(async () => {
 });
 await DownloadStateChecks.RunAsync();
 void Save(string name, string html) {
-    var css = string.Join("\n", new[]{"music_web/static/shell.css", "clients/FamilyHub.App/wwwroot/app-native.css", "clients/FamilyHub.App/wwwroot/server-stats.css", "clients/FamilyHub.App/wwwroot/stats-pages.css", "clients/FamilyHub.App/wwwroot/music-admin.css"}.Where(File.Exists).Select(File.ReadAllText));
-    File.WriteAllText($".local/ui/{name}.html", "<!doctype html><html><meta name='viewport' content='width=device-width,initial-scale=1'><style>"+css+"\nhtml,body{height:auto;min-height:100%;overflow:visible}body{display:block;margin:0;padding:24px;background:#07101f;color:#edf2fa;font-family:Arial,sans-serif}.server-work-page{height:auto;overflow:visible;max-width:1100px;margin:auto;display:grid;gap:24px}button{min-height:44px}</style><main class='server-work-page'>"+html+"</main></html>");
+    var css = string.Join("\n", new[]{"music_web/static/shell.css", "clients/FamilyHub.App/wwwroot/app-native.css", "clients/FamilyHub.App/wwwroot/server-stats.css", "clients/FamilyHub.App/wwwroot/stats-pages.css", "clients/FamilyHub.App/wwwroot/music-admin.css", "packages/paddock-effects/effects.css"}.Where(File.Exists).Select(File.ReadAllText));
+    File.WriteAllText($".local/ui/{name}.html", "<!doctype html><html><meta name='viewport' content='width=device-width,initial-scale=1'><style>"+css+"\nhtml,body{height:auto;min-height:100%;overflow:visible}body{display:block;margin:0;padding:24px;background:#07101f;color:#edf2fa;font-family:Arial,sans-serif}.server-work-page{height:auto;overflow:visible;max-width:1100px;margin:auto;display:grid;gap:24px}button{min-height:44px}</style><body data-theme='classic'><main class='server-work-page'>"+html+"</main></body></html>");
 }
 sealed class CaptureActivator : IComponentActivator {
     public Dictionary<Type,IComponent> Instances = new();
