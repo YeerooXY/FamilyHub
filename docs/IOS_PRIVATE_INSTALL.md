@@ -1,5 +1,7 @@
 # Private iPhone installation
 
+Follow the [iPhone and platform release plan](PLATFORM_RELEASE_PLAN.md) for installer comparisons, automatic-renewal testing, update feeds and rollout checks. This page covers the existing unsigned build and installation procedure.
+
 FamilyHub Music uses the configured FamilyHub server and stores downloaded songs on the phone. The native iOS source and build script are included. An iPhone installation has **not** been verified. The available test phone runs **iOS 26.6.2**, as reported by its owner; device compatibility still needs a build and a physical test.
 
 ## Build without owning a Mac
@@ -27,7 +29,7 @@ The script requests an unsigned device IPA with `EnableCodeSigning=false`, `Code
 
 Each person should use their own Apple account. Enter credentials only in the chosen installer; never put passwords, pairing files, or signing keys in this repository, workflow, or chat.
 
-Follow the current [SideStore installation guide](https://docs.sidestore.io/docs/installation/install), which covers its Windows installer, USB pairing, Developer Mode, and LocalDevVPN. Initial installation requires the phone and a computer. After setup, SideStore can refresh signing on the phone with the required VPN connection and internet access. In SideStore, open **My Apps** and tap the expiry/refresh control. Prompts or account sign-in may occasionally require attention.
+Follow the current [SideStore installation guide](https://docs.sidestore.io/docs/installation/install), which covers its Windows installer, USB pairing, Developer Mode, and LocalDevVPN. Initial installation requires the phone and a computer. After setup, SideStore can refresh signing on the phone with Wi-Fi and LocalDevVPN; cellular-only access does not meet its current prerequisites. In SideStore, open **My Apps** and tap the expiry/refresh control. Prompts or account sign-in may occasionally require attention. AltStore Classic also supports phone-only renewal after setup through [Remote AltServer](https://faq.altstore.io/altstore-classic/remote-altservers), with Wi-Fi and LocalDevVPN. Select and test a route using the release plan.
 
 With a free Apple account, signing expires after **seven days**. Refresh before that deadline. Background refresh may help, but should not be treated as guaranteed. An expired app stops opening, including when its songs are stored offline. Restore signing to use it again. The free-account limit of three sideloaded apps includes the installer app. These limits are documented in [AltStore Classic's app management guide](https://faq.altstore.io/altstore-classic/your-altstore).
 

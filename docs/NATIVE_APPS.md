@@ -1,5 +1,7 @@
 # Native FamilyHub Music apps
 
+The [iPhone and platform release plan](PLATFORM_RELEASE_PLAN.md) records free-signing research, proposed Apple rollout steps, device acceptance checks and future release maintenance.
+
 The shared MAUI app is in `clients/FamilyHub.App`; server communication and offline storage are in `clients/FamilyHub.Client.Core`. Windows and Android builds have been produced. Physical-device playback and installation results must be recorded separately from build success.
 
 The native interface links the original web client's `music_web/static/shell.css` directly into its build and reuses its icon shapes, top search, artwork rows, genre controls, navigation and player layout. Downloads, editable playlists and Queue extend that layout. Artwork uses authenticated server requests and account-specific offline caches. Volume and shuffle operate on the native player.
