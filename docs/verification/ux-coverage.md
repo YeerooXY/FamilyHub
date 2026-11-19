@@ -1,5 +1,9 @@
 # Interface verification
 
+## 19 November 2026 — Music player bar
+
+Desktop and phone player layout, track states, keyboard focus, reduced motion, title truncation and playlist action placement were checked in headless Chromium and WebKit. The measurements, screenshots and device limits are in the [player bar verification record](player-bar-2026-11-19/README.md).
+
 ## 19 November 2026 — Music Home shelves, album details and Search
 
 Headless Playwright rendered the built Windows Razor components in a local

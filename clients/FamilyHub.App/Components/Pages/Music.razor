@@ -363,10 +363,13 @@ else
     }
     <div class="now-playing-group"><button id="show-queue" class="now-playing" @onclick="PlayerArea" aria-label='@(Player.Current is null ? "Quick play" : "Open playback queue")'>
         @if (Player.Current is null) { <span class="cover quick-play-art"><MusicIcon Name="play" /></span> } else { <TrackCover @key="Player.Current.Id" Track="Player.Current" /> }
-        <span class="now-copy"><strong id="now-title"><span class="marquee-text">@(Player.Current?.Title ?? "Quick play")</span></strong><span id="now-artist">@(Player.Preparing ? "Preparing song..." : Player.Current?.Channel ?? (Player.Queue.Count > 0 ? "Play your queue" : Session.HasListeningHistory ? "Based on your listening" : "Shuffle your library"))</span>@if (Player.Current is not null) { <span id="bar-next">@(NextTrack is { } next ? "Up next \u00b7 " + next.Title : "Open queue")</span> }</span>
+        <span class="now-copy"><strong id="now-title"><span class="marquee-text">@(Player.Current?.Title ?? "Quick play")</span></strong><span id="now-artist">@(Player.Preparing ? "Preparing song..." : Player.Current?.Channel ?? (Player.Queue.Count > 0 ? "Play your queue" : Session.HasListeningHistory ? "Based on your listening" : "Shuffle your library"))</span></span>
     </button>
     @if (Player.Current is { } currentSong)
-    { <button id="now-add-playlist" class="quiet row-action song-playlist-add @(Session.Playlists.Any(p => p.Tracks.Any(t => t.RecordingId == currentSong.Id)) ? "is-added" : "")" @onclick='() => OpenPlaylistPicker((currentSong, "now-add-playlist"))' aria-label="Add @currentSong.Title to playlist" title="Add to playlist" aria-haspopup="dialog"><MusicIcon Name="@(Session.Playlists.Any(p => p.Tracks.Any(t => t.RecordingId == currentSong.Id)) ? "check-circle" : "plus-circle")" /></button> }
+    {
+        var inPlaylist = Session.Playlists.Any(p => p.Tracks.Any(t => t.RecordingId == currentSong.Id));
+        <button id="now-add-playlist" type="button" class="quiet row-action song-playlist-add @(inPlaylist ? "is-added" : "")" @onclick='() => OpenPlaylistPicker((currentSong, "now-add-playlist"))' aria-label="Add @currentSong.Title to playlist" title="Add to playlist" aria-haspopup="dialog"><MusicIcon Name="@(inPlaylist ? "check-circle-outline" : "plus-circle")" /></button>
+    }
     </div>
     <div class="transport"><div class="transport-buttons">
         <button id="shuffle-toggle" class="quiet" @onclick="ToggleShuffle" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Shuffle" aria-pressed="@Aria(Player.Shuffle)"><MusicIcon Name="shuffle" /></button>

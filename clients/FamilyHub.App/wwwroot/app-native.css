@@ -671,10 +671,7 @@ body[data-view=preferences] #view-title { width:min(900px,100%); margin-inline:a
 .glass-dialog[popover]:popover-open { animation:dialog-enter .18s cubic-bezier(.2,.8,.2,1); }
 .glass-dialog[popover]::backdrop { background:transparent; backdrop-filter:none; }
 .song-menu { box-shadow:0 12px 32px #0007,inset 0 1px #ffffff08; }
-#now-add-playlist.is-added { color:#56d58e; }
 @media(prefers-reduced-motion:reduce) { .glass-dialog[popover]:popover-open { animation:none; } }
-.now-playing-group { justify-content:flex-start; }
-.now-playing-group #show-queue { flex:0 1 auto; width:auto; max-width:calc(100% - 48px); }
 .stats-storage-panel { grid-column:1/-1; padding:24px; }
 .playlist-column-headings,.playlist-song-list .song-row.has-playlist-columns { display:grid; grid-template-columns:32px minmax(0,1.5fr) minmax(0,.7fr) minmax(210px,1fr) 24px 92px 50px; gap:12px; align-items:center; }
 .playlist-column-headings { position:sticky; top:40px; z-index:5; color:var(--ink); font-size:14px; font-weight:700; padding:12px; border-bottom:1px solid #ffffff24; margin-top:20px; background:var(--panel-bg); }

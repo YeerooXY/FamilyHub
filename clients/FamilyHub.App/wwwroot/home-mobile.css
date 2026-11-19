@@ -118,7 +118,7 @@
 .player-collapse,.transport-buttons .player-queue { display:none; }
 @media(max-width:720px) {
  :root { --player-height:72px; }
- .player-bar:not(.is-expanded) { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:60px; align-items:center; padding:6px 52px 6px 8px; margin:0 8px; border-radius:10px; background:linear-gradient(90deg,color-mix(in oklch,var(--accent-blue) 22%,#1b1f29),#1b1f29); }
+ .player-bar:not(.is-expanded) { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:60px; align-items:center; padding:6px 52px 6px 8px; margin:0 8px; border-radius:10px; }
  .player-bar:not(.is-expanded) .now-playing-group,.player-bar:not(.is-expanded):has(.local-pause-button) .now-playing-group { padding-right:0; }
  .player-bar:not(.is-expanded) #now-add-playlist { display:none; }
  .player-bar:not(.is-expanded) #show-queue { touch-action:pan-y; }
@@ -178,7 +178,7 @@
 
  /* Long titles scroll sideways, pause, then come round again. */
  .player-bar.is-expanded #now-title { display:flex; overflow:hidden; white-space:nowrap; }
- .player-bar.is-expanded #now-title .marquee-text { flex:none; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+ .player-bar #now-title .marquee-text { flex:none; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
  .player-bar.is-expanded #now-title.is-marquee { -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 24px),transparent); mask-image:linear-gradient(90deg,#000 calc(100% - 24px),transparent); }
  .player-bar.is-expanded #now-title.is-marquee .marquee-text { max-width:none; overflow:visible; padding-right:48px; will-change:transform; }
 }
@@ -299,7 +299,7 @@ body:has(.lyrics-view) .workspace>main { visibility:hidden; }
 .player-bar .player-tools>button.quiet[aria-pressed=true],.player-bar .player-tools>button.is-remote { color:var(--accent-blue); }
 .player-bar .player-tools>button.quiet:focus-visible { outline:2px solid var(--focus,var(--accent-blue)); outline-offset:2px; }
 @media(min-width:721px) {
- .player-bar { grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) max-content; }
+ .player-bar { grid-template-columns:minmax(120px,1fr) minmax(192px,2fr) minmax(max-content,1fr); }
  .player-bar .player-tools { width:auto; max-width:none; justify-content:flex-end; }
  .player-bar .player-tools>button.player-tools-close,.player-bar .player-tools>button.sheet-only { display:none; }
 }

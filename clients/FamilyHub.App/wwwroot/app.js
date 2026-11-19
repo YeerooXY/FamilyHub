@@ -311,18 +311,10 @@ new MutationObserver(()=>{
     }
 }).observe(document.getElementById('app'),{childList:true,subtree:true});
 
-window.familyhub.observeSeekBar = (slider, reference) => {
-    const observer = new IntersectionObserver(([entry]) => reference.invokeMethodAsync('SeekVisibility', entry.isIntersecting));
-    observer.observe(slider);
-    return {disconnect: () => observer.disconnect()};
-};
-
 window.familyhub.bindSeekHover = input => {
-    if (!input || input._hoverBound) return;
-    input._hoverBound = true;
     const control = input.closest('.seek-control'), row = control.closest('.seek-row');
-    const output = control.querySelector('.seek-hover-tooltip'), elapsed = row.querySelector('.seek-elapsed');
-    let lastPointer, dragging = false, lastValue = Number(input.value), initialValue = lastValue;
+    const output = control.querySelector('.seek-tooltip'), elapsed = row.querySelector('.seek-elapsed');
+    let hoverX, dragPointer, lastValue = Number(input.value), initialValue = lastValue;
     const time = seconds => { seconds = Math.floor(Math.max(0, seconds)); return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0'); };
     const preview = () => {
         const value = Math.max(0, Math.min(Number(input.max), lastValue));
@@ -332,30 +324,98 @@ window.familyhub.bindSeekHover = input => {
         // and the time then stops following playback.
         const write = (element, text) => { const node = element.firstChild; if (node && node.nodeType === 3 && !node.nextSibling) { if (node.nodeValue !== text) node.nodeValue = text; } else if (element.textContent !== text) element.textContent = text; };
         write(elapsed, time(value));
-        write(control.querySelector('.seek-tooltip'), time(value));
-        if (dragging && Number(input.value) !== value) input.value = String(value);
+        if (dragPointer !== undefined && Number(input.value) !== value) input.value = String(value);
     };
-    const paint = event => {
-        lastPointer = event;
-        if (event.pointerType === 'touch') return;
+    const paint = () => {
+        if (input.disabled || (dragPointer === undefined && hoverX === undefined && document.activeElement !== input)) return;
         const rect = input.getBoundingClientRect();
-        const percent = Math.max(0, Math.min(1, (event.clientX - rect.left - 6) / Math.max(1, rect.width - 12)));
-        output.textContent = time(percent * Number(input.max));
-        const hover = (percent * 100) + '%';
-        if (control.style.getPropertyValue('--seek-hover') !== hover) control.style.setProperty('--seek-hover', hover);
+        // Native range values are mapped between the centres of the 12 px thumb at either end.
+        const thumbTravel = Math.max(1, rect.width - 12);
+        const hovering = dragPointer === undefined && hoverX !== undefined;
+        const pointer = hovering ? hoverX - rect.left : 6 + thumbTravel * (Number(input.value) / Number(input.max));
+        const fraction = Math.max(0, Math.min(1, (pointer - 6) / thumbTravel));
+        const label = time(hovering ? fraction * Number(input.max) : Number(input.value));
+        if (output.textContent !== label) output.textContent = label;
+        const half = output.getBoundingClientRect().width / 2;
+        output.style.left = Math.max(half, Math.min(rect.width - half, pointer)) + 'px';
     };
-    input.addEventListener('pointerdown', () => { if (input.getAttribute('aria-disabled') === 'true') return; dragging = true; initialValue = lastValue = Number(input.value); document.addEventListener('pointerup', () => { dragging = false; }, {once:true,capture:true}); });
-    input.addEventListener('input', () => { if (input.getAttribute('aria-disabled') === 'true') return; lastValue = Number(input.value); preview(); });
-    input.addEventListener('pointerup', () => { dragging = false; });
-    input.addEventListener('lostpointercapture', () => { dragging = false; });
-    input.addEventListener('blur', () => { dragging = false; });
-    const cancel = () => { if (!dragging) return; dragging = false; lastValue = initialValue; input.value = String(initialValue); preview(); };
-    input.addEventListener('pointercancel', cancel);
-    input.addEventListener('keydown', event => { if (event.key === 'Escape') cancel(); });
-    new MutationObserver(() => { if (dragging) preview(); if (lastPointer) paint(lastPointer); }).observe(control, {attributes:true,attributeFilter:['max','value','style'],subtree:true});
-    new MutationObserver(() => { if (dragging) preview(); }).observe(elapsed, {childList:true,characterData:true,subtree:true});
-    input.addEventListener('pointerenter', paint);
-    input.addEventListener('pointermove', paint);
+    const setHover = event => {
+        hoverX = event && event.pointerType !== 'touch' ? event.clientX : undefined;
+        control.classList.toggle('is-hovering', hoverX !== undefined);
+        paint();
+    };
+    const endDrag = () => {
+        dragPointer = undefined;
+        control.classList.remove('is-dragging');
+        document.removeEventListener('pointerup', finish, true);
+        document.removeEventListener('pointercancel', finish, true);
+        paint();
+    };
+    const cancel = () => {
+        if (dragPointer === undefined) return;
+        lastValue = initialValue;
+        input.value = String(initialValue);
+        preview();
+        endDrag();
+    };
+    const finish = event => {
+        if (event.pointerId !== dragPointer) return;
+        if (event.type === 'pointercancel') cancel();
+        else endDrag();
+    };
+    input.addEventListener('pointerdown', event => {
+        if (input.disabled || event.button !== 0 || dragPointer !== undefined) return;
+        dragPointer = event.pointerId;
+        initialValue = lastValue = Number(input.value);
+        control.classList.toggle('is-touch-interaction', event.pointerType === 'touch');
+        control.classList.add('is-dragging');
+        setHover(event);
+        document.addEventListener('pointerup', finish, true);
+        document.addEventListener('pointercancel', finish, true);
+    });
+    input.addEventListener('input', () => {
+        if (input.disabled) return;
+        lastValue = Number(input.value);
+        preview();
+        paint();
+    });
+    input.addEventListener('lostpointercapture', finish);
+    input.addEventListener('focus', paint);
+    input.addEventListener('blur', () => {
+        control.classList.remove('is-touch-interaction');
+        endDrag();
+    });
+    input.addEventListener('keydown', event => {
+        control.classList.remove('is-touch-interaction');
+        if (event.key === 'Escape') cancel();
+    });
+    const sync = new MutationObserver(() => {
+        if (dragPointer !== undefined) {
+            if (input.disabled) endDrag();
+            else preview();
+        }
+        paint();
+    });
+    sync.observe(control, {attributes:true,attributeFilter:['style']});
+    sync.observe(input, {attributes:true,attributeFilter:['max','value','disabled']});
+    sync.observe(elapsed, {childList:true,characterData:true,subtree:true});
+    const resize = new ResizeObserver(paint);
+    resize.observe(control);
+    input.addEventListener('pointerenter', setHover);
+    input.addEventListener('pointermove', setHover);
+    input.addEventListener('pointerleave', () => setHover());
+    return () => {
+        sync.disconnect();
+        resize.disconnect();
+        endDrag();
+    };
+};
+
+window.familyhub.observeSeekBar = (slider, reference) => {
+    const unbind = window.familyhub.bindSeekHover(slider);
+    const observer = new IntersectionObserver(([entry]) => reference.invokeMethodAsync('SeekVisibility', entry.isIntersecting));
+    observer.observe(slider);
+    return {disconnect: () => { observer.disconnect(); unbind(); }};
 };
 
 (() => {

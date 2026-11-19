@@ -5,13 +5,12 @@
 <div class="seek-row">
     <span class="seek-elapsed">@Time(Position)</span>
     <div class="seek-control" style="@($"--seek-position:{Percent.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}%")">
-        <output class="seek-tooltip @(showPreview ? "is-visible" : "")" aria-hidden="true">@Time(Position)</output>
+        <output class="seek-tooltip" aria-hidden="true"></output>
         <input @ref="slider" aria-label="Playback position" aria-valuetext="@Time(Position)" disabled="@(!Player.CanSeek || Player.FollowingHost)"
                aria-disabled="@(!Player.CanSeek || Player.FollowingHost ? "true" : "false")" type="range"
                min="0" max="@Math.Max(1, Player.Duration)" value="@Position" step="0.1"
-               @oninput="Preview" @onchange="Commit" @onpointerdown="Start" @onpointerup="End"
-               @onpointercancel="Cancel" @onfocus="Start" @onblur="Cancel" @onkeydown="KeyDown" />
-        <output class="seek-hover-tooltip" aria-hidden="true"></output>
+               @oninput="Preview" @onchange="Commit"
+               @onpointercancel="Cancel" @onblur="Cancel" @onkeydown="KeyDown" />
     </div>
     <span>@Time(Player.Duration)</span>
 </div>
@@ -23,13 +22,11 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
-        await JS.InvokeVoidAsync("familyhub.bindSeekHover", slider);
         visibility = DotNetObjectReference.Create(this);
         observer = await JS.InvokeAsync<IJSObjectReference>("familyhub.observeSeekBar", slider, visibility);
     }
     [JSInvokable] public void SeekVisibility(bool visible) => Player.SetSeekBarVisible(visible);
     private double? preview;
-    private bool showPreview;
     private string? track;
     private double Position => preview ?? Player.Position;
     private double Percent => Player.Duration > 0 ? Math.Clamp(Position / Player.Duration * 100, 0, 100) : 0;
@@ -39,24 +36,22 @@
     private void Changed() => _ = InvokeAsync(() => {
         if (!Player.UiActive || track == Player.Current?.Id && Environment.TickCount64 - lastRender < 1000) return;
         lastRender = Environment.TickCount64;
-        if (track != Player.Current?.Id) { track = Player.Current?.Id; preview = null; showPreview = false; }
+        if (track != Player.Current?.Id) { track = Player.Current?.Id; preview = null; }
         StateHasChanged();
     });
-    private void Start() { if (Player.CanSeek && !Player.FollowingHost) showPreview = true; }
-    private void End() => showPreview = false;
-    private void Cancel() { preview = null; showPreview = false; }
+    private void Cancel() => preview = null;
     private void KeyDown(KeyboardEventArgs args) { if (args.Key == "Escape") Cancel(); }
     private void Preview(ChangeEventArgs args)
     {
         if (!Player.CanSeek || Player.FollowingHost) return;
         if (double.TryParse(args.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value) && double.IsFinite(value))
-        { preview = Math.Clamp(value, 0, Player.Duration); showPreview = true; }
+            preview = Math.Clamp(value, 0, Player.Duration);
     }
     private async Task Commit(ChangeEventArgs args)
     {
         Preview(args);
         try { if (preview is { } value && Player.CanSeek && !Player.FollowingHost) await Player.SeekAsync(value); }
-        finally { preview = null; showPreview = false; }
+        finally { preview = null; }
     }
     public async ValueTask DisposeAsync()
     {
