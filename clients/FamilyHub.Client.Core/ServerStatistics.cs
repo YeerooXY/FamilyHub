@@ -4,6 +4,7 @@ namespace FamilyHub.Client.Core;
 
 public sealed record ServerStatistics
 {
+    [JsonPropertyName("snapshot_age_seconds")] public int SnapshotAgeSeconds { get; init; }
     public string Since { get; init; } = "";
     [JsonPropertyName("total_seconds")] public double TotalSeconds { get; init; }
     [JsonPropertyName("total_qualified_plays")] public long TotalQualifiedPlays { get; init; }

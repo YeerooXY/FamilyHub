@@ -27,6 +27,7 @@ public sealed record SourceQualityCandidate
 }
 public sealed record CatalogueReviewSnapshot
 {
+    [JsonPropertyName("snapshot_age_seconds")] public int SnapshotAgeSeconds { get; init; }
     [JsonPropertyName("trimming")] public List<TrimmingRequest> Trimming { get; init; } = [];
     [JsonPropertyName("metadata")] public List<MetadataRequest> Metadata { get; init; } = [];
     [JsonPropertyName("trimming_total")] public int TrimmingTotal { get; init; }

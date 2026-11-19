@@ -19,6 +19,8 @@
         <button id="server-stats-refresh" class="quiet stats-refresh @(fetching ? "is-refreshing" : "")" aria-label="@(Leaderboard ? "Refresh leaderboard" : "Refresh server work")" title="Refresh" @onclick="RefreshNow" aria-disabled="@Aria(fetching || Offline)"><MusicIcon Name="refresh" /></button>
     </div>
     @if (error is not null || Offline || data is null) { <p class="stats-status" role="status">@StatusText</p> }
+    @if (error is not null && !Offline) { <button class="quiet" disabled="@fetching" @onclick="RefreshNow">Retry server work</button> }
+    @if (data?.SnapshotAgeSeconds > 1) { <p class="stats-status" role="status">Showing the last server snapshot. Refresh to check for updates.</p> }
     @if (data is { } stats && Leaderboard)
     {
         var ranking = Ranking.ToList();
@@ -224,10 +226,6 @@
                     }
                 </section>
             }
-            @if (ChildContent is not null)
-            {
-                <div class="srv-review-slot">@ChildContent</div>
-            }
             @if (data is { } figures)
             {
                 var used = Math.Max(0, figures.StorageTotalBytes - figures.StorageFreeBytes);
@@ -285,7 +283,6 @@
     private double SelectedTotal => period == "week" ? Days.Sum(d => d.Seconds) : data?.Profiles.Sum(PeriodSeconds) ?? 0;
     private double PeriodSeconds(ListenerStatistics profile) => period == "all" ? profile.Seconds : period == "month" ? profile.MonthSeconds : profile.Daily.Where(d => string.CompareOrdinal(d.Day,StartDay) >= 0).Sum(d => d.Seconds);
     [Parameter] public bool Leaderboard { get; set; }
-    [Parameter] public RenderFragment? ChildContent { get; set; }
     private async Task SetPeriod(string value) { if (period == value) return; await JS.InvokeVoidAsync("familyhub.captureLeaderboard"); period = value; }
     private static string X(int i,int count) => (count <= 1 ? 280d : i * 560d / (count - 1)).ToString("0.##",Inv);
     private static string Y(double seconds,double peak) => (144 - 128 * seconds / peak).ToString("0.##",Inv);
@@ -330,17 +327,17 @@
         try
         {
             using var request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-            request.CancelAfter(TimeSpan.FromSeconds(10));
+            request.CancelAfter(TimeSpan.FromSeconds(5));
             var api = Session.Api!;
-            var result = await api.GetServerStatsAsync(request.Token, leaderboard: Leaderboard);
+            var result = await api.GetServerStatsAsync(request.Token, leaderboard: Leaderboard).WaitAsync(request.Token);
             if (disposed || identity != Identity) return;
-            await JS.InvokeVoidAsync("familyhub.captureLeaderboard");
-            await JS.InvokeVoidAsync("familyhub.captureStatsFocus");
+            if (Leaderboard) await JS.InvokeVoidAsync("familyhub.captureLeaderboard").AsTask().WaitAsync(request.Token);
+            await JS.InvokeVoidAsync("familyhub.captureStatsFocus").AsTask().WaitAsync(request.Token);
             data = result; Session.UpdateTopListener(result);
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { return; }
-        catch (OperationCanceledException) { error = "The server did not answer in time. Try refreshing."; }
-        catch (Exception) { error = "Could not load statistics. Try refreshing."; }
+        catch (OperationCanceledException) { error = "The server did not answer in time. Retry to load server work."; }
+        catch (Exception) { error = "Could not load statistics. Retry to load them."; }
         finally
         {
             fetching = false;
@@ -363,9 +360,9 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender) await UpdateIdentity();
         await JS.InvokeVoidAsync("familyhub.animateLeaderboard");
         await JS.InvokeVoidAsync("familyhub.restoreStatsFocus");
-        if (firstRender) await UpdateIdentity();
     }
     private static (string Title, string Icon) StageDisplay(string stage) => stage switch
     {

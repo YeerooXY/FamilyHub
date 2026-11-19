@@ -1,0 +1,168 @@
+"""Listener admission must survive occupied background lanes."""
+import threading
+import time
+from contextlib import ExitStack
+from unittest import mock
+
+from tests.test_music_web import Base, URL
+from music_web.resources import ResourceGovernor, TransferResources
+
+
+class ListenerAdmissionTests(Base):
+    def test_background_download_promotes_a_completed_preview_to_an_import(self):
+        client, token = self.signed_in()
+        with mock.patch('threading.Thread.start'):
+            response = self.post(client, token, '/api/queue', json={'tracks': [{'url': URL}], 'allow_new': True})
+            self.assertEqual(response.status_code, 200)
+            job = next(iter(self.state.jobs.values()))
+            job.update(state='done', message='Prepared', item='fixture')
+            response = self.post(client, token, '/api/jobs', json={'url': URL, 'prefetch': True})
+        self.state.worker = None
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json['job']['id'], job['id'])
+        self.assertEqual(job['state'], 'queued')
+        self.assertTrue(job['save'])
+
+    def test_listener_starts_ahead_of_24_queued_downloads_without_cancelling_them(self):
+        client, token = self.signed_in()
+        background = []
+        with mock.patch('threading.Thread.start'):
+            for index in range(24):
+                response = self.post(client, token, '/api/jobs', json={
+                    'url': self.intake.WATCH + f'{index:011d}', 'prefetch': True})
+                self.assertEqual(response.status_code, 202)
+                background.append(self.state.jobs[response.json['job']['id']])
+        self.state.worker = None
+        entered = threading.Event()
+        release = threading.Event()
+        def fetch(args):
+            if args.url == URL:
+                entered.set()
+            release.wait(3)
+            return {'item': 'fixture'}
+        with mock.patch.object(self.intake, 'cmd_fetch', side_effect=fetch), mock.patch.object(self.intake, 'cmd_preview', return_value={'assets': []}), mock.patch.object(self.intake, 'cmd_import'):
+            try:
+                response = self.post(client, token, '/api/jobs', json={'url': URL})
+                self.assertEqual(response.status_code, 202)
+                self.assertTrue(entered.wait(.7), 'listener waited behind queued downloads')
+                self.assertTrue(all(not job['cancel'].is_set() for job in background))
+            finally:
+                release.set()
+                self.stop_worker()
+
+    def test_native_prefetch_does_not_replace_or_cancel_explicit_play(self):
+        client, token = self.signed_in()
+        with mock.patch('threading.Thread.start'):
+            first = self.post(client, token, '/api/jobs', json={'url': URL}).json['job']
+            next_song = self.post(client, token, '/api/jobs', json={
+                'url': self.intake.WATCH + 'abcdefghijk', 'prefetch': True},
+                headers={'X-FamilyHub-Activity': 'background'}).json['job']
+        self.state.worker = None
+        playing = self.state.jobs[first['id']]
+        upcoming = self.state.jobs[next_song['id']]
+        self.assertFalse(playing['cancel'].is_set())
+        self.assertTrue(playing['current'])
+        self.assertFalse(upcoming['current'])
+        self.assertGreater(upcoming['priority'], playing['priority'])
+
+    def test_listener_metadata_does_not_wait_for_background_lookup(self):
+        gate = self.intake.YOUTUBE
+        gate.spacing = 0
+        entered = threading.Event()
+        def listen():
+            with gate.request('fetch'):
+                entered.set()
+        with gate.request('matching', background=True):
+            thread = threading.Thread(target=listen)
+            thread.start()
+            ready = entered.wait(.4)
+        thread.join(2)
+        self.assertTrue(ready, 'listener metadata waited behind a background provider request')
+
+    def test_listener_transfer_starts_with_every_idle_transfer_occupied(self):
+        governor = ResourceGovernor()
+        transfers = TransferResources(4, lambda: 1 << 30, governor)
+        entered = threading.Event()
+        def listen():
+            with transfers.lease(background=lambda: False, cancelled=lambda: False, error=ValueError):
+                entered.set()
+        with ExitStack() as occupied:
+            for _ in range(transfers.idle_capacity):
+                occupied.enter_context(transfers.lease(background=lambda: True, cancelled=lambda: False, error=ValueError))
+            thread = threading.Thread(target=listen)
+            thread.start()
+            ready = entered.wait(.4)
+        thread.join(2)
+        self.assertTrue(ready, 'idle transfers consumed the listener reservation')
+
+    def test_scratch_headroom_is_kept_for_a_listener(self):
+        transfers = TransferResources(4, lambda: 10, listener_scratch=4)
+        with ExitStack() as occupied:
+            for _ in range(3):
+                occupied.enter_context(transfers.lease(size=2, background=lambda: True, cancelled=lambda: False, error=ValueError))
+            with transfers.lease(size=4, background=lambda: False, cancelled=lambda: False, error=ValueError):
+                self.assertEqual(transfers.reserved, 10)
+
+    def test_saved_stream_does_not_wait_for_an_optional_encode(self):
+        from tests.test_native_music_api import NativeMusicApi, FIRST
+        NativeMusicApi.recording(self)
+        client, _ = self.signed_in()
+        with mock.patch('music_web.mobile_audio.prepare', side_effect=AssertionError('listener waited for an encode')):
+            response = self.go(client, 'GET', f'/api/library/{FIRST}/playback-info?quality=normal&stream=1')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('ticket=', response.json['stream_url'])
+        self.assertEqual(response.json['download_url'], f'/api/library/{FIRST}/download')
+
+    def test_review_read_does_not_flush_worker_state_to_disk(self):
+        client, _ = self.signed_in()
+        review = self.state.catalogue_review
+        with mock.patch.object(review, 'flush', side_effect=AssertionError('request performed disk write')):
+            response = self.go(client, 'GET', '/api/catalogue/review')
+        self.assertEqual(response.status_code, 200)
+
+
+class ServerSnapshotTests(Base):
+    extra = {'STATUS_SNAPSHOTS': True, 'ADMIN_USERS': ['sample-a']}
+
+    def test_reports_writes_are_not_cached_or_run_in_a_snapshot_worker(self):
+        from tests.test_native_music_api import NativeMusicApi, FIRST
+        NativeMusicApi.recording(self)
+        client, token = self.signed_in()
+        with mock.patch.object(self.state.catalogue_review, 'report_song', return_value={}) as report:
+            for reason in ('bad_quality', 'wrong_source'):
+                response = self.post(client, token, '/api/catalogue/reports', json={'id': FIRST, 'reason': reason})
+                self.assertEqual(response.status_code, 201)
+        self.assertEqual(report.call_count, 2)
+
+    def test_cold_review_times_out_then_retry_recovers_and_warm_snapshot_survives_lock(self):
+        client, _ = self.signed_in()
+        review = self.state.catalogue_review
+        with review.lock:
+            start = time.monotonic()
+            response = self.go(client, 'GET', '/api/catalogue/review')
+            self.assertLess(time.monotonic() - start, .7)
+            self.assertEqual(response.status_code, 503)
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            response = self.go(client, 'GET', '/api/catalogue/review')
+            if response.status_code == 200:
+                break
+            time.sleep(.01)
+        self.assertEqual(response.status_code, 200)
+        time.sleep(1.05)
+        with review.lock:
+            start = time.monotonic()
+            response = self.go(client, 'GET', '/api/catalogue/review')
+            self.assertEqual(response.status_code, 200)
+            self.assertLess(time.monotonic() - start, .2)
+
+    def test_snapshot_does_not_share_admin_permissions_between_profiles(self):
+        first, _ = self.signed_in()
+        second, _ = self.signed_in('sample-b')
+        with mock.patch.object(self.state.catalogue_review, 'snapshot', return_value={'metadata': [], 'trimming': []}):
+            a = self.go(first, 'GET', '/api/catalogue/review')
+            b = self.go(second, 'GET', '/api/catalogue/review')
+        self.assertEqual((a.status_code, b.status_code), (200, 200))
+        self.assertTrue(a.json['can_edit'])
+        self.assertFalse(b.json['can_edit'])
+        self.assertNotIn('Set-Cookie', b.headers)

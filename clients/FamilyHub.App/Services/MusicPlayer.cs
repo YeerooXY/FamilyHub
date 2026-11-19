@@ -482,7 +482,7 @@ public sealed class MusicPlayer(MusicSession session)
         var path = session.LocalPath(track) ?? await session.GetCachedPlaybackPathAsync(track, token);
         if (path is not null) return path;
         if (!session.Connected) throw new InvalidOperationException("This song is not downloaded on this device. Connect to play it.");
-        var saved = await session.EnsureServerRecordingAsync(track, token, session.CanStream && lead <= 0, background);
+        var saved = await session.EnsureServerRecordingAsync(track, token, session.CanStream && lead <= 0, background, prefetch: lead > 0);
         if (session.CanStream)
         {
             try { return await session.StreamPlaybackAsync(saved, lead, token, background); }

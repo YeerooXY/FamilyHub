@@ -382,7 +382,6 @@ class CatalogueReview:
 
     def snapshot(self,query="",limit=100):
         with self.lock:
-            self.flush()
             archived = self.archived_ids()
             trim=[copy.deepcopy(r) for r in self.data['trimming'].values() if r['id'] not in archived and r['state']!='done']
             metadata=[copy.deepcopy(r) for r in self.data['metadata'].values() if r['id'] not in archived and r['state']!='done']

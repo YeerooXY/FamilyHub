@@ -225,7 +225,7 @@ class ResourceGovernor:
         priority = background if callable(background) else lambda: background
         ticket = (object(), priority)
         granted = False
-        background_capacity = max(cost, self.cpu_capacity - 2)
+        background_capacity = max(1, min(self.cpu_capacity - 1, (self.cpu_capacity + 1) // 2))
         with self.condition:
             if cost <= self.cpu_capacity:
                 if start_offline:
@@ -377,8 +377,9 @@ def runtime_capacity(rss_only=False):
 
 
 class TransferResources:
-    def __init__(self, capacity, available, governor=None):
+    def __init__(self, capacity, available, governor=None, listener_scratch=0):
         self.capacity, self.available = capacity, available
+        self.listener_scratch = listener_scratch
         self.governor = governor
         self.idle_capacity = (max(capacity, transfer_limit("FAMILYHUB_TRANSFERS_IDLE", 6))
                               if governor and enabled("FAMILYHUB_IDLE_TRANSFERS") else capacity)
@@ -418,7 +419,8 @@ class TransferResources:
                             available = self.available()
                             if size > available and not self.reserved:
                                 raise error("scratch capacity exceeded")
-                            if size + self.reserved <= available:
+                            reserve = self.listener_scratch if background() else 0
+                            if size + self.reserved + reserve <= available:
                                 self.reserved += size
                                 break
                         else:
@@ -428,7 +430,8 @@ class TransferResources:
                                 if admitted_background:
                                     capacity = self.governor.background_slots(self.idle_capacity, self.background_floor())
                                 elif self.active - self.active_background < self.capacity:
-                                    capacity = max(capacity, min(self.active + 1, self.idle_capacity))
+                                    # Idle expansion cannot consume the transfers reserved for listeners.
+                                    capacity = self.active_background + self.capacity
                                 if admitted_background and capacity <= self.active < self.idle_capacity:
                                     delay = self.governor.background_delay(self.active + 1)
                             if self.active < capacity:

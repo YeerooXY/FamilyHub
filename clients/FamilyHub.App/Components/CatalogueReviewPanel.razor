@@ -14,6 +14,8 @@
     </header>
     <p class="sr" role="status" aria-live="polite" aria-atomic="true">@announcement</p>
     @if (error is not null) { <p class="entry-error" role="alert">@error</p> }
+    @if (error is not null && Online) { <button class="quiet" disabled="@Unavailable" @onclick="Refresh">Retry song review</button> }
+    @if (data?.SnapshotAgeSeconds > 1) { <p class="muted" role="status">Showing the last review snapshot. Refresh review to check for updates.</p> }
     @if (!Online) { <p class="muted" role="status">@(data is null ? "Connect to the server to review songs." : "Server offline. Showing the last loaded review.")</p> }
     else if (data is null && error is null) { <p class="muted" role="status">Loading song review…</p> }
     @if (data is { } snapshot)
@@ -33,7 +35,7 @@
             <header class="music-admin-heading catalogue-section-heading">
                 <div>
                     <h3 id="catalogue-category-title" tabindex="-1">@section.Label</h3>
-                    <p class="catalogue-description">@section.Description</p>
+                    @if (section.Description.Length > 0) { <p class="catalogue-description">@section.Description</p> }
                 </div>
                 @if (snapshot.CanEdit)
                 {
@@ -263,7 +265,7 @@
         new("playlists", "Missing from playlists", "Choose recordings for songs that need a match.", "No missing playlist recordings."),
         new("damaged", "Damaged audio", "Review recordings flagged by the audio scan.", "No damaged audio to review."),
         new("unofficial", "Unofficial uploads", "Review uploads with a matching official recording.", "No unofficial uploads with an official alternative."),
-        new("metadata", "Missing metadata", "Review suggested details and fill in missing fields.", "No missing song metadata.", false),
+        new("metadata", "Missing metadata", "", "No missing song metadata.", false),
         new("trimming", "Trimming", "Check the reported positions for unwanted audio.", "No trimming requests.", false),
         new("reports", "Song reports", "Review problems reported by family profiles.", "No open song reports."),
         new("fixed", "Fixed automatically", "Undo restores the previous recording or removes the automatically added details.", "No automatic fixes to review.")
@@ -331,17 +333,17 @@
         try
         {
             using var request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-            request.CancelAfter(TimeSpan.FromSeconds(15));
+            request.CancelAfter(TimeSpan.FromSeconds(5));
             var limit = Math.Max(Limit("playlists"), Math.Max(Limit("metadata"), Limit("trimming")));
             var result = await api.RequestJsonAsync<CatalogueReviewSnapshot>(HttpMethod.Get,
-                "/api/catalogue/review?limit=" + limit, cancellationToken: request.Token);
+                "/api/catalogue/review?limit=" + limit, cancellationToken: request.Token).WaitAsync(request.Token);
             var newQuality = new SourceQualitySnapshot();
             List<SongReport> newReports = [];
             if (result.CanEdit)
             {
                 var qualityTask = api.RequestJsonAsync<SourceQualitySnapshot>(HttpMethod.Get, "/api/catalogue/source-quality", cancellationToken: request.Token);
                 var reportTask = api.RequestJsonAsync<SongReports>(HttpMethod.Get, "/api/catalogue/reports", cancellationToken: request.Token);
-                await Task.WhenAll(qualityTask, reportTask);
+                await Task.WhenAll(qualityTask, reportTask).WaitAsync(request.Token);
                 newQuality = await qualityTask;
                 newReports = (await reportTask).Reports;
             }
@@ -358,7 +360,7 @@
             }
         }
         catch (OperationCanceledException) when (disposed) { }
-        catch (Exception) { if (Identity == requestIdentity) error = "Could not load song review. Refresh to try again."; }
+        catch (Exception) { if (Identity == requestIdentity) error = "Could not load song review. Retry to load it."; }
         finally
         {
             loading = false;

@@ -412,6 +412,7 @@ class YouTubeGate:
     def __init__(self):
         self.condition = threading.Condition()
         self.active = False
+        self.listener_active = False
         self.users = 0
         self.last = float('-inf')
         self.spacing = 1.0
@@ -442,13 +443,18 @@ class YouTubeGate:
                     defer = getattr(CONTROL, "defer_youtube", None)
                     if defer and background:
                         defer(self.until > now)
-                    if (media or (not self.active and not (background and self.users))) and delay <= 0:
+                    listener = caller == "fetch" and not background
+                    available = not self.listener_active if listener else not self.active and not self.listener_active and not (background and self.users)
+                    if (media or available) and delay <= 0:
                         break
                     reason = "YouTube cooldown" if background and self.until > now else "YouTube pacing"
                     with RESOURCE_WAIT(reason):
                         self.condition.wait(.2)
                 if not media:
-                    self.active = True
+                    if listener:
+                        self.listener_active = True
+                    else:
+                        self.active = True
                     self.last = now
                 self.counts[caller] += 1
             finally:
@@ -467,7 +473,10 @@ class YouTubeGate:
                     self.refusals.clear()
                     self.reported = now
                 if not media:
-                    self.active = False
+                    if listener:
+                        self.listener_active = False
+                    else:
+                        self.active = False
                 self.condition.notify_all()
 
     def result(self, caller, rc, error, media=False):

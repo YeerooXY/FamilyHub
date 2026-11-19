@@ -1177,10 +1177,8 @@ public sealed class MusicSession
         return path;
     }
 
-    // Android players stream from a signed link, so a song starts within a second or two instead of after the whole download.
-    // Turned off for the rest of the run after a stream fails; playback then downloads as before.
     private bool streamingFailed;
-    public bool CanStream => OperatingSystem.IsAndroid() && !streamingFailed;
+    public bool CanStream => !streamingFailed;
     public void StreamingFailed() => streamingFailed = true;
     public static bool IsStream(string source) => source.StartsWith("https://", StringComparison.Ordinal);
 
@@ -1197,7 +1195,7 @@ public sealed class MusicSession
         }
         if (track.PlaybackInfoUrl != $"/api/library/{track.Id}/playback-info")
             throw new InvalidDataException("Streaming is unavailable for this recording.");
-        var info = await api.RequestJsonAsync<MusicTrack>(HttpMethod.Get, PlaybackInfoUrl(track, ActiveStreamingQuality, lead), cancellationToken: cancellationToken, background: background);
+        var info = await api.RequestJsonAsync<MusicTrack>(HttpMethod.Get, PlaybackInfoUrl(track, ActiveStreamingQuality, lead) + "&stream=1", cancellationToken: cancellationToken, background: background);
         EnsureCurrent(version);
         if (info.Id != track.Id || info.StreamUrl.Length == 0) throw new InvalidDataException("The stream link does not match this recording.");
         var stream = api.ResolveUri(info.StreamUrl).AbsoluteUri;
@@ -1448,13 +1446,13 @@ public sealed class MusicSession
             .DistinctBy(Similarity.SongKey));
     }
 
-    public async Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken cancellationToken, bool allowPreview = false, bool background = false)
+    public async Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken cancellationToken, bool allowPreview = false, bool background = false, bool prefetch = false)
     {
         if (!string.IsNullOrEmpty(track.DownloadUrl)) return track;
         var version = accountVersion;
         var api = OnlineApi();
         var created = await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, "/api/jobs",
-            new { url = track.Url, title = track.Title, channel = track.Channel, allow_new = true }, cancellationToken, background);
+            new { url = track.Url, title = track.Title, channel = track.Channel, allow_new = true, prefetch }, cancellationToken, background);
         var job = created.GetProperty("job");
         var id = job.GetProperty("id").GetString();
         while (job.GetProperty("state").GetString() is "queued" or "running")

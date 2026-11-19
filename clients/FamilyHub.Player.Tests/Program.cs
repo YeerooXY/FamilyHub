@@ -452,7 +452,7 @@ namespace FamilyHub.App.Services
         private readonly List<TaskCompletionSource<string>> requests = [];
         public string? LocalPath(MusicTrack track) => Delay ? null : FailPlayback ? "fail" : "fixture";
         public Task<string?> GetCachedPlaybackPathAsync(MusicTrack track, CancellationToken token) => Task.FromResult<string?>(null);
-        public Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken token, bool allowPreview = false, bool background = false) => Task.FromResult(track);
+        public Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken token, bool allowPreview = false, bool background = false, bool prefetch = false) => Task.FromResult(track);
         public bool CanStream => false;
         public void StreamingFailed() { }
         public static bool IsStream(string source) => source.StartsWith("https://", StringComparison.Ordinal);

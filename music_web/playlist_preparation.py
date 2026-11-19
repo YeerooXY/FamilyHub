@@ -620,13 +620,17 @@ class PlaylistPreparation:
 
     def work(self):
         with self.lock:
-            result=[]
-            for (owner,pid),operation in self.operations.items():
-                if operation.active is None: continue
-                data=self.store.read(owner,pid); status=data['preparation']
-                processed=status.get('loaded',0) if status.get('phase')=='reading' else status.get('processed',0)
-                result.append(dict(owner=owner,playlist_id=pid,title=data['name'],kind='playlist_'+('catalogue' if status['mode']=='match' else status['mode']),
-                    state='queued' if status.get('message','').startswith('Waiting') else status['state'],phase=status.get('message',''),processed=processed,total=status.get('total',0),
-                    remaining=max(0,status.get('total',0)-processed),current_title=status.get('title',''),
-                    files=deepcopy(status.get('active_downloads',[])),download_bytes=status.get('download_bytes',0),download_total_bytes=status.get('download_total_bytes')))
-            return result
+            active = [key for key, operation in self.operations.items() if operation.active is not None]
+        result=[]
+        for owner,pid in active:
+            try:
+                data=self.store.read(owner,pid,snapshot=True)
+            except PlaylistError:
+                continue
+            status=data['preparation']
+            processed=status.get('loaded',0) if status.get('phase')=='reading' else status.get('processed',0)
+            result.append(dict(owner=owner,playlist_id=pid,title=data['name'],kind='playlist_'+('catalogue' if status['mode']=='match' else status['mode']),
+                state='queued' if status.get('message','').startswith('Waiting') else status['state'],phase=status.get('message',''),processed=processed,total=status.get('total',0),
+                remaining=max(0,status.get('total',0)-processed),current_title=status.get('title',''),
+                files=deepcopy(status.get('active_downloads',[])),download_bytes=status.get('download_bytes',0),download_total_bytes=status.get('download_total_bytes')))
+        return result

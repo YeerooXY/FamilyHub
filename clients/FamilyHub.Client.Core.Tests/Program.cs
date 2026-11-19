@@ -419,6 +419,7 @@ checks += ListeningChecks.Run();
 checks += PlaylistSongChecks.Run();
 checks += await SessionChecks.RunAsync();
 checks += await EditionChecks.RunAsync();
+checks += await PlaybackFlowChecks.RunAsync();
 checks += await ProfileImageChecks.RunAsync();
 var quickLibrary = new List<MusicTrack>
 {
