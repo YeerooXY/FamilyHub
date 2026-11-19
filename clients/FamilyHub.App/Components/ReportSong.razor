@@ -1,15 +1,11 @@
 @inject MusicSession Session
 @inject MusicPlayer Player
 @inject IJSRuntime JS
-<button id="report-song" class="quiet trim-request" aria-haspopup="dialog" aria-label="Report song" title="Report song" @onclick="Open"><MusicIcon Name="alert" /><span class="report-label">Report song</span></button>
-<dialog id="report-song-dialog" class="animated-dialog report-dialog" aria-labelledby="report-song-title" aria-describedby="report-song-track" data-return-focus="report-song">
-    <header>
-        <MusicIcon Name="alert" />
-        <div><h2 id="report-song-title">Report song</h2><p id="report-song-track">@reportTrack?.Title</p></div>
-        <button class="quiet report-close" aria-label="Close" @onclick="Close"><MusicIcon Name="close" /></button>
-    </header>
+<dialog id="report-song-dialog" class="popup-panel animated-dialog report-dialog" aria-labelledby="report-song-title" aria-describedby="report-song-track">
+    <div class="dialog-heading"><h2 id="report-song-title">Report song</h2><button id="report-song-close" class="quiet" aria-label="Close Report song" @onclick="Close"><MusicIcon Name="close" /></button></div>
+    <p id="report-song-track">@reportTrack?.Title</p>
     <div class="report-choices">
-        <button id="report-quality" class="quiet" disabled="@busy" @onclick='() => Send("bad_quality")'><MusicIcon Name="volume" /><span><strong>Bad quality or live performance</strong><small>The audio is poor, or it is a live recording.</small></span></button>
+        <button id="report-quality" class="quiet" disabled="@busy" @onclick='() => Send("bad_quality")'><MusicIcon Name="volume" /><span><strong>Bad quality or live performance</strong></span></button>
         <button class="quiet" disabled="@busy" @onclick='() => Send("wrong_source")'><MusicIcon Name="refresh" /><span><strong>Wrong source</strong><small>A different song or version plays. An admin picks a new source.</small></span></button>
         <button class="quiet" disabled="@busy" @onclick='() => Send("trimming")'><MusicIcon Name="scissors" /><span><strong>Needs trimming</strong><small>Silence, talking or an intro should be cut.</small></span></button>
     </div>
@@ -17,16 +13,23 @@
 </dialog>
 <span class="sr" role="status">@announcement</span>
 @code {
-    [Parameter, EditorRequired] public MusicTrack Track { get; set; } = null!;
     private MusicTrack? reportTrack;
     private string? status, announcement;
-    private bool busy;
-    private async Task Open()
+    private string? opener;
+    private bool busy, opening;
+    public void Open(MusicTrack track, string returnFocusId)
     {
-        reportTrack = Track; status = announcement = null;
-        await JS.InvokeVoidAsync("familyhub.showDialog", "report-song-dialog", "report-quality");
+        reportTrack = track; opener = returnFocusId; status = announcement = null;
+        opening = true;
+        StateHasChanged();
     }
-    private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "report-song-dialog", "report-song").AsTask();
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!opening) return;
+        opening = false;
+        await JS.InvokeVoidAsync("familyhub.showDialog", "report-song-dialog", "report-song-close", opener);
+    }
+    private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "report-song-dialog", opener).AsTask();
     private async Task Send(string reason)
     {
         if (busy || reportTrack is null) return;

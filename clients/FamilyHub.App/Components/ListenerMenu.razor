@@ -3,7 +3,7 @@
 @inject IJSRuntime JS
 
 <button id="@buttonId" class="quiet listener-options" aria-label="Options for @Profile.Name" aria-haspopup="dialog" @onclick="Open"><MusicIcon Name="more" /></button>
-<div popover="auto" role="dialog" id="@dialogId" class="glass-dialog listener-menu" aria-labelledby="@(dialogId + "-heading")">
+<dialog id="@dialogId" class="popup-panel popup-menu listener-menu" aria-labelledby="@(dialogId + "-heading")">
     <div class="dialog-heading"><h2 id="@(dialogId + "-heading")">@Profile.Name</h2><button id="@(dialogId + "-close")" class="quiet" aria-label="Close listener options" @onclick="Close"><MusicIcon Name="close" /></button></div>
     @if (loading) { <p role="status">Loading sessions...</p> }
     else if (Together.Room is not null) { <p>@(Together.Room.IsHost ? "You're hosting a session." : "You're already in a session.")</p> }
@@ -13,7 +13,7 @@
     @foreach (var room in rooms)
     { <button class="listener-join" @onclick="() => room.HostUser == Session.User ? Resume() : Join(room.Id)" aria-disabled="@(busy || Together.Room is not null ? "true" : "false")"><MusicIcon Name="people" /><span><strong>@(room.HostUser == Session.User ? "Resume hosting" : "Listen in")</strong><small>@room.Title</small></span></button> }
     @if (error is not null) { <p class="entry-error" role="status">@error</p> }
-</div>
+</dialog>
 
 @code {
     [Parameter, EditorRequired] public ListenerStatistics Profile { get; set; } = null!;
@@ -25,7 +25,7 @@
     private async Task Open()
     {
         loading = true; error = null; rooms = []; poked = invited = false;
-        await JS.InvokeVoidAsync("familyhub.showPanel", dialogId, buttonId, dialogId + "-close");
+        await JS.InvokeVoidAsync("familyhub.showDialog", dialogId, dialogId + "-close", buttonId);
         try { await Together.RefreshAsync(); rooms = Together.Rooms.Where(r => r.HostUser == Profile.Id).ToList(); }
         catch (Exception exception) { error = exception.Message; }
         finally { loading = false; }

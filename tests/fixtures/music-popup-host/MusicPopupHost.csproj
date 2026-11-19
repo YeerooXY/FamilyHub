@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <FixtureNative Condition="'$(FixtureNative)' == ''">$(MSBuildThisFileDirectory)../../../clients/FamilyHub.App/bin/x64/Debug/net10.0-windows10.0.19041.0/win-x64</FixtureNative>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="FamilyHub.App"><HintPath>$(FixtureNative)/FamilyHub.App.dll</HintPath></Reference>
+    <Reference Include="FamilyHub.Client.Core"><HintPath>$(FixtureNative)/FamilyHub.Client.Core.dll</HintPath></Reference>
+    <Reference Include="Microsoft.Maui.Essentials"><HintPath>$(FixtureNative)/Microsoft.Maui.Essentials.dll</HintPath></Reference>
+    <PackageReference Include="Lib.Harmony" Version="2.4.2" />
+  </ItemGroup>
+</Project>

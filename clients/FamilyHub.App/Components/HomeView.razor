@@ -19,7 +19,7 @@
                     <button id="@("home-radio-" + i)" class="home-shortcut" @onclick="() => StartRadio.InvokeAsync(seed)"
                             aria-disabled="@(!Session.Connected || RadioBusy || FollowingHost ? "true" : "false")" aria-label="Start @title Radio">
                         <TrackCover Track="seed" />
-                        <span><span aria-hidden="true">📻</span> @title</span>
+                        <span class="radio-shortcut-title"><MusicIcon Name="radio" /><span>@title</span></span>
                     </button>
                 }
             </div>

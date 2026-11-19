@@ -3,7 +3,7 @@
 @if (AppUpdater.Platform is not null && available is not null)
 {
     <div class="app-update @(Compact ? "compact-update" : "")">
-        <button id="@Id" type="button" aria-label="@Label" title="@(string.IsNullOrEmpty(message) ? Label : message)" @onclick="Update" aria-disabled="@(working ? "true" : "false")"><MusicIcon Name="download" />@if (!Compact) { @Label }</button>
+        <button id="@Id" type="button" aria-label="@Label" title="@(Compact ? string.IsNullOrEmpty(message) ? Label : message : null)" @onclick="Update" aria-disabled="@(working ? "true" : "false")"><MusicIcon Name="download" />@if (!Compact) { @Label }</button>
         <p class="quality-help" role="status">@message</p>
     </div>
 }

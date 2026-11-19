@@ -5,19 +5,6 @@ window.familyhub = { press(id) { document.getElementById(id)?.click(); }, retain
 }, view(name) { document.body.dataset.view = name; const content = document.getElementById("content"); if (content) content.scrollTop = 0; if (document.activeElement === document.body) document.getElementById("content")?.focus(); }, focus(id) { const target = document.getElementById(id); if (target) target.focus(); else requestAnimationFrame(() => document.getElementById(id)?.focus()); } };
 document.addEventListener('click', event => { if(event.target.closest('[aria-disabled="true"]')) { event.preventDefault(); event.stopImmediatePropagation(); } },true);
 
-function dismissProfileMenu() {
-    const menu = document.getElementById('profile-menu');
-    const toggle = document.getElementById('profile-toggle');
-    if (!menu || !toggle) return;
-    if (menu.contains(document.activeElement)) toggle.focus();
-    toggle.click();
-}
-document.addEventListener('click', event => {
-    if (!event.target.closest('.sidebar-account')) dismissProfileMenu();
-});
-window.addEventListener('blur', dismissProfileMenu);
-
-
 function applyWindowChrome(chrome) {
     document.body.classList.toggle('native-titlebar',chrome.supported);
     document.documentElement.style.setProperty('--window-controls-width',`${chrome.rightInset ?? 0}px`);
@@ -119,6 +106,7 @@ window.familyhub.observePanel = () => {
     updatePanel();
 };
 
+let openDialogs = [];
 window.familyhub.showDialog = (id, focusId, openerId) => {
     const dialog = document.getElementById(id);
     if (!dialog || dialog.open) return;
@@ -127,18 +115,24 @@ window.familyhub.showDialog = (id, focusId, openerId) => {
         || (document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : fallback());
     if (document.activeElement === document.body) previous?.focus({preventScroll:true});
     dialog._returnFocus = previous;
+    openDialogs = openDialogs.filter(node => node.isConnected && node.open);
+    openDialogs.push(dialog);
+    if (dialog.classList.contains('popup-panel')) familyhub.bindPopupSheet(id);
     if (!dialog._focusBound) {
         dialog._focusBound = true;
-        // Escape on an animated dialog closes it through closeDialog so it animates too.
+        // Route Escape through the same close path to restore explicit openers on touch browsers.
         dialog.addEventListener('cancel', event => {
-            if (!dialog.classList.contains('animated-dialog')) return;
+            if (!dialog.matches('.popup-panel,.animated-dialog')) return;
             event.preventDefault();
             window.familyhub.closeDialog(dialog.id);
         });
         dialog.addEventListener('close', () => {
+            // A menu action can close one dialog and open another before this event.
+            if (dialog.open) return;
+            openDialogs = openDialogs.filter(node => node !== dialog);
+            if (document.activeElement !== document.body && !dialog.contains(document.activeElement)) return;
             const target = dialog._returnFocus;
-            if (target?.isConnected && target.getClientRects().length) target.focus({preventScroll:true});
-            else fallback()?.focus({preventScroll:true});
+            (target?.isConnected && target.getClientRects().length ? target : fallback())?.focus({preventScroll:true});
         });
     }
     dialog.showModal();
@@ -170,10 +164,9 @@ window.familyhub.closeDialog = (id, successorId) => {
         return;
     }
     if (dialog._closing) return;
-    if (dialog.matches(':popover-open')) dialog.hidePopover();
-    else if (dialog instanceof HTMLDialogElement) dialog.close();
+    dialog.close();
     const target = dialog._returnFocus;
-    if (target?.isConnected) target.focus({preventScroll:true});
+    if (target?.isConnected && target.getClientRects().length) target.focus({preventScroll:true});
 };
 
 // Playlist covers from the clipboard: shrunk to fit 512 px and sent to .NET as a JPEG data URL.
@@ -259,32 +252,6 @@ window.familyhub.finishPlaylistNameEdit = async () => {
     input.classList.add('is-finishing');
     await Promise.race([Promise.all(input.getAnimations().map(animation => animation.finished.catch(() => {}))),new Promise(resolve => setTimeout(resolve,240))]);
 };
-
-window.familyhub.showPanel = (id, opener, focusId) => {
-    const panel = document.getElementById(id), source = document.getElementById(opener);
-    if (!panel) return;
-    const anchor = source?.getBoundingClientRect();
-    panel._returnFocus = source;
-    if (!panel._focusBound) {
-        panel._focusBound = true;
-        panel.addEventListener('toggle', event => {
-            if (event.newState === 'closed' && (panel.contains(document.activeElement) || document.activeElement === document.body)) {
-                const target = panel._returnFocus;
-                (target?.isConnected && target.getClientRects().length ? target : document.getElementById('content'))?.focus({preventScroll:true});
-            }
-        });
-    }
-    if (!panel.matches(':popover-open')) panel.showPopover({source});
-    panel.style.removeProperty('--panel-top');
-    const box = {width: panel.offsetWidth, height: panel.offsetHeight};
-    const parent = source?.closest('[popover]');
-    const left = parent ? anchor.left - box.width - 8 : (anchor?.right ?? innerWidth / 2) - box.width;
-    panel.style.left = Math.max(8, Math.min(innerWidth - box.width - 8, left < 8 && parent ? anchor.right + 8 : left)) + 'px';
-    panel.style.top = Math.max(8, Math.min(innerHeight - box.height - 8, parent ? anchor.top : (anchor?.bottom ?? 80) + 8)) + 'px';
-    panel.style.setProperty('--panel-top', panel.style.top);
-    (document.getElementById(focusId) || panel.querySelector('button,input'))?.focus({preventScroll:true});
-};
-window.familyhub.showPlaylistPicker = opener => familyhub.showPanel('song-playlist-dialog', opener, 'playlist-picker-filter');
 
 let searchPageObserver;
 window.familyhub.observeSearch = (reference, version) => {
@@ -556,7 +523,11 @@ window.familyhub.revealWhenReady = id => {
  observer.observe(document.getElementById('content')||document.body,{childList:true,subtree:true});
  setTimeout(()=>observer.disconnect(),8000);
 };
-window.familyhub.isPhone = () => matchMedia('(max-width:720px)').matches;
+const phoneLayout = matchMedia('(max-width:720px)');
+window.familyhub.isPhone = () => phoneLayout.matches;
+phoneLayout.addEventListener('change', event => {
+    if (!event.matches) document.getElementById('player-options-close')?.click();
+});
 window.familyhub.dismissKeyboard = (input, successor) => {
     if (!familyhub.isPhone()) return;
     document.getElementById(input)?.blur();
@@ -597,7 +568,7 @@ window.familyhub.revealLyric = id => {
  const line=document.getElementById(id), list=line?.closest('.lyrics-view'); if(!line||!list)return;
  if(!list.dataset.bound){ list.dataset.bound='1'; const hold=()=>{ list.dataset.heldUntil=Date.now()+4000; }; list.addEventListener('wheel',hold,{passive:true}); list.addEventListener('touchmove',hold,{passive:true}); }
  if(Date.now()<Number(list.dataset.heldUntil||0))return;
- const top=line.offsetTop-list.clientHeight*.38;
+ const top = list.scrollTop + line.getBoundingClientRect().top - list.getBoundingClientRect().top - list.clientHeight * .38;
  list.scrollTo({top,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
 };
 // Long titles in Now Playing scroll sideways, pause, then come round again.
@@ -640,49 +611,104 @@ window.familyhub.bindMiniSwipe = () => {
   reset(); if(target&&target.getAttribute('aria-disabled')!=='true')target.click(); dx=0; };
  area.addEventListener('pointerup',end); area.addEventListener('pointercancel',end);
 };
-// The song options sheet closes when dragged down far enough.
-window.familyhub.bindSheet = (id, closeId) => {
- const sheet=document.getElementById(id); if(!sheet||sheet.dataset.dragBound)return; sheet.dataset.dragBound='1';
- let start=null, moved=0, draggedAt=0;
- // A drag that springs back is not a tap on the row under the finger.
- sheet.addEventListener('click',e=>{ if(Date.now()-draggedAt<350){ e.stopPropagation(); e.preventDefault(); } },true);
- const begin=(y,target)=>{ if(!familyhub.isPhone()||!sheet.classList.contains('is-open')||sheet.scrollTop>0||target.closest('input,select,dialog'))return; start=y; moved=0; };
- const move=y=>{ moved=Math.max(0,y-start); if(moved>6){ sheet.style.transition='none'; sheet.style.transform=`translateY(${moved}px)`; } };
- const end=()=>{ if(start===null)return; start=null; sheet.style.transition=''; sheet.style.transform=''; if(moved>90){ document.getElementById(closeId)?.click(); } if(moved>6)draggedAt=Date.now(); };
- // Touch: the sheet scrolls vertically, so the browser would claim a downward swipe and cancel the drag.
- // At the top of the sheet a downward swipe moves the sheet instead; an upward one still scrolls it.
- sheet.addEventListener('touchstart',e=>{ if(e.touches.length===1)begin(e.touches[0].clientY,e.target); else start=null; },{passive:true});
- sheet.addEventListener('touchmove',e=>{ if(start===null)return; const y=e.touches[0].clientY; if(y<start&&moved<=6){ start=null; return; } e.preventDefault(); move(y); },{passive:false});
- sheet.addEventListener('touchend',end); sheet.addEventListener('touchcancel',end);
- // Mouse and pen keep the pointer drag.
- sheet.addEventListener('pointerdown',e=>{ if(e.pointerType!=='touch')begin(e.clientY,e.target); },{passive:true});
- sheet.addEventListener('pointermove',e=>{ if(e.pointerType!=='touch'&&start!==null)move(e.clientY); },{passive:true});
- sheet.addEventListener('pointerup',e=>{ if(e.pointerType!=='touch')end(); }); sheet.addEventListener('pointercancel',e=>{ if(e.pointerType!=='touch')end(); });
+// Modal dialogs and inline player sheets use the same keyboard and drag handling.
+window.familyhub.bindPopupSheet = (id, closeId) => {
+    const panel = document.getElementById(id);
+    if (!panel || panel.dataset.sheetBound) return;
+    panel.dataset.sheetBound = '1';
+    const native = panel instanceof HTMLDialogElement;
+    const isOpen = () => native ? panel.open : panel.classList.contains('is-open');
+    const close = () => native ? familyhub.closeDialog(id) : document.getElementById(closeId)?.click();
+    const inPanel = target => target.closest('.popup-panel') === panel;
+    let start = null, moved = 0, draggedAt = 0, onBackdrop = false;
+    const outside = event => {
+        const box = panel.getBoundingClientRect();
+        return event.clientX < box.left || event.clientX >= box.right || event.clientY < box.top || event.clientY >= box.bottom;
+    };
+    panel.addEventListener('click', event => {
+        if (!inPanel(event.target)) return;
+        if (event.detail > 0 && Date.now() - draggedAt < 350) {
+            event.stopImmediatePropagation();
+            event.preventDefault();
+        } else if (event.target.closest('[data-popup-close]') || (onBackdrop && event.target === panel && outside(event))) {
+            close();
+        }
+    }, true);
+    panel.addEventListener('keydown', event => {
+        if (!inPanel(event.target)) return;
+        if (event.key === 'Escape') {
+            event.stopPropagation();
+            if (!native) {
+                event.preventDefault();
+                close();
+            }
+            return;
+        }
+        if (event.key !== 'Tab') return;
+        const controls = [...panel.querySelectorAll('button,input,select,textarea,a[href],summary,[tabindex]')]
+            .filter(node => inPanel(node) && node.tabIndex >= 0 && !node.matches(':disabled') &&
+                !node.closest('[inert]') && node.getClientRects().length && getComputedStyle(node).visibility === 'visible');
+        const index = controls.indexOf(document.activeElement);
+        if (event.shiftKey ? index <= 0 : index === controls.length - 1) {
+            event.preventDefault();
+            (event.shiftKey ? controls[controls.length - 1] : controls[0])?.focus();
+        }
+    });
+    const begin = (y, target) => {
+        start = null;
+        if (!familyhub.isPhone() || !isOpen() || !inPanel(target) || panel.scrollTop > 0 && !target.closest('.dialog-heading') ||
+            target.closest('input,select,textarea,[contenteditable=true]')) return;
+        start = y;
+        moved = 0;
+    };
+    const move = y => {
+        moved = Math.max(0, y - start);
+        if (moved > 6) panel.style.transform = `translateY(${moved}px)`;
+    };
+    const end = cancelled => {
+        if (start === null) return;
+        start = null;
+        panel.style.transform = '';
+        if (moved > 6) draggedAt = Date.now();
+        if (!cancelled && moved > 90) close();
+    };
+    panel.addEventListener('touchstart', event => {
+        if (event.touches.length === 1) begin(event.touches[0].clientY, event.target);
+        else end(true);
+    }, {passive:true});
+    panel.addEventListener('touchmove', event => {
+        if (start === null) return;
+        const y = event.touches[0].clientY;
+        if (y < start && moved <= 6) { end(true); return; }
+        if (event.cancelable) event.preventDefault();
+        move(y);
+    }, {passive:false});
+    panel.addEventListener('touchend', () => end(false));
+    panel.addEventListener('touchcancel', () => end(true));
+    panel.addEventListener('pointerdown', event => {
+        onBackdrop = native && event.target === panel && outside(event);
+        if (event.pointerType !== 'touch' && event.button === 0 && !onBackdrop) begin(event.clientY, event.target);
+    });
+    panel.addEventListener('pointermove', event => {
+        if (event.pointerType !== 'touch' && start !== null) move(event.clientY);
+    });
+    panel.addEventListener('pointerup', event => { if (event.pointerType !== 'touch') end(false); });
+    panel.addEventListener('pointercancel', event => { if (event.pointerType !== 'touch') end(true); });
 };
-// A dialog shown as a bottom sheet on phones (Connect): a tap outside closes it, and so does a downward
-// drag from the top of the sheet. Touch uses touch events because the browser claims a pan-y swipe.
-window.familyhub.bindDialogSheet = (id, returnId) => {
- const dialog=document.getElementById(id); if(!dialog||dialog.dataset.sheetBound)return; dialog.dataset.sheetBound='1';
- const close=()=>familyhub.closeDialog(id, returnId);
- let start=null, moved=0, draggedAt=0;
- dialog.addEventListener('click',e=>{ if(Date.now()-draggedAt<350){ e.stopPropagation(); e.preventDefault(); return; } if(e.target===dialog)close(); },true);
- const begin=(y,target)=>{ if(!familyhub.isPhone()||!dialog.open||dialog.scrollTop>0||target.closest('input,select'))return; start=y; moved=0; };
- const move=y=>{ moved=Math.max(0,y-start); if(moved>6){ dialog.style.transition='none'; dialog.style.transform=`translateY(${moved}px)`; } };
- const end=()=>{ if(start===null)return; start=null; dialog.style.transition=''; dialog.style.transform=''; if(moved>90)close(); if(moved>6)draggedAt=Date.now(); };
- dialog.addEventListener('touchstart',e=>{ if(e.touches.length===1)begin(e.touches[0].clientY,e.target); else start=null; },{passive:true});
- dialog.addEventListener('touchmove',e=>{ if(start===null)return; const y=e.touches[0].clientY; if(y<start&&moved<=6){ start=null; return; } e.preventDefault(); move(y); },{passive:false});
- dialog.addEventListener('touchend',end); dialog.addEventListener('touchcancel',end);
- dialog.addEventListener('pointerdown',e=>{ if(e.pointerType!=='touch'&&e.target!==dialog)begin(e.clientY,e.target); },{passive:true});
- dialog.addEventListener('pointermove',e=>{ if(e.pointerType!=='touch'&&start!==null)move(e.clientY); },{passive:true});
- dialog.addEventListener('pointerup',e=>{ if(e.pointerType!=='touch')end(); }); dialog.addEventListener('pointercancel',e=>{ if(e.pointerType!=='touch')end(); });
-};
-// Android Back: close the topmost popup or dialog the same way Escape does.
+
+document.addEventListener('click', event => {
+    if (!event.target.closest('.player-bar') && document.getElementById('lyrics-view') &&
+        !openDialogs.some(dialog => dialog.open && dialog.contains(event.target))) {
+        document.getElementById('lyrics-close')?.click();
+    }
+});
+
 window.familyhub.closeTopLayer = () => {
- const popup=[...document.querySelectorAll(':popover-open')].pop();
- if(popup){ popup.hidePopover(); return true; }
- const dialog=[...document.querySelectorAll('dialog[open]')].pop();
- if(dialog){ if(dialog.requestClose)dialog.requestClose(); else dialog.close(); return true; }
- return false;
+    const dialog = openDialogs.filter(node => node.isConnected && node.open).pop();
+    if (!dialog) return false;
+    if (dialog.requestClose) dialog.requestClose();
+    else familyhub.closeDialog(dialog.id);
+    return true;
 };
 
 // Trim paired dark letterbox bands for display; the cached original stays unchanged.

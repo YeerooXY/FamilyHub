@@ -4,7 +4,7 @@
 @if (Playlist.CanManageAuthors)
 {
     @if (!HideTrigger) { <button id="playlist-coauthors" class="quiet playlist-coauthors" aria-haspopup="dialog" @onclick="Open"><MusicIcon Name="people" />Invite collaborators</button> }
-    <dialog id="playlist-coauthors-dialog" class="glass-dialog" aria-labelledby="coauthors-heading">
+    <dialog id="playlist-coauthors-dialog" class="popup-panel" aria-labelledby="coauthors-heading">
         <div class="dialog-heading"><h2 id="coauthors-heading">Co-authors</h2><button id="coauthors-close" class="quiet" aria-label="Close co-authors" @onclick="Close"><MusicIcon Name="close" /></button></div>
         <div class="coauthor-list">
         @foreach (var profile in Session.Profiles.Where(p => p.Id != Playlist.OwnerId))

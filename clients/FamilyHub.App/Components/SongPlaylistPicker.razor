@@ -1,8 +1,8 @@
 ﻿@inject MusicSession Session
 @inject IJSRuntime JS
 
-<div popover="auto" role="dialog" id="song-playlist-dialog" class="glass-dialog song-playlist-picker" aria-labelledby="song-playlist-heading">
-    <h2 id="song-playlist-heading">Add to playlist</h2>
+<dialog id="song-playlist-dialog" class="popup-panel song-playlist-picker" aria-labelledby="song-playlist-heading">
+    <div class="dialog-heading"><h2 id="song-playlist-heading">Add to playlist</h2><button id="song-playlist-close" class="quiet" aria-label="Close playlist picker" @onclick="Close"><MusicIcon Name="close" /></button></div>
     <label class="picker-filter"><MusicIcon Name="search" /><input id="playlist-picker-filter" aria-label="Find a playlist" placeholder="Find a playlist" @bind="filter" @bind:event="oninput" /></label>
     <div class="picker-new-row @(creating ? "is-editing" : "")">
         <button id="picker-new-button" class="quiet picker-new" @onclick="BeginCreate" aria-expanded="@(creating ? "true" : "false")"><MusicIcon Name="plus" />New playlist</button>
@@ -20,7 +20,7 @@
     </div>
     <p class="entry-error" role="status">@message</p>
     <div class="actions picker-footer"><button class="quiet" @onclick="Close" aria-disabled="@(saving ? "true" : "false")">Cancel</button><button id="playlist-picker-done" class="primary" @onclick="Save" aria-disabled="@(saving ? "true" : "false")">@(saving ? "Saving..." : "Done")</button></div>
-</div>
+</dialog>
 
 @code {
     private MusicTrack? track;
@@ -36,7 +36,7 @@
     }
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (opening) { opening = false; await JS.InvokeVoidAsync("familyhub.showPlaylistPicker", opener); }
+        if (opening) { opening = false; await JS.InvokeVoidAsync("familyhub.showDialog", "song-playlist-dialog", "song-playlist-close", opener); }
         if (focusName) { focusName = false; await JS.InvokeVoidAsync("familyhub.focus", "picker-new-name"); }
     }
     private void BeginCreate() { creating = true; focusName = true; }

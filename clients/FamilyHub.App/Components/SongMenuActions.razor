@@ -1,0 +1,62 @@
+﻿@inject MusicSession Session
+
+@if (Keep.HasDelegate)
+{
+    <button @onclick="Download" aria-disabled="@(DownloadUnavailable ? "true" : "false")">
+        <MusicIcon Name="@(Kept ? "check" : Downloading ? "clock" : Failure is not null ? "refresh" : "download")" />
+        <span>@(Kept ? "Downloaded" : Downloading ? "Downloading to this device" : Failure is not null ? "Retry download" : "Download to this device")</span>
+    </button>
+    @if (Failure is { } failure) { <p class="entry-error" role="status">@failure</p> }
+}
+<button aria-disabled="@(followBusy || !Session.Connected ? "true" : "false")" @onclick="FollowArtist">
+    <MusicIcon Name="@(followed ? "check-circle-outline" : "plus-circle")" /><span>@(followed ? "Unfollow " : "Follow ")@Track.Channel</span>
+</button>
+@if (followError is not null) { <p class="entry-error" role="status">@followError</p> }
+
+@code {
+    [Parameter, EditorRequired] public MusicTrack Track { get; set; } = null!;
+    [Parameter] public EventCallback Keep { get; set; }
+    private bool followed, followBusy;
+    private int followRevision;
+    private string? followError;
+    private bool Kept => Session.KeptOnDevice(Track);
+    private bool Downloading => Session.DownloadingId == Track.Id;
+    private bool DownloadUnavailable => Kept || !Session.Connected || Session.DownloadingId is not null;
+    private string? Failure => Session.DownloadFailure is { } failure && failure.TrackId == Track.Id ? failure.Message : null;
+
+    private Task Download() => DownloadUnavailable ? Task.CompletedTask : Keep.InvokeAsync();
+
+    public async Task Refresh()
+    {
+        followError = null;
+        if (!Session.Connected || Session.Api is not { } api) return;
+        var revision = followRevision;
+        try
+        {
+            var result = await api.RequestJsonAsync<FollowedArtists>(HttpMethod.Get, "/api/discovery/follow");
+            var artist = System.Text.RegularExpressions.Regex.Replace(Track.Channel.ToLowerInvariant(), @"\W+", " ").Trim();
+            if (!followBusy && revision == followRevision && ReferenceEquals(api, Session.Api))
+                followed = result.Artists.Contains(artist);
+            StateHasChanged();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException) { }
+    }
+
+    private async Task FollowArtist()
+    {
+        if (followBusy || !Session.Connected || Session.Api is not { } api) return;
+        followBusy = true;
+        followRevision++;
+        followError = null;
+        try
+        {
+            await api.RequestJsonAsync<object>(HttpMethod.Post, "/api/discovery/follow", new { artist = Track.Channel, follow = !followed });
+            followed = !followed;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            followError = "Artist follow could not be saved. Try again.";
+        }
+        finally { followBusy = false; }
+    }
+}

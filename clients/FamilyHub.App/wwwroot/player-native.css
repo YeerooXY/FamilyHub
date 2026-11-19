@@ -68,8 +68,8 @@
 #mute-toggle { display:grid; place-items:center; width:36px; min-width:36px; min-height:44px; flex-shrink:0; }
 #mute-toggle .icon { width:20px; height:20px; }
 #mute-toggle[aria-pressed=true] { color:var(--muted); }
-#listen-together { display:grid; place-items:center; width:44px; min-width:44px; min-height:44px; padding:10px; flex-shrink:0; }
-#listen-together .icon { width:20px; height:20px; }
+.player-tools:not(.popup-menu) #listen-together { display:grid; place-items:center; width:44px; min-width:44px; min-height:44px; padding:10px; flex-shrink:0; }
+.player-tools:not(.popup-menu) #listen-together .icon { width:20px; height:20px; }
 @media(max-width:720px) {
  .player-tools { width:148px; }
  #mute-toggle { width:44px; min-width:44px; }
@@ -141,11 +141,11 @@
 @media(max-width:720px) { .now-playing-group { padding-right:156px; gap:2px; } .now-playing-group #show-queue { padding-right:0; } }
 @media(max-width:720px) { .player-bar:has(.local-pause-button) .now-playing-group { padding-right:216px; } }
 .transport-buttons button,.header-icon,.row-action,.nav-button,#mute-toggle,#recommend-similar { transition:transform .1s ease,background-color .15s ease,color .15s ease; }
-.transport-buttons button:active:not([aria-disabled=true]),.header-icon:active:not([aria-disabled=true]),.row-action:active:not([aria-disabled=true]),.nav-button:active,#mute-toggle:active,#recommend-similar:active { transform:scale(.96)!important; }
+.transport-buttons button:active:not([aria-disabled=true]),.header-icon:active:not([aria-disabled=true]),.row-action:active:not([aria-disabled=true]),.nav-button:active,#mute-toggle:active,.player-tools:not(.popup-menu) #recommend-similar:active { transform:scale(.96)!important; }
 @media(hover:hover) { .transport-buttons button:hover:not([aria-disabled=true]),.row-action:hover:not([aria-disabled=true]) { transform:scale(1.035); } }
-@media(prefers-reduced-motion:reduce) { .transport-buttons button,.header-icon,.row-action,.nav-button,#mute-toggle,#recommend-similar { transition:none; } .transport-buttons button:active,.header-icon:active,.row-action:active,.nav-button:active,#mute-toggle:active,#recommend-similar:active { transform:none!important; } }
+@media(prefers-reduced-motion:reduce) { .transport-buttons button,.header-icon,.row-action,.nav-button,#mute-toggle,#recommend-similar { transition:none; } .transport-buttons button:active,.header-icon:active,.row-action:active,.nav-button:active,#mute-toggle:active,.player-tools:not(.popup-menu) #recommend-similar:active { transform:none!important; } }
 
-#connect-device { display:grid; place-items:center; width:44px; height:44px; min-width:44px; padding:10px; }
+.player-tools:not(.popup-menu) #connect-device { display:grid; place-items:center; width:44px; height:44px; min-width:44px; padding:10px; }
 /* Connect, measured from Spotify (desktop panel at 1x; phone sheet at 2.625x, divided down to CSS px).
    Desktop: 282 px panel, #121212, radius 8; 64 px header with a 16 px bold title; the current device
    in a 64 px #1f1f1f row (radius 8, 8 px side inset) with a green 24 px icon and green label; other
@@ -154,17 +154,7 @@
    card (radius 16, 9 px inset) with a 28 px bold name, green 16 px song line and a 14 px volume track;
    64 px device rows with 18 px names; a 74 px #2a2a2a Bluetooth button (radius 4, 18 px inset). */
 #connect-device.is-remote { color:#1ed760; }
-.connect-panel { color:#fff; }
-.connect-panel[open] { position:fixed; inset:calc(var(--caption-height,64px) + 16px) 8px calc(var(--player-height) + 8px) auto; display:flex; width:282px; max-width:calc(100vw - 16px); height:auto; max-height:none; margin:0; padding:0; border:0; border-radius:8px; overflow-y:auto; overscroll-behavior:contain; background:#121212; box-shadow:0 16px 48px #000a; animation:connect-panel-in .2s cubic-bezier(.2,.8,.2,1); }
-@media(min-width:721px) { body:has(#device-strip) .connect-panel[open] { bottom:calc(var(--player-height) + 32px); } }
-.connect-panel::backdrop { background:transparent; }
 .connect-body { display:flex; flex-direction:column; flex:1; min-height:100%; padding-bottom:8px; }
-.connect-handle { display:none; }
-.connect-header { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:64px; padding:0 8px 0 16px; }
-.connect-header h2 { margin:0; font-size:16px; font-weight:700; line-height:1.25; }
-.connect-header button { display:grid; place-items:center; width:32px; height:32px; min-height:32px; padding:0; border:0; border-radius:50%; color:#b3b3b3; background:transparent; }
-.connect-header button:hover { color:#fff; background:#1f1f1f; }
-.connect-header button .icon { width:16px; height:16px; }
 .connect-devices,.connect-outputs { display:grid; gap:0; padding:0 8px; }
 .connect-current { display:grid; grid-template-columns:24px minmax(0,1fr); grid-template-areas:"icon text" "volume volume"; align-items:center; column-gap:16px; min-height:64px; padding:10px 16px; border-radius:8px; background:#1f1f1f; color:#1ed760; }
 .connect-current-icon { grid-area:icon; display:grid; place-items:center; color:#1ed760; }
@@ -214,17 +204,8 @@ button.device-option:hover:not([aria-disabled=true]),button.device-option:focus-
 .device-playing span { width:3px; height:100%; border-radius:1px; background:#1ed760; animation:device-eq 1s ease-in-out infinite; transform-origin:bottom; }
 .device-playing span:nth-child(2) { animation-delay:-.4s; }.device-playing span:nth-child(3) { animation-delay:-.7s; }
 @keyframes device-eq { 0%,100% { transform:scaleY(.35); } 50% { transform:scaleY(1); } }
-@keyframes connect-panel-in { from { opacity:0; transform:translateX(16px); } }
-@keyframes connect-sheet-in { from { transform:translateY(100%); } }
 @media(max-width:720px) {
- .connect-panel[open] { inset:auto 0 0 0; width:100%; max-width:100%; min-height:min(80dvh,640px); max-height:92dvh; border-radius:18px 18px 0 0; background:#1f1f1f; box-shadow:0 -12px 40px #000a; touch-action:pan-y; animation:connect-sheet-in .26s cubic-bezier(.2,.8,.2,1); }
- .connect-panel::backdrop { background:#000a; }
  .connect-body { padding-bottom:calc(16px + env(safe-area-inset-bottom)); }
- .connect-handle { display:block; flex-shrink:0; width:40px; height:4px; margin:11px auto 0; border-radius:2px; background:#636363; }
- .connect-header { min-height:56px; padding:0 12px 0 24px; }
- .connect-header h2 { font-size:24px; }
- .connect-header button { width:44px; height:44px; min-height:44px; }
- .connect-header button .icon { width:20px; height:20px; }
  .connect-devices,.connect-outputs,.connect-help { padding:0 9px; }
  .connect-current { grid-template-columns:minmax(0,1fr) 56px; grid-template-areas:"text icon" "volume volume"; column-gap:12px; min-height:0; padding:22px 18px 18px; border-radius:16px; background:#2a2a2a; margin-bottom:8px; }
  .connect-current-name { font-size:28px; font-weight:700; line-height:1.2; color:#fff; }
@@ -254,13 +235,12 @@ button.device-option:hover:not([aria-disabled=true]),button.device-option:focus-
 /* The dialog sits inside the player bar's tools: keep that bar's hover zoom, 24 px sheet icons and
    110 px input cap from reaching the panel. */
 #audio-output-dialog button:hover,#audio-output-dialog button:active { transform:none; }
-#audio-output-dialog .connect-header button .icon,#audio-output-dialog .connect-help-row .icon { width:16px; height:16px; }
+#audio-output-dialog .connect-help-row .icon { width:16px; height:16px; }
 #audio-output-dialog #connect-volume { max-width:none; }
 @media(max-width:720px) {
- #audio-output-dialog .connect-header button .icon { width:20px; height:20px; }
  #audio-output-dialog .connect-current-icon { display:flex; flex-direction:column; align-items:center; }
 }
-@media(prefers-reduced-motion:reduce) { .device-playing span { animation:none; } .connect-panel[open] { animation:none; } .connect-help-row .icon { transition:none; } }
+@media(prefers-reduced-motion:reduce) { .device-playing span { animation:none; } .connect-help-row .icon { transition:none; } }
 @media(max-width:720px) { .player-tools { width:148px; } .player-tools #mute-toggle { display:none; } .player-tools .app-update { display:none; } .player-bar:has(.local-pause-button) .player-tools { width:200px; } .player-bar:has(.local-pause-button) .now-playing-group { padding-right:208px; } }
 
 @media(min-width:901px) { .player-bar { grid-template-columns:minmax(180px,1fr) minmax(240px,2fr) minmax(300px,1fr); }.player-tools { max-width:360px; } }
@@ -281,10 +261,6 @@ button.device-option:hover:not([aria-disabled=true]),button.device-option:focus-
 .seek-control input[type=range]::-moz-range-thumb { width:12px; height:12px; border:0; border-radius:50%; background:var(--seek-thumb); box-shadow:none; }
 .seek-control input[type=range]:focus-visible { outline:none; }
 .seek-control:has(input:focus-visible) { outline:2px solid var(--accent-blue); outline-offset:3px; border-radius:5px; }
-.listening-poke { position:fixed; right:24px; bottom:calc(var(--player-height,112px) + 20px); z-index:20; display:flex; align-items:start; gap:16px; padding:20px; width:min(430px,calc(100vw - 32px)); }
-.listening-poke > .icon { width:26px; height:26px; color:var(--accent-blue); flex:0 0 auto; }
-.listening-poke strong { font-size:14px; }.listening-poke .actions { margin-top:16px; gap:10px; }
-@media(max-width:720px) { .listening-poke { right:16px; bottom:calc(var(--player-height,144px) + 88px); } }
 /* One tooltip treatment for icon controls, independent of native title rendering. */
 .app-tooltip { position:fixed; z-index:2147483647; pointer-events:none; padding:6px 9px; border:0; border-radius:6px; background:#282828; color:#f5f5f5; font:500 12px/14px Arial,sans-serif; box-shadow:0 4px 12px #0005; white-space:nowrap; opacity:0; transform:translateY(3px); transition:opacity .12s ease,transform .12s ease; }
 .app-tooltip.is-visible { opacity:1; transform:none; }
@@ -294,19 +270,13 @@ button.device-option:hover:not([aria-disabled=true]),button.device-option:focus-
 .seek-row > .seek-control { grid-column:2; grid-row:1; }
 .seek-row > span:last-child { grid-column:3; grid-row:1; text-align:left; width:36px; }
 @media(max-width:720px) { .player-bar .seek-row { width:100%; grid-template-columns:32px minmax(0,1fr) 32px; gap:6px; }.seek-control input[type=range] { height:44px; }.seek-row > .seek-elapsed,.seek-row > span:last-child { width:32px; } }
-.player-more,.player-tools-close,.player-tools-backdrop { display:none; }
+.player-more,.player-tools-backdrop { display:none; }
 @media(max-width:720px) {
  .player-bar .now-playing-group,.player-bar:has(.local-pause-button) .now-playing-group { padding-right:44px; }
  .player-bar .now-playing-group #show-queue { padding-right:0; }
  .player-more { display:grid; place-items:center; position:absolute; top:9px; right:10px; width:40px; height:44px; }
  .player-bar .player-tools { display:none; }
- .player-bar .player-tools.is-open { display:flex; flex-direction:column; align-items:stretch; gap:2px; width:min(300px,calc(100vw - 32px)); position:absolute; top:auto; bottom:calc(100% + 8px); right:12px; padding:10px; border:1px solid #ffffff18; border-radius:14px; background:#1b202a; box-shadow:0 10px 36px #0009; z-index:32; }
- .player-tools.is-open>button:not(.player-tools-close) { display:flex!important; align-items:center; gap:12px; width:100%!important; padding:10px!important; height:auto; min-height:44px; text-align:left; }
- .player-tools.is-open>button:not(.player-tools-close)::after { content:attr(aria-label); font-size:13px; }
- .player-tools.is-open .player-tools-close { display:grid; place-items:center; align-self:flex-end; width:36px; height:36px; }
- .player-tools.is-open .volume-meter { width:100%; max-width:none; }
- .player-tools-backdrop { display:block; position:fixed; inset:0; width:100vw; height:100vh; border:0; border-radius:0; background:#0005; z-index:31; }
- .player-bar .player-tools-backdrop:hover,.player-bar .player-tools-backdrop:active { transform:none; }
+ .player-tools-backdrop { display:block; position:fixed; inset:0; z-index:60; background:var(--popup-backdrop); }
 }
 
 /* Music on another device of this profile. Spotify's desktop "Playing on" line, measured at 1x: a

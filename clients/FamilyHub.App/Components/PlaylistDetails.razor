@@ -4,7 +4,7 @@
 @if (Playlist.CanEdit)
 {
     @if (!HideTrigger) { <button id="playlist-details-open" class="quiet playlist-details-open" @onclick="Open"><MusicIcon Name="pencil" />Edit details</button> }
-    <dialog id="playlist-details-dialog" class="glass-dialog playlist-details-dialog" aria-labelledby="playlist-details-heading">
+    <dialog id="playlist-details-dialog" class="popup-panel playlist-details-dialog" aria-labelledby="playlist-details-heading">
         <div class="dialog-heading"><h2 id="playlist-details-heading">Edit details</h2><button class="quiet" aria-label="Close playlist details" @onclick="Close"><MusicIcon Name="close" /></button></div>
         <form @onsubmit="Save" @onsubmit:preventDefault>
             <div class="playlist-details-fields">

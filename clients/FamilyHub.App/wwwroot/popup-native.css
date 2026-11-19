@@ -1,0 +1,295 @@
+:root {
+  --popup-surface:#121212;
+  --popup-radius:8px;
+  --popup-control-radius:8px;
+  --popup-shadow:0 16px 48px #000a;
+  --popup-backdrop:transparent;
+  --popup-ease:cubic-bezier(.2,.8,.2,1);
+  --popup-enter:popup-side-in .2s var(--popup-ease);
+  --popup-exit-x:16px;
+  --popup-exit-y:0px;
+  --popup-gutter:16px;
+  --popup-edge:8px;
+  --popup-header-height:64px;
+  --popup-heading-size:16px;
+  --popup-close-size:32px;
+  --popup-close-icon:16px;
+  --popup-player-bottom:calc(var(--player-height) + 8px);
+  --menu-icon-size:20px;
+  --menu-gap:12px;
+  --menu-row-height:44px;
+  --menu-row-size:14px;
+}
+@media(min-width:721px) {
+  body:has(#device-strip) { --popup-player-bottom:calc(var(--player-height) + 32px); }
+}
+
+.popup-panel:is([open],.is-open), #profile-menu.popup-panel[open] {
+  position:fixed;
+  inset:calc(var(--caption-height,64px) + 16px) 8px var(--popup-player-bottom) auto;
+  box-sizing:border-box;
+  width:var(--popup-width,440px);
+  height:auto;
+  min-width:0;
+  max-width:calc(100vw - 16px);
+  max-height:none;
+  margin:0;
+  padding:0 var(--popup-padding,var(--popup-gutter)) var(--popup-gutter);
+  overflow:auto;
+  overscroll-behavior:contain;
+  border:0;
+  border-radius:var(--popup-radius);
+  background:var(--popup-surface);
+  -webkit-backdrop-filter:none;
+  backdrop-filter:none;
+  box-shadow:var(--popup-shadow);
+  color:#fff;
+  --ink:#fff;
+  --muted:#b3b3b3;
+  animation:var(--popup-enter);
+}
+.popup-panel::backdrop { background:var(--popup-backdrop); }
+.popup-panel .dialog-heading {
+  position:sticky;
+  top:0;
+  z-index:2;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--menu-gap);
+  min-height:var(--popup-header-height);
+  margin-inline:calc(-1 * var(--popup-padding,var(--popup-gutter)));
+  padding:0 var(--popup-edge) 0 var(--popup-gutter);
+  background:var(--popup-surface);
+}
+.popup-panel .dialog-heading h2 {
+  min-width:0;
+  margin:0;
+  overflow:hidden;
+  color:inherit;
+  font-size:var(--popup-heading-size);
+  font-weight:700;
+  line-height:1.25;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.popup-panel:not(.popup-menu) .dialog-heading h2 { white-space:normal; overflow-wrap:anywhere; }
+.popup-panel .dialog-heading > button,
+#profile-menu.popup-panel .dialog-heading > button {
+  display:grid;
+  place-items:center;
+  flex:none;
+  width:var(--popup-close-size);
+  height:var(--popup-close-size);
+  min-height:var(--popup-close-size);
+  padding:0;
+  border:0;
+  border-radius:50%;
+  color:#b3b3b3;
+  background:transparent;
+  box-shadow:none;
+  transform:none;
+}
+.popup-panel .dialog-heading > button:hover,
+#profile-menu.popup-panel .dialog-heading > button:hover {
+  color:#fff;
+  background:#ffffff0d;
+}
+.popup-panel .dialog-heading > button > .icon,
+#profile-menu.popup-panel .dialog-heading > button > .icon {
+  width:var(--popup-close-icon);
+  height:var(--popup-close-icon);
+  margin:0;
+}
+.popup-panel :focus-visible,
+#profile-menu.popup-panel :focus-visible {
+  outline:2px solid #fff;
+  outline-offset:-2px;
+}
+.popup-panel .entry-error:empty { display:none; }
+.popup-panel .app-update { margin:0 0 12px; }
+.popup-panel .app-update button { display:flex; align-items:center; justify-content:center; gap:var(--menu-gap); width:100%; }
+
+.popup-menu {
+  --popup-width:340px;
+  --popup-padding:var(--popup-edge);
+}
+.popup-menu > button,
+#profile-menu.popup-menu > button {
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+  gap:var(--menu-gap);
+  width:100%;
+  min-height:var(--menu-row-height);
+  padding:0 calc(var(--popup-gutter) - var(--popup-edge));
+  border:0;
+  border-radius:var(--popup-control-radius);
+  background:transparent;
+  box-shadow:none;
+  font-size:var(--menu-row-size);
+  font-weight:600;
+  line-height:20px;
+  text-align:left;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  transform:none;
+}
+.popup-menu > button:hover:not([aria-disabled=true]),
+#profile-menu.popup-menu > button:hover { background:#ffffff0d; }
+.popup-menu > button > .icon,
+#profile-menu.popup-menu > button > .icon {
+  flex:none;
+  width:var(--menu-icon-size);
+  height:var(--menu-icon-size);
+  margin:0;
+}
+.popup-menu > :is(p,.entry-error) {
+  display:block;
+  margin:8px calc(var(--popup-gutter) - var(--popup-edge));
+  overflow-wrap:anywhere;
+}
+.popup-menu > .entry-error:empty { display:none; }
+.popup-menu > button:is(.song-menu-remove,.playlist-delete) { color:#ff9ba6; }
+.popup-menu > button[aria-pressed=true] { color:var(--accent-blue); }
+.toolbar-label { display:none; }
+
+.connect-panel {
+  --popup-width:282px;
+  --popup-padding:0px;
+}
+.connect-panel.popup-panel[open] { display:flex; padding-bottom:0; }
+.report-dialog { --popup-width:460px; }
+#report-song-track { margin:0 0 16px; color:var(--muted); overflow-wrap:anywhere; }
+
+.popup-panel.lyrics-view.is-open {
+  inset-inline:8px;
+  width:auto;
+  max-width:none;
+  min-height:0;
+  padding-bottom:40dvh;
+  z-index:70;
+  overflow-wrap:anywhere;
+}
+.lyrics-header {
+  position:sticky;
+  top:0;
+  z-index:3;
+  margin:0 calc(-1 * var(--popup-gutter)) 12px;
+  background:var(--popup-surface);
+}
+.lyrics-header .dialog-heading { margin:0; }
+.lyrics-song {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:0 var(--popup-gutter) 12px;
+}
+.lyrics-song > .cover { width:44px; height:44px; flex:none; border-radius:6px; }
+.lyrics-song > div:not(.lyrics-timing) { display:grid; gap:2px; min-width:0; }
+.lyrics-song strong,.lyrics-song span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.lyrics-song span { font-size:13px; color:var(--muted); }
+.lyrics-lines { grid-template-columns:minmax(0,1fr); }
+.lyrics-view .lyric-line { min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+.lyrics-view .lyrics-plain { overflow-wrap:anywhere; }
+
+.popup-panel.listening-poke.is-open { top:auto; height:auto; min-height:0; z-index:20; }
+.listening-poke > p { margin:0; }
+.listening-poke > .actions { margin:16px 0 0; }
+
+@keyframes popup-side-in { from { opacity:0; transform:translateX(16px); } }
+@keyframes popup-sheet-in { from { transform:translateY(100%); } }
+@keyframes popup-out { to { opacity:0; transform:translate(var(--popup-exit-x),var(--popup-exit-y)); } }
+.popup-panel.animated-dialog.is-closing[open] { animation:popup-out .2s ease-in forwards; }
+
+@media(max-width:720px) {
+  :root {
+    --popup-surface:#1f1f1f;
+    --popup-radius:18px 18px 0 0;
+    --popup-shadow:0 -12px 40px #000a;
+    --popup-backdrop:#000a;
+    --popup-enter:popup-sheet-in .26s var(--popup-ease);
+    --popup-exit-x:0px;
+    --popup-exit-y:100%;
+    --popup-gutter:24px;
+    --popup-edge:12px;
+    --popup-header-height:71px;
+    --popup-heading-size:24px;
+    --popup-close-size:44px;
+    --popup-close-icon:20px;
+    --menu-row-height:56px;
+    --menu-row-size:16px;
+  }
+  .popup-panel:is([open],.is-open), #profile-menu.popup-panel[open],
+  .player-bar .player-tools.popup-panel.is-open {
+    inset:auto 0 0 0;
+    width:100%;
+    max-width:100%;
+    min-height:min(80dvh,640px);
+    max-height:min(92dvh,calc(100dvh - env(safe-area-inset-top)));
+    padding-bottom:calc(16px + env(safe-area-inset-bottom));
+    touch-action:pan-y;
+  }
+  .popup-panel .dialog-heading { padding-top:15px; touch-action:none; }
+  .popup-panel .dialog-heading::before {
+    content:"";
+    position:absolute;
+    top:11px;
+    left:calc(50% - 20px);
+    width:40px;
+    height:4px;
+    border-radius:2px;
+    background:#636363;
+  }
+  .connect-panel.popup-panel[open] { padding-bottom:0; }
+  .player-bar .player-tools.popup-panel.is-open {
+    position:fixed;
+    display:flex;
+    z-index:61;
+    flex-direction:column;
+    align-items:stretch;
+    justify-content:flex-start;
+    gap:0;
+    padding-inline:var(--popup-padding);
+    border:0;
+    background:var(--popup-surface);
+    box-shadow:var(--popup-shadow);
+  }
+  .player-bar .player-tools.popup-panel.is-open > :is(button,#recommend-similar) {
+    display:flex;
+    height:auto;
+    width:100%;
+    min-height:var(--menu-row-height);
+    justify-content:flex-start;
+    gap:var(--menu-gap);
+    padding:0 calc(var(--popup-gutter) - var(--popup-edge));
+  }
+  .player-bar .player-tools.popup-panel.is-open .toolbar-label { display:block; }
+  .player-bar .player-tools.popup-panel.is-open > button > .icon { width:var(--menu-icon-size); height:var(--menu-icon-size); }
+  .player-bar .player-tools.popup-panel.is-open > button:focus-visible { outline:2px solid #fff; outline-offset:-2px; }
+  .player-bar .player-tools.popup-panel.is-open :is(#mute-toggle,.volume-meter) { display:none; }
+  .popup-panel.lyrics-view.is-open {
+    inset:0 0 calc(var(--player-height) + var(--phone-nav-height,66px) + env(safe-area-inset-bottom)) 0;
+    max-height:none;
+  }
+  .lyrics-header .dialog-heading {
+    min-height:calc(var(--popup-header-height) + env(safe-area-inset-top));
+    padding-top:calc(15px + env(safe-area-inset-top));
+  }
+  .lyrics-header .dialog-heading::before { top:calc(11px + env(safe-area-inset-top)); }
+  .lyrics-song { flex-wrap:wrap; }
+  .lyrics-song > div:not(.lyrics-timing) { flex:1; }
+  .lyrics-song > .lyrics-timing { flex:0 0 100%; justify-content:center; margin:0; }
+  .popup-panel.listening-poke.is-open {
+    bottom:calc(var(--player-height) + var(--phone-nav-height,66px) + env(safe-area-inset-bottom));
+    max-height:60dvh;
+  }
+}
+@media(min-width:721px) {
+  #player-options > .dialog-heading { display:none; }
+  #profile-menu.popup-menu > button.profile-phone-link { display:none; }
+}
+@media(prefers-reduced-motion:reduce) {
+  :root { --popup-enter:none; }
+  .popup-panel.animated-dialog.is-closing[open] { animation:none; }
+}

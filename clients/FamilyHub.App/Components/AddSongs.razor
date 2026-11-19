@@ -2,7 +2,7 @@
 @inject MusicSession Session
 @inject IJSRuntime JS
 
-<dialog id="add-songs-dialog" class="glass-dialog create-playlist-screen animated-dialog" aria-labelledby="add-songs-heading"
+<dialog id="add-songs-dialog" class="popup-panel create-playlist-screen animated-dialog" aria-labelledby="add-songs-heading"
         data-return-focus="content" @onclose="Closed">
     <div class="dialog-heading"><h2 id="add-songs-heading" tabindex="-1">Add songs</h2>
         <button class="quiet" aria-label="Close Add songs" @onclick="Close"><MusicIcon Name="close" /></button>
@@ -51,9 +51,8 @@
         @if (jobs.Count > 0) { <LibraryAdditions Jobs="jobs" Retry="Retry" Busy="Busy" /> }
         <p class="entry-error" role="status">@(Session.Connected ? message : "Connect to the server to add songs.")</p>
         <div class="actions">
-            <button type="button" @onclick="Close">Close</button>
             <button id="add-songs-submit" type="submit" class="primary" aria-disabled="@(CanSubmit ? "false" : "true")">
-                @(posting ? "Queuing..." : uploader?.Busy == true ? "Uploading..." : addToPlaylist ? "Add to playlist" : "Add to library")
+                @(posting ? "Queuing..." : uploader?.Busy == true ? "Uploading..." : addToPlaylist ? "Add songs" : "Add to library")
             </button>
         </div>
     </form>

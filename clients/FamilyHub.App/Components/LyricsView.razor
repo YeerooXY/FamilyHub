@@ -9,11 +9,10 @@
 {
     if (Expanded)
     {
-        <section id="lyrics-view" class="lyrics-view" role="dialog" aria-modal="true" aria-labelledby="lyrics-title" @onkeydown="KeyDown" @onkeydown:stopPropagation="true">
-            <header class="lyrics-header">
-                <button id="lyrics-close" class="quiet" aria-label="Close lyrics" title="Close lyrics" @onclick="Close"><MusicIcon Name="chevron-down" /></button>
-                <TrackCover @key="track.Id" Track="track" />
-                <div><strong id="lyrics-title">@track.Title</strong><span>@track.Channel</span></div>
+        <section id="lyrics-view" class="popup-panel lyrics-view is-open" role="dialog" aria-labelledby="lyrics-title">
+            <div class="lyrics-header">
+                <div class="dialog-heading"><h2 id="lyrics-title">Lyrics</h2><button id="lyrics-close" class="quiet" aria-label="Close lyrics" @onclick="Close"><MusicIcon Name="close" /></button></div>
+                <div class="lyrics-song"><TrackCover @key="track.Id" Track="track" /><div><strong>@track.Title</strong><span>@track.Channel</span></div>
                 @if (current.State == "synced")
                 {
                     <div class="lyrics-timing" role="group" aria-label="Lyrics timing">
@@ -22,7 +21,8 @@
                         <button id="lyrics-later" class="quiet" @onclick="() => Nudge(-.5)" aria-label="Show lyrics later">Later</button>
                     </div>
                 }
-            </header>
+                </div>
+            </div>
             @if (current.State == "synced")
             {
                 <ol class="lyrics-lines">
@@ -141,9 +141,20 @@
         return current.Lines.Skip(start).Where(l => !string.IsNullOrWhiteSpace(l.Text)).Take(3).Select(l => l.Text);
     }
 
-    private async Task Open() { await ExpandedChanged.InvokeAsync(true); revealed = -1; }
-    private async Task Close() { await ExpandedChanged.InvokeAsync(false); await JS.InvokeVoidAsync("familyhub.focusVisible", "lyrics-preview", "sheet-lyrics", "player-more"); }
-    private Task KeyDown(KeyboardEventArgs e) => e.Key == "Escape" ? Close() : Task.CompletedTask;
+    private string? opener;
+    private async Task Open()
+    {
+        opener = "lyrics-preview";
+        await ExpandedChanged.InvokeAsync(true);
+        revealed = -1;
+    }
+    private async Task Close()
+    {
+        var returnId = opener ?? "sheet-lyrics";
+        opener = null;
+        await ExpandedChanged.InvokeAsync(false);
+        await JS.InvokeVoidAsync("familyhub.focusVisible", returnId, "player-more", "show-queue");
+    }
 
     private async Task Seek(double time)
     {
@@ -155,7 +166,11 @@
     {
         Report();
         if (!Expanded || lyrics is null) { revealed = -1; return; }
-        if (revealed == -1) await JS.InvokeVoidAsync("familyhub.focus", "lyrics-close");
+        if (revealed == -1)
+        {
+            await JS.InvokeVoidAsync("familyhub.bindPopupSheet", "lyrics-view", "lyrics-close");
+            await JS.InvokeVoidAsync("familyhub.focus", "lyrics-close");
+        }
         if (active >= 0 && active != revealed) { revealed = active; await JS.InvokeVoidAsync("familyhub.revealLyric", "lyric-" + active); }
         else if (revealed == -1) revealed = -2;
     }

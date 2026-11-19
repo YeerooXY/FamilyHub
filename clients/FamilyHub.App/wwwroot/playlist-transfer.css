@@ -37,7 +37,7 @@
 
 .transfer-review-button { min-height:36px; padding:8px 10px; font-size:12px; flex-shrink:0; }
 .transfer-results summary>span { margin-left:10px; color:#e8c28f; }
-.transfer-review-dialog { width:min(680px,calc(100vw - 32px)); }
+.transfer-review-dialog { --popup-width:680px; }
 .transfer-review-song { margin:18px 0; }
 .transfer-review-song strong,.transfer-review-song>span { display:block; }
 .transfer-review-song>span { color:var(--muted); font-size:13px; margin-top:5px; }

@@ -114,3 +114,11 @@ Song review, Server stats, Leaderboard, Queue, Now Playing and connection/profil
 screens were not re-reviewed for this revision; older records in `docs/NATIVE_APPS.md`
 remain dated evidence. Additional 320 px, tablet, landscape, 200% text/zoom and
 physical Mac/Android/iPhone checks remain open.
+
+## 19 November 2026 · Shared music popups
+
+The native music screens and their popups were rendered before and after in
+Windows Chromium at 1280 and 2000 px, emulated Mac WebKit at 850 px, and emulated
+Android Chromium and iPhone WebKit at 390 px. The record links full-viewport
+captures, measured geometry, and keyboard and touch coverage.
+[Popup verification](popup-unification-2026-11-19/README.md)

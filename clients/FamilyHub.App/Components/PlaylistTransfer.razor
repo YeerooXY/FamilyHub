@@ -83,7 +83,7 @@
         }
         @if (!string.IsNullOrEmpty(error)) { <p class="entry-error" role="alert">@error</p> }
     </section>
-    <dialog id="transfer-review-dialog" class="glass-dialog transfer-review-dialog" aria-labelledby="transfer-review-heading">
+    <dialog id="transfer-review-dialog" class="popup-panel transfer-review-dialog" aria-labelledby="transfer-review-heading">
         <div class="dialog-heading"><h2 id="transfer-review-heading">Review recording</h2><button id="transfer-review-close" class="quiet" aria-label="Close recording choices" @onclick="CloseReview"><MusicIcon Name="close" /></button></div>
         <p class="transfer-review-song"><strong>@reviewTitle</strong><span>@reviewArtist</span></p>
         @if (reviewLoading) { <p role="status">Finding recording choices...</p> }
@@ -101,8 +101,8 @@
         @if (!reviewLoading && choices.Count == 0 && string.IsNullOrEmpty(reviewError)) { <p>No recording choices found.</p> }
         <button class="quiet" @onclick="SearchChoicesAgain" aria-disabled="@Aria(reviewLoading || requesting)"><MusicIcon Name="search" />Search again</button>
     </dialog>
-    <dialog id="transfer-import-dialog" class="glass-dialog" aria-labelledby="transfer-import-heading">
-        <h2 id="transfer-import-heading">Import playlist link</h2>
+    <dialog id="transfer-import-dialog" class="popup-panel" aria-labelledby="transfer-import-heading">
+        <div class="dialog-heading"><h2 id="transfer-import-heading">Import playlist link</h2><button class="quiet" aria-label="Close playlist import" @onclick="CloseImport"><MusicIcon Name="close" /></button></div>
         <form @onsubmit="Import" @onsubmit:preventDefault>
             <label for="transfer-url">Playlist link</label><input id="transfer-url" type="url" @bind="url" required />
             <p>Spotify, YouTube, Deezer or SoundCloud. Songs already in this playlist are skipped.</p>

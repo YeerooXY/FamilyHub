@@ -29,7 +29,8 @@
   line-height:1.2;
   font-variant-numeric:tabular-nums;
 }
-.artist-mappings { display:grid; gap:16px; }
+.artist-mappings { display:grid; gap:16px; --mapping-inline-padding:20px; }
+.artist-mappings > .music-admin-heading,.artist-mapping-feedback { padding-inline:calc(var(--mapping-inline-padding) + 1px); }
 .artist-mapping-actions {
   display:flex;
   flex-wrap:wrap;
@@ -46,7 +47,7 @@
 }
 .artist-mappings .music-icon { width:18px; height:18px; flex:none; }
 .artist-mapping-panel {
-  padding:16px 20px;
+  padding:16px var(--mapping-inline-padding);
   min-width:0;
 }
 .artist-mapping-panel h2 { display:flex; align-items:center; gap:8px; font-size:1.15rem; }
@@ -81,7 +82,8 @@
 .artist-mapping-editor :is(small,.artist-mapping-feedback) { flex:1 0 100%; }
 .artist-mappings :is(button,input,h1,h2):focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
 @media(max-width:720px) {
-  .artist-mapping-panel { padding:12px; }
+  .artist-mappings { --mapping-inline-padding:12px; }
+  .artist-mapping-panel { padding-block:12px; }
   .artist-mapping-search,.artist-mapping-search input { width:100%; }
   .artist-mapping-editor .artist-mapping-actions { margin-inline-start:auto; }
 }
@@ -89,7 +91,7 @@
   .artist-mappings button { transition:none; }
 }
 
-.server-work-page { display:grid; gap:24px; width:100%; max-width:1100px; margin-inline:auto; }
+.server-work-page { display:grid; gap:24px; width:100%; max-width:var(--stats-page-width,1100px); margin-inline:auto; }
 .server-work-mappings { padding:0 16px; }
 .server-work-mappings > summary { display:flex; align-items:center; gap:8px; min-height:48px; list-style:none; font-weight:700; cursor:pointer; }
 .server-work-mappings > summary::-webkit-details-marker { display:none; }

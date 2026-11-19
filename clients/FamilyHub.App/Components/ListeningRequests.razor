@@ -5,8 +5,9 @@
 
 @if (Session.Connected && sourceIdentity == Session.Server + "|" + Session.User && requests.FirstOrDefault() is { } request)
 {
-    <aside class="listening-poke glass-panel" aria-label="Listening request" role="status">
-        <MusicIcon Name="people" /><div><strong>@(request.Kind == "invite" ? request.Name + " invited you to listen." : request.Name + " wants to listen with you.")</strong><div class="actions">@if (Together.Room is null) { <button class="primary" @onclick="() => Accept(request)" aria-disabled="@(busy ? "true" : "false")">@(request.Kind == "invite" ? "Join session" : "Start session")</button> }<button class="quiet" @onclick="() => Dismiss(request)" aria-disabled="@(busy ? "true" : "false")">Dismiss</button></div>@if (error is not null) { <p class="entry-error">@error</p> }</div>
+    <aside id="listening-request" class="popup-panel listening-poke is-open" aria-labelledby="listening-request-heading">
+        <div class="dialog-heading"><h2 id="listening-request-heading">Listening request</h2><button id="listening-request-close" class="quiet" aria-label="Dismiss listening request" @onclick="() => Dismiss(request)" aria-disabled="@(busy ? "true" : "false")"><MusicIcon Name="close" /></button></div>
+        <p role="status">@(request.Kind == "invite" ? request.Name + " invited you to listen." : request.Name + " wants to listen with you.")</p><div class="actions">@if (Together.Room is null) { <button class="primary" @onclick="() => Accept(request)" aria-disabled="@(busy ? "true" : "false")">@(request.Kind == "invite" ? "Join session" : "Start session")</button> }</div>@if (error is not null) { <p class="entry-error" role="status">@error</p> }
     </aside>
 }
 
@@ -19,6 +20,9 @@
     private long requestVersion;
     private string? error;
     protected override void OnInitialized() { token = lifetime.Token; _ = Poll(); }
+    protected override Task OnAfterRenderAsync(bool firstRender) => requests.Count > 0
+        ? JS.InvokeVoidAsync("familyhub.bindPopupSheet", "listening-request", "listening-request-close").AsTask()
+        : Task.CompletedTask;
     private async Task Poll()
     {
         while (!token.IsCancellationRequested)
@@ -62,7 +66,7 @@
         var api = Session.Api ?? throw new InvalidOperationException("Connect to dismiss this request.");
         await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Delete, "/api/listening/pokes/" + Uri.EscapeDataString(request.Id));
         requestVersion++; requests.RemoveAll(p => p.Id == request.Id);
-        await JS.InvokeVoidAsync("familyhub.focus", "listen-together");
+        await JS.InvokeVoidAsync("familyhub.focusVisible", "listen-together", "player-more", "content");
     }
     public void Dispose() { lifetime.Cancel(); lifetime.Dispose(); }
 }

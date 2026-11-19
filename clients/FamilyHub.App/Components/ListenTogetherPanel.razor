@@ -4,12 +4,12 @@
 @inject MusicSession Session
 @inject IJSRuntime JS
 
-<button id="listen-together" class="quiet listen-together-button" aria-label="Listen Together" title="Listen Together" aria-pressed="@(Together.Room is not null ? "true" : "false")" @onclick="Open"><MusicIcon Name="people" /></button>
+<button id="listen-together" class="quiet listen-together-button" aria-label="Listen Together" title="Listen Together" aria-pressed="@(Together.Room is not null ? "true" : "false")" @onclick="Open"><MusicIcon Name="people" /><span class="toolbar-label">Listen Together</span></button>
 @if (Together.Following)
 {
-    <button class="quiet local-pause-button" aria-label="@(Together.LocallyPaused ? "Resume live session" : "Pause only for me")" title="@(Together.LocallyPaused ? "Resume live session" : "Pause only for me")" aria-pressed="@Together.LocallyPaused.ToString().ToLowerInvariant()" @onclick="Together.ToggleLocalPauseAsync"><MusicIcon Name="@(Together.LocallyPaused ? "play" : "pause")" /></button>
+    <button class="quiet local-pause-button" aria-label="@(Together.LocallyPaused ? "Resume live session" : "Pause only for me")" title="@(Together.LocallyPaused ? "Resume live session" : "Pause only for me")" aria-pressed="@Together.LocallyPaused.ToString().ToLowerInvariant()" @onclick="Together.ToggleLocalPauseAsync"><MusicIcon Name="@(Together.LocallyPaused ? "play" : "pause")" /><span class="toolbar-label">@(Together.LocallyPaused ? "Resume live session" : "Pause only for me")</span></button>
 }
-<dialog id="listen-together-dialog" class="glass-dialog listening-dialog" aria-labelledby="listening-heading" @oncancel="Closed">
+<dialog id="listen-together-dialog" class="popup-panel listening-dialog" aria-labelledby="listening-heading" @onclose="Closed">
     <div class="dialog-heading"><h2 id="listening-heading">Listen Together</h2><button id="close-listening" class="quiet" aria-label="Close Listen Together" @onclick="Close"><MusicIcon Name="close" /></button></div>
     @if (Together.Room is { } room)
     {
@@ -42,7 +42,6 @@
     }
     else
     {
-        <p class="setting-help listening-intro">Invite listeners, then choose your music.</p>
         <button id="start-listening" class="primary" @onclick="Start" aria-disabled="@(busy || !Session.Connected ? "true" : "false")"><MusicIcon Name="people" />@(Together.Rooms.Any(r => r.HostUser == Session.User) ? "Resume hosting" : "Start session")</button>
         <div class="listening-rooms" aria-label="Available sessions">
             <h3>Join a session</h3>
@@ -81,7 +80,7 @@
     private async Task Open()
     {
         open = true; error = null;
-        await JS.InvokeVoidAsync("familyhub.showDialog", "listen-together-dialog", "close-listening");
+        await JS.InvokeVoidAsync("familyhub.showDialog", "listen-together-dialog", "close-listening", "listen-together");
         refresh?.Cancel(); refresh?.Dispose(); refresh = new();
         _ = RefreshLoop(refresh.Token);
     }

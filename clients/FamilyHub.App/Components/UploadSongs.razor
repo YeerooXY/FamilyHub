@@ -6,7 +6,7 @@
 
 <div class="create-files">
     <label class="create-file-choice" aria-disabled="@Aria(Disabled || Busy)">
-        <MusicIcon Name="music" /><strong>Choose songs</strong><small>One song or several</small>
+        <MusicIcon Name="music" /><strong>Choose songs</strong>
         <InputFile @key="fileInputGeneration" id="@(Prefix + "-audio-file")" OnChange="Choose"
                    accept="audio/*,.mp3,.flac,.m4a,.opus,.ogg,.oga,.wav,.aac,.webm,.mka,.wv,.aiff,.aif"
                    multiple disabled="@(Disabled || Busy)" aria-label="Choose songs" />

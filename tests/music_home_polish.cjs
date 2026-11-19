@@ -3,7 +3,7 @@ const fs = require('fs'), path = require('path'), assert = require('assert/stric
 const root = path.resolve(__dirname, '..');
 const {chromium, webkit, devices} = require(require.resolve('playwright', {paths:[root,path.resolve(root,'../agent-dock')]}));
 const read = file => fs.readFileSync(path.join(root,file),'utf8');
-const css = ['music_web/static/shell.css','clients/FamilyHub.App/wwwroot/app-native.css','clients/FamilyHub.App/wwwroot/player-native.css','clients/FamilyHub.App/wwwroot/paddock-theme.css','clients/FamilyHub.App/wwwroot/home-mobile.css','clients/FamilyHub.App/wwwroot/server-stats.css','clients/FamilyHub.App/wwwroot/create-playlist.css'].map(read).join('\n');
+const css = ['music_web/static/shell.css','clients/FamilyHub.App/wwwroot/app-native.css','clients/FamilyHub.App/wwwroot/player-native.css','clients/FamilyHub.App/wwwroot/paddock-theme.css','clients/FamilyHub.App/wwwroot/home-mobile.css','clients/FamilyHub.App/wwwroot/server-stats.css','clients/FamilyHub.App/wwwroot/create-playlist.css','clients/FamilyHub.App/wwwroot/popup-native.css'].map(read).join('\n');
 const icon = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" d="M4 12h16M12 4v16"/></svg>';
 const cover = (n, missing = false, kind = '') => {
  const hue = (n * 73 + 186) % 360;
@@ -32,7 +32,7 @@ ${shelf('home-playlists-shelf', 'Your playlists', mixes.map((title,i) => `<butto
 ${shelf('home-albums-shelf', 'Albums for you', albums.map((title,i) => `<div class="home-card-holder"><button ${i===0 ? 'id="album-open"' : ''} class="home-card" aria-label="Open ${title} by ${names[i%4]}">${cover(i)}<strong>${title}</strong><span>${names[i%4]}</span></button><button ${i===0 ? 'id="album-save"' : ''} class="home-card-save" aria-label="Save ${title} as a playlist">${icon}</button></div>`).join(''))}
 </div>
 <div class="playlist-grid"><button id="create-playlist" class="playlist-card glass-panel"><span class="cover generated-cover create-cover">${icon}</span><strong>Create playlist</strong></button></div>
-</main></div><footer class="player-bar"><div class="player-tools is-open"><button class="quiet player-tools-close" aria-label="Close player options">${icon}</button>
+</main></div><footer class="player-bar"><div id="player-options" class="player-tools is-open"><div class="dialog-heading"><h2>Player options</h2><button class="quiet player-tools-close" aria-label="Close player options">${icon}</button></div>
 <button id="sheet-lyrics" class="quiet" aria-label="Lyrics">${icon}</button>
 <button id="sheet-add-playlist" class="quiet sheet-only" aria-label="Add to playlist">${icon}</button><button id="sheet-queue" class="quiet sheet-only" aria-label="Go to queue">${icon}</button>
 <button id="listen-together" class="quiet listen-together-button" aria-label="Listen Together">${icon}</button><button id="connect-device" class="quiet" aria-label="Connect to a device">${icon}</button>
@@ -53,6 +53,7 @@ ${shelf('home-albums-shelf', 'Albums for you', albums.map((title,i) => `<div cla
    await page.route('https://home.test/**',route=>route.fulfill({contentType:'text/html',body:html}));
    await page.goto('https://home.test/');
    await page.addScriptTag({content:read('clients/FamilyHub.App/wwwroot/app.js')});
+   if (profile.isMobile) await page.locator('#player-options').evaluate(node => node.classList.add('popup-panel','popup-menu'));
    await page.evaluate(() => {
     document.querySelectorAll('.home-shelf').forEach(shelf => familyhub.watchShelf(shelf.id));
     document.querySelectorAll('.shelf-arrow').forEach(button => {

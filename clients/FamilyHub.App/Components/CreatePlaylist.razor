@@ -3,8 +3,8 @@
 
 @* Create playlist: one screen for an empty playlist, a pasted link from a supported site (detected
    from the link itself), or songs and folders from this device through the upload dialog. *@
-<dialog id="create-playlist-dialog" class="glass-dialog create-playlist-screen animated-dialog" aria-labelledby="create-playlist-heading" @onclose="Reset">
-    <div class="dialog-heading"><h2 id="create-playlist-heading">Create playlist</h2><button class="quiet" aria-label="Close create playlist" @onclick="Close"><MusicIcon Name="close" /></button></div>
+<dialog id="create-playlist-dialog" class="popup-panel create-playlist-screen animated-dialog" aria-labelledby="create-playlist-heading" @onclose="Reset">
+    <div class="dialog-heading"><h2 id="create-playlist-heading" tabindex="-1">Create playlist</h2><button class="quiet" aria-label="Close create playlist" @onclick="Close"><MusicIcon Name="close" /></button></div>
     <form class="create-playlist-form inline-form" @onsubmit="Submit" @onsubmit:preventDefault>
         <label class="create-field">
             <span>Name</span>

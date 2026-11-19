@@ -212,7 +212,7 @@ body[data-effects=off] .listener-equalizer.is-playing i { animation:none; }
 .catalogue-control[aria-disabled=true] { opacity:.55; }
 .catalogue-review :is(button,a,h2,h3):focus-visible { outline:2px solid var(--focus,var(--accent-blue)); outline-offset:2px; }
 .catalogue-more { margin-top:12px; }
-.metadata-review-dialog { width:min(460px,calc(100vw - 32px)); }
+.metadata-review-dialog { --popup-width:460px; }
 .metadata-review-dialog form { display:grid; gap:10px; }
 .metadata-review-dialog input { width:100%; }
 .metadata-review-dialog label { font-size:13px; }

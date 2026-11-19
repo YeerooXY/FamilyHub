@@ -1,0 +1,2431 @@
+{
+  "home": {
+    "viewport": [
+      2000,
+      1060
+    ],
+    "content": [
+      248,
+      72,
+      1744,
+      900
+    ],
+    "contentWidth": 1744,
+    "horizontalOverflow": 0
+  },
+  "connect": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1710,
+      "y": 64,
+      "width": 282,
+      "height": 908
+    },
+    "header": {
+      "x": 1710,
+      "y": 64,
+      "width": 282,
+      "height": 64
+    },
+    "title": {
+      "x": 1726,
+      "y": 86,
+      "width": 59.59375,
+      "height": 20,
+      "text": {
+        "x": 1726,
+        "y": 85,
+        "width": 9.6875,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "listen-together": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 908
+    },
+    "header": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 64
+    },
+    "title": {
+      "x": 1568,
+      "y": 86,
+      "width": 111.359375,
+      "height": 20,
+      "text": {
+        "x": 1568,
+        "y": 85,
+        "width": 7.890625,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": [
+      {
+        "box": {
+          "x": 1568,
+          "y": 128,
+          "width": 408,
+          "height": 48
+        },
+        "icon": {
+          "x": 1715.09375,
+          "y": 140,
+          "width": 24,
+          "height": 24
+        },
+        "label": "Start session",
+        "text": {
+          "x": 1749.09375,
+          "y": 142.5,
+          "width": 7.21875,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "21px",
+        "gap": "10px",
+        "padding": "0px 16px"
+      }
+    ]
+  },
+  "search": {
+    "viewport": [
+      2000,
+      1060
+    ],
+    "content": [
+      248,
+      72,
+      1744,
+      900
+    ],
+    "contentWidth": 1744,
+    "horizontalOverflow": 0
+  },
+  "library": {
+    "viewport": [
+      2000,
+      1060
+    ],
+    "content": [
+      248,
+      72,
+      1744,
+      900
+    ],
+    "contentWidth": 1744,
+    "horizontalOverflow": 0
+  },
+  "add-songs": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1312,
+      "y": 64,
+      "width": 680,
+      "height": 908
+    },
+    "header": {
+      "x": 1312,
+      "y": 64,
+      "width": 680,
+      "height": 64
+    },
+    "title": {
+      "x": 1328,
+      "y": 86,
+      "width": 76.234375,
+      "height": 20,
+      "text": {
+        "x": 1328,
+        "y": 85,
+        "width": 10.953125,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "upload": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1312,
+      "y": 64,
+      "width": 680,
+      "height": 908
+    },
+    "header": {
+      "x": 1312,
+      "y": 64,
+      "width": 680,
+      "height": 64
+    },
+    "title": {
+      "x": 1328,
+      "y": 86,
+      "width": 76.234375,
+      "height": 20,
+      "text": {
+        "x": 1328,
+        "y": 85,
+        "width": 10.953125,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "song-menu": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1652,
+      "y": 64,
+      "width": 340,
+      "height": 908
+    },
+    "header": {
+      "x": 1652,
+      "y": 64,
+      "width": 340,
+      "height": 64
+    },
+    "title": {
+      "x": 1668,
+      "y": 86,
+      "width": 72.203125,
+      "height": 20,
+      "text": {
+        "x": 1668,
+        "y": 85,
+        "width": 8.03125,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": [
+      {
+        "box": {
+          "x": 1660,
+          "y": 128,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 140,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Add to playlist",
+        "text": {
+          "x": 1700,
+          "y": 140,
+          "width": 9.40625,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 172,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 184,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Add to queue",
+        "text": {
+          "x": 1700,
+          "y": 184,
+          "width": 9.40625,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 216,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 228,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Download to this device",
+        "text": {
+          "x": 1700,
+          "y": 228,
+          "width": 10.046875,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 260,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 272,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Follow North Atlas",
+        "text": {
+          "x": 1700,
+          "y": 272,
+          "width": 7.046875,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 304,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 316,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Needs trimming",
+        "text": {
+          "x": 1700,
+          "y": 316,
+          "width": 10.75,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 348,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 360,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Report problem",
+        "text": {
+          "x": 1700,
+          "y": 360,
+          "width": 8.359375,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      }
+    ]
+  },
+  "report": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1532,
+      "y": 64,
+      "width": 460,
+      "height": 908
+    },
+    "header": {
+      "x": 1532,
+      "y": 64,
+      "width": 460,
+      "height": 64
+    },
+    "title": {
+      "x": 1548,
+      "y": 86,
+      "width": 88.984375,
+      "height": 20,
+      "text": {
+        "x": 1548,
+        "y": 85,
+        "width": 9.75,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "song-playlist-picker": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1632,
+      "y": 64,
+      "width": 360,
+      "height": 908
+    },
+    "header": {
+      "x": 1632,
+      "y": 64,
+      "width": 360,
+      "height": 64
+    },
+    "title": {
+      "x": 1648,
+      "y": 86,
+      "width": 105.390625,
+      "height": 20,
+      "text": {
+        "x": 1648,
+        "y": 85,
+        "width": 10.953125,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "trim-request": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1652,
+      "y": 64,
+      "width": 340,
+      "height": 908
+    },
+    "header": {
+      "x": 1652,
+      "y": 64,
+      "width": 340,
+      "height": 64
+    },
+    "title": {
+      "x": 1668,
+      "y": 86,
+      "width": 72.203125,
+      "height": 20,
+      "text": {
+        "x": 1668,
+        "y": 85,
+        "width": 8.03125,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": [
+      {
+        "box": {
+          "x": 1660,
+          "y": 128,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 140,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Add to playlist",
+        "text": {
+          "x": 1700,
+          "y": 140,
+          "width": 9.40625,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 172,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 184,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Add to queue",
+        "text": {
+          "x": 1700,
+          "y": 184,
+          "width": 9.40625,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 216,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 228,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Download to this device",
+        "text": {
+          "x": 1700,
+          "y": 228,
+          "width": 10.046875,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 260,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 272,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Follow North Atlas",
+        "text": {
+          "x": 1700,
+          "y": 272,
+          "width": 7.046875,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 304,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 316,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Added to trimming pool",
+        "text": {
+          "x": 1700,
+          "y": 316,
+          "width": 9.40625,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 348,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 360,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Report problem",
+        "text": {
+          "x": 1700,
+          "y": 360,
+          "width": 8.359375,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      }
+    ]
+  },
+  "lyrics": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": null,
+    "box": {
+      "x": 8,
+      "y": 64,
+      "width": 1984,
+      "height": 908
+    },
+    "header": {
+      "x": 8,
+      "y": 64,
+      "width": 1984,
+      "height": 120
+    },
+    "title": {
+      "x": 24,
+      "y": 86,
+      "width": 40.125,
+      "height": 20,
+      "text": {
+        "x": 24,
+        "y": 85,
+        "width": 7.328125,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "now-playing": {
+    "viewport": [
+      2000,
+      1060
+    ],
+    "content": [
+      248,
+      72,
+      1744,
+      900
+    ],
+    "contentWidth": 1744,
+    "horizontalOverflow": 0
+  },
+  "queue": {
+    "viewport": [
+      2000,
+      1060
+    ],
+    "content": [
+      248,
+      72,
+      1744,
+      900
+    ],
+    "contentWidth": 1744,
+    "horizontalOverflow": 0
+  },
+  "playlist-sort": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1652,
+      "y": 64,
+      "width": 340,
+      "height": 908
+    },
+    "header": {
+      "x": 1652,
+      "y": 64,
+      "width": 340,
+      "height": 64
+    },
+    "title": {
+      "x": 1668,
+      "y": 86,
+      "width": 93.109375,
+      "height": 20,
+      "text": {
+        "x": 1668,
+        "y": 85,
+        "width": 8.671875,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": [
+      {
+        "box": {
+          "x": 1660,
+          "y": 128,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 140,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Recent",
+        "text": {
+          "x": 1700,
+          "y": 140,
+          "width": 8.359375,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 172,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 184,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Alphabetical",
+        "text": {
+          "x": 1700,
+          "y": 184,
+          "width": 9.40625,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 216,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 228,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Most songs",
+        "text": {
+          "x": 1700,
+          "y": 228,
+          "width": 12.953125,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      }
+    ]
+  },
+  "create-playlist": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1312,
+      "y": 64,
+      "width": 680,
+      "height": 908
+    },
+    "header": {
+      "x": 1312,
+      "y": 64,
+      "width": 680,
+      "height": 64
+    },
+    "title": {
+      "x": 1328,
+      "y": 86,
+      "width": 102.34375,
+      "height": 20,
+      "text": {
+        "x": 1328,
+        "y": 85,
+        "width": 9.6875,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "playlist": {
+    "viewport": [
+      2000,
+      1060
+    ],
+    "content": [
+      248,
+      72,
+      1744,
+      900
+    ],
+    "contentWidth": 1734,
+    "horizontalOverflow": 0
+  },
+  "playlist-download": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 908
+    },
+    "header": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 64
+    },
+    "title": {
+      "x": 1568,
+      "y": 86,
+      "width": 140.03125,
+      "height": 20,
+      "text": {
+        "x": 1568,
+        "y": 85,
+        "width": 9.9375,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "playlist-menu": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1652,
+      "y": 64,
+      "width": 340,
+      "height": 908
+    },
+    "header": {
+      "x": 1652,
+      "y": 64,
+      "width": 340,
+      "height": 64
+    },
+    "title": {
+      "x": 1668,
+      "y": 86,
+      "width": 110.546875,
+      "height": 20,
+      "text": {
+        "x": 1668,
+        "y": 85,
+        "width": 9.53125,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": [
+      {
+        "box": {
+          "x": 1660,
+          "y": 128,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 140,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Add to queue",
+        "text": {
+          "x": 1700,
+          "y": 140,
+          "width": 9.40625,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 172,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 184,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Play next",
+        "text": {
+          "x": 1700,
+          "y": 184,
+          "width": 8.1875,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 216,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 228,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Choose saved songs",
+        "text": {
+          "x": 1700,
+          "y": 228,
+          "width": 8.703125,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 260,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 272,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Import playlist link",
+        "text": {
+          "x": 1700,
+          "y": 272,
+          "width": 4.09375,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 304,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 316,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Edit details",
+        "text": {
+          "x": 1700,
+          "y": 316,
+          "width": 7.25,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 348,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 360,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Invite collaborators",
+        "text": {
+          "x": 1700,
+          "y": 360,
+          "width": 4.09375,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 392,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 404,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Delete playlist",
+        "text": {
+          "x": 1700,
+          "y": 404,
+          "width": 10.046875,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      }
+    ]
+  },
+  "choose-saved-songs": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1392,
+      "y": 64,
+      "width": 600,
+      "height": 908
+    },
+    "header": {
+      "x": 1392,
+      "y": 64,
+      "width": 600,
+      "height": 64
+    },
+    "title": {
+      "x": 1408,
+      "y": 86,
+      "width": 144.484375,
+      "height": 20,
+      "text": {
+        "x": 1408,
+        "y": 85,
+        "width": 9.6875,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "playlist-details": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1432,
+      "y": 64,
+      "width": 560,
+      "height": 908
+    },
+    "header": {
+      "x": 1432,
+      "y": 64,
+      "width": 560,
+      "height": 64
+    },
+    "title": {
+      "x": 1448,
+      "y": 86,
+      "width": 79.546875,
+      "height": 20,
+      "text": {
+        "x": 1448,
+        "y": 85,
+        "width": 8.21875,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "playlist-coauthors": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 908
+    },
+    "header": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 64
+    },
+    "title": {
+      "x": 1568,
+      "y": 86,
+      "width": 80.671875,
+      "height": 20,
+      "text": {
+        "x": 1568,
+        "y": 85,
+        "width": 9.6875,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "delete-playlist": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 908
+    },
+    "header": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 64
+    },
+    "title": {
+      "x": 1568,
+      "y": 86,
+      "width": 108.515625,
+      "height": 20,
+      "text": {
+        "x": 1568,
+        "y": 85,
+        "width": 11.5,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "playlist-import": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 908
+    },
+    "header": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 64
+    },
+    "title": {
+      "x": 1568,
+      "y": 86,
+      "width": 137.09375,
+      "height": 20,
+      "text": {
+        "x": 1568,
+        "y": 85,
+        "width": 4.78125,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "song-sort": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1652,
+      "y": 64,
+      "width": 340,
+      "height": 908
+    },
+    "header": {
+      "x": 1652,
+      "y": 64,
+      "width": 340,
+      "height": 64
+    },
+    "title": {
+      "x": 1668,
+      "y": 86,
+      "width": 76.671875,
+      "height": 20,
+      "text": {
+        "x": 1668,
+        "y": 85,
+        "width": 8.671875,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": [
+      {
+        "box": {
+          "x": 1660,
+          "y": 128,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 140,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Custom order",
+        "text": {
+          "x": 1700,
+          "y": 140,
+          "width": 8.703125,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 172,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 184,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Title",
+        "text": {
+          "x": 1700,
+          "y": 184,
+          "width": 7.734375,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 216,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 228,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Artist",
+        "text": {
+          "x": 1700,
+          "y": 228,
+          "width": 9.40625,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 260,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 272,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Album",
+        "text": {
+          "x": 1700,
+          "y": 272,
+          "width": 9.40625,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 304,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 316,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Date added",
+        "text": {
+          "x": 1700,
+          "y": 316,
+          "width": 10.046875,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 348,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 360,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Duration",
+        "text": {
+          "x": 1700,
+          "y": 360,
+          "width": 10.046875,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 392,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 404,
+          "width": 20,
+          "height": 20
+        },
+        "label": "BPM",
+        "text": {
+          "x": 1700,
+          "y": 404,
+          "width": 8.46875,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 436,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 448,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Key",
+        "text": {
+          "x": 1700,
+          "y": 448,
+          "width": 8.390625,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      }
+    ]
+  },
+  "album": {
+    "viewport": [
+      2000,
+      1060
+    ],
+    "content": [
+      248,
+      72,
+      1744,
+      900
+    ],
+    "contentWidth": 1744,
+    "horizontalOverflow": 0
+  },
+  "server-work": {
+    "viewport": [
+      2000,
+      1060
+    ],
+    "content": [
+      248,
+      72,
+      1744,
+      900
+    ],
+    "contentWidth": 1744,
+    "horizontalOverflow": 0,
+    "headingAlignment": [
+      570,
+      570
+    ]
+  },
+  "song-review": {
+    "viewport": [
+      2000,
+      1060
+    ],
+    "content": [
+      248,
+      72,
+      1744,
+      900
+    ],
+    "contentWidth": 1744,
+    "horizontalOverflow": 0
+  },
+  "song-metadata": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1532,
+      "y": 64,
+      "width": 460,
+      "height": 908
+    },
+    "header": {
+      "x": 1532,
+      "y": 64,
+      "width": 460,
+      "height": 64
+    },
+    "title": {
+      "x": 1548,
+      "y": 86,
+      "width": 110.359375,
+      "height": 20,
+      "text": {
+        "x": 1548,
+        "y": 85,
+        "width": 8.671875,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "artist-mappings": {
+    "viewport": [
+      2000,
+      1060
+    ],
+    "content": [
+      248,
+      72,
+      1744,
+      900
+    ],
+    "contentWidth": 1744,
+    "horizontalOverflow": 0,
+    "headingAlignment": [
+      608,
+      608
+    ]
+  },
+  "review-recording": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1312,
+      "y": 64,
+      "width": 680,
+      "height": 908
+    },
+    "header": {
+      "x": 1312,
+      "y": 64,
+      "width": 680,
+      "height": 64
+    },
+    "title": {
+      "x": 1328,
+      "y": 86,
+      "width": 125.71875,
+      "height": 20,
+      "text": {
+        "x": 1328,
+        "y": 85,
+        "width": 9.75,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": [
+      {
+        "box": {
+          "x": 1328,
+          "y": 343.5,
+          "width": 98.890625,
+          "height": 40
+        },
+        "icon": {
+          "x": 1328,
+          "y": 356.25,
+          "width": 18,
+          "height": 18
+        },
+        "label": "Search again",
+        "text": {
+          "x": 1346,
+          "y": 353.75,
+          "width": 7.625,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "21px",
+        "gap": "normal",
+        "padding": "0px"
+      }
+    ]
+  },
+  "leaderboard": {
+    "viewport": [
+      2000,
+      1060
+    ],
+    "content": [
+      248,
+      72,
+      1744,
+      900
+    ],
+    "contentWidth": 1744,
+    "horizontalOverflow": 0,
+    "headingAlignment": [
+      680,
+      680
+    ]
+  },
+  "wrapped": {
+    "viewport": [
+      2000,
+      1060
+    ],
+    "content": [
+      248,
+      72,
+      1744,
+      900
+    ],
+    "contentWidth": 1744,
+    "horizontalOverflow": 0
+  },
+  "listener-menu": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1652,
+      "y": 64,
+      "width": 340,
+      "height": 908
+    },
+    "header": {
+      "x": 1652,
+      "y": 64,
+      "width": 340,
+      "height": 64
+    },
+    "title": {
+      "x": 1668,
+      "y": 86,
+      "width": 32.09375,
+      "height": 20,
+      "text": {
+        "x": 1668,
+        "y": 85,
+        "width": 10.953125,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "profile-menu": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1652,
+      "y": 64,
+      "width": 340,
+      "height": 908
+    },
+    "header": {
+      "x": 1652,
+      "y": 64,
+      "width": 340,
+      "height": 64
+    },
+    "title": {
+      "x": 1668,
+      "y": 86,
+      "width": 32.09375,
+      "height": 20,
+      "text": {
+        "x": 1668,
+        "y": 85,
+        "width": 10.953125,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": [
+      {
+        "box": {
+          "x": 1660,
+          "y": 128,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 140,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Switch profile",
+        "text": {
+          "x": 1700,
+          "y": 140,
+          "width": 7.46875,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      },
+      {
+        "box": {
+          "x": 1660,
+          "y": 172,
+          "width": 324,
+          "height": 44
+        },
+        "icon": {
+          "x": 1668,
+          "y": 184,
+          "width": 20,
+          "height": 20
+        },
+        "label": "Settings",
+        "text": {
+          "x": 1700,
+          "y": 184,
+          "width": 7.625,
+          "height": 19
+        },
+        "font": "14px",
+        "line": "20px",
+        "gap": "12px",
+        "padding": "0px 8px"
+      }
+    ]
+  },
+  "settings": {
+    "viewport": [
+      2000,
+      1060
+    ],
+    "content": [
+      248,
+      72,
+      1744,
+      900
+    ],
+    "contentWidth": 1744,
+    "horizontalOverflow": 0
+  },
+  "clear-history": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 908
+    },
+    "header": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 64
+    },
+    "title": {
+      "x": 1568,
+      "y": 86,
+      "width": 164.375,
+      "height": 20,
+      "text": {
+        "x": 1568,
+        "y": 85,
+        "width": 9.6875,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "listening-request": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": null,
+    "box": {
+      "x": 1552,
+      "y": 815,
+      "width": 440,
+      "height": 157
+    },
+    "header": {
+      "x": 1552,
+      "y": 815,
+      "width": 440,
+      "height": 64
+    },
+    "title": {
+      "x": 1568,
+      "y": 837,
+      "width": 124.1875,
+      "height": 20,
+      "text": {
+        "x": 1568,
+        "y": 836,
+        "width": 7.890625,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 831,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 839,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "update": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 908
+    },
+    "header": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 64
+    },
+    "title": {
+      "x": 1568,
+      "y": 86,
+      "width": 133.234375,
+      "height": 20,
+      "text": {
+        "x": 1568,
+        "y": 85,
+        "width": 7.546875,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  },
+  "spotify-question": {
+    "style": {
+      "backgroundColor": "rgb(18, 18, 18)",
+      "backgroundImage": "none",
+      "borderTopWidth": "0px",
+      "borderTopLeftRadius": "8px",
+      "borderBottomLeftRadius": "8px",
+      "boxShadow": "rgba(0, 0, 0, 0.667) 0px 16px 48px 0px",
+      "backdropFilter": "none",
+      "color": "rgb(255, 255, 255)",
+      "animationName": "none"
+    },
+    "backdrop": "rgba(0, 0, 0, 0)",
+    "box": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 908
+    },
+    "header": {
+      "x": 1552,
+      "y": 64,
+      "width": 440,
+      "height": 64
+    },
+    "title": {
+      "x": 1568,
+      "y": 86,
+      "width": 224.015625,
+      "height": 20,
+      "text": {
+        "x": 1568,
+        "y": 85,
+        "width": 11.5,
+        "height": 21
+      }
+    },
+    "close": {
+      "x": 1952,
+      "y": 80,
+      "width": 32,
+      "height": 32,
+      "icon": {
+        "x": 1960,
+        "y": 88,
+        "width": 16,
+        "height": 16
+      }
+    },
+    "rows": []
+  }
+}
