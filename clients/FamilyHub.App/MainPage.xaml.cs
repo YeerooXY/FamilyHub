@@ -249,6 +249,9 @@ public partial class MainPage : ContentPage
         )
 	{
 		InitializeComponent();
+#if WINDOWS || MACCATALYST
+        BackgroundColor = Colors.Black;
+#endif
 #if IOS || MACCATALYST
         pathMonitor.SetQueue(CoreFoundation.DispatchQueue.MainQueue);
         pathMonitor.SnapshotHandler = path => meteredApplePath = path.IsExpensive || path.IsConstrained;
@@ -268,7 +271,10 @@ public partial class MainPage : ContentPage
         blazorWebView.WebResourceRequested += ServeArtwork;
 #if WINDOWS
         blazorWebView.BlazorWebViewInitialized += (_, args) =>
-        { args.WebView.CoreWebView2.Settings.IsZoomControlEnabled = false; };
+        {
+            args.WebView.DefaultBackgroundColor = Microsoft.UI.Colors.Black;
+            args.WebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
+        };
         audio.IsVisible = false;
         audioNext.IsVisible = false;
         Loaded += (_, _) => Services.WindowsWindowChrome.Update(this,

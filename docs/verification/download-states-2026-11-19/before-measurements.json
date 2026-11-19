@@ -1,0 +1,986 @@
+[
+  {
+    "name": "windows-1280",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "tiles": [
+      {
+        "width": 387,
+        "height": 112,
+        "iconX": 21,
+        "iconY": 19,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 45,
+        "subtitleX": 147.734375,
+        "titleBaseline": 37.25,
+        "subtitleBaseline": 37.25,
+        "textGap": -18
+      },
+      {
+        "width": 387,
+        "height": 132,
+        "iconX": 21,
+        "iconY": 19,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 21,
+        "subtitleX": 21,
+        "titleBaseline": 75.15625,
+        "subtitleBaseline": 104.328125,
+        "textGap": 4
+      }
+    ],
+    "menu": [
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      }
+    ],
+    "rows": [
+      {
+        "x": 1042.984375,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1042.984375,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1042.984375,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1042.984375,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1042.984375,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1042.984375,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      }
+    ]
+  },
+  {
+    "name": "windows-2000",
+    "viewport": {
+      "width": 2000,
+      "height": 1060
+    },
+    "tiles": [
+      {
+        "width": 387,
+        "height": 112,
+        "iconX": 21,
+        "iconY": 19,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 45,
+        "subtitleX": 147.734375,
+        "titleBaseline": 37.25,
+        "subtitleBaseline": 37.25,
+        "textGap": -18
+      },
+      {
+        "width": 387,
+        "height": 132,
+        "iconX": 21,
+        "iconY": 19,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 21,
+        "subtitleX": 21,
+        "titleBaseline": 75.15625,
+        "subtitleBaseline": 104.328125,
+        "textGap": 4
+      }
+    ],
+    "menu": [
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      }
+    ],
+    "rows": [
+      {
+        "x": 1763,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1763,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1763,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1763,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1763,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1763,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      }
+    ]
+  },
+  {
+    "name": "windows-850",
+    "viewport": {
+      "width": 850,
+      "height": 900
+    },
+    "tiles": [
+      {
+        "width": 358,
+        "height": 112,
+        "iconX": 21,
+        "iconY": 19,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 45,
+        "subtitleX": 147.734375,
+        "titleBaseline": 37.25,
+        "subtitleBaseline": 37.25,
+        "textGap": -18
+      },
+      {
+        "width": 358,
+        "height": 132,
+        "iconX": 21,
+        "iconY": 19,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 21,
+        "subtitleX": 21,
+        "titleBaseline": 75.15625,
+        "subtitleBaseline": 104.328125,
+        "textGap": 4
+      }
+    ],
+    "menu": [
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      }
+    ],
+    "rows": [
+      {
+        "x": 631,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 631,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 631,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 631,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 631,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 631,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      }
+    ]
+  },
+  {
+    "name": "mac-webkit-emulated",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "tiles": [
+      {
+        "width": 387,
+        "height": 112,
+        "iconX": 21,
+        "iconY": 19.25,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 45,
+        "subtitleX": 147.734375,
+        "titleBaseline": 37.5,
+        "subtitleBaseline": 37.5,
+        "textGap": -18
+      },
+      {
+        "width": 387,
+        "height": 132,
+        "iconX": 21,
+        "iconY": 19,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 21,
+        "subtitleX": 21,
+        "titleBaseline": 75.65625,
+        "subtitleBaseline": 104.5625,
+        "textGap": 4
+      }
+    ],
+    "menu": [
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      }
+    ],
+    "rows": [
+      {
+        "x": 1213,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1213,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1213,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1213,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1213,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1213,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      }
+    ]
+  },
+  {
+    "name": "android-chromium-emulated",
+    "viewport": {
+      "width": 412,
+      "height": 839
+    },
+    "tiles": [
+      {
+        "width": 186,
+        "height": 100,
+        "iconX": 15,
+        "iconY": 15,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 39,
+        "subtitleX": 15,
+        "titleBaseline": 33.25,
+        "subtitleBaseline": 60,
+        "textGap": -18
+      },
+      {
+        "width": 186,
+        "height": 120,
+        "iconX": 15,
+        "iconY": 15,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 15,
+        "subtitleX": 15,
+        "titleBaseline": 69.828125,
+        "subtitleBaseline": 97.65625,
+        "textGap": 4
+      }
+    ],
+    "menu": [
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      }
+    ],
+    "rows": [
+      {
+        "x": 267,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 267,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 267,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 267,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 267,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 267,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      }
+    ]
+  },
+  {
+    "name": "iphone-webkit-emulated",
+    "viewport": {
+      "width": 390,
+      "height": 664
+    },
+    "tiles": [
+      {
+        "width": 175,
+        "height": 103.75,
+        "iconX": 15,
+        "iconY": 15.25,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 15,
+        "subtitleX": 15,
+        "titleBaseline": 33.5,
+        "subtitleBaseline": 84.5,
+        "textGap": -18
+      },
+      {
+        "width": 175,
+        "height": 123.75,
+        "iconX": 15,
+        "iconY": 15,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 15,
+        "subtitleX": 15,
+        "titleBaseline": 71.578125,
+        "subtitleBaseline": 100.40625,
+        "textGap": 4
+      }
+    ],
+    "menu": [
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      }
+    ],
+    "rows": [
+      {
+        "x": 245,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 245,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 245,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 245,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 245,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 245,
+        "size": 22,
+        "height": 22,
+        "slot": 28,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      }
+    ]
+  }
+]

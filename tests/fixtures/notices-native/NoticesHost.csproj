@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NativeBin>../../../clients/FamilyHub.App/bin/x64/Debug/net10.0-windows10.0.19041.0/win-x64</NativeBin>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="FamilyHub.App" HintPath="$(NativeBin)/FamilyHub.App.dll" />
+    <Reference Include="FamilyHub.Client.Core" HintPath="$(NativeBin)/FamilyHub.Client.Core.dll" />
+    <Reference Include="Microsoft.Maui.Essentials" HintPath="$(NativeBin)/Microsoft.Maui.Essentials.dll" />
+    <PackageReference Include="Lib.Harmony" Version="2.4.2" />
+  </ItemGroup>
+</Project>

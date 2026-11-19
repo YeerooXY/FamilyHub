@@ -63,7 +63,7 @@ public sealed class PlaybackConnection(MusicSession session, MusicPlayer player)
                     || session.PlaybackActivation != activation || player.FollowingHost) return Failure;
                 if (player.RemoteDeviceId != to) player.EnterRemote(to, receipt.Target, position, playing);
             }
-            if (receipt.SourcePaused == false) session.SetMessage("Playback moved. The previous device could not confirm it paused.");
+            if (receipt.SourcePaused == false) session.SetMessage("Playback moved. Check whether the previous device paused.", "warning");
             return null;
         }
         catch (Exception e) when (ConnectionError(e)) { return Failure; }
@@ -124,7 +124,7 @@ public sealed class PlaybackConnection(MusicSession session, MusicPlayer player)
             {
                 localResult?.TrySetResult((command.Id, applied));
                 receiverLifetime = null; receiving = null; UpdatePending();
-                if (!applied && ConnectingTo is null && ReferenceEquals(api, session.Api)) session.SetMessage(Failure);
+                if (!applied && ConnectingTo is null && ReferenceEquals(api, session.Api)) session.SetMessage(Failure, "error");
             }
         }
     }

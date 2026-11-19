@@ -26,6 +26,9 @@ public sealed class MusicSession
     public bool HandoffPending { get; set; }
     public bool Ready { get; private set; }
     public string Message { get; private set; } = "";
+    public string MessageLevel { get; private set; } = "info";
+    public long MessageRevision { get; private set; }
+    public bool PlaybackMessage { get; private set; }
     private List<MusicTrack> library = [];
     private Dictionary<string, MusicTrack> libraryById = [];
     public List<MusicTrack> Library { get => library; private set { library = value; libraryById = value.DistinctBy(t => t.Id).ToDictionary(t => t.Id); } }
@@ -38,6 +41,8 @@ public sealed class MusicSession
     public string? DownloadingId { get; private set; }
     public string DownloadStatus { get; private set; } = "";
     public (string TrackId, string Message)? DownloadFailure { get; private set; }
+    private System.Collections.Immutable.ImmutableHashSet<string> pendingDeviceDownloads = [];
+    public bool WaitingForDeviceDownload(MusicTrack track) => pendingDeviceDownloads.Contains(track.Id);
     public long DownloadedBytes { get; private set; }
     private MusicTrack[] cachedTracks = [];
     private long cachedBytes;
@@ -293,7 +298,7 @@ public sealed class MusicSession
                 Profiles = ReadProfiles(Server);
             }
         }
-        catch { Message = "Could not read the saved connection. Enter your server again."; }
+        catch { SetMessage("Could not read the saved connection. Enter your server again.", "error"); }
         Ready = true;
         Changed?.Invoke();
         if (Api is not null) _ = ReconnectAsync(background: true);
@@ -540,11 +545,12 @@ public sealed class MusicSession
     public async Task ClearListeningHistoryAsync()
     {
         var api = OnlineApi(); var version = accountVersion;
-        await historyGate.WaitAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await historyGate.WaitAsync(timeout.Token);
         try
         {
             EnsureCurrent(version);
-            var cleared = await api.RequestJsonAsync<HistoryClear>(HttpMethod.Delete, "/api/listening/history");
+            var cleared = await api.RequestJsonAsync<HistoryClear>(HttpMethod.Delete, "/api/listening/history", cancellationToken: timeout.Token);
             EnsureCurrent(version);
             Preferences.Default.Set(HistoryKey + ":generation", Guid.NewGuid().ToString());
             WriteHistory(":pending", new List<ListeningEvent>());
@@ -552,7 +558,7 @@ public sealed class MusicSession
             WriteHistory(":summary", new ListeningSummary { ClearedAt = cleared.ClearedAt });
             Preferences.Default.Set(HistoryKey + ":migrated", "true");
             Preferences.Default.Set(PreferenceKey(Server, User) + ":listening-history", "[]");
-            HistoryRevision++; SetMessage("Listening history cleared.");
+            HistoryRevision++; SetMessage("Listening history cleared.", "success");
         }
         finally { historyGate.Release(); }
     }
@@ -597,7 +603,7 @@ public sealed class MusicSession
     private void StorePreferences(ListenerPreferences value, bool dirty) => Preferences.Default.Set(
         PreferenceKey(Server, User), JsonSerializer.Serialize(new CachedPreferences(value, dirty)));
 
-    public async Task ConnectServerAsync(string server)
+    public async Task ConnectServerAsync(string server, Func<Task>? beforeSwitch = null)
     {
         await connectionLock.WaitAsync();
         FamilyHubApi? candidate = null;
@@ -606,12 +612,27 @@ public sealed class MusicSession
             RequireIdleDownload();
             candidate = createApi(FamilyHubApi.NormalizeOrigin(new Uri(server.Trim())));
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            var connection = await candidate.ConnectAsync(timeout.Token);
-            StoreProfiles(candidate.ServerOrigin.AbsoluteUri, connection.Profiles);
-            if (candidate.ServerOrigin.AbsoluteUri == Server && !string.IsNullOrEmpty(User)
-                && connection.Profiles.Any(p => p.Id == User))
+            ProfileConnection connection;
+            ProfileSelection? selection = null;
+            try
             {
-                var selection = await candidate.SelectProfileAsync(User, timeout.Token);
+                connection = await candidate.ConnectAsync(timeout.Token);
+                if (candidate.ServerOrigin.AbsoluteUri == Server && !string.IsNullOrEmpty(User)
+                    && connection.Profiles.Any(p => p.Id == User))
+                    selection = await candidate.SelectProfileAsync(User, timeout.Token);
+            }
+            catch (HttpRequestException error) when (error.HttpRequestError == HttpRequestError.SecureConnectionError)
+            {
+                throw new InvalidOperationException("Could not establish a secure connection. Check the server address and certificate.", error);
+            }
+            catch (HttpRequestException error)
+            {
+                throw new InvalidOperationException("Could not reach your server. Check the address and your connection, then try again.", error);
+            }
+            if (beforeSwitch is not null) await beforeSwitch();
+            StoreProfiles(candidate.ServerOrigin.AbsoluteUri, connection.Profiles);
+            if (selection is not null)
+            {
                 await ApplySelectionAsync(candidate, selection, connection.Profiles);
                 candidate = null;
                 await RefreshAsync();
@@ -677,7 +698,7 @@ public sealed class MusicSession
                 Profiles = ReadProfiles(server); Library = library; Playlists = playlists;
                 PlaybackPreferences = ReadPreferences().Value;
                 PersistConnection(); await ReadDownloadsAsync();
-                SetMessage("Server unavailable. Downloaded songs are available offline.");
+                SetMessage("Server unavailable. Downloaded songs are available offline.", "warning");
                 return;
             }
             await ApplySelectionAsync(candidate, selection, connection.Profiles);
@@ -695,7 +716,7 @@ public sealed class MusicSession
         Configure(candidate.ServerOrigin.AbsoluteUri, selection.Profile.Id, candidate, offline);
         ProfileName = selection.Profile.Name; Profiles = profiles; NeedsProfileSelection = false;
         StoreProfiles(Server, profiles);
-        Library = library; Playlists = playlists; Connected = true; Message = "";
+        Library = library; Playlists = playlists; Connected = true; UpdateMessage("", "info");
         PersistConnection();
         var cached = ReadPreferences();
         PlaybackPreferences = cached.Dirty ? cached.Value : selection.Preferences;
@@ -791,6 +812,8 @@ public sealed class MusicSession
                 PlaybackPreferences = await Api.SavePreferencesAsync(PlaybackPreferences, timeout.Token);
                 StorePreferences(PlaybackPreferences, false);
             }
+            catch (FamilyHubApiException error) when (error.RequiresSignIn)
+            { OfflineError(error); }
             catch (Exception error) when (error is HttpRequestException or IOException or FamilyHubApiException or OperationCanceledException)
             { SetMessage("Preferences saved on this device. They will sync when the server reconnects."); }
         }
@@ -867,7 +890,7 @@ public sealed class MusicSession
         {
             await RefreshCatalogueAsync(timeout.Token, background);
             if (version != accountVersion) return;
-            Connected = true; Message = "";
+            Connected = true; UpdateMessage("", "info");
             await SyncHistoryAsync();
             await ReadDownloadsAsync();
             await ReadPlaybackAvailabilityAsync(version, playbackCaches.Values.ToArray());
@@ -913,15 +936,29 @@ public sealed class MusicSession
         }
     }
 
-    public void SetMessage(string message) { Message = message; Changed?.Invoke(); }
+    private void UpdateMessage(string message, string level, bool playback = false)
+    {
+        Message = message;
+        MessageLevel = level;
+        PlaybackMessage = playback;
+        MessageRevision++;
+    }
+    public void SetMessage(string message, string level = "info", bool playback = false)
+    {
+        UpdateMessage(message, level, playback);
+        Changed?.Invoke();
+    }
     private void OfflineError(Exception error)
     {
         Connected = false;
-        if (retryingQuietly && error is not FamilyHubApiException { StatusCode: 401 }) { Changed?.Invoke(); return; }
-        SetMessage(error is FamilyHubApiException { StatusCode: 401 }
+        if (retryingQuietly && error is not FamilyHubApiException { RequiresSignIn: true }) { Changed?.Invoke(); return; }
+        SetMessage(error is FamilyHubApiException { RequiresSignIn: true }
             ? "Reconnect to your server. Downloaded songs are available offline."
-            : "Server unavailable. Downloaded songs are available offline.");
+            : "Server unavailable. Downloaded songs are available offline.", "warning");
     }
+
+    public bool OnServer(PlaylistTrack entry) => entry.RecordingId is { Length: > 0 } id
+        && (libraryById.ContainsKey(id) || entry.State == "saved" && entry.Match is { Saved: true, DownloadUrl.Length: > 0 } saved && saved.Id == id);
 
     public MusicTrack? Resolve(PlaylistTrack entry)
     {
@@ -1115,9 +1152,11 @@ public sealed class MusicSession
         {
             EnsurePlaybackCaches();
             var selected = tracks.Select(CurrentRecording).DistinctBy(t => t.Id).ToList();
+            pendingDeviceDownloads = System.Collections.Immutable.ImmutableHashSet.CreateRange(selected.Select(track => track.Id));
             for (var index = 0; index < selected.Count; index++)
             {
                 var original = selected[index];
+                pendingDeviceDownloads = pendingDeviceDownloads.Remove(original.Id);
                 DownloadingId = original.Id; Progress = null;
                 DownloadStatus = $"Downloading {index + 1} of {selected.Count} · {original.Title}";
                 Changed?.Invoke();
@@ -1150,10 +1189,10 @@ public sealed class MusicSession
                 finally { downloadIndex.Release(); }
                 Changed?.Invoke();
             }
-            if (version == accountVersion) Message = selected.Count == 1 ? "Song downloaded." : "Songs downloaded.";
+            if (version == accountVersion) UpdateMessage(selected.Count == 1 ? "Song downloaded." : "Songs downloaded.", "success");
         }
         catch (Exception) when (cancellation.IsCancellationRequested)
-        { if (version == accountVersion) Message = networkPaused ? "Download paused. Connect to Wi-Fi, then download again." : "Download paused. Download again to resume."; }
+        { if (version == accountVersion) UpdateMessage(networkPaused ? "Download paused. Connect to Wi-Fi, then download again." : "Download paused. Download again to resume.", "warning"); }
         catch (Exception error)
         {
             if (version == accountVersion && DownloadingId is { } id)
@@ -1163,6 +1202,7 @@ public sealed class MusicSession
         finally
         {
             Microsoft.Maui.Networking.Connectivity.Current.ConnectivityChanged -= NetworkChanged;
+            pendingDeviceDownloads = [];
             downloadCancellation = null; DownloadingId = null; Progress = null; DownloadStatus = ""; Changed?.Invoke();
         }
     }
@@ -1180,15 +1220,27 @@ public sealed class MusicSession
     };
 
     public void CancelDownload() => downloadCancellation?.Cancel();
-    public async Task RemoveDownloadAsync(MusicTrack track)
+    public Task RemoveDownloadAsync(MusicTrack track) => RemoveDownloadsAsync([track]);
+
+    public async Task RemoveDownloadsAsync(IReadOnlyList<MusicTrack> tracks)
     {
-        if (DownloadingId == track.Id) throw new InvalidOperationException("Pause this download before removing it.");
-        if (Offline is null) return;
+        if (DownloadingId is { } id && tracks.Any(track => track.Id == id))
+            throw new InvalidOperationException("Pause this download before removing it.");
+        if (Offline is not { } offline || tracks.Count == 0) return;
         var version = accountVersion;
-        await Offline.RemoveDownloadAsync(track.Id);
-        if (version != accountVersion) return;
-        await ReadDownloadsAsync();
-        SetMessage("Removed from this device. The server copy is unchanged.");
+        try
+        {
+            foreach (var track in tracks)
+            {
+                EnsureCurrent(version);
+                await offline.RemoveDownloadAsync(track.Id);
+            }
+        }
+        finally
+        {
+            if (version == accountVersion) await ReadDownloadsAsync();
+        }
+        if (version == accountVersion) SetMessage(tracks.Count == 1 ? "Song removed from this device." : "Songs removed from this device.", "success");
     }
 
     private static readonly (string Quality, string Folder)[] PlaybackCacheTiers =
@@ -1376,19 +1428,21 @@ public sealed class MusicSession
         Playlists.Add(created.Playlist); await SavePlaylistsAsync();
         return created.Playlist;
     }
-    public async Task CreatePlaylistAsync(string name)
+    public async Task<MusicPlaylist> CreatePlaylistAsync(string name)
     {
         var version = accountVersion;
         var playlist = await OnlineApi().CreatePlaylistAsync(name);
         EnsureCurrent(version);
         Playlists.Add(playlist); await SavePlaylistsAsync();
+        return playlist;
     }
     private sealed record ProfileImageResponse(ListenerProfile Profile);
     public async Task SetProfileImageAsync(string dataUri)
     {
         var version = accountVersion;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var result = await OnlineApi().RequestJsonAsync<ProfileImageResponse>(HttpMethod.Post,
-            "/api/profile/image", new { image = dataUri });
+            "/api/profile/image", new { image = dataUri }, timeout.Token);
         EnsureCurrent(version);
         if (result.Profile.Id != User) throw new InvalidDataException("The profile image belongs to another listener.");
         var index = Profiles.FindIndex(p => p.Id == User);
@@ -1431,7 +1485,9 @@ public sealed class MusicSession
     {
         if (!playlist.CanDelete) throw new InvalidOperationException("Only an admin can delete playlists.");
         var version = accountVersion;
-        await OnlineApi().DeletePlaylistAsync(playlist.Id, playlist.Revision, playlist.OwnerId);
+        try { await OnlineApi().DeletePlaylistAsync(playlist.Id, playlist.Revision, playlist.OwnerId); }
+        catch (FamilyHubApiException error) when (error.StatusCode == 409)
+        { EnsureCurrent(version); await RefreshAsync(); throw new InvalidOperationException(error.Message); }
         EnsureCurrent(version);
         Playlists.RemoveAll(p => p.Id == playlist.Id && p.OwnerId == playlist.OwnerId); await SavePlaylistsAsync();
     }

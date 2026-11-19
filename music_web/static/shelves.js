@@ -47,7 +47,7 @@ for (const shelf of document.querySelectorAll(".cover-shelf")) {
         $("q").value = query;
         $("clear-search").hidden = false;
         $("search-form").requestSubmit();
-      } catch { message.textContent = "Could not find recordings. Select Play to try again."; }
+      } catch { notice(message, "Could not find recordings. Select Play to try again.", {level:"error"}); }
       finally { busy = false; }
     });
     dismiss.addEventListener("click", async () => {
@@ -61,8 +61,8 @@ for (const shelf of document.querySelectorAll(".cover-shelf")) {
         }
         card.remove();
         section.hidden = !track.childElementCount;
-        message.textContent = "";
-      } catch { message.textContent = "Could not dismiss this release. Try again."; }
+        notice(message, "");
+      } catch { notice(message, "Could not dismiss this release. Try again.", {level:"error"}); }
       finally { busy = false; }
     });
     return card;
@@ -75,10 +75,10 @@ for (const shelf of document.querySelectorAll(".cover-shelf")) {
       if (track.contains(document.activeElement)) (items.length ? track : $("view-title")).focus();
       track.replaceChildren(...items.map(releaseCard));
       section.hidden = !items.length;
-      message.textContent = "";
+      notice(message, "");
     } catch {
       section.hidden = false;
-      message.textContent = "Could not load releases. Select Refresh to try again.";
+      notice(message, "Could not load releases. Select Refresh to try again.", {level:"error"});
     }
   }
   $("refresh-library").addEventListener("click", loadReleases);

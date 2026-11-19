@@ -75,6 +75,17 @@ for (var run = 0; run < 100; run++)
 }
 {
     var (session, player) = Setup(); await player.PlayAsync(tracks[0], tracks); session.Delay = true;
+    var timedOut = player.NextAsync();
+    session.TimeOut(0);
+    try { await timedOut; throw new Exception("Playback timeout was silent"); }
+    catch (InvalidOperationException error) { Check(error.Message.Contains("Try playing it again"), "Missing timeout guidance"); }
+    Check(!player.Preparing && player.QueueIndex == 0 && player.Queue.SequenceEqual(tracks), "Timeout lost the previous queue");
+    var retry = player.PlayAsync(tracks[1], tracks);
+    session.Complete(1); await retry;
+    Check(player.Playing && player.QueueIndex == 1, "Playback could not recover after a timeout");
+}
+{
+    var (session, player) = Setup(); await player.PlayAsync(tracks[0], tracks); session.Delay = true;
     var next = player.NextAsync(); WindowsAudioPlayer.Last!.RaiseEnded();
     Check(player.QueueIndex == 1, "Old ended event advanced during preparation");
     session.Complete(0); await next;
@@ -533,7 +544,8 @@ namespace FamilyHub.App.Services
         { var request = new TaskCompletionSource<string>(); requests.Add(request); return request.Task; }
         public void Complete(int i) => requests[i].SetResult("fixture");
         public void Fail(int i) => requests[i].SetException(new IOException("Old request failed"));
-        public void SetMessage(string value) => Messages.Add(value);
+        public void TimeOut(int i) => requests[i].SetCanceled();
+        public void SetMessage(string value, string level = "info", bool playback = false) => Messages.Add(value);
         public void PinPlayback(string? id) { }
         public void PinPreparingPlayback(string? id) { }
         public void PinUpcomingPlayback(string? id) { }

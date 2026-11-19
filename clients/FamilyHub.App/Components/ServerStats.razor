@@ -3,7 +3,7 @@
 @inject MusicSession Session
 @inject IJSRuntime JS
 
-<div class="server-stats @(Leaderboard ? "leaderboard-page" : "server-page")" aria-busy="@Aria(fetching && data is null)">
+<div class="server-stats @(Leaderboard ? "leaderboard-page" : "server-page")" aria-busy="@Aria(Refreshing && data is null)">
     <div class="stats-toolbar">
         @if (Leaderboard)
         {
@@ -16,11 +16,12 @@
         {
             <div class="stats-server-status"><i class="stats-online-dot @(!Offline ? "is-online" : "")" aria-hidden="true"></i><span>@(Offline ? "Server offline" : "Server online")</span>@if (data is not null) { <span>@data.Profiles.Count(p => p.Listening) listening now</span> }</div>
         }
-        <button id="server-stats-refresh" class="quiet stats-refresh @(fetching ? "is-refreshing" : "")" aria-label="@(Leaderboard ? "Refresh leaderboard" : "Refresh server work")" title="Refresh" @onclick="RefreshNow" aria-disabled="@Aria(fetching || Offline)"><MusicIcon Name="refresh" /></button>
+        <button id="server-stats-refresh" class="quiet stats-refresh @(Refreshing ? "is-refreshing" : "")" aria-label="@(Leaderboard ? "Refresh leaderboard" : "Refresh server work")" title="Refresh" @onclick="RefreshNow" aria-disabled="@Aria(Refreshing)"><MusicIcon Name="refresh" /></button>
     </div>
-    @if (error is not null || Offline || data is null) { <p class="stats-status" role="status">@StatusText</p> }
-    @if (error is not null && !Offline) { <button class="quiet" disabled="@fetching" @onclick="RefreshNow">Retry server work</button> }
-    @if (data?.SnapshotAgeSeconds > 1) { <p class="stats-status" role="status">Showing the last server snapshot. Refresh to check for updates.</p> }
+    <Notice Message="@StatusText" Level="@(error is not null && !Offline ? "error" : Offline ? "warning" : "info")"
+        ActionLabel="@(error is not null && !Offline ? Leaderboard ? "Retry leaderboard" : "Retry server work" : null)"
+        Action="RefreshNow" Busy="@Refreshing" FocusTarget="#server-stats-refresh" />
+    @if (data?.SnapshotAgeSeconds > 1) { <Notice Level="warning" Message="Showing the last server snapshot. Refresh to check for updates." /> }
     @if (data is { } stats && Leaderboard)
     {
         var ranking = Ranking.ToList();
@@ -28,7 +29,13 @@
         var total = SelectedTotal;
         var days = Days;
         var peak = Math.Max(1, days.Select(d => d.Seconds).DefaultIfEmpty(0).Max());
-        var live = ranking.Where(p => p.Listening).ToList();
+        var present = stats.Profiles.Where(p => p.Listening || p.Online).OrderByDescending(p => p.Listening).ThenBy(p => p.Name).ToList();
+        @if (ranking.Count == 0)
+        {
+            <Notice Level="empty" Message="No listening time recorded for this period. Play a song with listening history enabled to appear here." />
+        }
+        else
+        {
         <section class="lb-podium stats-leaderboard" aria-label="@("Top listeners, " + PeriodLabel)">
             @foreach (var place in new[] { 1, 0, 2 }.Where(i => i < ranking.Count))
             {
@@ -46,6 +53,7 @@
                 </div>
             }
         </section>
+        }
         @if (ranking.Count > 3)
         {
             <ol class="lb-list stats-leaderboard" start="4" aria-label="Other listeners">
@@ -68,16 +76,17 @@
         }
         <section class="lb-now glass-panel" aria-labelledby="lb-now-title">
             <h2 id="lb-now-title">Who's here</h2>
-            @foreach (var profile in live.Concat(ranking.Where(p => !p.Listening && p.Online)))
+            @foreach (var profile in present)
             {
                 <div class="lb-live-row" @key="profile.Id"><ProfileAvatar Profile="ProfileFor(profile)" Size="36" /><div><strong>@profile.Name</strong><small>@(profile.Listening ? profile.CurrentTrack is { } song ? song.Title + ", " + song.Channel : "Listening now" : "Online")</small></div>@if (profile.Listening) { <span class="listener-equalizer is-playing" aria-hidden="true">@for (var bar = 0; bar < 5; bar++) { <i style="--bar:@bar"></i> }</span> }<ListenerMenu Profile="profile" /></div>
             }
-            @if (!ranking.Any(p => p.Listening || p.Online)) { <p class="lb-empty">Nobody is online right now.</p> }
+            @if (present.Count == 0) { <Notice Level="empty" Message="Nobody is online right now." /> }
         </section>
         <section class="stats-listening glass-panel" aria-labelledby="stats-listening-title">
             <div class="stats-section-heading"><h2 id="stats-listening-title">Family listening time</h2><span>@PeriodLabel</span></div>
-            <strong class="stats-time">@Duration(total)</strong>
-            @if (days.Count > 0)
+            @if (total > 0) { <strong class="stats-time">@Duration(total)</strong> }
+            else { <Notice Level="empty" Message="The chart fills in after family members listen to music." /> }
+            @if (total > 0 && days.Count > 0)
             {
                 <p class="stats-latest">Latest: @ExactDay(days[^1].Day), <strong>@ExactDuration(days[^1].Seconds)</strong></p>
                 <div class="stats-chart-frame">
@@ -105,14 +114,19 @@
         </section>
         @if (stats.WrappedYear is { } year)
         {
+            var wrappedProfiles = stats.Profiles.Where(p => p.Wrapped is { } wrapped && (wrapped.TotalMinutes > 0 || wrapped.SongsAdded > 0)).ToList();
             <section class="lb-wrapped" aria-labelledby="lb-wrapped-title">
                 <h2 id="lb-wrapped-title">@year listening</h2>
                 @if (stats.Profiles.Count == 0)
                 {
-                    <p class="lb-empty">No profiles have listening history enabled.</p>
+                    <Notice Level="empty" Message="No profiles have listening history enabled." />
+                }
+                else if (wrappedProfiles.Count == 0)
+                {
+                    <Notice Level="empty" Message="Play or add songs to see this year's listening summary." />
                 }
                 <div class="lb-wrapped-grid">
-                    @foreach (var profile in stats.Profiles.Where(p => p.Wrapped is not null))
+                    @foreach (var profile in wrappedProfiles)
                     {
                         var wrapped = profile.Wrapped!;
                         var replay = wrapped.MostReplayedSong;
@@ -135,9 +149,9 @@
                         </article>
                     }
                 </div>
-                @if (stats.Profiles.Count > 0)
+                @if (wrappedProfiles.Count > 0)
                 {
-                    var chartDate = stats.Profiles.Select(p => p.Wrapped?.ChartDate).FirstOrDefault(d => d is not null);
+                    var chartDate = wrappedProfiles.Select(p => p.Wrapped?.ChartDate).FirstOrDefault(d => d is not null);
                     <details class="lb-wrapped-help">
                         <summary>How scores are counted</summary>
                         <p>Night owl is the share of completed plays that started from 00:00 to 05:59 UTC. Replays count each time you listen to a song again this year.</p>
@@ -148,7 +162,7 @@
             </section>
         }
     }
-    else if (!Leaderboard)
+    else if (!Leaderboard && data is not null)
     {
         <div class="srv-grid">
             @if (data is { } server)
@@ -157,11 +171,11 @@
                     <div class="stats-section-heading"><h2 id="stats-work-title">Worker activity</h2></div>
                     @if (server.WorkerStages is null && server.PlaylistBacklog is null)
                     {
-                        <p class="srv-work-empty">Update the server to see queue and retry counts.</p>
+                        <Notice Level="warning" Message="Update the server to see queue and retry counts." />
                     }
                     else if (server.WorkerStages is { Count: 0 } && server.PlaylistBacklog is null)
                     {
-                        <p class="srv-work-empty">No resource jobs are waiting or running.</p>
+                        <Notice Level="empty" Message="No resource jobs are waiting or running." />
                     }
                     else
                     {
@@ -289,7 +303,7 @@
     private static string ChartX(int i, int count) => (count <= 1 ? 50d : i * 100d / (count - 1)).ToString("0.###", Inv);
     private static string ChartY(double seconds, double peak) => ((144 - 128 * seconds / peak) * 100 / 156).ToString("0.###", Inv);
     private static string Points(IReadOnlyList<DailyListening> days,double peak) => string.Join(" ",days.Select((d,i) => X(i,days.Count) + "," + Y(d.Seconds,peak)));
-    private IEnumerable<ListenerStatistics> Ranking => (data?.Profiles ?? []).OrderByDescending(PeriodSeconds).ThenBy(p => p.Name);
+    private IEnumerable<ListenerStatistics> Ranking => (data?.Profiles ?? []).Where(profile => PeriodSeconds(profile) > 0).OrderByDescending(PeriodSeconds).ThenBy(p => p.Name);
     private ListenerProfile ProfileFor(ListenerStatistics row) => Session.Profiles.FirstOrDefault(p => p.Id == row.Id) ?? new() { Id = row.Id, Name = row.Name };
     private ListenerProfile RecordProfile(ListeningRecord row) => Session.Profiles.FirstOrDefault(p => p.Id == row.Owner) ?? new() { Id = row.Owner, Name = row.User };
     private static string DayLabel(string day) => DateTime.TryParse(day, out var date) ? date.ToString("d MMM", Inv) : day;
@@ -302,26 +316,40 @@
         return total >= 60 ? $"{total / 60} min {total % 60} s" : $"{total} s";
     }
     private string? error;
-    private bool fetching, disposed;
+    private bool fetching, reconnecting, needsSignIn, disposed;
     private string? requestedIdentity;
     private readonly CancellationTokenSource lifetime = new();
 
     private bool Offline => !Session.Connected || Session.Api is null;
-    private string StatusText => Offline ? data is null ? "Connect to load server stats." : "Server offline. Showing the last loaded statistics." : error ?? (fetching && data is null ? "Loading..." : "");
+    private bool Refreshing => fetching || reconnecting;
+    private string StatusText => reconnecting ? "Reconnecting to the server…"
+        : Offline ? data is null ? "Server offline. Use Refresh to reconnect." : "Showing the last loaded statistics. Use Refresh to reconnect."
+        : error ?? (fetching && data is null ? "Loading server statistics…" : "");
 
     protected override void OnInitialized()
     {
         Session.Changed += Changed;
     }
 
-    private Task RefreshNow() => Refresh();
+    private async Task RefreshNow()
+    {
+        if (Refreshing) return;
+        if (Offline || needsSignIn)
+        {
+            reconnecting = true;
+            try { await Session.ReconnectAsync(); }
+            finally { reconnecting = false; }
+        }
+        await Refresh();
+    }
     private string Identity => Session.Server + "\n" + Session.User;
 
     private async Task Refresh()
     {
-        if (fetching || disposed || Offline) return;
+        if (Refreshing || disposed || Offline) return;
         var identity = requestedIdentity = Identity;
         fetching = true;
+        needsSignIn = false;
         error = null;
         StateHasChanged();
         try
@@ -336,8 +364,10 @@
             data = result; Session.UpdateTopListener(result);
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { return; }
-        catch (OperationCanceledException) { error = "The server did not answer in time. Retry to load server work."; }
-        catch (Exception) { error = "Could not load statistics. Retry to load them."; }
+        catch (OperationCanceledException) { error = "The server did not answer in time. Check your connection and try again."; }
+        catch (FamilyHubApiException failure) when (failure.RequiresSignIn)
+        { needsSignIn = true; error = "Your session expired. Retry to reconnect."; }
+        catch (Exception) { error = "Could not load listening and server statistics."; }
         finally
         {
             fetching = false;

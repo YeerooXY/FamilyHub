@@ -74,7 +74,7 @@
       rowsSignature = signature;
     }
     for (const row of list.children) row.setAttribute("aria-disabled", String(Boolean(handoff)));
-    if (handoff && feedback.textContent !== "Connecting...") feedback.textContent = "Connecting...";
+    if (handoff && !feedback.textContent.startsWith("Connecting...")) notice(feedback, "Connecting...");
   }
   document.addEventListener("playbackdeviceschange", render);
   function showPanel() {
@@ -84,7 +84,7 @@
   $("connect-open").addEventListener("click", event => {
     if (panel.open) { panel.close(); return; }
     opener = event.currentTarget;
-    feedback.textContent = "";
+    notice(feedback, "");
     showPanel();
     render();
     refreshRemotePlayback();
@@ -110,6 +110,7 @@
     closeDetails();
     $("bluetooth-help").hidden = true;
     bluetooth.setAttribute("aria-expanded", "false");
+    if (document.activeElement !== document.body && !panel.contains(document.activeElement)) return;
     const target = opener?.getClientRects().length ? opener : remoteBar.hidden ? $("connect-open") : $("remote-line");
     target.focus({preventScroll:true});
   });
@@ -160,7 +161,7 @@
       select.value = audioContext?.sinkId || decks[0].sinkId || "default";
       select.addEventListener("change", async () => {
         try { await setSpeaker(select.value); }
-        catch { feedback.textContent = "Choose the speaker in this device’s sound settings."; }
+        catch { notice(feedback, "The speaker could not be selected. Choose it in this device’s sound settings.", {level:"error"}); }
       });
       details.replaceChildren(el("label", {}, "Speakers on this device", select));
     } catch { /* System sound settings remain available. */ }
@@ -170,7 +171,7 @@
       try {
         const device = await navigator.mediaDevices.selectAudioOutput();
         await setSpeaker(device.deviceId);
-        feedback.textContent = "Audio output updated.";
+        notice(feedback, "Audio output updated.", {level:"success"});
         return;
       } catch (error) { if (error.name === "AbortError") return; }
     }

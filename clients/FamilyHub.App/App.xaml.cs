@@ -32,7 +32,10 @@ public partial class App : Application
         window.Created += (_, _) =>
         {
             if (window.Handler?.PlatformView is Microsoft.UI.Xaml.Window nativeWindow)
+            {
                 nativeWindow.AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "FamilyHub.ico"));
+                Services.WindowsWindowChrome.SetBorderColor(nativeWindow);
+            }
         };
 #endif
         return window;

@@ -25,7 +25,7 @@
                 </div>
             }
         </div></ShelfArrows>
-        <p role="status">@message</p>
+        <Notice Level="@(busy ? "info" : "error")" Message="@message" />
         @if (choices.Count > 0)
         {
             <h3>Choose a recording</h3>

@@ -1,7 +1,7 @@
 ﻿@inject MusicSession Session
 @inject MusicPlayer Player
 <button class="quiet trim-request" aria-label="@(sent ? "Added to trimming pool" : "Needs trimming")" title="@(sent ? "Added to trimming pool" : "Needs trimming")" aria-disabled="@(sending || !Session.Connected ? "true" : "false")" @onclick="Flag"><MusicIcon Name="@(sent ? "check" : "scissors")" />@if (ShowText) { <span>@(sent ? "Added to trimming pool" : "Needs trimming")</span> }</button>
-@if (error is not null) { <span class="entry-error" role="status">@error</span> }
+@if (error is not null) { <Notice Level="error" Message="@error" /> }
 @code {
     [Parameter, EditorRequired] public MusicTrack Track { get; set; } = null!;
     [Parameter] public bool ShowText { get; set; }
@@ -16,7 +16,7 @@
         try {
             await Session.Api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/catalogue/trimming", new { id, position = Player.Current?.Id == id ? Player.Position : 0 });
             if (trackId == id && identity == Session.Server + "\n" + Session.User) sent = true;
-        } catch (Exception exception) { if (trackId == id) error = exception.Message; }
+        } catch (Exception exception) { if (trackId == id) error = NoticeText.Error(exception); }
         finally { sending = false; }
     }
 }

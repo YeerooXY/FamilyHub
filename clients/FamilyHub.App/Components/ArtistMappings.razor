@@ -15,8 +15,8 @@
         </div>
     </header>
 
-    <p class="artist-mapping-feedback entry-error" role="alert">@error</p>
-    <p class="artist-mapping-feedback" role="status">@StatusMessage</p>
+    <Notice Level="error" Message="@error" />
+    <Notice Level="@(Offline ? "warning" : "info")" Message="@StatusMessage" />
 
     @if (mappings is not null)
     {
@@ -37,7 +37,7 @@
             }
             @if (visible.Count == 0 && !adding)
             {
-                <p class="muted">@(mappings.Count == 0 ? "No artist mappings yet." : "No mappings match your search.")</p>
+                <Notice Level="empty" Message="@(mappings.Count == 0 ? "No artist mappings yet." : "No mappings match your search.")" />
             }
             <ul class="artist-mapping-list">
                 @foreach (var row in visible)
@@ -99,7 +99,7 @@
         }
         @if (editError is not null)
         {
-            <p class="artist-mapping-feedback entry-error" role="alert">@editError</p>
+            <Notice Level="error" Message="@editError" />
         }
     </form>;
 
@@ -234,7 +234,7 @@
                 .OrderBy(mapping => mapping.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
             CancelEdit();
             focusTarget = EditFocus(saved);
-            message = $"Mapping saved for {saved.Name}.";
+            await JS.InvokeVoidAsync("FamilyHubNotices.toast", $"Mapping saved for {saved.Name}.");
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (FamilyHubApiException failure) when (failure.StatusCode == 409)
