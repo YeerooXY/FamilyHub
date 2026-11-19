@@ -5,13 +5,32 @@ const {chromium, webkit, devices} = require(require.resolve('playwright', {paths
 const read = file => fs.readFileSync(path.join(root,file),'utf8');
 const css = ['music_web/static/shell.css','clients/FamilyHub.App/wwwroot/app-native.css','clients/FamilyHub.App/wwwroot/player-native.css','clients/FamilyHub.App/wwwroot/paddock-theme.css','clients/FamilyHub.App/wwwroot/home-mobile.css','clients/FamilyHub.App/wwwroot/server-stats.css','clients/FamilyHub.App/wwwroot/create-playlist.css'].map(read).join('\n');
 const icon = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" d="M4 12h16M12 4v16"/></svg>';
-const html = `<meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><body><div id="app" style="display:contents">
+const cover = (n, missing = false, kind = '') => {
+ const hue = (n * 73 + 186) % 360;
+ const art = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240"><rect width="240" height="240" fill="hsl(${hue} 36% 31%)"/><circle cx="118" cy="118" r="80" fill="hsl(${hue} 53% 55%)"/><path d="M0 160Q100 100 240 180V240H0Z" fill="#171b2d" opacity=".65"/></svg>`;
+ return `<span class="cover ${kind}" aria-hidden="true">${missing ? `<span class="discovery-cover-empty">${icon}</span>` : `<img src="data:image/svg+xml,${encodeURIComponent(art)}" alt="">`}</span>`;
+};
+const shelf = (id, title, cards) => `<section class="home-section${id === 'discovery-shelf' ? '' : ' home-collection'}"><div class="home-section-heading"><h2>${title}</h2></div>
+<div class="shelf-frame"><div class="home-shelf" id="${id}">${cards}</div>
+<button class="shelf-arrow is-back is-end" data-shelf="${id}" data-dir="-1" aria-label="Scroll ${title} back">${icon}</button>
+<button class="shelf-arrow is-forward is-end" data-shelf="${id}" data-dir="1" aria-label="Scroll ${title} forward">${icon}</button></div></section>`;
+const names = ['North Atlas', 'June Echo', 'Glass Harbor', 'Silver Current'];
+const titles = ['First Light', 'City Lights', 'Afterglow', 'Northbound'];
+const mixes = ['Late Night Mix', 'Quiet Mornings', 'Weekend Drive', 'After Hours', 'On the Road', 'House Mix', 'November Picks', 'First Listen'];
+const albums = ['Evening Signals', 'Night Windows', 'Long Way Home', 'Early Hours', 'All Along the Water', 'Motion Study', 'Winter Sessions', 'Return to the Coast'];
+const releases = ['Quiet Harbour', 'The Skyline at Dawn', 'Turning Point', 'Paper Planes', 'Signals', 'Landmarks', 'Late Return', 'Sundown'];
+const shortcut = (title, i, radio = false) => `<button class="home-shortcut" ${radio ? `id="home-radio-${i}" aria-label="Start ${title} Radio"` : `aria-label="Play ${title}"`}>${cover(i)}<span>${radio ? '<span aria-hidden="true">📻</span> ' : ''}${title}</span></button>`;
+const html = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><body data-view="home"><div id="app" style="display:contents">
+<header class="app-header"><form id="search-form"><input type="search" id="q" aria-label="Search songs" placeholder="Search songs or artists"></form></header>
+<aside class="sidebar"><button class="nav-button">Home</button></aside>
 <div class="workspace"><main id="content" tabindex="-1">
-<section class="home-section"><h2>Radio</h2><div class="home-radio-row">
-<button id="home-radio-0" class="home-radio home-radio-current"><span class="cover"></span><span><strong>Song Radio</strong><small>Artist</small></span>${icon}</button>
-<button id="home-radio-1" class="home-radio"><span class="cover"></span><span><strong>Another Song Radio</strong><small>Artist</small></span>${icon}</button></div></section>
-<div class="home-shelf"><div class="home-card-holder"><button id="album-play" class="home-card"><span class="cover"></span><strong>Album</strong></button>
-<button id="album-save" class="home-card-save" aria-label="Save album as playlist">${icon}</button></div></div>
+<div class="home-view">
+${shelf('discovery-shelf', 'New from artists you play', releases.map((title,i) => `<div class="home-card-holder discovery-card"><div class="home-card"><div class="discovery-art">${cover(i+11,i===1,'discovery-cover')}<button class="discovery-play" aria-label="Play ${title}">${icon}</button><button class="discovery-dismiss" aria-label="Dismiss ${title}">${icon}</button></div><strong>${title}</strong><span>${names[i%4]}</span></div></div>`).join(''))}
+<section class="home-section"><h2>Radio</h2><div class="home-shortcuts">${titles.map((title,i)=>shortcut(title,i,true)).join('')}</div></section>
+<section class="home-section"><h2 class="sr">Recently played</h2><div class="home-shortcuts">${titles.map((title,i)=>shortcut(title,i)).join('')}</div></section>
+${shelf('home-playlists-shelf', 'Your playlists', mixes.map((title,i) => `<button class="home-card">${cover(i+20)}<strong>${title}</strong><span>4 songs</span></button>`).join(''))}
+${shelf('home-albums-shelf', 'Albums for you', albums.map((title,i) => `<div class="home-card-holder"><button ${i===0 ? 'id="album-open"' : ''} class="home-card" aria-label="Open ${title} by ${names[i%4]}">${cover(i)}<strong>${title}</strong><span>${names[i%4]}</span></button><button ${i===0 ? 'id="album-save"' : ''} class="home-card-save" aria-label="Save ${title} as a playlist">${icon}</button></div>`).join(''))}
+</div>
 <div class="playlist-grid"><button id="create-playlist" class="playlist-card glass-panel"><span class="cover generated-cover create-cover">${icon}</span><strong>Create playlist</strong></button></div>
 </main></div><footer class="player-bar"><div class="player-tools is-open"><button class="quiet player-tools-close" aria-label="Close player options">${icon}</button>
 <button id="sheet-lyrics" class="quiet" aria-label="Lyrics">${icon}</button>
@@ -21,7 +40,8 @@ const html = `<meta name="viewport" content="width=device-width,initial-scale=1"
 
 (async()=>{
  for(const [name,engine,profile] of [
-  ['windows-chromium',chromium,{viewport:{width:1440,height:900}}],
+  ['windows-1280',chromium,{viewport:{width:1280,height:900}}],
+  ['windows-2000',chromium,{viewport:{width:2000,height:1060}}],
   ['narrow-windows-chromium',chromium,{viewport:{width:800,height:900}}],
   ['mac-webkit-emulated',webkit,{viewport:{width:1440,height:900}}],
   ['android-chromium-emulated',chromium,devices['Pixel 7']],
@@ -33,6 +53,41 @@ const html = `<meta name="viewport" content="width=device-width,initial-scale=1"
    await page.route('https://home.test/**',route=>route.fulfill({contentType:'text/html',body:html}));
    await page.goto('https://home.test/');
    await page.addScriptTag({content:read('clients/FamilyHub.App/wwwroot/app.js')});
+   await page.evaluate(() => {
+    document.querySelectorAll('.home-shelf').forEach(shelf => familyhub.watchShelf(shelf.id));
+    document.querySelectorAll('.shelf-arrow').forEach(button => {
+     button.onclick = () => familyhub.scrollShelf(button.dataset.shelf, Number(button.dataset.dir));
+    });
+   });
+   const layout = await page.evaluate(() => {
+    const width = selector => document.querySelector(selector).getBoundingClientRect().width;
+    const shortcutStyle = node => {
+     const css = getComputedStyle(node);
+     return [node.offsetWidth, node.offsetHeight, css.backgroundColor, css.borderRadius, css.fontSize];
+    };
+    const radio = shortcutStyle(document.querySelector('#home-radio-0'));
+    const recent = shortcutStyle(document.querySelector('[aria-label="Play First Light"]'));
+    return {tile:width('#album-open'), playlist:width('#home-playlists-shelf .home-card'), release:width('#discovery-shelf .home-card'), radio, recent};
+   });
+   assert.deepEqual(layout.radio, layout.recent, name + ': radio and recent cards differ');
+   assert.equal(layout.tile, layout.playlist);
+   if (name === 'windows-1280') assert.equal(layout.tile,224);
+   if (name === 'windows-2000') assert.equal(layout.tile,248);
+   if (profile.isMobile) assert.equal(layout.tile,148);
+   assert.equal(layout.release, profile.isMobile ? 148 : 180);
+   assert(layout.tile <= 248);
+   if (!profile.hasTouch) {
+    await page.locator('#home-playlists-shelf').hover();
+    const next = page.locator('[data-shelf="home-playlists-shelf"][data-dir="1"]');
+    await page.waitForFunction(button => getComputedStyle(button).opacity === '1', await next.elementHandle());
+    const arrow = await next.boundingBox(), art = await page.locator('#home-playlists-shelf .cover').first().boundingBox();
+    assert(Math.abs(arrow.y + arrow.height / 2 - art.y - art.height / 2) < 1);
+    await next.click();
+    await page.waitForFunction(() => document.getElementById('home-playlists-shelf').scrollLeft > 0);
+    await page.locator('#home-playlists-shelf').evaluate(shelf => shelf.scrollLeft = 0);
+   } else {
+    assert.equal(await page.locator('.shelf-arrow:visible').count(), 0);
+   }
    if(profile.isMobile) {
     assert.equal(await page.locator('#album-save').evaluate(node=>getComputedStyle(node).opacity),'1',name+': touch save button hidden before interaction');
    }
@@ -92,7 +147,7 @@ const html = `<meta name="viewport" content="width=device-width,initial-scale=1"
     await page.keyboard.press(key);
     assert.equal(await page.evaluate(()=>document.activeElement.id),'album-save');
    }
-   await page.locator('#album-play').focus();await page.keyboard.press('Tab');
+   await page.locator('#album-open').focus();await page.keyboard.press('Tab');
    assert.equal(await page.evaluate(()=>document.activeElement.id),'album-save');
    await page.locator('#home-radio-1').focus();
    await page.evaluate(()=>{document.getElementById('home-radio-1').remove();familyhub.restoreFocus('home-radio-1','home-radio-0');});
@@ -115,5 +170,5 @@ const html = `<meta name="viewport" content="width=device-width,initial-scale=1"
    }
   } finally { await browser.close(); }
  }
- console.log('PASS: Home fixture targets, focus, hover, save state and motion across five browser profiles');
+ console.log('PASS: Home shelf sizing, caps, arrow alignment, radio styling, focus and motion across six browser profiles');
 })().catch(error=>{console.error(error);process.exitCode=1;});

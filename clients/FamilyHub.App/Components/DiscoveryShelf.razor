@@ -20,7 +20,7 @@
                             <button id="@("discovery-dismiss-" + item.Id)" class="discovery-dismiss" aria-disabled="@(busy ? "true" : "false")" aria-label="Dismiss @item.Title" title="Dismiss" @onclick="() => Dismiss(item)"><MusicIcon Name="close" /></button>
                         </div>
                         <strong title="@item.Title">@item.Title</strong>
-                        <span>@(item.Seen ? item.Artist : "New · " + item.Artist)</span>
+                        <span>@item.Artist</span>
                     </div>
                 </div>
             }

@@ -17,7 +17,7 @@
    160 px cover = 90 px down). They show on shelf hover or keyboard focus, never at either end, and
    only with a mouse: touch users swipe. */
 .shelf-frame { position:relative; min-width:0; }
-.shelf-arrow { position:absolute; top:calc(var(--shelf-cover-centre,90px) - 16px); z-index:2; display:none; place-items:center; width:32px; height:32px; min-height:32px; padding:0; border:0; border-radius:50%;
+.shelf-arrow { position:absolute; top:calc(var(--home-tile-width,180px) / 2 - 16px); z-index:2; display:none; place-items:center; width:32px; height:32px; min-height:32px; padding:0; border:0; border-radius:50%;
   color:#fff; background:#1f1f1f; box-shadow:0 4px 12px #0007; opacity:0; transition:opacity .2s ease,background-color .15s ease; }
 .shelf-arrow.is-back { left:8px; }
 .shelf-arrow.is-forward { right:8px; }
@@ -30,43 +30,25 @@
  .shelf-arrow { display:grid; }
  .shelf-frame:hover .shelf-arrow,.shelf-frame:focus-within .shelf-arrow { opacity:1; }
 }
-@media(max-width:720px) { .shelf-frame { --shelf-cover-centre:74px; } }
-@media(max-width:360px) { .shelf-frame { --shelf-cover-centre:66px; } }
 .home-shelf:focus-visible { outline:2px solid var(--focus,var(--accent-blue)); outline-offset:2px; border-radius:8px; }
 @media(prefers-reduced-motion:reduce) { .shelf-arrow { transition:none; } }
-.home-shortcuts { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; }
+.home-shortcuts { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,280px)); gap:8px; }
 .home-shortcut { display:flex; align-items:center; gap:12px; min-height:56px; padding:0 12px 0 0; border:0; border-radius:6px; overflow:hidden; text-align:left; font-size:13px; font-weight:700; color:var(--ink); background:#ffffff14; transition:background-color .18s ease; }
 .home-shortcut:hover { background:#ffffff22; }
-.home-shortcut>.cover { width:56px; height:56px; border-radius:0; }
+.home-shortcut>.cover { width:56px; height:56px; flex-shrink:0; border-radius:0; }
+.home-shortcut[aria-disabled=true] { cursor:default; }
 .home-shortcut>span { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
 /* Shelves scroll sideways; the right edge fades so the next card reads as more content. */
-.home-shelf { display:grid; grid-auto-flow:column; grid-auto-columns:180px; gap:12px; overflow-x:auto; overscroll-behavior-x:contain; scroll-snap-type:x mandatory; padding:0 32px 8px 0; scrollbar-width:none;
+.home-shelf { display:grid; grid-auto-flow:column; grid-auto-columns:var(--home-tile-width,180px); gap:12px; overflow-x:auto; overscroll-behavior-x:contain; scroll-snap-type:x mandatory; padding:0 32px 8px 0; scrollbar-width:none;
   -webkit-mask-image:linear-gradient(to right,#000 calc(100% - 40px),transparent); mask-image:linear-gradient(to right,#000 calc(100% - 40px),transparent); }
 .home-shelf::-webkit-scrollbar { display:none; }
 .home-card { display:flex; flex-direction:column; gap:6px; min-width:0; padding:10px; border:0; border-radius:10px; text-align:left; color:var(--ink); background:transparent; scroll-snap-align:start; transition:background-color .18s ease,transform .18s ease; }
 .home-card:hover { background:#ffffff0f; }
 .home-card:active { transform:scale(.98); }
 .home-card>.cover { width:100%; height:auto; aspect-ratio:1; border-radius:8px; margin-bottom:4px; box-shadow:0 8px 20px #0005; }
-.home-card strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
-.home-card span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--muted); }
-.home-radio-row { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr)); gap:12px; max-width:984px; }
-.home-radio { display:flex; align-items:center; gap:12px; min-width:0; max-width:320px; min-height:88px; padding:12px; border:1px solid color-mix(in srgb,var(--accent-blue) 25%,transparent); border-radius:12px; text-align:left; color:var(--ink); background:color-mix(in srgb,var(--accent-blue) 10%,var(--panel-bg)); transition:background-color .18s ease; }
-.home-radio-current { grid-column:1 / -1; width:100%; max-width:520px; min-height:112px; background:linear-gradient(115deg,color-mix(in srgb,var(--accent-blue) 28%,var(--panel-bg)),var(--panel-bg)); }
-.home-radio>.cover { width:56px; height:56px; flex-shrink:0; border-radius:8px; }
-.home-radio-current>.cover { width:144px; height:144px; }
-.home-radio-text { display:grid; gap:4px; min-width:0; }
-.home-radio-label { display:flex; align-items:center; gap:8px; }
-.home-radio strong,.home-radio small { overflow-wrap:anywhere; }
-.home-radio strong { font-size:15px; }.home-radio-current strong { font-size:22px; }
-.home-radio small { color:var(--muted); font-size:13px; }.home-radio-label>.icon { width:24px; height:24px; flex-shrink:0; color:var(--accent-blue); }
-.home-radio[aria-disabled=true] { opacity:.6; cursor:default; }
-.home-radio:focus-visible { outline:2px solid var(--focus,var(--accent-blue)); outline-offset:3px; }
-@media(max-width:720px) {
- .home-radio-row { grid-template-columns:minmax(0,360px); }
- .home-radio:not(.home-radio-current) { max-width:360px; }
- .home-radio-current>.cover { width:80px; height:80px; }
- .home-radio-current strong { font-size:18px; }
-}
+.home-card strong { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
+.home-card span { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--muted); }
+@media(min-width:1100px) { .home-collection { --home-tile-width:clamp(216px,17.5vw,248px); } }
 
 /* Collapsed playlist bar: sticks to the top once the header scrolls away; takes no space. */
 .playlist-sticky { position:sticky; top:-24px; z-index:6; display:flex; align-items:center; gap:12px; height:64px; margin:-24px -24px -40px; padding:0 24px;
@@ -96,7 +78,8 @@
  .home-shortcuts { grid-template-columns:repeat(2,minmax(0,1fr)); }
  .home-shortcut { min-height:52px; font-size:12px; gap:8px; }
  .home-shortcut>.cover { width:52px; height:52px; }
- .home-shelf { grid-auto-columns:148px; margin-right:-16px; }
+ .shelf-frame { --home-tile-width:148px; }
+ .home-shelf { margin-right:-16px; }
  .home-server-cards { grid-template-columns:1fr; gap:8px; }
 
  /* Playlist header: large centred cover, then title, description and counts. */
@@ -128,7 +111,7 @@
 }
 @media(max-width:360px) {
  .home-shortcuts { gap:6px; }
- .home-shelf { grid-auto-columns:132px; }
+ .shelf-frame { --home-tile-width:132px; }
 }
 /* Phone player: a slim mini player (cover, title, play, next, options). Tapping it opens Now Playing,
    which reuses the same controls full screen. */
@@ -304,7 +287,7 @@ body:has(.lyrics-view) .workspace>main { visibility:hidden; }
 .home-save-status { margin:4px 0 0; font-size:13px; color:var(--muted); }
 .home-save-status:empty { display:none; }
 @media(hover:none),(pointer:coarse) { .home-card-save { opacity:1; pointer-events:auto; } }
-@media(prefers-reduced-motion:reduce) { .home-card-save,.home-radio { transition:none; } }
+@media(prefers-reduced-motion:reduce) { .home-card-save { transition:none; } }
 
 /* Quiet tools share targets and spacing; only the icon changes on hover. */
 .player-bar .player-tools { gap:8px; }
