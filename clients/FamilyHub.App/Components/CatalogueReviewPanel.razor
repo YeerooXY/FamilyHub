@@ -15,7 +15,7 @@
     <p class="sr" role="status" aria-live="polite" aria-atomic="true">@announcement</p>
     <Notice Level="error" Message="@error" ActionLabel="@(error is not null && Online ? "Retry song review" : null)"
         Action="Refresh" Busy="@Unavailable" FocusTarget="#catalogue-refresh" />
-    @if (data?.SnapshotAgeSeconds > 1) { <Notice Level="warning" Message="Showing the last review snapshot. Refresh to check for updates." /> }
+    @if (ShowSnapshotNotice) { <Notice Level="warning" Message="Showing the last review snapshot. Refresh to check for updates." /> }
     @if (!Online) { <Notice Level="warning" Message="@(data is null ? "Connect to the server to review songs." : "Server offline. Showing the last loaded review.")" /> }
     else if (data is null && error is null) { <Notice Message="Loading song review…" /> }
     @if (data is { } snapshot)
@@ -323,9 +323,27 @@
         else StateHasChanged();
     }
 
+    private int snapshotRetries;
+    private bool followingUp;
+    private bool SnapshotStale => data?.SnapshotAgeSeconds > 1;
+    private bool snapshotExhausted;
+    private bool ShowSnapshotNotice => snapshotExhausted && SnapshotStale;
+    private void QueueSnapshotRefresh()
+    {
+        if (disposed) return;
+        if (!SnapshotStale) { snapshotExhausted = false; return; }
+        if (snapshotRetries >= 3) { snapshotExhausted = true; StateHasChanged(); return; }
+        snapshotRetries++;
+        _ = Task.Delay(TimeSpan.FromSeconds(2.5), lifetime.Token).ContinueWith(
+            async t => { if (!t.IsCanceled && !disposed) await InvokeAsync(() => { followingUp = true; return Refresh(); }); },
+            TaskScheduler.Default);
+    }
+
     private async Task Refresh()
     {
         if (Unavailable || disposed || Session.Api is not { } api) return;
+        if (!followingUp) { snapshotRetries = 0; snapshotExhausted = false; }
+        followingUp = false;
         loading = true;
         error = null;
         var requestIdentity = Identity;
@@ -367,7 +385,7 @@
             if (!disposed)
             {
                 if (Identity != requestIdentity && data is null && Online) await Refresh();
-                else StateHasChanged();
+                else { StateHasChanged(); QueueSnapshotRefresh(); }
             }
         }
     }

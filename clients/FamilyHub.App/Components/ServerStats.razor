@@ -21,7 +21,7 @@
     <Notice Message="@StatusText" Level="@(error is not null && !Offline ? "error" : Offline ? "warning" : "info")"
         ActionLabel="@(error is not null && !Offline ? Leaderboard ? "Retry leaderboard" : "Retry server work" : null)"
         Action="RefreshNow" Busy="@Refreshing" FocusTarget="#server-stats-refresh" />
-    @if (data?.SnapshotAgeSeconds > 1) { <Notice Level="warning" Message="Showing the last server snapshot. Refresh to check for updates." /> }
+    @if (ShowSnapshotNotice) { <Notice Level="warning" Message="Showing the last server snapshot. Refresh to check for updates." /> }
     @if (data is { } stats && Leaderboard)
     {
         var ranking = Ranking.ToList();
@@ -344,9 +344,27 @@
     }
     private string Identity => Session.Server + "\n" + Session.User;
 
+    private int snapshotRetries;
+    private bool followingUp;
+    private bool SnapshotStale => data?.SnapshotAgeSeconds > 1;
+    private bool snapshotExhausted;
+    private bool ShowSnapshotNotice => snapshotExhausted && SnapshotStale;
+    private void QueueSnapshotRefresh()
+    {
+        if (disposed) return;
+        if (!SnapshotStale) { snapshotExhausted = false; return; }
+        if (snapshotRetries >= 3) { snapshotExhausted = true; StateHasChanged(); return; }
+        snapshotRetries++;
+        _ = Task.Delay(TimeSpan.FromSeconds(2.5), lifetime.Token).ContinueWith(
+            async t => { if (!t.IsCanceled && !disposed) await InvokeAsync(() => { followingUp = true; return Refresh(); }); },
+            TaskScheduler.Default);
+    }
+
     private async Task Refresh()
     {
         if (Refreshing || disposed || Offline) return;
+        if (!followingUp) { snapshotRetries = 0; snapshotExhausted = false; }
+        followingUp = false;
         var identity = requestedIdentity = Identity;
         fetching = true;
         needsSignIn = false;
@@ -371,7 +389,7 @@
         finally
         {
             fetching = false;
-            if (!disposed) await UpdateIdentity();
+            if (!disposed) { await UpdateIdentity(); QueueSnapshotRefresh(); }
         }
     }
 

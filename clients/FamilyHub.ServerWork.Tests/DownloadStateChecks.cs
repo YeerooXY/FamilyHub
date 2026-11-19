@@ -110,7 +110,7 @@ internal static class DownloadStateChecks
     {
         var sections = html.Split("id=\"keep-playlist\"");
         return sections.Length == 2 && !html.Contains("id=\"transfer-download\"")
-            && sections[1].Split("</button>")[0].Contains($"<span>{label}</span>");
+            && sections[1].Split("</button>")[0].Contains($"aria-label=\"{label}\"");
     }
 }
 

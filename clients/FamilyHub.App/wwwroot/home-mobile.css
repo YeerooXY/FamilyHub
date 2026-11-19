@@ -99,7 +99,7 @@
  .playlist-action-bar .playlist-add-song { order:5; margin-left:0; }
  .playlist-action-bar .playlist-add-song { width:44px; padding:10px; font-size:0; gap:0; }
  .playlist-action-bar .playlist-play { grid-area:1 / -2; justify-self:end; width:56px; height:56px; }
- .playlist-action-bar .playlist-download { grid-area:2 / 1 / 2 / -1; justify-self:start; }
+ .playlist-action-bar .playlist-download { grid-area:1 / 5; justify-self:start; }
  .playlist-column-headings { display:none; }
 
  /* Bigger song rows: about two fit under the header on a phone. */

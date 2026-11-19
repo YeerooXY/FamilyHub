@@ -14,10 +14,9 @@
     var hint = useServer && !Transfer.Playlist.CanEdit ? "The owner or a co-author can download songs to the server." : null;
 }
 <button id="keep-playlist" class="playlist-download @(active ? "is-active" : "")" @onclick="() => Activate(disabled, useServer, downloaded)"
-        title="@hint" aria-disabled="@(disabled ? "true" : "false")" aria-haspopup="@(useServer ? null : "dialog")">
+        title="@(hint ?? label)" aria-label="@label" aria-disabled="@(disabled ? "true" : "false")" aria-haspopup="@(useServer ? null : "dialog")">
     @if (active) { <DownloadActivity /> }
     else { <MusicIcon Name="@icon" /> }
-    <span>@label</span>
 </button>
 
 @code {
