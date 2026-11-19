@@ -111,13 +111,13 @@
   z-index:8;
 }
 .seek-control:is(.is-dragging,.is-hovering):has(input:enabled) {
-  --seek-fill:var(--spotify-green);
+  --seek-fill:var(--accent-blue,#1ed760);
   --seek-thumb:#fff;
   --seek-tooltip-visibility:visible;
 }
 @media(hover:hover) {
   .seek-control:not(.is-touch-interaction):has(input:enabled:focus) {
-    --seek-fill:var(--spotify-green);
+    --seek-fill:var(--accent-blue,#1ed760);
     --seek-thumb:#fff;
     --seek-tooltip-visibility:visible;
   }
