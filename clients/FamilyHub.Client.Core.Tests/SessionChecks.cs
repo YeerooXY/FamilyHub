@@ -14,6 +14,9 @@ internal static class SessionChecks
         var removed = false;
         var unauthorized = false;
         var publishLibrary = false;
+        const string playlistId = "0123456789abcdefghijkl";
+        var playlistRevision = 1;
+        var playlistDeleted = false;
         var audio = Encoding.UTF8.GetBytes("Verified playback cache fixture");
         var recording = new MusicTrack { Id = "abcdefghijk", Saved = true, Title = "Cached recording",
             DownloadUrl = "/api/library/abcdefghijk/download", DownloadExtension = ".m4a", DownloadSize = audio.Length,
@@ -110,6 +113,14 @@ internal static class SessionChecks
                 var offset = body.RootElement.GetProperty("offset").GetInt32(); searchOffsets.Add(offset);
                 return Json(offset == 0 ? "{\"results\":[{\"id\":\"pageone0001\",\"title\":\"First page\"}],\"next_offset\":8}" : "{\"results\":[{\"id\":\"pagetwo0001\",\"title\":\"Second page\"}],\"next_offset\":null}");
             }
+            if (request.Method == HttpMethod.Delete && request.RequestUri.AbsolutePath == "/api/playlists/" + playlistId)
+            {
+                using var body = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                if (body.RootElement.GetProperty("revision").GetInt32() != playlistRevision)
+                    return new(HttpStatusCode.Conflict) { Content = System.Net.Http.Json.JsonContent.Create(new { error = "Playlist changed." }) };
+                playlistDeleted = true;
+                return Json("""{"deleted":true}""");
+            }
             return request.RequestUri!.AbsolutePath switch
             {
                 "/api/jobs" => Json("{\"job\":{\"id\":\"preview\",\"source_id\":\"abcdefghijk\",\"state\":\"running\",\"stream_url\":\"/api/jobs/preview/media/index.m3u8?ticket=test\"}}"),
@@ -118,7 +129,9 @@ internal static class SessionChecks
                 "/api/profile/select" => Json("{\"profile\":{\"id\":\"alex\",\"name\":\"Alex\"},\"csrf_token\":\"selected\",\"preferences\":{\"volume\":0.8,\"shuffle\":false}}"),
                 "/api/listening/summary" => Json("{}"),
                 "/api/library" => Json(System.Text.Json.JsonSerializer.Serialize(new { results = publishLibrary ? new[] { recording } : [] }, FamilyHubApi.JsonOptions)),
-                "/api/playlists" => Json("{\"playlists\":[]}"),
+                "/api/playlists" => Json(JsonSerializer.Serialize(new { playlists = playlistDeleted ? [] : new[] {
+                    new { id = playlistId, owner_id = "alex", name = "Test playlist", revision = playlistRevision, can_delete = true }
+                } })),
                 _ => throw new Exception("Unexpected endpoint " + request.RequestUri)
             };
         }));
@@ -129,6 +142,13 @@ internal static class SessionChecks
             Check(session.NeedsProfileSelection && session.Profiles.Count == 2, "Connected profile chooser missing");
             await session.SelectProfileAsync("alex");
             Check(session.Connected && session.ProfileName == "Alex", "Online profile selection failed");
+            var stalePlaylist = session.Playlists.Single();
+            playlistRevision = 2;
+            try { await session.DeletePlaylistAsync(stalePlaylist); Check(false, "Stale delete did not report a conflict"); }
+            catch (InvalidOperationException ex) { Check(ex.Message == "Playlist changed.", "Delete lost the conflict reason"); }
+            Check(session.Playlists.Single().Revision == 2, "Delete conflict did not refresh the playlist revision");
+            await session.DeletePlaylistAsync(session.Playlists.Single());
+            Check(playlistDeleted && session.Playlists.Count == 0, "Delete did not recover after refresh");
             var previewTrack = await session.EnsureServerRecordingAsync(recording with { DownloadUrl = "" }, CancellationToken.None, allowPreview: true);
             Check(previewTrack.PlaybackVersion == "preview-hls", "Acquisition waited past the ready preview");
             var previewStream = await session.StreamPlaybackAsync(previewTrack, 0, CancellationToken.None);

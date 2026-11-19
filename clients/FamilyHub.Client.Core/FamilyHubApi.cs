@@ -373,10 +373,18 @@ public sealed class FamilyHubApi : IDisposable
         var message = response.StatusCode switch
         {
             HttpStatusCode.Unauthorized => "Sign in to the server again. Your device downloads remain available.",
+            HttpStatusCode.Forbidden => "This profile cannot perform that action. Check your access or switch profiles.",
             HttpStatusCode.Conflict => "The request conflicts with the server's current state. Try again.",
-            _ => $"The server returned HTTP {(int)response.StatusCode}."
+            HttpStatusCode.NotFound => "The requested item is unavailable. Refresh and try again.",
+            HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable => "The server is busy. Wait a moment and try again.",
+            HttpStatusCode.RequestTimeout or HttpStatusCode.GatewayTimeout => "The request timed out. Try again.",
+            HttpStatusCode.InsufficientStorage => "The server is out of storage. Free up space on the server and try again.",
+            _ => "The server could not complete the request. Try again."
         };
-        if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Conflict or HttpStatusCode.RequestEntityTooLarge or HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable && response.Content.Headers.ContentType?.MediaType == "application/json")
+        if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Forbidden or HttpStatusCode.NotFound
+            or HttpStatusCode.Conflict or HttpStatusCode.RequestEntityTooLarge or HttpStatusCode.TooManyRequests
+            or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.InsufficientStorage
+            && response.Content.Headers.ContentType?.MediaType == "application/json")
         {
             try
             {
