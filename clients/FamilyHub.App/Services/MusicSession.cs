@@ -38,6 +38,8 @@ public sealed class MusicSession
     public string? DownloadingId { get; private set; }
     public string DownloadStatus { get; private set; } = "";
     public (string TrackId, string Message)? DownloadFailure { get; private set; }
+    private System.Collections.Immutable.ImmutableHashSet<string> pendingDeviceDownloads = [];
+    public bool WaitingForDeviceDownload(MusicTrack track) => pendingDeviceDownloads.Contains(track.Id);
     public long DownloadedBytes { get; private set; }
     private MusicTrack[] cachedTracks = [];
     private long cachedBytes;
@@ -923,6 +925,9 @@ public sealed class MusicSession
             : "Server unavailable. Downloaded songs are available offline.");
     }
 
+    public bool OnServer(PlaylistTrack entry) => entry.RecordingId is { Length: > 0 } id
+        && (libraryById.ContainsKey(id) || entry.State == "saved" && entry.Match is { Saved: true, DownloadUrl.Length: > 0 } saved && saved.Id == id);
+
     public MusicTrack? Resolve(PlaylistTrack entry)
     {
         if (entry.RecordingId is not { } id) return null;
@@ -1115,9 +1120,11 @@ public sealed class MusicSession
         {
             EnsurePlaybackCaches();
             var selected = tracks.Select(CurrentRecording).DistinctBy(t => t.Id).ToList();
+            pendingDeviceDownloads = System.Collections.Immutable.ImmutableHashSet.CreateRange(selected.Select(track => track.Id));
             for (var index = 0; index < selected.Count; index++)
             {
                 var original = selected[index];
+                pendingDeviceDownloads = pendingDeviceDownloads.Remove(original.Id);
                 DownloadingId = original.Id; Progress = null;
                 DownloadStatus = $"Downloading {index + 1} of {selected.Count} · {original.Title}";
                 Changed?.Invoke();
@@ -1163,6 +1170,7 @@ public sealed class MusicSession
         finally
         {
             Microsoft.Maui.Networking.Connectivity.Current.ConnectivityChanged -= NetworkChanged;
+            pendingDeviceDownloads = [];
             downloadCancellation = null; DownloadingId = null; Progress = null; DownloadStatus = ""; Changed?.Invoke();
         }
     }
@@ -1180,15 +1188,27 @@ public sealed class MusicSession
     };
 
     public void CancelDownload() => downloadCancellation?.Cancel();
-    public async Task RemoveDownloadAsync(MusicTrack track)
+    public Task RemoveDownloadAsync(MusicTrack track) => RemoveDownloadsAsync([track]);
+
+    public async Task RemoveDownloadsAsync(IReadOnlyList<MusicTrack> tracks)
     {
-        if (DownloadingId == track.Id) throw new InvalidOperationException("Pause this download before removing it.");
-        if (Offline is null) return;
+        if (DownloadingId is { } id && tracks.Any(track => track.Id == id))
+            throw new InvalidOperationException("Pause this download before removing it.");
+        if (Offline is not { } offline || tracks.Count == 0) return;
         var version = accountVersion;
-        await Offline.RemoveDownloadAsync(track.Id);
-        if (version != accountVersion) return;
-        await ReadDownloadsAsync();
-        SetMessage("Removed from this device. The server copy is unchanged.");
+        try
+        {
+            foreach (var track in tracks)
+            {
+                EnsureCurrent(version);
+                await offline.RemoveDownloadAsync(track.Id);
+            }
+        }
+        finally
+        {
+            if (version == accountVersion) await ReadDownloadsAsync();
+        }
+        if (version == accountVersion) SetMessage(tracks.Count == 1 ? "Song removed from this device." : "Songs removed from this device.");
     }
 
     private static readonly (string Quality, string Folder)[] PlaybackCacheTiers =

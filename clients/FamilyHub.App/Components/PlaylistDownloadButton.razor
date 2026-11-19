@@ -4,18 +4,30 @@
     var downloading = Tracks.Any(track => track.Id == Session.DownloadingId);
     var failed = Session.DownloadFailure is { } failure && Tracks.Any(track => track.Id == failure.TrackId);
     var downloaded = Tracks.Count > 0 && Tracks.All(Session.KeptOnDevice);
-    var label = downloading ? "Downloading playlist to this device" : failed ? "Retry playlist download"
-        : downloaded ? (Tracks.Count == SongCount ? "Playlist downloaded" : "Available songs downloaded")
-        : "Download playlist to this device";
+    var useServer = !Transfer.AllOnServer;
+    var active = useServer ? Transfer.ServerDownloading : downloading;
+    var label = useServer ? Transfer.DownloadLabel : downloading ? "Downloading to this device"
+        : downloaded ? "Remove download" : failed ? "Retry device download" : "Download to this device";
+    var icon = useServer ? "cloud-download" : downloaded ? "device-check" : failed ? "refresh" : "download";
+    var disabled = Unavailable || (useServer ? Transfer.DownloadUnavailable
+        : Session.DownloadingId is not null || Tracks.Count == 0 || (!Session.Connected && !downloaded));
+    var hint = useServer && !Transfer.Playlist.CanEdit ? "The owner or a co-author can download songs to the server." : null;
 }
-<button id="keep-playlist" class="quiet playlist-download" @onclick="Download" aria-label="@label" title="@label"
-        aria-disabled="@(!Session.Connected || Unavailable || Session.DownloadingId is not null || Tracks.Count == 0 ? "true" : "false")">
-    <MusicIcon Name="@(downloading ? "clock" : failed ? "refresh" : downloaded ? "device-check" : "download")" />
+<button id="keep-playlist" class="playlist-download @(active ? "is-active" : "")" @onclick="() => Activate(disabled, useServer, downloaded)"
+        title="@hint" aria-disabled="@(disabled ? "true" : "false")" aria-haspopup="@(useServer ? null : "dialog")">
+    @if (active) { <DownloadActivity /> }
+    else { <MusicIcon Name="@icon" /> }
+    <span>@label</span>
 </button>
 
 @code {
+    [Parameter, EditorRequired] public PlaylistTransfer Transfer { get; set; } = null!;
     [Parameter, EditorRequired] public IReadOnlyList<MusicTrack> Tracks { get; set; } = [];
-    [Parameter] public int SongCount { get; set; }
     [Parameter] public bool Unavailable { get; set; }
     [Parameter] public EventCallback Download { get; set; }
+    [Parameter] public EventCallback Remove { get; set; }
+
+    private Task Activate(bool disabled, bool useServer, bool downloaded) => disabled ? Task.CompletedTask
+        : useServer ? EventCallback.Factory.Create(Transfer, Transfer.StartDownload).InvokeAsync()
+        : downloaded ? Remove.InvokeAsync() : Download.InvokeAsync();
 }

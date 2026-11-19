@@ -1,0 +1,1333 @@
+[
+  {
+    "name": "windows-1280",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "tiles": [
+      {
+        "width": 387,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65,
+        "subtitleBaseline": 86,
+        "textGap": 4
+      },
+      {
+        "width": 387,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65,
+        "subtitleBaseline": 86,
+        "textGap": 4
+      }
+    ],
+    "createFooterClearance": 105.3125,
+    "menu": [
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      }
+    ],
+    "selection": {
+      "errors": [],
+      "panels": [
+        "add-song-dialog",
+        "add-songs-dialog",
+        "audio-output-dialog",
+        "clear-history-dialog",
+        "create-playlist-dialog",
+        "delete-playlist-dialog",
+        "listen-together-dialog",
+        "player-options",
+        "playlist-coauthors-dialog",
+        "playlist-details-dialog",
+        "playlist-options",
+        "playlist-song-sort-options",
+        "preload-dialog",
+        "remove-playlist-downloads",
+        "song-menu",
+        "song-playlist-dialog",
+        "spotify-question-dialog",
+        "transfer-import-dialog",
+        "transfer-review-dialog"
+      ]
+    },
+    "rows": [
+      {
+        "x": 1030.984375,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1030.984375,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1030.984375,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1030.984375,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1030.984375,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1030.984375,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      }
+    ],
+    "headingAlignment": {
+      "number": 0,
+      "title": 0,
+      "duration": 0
+    },
+    "addTiles": [
+      {
+        "width": 387,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65,
+        "subtitleBaseline": 86,
+        "textGap": 4
+      },
+      {
+        "width": 387,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65,
+        "subtitleBaseline": 86,
+        "textGap": 4
+      }
+    ],
+    "addFooterClearance": 84.21875
+  },
+  {
+    "name": "windows-2000",
+    "viewport": {
+      "width": 2000,
+      "height": 1060
+    },
+    "tiles": [
+      {
+        "width": 387,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65,
+        "subtitleBaseline": 86,
+        "textGap": 4
+      },
+      {
+        "width": 387,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65,
+        "subtitleBaseline": 86,
+        "textGap": 4
+      }
+    ],
+    "createFooterClearance": 185.3125,
+    "menu": [
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      }
+    ],
+    "selection": {
+      "errors": [],
+      "panels": [
+        "add-song-dialog",
+        "add-songs-dialog",
+        "audio-output-dialog",
+        "clear-history-dialog",
+        "create-playlist-dialog",
+        "delete-playlist-dialog",
+        "listen-together-dialog",
+        "player-options",
+        "playlist-coauthors-dialog",
+        "playlist-details-dialog",
+        "playlist-options",
+        "playlist-song-sort-options",
+        "preload-dialog",
+        "remove-playlist-downloads",
+        "song-menu",
+        "song-playlist-dialog",
+        "spotify-question-dialog",
+        "transfer-import-dialog",
+        "transfer-review-dialog"
+      ]
+    },
+    "rows": [
+      {
+        "x": 1751,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1751,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1751,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1751,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1751,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1751,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      }
+    ],
+    "headingAlignment": {
+      "number": 0,
+      "title": 0,
+      "duration": 0
+    },
+    "addTiles": [
+      {
+        "width": 387,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65,
+        "subtitleBaseline": 86,
+        "textGap": 4
+      },
+      {
+        "width": 387,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65,
+        "subtitleBaseline": 86,
+        "textGap": 4
+      }
+    ],
+    "addFooterClearance": 164.21875
+  },
+  {
+    "name": "windows-850",
+    "viewport": {
+      "width": 850,
+      "height": 900
+    },
+    "tiles": [
+      {
+        "width": 358,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65,
+        "subtitleBaseline": 86,
+        "textGap": 4
+      },
+      {
+        "width": 358,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65,
+        "subtitleBaseline": 86,
+        "textGap": 4
+      }
+    ],
+    "createFooterClearance": 105.3125,
+    "menu": [
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      }
+    ],
+    "selection": {
+      "errors": [],
+      "panels": [
+        "add-song-dialog",
+        "add-songs-dialog",
+        "audio-output-dialog",
+        "clear-history-dialog",
+        "create-playlist-dialog",
+        "delete-playlist-dialog",
+        "listen-together-dialog",
+        "player-options",
+        "playlist-coauthors-dialog",
+        "playlist-details-dialog",
+        "playlist-options",
+        "playlist-song-sort-options",
+        "preload-dialog",
+        "remove-playlist-downloads",
+        "song-menu",
+        "song-playlist-dialog",
+        "spotify-question-dialog",
+        "transfer-import-dialog",
+        "transfer-review-dialog"
+      ]
+    },
+    "rows": [
+      {
+        "x": 623,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 623,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 623,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 623,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 623,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 623,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      }
+    ],
+    "headingAlignment": {
+      "number": 0,
+      "title": 0,
+      "duration": 0
+    },
+    "addTiles": [
+      {
+        "width": 358,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65,
+        "subtitleBaseline": 86,
+        "textGap": 4
+      },
+      {
+        "width": 358,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65,
+        "subtitleBaseline": 86,
+        "textGap": 4
+      }
+    ],
+    "addFooterClearance": 84.21875
+  },
+  {
+    "name": "mac-webkit-emulated",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "tiles": [
+      {
+        "width": 387,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65.5,
+        "subtitleBaseline": 86.5,
+        "textGap": 4
+      },
+      {
+        "width": 387,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65.5,
+        "subtitleBaseline": 86.5,
+        "textGap": 4
+      }
+    ],
+    "createFooterClearance": 105.3125,
+    "menu": [
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      }
+    ],
+    "selection": {
+      "errors": [],
+      "panels": [
+        "add-song-dialog",
+        "add-songs-dialog",
+        "audio-output-dialog",
+        "clear-history-dialog",
+        "create-playlist-dialog",
+        "delete-playlist-dialog",
+        "listen-together-dialog",
+        "player-options",
+        "playlist-coauthors-dialog",
+        "playlist-details-dialog",
+        "playlist-options",
+        "playlist-song-sort-options",
+        "preload-dialog",
+        "remove-playlist-downloads",
+        "song-menu",
+        "song-playlist-dialog",
+        "spotify-question-dialog",
+        "transfer-import-dialog",
+        "transfer-review-dialog"
+      ]
+    },
+    "rows": [
+      {
+        "x": 1201,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1201,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1201,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1201,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1201,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 1201,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      }
+    ],
+    "headingAlignment": {
+      "number": 0,
+      "title": 0,
+      "duration": 0
+    },
+    "addTiles": [
+      {
+        "width": 387,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65.5,
+        "subtitleBaseline": 86.5,
+        "textGap": 4
+      },
+      {
+        "width": 387,
+        "height": 112,
+        "iconX": 17,
+        "iconY": 17,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 17,
+        "subtitleX": 17,
+        "titleBaseline": 65.5,
+        "subtitleBaseline": 86.5,
+        "textGap": 4
+      }
+    ],
+    "addFooterClearance": 84.21875
+  },
+  {
+    "name": "android-chromium-emulated",
+    "viewport": {
+      "width": 412,
+      "height": 839
+    },
+    "tiles": [
+      {
+        "width": 186,
+        "height": 100,
+        "iconX": 13,
+        "iconY": 13,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 13,
+        "subtitleX": 13,
+        "titleBaseline": 61,
+        "subtitleBaseline": 82,
+        "textGap": 4
+      },
+      {
+        "width": 186,
+        "height": 100,
+        "iconX": 13,
+        "iconY": 13,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 13,
+        "subtitleX": 13,
+        "titleBaseline": 61,
+        "subtitleBaseline": 82,
+        "textGap": 4
+      }
+    ],
+    "createFooterClearance": 135.625,
+    "menu": [
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      }
+    ],
+    "selection": {
+      "errors": [],
+      "panels": [
+        "add-song-dialog",
+        "add-songs-dialog",
+        "audio-output-dialog",
+        "clear-history-dialog",
+        "create-playlist-dialog",
+        "delete-playlist-dialog",
+        "listen-together-dialog",
+        "player-options",
+        "playlist-coauthors-dialog",
+        "playlist-details-dialog",
+        "playlist-options",
+        "playlist-song-sort-options",
+        "preload-dialog",
+        "remove-playlist-downloads",
+        "song-menu",
+        "song-playlist-dialog",
+        "spotify-question-dialog",
+        "transfer-import-dialog",
+        "transfer-review-dialog"
+      ]
+    },
+    "downloadPlayerGap": 104.734375,
+    "rows": [
+      {
+        "x": 259,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 259,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 259,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 259,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 259,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 259,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      }
+    ],
+    "addTiles": [
+      {
+        "width": 186,
+        "height": 100,
+        "iconX": 13,
+        "iconY": 13,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 13,
+        "subtitleX": 13,
+        "titleBaseline": 61,
+        "subtitleBaseline": 82,
+        "textGap": 4
+      },
+      {
+        "width": 186,
+        "height": 100,
+        "iconX": 13,
+        "iconY": 13,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 13,
+        "subtitleX": 13,
+        "titleBaseline": 61,
+        "subtitleBaseline": 82,
+        "textGap": 4
+      }
+    ],
+    "addFooterClearance": 131.421875,
+    "emulatedSwipe": true
+  },
+  {
+    "name": "iphone-webkit-emulated",
+    "viewport": {
+      "width": 390,
+      "height": 664
+    },
+    "tiles": [
+      {
+        "width": 175,
+        "height": 100,
+        "iconX": 13,
+        "iconY": 13,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 13,
+        "subtitleX": 13,
+        "titleBaseline": 61.5,
+        "subtitleBaseline": 82.5,
+        "textGap": 4
+      },
+      {
+        "width": 175,
+        "height": 100,
+        "iconX": 13,
+        "iconY": 13,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 13,
+        "subtitleX": 13,
+        "titleBaseline": 61.5,
+        "subtitleBaseline": 82.5,
+        "textGap": 4
+      }
+    ],
+    "createFooterClearance": 12.625,
+    "menu": [
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      },
+      {
+        "width": 246,
+        "height": 44,
+        "iconX": 19,
+        "iconY": 12.5,
+        "iconWidth": 19,
+        "iconHeight": 19,
+        "textX": 43,
+        "baseline": 27.5,
+        "gap": 12
+      }
+    ],
+    "selection": {
+      "errors": [],
+      "panels": [
+        "add-song-dialog",
+        "add-songs-dialog",
+        "audio-output-dialog",
+        "clear-history-dialog",
+        "create-playlist-dialog",
+        "delete-playlist-dialog",
+        "listen-together-dialog",
+        "player-options",
+        "playlist-coauthors-dialog",
+        "playlist-details-dialog",
+        "playlist-options",
+        "playlist-song-sort-options",
+        "preload-dialog",
+        "remove-playlist-downloads",
+        "song-menu",
+        "song-playlist-dialog",
+        "spotify-question-dialog",
+        "transfer-import-dialog",
+        "transfer-review-dialog"
+      ]
+    },
+    "downloadPlayerGap": 9.578125,
+    "rows": [
+      {
+        "x": 237,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 237,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 237,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 237,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 237,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      },
+      {
+        "x": 237,
+        "size": 22,
+        "height": 22,
+        "slot": 44,
+        "titleCenterDelta": 0,
+        "menuCenterDelta": 0
+      }
+    ],
+    "addTiles": [
+      {
+        "width": 175,
+        "height": 100,
+        "iconX": 13,
+        "iconY": 13,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 13,
+        "subtitleX": 13,
+        "titleBaseline": 61.5,
+        "subtitleBaseline": 82.5,
+        "textGap": 4
+      },
+      {
+        "width": 175,
+        "height": 100,
+        "iconX": 13,
+        "iconY": 13,
+        "iconWidth": 24,
+        "iconHeight": 24,
+        "titleX": 13,
+        "subtitleX": 13,
+        "titleBaseline": 61.5,
+        "subtitleBaseline": 82.5,
+        "textGap": 4
+      }
+    ],
+    "addFooterClearance": 14.421875
+  }
+]

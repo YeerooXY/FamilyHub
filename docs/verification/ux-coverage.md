@@ -1,5 +1,14 @@
 # Interface verification
 
+## 19 November 2026 — Playlist download status and song pickers
+
+Headless Playwright measured and inspected the playlist header, live row status,
+playlist menu, Create playlist and Add songs at 850, 1280 and 2000 px on Windows
+Chromium and in emulated Mac Safari, Android Chrome and iPhone Safari profiles.
+The [playlist download verification record](download-states-2026-11-19/README.md)
+includes before and after screenshots, pixel measurements, focus and selection
+checks, download regressions and the remaining physical-device coverage.
+
 ## 19 November 2026 — Music player bar
 
 Desktop and phone player layout, track states, keyboard focus, reduced motion, title truncation and playlist action placement were checked in headless Chromium and WebKit. The measurements, screenshots and device limits are in the [player bar verification record](player-bar-2026-11-19/README.md).
