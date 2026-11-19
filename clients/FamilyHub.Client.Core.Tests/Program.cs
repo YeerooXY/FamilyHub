@@ -179,6 +179,21 @@ using (var api = new FamilyHubApi(origin, new Handler(async request =>
 }
 using (var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict)))))
     await Throws<InvalidOperationException>(() => api.ConnectAsync(), "Disabled family mode did not explain configuration");
+foreach (var (status, guidance) in new[]
+{
+    (HttpStatusCode.Unauthorized, "Sign in"),
+    (HttpStatusCode.Forbidden, "Reconnect"),
+    (HttpStatusCode.GatewayTimeout, "took too long"),
+    (HttpStatusCode.ServiceUnavailable, "busy")
+})
+{
+    using var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(status))));
+    try { await api.GetLibraryAsync(); Check(false, "Failed request did not throw"); }
+    catch (FamilyHubApiException ex)
+    {
+        Check(ex.StatusCode == (int)status && ex.Message.Contains(guidance) && !ex.Message.Contains("HTTP"), "Request error lacked recovery guidance");
+    }
+}
 foreach (var detail in new[] { "Another playlist operation is running. Wait for it to finish.", "This playlist changed. Refresh it before editing." })
 {
     using var api = new FamilyHubApi(origin, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict)

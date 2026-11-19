@@ -440,7 +440,7 @@ public sealed class MusicPlayer(MusicSession session)
             eventFinalized = false; eventStarted = null;
         }
         if (Current?.Id != track.Id) resumePosition = null;
-        var previousQueue = queue.ToList(); var previousIndex = index; var previousTrack = Current;
+        var previousQueue = queue.ToList(); var previousIndex = index; var previousTrack = Current; var previousOrder = order;
         var previousManual = manualQueue.ToArray();
         var version = ++requestVersion;
         ControlRevision++; lastHostControl = -1; filteredDrift = 0; largeDriftSamples = 0;
@@ -462,7 +462,7 @@ public sealed class MusicPlayer(MusicSession session)
             var additions = queue.Skip(selected.Count).ToList();
             queueSnapshot = null; queue.Clear(); queue.AddRange(previousQueue); queue.AddRange(additions);
             manualQueue.Clear(); foreach (var entry in previousManual) manualQueue.Add(entry);
-            index = previousIndex; Current = previousTrack; PlaybackRequested = false; session.PinPlayback(null);
+            index = previousIndex; Current = previousTrack; order = previousOrder; PlaybackRequested = false; session.PinPlayback(null);
         }
         try
         {
@@ -476,7 +476,12 @@ public sealed class MusicPlayer(MusicSession session)
             resumeStartPending = PlaybackRequested && resumePosition is > 0;
             deck.PlayFile(path, track.Title, track.Channel, PlaybackRequested && !resumeStartPending, background);
         }
-        catch (OperationCanceledException) { if (version == requestVersion) { sourceReady = false; Restore(); } }
+        catch (OperationCanceledException error)
+        {
+            if (version != requestVersion) return;
+            sourceReady = false; Restore();
+            throw new InvalidOperationException("The server took too long to prepare this song. Try playing it again.", error);
+        }
         catch { if (version != requestVersion) return; sourceReady = false; Restore(); throw; }
         finally
         {

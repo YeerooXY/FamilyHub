@@ -373,8 +373,11 @@ public sealed class FamilyHubApi : IDisposable
         var message = response.StatusCode switch
         {
             HttpStatusCode.Unauthorized => "Sign in to the server again. Your device downloads remain available.",
+            HttpStatusCode.Forbidden => "The server refused this request. Reconnect and check the selected profile.",
+            HttpStatusCode.RequestTimeout or HttpStatusCode.GatewayTimeout => "The server took too long. Try again.",
             HttpStatusCode.Conflict => "The request conflicts with the server's current state. Try again.",
-            _ => $"The server returned HTTP {(int)response.StatusCode}."
+            HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable => "The server is busy. Try again in a moment.",
+            _ => "The server could not complete the request. Try again."
         };
         if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Conflict or HttpStatusCode.RequestEntityTooLarge or HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable && response.Content.Headers.ContentType?.MediaType == "application/json")
         {
