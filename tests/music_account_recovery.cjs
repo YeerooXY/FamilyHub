@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const { mkdir, readFile } = require('node:fs/promises');
+const path = require('node:path');
 const { chromium, webkit, devices } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 
 const origin = process.env.FAMILYHUB_TEST_ORIGIN;
@@ -7,6 +8,28 @@ const imagePath = process.env.FAMILYHUB_TEST_PROFILE_IMAGE;
 const captures = process.env.FAMILYHUB_TEST_CAPTURES;
 if (!origin || !imagePath) throw new Error('Set FAMILYHUB_TEST_ORIGIN and FAMILYHUB_TEST_PROFILE_IMAGE for an isolated family-mode fixture.');
 const waitForFocus = (page, id) => page.waitForFunction(id => document.activeElement.id === id, id);
+
+async function checkNativeOptions(context) {
+    const app = path.join(__dirname, '../clients/FamilyHub.App');
+    const read = file => readFile(path.join(app, file), 'utf8');
+    const [source, reporting, styles] = await Promise.all([
+        read('Components/Pages/Music.razor'), read('Components/ReportSong.razor'), read('wwwroot/player-native.css'),
+    ]);
+    const backdrop = source.match(/<(button|div) class="player-tools-backdrop"[^>]*><\/\1>/)[0];
+    const close = source.match(/<button id="player-options-close".*?<\/button>/)[0];
+    const report = reporting.match(/<button id="report-song".*?<\/button>/)[0];
+    const page = await context.newPage();
+    try {
+        await page.setContent(`<meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style>
+            <footer class="player-bar">${backdrop}<div class="player-tools is-open">${close}${report}</div></footer>`
+            .replaceAll(/ @onclick="[^"]*"/g, ''));
+        assert.equal(await page.getByRole('button', { name: 'Close player options', exact: true }).count(), 1);
+        assert.equal(await page.locator('.player-tools-backdrop').evaluate(node => node.tabIndex), -1);
+        const reportButton = page.getByRole('button', { name: 'Report song', exact: true });
+        assert.equal(await reportButton.innerText(), '');
+        assert.equal(await reportButton.evaluate(node => getComputedStyle(node, '::after').content), '"Report song"');
+    } finally { await page.close(); }
+}
 
 async function check(page, name, touch, image) {
     await page.goto(origin);
@@ -53,12 +76,24 @@ async function check(page, name, touch, image) {
         await page.locator('#nav-settings').waitFor();
         if (touch) await page.locator('#nav-settings').tap();
         else {
-            await page.keyboard.press('Tab');
             await waitForFocus(page, 'nav-settings');
             await page.keyboard.press('Enter');
         }
         await page.getByRole('region', { name: 'Settings', exact: true }).waitFor();
     };
+    await opener.click();
+    await page.locator('#connect-panel[open]').waitFor();
+    const focusedAfterClosing = await page.evaluate(() => new Promise(resolve => {
+        const panel = document.getElementById('connect-panel');
+        panel.addEventListener('close', () => resolve(document.activeElement.id), { once: true });
+        panel.close();
+        document.getElementById('profile-toggle').focus();
+    }));
+    assert.equal(focusedAfterClosing, 'profile-toggle');
+    await page.locator('#profile-toggle').press('Enter');
+    await waitForFocus(page, 'nav-settings');
+    await page.keyboard.press('Escape');
+    await waitForFocus(page, 'profile-toggle');
     await openSettings();
     await page.locator('#fade').fill('7');
     await page.locator('#fade').press('Tab');
@@ -135,6 +170,7 @@ async function check(page, name, touch, image) {
             const page = await context.newPage();
             page.setDefaultTimeout(6500);
             await check(page, name, touch, image);
+            if (touch) await checkNativeOptions(context);
         } finally { await browser.close(); }
     }
 })().catch(error => { console.error(error); process.exitCode = 1; });

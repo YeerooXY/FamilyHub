@@ -110,6 +110,7 @@
     closeDetails();
     $("bluetooth-help").hidden = true;
     bluetooth.setAttribute("aria-expanded", "false");
+    if (document.activeElement !== document.body && !panel.contains(document.activeElement)) return;
     const target = opener?.getClientRects().length ? opener : remoteBar.hidden ? $("connect-open") : $("remote-line");
     target.focus({preventScroll:true});
   });

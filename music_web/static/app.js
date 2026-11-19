@@ -1149,10 +1149,11 @@ function closeProfile(restore=false) {
   $("profile-toggle").setAttribute("aria-expanded", "false");
   if (restore) $("profile-toggle").focus();
 }
-$("profile-toggle").addEventListener("click", () => {
+$("profile-toggle").addEventListener("click", event => {
   const open = $("profile-menu").hidden;
   $("profile-menu").hidden = !open;
   $("profile-toggle").setAttribute("aria-expanded", String(open));
+  if (open && event.detail === 0) $("nav-settings").focus({preventScroll:true});
 });
 $("nav-settings").addEventListener("click", () => { closeProfile(); $("view-title").focus(); });
 document.addEventListener("keydown", e => { if(e.key === "Escape" && !$("profile-menu").hidden) { e.preventDefault(); closeProfile(true); } });
