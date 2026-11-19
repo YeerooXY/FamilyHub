@@ -193,8 +193,10 @@ const decks = [$("preview-player"), $("next-player")];
 let deckIndex = 0, currentJob = null, statusJob = null, currentTrack = null, requestVersion = 0;
 let queue = [], pool = [], history = [], skipped = [], heard = new Set(), prepared = new Map();
 let wantPlayback = false, startPosition = null;
+let repeatMode = "off";
 const savedSources = new Set();
 const manualQueue = new Set();
+const requestedTrack = track => track.handoffEntry || manualQueue.has(sourceKey(track));
 let recentSeed = null;
 try {
   const stored = JSON.parse(localStorage.getItem("music:last-track"));
@@ -446,6 +448,7 @@ async function listen(track, keepQueue = false, context = "search", local = true
   const directUrl = !track.url && track.download_url;
   const cached = directUrl ? null : preparedJob(track);
   const loadedIndex = decks.findIndex(deck => deck !== handoff?.stage?.player && cached?.media_url && deck.dataset.mediaUrl === cached.media_url && deck.readyState >= 2);
+  if (!keepQueue || context === "search") repeatMode = "off";
   if (!keepQueue) {
     if (context !== "recommendations") {
       similarSeed = {...track}; recommendationSeed = ""; ++similarVersion;
@@ -510,7 +513,7 @@ async function listen(track, keepQueue = false, context = "search", local = true
   }
   $("status").hidden = false; $("status-text").textContent = "Preparing playback";
   try {
-    const { job } = await api("/api/jobs", { method: "POST", json: { ...track, allow_new: !keepQueue || manualQueue.has(sourceKey(track)) || $("allow-new").checked, generation: Date.now() * 1000 + version } });
+    const { job } = await api("/api/jobs", { method: "POST", json: { ...track, allow_new: !keepQueue || requestedTrack(track) || $("allow-new").checked, generation: Date.now() * 1000 + version } });
     if (version !== requestVersion) return;
     currentJob = job; heard.add(track.url);
     showJob(job); scheduleJobs();
@@ -557,7 +560,6 @@ function renderQueueTimeline() {
 }
 function renderQueue() {
   pruneQueue();
-  capturePlaybackQueue();
   queuePlaybackCheckIn();
   renderQueueTimeline();
   updateNext();
@@ -574,7 +576,7 @@ function renderQueue() {
 }
 async function prepare() {
   const version = ++prepareVersion;
-  const wanted = queue.slice(0, 6).map(t => ({...t, requested:manualQueue.has(sourceKey(t))}));
+  const wanted = queue.slice(0, 6).map(track => ({...track, requested:requestedTrack(track)}));
   const previews = $("search-previews").checked ? searchPreviewTracks : [];
   const sources = new Set([...wanted, ...previews].map(sourceKey));
   for (const key of prepared.keys()) if (!sources.has(key)) prepared.delete(key);
@@ -710,12 +712,26 @@ async function advance(manual = false, local = manual) {
   advancing = true;
   try {
     unlock();
+    if ((!manual && repeatMode === "one") || (repeatMode === "all" && !queue.length && !history.length)) {
+      if (currentTrack && currentJob?.media_url) {
+        startPosition = jobCue(currentJob);
+        startPlayback(decks[deckIndex]);
+      }
+      return;
+    }
     if (!manual && failedPreparation(upcoming())) { preload(); return; }
     if (manual) recordSkip();
     if (manual && currentTrack) skipped = [...skipped.slice(-19), currentTrack.url];
     const version = requestVersion;
     await fillQueue();
     if (version !== requestVersion) return;
+    if (!queue.length && repeatMode === "all" && history.length && currentTrack) {
+      const [first, ...following] = history;
+      queue = [...following, currentTrack];
+      history = [];
+      await listen(first, true, "previous", local);
+      return;
+    }
     const next = queue.shift();
     if (next) await listen(next, true, "queue", local);
     else {
@@ -759,6 +775,7 @@ $("recommend-similar").addEventListener("click", async () => {
 async function fillQueue() {
   const version = requestVersion;
   pruneQueue();
+  if (currentTrack?.handoffEntry || queue.some(track => track.handoffEntry)) return;
   const anchor = similarSeed || currentTrack || recentSeed;
   const seed = artistName(anchor);
   if (seed && recommendationSeed !== seed && $("autoplay").checked && $("allow-new").checked && $("queue-mode").value === "mix") {
@@ -810,7 +827,7 @@ $("fade").addEventListener("input", () => { plan = null; planKey = ""; preload()
 
 async function checkBlend(manual = false) {
   const outgoing = decks[deckIndex], next = upcoming();
-  if (handoff?.stage || blending || (!manual && !$("autoplay").checked) || outgoing.paused || !plan?.fade || !next?.media_url || outgoing.currentTime < plan.out) return;
+  if (handoff?.stage || blending || (!manual && (repeatMode === "one" || !$("autoplay").checked)) || outgoing.paused || !plan?.fade || !next?.media_url || outgoing.currentTime < plan.out) return;
   if (gains.length !== 2 || audioContext?.state !== "running") {
     $("mix-state").textContent = "Mixing needs an active audio session. Use Play; tracks otherwise play separately.";
     return;
@@ -865,7 +882,7 @@ async function checkBlend(manual = false) {
     currentJob = next; plan = null; planKey = ""; blending = false;
     showJob(next);
     // Promote before queue reconciliation: otherwise removal from the queue can cancel the audible job.
-    api("/api/jobs", { method: "POST", json: { ...currentTrack, allow_new: manualQueue.has(sourceKey(currentTrack)) || $("allow-new").checked } }).then(async ({job}) => {
+    api("/api/jobs", { method: "POST", json: { ...currentTrack, allow_new: requestedTrack(currentTrack) || $("allow-new").checked } }).then(async ({job}) => {
       if (version !== requestVersion || currentJob?.id !== next.id) return;
       currentJob = job; showJob(job); scheduleJobs();
       await fillQueue(); renderQueue(); prepare();
@@ -1241,26 +1258,32 @@ function markPlaybackStarted() {
   localPlayPending = null;
   queuePlaybackCheckIn();
 }
-function capturePlaybackQueue() {
-  const currentId = sourceKey(currentTrack);
+function capturePlaybackQueue(stage = null) {
+  const currentId = sourceKey(stage ? stage.track : currentTrack);
+  const upcomingTracks = stage ? stage.queue : queue;
+  const previousTracks = stage ? stage.history : history;
   const after = [], before = [];
   if (!recordingId.test(currentId)) {
     if (!queueSnapshot?.track_ids.length) return;
     queueSnapshot = {track_ids:[], index:-1};
   } else {
-    for (const track of queue) {
+    for (const track of upcomingTracks) {
       const id = sourceKey(track);
       if (recordingId.test(id)) after.push(id);
       if (after.length === 999) break;
     }
-    for (let i = history.length - 1; i >= 0 && before.length + after.length < 999; i--) {
-      const id = sourceKey(history[i]);
+    for (let i = previousTracks.length - 1; i >= 0 && before.length + after.length < 999; i--) {
+      const id = sourceKey(previousTracks[i]);
       if (recordingId.test(id)) before.push(id);
     }
     const ids = [...before.reverse(), currentId, ...after], previous = queueSnapshot?.track_ids;
-    const same = previous?.length === ids.length && ids.every((id, i) => id === previous[i]);
+    const shuffle = stage ? stage.shuffle : $("queue-mode").value === "shuffle";
+    const autoplay = stage ? stage.autoplay : $("autoplay").checked;
+    const repeat = stage ? stage.repeatMode : repeatMode;
+    const same = previous?.length === ids.length && ids.every((id, i) => id === previous[i]) &&
+      queueSnapshot.shuffle === shuffle && queueSnapshot.autoplay === autoplay && queueSnapshot.repeat_mode === repeat;
     if (same && queueSnapshot.index === before.length) return;
-    queueSnapshot = {track_ids:same ? previous : ids, index:before.length};
+    queueSnapshot = {track_ids:same ? previous : ids, index:before.length, shuffle, repeat_mode:repeat, autoplay};
   }
   ++queueRev;
 }
@@ -1293,6 +1316,8 @@ async function checkIn() {
   checkInQueued = false;
   checkingIn = true;
   if (Date.now() - lastCheckIn > onlineSeconds * 1000) { sentQueueRev = 0; sentQueueIds = null; }
+  const stage = handoff?.stage;
+  capturePlaybackQueue(stage?.acknowledged ? stage : null);
   const snapshot = queueSnapshot, json = playbackSnapshot(), info = json.device_info;
   const reportingResult = reportHandoffResult;
   reportHandoffResult = false;
@@ -1393,7 +1418,7 @@ async function applyPlaybackCommand(command) {
   watchHandoff(pending, command.id);
   if (blending) return;
   const stage = pending.stage = {player:decks[1 - deckIndex], command};
-  const {track_ids:ids, index, position} = command.resume;
+  const {track_ids:ids, index, position, shuffle, repeat_mode, autoplay} = command.resume;
   const source = remoteDevice?.track;
   try {
     if (!Array.isArray(ids) || !Number.isInteger(index) || !recordingId.test(ids[index]) || !Number.isFinite(position)) throw new Error();
@@ -1409,12 +1434,15 @@ async function applyPlaybackCommand(command) {
         id, url:"https://www.youtube.com/watch?v=" + id, title:source?.id === id ? source.title : id,
         channel:source?.id === id ? source.channel : ""
       });
-      return track ? {...track, playlistEntry:command.id + ":" + i} : null;
+      return track ? {...track, playlistEntry:command.id + ":" + i, handoffEntry:true} : null;
     });
-    if (!tracks[index]) throw new Error();
+    if (!tracks[index] || tracks.some(track => !track)) throw new Error();
     stage.track = tracks[index];
-    stage.history = tracks.slice(0, index).filter(Boolean);
-    stage.queue = tracks.slice(index + 1).filter(Boolean);
+    stage.history = tracks.slice(0, index);
+    stage.queue = tracks.slice(index + 1);
+    stage.shuffle = shuffle === true;
+    stage.repeatMode = ["all", "one"].includes(repeat_mode) ? repeat_mode : "off";
+    stage.autoplay = autoplay !== false;
     stage.job = stage.track.download_url ? {source_id:ids[index], media_url:stage.track.download_url} :
       (await api("/api/jobs", {method:"POST", json:{...stage.track, allow_new:true}})).job;
     if (pending !== handoff) return;
@@ -1641,6 +1669,11 @@ function finishHandoff(pending, ready, message = "Could not switch playback. Try
     }
     currentTrack = stage.track; currentJob = stage.job; statusJob = stage.job.id ? stage.job : null;
     history = stage.history; queue = stage.queue; manualQueue.clear();
+    repeatMode = stage.repeatMode;
+    $("autoplay").checked = stage.autoplay;
+    if (stage.shuffle) $("queue-mode").value = "shuffle";
+    else if ($("queue-mode").value === "shuffle") $("queue-mode").value = "order";
+    updateShuffle();
     wantPlayback = stage.command.playing;
     localPlay = localPlayPending = startPosition = playbackSearchQuery = null;
     stalled = false; plan = null; planKey = "";
@@ -1650,6 +1683,7 @@ function finishHandoff(pending, ready, message = "Could not switch playback. Try
     $("busy").hidden = !unfinished(stage.job);
     clearRemotePlayback();
     updateNowPlaying(); renderQueue(); prepare(); scheduleJobs();
+    if (stage.player.ended && wantPlayback && $("autoplay").checked) advance(false);
   } else if (stage?.loaded) {
     stage.player.pause();
     stage.player.hls?.destroy(); stage.player.hls = null;

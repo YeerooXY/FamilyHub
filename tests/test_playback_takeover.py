@@ -229,6 +229,39 @@ class Takeover(unittest.TestCase):
         self.takeover()
         self.assertEqual(self.check_in(PHONE, 'paused')[0]['resume'], dict(QUEUE, index=0, position=7))
 
+    def test_confirmed_queue_can_return_after_receiver_advances_without_controller(self):
+        order = ['abcdefghijk', 'local-0123456789abcdef', 'ABCDEFGHIJK', '01234567890']
+        queue = dict(track_ids=order, index=1, shuffle=True, repeat_mode='all', autoplay=True)
+        next_track = dict(id=order[2], title='Next song', channel='Artist')
+        self.check_in(queue=queue, queue_rev=1, sequence=1, epoch=0, local_play=True)
+        self.check_in(PHONE, 'paused', queue=dict(track_ids=['01234567890'], index=0), queue_rev=1, sequence=1)
+
+        sent = self.takeover()['id']
+        command = self.check_in(PHONE, 'paused', queue_rev=1, sequence=2, epoch=1)[0]
+        self.assertEqual(command['resume'], dict(queue, position=42.5))
+        self.assert_owner(PC, 1)
+        self.assertIsNone(self.check_in(PHONE, queue=queue, queue_rev=2, sequence=3, epoch=1, acks=[sent])[0])
+        self.assertEqual(self.devices.handoff_status('me', sent)['state'], 'ready')
+        self.assert_owner(PHONE, 2)
+
+        command, controls, epoch = self.check_in(PHONE, position=1, track=next_track, queue=dict(index=2),
+                                               queue_rev=3, sequence=4, epoch=2, background=True)
+        self.assertEqual((command, controls, epoch), (None, [], 2))
+        returned = self.devices.takeover('me', PHONE, PC)['id']
+        command = self.check_in(status='paused', queue_rev=1, sequence=2, epoch=1)[0]
+        self.assertEqual(command['resume'], dict(queue, index=2, position=1))
+        self.assert_owner(PHONE, 2)
+        self.check_in(position=1, track=next_track, queue=dict(queue, index=2), queue_rev=2,
+                      sequence=3, epoch=2, acks=[returned])
+        self.assert_owner(PC, 3)
+        self.assertEqual(self.check_in(PHONE, queue_rev=3, sequence=5, epoch=2)[0]['action'], 'pause')
+
+    def test_queue_modes_are_validated(self):
+        self.start()
+        for field, invalid in [('shuffle', 1), ('repeat_mode', 'twice'), ('autoplay', 'false')]:
+            with self.subTest(field=field), self.assertRaisesRegex(DeviceError, 'Invalid playback queue'):
+                self.check_in(queue={**QUEUE, field: invalid})
+
     def test_index_only_updates_require_an_integer_within_the_stored_queue(self):
         self.start()
         for queue in (dict(index=-1), dict(index=2), dict(index=True), dict(index=0.0), {}):

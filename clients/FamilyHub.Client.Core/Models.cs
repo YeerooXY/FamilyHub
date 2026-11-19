@@ -136,6 +136,9 @@ public sealed record PlaybackResume
     [JsonPropertyName("track_ids")] public List<string> TrackIds { get; init; } = [];
     [JsonPropertyName("index")] public int Index { get; init; }
     [JsonPropertyName("position")] public double Position { get; init; }
+    [JsonPropertyName("shuffle"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Shuffle { get; init; }
+    [JsonPropertyName("repeat_mode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? RepeatMode { get; init; }
+    [JsonPropertyName("autoplay"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Autoplay { get; init; }
     [JsonPropertyName("updated_at")] public long UpdatedAt { get; init; }
     [JsonIgnore] public bool IsValid => TrackIds is { Count: > 0 and <= 1000 } && Index >= 0 && Index < TrackIds.Count
         && double.IsFinite(Position) && Position >= 0 && Position <= 86400

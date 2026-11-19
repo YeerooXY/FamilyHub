@@ -111,7 +111,8 @@ public partial class MainPage : ContentPage
         if (player.ReportingHandoff is { } loaded)
             return session.ReportPlaybackActivityAsync(loaded.Deck.Playing, loaded.Deck.Position, background: background,
                 status: loaded.Deck.Opening ? "buffering" : loaded.Deck.Playing ? "playing" : "paused", duration: loaded.Deck.Duration,
-                track: loaded.Track, queue: loaded.Queue, queueIndex: loaded.Index, force: force);
+                track: loaded.Track, queue: loaded.Queue, queueIndex: loaded.Index, force: force,
+                shuffle: loaded.State.Shuffle, repeatMode: loaded.State.RepeatMode, autoplay: loaded.State.Autoplay);
         if (!session.UiActive && !player.Playing && !session.HandoffPending || player.Seeking && !force) return Task.CompletedTask;
         var local = !player.RemoteActive && !player.FollowingHost;
         var track = local ? player.Current : null;
@@ -120,7 +121,8 @@ public partial class MainPage : ContentPage
         var duration = player.Duration > 0 ? player.Duration : track?.Duration;
         if (duration is not (> 0 and <= 86400)) duration = null;
         return session.ReportPlaybackActivityAsync(playing, track is null ? null : player.Position, player.FollowingHost, player.RemoteDeviceId, background,
-            status, track is null ? null : duration, track, local ? player.QueueSnapshot : [], local ? player.QueueIndex : -1, force);
+            status, track is null ? null : duration, track, local ? player.QueueSnapshot : [], local ? player.QueueIndex : -1, force,
+            local ? player.Shuffle : null, local ? player.RepeatMode : null, local ? player.Autoplay : null);
     }
     // While this device's music plays elsewhere, mirror that device's song, position and state.
     private int remoteMisses;

@@ -13,7 +13,8 @@ app = create_app({"SECRET_KEY": "browser-fixture-" * 4, "CLI_PATH": str(root / "
     "ALLOWED_USERS": [], "PLAYER_URL": "https://player.test"})
 with app.test_request_context("/", base_url="https://music.test"):
     from flask import render_template
-    (out / "index.html").write_text(render_template("index.html", player_url="https://player.test", user="browser-test"), encoding="utf-8")
+    (out / "index.html").write_text(render_template("index.html", player_url="https://player.test",
+        user="browser-test", profile_name="Browser test"), encoding="utf-8")
     (out / "login.html").write_text(render_template("login.html", username="yeeroo"), encoding="utf-8")
 if not (out / "hls").exists():
     source = out / "tone.flac"

@@ -356,6 +356,70 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
     Check(session.LocalPlays == activations, "Automatic queue advancement activated playback");
 }
 {
+    var sourceSession = new MusicSession(); var targetSession = new MusicSession { DeviceId = new string('b', 32) };
+    var source = new MusicPlayer(sourceSession) { AutoDj = false };
+    var target = new MusicPlayer(targetSession) { AutoDj = false };
+    var sourcePrimary = new WindowsAudioPlayer(); var sourceSecondary = new WindowsAudioPlayer();
+    var targetPrimary = new WindowsAudioPlayer(); var targetSecondary = new WindowsAudioPlayer();
+    source.AttachDecks(sourcePrimary, sourceSecondary); target.AttachDecks(targetPrimary, targetSecondary);
+    MusicTrack[] list = [new("abcdefghijk", "Previous", "Artist"), new("lmnopqrstuv", "Current", "Artist"),
+        new("wxyzABCDEFG", "Next", "Artist"), new("HIJKLMNOPQR", "Last", "Artist")];
+    source.ToggleShuffle(); source.RepeatMode = "all"; target.RepeatMode = "one";
+    await source.PlayAsync(list[1], list, 1);
+    sourcePrimary.Tick(12);
+    var resume = source.CaptureResume()!;
+    var ids = resume.TrackIds;
+    var first = new PlaybackHandover { Id = "forward", Action = "play", Resume = resume, Playing = true };
+    var ready = new TaskCompletionSource<bool>();
+    var started = target.ApplyPlaybackCommandAsync(first, [list[1]], () => ready.Task);
+    Check(target.ReportingHandoff?.Queue.Select(track => track.Id).SequenceEqual(ids) == true && source.Playing && !target.Playing,
+        "Receiver dropped queue entries missing from its library while staging playback");
+    ready.SetResult(true);
+    Check(await started, "Receiver could not load the handoff");
+    Check(target.Playing && target.Position == 12 && target.QueueIndex == 1 && target.Queue.Select(track => track.Id).SequenceEqual(ids)
+        && target.Shuffle && target.RepeatMode == "all" && target.Autoplay,
+        "Receiver lost the queue, index, playhead or playback modes");
+    await source.ApplyPlaybackCommandAsync(new() { Action = "pause", DeviceId = targetSession.DeviceId, Playing = true }, list, () => Task.FromResult(true));
+    source.UiActive = target.UiActive = false;
+    targetSecondary.RaiseEnded(); await Task.Yield();
+    Check(target.Playing && target.Current?.Id == ids[2] && target.QueueIndex == 2 && targetSession.LocalPlays == 0
+        && target.Current.Url == "https://www.youtube.com/watch?v=" + ids[2],
+        "The receiving deck did not advance locally while the sender was idle");
+    Check(source.RemoteActive && !source.Playing && source.Queue.Select(track => track.Id).SequenceEqual(ids),
+        "The sender lost its queue while following the receiver");
+    targetSecondary.Tick(5);
+    var second = first with { Id = "return", Resume = target.CaptureResume() };
+    Check(await source.ApplyPlaybackCommandAsync(second, list, () => Task.FromResult(true)), "Original device could not take playback back");
+    await target.ApplyPlaybackCommandAsync(new() { Action = "pause", DeviceId = sourceSession.DeviceId, Playing = true }, list, () => Task.FromResult(true));
+    Check(source.Playing && source.Position == 5 && source.QueueIndex == 2 && source.Queue.Select(track => track.Id).SequenceEqual(ids),
+        "Returning playback lost the receiver's song, position or queue");
+    sourceSecondary.RaiseEnded(); await Task.Yield();
+    Check(source.Playing && source.Current?.Id == ids[3], "Original device did not advance after taking playback back");
+    sourceSecondary.RaiseEnded(); await Task.Yield();
+    Check(source.Playing && source.Current?.Id == ids[0], "Repeat all was lost after taking playback back");
+
+    ready = new();
+    var third = first with { Id = "near-end", Resume = source.CaptureResume()! with { Position = 29 } };
+    started = target.ApplyPlaybackCommandAsync(third, list, () => ready.Task);
+    Check(target.ReportingHandoff?.Deck == targetPrimary, "Receiver did not stage the recording returning at its end");
+    targetPrimary.RaiseEnded();
+    ready.SetResult(true);
+    Check(await started && target.Playing && target.Current?.Id == ids[1] && target.QueueIndex == 1,
+        "Receiver lost the end of the song while waiting for confirmation");
+
+    var stopped = first with { Id = "autoplay-off", Resume = third.Resume! with { Autoplay = false } };
+    Check(await target.ApplyPlaybackCommandAsync(stopped, list, () => Task.FromResult(true)), "Receiver could not load the autoplay-off handoff");
+    targetSecondary.RaiseEnded(); await Task.Yield();
+    Check(!target.Playing && !target.Autoplay && target.Current?.Id == ids[0] && target.Queue.Count == ids.Count,
+        "Receiver ignored autoplay off or discarded the queue at the end");
+
+    var missingUpload = first with { Id = "missing-upload", Resume = resume with { TrackIds = [ids[0], ids[1], "local-0123456789abcdef"] } };
+    Check(!await target.ApplyPlaybackCommandAsync(missingUpload, list, () => throw new Exception("Receiver confirmed without its next local upload")),
+        "Receiver accepted a handoff that would lose a local upload");
+    Check(!target.Playing && target.Current?.Id == ids[0] && target.Queue.Select(track => track.Id).SequenceEqual(ids),
+        "Failed local upload handoff changed existing playback");
+}
+{
     var session = new MusicSession { Delay = true }; var player = new MusicPlayer(session); player.Attach(new(), new());
     var takeover = player.ApplyPlaybackCommandAsync(new() { Id = "superseded-takeover", Action = "play", Playing = true,
         Resume = new() { TrackIds = [tracks[1].Id], Index = 0, Position = 8 } }, tracks, () => Task.FromResult(true));
@@ -420,11 +484,14 @@ public static class MainThread
 namespace CommunityToolkit.Maui.Views { public sealed class MediaElement { } }
 namespace FamilyHub.Client.Core
 {
-    public sealed record MusicTrack(string Id, string Title, string Channel) { public double? PlaybackGainDb { get; init; } public double? Lufs { get; init; } public double? TruePeak { get; init; } public string PlaybackVersion { get; init; } = ""; public double Duration { get; init; } = 30; }
+    public sealed record MusicTrack(string Id = "", string Title = "", string Channel = "") { public string Url { get; init; } = ""; public double? PlaybackGainDb { get; init; } public double? Lufs { get; init; } public double? TruePeak { get; init; } public string PlaybackVersion { get; init; } = ""; public double Duration { get; init; } = 30; }
     public sealed record ListenerPreferences { public string VolumeLevel { get; init; } = "normal"; public bool ListeningHistoryPaused { get; init; } }
     public sealed record PlaybackResume
     {
         public List<string> TrackIds { get; init; } = []; public int Index { get; init; } public double Position { get; init; }
+        public bool? Shuffle { get; init; }
+        public string? RepeatMode { get; init; }
+        public bool? Autoplay { get; init; }
         public bool IsValid => TrackIds.Count > 0 && Index >= 0 && Index < TrackIds.Count && double.IsFinite(Position);
     }
     public sealed class FamilyHubApiException : Exception { }
@@ -467,7 +534,7 @@ namespace FamilyHub.App.Services
         public void PinUpcomingPlayback(string? id) { }
         public void PinPreparingNextPlayback(string? id) { }
         // Connect to a device: the player tests run without a server.
-        public string DeviceId => "0123456789abcdef0123456789abcdef";
+        public string DeviceId { get; init; } = "0123456789abcdef0123456789abcdef";
         public RemoteApi? Api => null;
         public sealed class RemoteApi { public Task ControlPlaybackAsync(string from, string to, string action, double? position = null) => Task.CompletedTask; }
     }
