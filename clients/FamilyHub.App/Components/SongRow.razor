@@ -4,7 +4,7 @@
 
 <article data-recording-id="@Track.Id" class="library-record native-song-row song-row @(!FindRecording && !Track.Saved && !PlaylistColumns ? "has-library-add" : "") @(PlaylistColumns ? "has-playlist-columns" : "") @(Current ? "is-current" : "")">
     @if (PlaylistColumns) { <span class="playlist-track-number">@Number</span> }
-    <button class="song-primary @(Current ? "is-current" : "") @(Current && Playing ? "is-playing" : "")" @onclick="Play" aria-label="@((FindRecording ? "Find recording for " : "Play ") + Track.Title)">
+    <button id="@primaryId" class="song-primary @(Current ? "is-current" : "") @(Current && Playing ? "is-playing" : "")" @onclick="Play" aria-label="@((FindRecording ? "Find recording for " : "Play ") + Track.Title)">
         <span class="song-artwork"><TrackCover Track="Track" /><span class="artwork-play" aria-hidden="true"><MusicIcon Name="@(FindRecording ? "search" : "play")" /></span></span>
         <span class="song-text"><strong>@Track.Title</strong><small>@Track.Channel</small></span>
     </button>
@@ -19,8 +19,31 @@
         <span class="playlist-track-key" title="@Track.KeyName">@Track.Key</span>
         <span class="playlist-track-duration">@(Track.Duration > 0 ? $"{(int)Track.Duration / 60}:{(int)Track.Duration % 60:00}" : "")</span>
     }
-    @{ var storage = StorageState; }
-    <span class="storage-state @storage.Style" role="img" aria-label="@storage.Label" title="@storage.Label"><MusicIcon Name="@storage.Icon" /></span>
+    @{
+        var storage = StorageState;
+        var retryDevice = PlaylistColumns && storage.Style == "is-device-error";
+        var retryServer = PlaylistColumns && storage.Style == "is-failed" && RetryServerDownload.HasDelegate;
+        var statusHint = retryDevice ? $"{DownloadError} Retry the song download."
+            : retryServer ? "The server could not download this song. Retry the server download." : storage.Label;
+    }
+    <span class="storage-state @storage.Style @(PlaylistColumns ? "playlist-storage" : "")"
+          role="@(retryDevice || retryServer ? null : "img")" aria-label="@(retryDevice || retryServer ? null : storage.Label)" title="@statusHint">
+        @if (retryDevice || retryServer)
+        {
+            <button class="quiet storage-retry" aria-label="@(retryDevice ? $"Retry device download for {Track.Title}" : $"Retry server download for {Track.Title}")"
+                    aria-disabled="@((retryDevice ? DownloadUnavailable : ServerRetryUnavailable) ? "true" : "false")"
+                    @onclick="() => RetryDownload(retryDevice)">
+                <MusicIcon Name="@storage.Icon" />
+            </button>
+        }
+        else
+        {
+            <span class="storage-mark" @key="storage.Style">
+                @if (storage.Icon == "activity") { <DownloadActivity Percent="@ServerDownload.Percent" /> }
+                else { <MusicIcon Name="@storage.Icon" /> }
+            </span>
+        }
+    </span>
     @* Fixed columns preserve action alignment across every row. *@
     <div class="row-actions">
     @if (!FindRecording && AddToPlaylist.HasDelegate)
@@ -44,7 +67,7 @@
         {
             <button @onclick="MenuKeep" aria-disabled="@(DownloadUnavailable ? "true" : "false")">
                 <MusicIcon Name="@(kept ? "check" : Downloading ? "clock" : DownloadError is not null ? "refresh" : "download")" />
-                @(kept ? "Downloaded" : Downloading ? "Downloading to this device" : DownloadError is not null ? "Retry download" : "Download to this device")
+                @(kept ? "Downloaded" : Downloading ? "Downloading song to this device" : DownloadError is not null ? "Retry song download" : "Download song to this device")
             </button>
             @if (DownloadError is { } downloadError) { <Notice Level="error" Message="@downloadError" /> }
         }
@@ -85,9 +108,13 @@
     [Parameter] public bool Current { get; set; }
     [Parameter] public bool Playing { get; set; }
     [Parameter] public bool FindRecording { get; set; }
+    [Parameter] public (string State, double? Percent) ServerDownload { get; set; }
+    [Parameter] public EventCallback RetryServerDownload { get; set; }
+    [Parameter] public bool ServerRetryUnavailable { get; set; }
     [Parameter] public string RemoveLabel { get; set; } = "Remove";
     private readonly string defaultMoreId = "song-more-" + Guid.NewGuid().ToString("N");
     private string moreId => OptionsId ?? defaultMoreId;
+    private string primaryId => moreId + "-play";
     private string menuId => moreId + "-menu";
     private async Task OpenMenu()
     {
@@ -104,6 +131,13 @@
     private Task MenuPlaylist() => AddToPlaylist.InvokeAsync((Track, menuId + "-playlist"));
     private bool DownloadUnavailable => kept || !Session.Connected || Session.DownloadingId is not null;
     private Task MenuKeep() => DownloadUnavailable ? Task.CompletedTask : Keep.InvokeAsync();
+    private async Task RetryDownload(bool device)
+    {
+        if (device ? DownloadUnavailable : ServerRetryUnavailable) return;
+        await JS.InvokeVoidAsync("familyhub.focus", primaryId);
+        if (device) await Keep.InvokeAsync();
+        else await RetryServerDownload.InvokeAsync();
+    }
     private async Task MenuQueue() { await CloseMenu(); await Queue.InvokeAsync(); }
     private async Task MenuRemove() { await CloseMenu(); await Remove.InvokeAsync(); await JS.InvokeVoidAsync("familyhub.focus", "content"); }
     private async Task MenuMove(EventCallback move) { await CloseMenu(); await move.InvokeAsync(); }
@@ -175,9 +209,31 @@
     private bool kept => Session.KeptOnDevice(Track);
     private bool Downloading => !FindRecording && Session.DownloadingId == Track.Id;
     private string? DownloadError => !FindRecording && Session.DownloadFailure is { } failure && failure.TrackId == Track.Id ? failure.Message : null;
-    private (string Label, string Icon, string Style) StorageState => kept ? ("Downloaded", "device-check", "is-kept")
+    private (string Label, string Icon, string Style) StorageState => PlaylistColumns && ServerDownload.State is not null
+        ? PlaylistStorageState : kept ? ("Downloaded", "device-check", "is-kept")
         : Downloading ? ("Downloading", "clock", "is-server")
         : DownloadError is not null ? ("Download failed", "alert", "")
         : Session.OnThisDevice(Track) ? ("Cached", "device", "is-cached")
         : Track.Saved ? ("On server", "cloud-check", "is-server") : ("Not on server", "cloud-empty", "");
+
+    private (string Label, string Icon, string Style) PlaylistStorageState
+    {
+        get
+        {
+            if (kept) return ("On this device", "device-check", "is-kept");
+            if (Downloading) return ("Downloading to this device", "activity", "is-device-downloading");
+            if (Session.WaitingForDeviceDownload(Track)) return ("Waiting to download to this device", "clock", "is-device-waiting");
+            if (DownloadError is not null) return ("Device download failed", "alert", "is-device-error");
+            return ServerDownload.State switch
+            {
+                "server" when Session.OnThisDevice(Track) => ("Cached on this device", "device", "is-cached"),
+                "server" => ("On server", "check", "is-server"),
+                "waiting" => ("Waiting to download to server", "clock", "is-waiting"),
+                "downloading" => ("Downloading to server", "activity", "is-downloading"),
+                "failed" => ("Server download failed", "alert", "is-failed"),
+                "review" => ("Choose a recording before downloading", "alert", "is-review"),
+                _ => ("Not on server", "cloud-empty", "is-missing")
+            };
+        }
+    }
 }

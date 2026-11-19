@@ -1,0 +1,30 @@
+# Playlist downloads and song pickers
+
+Compared release 0.1.71 (`148ee3d`) and the updated Windows Razor components in a local Blazor host with synthetic songs, artwork, preparation responses and device audio. Playwright ran headless at idle priority. All measurements use CSS pixels.
+
+| Profile | Tile size | Create playlist | Playlist header | Song rows | Options |
+| --- | ---: | --- | --- | --- | --- |
+| Windows Chromium · 1280 × 900 | 387 × 112 | [Before](windows-1280-before-create.png) · [After](windows-1280-after-create.png) | [Before](windows-1280-before-playlist.png) · [After](windows-1280-after-playlist.png) | [Before](windows-1280-before-rows.png) · [After](windows-1280-after-rows.png) | [After](windows-1280-after-menu.png) |
+| Windows Chromium · 2000 × 1060 | 387 × 112 | [Before](windows-2000-before-create.png) · [After](windows-2000-after-create.png) | [Before](windows-2000-before-playlist.png) · [After](windows-2000-after-playlist.png) | [Before](windows-2000-before-rows.png) · [After](windows-2000-after-rows.png) | [After](windows-2000-after-menu.png) |
+| Windows Chromium · 850 × 900 | 358 × 112 | [Before](windows-850-before-create.png) · [After](windows-850-after-create.png) | [Before](windows-850-before-playlist.png) · [After](windows-850-after-playlist.png) | [Before](windows-850-before-rows.png) · [After](windows-850-after-rows.png) | [After](windows-850-after-menu.png) |
+| Mac Safari profile · WebKit emulated · 1440 × 900 | 387 × 112 | [Before](mac-webkit-emulated-before-create.png) · [After](mac-webkit-emulated-after-create.png) | [Before](mac-webkit-emulated-before-playlist.png) · [After](mac-webkit-emulated-after-playlist.png) | [Before](mac-webkit-emulated-before-rows.png) · [After](mac-webkit-emulated-after-rows.png) | [After](mac-webkit-emulated-after-menu.png) |
+| Android Chrome profile · Pixel 7 emulated · 412 × 839 | 186 × 100 | [Before](android-chromium-emulated-before-create.png) · [After](android-chromium-emulated-after-create.png) | [Before](android-chromium-emulated-before-playlist.png) · [After](android-chromium-emulated-after-playlist.png) | [Before](android-chromium-emulated-before-rows.png) · [After](android-chromium-emulated-after-rows.png) | [After](android-chromium-emulated-after-menu.png) |
+| iPhone Safari profile · iPhone 13 WebKit emulated · 390 × 664 | 175 × 100 | [Before](iphone-webkit-emulated-before-create.png) · [After](iphone-webkit-emulated-after-create.png) | [Before](iphone-webkit-emulated-before-playlist.png) · [After](iphone-webkit-emulated-after-playlist.png) | [Before](iphone-webkit-emulated-before-rows.png) · [After](iphone-webkit-emulated-after-rows.png) | [After](iphone-webkit-emulated-after-menu.png) |
+
+## Geometry
+
+- The baseline folder tile was 20 px taller in each profile. At 1280 px the song title and subtitle shared a baseline. Both updated tiles have the same width, height and icon coordinates in each profile. Their 24 px icons and both text lines start 17 px from the left edge on desktop and 13 px on phones. The title and subtitle baselines match within each tile pair, with a 4 px gap between their line boxes.
+- Playlist menu rows measure 246 × 44 px, with 19 px icons at x = 19 px from the menu edge and a 12 px gap to the label. All rows share one text baseline relative to the row. The menu background is opaque.
+- Song-row status icons measure 22 px in a 44 px slot. The status column shares one x coordinate across all six fixture rows. The status, play area and menu icon centers differ by 0 px. The desktop number, title and duration columns align with their headers. The status samples were also inspected at 16, 20 and 24 px. [Icon samples](status-icons.png)
+- The download control measures 220 × 44 px in each phase. The short iPhone profile leaves 9.58 px between the download control and the mini player. Both dialog footers clear the viewport edge by at least 12 px in the same profile. Dialog actions follow their form fields when content grows.
+
+The measurements include each tile, menu item and song row. [Baseline](before-measurements.json) · [Updated](after-measurements.json)
+
+## Interaction checks
+
+- Playwright opened Create playlist, Add songs, the playlist options menu and device-download confirmation. It checked keyboard focus and restoration, dragged over dialog text, confirmed input and textarea selection, and inspected the selection style of mounted dialogs, menus and popovers. An emulated Android touch swipe closed the existing player options sheet. [Add songs on Android](android-chromium-emulated-after-add.png) · [Add songs on iPhone](iphone-webkit-emulated-after-add.png)
+- The fixture moved a playlist from one server recording through waiting, active work, failure, retry and all six recordings ready. The server count changed before the batch finished. Playwright checked the 60% ring, the failure retry, the reduced-motion setting, and the identity and keyboard focus of the single header button through its server-to-device transition. Windows Chromium downloaded and removed all six device copies through that same button. [Missing song tooltip](windows-1280-after-missing.png) · [Device copies](windows-1280-after-device-rows.png) · [Removal confirmation](windows-1280-after-remove.png)
+- The song-level server retry restarts the playlist preparation job. The preparation endpoint is available to the playlist owner and co-authors. Report song stays on recordings because the reporting dialog submits an individual recording ID.
+- The rendered C# regression covers automatic queueing, per-song server completion, device queueing, failure and retry, cache versus kept files, bulk removal and the single header control. The portable client suite passed 899 checks. The Windows app build passed with the existing `MainPage.xaml.cs` nullability warning.
+
+Physical Mac, Android and iPhone rendering, operating-system file pickers, OS fonts and screen-reader announcements remain open. The dialog selection audit covered the panels mounted in the fixture and the shared native styles, with direct interactions on the flows above.

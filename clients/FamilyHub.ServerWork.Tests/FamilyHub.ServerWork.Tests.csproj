@@ -18,6 +18,7 @@
 <RazorComponent Include="../../clients/FamilyHub.App/Components/ShelfArrows.razor" Link="Components/ShelfArrows.razor" />
 <RazorComponent Include="../../clients/FamilyHub.App/Components/PlaylistTransfer.razor" Link="Components/PlaylistTransfer.razor" />
 <RazorComponent Include="../../clients/FamilyHub.App/Components/PlaylistDownloadButton.razor" Link="Components/PlaylistDownloadButton.razor" />
+<RazorComponent Include="../../clients/FamilyHub.App/Components/DownloadActivity.razor" Link="Components/DownloadActivity.razor" />
 <RazorComponent Include="../../clients/FamilyHub.App/Components/DeviceDownloadCounts.razor" Link="Components/DeviceDownloadCounts.razor" />
 <RazorComponent Include="../../clients/FamilyHub.App/Components/DeviceDownloadProgress.razor" Link="Components/DeviceDownloadProgress.razor" />
 <RazorComponent Include="../../clients/FamilyHub.App/Components/SongRow.razor" Link="Components/SongRow.razor" />

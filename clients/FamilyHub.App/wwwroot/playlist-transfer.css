@@ -1,4 +1,25 @@
 .playlist-transfer { margin-top:16px; outline:none; }
+.playlist-server-count { display:inline-block; padding:3px 8px; border-radius:999px; background:#ffffff12; color:var(--ink); white-space:nowrap; font-variant-numeric:tabular-nums; }
+.playlist-action-bar .playlist-download { display:inline-flex; align-items:center; justify-content:flex-start; gap:8px; width:220px; max-width:100%; min-height:44px; padding:0 12px; font-size:13px; }
+.playlist-action-bar .playlist-download>.icon { width:20px; height:20px; flex:none; }
+.playlist-action-bar .playlist-download.is-active { opacity:1; border-color:color-mix(in srgb,var(--accent-blue) 40%,transparent); }
+.playlist-download.is-active>.icon { color:var(--accent-blue); }
+.playlist-storage { color:var(--muted); transition:color .18s ease; }
+.playlist-storage:is(.is-downloading,.is-device-downloading) { color:var(--accent-blue); }
+.playlist-storage:is(.is-failed,.is-device-error,.is-review) { color:#e8c28f; }
+.storage-mark { display:grid; place-items:center; }
+.playlist-storage .storage-mark,.playlist-storage .storage-retry .icon { animation:storage-mark-enter .18s ease-out both; }
+.playlist-storage .storage-retry { display:grid; place-items:center; width:100%; height:44px; padding:0; border-radius:50%; color:inherit; }
+.playlist-storage .storage-retry[aria-disabled=true] { opacity:1; }
+.download-track { opacity:.23; }
+.download-arc { transform-origin:center; transform:rotate(-90deg); transition:stroke-dasharray .2s ease; }
+.download-activity.is-indeterminate .download-arc { animation:download-spin 1.2s linear infinite; }
+@keyframes storage-mark-enter { from { opacity:.35; transform:scale(.86); } }
+@keyframes download-spin { to { transform:rotate(270deg); } }
+@media(prefers-reduced-motion:reduce) {
+ .playlist-storage,.download-arc { transition:none; }
+ .playlist-storage .storage-mark,.playlist-storage .storage-retry .icon,.download-activity.is-indeterminate .download-arc { animation:none; }
+}
 .transfer-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
 .transfer-actions button { display:inline-flex; align-items:center; gap:8px; min-height:44px; }
 .transfer-actions .icon { width:18px; height:18px; }
@@ -13,12 +34,11 @@
 .transfer-current strong,.transfer-current small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .transfer-current strong { font-size:13px; }
 .transfer-current small { color:var(--muted); font-size:12px; margin-top:4px; }
+.transfer-status.transfer-server-status { padding:6px 12px; width:fit-content; }
+.transfer-server-status .transfer-current { font-size:13px; }
+.transfer-server-status .transfer-current button { padding:0 8px; flex:none; }
 .transfer-activity { width:8px; height:8px; border-radius:50%; background:var(--muted); flex-shrink:0; }
 .transfer-activity.is-active { background:var(--accent-blue); animation:playlist-activity 1.5s ease-in-out infinite; }
-.transfer-file { margin-top:20px; }
-.transfer-file-label { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px 16px; font-size:12px; color:var(--muted); }
-.transfer-file-label strong { color:var(--text); font-weight:600; font-variant-numeric:tabular-nums; }
-.transfer-file-meter { margin:10px 0 0; height:6px; }
 .transfer-recent,.transfer-results ul { list-style:none; margin:16px 0 0; padding:0; }
 .transfer-recent li,.transfer-results li { display:flex; align-items:center; gap:16px; padding:10px 0; border-top:1px solid #ffffff0c; }
 .transfer-recent li>span:first-child,.transfer-results li>span:first-child { flex:1; min-width:0; }
@@ -36,7 +56,7 @@
 @media(prefers-reduced-motion:reduce) { .transfer-meter>span { transition:none; } .transfer-meter.is-indeterminate>span,.transfer-activity.is-active { animation:none; } }
 
 .transfer-review-button { min-height:36px; padding:8px 10px; font-size:12px; flex-shrink:0; }
-.transfer-results summary>span { margin-left:10px; color:#e8c28f; }
+.transfer-results summary>span { display:inline-block; margin-left:6px; padding:2px 7px; border-radius:999px; background:#e8c28f1a; color:#e8c28f; }
 .transfer-review-dialog { width:min(680px,calc(100vw - 32px)); }
 .transfer-review-song { margin:18px 0; }
 .transfer-review-song strong,.transfer-review-song>span { display:block; }

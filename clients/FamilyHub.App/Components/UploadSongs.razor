@@ -6,7 +6,8 @@
 
 <div class="create-files">
     <label class="create-file-choice" aria-disabled="@Aria(Disabled || Busy)">
-        <MusicIcon Name="music" /><strong>Choose songs</strong><small>One song or several</small>
+        <MusicIcon Name="music" />
+        <span class="create-file-text"><strong>Choose songs</strong><small>One song or several</small></span>
         <InputFile @key="fileInputGeneration" id="@(Prefix + "-audio-file")" OnChange="Choose"
                    accept="audio/*,.mp3,.flac,.m4a,.opus,.ogg,.oga,.wav,.aac,.webm,.mka,.wv,.aiff,.aif"
                    multiple disabled="@(Disabled || Busy)" aria-label="Choose songs" />
@@ -14,12 +15,16 @@
     @if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid())
     {
         <button id="@(Prefix + "-folder")" type="button" class="create-file-choice" @onclick="ChooseFolder"
-                aria-disabled="@Aria(Disabled || Busy)"><MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Includes its subfolders</small></button>
+                aria-disabled="@Aria(Disabled || Busy)">
+            <MusicIcon Name="folder" />
+            <span class="create-file-text"><strong>Choose a folder</strong><small>Includes subfolders</small></span>
+        </button>
     }
     else
     {
         <label class="create-file-choice" aria-disabled="@Aria(Disabled || Busy)">
-            <MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Includes its subfolders</small>
+            <MusicIcon Name="folder" />
+            <span class="create-file-text"><strong>Choose a folder</strong><small>Includes subfolders</small></span>
             <InputFile @key="fileInputGeneration" id="@(Prefix + "-folder")" OnChange="Choose"
                        webkitdirectory="" directory="" multiple disabled="@(Disabled || Busy)" aria-label="Choose a folder" />
         </label>
