@@ -28,15 +28,20 @@ function el(tag, attrs, ...kids) {
   return node;
 }
 
-async function api(path, { method = "GET", json, form, signal } = {}) {
+async function api(path, { method = "GET", json, form, signal, timeout } = {}) {
+  const deadline = timeout && AbortSignal.timeout(timeout);
+  if (deadline) signal = signal ? AbortSignal.any([signal, deadline]) : deadline;
   const init = { method, credentials: "same-origin", headers: { "X-CSRFToken": csrf }, signal };
   if (json) { init.body = JSON.stringify(json); init.headers["Content-Type"] = "application/json"; }
   if (form) init.body = form;
   let res;
-  try { res = await fetch(path, init); } catch { throw new Error("Cannot reach the server."); }
+  try { res = await fetch(path, init); }
+  catch { throw new Error(deadline?.aborted ? "The server took too long. Try again." : "Cannot reach the server. Check your connection and try again."); }
   if (res.status === 401) { location.href = "/login"; throw new Error("Sign in required."); }
   let data = {};
-  try { data = await res.json(); } catch { /* non-JSON error body */ }
+  try { data = await res.json(); } catch {
+    if (deadline?.aborted) throw new Error("The server took too long. Try again.");
+  }
   if (!res.ok) { const e = new Error(data.error || "Request failed."); e.status = res.status; throw e; }
   return data;
 }
@@ -170,20 +175,23 @@ function showJob(job) {
   if (rememberSaved(job)) loadLibrary();
   updateSongStates();
   const active = unfinished(job);
-  $("cancel").disabled = !active;
+  $("cancel").hidden = !active;
   $("retry").disabled = !(job.media_url || job.source_id);
   $("status").hidden = false;
   $("status-text").textContent = job.message;
   $("busy").hidden = !active;
-  $("recovery").hidden = !["error", "cancelled"].includes(job.state);
+  const failed = !active && !job.media_url;
+  $("recovery").hidden = !failed;
+  $("status-text").classList.toggle("sr", !failed);
   const player = decks[deckIndex];
   configureAudio(player, job);
   if (job.media_url && player.dataset.mediaUrl !== job.media_url) {
     loadPlayback(player, job.media_url);
     player.hidden = false;
   } else if (job.source_id && !job.media_url && ["unavailable", "expired"].includes(job.preview_state) && !active) {
-    $("playback-state").textContent = "Playback could not be prepared. Use Retry playback or Open player.";
+    $("status-text").textContent = "Playback could not be prepared. Use Retry playback.";
   }
+  updateTransport();
 }
 
 const unfinished = job => job?.state === "running" || job?.state === "queued";
@@ -247,10 +255,7 @@ function attach(player, url) {
     hls.on(Hls.Events.ERROR, (_, data) => {
       if (data.fatal) {
         player.dataset.failed = "true";
-        if (player === decks[deckIndex]) {
-          $("playback-state").textContent = "Playback failed. Use Retry playback.";
-          $("recovery").hidden = false;
-        }
+        if (player === decks[deckIndex]) playbackFailure("Audio could not load. Use Retry playback.");
       }
     });
   } else if (player.canPlayType("application/vnd.apple.mpegurl")) player.src = url;
@@ -280,7 +285,10 @@ function startPlayback(player) {
   }
   if (wantPlayback) {
     const version = requestVersion;
-    safePlay(player).then(played => {
+    const playback = safePlay(player);
+    // play() can unpause immediately, before the event that reports the local action.
+    if (!player.paused && localPlayPending !== null) markPlaybackStarted();
+    playback.then(played => {
       if (!played && resuming && version === requestVersion && wantPlayback && player.paused) {
         showHandoffMessage("Press Play to continue on this device.");
       }
@@ -391,9 +399,7 @@ decks.forEach((player) => {
   });
   player.addEventListener("error", () => {
     if (player !== decks[deckIndex] || !player.dataset.mediaUrl) return;
-    $("playback-state").textContent = "Playback failed. Use Retry playback.";
-    $("recovery").hidden = false;
-    $("retry").disabled = false;
+    playbackFailure("Audio could not load. Use Retry playback.");
   });
   player.addEventListener("ended", () => { if (player === decks[deckIndex] && wantPlayback && $("autoplay").checked && !blending) advance(false); });
   player.addEventListener("timeupdate", () => {
@@ -411,15 +417,19 @@ $("play").addEventListener("click", () => {
   else { setView("search"); $("q").focus(); }
 });
 $("retry").addEventListener("click", () => {
+  if (document.activeElement === $("retry")) $("play").focus({preventScroll:true});
   unlock(); const player = decks[deckIndex], url = player.dataset.mediaUrl;
   if (url) {
+    $("recovery").hidden = true;
+    $("status-text").classList.add("sr");
+    $("status-text").textContent = "";
     localPlayPending = playbackEpoch;
     wantPlayback = true;
     startPosition ??= player.currentTime;
     delete player.dataset.mediaUrl;
     loadPlayback(player, url, Boolean(currentTrack?.download_url && url === currentTrack.download_url));
   }
-  else if (currentTrack) listen(currentTrack);
+  else if (currentTrack) listen(currentTrack, true, "retry");
 });
 $("cancel").addEventListener("click", async () => {
   if (!statusJob) return;
@@ -434,7 +444,17 @@ function playHere(local = true) {
     if (local && player.paused) localPlayPending = playbackEpoch;
     wantPlayback = true;
     startPlayback(player);
-  } else if (currentTrack) listen(currentTrack, true, "queue", local);
+  } else if (currentTrack) listen(currentTrack, true, "retry", local);
+}
+
+function playbackFailure(message) {
+  $("status-text").textContent = message;
+  $("status-text").classList.remove("sr");
+  $("recovery").hidden = false;
+  $("busy").hidden = true;
+  $("retry").disabled = false;
+  $("cancel").hidden = !unfinished(statusJob);
+  updateTransport();
 }
 
 async function listen(track, keepQueue = false, context = "search", local = true) {
@@ -459,7 +479,7 @@ async function listen(track, keepQueue = false, context = "search", local = true
     playbackSearchQuery = context === "search" && $("queue-mode").value === "order" ? searchQuery : null;
     const tail = index >= 0 && (context === "library" || $("queue-mode").value === "order") ? list.slice(index + 1).filter(t => $("queue-mode").value !== "mix" || songRecommendations.similar(similarSeed,t)) : [];
     queue = [...new Map([...queue.filter(t => manualQueue.has(sourceKey(t))), ...tail].filter(t => sourceKey(t) !== sourceKey(track)).map(t => [sourceKey(t), t])).values()];
-    for (const previous of list.slice(0, index)) heard.add(previous.url);
+    for (const previous of list.slice(0, index)) heard.add(sourceKey(previous));
   }
   if (currentTrack && loadedIndex >= 0 && loadedIndex !== deckIndex && !decks[deckIndex].paused && Number($("fade").value) > 0) {
     // A direct selection authorizes this incoming song even with discovery disabled.
@@ -492,13 +512,16 @@ async function listen(track, keepQueue = false, context = "search", local = true
   if (context !== "previous" && currentTrack && queueIdentity(currentTrack) !== queueIdentity(track)) history.push(currentTrack);
   currentTrack = track;
   stalled = false;
+  statusJob = null;
+  $("recovery").hidden = true;
+  $("status-text").classList.add("sr");
+  $("status-text").textContent = "";
   updateNowPlaying();
   if (directUrl) {
-    statusJob = null;
+    heard.add(sourceKey(track));
     currentJob = {source_id:sourceKey(track), media_url:directUrl, playback:{duration:track.duration}};
     configureAudio(player, currentJob);
     loadPlayback(player, directUrl, true);
-    $("recovery").hidden = true;
     $("busy").hidden = true;
     renderQueue(); prepare();
     return true;
@@ -513,9 +536,9 @@ async function listen(track, keepQueue = false, context = "search", local = true
   }
   $("status").hidden = false; $("status-text").textContent = "Preparing playback";
   try {
-    const { job } = await api("/api/jobs", { method: "POST", json: { ...track, allow_new: !keepQueue || requestedTrack(track) || $("allow-new").checked, generation: Date.now() * 1000 + version } });
+    const { job } = await api("/api/jobs", { method: "POST", timeout: 15000, json: { ...track, allow_new: !keepQueue || context === "retry" || requestedTrack(track) || $("allow-new").checked, generation: Date.now() * 1000 + version } });
     if (version !== requestVersion) return;
-    currentJob = job; heard.add(track.url);
+    currentJob = job; heard.add(sourceKey(track));
     showJob(job); scheduleJobs();
     await fillQueue();
     if (version !== requestVersion) return;
@@ -523,9 +546,8 @@ async function listen(track, keepQueue = false, context = "search", local = true
     return true;
   } catch (err) {
     if (version === requestVersion) {
-      $("status-text").textContent = err.message;
-      $("recovery").hidden = false;
-      $("retry").disabled = false;
+      playbackFailure(err.message);
+      renderQueue();
       return Boolean(cached?.media_url);
     }
   }
@@ -564,6 +586,7 @@ function renderQueue() {
   renderQueueTimeline();
   updateNext();
   const list = $("queue"), active = document.activeElement;
+  $("queue-empty").hidden = Boolean(queue.length);
   const focusedIndex = [...list.children].findIndex((li) => li.contains(active));
   list.replaceChildren(...queue.map((track, i) => {
     const remove = el("button", { type: "button", "aria-label": `Remove ${track.title}` }, "Remove");
@@ -581,7 +604,7 @@ async function prepare() {
   const sources = new Set([...wanted, ...previews].map(sourceKey));
   for (const key of prepared.keys()) if (!sources.has(key)) prepared.delete(key);
   try {
-    const { jobs } = await api("/api/queue", { method: "POST", json: {
+    const { jobs } = await api("/api/queue", { method: "POST", timeout: 15000, json: {
       tracks: wanted, previews,
       allow_new: $("allow-new").checked, preload_search:$("search-previews").checked, generation: Date.now() * 1000 + version } });
     if (version !== prepareVersion) return;
@@ -590,7 +613,7 @@ async function prepare() {
     updateSongStates();
     updateNext();
     scheduleJobs();
-    $("queue-state").textContent = jobs.length ? "Preparing next recording and up to five following recordings." : "Local mode prepares saved recordings only.";
+    $("queue-state").textContent = jobs.length ? "Preparing queued recordings." : "";
     preload();
   } catch (err) { if (version === prepareVersion) $("queue-state").textContent = err.message; }
 }
@@ -658,7 +681,7 @@ async function pollJob(previous) {
   if (previous !== currentJob && previous !== stage?.job) nextPreviewPoll = Date.now() + 2000;
   try {
     let job;
-    try { ({job} = await api("/api/jobs/" + encodeURIComponent(previous.id))); }
+    try { ({job} = await api("/api/jobs/" + encodeURIComponent(previous.id), {timeout: 15000})); }
     catch (error) { if (error.status !== 404) throw error; }
     if (prepared.get(previous.source_id)?.id === previous.id) {
       if (job) prepared.set(previous.source_id, job);
@@ -676,7 +699,10 @@ async function pollJob(previous) {
     updateSongStates();
     updateNext();
     preload();
-  } catch { jobPollAfter.set(previous, Date.now() + 2000); }
+  } catch (error) {
+    if (previous === currentJob && !previous.media_url) playbackFailure(error.message);
+    jobPollAfter.set(previous, Date.now() + 2000);
+  }
   finally { pollingJobs = false; scheduleJobs(); }
 }
 
@@ -687,8 +713,8 @@ function related(seed, candidates) {
     if (seed?.genre && r.genre && seed.genre.toLocaleLowerCase() === r.genre.toLocaleLowerCase()) score += 4;
     if (seed?.key && r.key && seed.key === r.key) score += 1;
     if (history.slice(-5).some((h) => h.channel === r.channel)) score -= 2;
-    if (history.slice(-10).some((h) => h.url === r.url)) score -= 6;
-    if (skipped.includes(r.url)) score -= 12;
+    if (history.slice(-10).some(h => sourceKey(h) === sourceKey(r))) score -= 6;
+    if (skipped.includes(sourceKey(r))) score -= 12;
     const a = currentJob?.analysis, b = prepared.get(r.id)?.analysis;
     if (a?.reliable && b?.reliable && Math.abs(a.bpm / b.bpm - 1) <= .06) score += 3;
     return { r, score };
@@ -696,7 +722,7 @@ function related(seed, candidates) {
   const ordered = [], counts = new Map();
   while (remaining.length) {
     const adjusted = ({ r, score }) => score - (counts.get(r.channel) || 0) * 3;
-    remaining.sort((a, b) => adjusted(b) - adjusted(a) || a.r.url.localeCompare(b.r.url));
+    remaining.sort((a, b) => adjusted(b) - adjusted(a) || sourceKey(a.r).localeCompare(sourceKey(b.r)));
     const { r } = remaining.shift(); ordered.push(r); counts.set(r.channel, (counts.get(r.channel) || 0) + 1);
   }
   return ordered;
@@ -721,7 +747,7 @@ async function advance(manual = false, local = manual) {
     }
     if (!manual && failedPreparation(upcoming())) { preload(); return; }
     if (manual) recordSkip();
-    if (manual && currentTrack) skipped = [...skipped.slice(-19), currentTrack.url];
+    if (manual && currentTrack) skipped = [...skipped.slice(-19), sourceKey(currentTrack)];
     const version = requestVersion;
     await fillQueue();
     if (version !== requestVersion) return;
@@ -749,7 +775,7 @@ let similarSeed = null, similarVersion = 0;
 async function discoverSimilar(seed) {
   const artist=artistName(seed).slice(0,120);
   if (!artist) return [];
-  const data=await api("/api/recommendations", {method:"POST", json:{query:artist + " official audio", seed_artist:artist}});
+  const data=await api("/api/recommendations", {method:"POST", timeout:15000, json:{query:artist + " official audio", seed_artist:artist}});
   if ((!seed.genre || seed.genre === "Unsorted") && data.seed_genre && data.seed_genre !== "Unsorted") seed.genre=data.seed_genre;
   return songRecommendations.unique(data.results.filter(t=>songRecommendations.similar(seed,t)),[seed]);
 }
@@ -783,15 +809,15 @@ async function fillQueue() {
     try {
       const results = await discoverSimilar(anchor);
       if (version !== requestVersion || anchor !== (similarSeed || currentTrack || recentSeed)) return;
-      const discovered = eligibleAutoplay(results).filter(t => !heard.has(t.url));
+      const discovered = eligibleAutoplay(results).filter(t => !heard.has(sourceKey(t)));
       pool = [...new Map([...pool, ...discovered].map(t => [sourceKey(t), t])).values()];
       queue = [...new Map([...queue, ...related(anchor, discovered)].map(t => [sourceKey(t), t])).values()].slice(0,Math.max(10, queue.length));
     } catch { if(version===requestVersion)recommendationSeed=""; }
   }
   if (queue.length < 10 && $("autoplay").checked) {
-    const eligible = [...new Map([...pool, ...visibleResults].map((r) => [r.url, r])).values()]
+    const eligible = [...new Map([...pool, ...visibleResults].map(r => [sourceKey(r), r])).values()]
       .filter((r) => (!r.duration || r.duration < 1800) && ($("allow-new").checked || r.saved) && !queue.some((q) => sourceKey(q) === sourceKey(r)));
-    let candidates = eligibleAutoplay(eligible).filter((r) => !heard.has(r.url));
+    let candidates = eligibleAutoplay(eligible).filter(r => !heard.has(sourceKey(r)));
     if ($("queue-mode").value !== "mix" && !queue.length && !candidates.length && $("allow-new").checked && currentTrack?.channel) {
       try { candidates = (await api("/api/search", { method: "POST", json: { query: currentTrack.channel + " audio" } })).results.filter((r) => r.url !== currentTrack.url); pool.push(...candidates); }
       catch (err) { $("queue-state").textContent = err.message; }
@@ -814,7 +840,8 @@ $("previous").addEventListener("click", () => previousTrack());
 $("library").addEventListener("click", async () => {
   try {
     const { results, genres = [], genre_keys = {} } = await api("/api/library?genre_filters=1"); pool = results;
-    const additions = results.filter((r) => r.url !== currentTrack?.url).slice(0, Math.max(0, 30 - queue.length));
+    const queued = new Set([sourceKey(currentTrack), ...queue.map(sourceKey)]);
+    const additions = results.filter(r => !queued.has(sourceKey(r))).slice(0, Math.max(0, 30 - queue.length));
     additions.forEach(track=>manualQueue.add(sourceKey(track)));
     queue.push(...additions);
     renderQueue(); await prepare();
@@ -875,7 +902,7 @@ async function checkBlend(manual = false) {
     outgoing.hidden = true; incoming.hidden = false;
     history.push(currentTrack);
     const queuedIndex = queue.indexOf(nextTrack); if (queuedIndex >= 0) queue.splice(queuedIndex, 1);
-    currentTrack = nextTrack; heard.add(currentTrack.url);
+    currentTrack = nextTrack; heard.add(sourceKey(currentTrack));
     stalled = incoming.readyState < 3;
     markPlaybackStarted();
     updateNowPlaying();
@@ -1067,10 +1094,10 @@ function updateTransport() {
     $("play").dataset.paused = String(player.paused);
   }
   $("play").setAttribute("aria-label", player.paused ? "Play" : "Pause");
-  $("play").setAttribute("aria-busy", String(Boolean(currentTrack && (!player.dataset.mediaUrl || (!player.paused && player.readyState < 3)))));
+  $("play").setAttribute("aria-busy", String($("recovery").hidden && Boolean(currentTrack && (!player.dataset.mediaUrl || (!player.paused && player.readyState < 3)))));
   $("elapsed").textContent = duration(player.currentTime) || "0:00";
   $("total").textContent = duration(total) || "0:00";
-  $("seek").disabled = !Number.isFinite(total) || total <= 0 || blending;
+  $("seek").disabled = !player.readyState || !Number.isFinite(total) || total <= 0 || blending;
   if (Number.isFinite(total) && total > 0) {
     $("seek").max = total;
     if (!seekingPointer) $("seek").value = player.currentTime;
@@ -1164,7 +1191,7 @@ async function moreSearch() {
     const fresh = results.filter(t => !visibleResults.some(v => sourceKey(v) === sourceKey(t)));
     visibleResults.push(...fresh);
     $("results").append(...fresh.map(searchRow));
-    if (playbackSearchQuery === searchQuery && currentTrack) { queue.push(...fresh.filter(t => !heard.has(t.url) && !queue.some(q => sourceKey(q) === sourceKey(t)))); renderQueue(); }
+    if (playbackSearchQuery === searchQuery && currentTrack) { queue.push(...fresh.filter(t => !heard.has(sourceKey(t)) && !queue.some(q => sourceKey(q) === sourceKey(t)))); renderQueue(); }
     scheduleVisiblePreviews();
     searchOffset = next_offset ?? null;
     if (searchOffset === null && document.activeElement === $("load-more-search")) $("results").lastElementChild?.querySelector("button")?.focus();
@@ -1324,7 +1351,7 @@ async function checkIn() {
   localPlay = null;
   try { sessionStorage.setItem(deviceKey, JSON.stringify({id:deviceId, sequence, queueRev})); } catch {}
   try {
-    const {epoch, command, controls} = await api("/api/playback/activity", {method:"POST", json});
+    const {epoch, command, controls} = await api("/api/playback/activity", {method:"POST", json, timeout:8000});
     lastCheckIn = Date.now();
     lastReportedPlaying = json.playing;
     if (!deviceRegistered) {
@@ -1572,7 +1599,7 @@ async function refreshRemotePlayback() {
   readingDevices = true;
   const revision = outputRevision;
   try {
-    const {devices} = await api("/api/playback/devices?device_id=" + deviceId);
+    const {devices} = await api("/api/playback/devices?device_id=" + deviceId, {timeout:8000});
     if (document.hidden || revision !== outputRevision) return;
     onlineDevices = devices;
     if (!idleHere() || handoff) {
@@ -1621,7 +1648,7 @@ async function choosePlaybackDevice(target) {
   pending.position = json.resume?.position ?? remoteDevice?.position;
   pending.status = json.resume ? (json.playing ? "playing" : "paused") : remoteDevice.status;
   try {
-    const result = await api("/api/playback/" + (json.resume ? "transfer" : "takeover"), {method:"POST", json});
+    const result = await api("/api/playback/" + (json.resume ? "transfer" : "takeover"), {method:"POST", json, timeout:8000});
     if (pending !== handoff) return;
     if (!result.id) throw new Error();
     watchHandoff(pending, result.id);
@@ -1634,9 +1661,10 @@ async function choosePlaybackDevice(target) {
 async function watchHandoff(pending, id) {
   if (pending.id) return;
   pending.id = id;
-  while (pending === handoff) {
+  const deadline = AbortSignal.timeout(18000);
+  while (pending === handoff && !deadline.aborted) {
     try {
-      const {state, target} = await api("/api/playback/handoff/" + encodeURIComponent(id));
+      const {state, target} = await api("/api/playback/handoff/" + encodeURIComponent(id), {signal:deadline});
       if (pending !== handoff) return;
       if (state !== "pending") {
         finishHandoff(pending, state === "ready" && target === pending.target);
@@ -1648,6 +1676,7 @@ async function watchHandoff(pending, id) {
     }
     await new Promise(resolve => setTimeout(resolve, 750));
   }
+  if (pending === handoff) finishHandoff(pending, false);
 }
 function finishHandoff(pending, ready, message = "Could not switch playback. Try again.") {
   const stage = pending.stage;
@@ -1715,7 +1744,7 @@ remoteBar.addEventListener("click", async event => {
   pendingRemoteControl = target;
   actionButton.setAttribute("aria-busy", "true");
   try {
-    await api("/api/playback/control", {method:"POST", json:{from:deviceId, to:target, action}});
+    await api("/api/playback/control", {method:"POST", timeout:8000, json:{from:deviceId, to:target, action}});
     if (remoteDevice?.id === target && (action === "play" || action === "pause")) {
       if (remoteDevice.status === "playing") remoteDevice.position += remoteAge();
       remoteDevice.age = 0;
