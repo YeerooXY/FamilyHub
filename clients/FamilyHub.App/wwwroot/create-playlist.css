@@ -4,13 +4,13 @@
 .create-playlist-form { display:grid; align-content:start; gap:24px; max-width:none; margin:0; }
 .create-playlist-form .create-field { display:grid; gap:8px; margin:0; }
 .create-field>span,.create-section h3 { margin:0; font-size:14px; font-weight:700; color:var(--muted); }
-.create-field :is(input,select) { height:52px; padding:0 20px; border:1px solid transparent; border-radius:14px; font-size:17px; background:#242424; }
+.create-playlist-screen .create-field :is(input,select) { height:52px; margin:0; padding:0 20px; border:1px solid transparent; border-radius:14px; font-size:17px; background:#242424; }
 .create-field :is(input,select):disabled { opacity:.6; }
 .create-section { display:grid; gap:12px; }
 
 /* The link field matches the header search: a dark pill with an icon on the left. */
 .create-link { position:relative; display:flex; align-items:center; }
-.create-link :is(input,textarea) { width:100%; height:56px; padding:0 54px 0 58px; border:1px solid transparent; border-radius:28px; font-size:16px; background:#242424; transition:border-color .18s ease,background-color .18s ease; }
+.create-link :is(input,textarea) { width:100%; height:56px; padding:0 54px 0 58px; border:1px solid transparent; border-radius:28px; font-family:inherit; font-size:16px; background:#242424; transition:border-color .18s ease,background-color .18s ease; }
 .create-link :is(input,textarea):hover { border-color:#555; background:#2a2a2a; }
 .create-link :is(input,textarea):focus-visible { outline:2px solid #fff; outline-offset:0; }
 .create-playlist-screen .create-link :is(input,textarea) { margin:0; }
@@ -40,9 +40,9 @@
 
 /* Big device buttons, the same choices as the upload dialog. */
 .create-files { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-.create-files > .create-file-choice { position:relative; display:grid; align-content:start; justify-items:start; gap:4px; min-height:112px; margin:0; padding:18px 20px; border:1px solid #ffffff14; border-radius:var(--popup-control-radius); text-align:left; color:var(--ink); background:#ffffff08; transition:background-color .18s ease,border-color .18s ease,transform .18s ease; }
+.create-files > .create-file-choice { appearance:none; position:relative; display:grid; align-content:start; justify-items:start; gap:4px; min-width:0; min-height:112px; margin:0; padding:18px 20px; border:1px solid #ffffff14; border-radius:var(--popup-control-radius); text-align:left; color:var(--ink); background:#ffffff08; transition:background-color .18s ease,border-color .18s ease,transform .18s ease; }
 .create-file-choice .icon { width:var(--menu-icon-size); height:var(--menu-icon-size); margin-bottom:6px; color:var(--ink); }
-.create-playlist-screen .create-file-choice input[type=file] { position:absolute; inset:0; width:100%; height:100%; opacity:0; margin:0; cursor:pointer; }
+.create-playlist-screen .create-file-choice input[type=file] { position:absolute; inset:0; width:100%; min-width:0; height:100%; margin:0; padding:0; border:0; border-radius:inherit; opacity:0; cursor:pointer; }
 .create-file-choice:focus-within { outline:2px solid var(--focus); outline-offset:2px; }
 .create-file-choice[aria-disabled=true] { opacity:.6; }
 .create-link textarea { min-height:72px; resize:vertical; padding-block:14px; border-radius:20px; }
@@ -50,9 +50,12 @@
 .create-link:has(textarea) .create-link-icon { top:13px; }
 .create-field select { width:100%; color:var(--ink); }
 .upload-stop { justify-self:start; }
-.create-file-choice strong { font-size:16px; }
-.create-file-choice small { font-size:13px; color:var(--muted); }
-.create-file-choice:hover:not([aria-disabled=true]) { background:#ffffff12; border-color:#ffffff29; transform:translateY(-2px); }
+.create-playlist-form .upload-limits { margin:0; }
+.create-file-text { display:grid; gap:4px; }
+.create-file-choice strong { font-size:16px; font-weight:700; line-height:20px; }
+.create-file-choice small { font-size:13px; font-weight:400; line-height:16px; color:var(--muted); }
+.create-files>.create-file-choice:hover:not([aria-disabled=true]) { background:#ffffff12; border-color:#ffffff29; }
+.create-files>.create-file-choice:active { transform:none; }
 
 /* Switches */
 .create-options { gap:4px; }

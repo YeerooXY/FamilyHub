@@ -35,6 +35,10 @@ The screen captures include Home, Search results, Library, Playlist, Album, acti
 
 The phone search placeholder clips at 390 px on the base revision. The header and search-bar layout are in the concurrent frame worktree.
 
+## Integration with main 0.1.72
+
+The captures and results in this record cover the original popup revision. Verification of the combined popup, notice, and download changes is pending in Windows Chromium at 1280 and 2000 px, emulated Mac WebKit at 850 px, and emulated Android Chromium and iPhone WebKit at 390 px.
+
 ## Regression checks
 
 The Playwright test reads the computed surface, shadow, border, radius, backdrop and animation from Connect and compares them with the other panels. It measures header and close alignment, row and icon rectangles, first-glyph positions and relative text baselines. Standard menu rows measure 44 px on desktop and 56 px on phones. The tested leading icon and label columns sit 16 and 48 px inside desktop panels, and 24 and 56 px inside phone panels. The recorded tolerance is under 0.11 CSS px. Upload actions also match in width, height, icon position and label position.

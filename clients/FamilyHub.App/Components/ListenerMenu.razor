@@ -5,14 +5,14 @@
 <button id="@buttonId" class="quiet listener-options" aria-label="Options for @Profile.Name" aria-haspopup="dialog" @onclick="Open"><MusicIcon Name="more" /></button>
 <dialog id="@dialogId" class="popup-panel popup-menu listener-menu" aria-labelledby="@(dialogId + "-heading")">
     <div class="dialog-heading"><h2 id="@(dialogId + "-heading")">@Profile.Name</h2><button id="@(dialogId + "-close")" class="quiet" aria-label="Close listener options" @onclick="Close"><MusicIcon Name="close" /></button></div>
-    @if (loading) { <p role="status">Loading sessions...</p> }
+    @if (loading) { <Notice Message="Loading sessions…" /> }
     else if (Together.Room is not null) { <p>@(Together.Room.IsHost ? "You're hosting a session." : "You're already in a session.")</p> }
     else if (rooms.Count == 0) { <p>@Profile.Name hasn't started a session.</p> }
     @if (!loading && rooms.Count == 0 && Together.Room is null && Profile.Id != Session.User) { <button class="listener-join" @onclick="Poke" aria-disabled="@(busy || poked ? "true" : "false")"><MusicIcon Name="people" />@(poked ? "Poke sent" : "Poke to start a session")</button> }
     @if (!loading && Profile.Id != Session.User && Together.Room is not { IsHost: false }) { <button class="listener-join" @onclick="Invite" aria-disabled="@(busy || invited ? "true" : "false")"><MusicIcon Name="people" />@(invited ? "Invitation sent" : "Invite to listen with me")</button> }
     @foreach (var room in rooms)
     { <button class="listener-join" @onclick="() => room.HostUser == Session.User ? Resume() : Join(room.Id)" aria-disabled="@(busy || Together.Room is not null ? "true" : "false")"><MusicIcon Name="people" /><span><strong>@(room.HostUser == Session.User ? "Resume hosting" : "Listen in")</strong><small>@room.Title</small></span></button> }
-    @if (error is not null) { <p class="entry-error" role="status">@error</p> }
+    @if (error is not null) { <Notice Level="error" Message="@error" /> }
 </dialog>
 
 @code {
@@ -27,7 +27,7 @@
         loading = true; error = null; rooms = []; poked = invited = false;
         await JS.InvokeVoidAsync("familyhub.showDialog", dialogId, dialogId + "-close", buttonId);
         try { await Together.RefreshAsync(); rooms = Together.Rooms.Where(r => r.HostUser == Profile.Id).ToList(); }
-        catch (Exception exception) { error = exception.Message; }
+        catch (Exception exception) { error = NoticeText.Error(exception); }
         finally { loading = false; }
     }
     private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", dialogId, buttonId).AsTask();
@@ -36,7 +36,7 @@
         if (busy || poked || Profile.Id == Session.User || Session.Api is null) return;
         busy = true; error = null;
         try { await Together.PokeAsync(Profile.Id); poked = true; }
-        catch (Exception exception) { error = exception.Message; }
+        catch (Exception exception) { error = NoticeText.Error(exception); }
         finally { busy = false; }
     }
     private async Task Invite()
@@ -44,7 +44,7 @@
         if (busy || invited) return;
         busy = true; error = null;
         try { await Together.InviteAsync(Profile.Id); invited = true; }
-        catch (Exception exception) { error = exception.Message; }
+        catch (Exception exception) { error = NoticeText.Error(exception); }
         finally { busy = false; }
     }
     private async Task Resume()
@@ -52,7 +52,7 @@
         if (busy || Together.Room is not null) return;
         busy = true; error = null;
         try { await Together.StartAsync(); await Close(); }
-        catch (Exception exception) { error = exception.Message; }
+        catch (Exception exception) { error = NoticeText.Error(exception); }
         finally { busy = false; }
     }
     private async Task Join(string id)
@@ -60,7 +60,7 @@
         if (busy || Together.Room is not null) return;
         busy = true; error = null;
         try { await Together.JoinAsync(id); await Close(); }
-        catch (Exception exception) { error = exception.Message; }
+        catch (Exception exception) { error = NoticeText.Error(exception); }
         finally { busy = false; }
     }
 }

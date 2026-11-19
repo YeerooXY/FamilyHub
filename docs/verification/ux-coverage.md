@@ -1,5 +1,28 @@
 # Interface verification
 
+## 19 November 2026 — Playlist download status and song pickers
+
+Headless Playwright measured and inspected the playlist header, live row status,
+playlist menu, Create playlist and Add songs at 850, 1280 and 2000 px on Windows
+Chromium and in emulated Mac Safari, Android Chrome and iPhone Safari profiles.
+The [playlist download verification record](download-states-2026-11-19/README.md)
+includes before and after screenshots, pixel measurements, focus and selection
+checks, download regressions and the remaining physical-device coverage.
+
+## 19 November 2026 — Accounts, settings and resilience
+
+Account, settings, update, playback recovery and empty statistics checks used the
+local fixture server, the Windows shell and four browser profiles. The
+[verification record](accounts-resilience-2026-11-19.md) lists cases and device limits.
+
+## 19 November 2026 · Notices and recovery
+
+The native and web notice audit, pixel measurements, keyboard paths and captures are in the [notice verification record](notices-2026-11-19/README.md). Physical Mac and phone behavior and screen-reader speech remain open.
+
+## 19 November 2026 — Desktop frame, player and search header
+
+Frame and panel layout, player alignment and seek interactions, and the narrow desktop search flow were checked in the Windows build and browser profiles. The [desktop frame verification record](frame-black-2026-11-19/README.md) has pixel counts, captures, and coverage limits.
+
 ## 19 November 2026 — Music player bar
 
 Desktop and phone player layout, track states, keyboard focus, reduced motion, title truncation and playlist action placement were checked in headless Chromium and WebKit. The measurements, screenshots and device limits are in the [player bar verification record](player-bar-2026-11-19/README.md).
@@ -122,3 +145,5 @@ Windows Chromium at 1280 and 2000 px, emulated Mac WebKit at 850 px, and emulate
 Android Chromium and iPhone WebKit at 390 px. The record links full-viewport
 captures, measured geometry, and keyboard and touch coverage.
 [Popup verification](popup-unification-2026-11-19/README.md)
+
+The popup profiles await a rerun with main 0.1.72 integrated.

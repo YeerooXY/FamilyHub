@@ -6,7 +6,7 @@
 
 <div class="create-files">
     <label class="create-file-choice" aria-disabled="@Aria(Disabled || Busy)">
-        <MusicIcon Name="music" /><strong>Choose songs</strong>
+        <MusicIcon Name="music" /><span class="create-file-text"><strong>Choose songs</strong></span>
         <InputFile @key="fileInputGeneration" id="@(Prefix + "-audio-file")" OnChange="Choose"
                    accept="audio/*,.mp3,.flac,.m4a,.opus,.ogg,.oga,.wav,.aac,.webm,.mka,.wv,.aiff,.aif"
                    multiple disabled="@(Disabled || Busy)" aria-label="Choose songs" />
@@ -14,26 +14,30 @@
     @if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid())
     {
         <button id="@(Prefix + "-folder")" type="button" class="create-file-choice" @onclick="ChooseFolder"
-                aria-disabled="@Aria(Disabled || Busy)"><MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Includes its subfolders</small></button>
+                aria-disabled="@Aria(Disabled || Busy)">
+            <MusicIcon Name="folder" />
+            <span class="create-file-text"><strong>Choose a folder</strong><small>Includes subfolders</small></span>
+        </button>
     }
     else
     {
         <label class="create-file-choice" aria-disabled="@Aria(Disabled || Busy)">
-            <MusicIcon Name="folder" /><strong>Choose a folder</strong><small>Includes its subfolders</small>
+            <MusicIcon Name="folder" />
+            <span class="create-file-text"><strong>Choose a folder</strong><small>Includes subfolders</small></span>
             <InputFile @key="fileInputGeneration" id="@(Prefix + "-folder")" OnChange="Choose"
                        webkitdirectory="" directory="" multiple disabled="@(Disabled || Busy)" aria-label="Choose a folder" />
         </label>
     }
 </div>
     <p class="upload-limits">Up to 500 songs at a time. 128 MB per song.</p>
-    @if (picking) { <p role="status">Reading folder...</p> }
+    @if (picking) { <Notice Message="Reading folder…" /> }
     @if (files.Count > 0) {
         <section class="upload-selection" aria-labelledby="@(Prefix + "-selection-title")"><div><strong id="@(Prefix + "-selection-title")">@files.Count @(files.Count == 1 ? "song" : "songs")</strong><span>@((files.Sum(f => f.Size) / 1048576d).ToString("0.0")) MB</span></div>
         <ul>@foreach (var song in files.Take(6)) { <li><MusicIcon Name="music" /><span>@song.Name</span>@if (completed.Contains(song)) { <MusicIcon Name="check-circle" /> }</li> }</ul>
         @if (files.Count > 6) { <small>and @(files.Count - 6) more</small> }
         </section>
     }
-    @if (selectionNote is not null) { <p class="upload-guidance" role="status">@selectionNote</p> }
+    @if (selectionNote is not null) { <Notice Message="@selectionNote" /> }
     @if (problems.Count > 0 || otherFiles > 0)
     {
         <section class="upload-problems" aria-labelledby="@(Prefix + "-problems-title")">
@@ -44,7 +48,7 @@
         </section>
     }
     @if (working || completed.Count > 0) { <div class="upload-status" role="status"><div><strong>@status</strong><span>@completed.Count / @files.Count saved</span></div>@if (currentName is not null) { <small>@currentName</small> }@if (uploading) { <progress aria-label="Uploading song" max="100" value="@percent"></progress> } else if (working) { <progress aria-label="Preparing song on server"></progress> }</div> }
-    @if (error is not null) { <p class="entry-error" role="status">@error</p> }
+    @if (error is not null) { <Notice Level="error" Message="@error" /> }
 @if (working)
 {
     <button id="@(Prefix + "-stop")" type="button" class="quiet upload-stop" @onclick="() => stopping = true"
@@ -134,7 +138,7 @@
         if (Disabled || Busy) return; picking = true; error = null;
         try { var selected = await LocalAudioFolderPicker.PickAsync(lifetime.Token); if (selected is not null && !selectionInvalidated) { ResetSelection(); CreatedPlaylistKey = null; files = selected.Files.ToList(); AddSkips(selected.SkippedFiles ?? []); FolderName = selected.Name.Trim().Length <= 200 ? selected.Name.Trim() : ""; SelectionReady(selected.Skipped, selected.LimitReached); } }
         catch (OperationCanceledException) { }
-        catch (Exception exception) { error = exception.Message; }
+        catch (Exception exception) { error = NoticeText.Error(exception); }
         finally { picking = false; if (selectionInvalidated) ClearChangedIdentity(); pendingFocus ??= Prefix + "-folder"; await Changed.InvokeAsync(); }
     }
     private async Task Upload(MusicPlaylist? playlist, string? newName, bool shared)
@@ -224,7 +228,7 @@
                     problems.Add((file.Name, exception switch
                     {
                         FamilyHubApiException { StatusCode: 404 } when acceptedJobs.ContainsKey(file) => "This upload status expired. Check the library before selecting this song again.",
-                        FamilyHubApiException or InvalidOperationException => exception.Message,
+                        FamilyHubApiException or InvalidOperationException => NoticeText.Error(exception, "The song could not be uploaded. Try again."),
                         _ => "Could not finish the upload. Check the connection and try again."
                     }));
                     if (acceptedJobs.ContainsKey(file) || !Current() || !Session.Connected || exception is HttpRequestException) break;
@@ -236,7 +240,7 @@
             if (playlistFailures > 0) error = $"{playlistFailures} saved {(playlistFailures == 1 ? "song could" : "songs could")} not be added to the playlist. Add them from your library.";
         }
         catch (OperationCanceledException) { }
-        catch (Exception exception) { error = exception is FamilyHubApiException ? exception.Message : "The upload could not finish. Try again."; }
+        catch (Exception exception) { error = NoticeText.Error(exception, "The upload could not finish. Try again."); }
         finally
         {
             working = uploading = false;

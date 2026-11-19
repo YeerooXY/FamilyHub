@@ -9,17 +9,17 @@
         <button class="quiet" disabled="@busy" @onclick='() => Send("wrong_source")'><MusicIcon Name="refresh" /><span><strong>Wrong source</strong><small>A different song or version plays. An admin picks a new source.</small></span></button>
         <button class="quiet" disabled="@busy" @onclick='() => Send("trimming")'><MusicIcon Name="scissors" /><span><strong>Needs trimming</strong><small>Silence, talking or an intro should be cut.</small></span></button>
     </div>
-    <p class="report-status" role="status">@status</p>
+    <Notice Level="error" Message="@status" />
 </dialog>
-<span class="sr" role="status">@announcement</span>
+
 @code {
     private MusicTrack? reportTrack;
-    private string? status, announcement;
+    private string? status;
     private string? opener;
     private bool busy, opening;
     public void Open(MusicTrack track, string returnFocusId)
     {
-        reportTrack = track; opener = returnFocusId; status = announcement = null;
+        reportTrack = track; opener = returnFocusId; status = null;
         opening = true;
         StateHasChanged();
     }
@@ -40,10 +40,10 @@
         {
             object payload = reason == "trimming" ? new { id = track.Id, position = Player.Current?.Id == track.Id ? Player.Position : 0 } : new { id = track.Id, reason };
             await Session.Api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, reason == "trimming" ? "/api/catalogue/trimming" : "/api/catalogue/reports", payload);
-            announcement = reason == "trimming" ? "Added to trimming pool." : "Song reported.";
+            await JS.InvokeVoidAsync("FamilyHubNotices.toast", reason == "trimming" ? "Added to trimming pool." : "Song reported.");
             await Close();
         }
-        catch (Exception error) { status = error.Message; }
+        catch (Exception error) { status = NoticeText.Error(error); }
         finally { busy = false; }
     }
 }
