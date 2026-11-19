@@ -867,3 +867,6 @@ body::before { content:""; position:fixed; inset:0 0 auto; z-index:1000; height:
  .genre-filter { margin-inline:-16px; padding:10px 16px; }
  .genre-filter .genre-top { padding:2px; }
 }
+
+/* No pinch or double-tap zoom: the layout is already sized for touch, and a stray zoom leaves the app stuck enlarged. */
+html, body { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
