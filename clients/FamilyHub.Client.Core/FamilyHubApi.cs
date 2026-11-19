@@ -172,6 +172,8 @@ public sealed class FamilyHubApi : IDisposable
         try { result = await RequestJsonAsync<ProfileConnection>(HttpMethod.Get, "/api/connect", cancellationToken: cancellationToken, background: background); }
         catch (FamilyHubApiException error) when (error.StatusCode is 404 or 409)
         { throw new InvalidOperationException("Family profiles are unavailable on this server. Check the server address and enable family profile mode on the server.", error); }
+        catch (JsonException error)
+        { throw new InvalidDataException("Could not read the server response. Check that the address points to FamilyHub.", error); }
         if (!result.FamilyProfiles || string.IsNullOrWhiteSpace(result.CsrfToken))
             throw new InvalidDataException("This server does not support family profiles.");
         csrf = result.CsrfToken;
@@ -275,8 +277,16 @@ public sealed class FamilyHubApi : IDisposable
     public Task<AppRelease> GetAppReleaseAsync(string platform, CancellationToken cancellationToken = default) =>
         RequestJsonAsync<AppRelease>(HttpMethod.Get, "/api/app-updates/" + Uri.EscapeDataString(platform), cancellationToken: cancellationToken, background: true);
 
-    public Task<HttpResponseMessage> OpenAppUpdateAsync(AppRelease release, CancellationToken cancellationToken = default) =>
-        SendAsync(HttpMethod.Get, release.DownloadUrl, null, cancellationToken);
+    public async Task<HttpResponseMessage> OpenAppUpdateAsync(AppRelease release, CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync(HttpMethod.Get, release.DownloadUrl, null, cancellationToken);
+        try
+        {
+            await EnsureSuccessAsync(response, cancellationToken);
+            return response;
+        }
+        catch { response.Dispose(); throw; }
+    }
 
     public Task<SongLyrics> GetLyricsAsync(string id, CancellationToken cancellationToken = default, bool background = false)
     {
@@ -372,10 +382,18 @@ public sealed class FamilyHubApi : IDisposable
         if (response.IsSuccessStatusCode) return;
         var message = response.StatusCode switch
         {
+            HttpStatusCode.BadRequest => "The server rejected the request. Check your input and try again.",
             HttpStatusCode.Unauthorized => "Sign in to the server again. Your device downloads remain available.",
+            HttpStatusCode.Forbidden => "The server denied this action. Check your profile's permissions.",
+            HttpStatusCode.NotFound => "The requested item is unavailable. Refresh and try again.",
+            HttpStatusCode.RequestTimeout or HttpStatusCode.GatewayTimeout => "The request timed out. Try again.",
             HttpStatusCode.Conflict => "The request conflicts with the server's current state. Try again.",
-            _ => $"The server returned HTTP {(int)response.StatusCode}."
+            HttpStatusCode.RequestEntityTooLarge => "The file is too large. Choose a smaller file and try again.",
+            HttpStatusCode.TooManyRequests => "The server received too many requests. Wait a moment and try again.",
+            HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable => "The server is unavailable. Try again in a moment.",
+            _ => "The server could not complete the request. Try again."
         };
+        var staleSession = false;
         if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Conflict or HttpStatusCode.RequestEntityTooLarge or HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable && response.Content.Headers.ContentType?.MediaType == "application/json")
         {
             try
@@ -389,12 +407,15 @@ public sealed class FamilyHubApi : IDisposable
                     if (body.RootElement.ValueKind == JsonValueKind.Object && body.RootElement.TryGetProperty("error", out var error)
                         && error.ValueKind == JsonValueKind.String && error.GetString() is { Length: > 0 and <= 512 } detail
                         && !detail.Any(char.IsControl)) message = detail;
+                    staleSession = response.StatusCode == HttpStatusCode.BadRequest && body.RootElement.ValueKind == JsonValueKind.Object
+                        && body.RootElement.TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String && code.GetString() == "csrf";
+                    if (staleSession) message = "Your session expired. Reconnect to your server and try again.";
                 }
             }
             catch (JsonException) { }
             catch (IOException) { }
         }
-        throw new FamilyHubApiException(message, (int)response.StatusCode);
+        throw new FamilyHubApiException(message, (int)response.StatusCode, staleSession);
     }
 
     private static string FindHtmlAttribute(string html, string tag, string key, string expected, string attribute)

@@ -540,11 +540,12 @@ public sealed class MusicSession
     public async Task ClearListeningHistoryAsync()
     {
         var api = OnlineApi(); var version = accountVersion;
-        await historyGate.WaitAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await historyGate.WaitAsync(timeout.Token);
         try
         {
             EnsureCurrent(version);
-            var cleared = await api.RequestJsonAsync<HistoryClear>(HttpMethod.Delete, "/api/listening/history");
+            var cleared = await api.RequestJsonAsync<HistoryClear>(HttpMethod.Delete, "/api/listening/history", cancellationToken: timeout.Token);
             EnsureCurrent(version);
             Preferences.Default.Set(HistoryKey + ":generation", Guid.NewGuid().ToString());
             WriteHistory(":pending", new List<ListeningEvent>());
@@ -597,7 +598,7 @@ public sealed class MusicSession
     private void StorePreferences(ListenerPreferences value, bool dirty) => Preferences.Default.Set(
         PreferenceKey(Server, User), JsonSerializer.Serialize(new CachedPreferences(value, dirty)));
 
-    public async Task ConnectServerAsync(string server)
+    public async Task ConnectServerAsync(string server, Func<Task>? beforeSwitch = null)
     {
         await connectionLock.WaitAsync();
         FamilyHubApi? candidate = null;
@@ -606,12 +607,27 @@ public sealed class MusicSession
             RequireIdleDownload();
             candidate = createApi(FamilyHubApi.NormalizeOrigin(new Uri(server.Trim())));
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            var connection = await candidate.ConnectAsync(timeout.Token);
-            StoreProfiles(candidate.ServerOrigin.AbsoluteUri, connection.Profiles);
-            if (candidate.ServerOrigin.AbsoluteUri == Server && !string.IsNullOrEmpty(User)
-                && connection.Profiles.Any(p => p.Id == User))
+            ProfileConnection connection;
+            ProfileSelection? selection = null;
+            try
             {
-                var selection = await candidate.SelectProfileAsync(User, timeout.Token);
+                connection = await candidate.ConnectAsync(timeout.Token);
+                if (candidate.ServerOrigin.AbsoluteUri == Server && !string.IsNullOrEmpty(User)
+                    && connection.Profiles.Any(p => p.Id == User))
+                    selection = await candidate.SelectProfileAsync(User, timeout.Token);
+            }
+            catch (HttpRequestException error) when (error.HttpRequestError == HttpRequestError.SecureConnectionError)
+            {
+                throw new InvalidOperationException("Could not establish a secure connection. Check the server address and certificate.", error);
+            }
+            catch (HttpRequestException error)
+            {
+                throw new InvalidOperationException("Could not reach your server. Check the address and your connection, then try again.", error);
+            }
+            if (beforeSwitch is not null) await beforeSwitch();
+            StoreProfiles(candidate.ServerOrigin.AbsoluteUri, connection.Profiles);
+            if (selection is not null)
+            {
                 await ApplySelectionAsync(candidate, selection, connection.Profiles);
                 candidate = null;
                 await RefreshAsync();
@@ -791,6 +807,8 @@ public sealed class MusicSession
                 PlaybackPreferences = await Api.SavePreferencesAsync(PlaybackPreferences, timeout.Token);
                 StorePreferences(PlaybackPreferences, false);
             }
+            catch (FamilyHubApiException error) when (error.RequiresSignIn)
+            { OfflineError(error); }
             catch (Exception error) when (error is HttpRequestException or IOException or FamilyHubApiException or OperationCanceledException)
             { SetMessage("Preferences saved on this device. They will sync when the server reconnects."); }
         }
@@ -917,8 +935,8 @@ public sealed class MusicSession
     private void OfflineError(Exception error)
     {
         Connected = false;
-        if (retryingQuietly && error is not FamilyHubApiException { StatusCode: 401 }) { Changed?.Invoke(); return; }
-        SetMessage(error is FamilyHubApiException { StatusCode: 401 }
+        if (retryingQuietly && error is not FamilyHubApiException { RequiresSignIn: true }) { Changed?.Invoke(); return; }
+        SetMessage(error is FamilyHubApiException { RequiresSignIn: true }
             ? "Reconnect to your server. Downloaded songs are available offline."
             : "Server unavailable. Downloaded songs are available offline.");
     }
@@ -1387,8 +1405,9 @@ public sealed class MusicSession
     public async Task SetProfileImageAsync(string dataUri)
     {
         var version = accountVersion;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var result = await OnlineApi().RequestJsonAsync<ProfileImageResponse>(HttpMethod.Post,
-            "/api/profile/image", new { image = dataUri });
+            "/api/profile/image", new { image = dataUri }, timeout.Token);
         EnsureCurrent(version);
         if (result.Profile.Id != User) throw new InvalidDataException("The profile image belongs to another listener.");
         var index = Profiles.FindIndex(p => p.Id == User);

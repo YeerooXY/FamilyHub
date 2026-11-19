@@ -51,7 +51,7 @@ else if (EntryScreen)
                 <div class="connect-fields"><label class="sr" for="server">Server address</label><input id="server" type="url" @bind="server" placeholder="Server address" autocomplete="url" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url" required /><button class="primary" type="submit" aria-disabled="@Aria(busy)">@(busy ? "Connecting..." : "Connect")</button></div>
                 <p class="entry-error" role="status">@(error ?? EntryMessage)</p>
                 @if (!string.IsNullOrEmpty(Session.User)) { <button class="quiet change-server" type="button" @onclick='() => Navigate("Library")'>Back</button> }
-                <AppUpdate @key="Session.Server" />
+                <AppUpdate @key="Session.Server" InitialRelease="startupUpdate" />
             </form>
         }
     </main>
@@ -149,8 +149,8 @@ else
         <GenreFilter @key="view" Tracks="source" @bind-Value="genre" />
         <div class="library-filter"><label class="sr" for="library-filter">Filter songs</label><MusicIcon Name="search" /><input id="library-filter" type="search" @bind="filter" @bind:event="oninput" placeholder="Filter library" /></div>
         @if (tracks.Count == 0)
-        { <p class="note">@(source.Count > 0 ? "No matching songs." : view == "Downloads" ? "No songs on this device. Download a song or playlist while connected." : "Connect and refresh to load your server library.")</p> }
-        @if (source.Count == 0 && view == "Library" && string.IsNullOrEmpty(Session.Server))
+        { <p class="note">@(source.Count > 0 ? "No matching songs." : view == "Downloads" ? "No songs on this device. Download a song or playlist while connected." : Session.Connected ? "No saved songs yet. Use Add songs to build your library." : "Connect to load your server library.")</p> }
+        @if (source.Count == 0 && view == "Library" && !Session.Connected)
         { <button class="primary" @onclick='() => Navigate("Settings")'>Connect server</button> }
         <div class="library-list">@foreach (var track in tracks.Take(Shown(view + filter + genre))) { @TrackRow(track, tracks, view == "Downloads" && Session.KeptOnDevice(track)) }</div>
         @ShowMore(tracks.Count)
@@ -384,7 +384,7 @@ else
     </div><SeekBar /></div>
     @if (Player.Current is not null) { <LyricsView Expanded="lyricsOpen" ExpandedChanged="SetLyricsOpen" AvailabilityChanged="LyricsAvailabilityChanged" /> }
     <button id="player-more" class="quiet player-more" aria-label="Player options" aria-expanded="@Aria(playerToolsOpen)" aria-controls="player-options" @onclick="TogglePlayerTools"><MusicIcon Name="more" /></button>
-    @if (playerToolsOpen) { <button class="player-tools-backdrop" aria-label="Close player options" @onclick="ClosePlayerTools"></button> }
+    @if (playerToolsOpen) { <div class="player-tools-backdrop" aria-hidden="true" @onclick="ClosePlayerTools"></div> }
     <div id="player-options" class="player-tools @(playerToolsOpen ? "is-open" : "")" @onkeydown="PlayerToolsKeyDown" @onkeydown:stopPropagation="true">
         <button id="player-options-close" class="quiet player-tools-close" aria-label="Close player options" @onclick="ClosePlayerTools"><MusicIcon Name="close" /></button>
         @if (Player.Current is { } sheetSong)
@@ -408,7 +408,7 @@ else
 
 @if (startupUpdate is not null)
 {
-    <dialog id="update-dialog" class="glass-dialog update-dialog" aria-labelledby="update-heading"><img class="dialog-mark" src="familyhub-mark.png" alt="" /><h2 id="update-heading">FamilyHub @startupUpdate.Version is available</h2><AppUpdate Id="dialog-update" InitialRelease="startupUpdate" /><button class="quiet" @onclick="LaterUpdate">Later</button></dialog>
+    <dialog id="update-dialog" class="glass-dialog update-dialog" aria-labelledby="update-heading"><img class="dialog-mark" src="familyhub-mark.png" alt="" /><h2 id="update-heading">FamilyHub update</h2><AppUpdate Id="dialog-update" InitialRelease="startupUpdate" /><button class="quiet" @onclick="LaterUpdate">Later</button></dialog>
 }
 <dialog id="spotify-question-dialog" class="glass-dialog" aria-labelledby="spotify-question-title">
     <div class="dialog-heading"><h2 id="spotify-question-title">Do you have Spotify Premium?</h2><button class="quiet" aria-label="Close Spotify question" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "spotify-question-dialog", "profile-toggle")'><MusicIcon Name="close" /></button></div>
@@ -490,7 +490,7 @@ else
     private Task ClearHistory() => Run(async () =>
     {
         try { await Session.ClearListeningHistoryAsync(); }
-        catch (Exception failure) when (failure is FamilyHubApiException or HttpRequestException or IOException)
+        catch (Exception failure) when (failure is FamilyHubApiException { RequiresSignIn: false } or HttpRequestException or IOException)
         {
             error = "Could not clear listening history. Try again.";
             return;
@@ -1109,6 +1109,11 @@ else
         if (busy) return;
         busy = true; error = null;
         try { await action(); }
+        catch (FamilyHubApiException failure) when (failure.RequiresSignIn && !EntryScreen)
+        {
+            await Session.ReconnectAsync();
+            error = Session.Connected ? "Your session was restored. Try the action again." : failure.Message;
+        }
         catch (Exception exception) { error = exception is OperationCanceledException ? "The request timed out. Try again." : exception.Message; }
         finally { busy = false; }
     }
@@ -1118,7 +1123,15 @@ else
         try { await action(); }
         catch (Exception exception) { error = exception.Message; }
     }
-    private Task Connect() => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); await Session.ConnectServerAsync(server); ResetProfileView(); });
+    private Task Connect() => Run(async () =>
+    {
+        await Session.ConnectServerAsync(server, async () =>
+        {
+            await Session.SavePlaybackAsync(Player.CaptureResume());
+            await Player.StopAsync();
+        });
+        ResetProfileView();
+    });
     private void CancelSearch()
     {
         searchVersion++; searchCancellation?.Cancel(); searchCancellation?.Dispose();

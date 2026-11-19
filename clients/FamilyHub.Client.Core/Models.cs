@@ -114,9 +114,10 @@ public sealed record ProfileSelection
     [JsonPropertyName("csrf_token")] public string CsrfToken { get; init; } = "";
 }
 
-public sealed class FamilyHubApiException(string message, int statusCode) : Exception(message)
+public sealed class FamilyHubApiException(string message, int statusCode, bool staleSession = false) : Exception(message)
 {
     public int StatusCode { get; } = statusCode;
+    public bool RequiresSignIn => StatusCode == 401 || staleSession;
 }
 
 public sealed record SearchPage

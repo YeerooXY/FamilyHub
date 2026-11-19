@@ -28,6 +28,8 @@
             await Session.SetProfileImageAsync("data:image/jpeg;base64," + Convert.ToBase64String(output.ToArray()));
             message = "Profile picture saved.";
         }
+        catch (OperationCanceledException) { message = "The picture request timed out. Choose the picture again to retry."; }
+        catch (HttpRequestException) { message = "Could not reach your server. Check your connection and choose the picture again."; }
         catch (Exception error) { message = error.Message; }
         finally
         {
