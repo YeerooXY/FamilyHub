@@ -34,7 +34,10 @@ public sealed class MusicSession
     public List<MusicTrack> Downloads { get => downloads; private set { downloads = value; downloadsById = value.DistinctBy(t => t.Id).ToDictionary(t => t.Id); } }
     public List<MusicPlaylist> Playlists { get; private set; } = [];
     public DownloadProgress? Progress { get; private set; }
+    public event Action? DownloadProgressChanged;
     public string? DownloadingId { get; private set; }
+    public string DownloadStatus { get; private set; } = "";
+    public (string TrackId, string Message)? DownloadFailure { get; private set; }
     public long DownloadedBytes { get; private set; }
     private MusicTrack[] cachedTracks = [];
     private long cachedBytes;
@@ -622,6 +625,7 @@ public sealed class MusicSession
         PinPlayback(null); PinPreparingPlayback(null);
         User = ""; ProfileName = ""; Offline = null; Connected = false;
         Library = []; Playlists = []; Downloads = []; DownloadedBytes = 0;
+        DownloadFailure = null;
         PlaybackPreferences = new(); NeedsProfileSelection = true;
     }
 
@@ -848,21 +852,12 @@ public sealed class MusicSession
         if (Api is null || Offline is null) return;
         _ = RefreshTopListenerAsync(Api, accountVersion);
         var version = accountVersion;
-        var api = Api;
-        var offline = Offline;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         try
         {
-            // Unchanged lists come back as null and cost a few hundred bytes instead of the full list.
-            var changedLibrary = await api.GetLibraryIfChangedAsync(timeout.Token, background);
-            var changedPlaylists = await api.GetPlaylistsIfChangedAsync(timeout.Token, background);
+            await RefreshCatalogueAsync(timeout.Token, background);
             if (version != accountVersion) return;
-            if (changedLibrary is not null) await offline.SaveLibraryAsync(changedLibrary);
-            if (changedPlaylists is not null) await offline.SavePlaylistsAsync(changedPlaylists);
-            var library = changedLibrary ?? Library;
-            var playlists = changedPlaylists ?? Playlists;
-            if (version != accountVersion) return;
-            Library = library; Playlists = playlists; Connected = true; Message = "";
+            Connected = true; Message = "";
             await SyncHistoryAsync();
             await ReadDownloadsAsync();
             await ReadPlaybackAvailabilityAsync(version, playbackCaches.Values.ToArray());
@@ -871,6 +866,41 @@ public sealed class MusicSession
                 or "Reconnect to your server. Downloaded songs are available offline.") SetMessage("");
         }
         catch (Exception error) { if (version == accountVersion) OfflineError(error); }
+    }
+
+    private readonly SemaphoreSlim catalogueRefresh = new(1, 1);
+    public async Task RefreshCatalogueAsync(CancellationToken token, bool background = true)
+    {
+        if (Api is not { } api || Offline is not { } offline) return;
+        var version = accountVersion;
+        await catalogueRefresh.WaitAsync(token);
+        var changed = false;
+        try
+        {
+            EnsureCurrent(version);
+            // Publish each conditional response so its ETag and the displayed snapshot advance together.
+            var library = await api.GetLibraryIfChangedAsync(token, background);
+            EnsureCurrent(version);
+            if (library is not null)
+            {
+                Library = library;
+                changed = true;
+                await offline.SaveLibraryAsync(library);
+            }
+            var playlists = await api.GetPlaylistsIfChangedAsync(token, background);
+            EnsureCurrent(version);
+            if (playlists is not null)
+            {
+                Playlists = playlists;
+                changed = true;
+                await offline.SavePlaylistsAsync(playlists);
+            }
+        }
+        finally
+        {
+            catalogueRefresh.Release();
+            if (changed && version == accountVersion) Changed?.Invoke();
+        }
     }
 
     public void SetMessage(string message) { Message = message; Changed?.Invoke(); }
@@ -1030,15 +1060,20 @@ public sealed class MusicSession
         catch (Exception error) when (error is IOException or HttpRequestException or FamilyHubApiException) { return null; }
         finally { artworkLoading.Release(); }
     }
+    private readonly SemaphoreSlim downloadIndex = new(1, 1);
     public async Task ReadDownloadsAsync()
     {
-        if (Offline is null) return;
+        if (Offline is not { } offline) return;
         var version = accountVersion;
-        var offline = Offline;
-        var downloads = await offline.ListDownloadsAsync();
-        var bytes = downloads.Sum(t => t.DownloadSize);
-        if (version != accountVersion) return;
-        Downloads = downloads; DownloadedBytes = bytes;
+        await downloadIndex.WaitAsync();
+        try
+        {
+            var downloads = await offline.ListDownloadsAsync();
+            if (version != accountVersion) return;
+            Downloads = downloads;
+            DownloadedBytes = downloads.Sum(t => t.DownloadSize);
+        }
+        finally { downloadIndex.Release(); }
         Changed?.Invoke();
     }
 
@@ -1055,6 +1090,7 @@ public sealed class MusicSession
             if (downloadCancellation is not null) throw new InvalidOperationException("A download is already running.");
             api = Api; offline = Offline; version = accountVersion;
             cancellation = downloadCancellation = new CancellationTokenSource();
+            DownloadFailure = null;
         }
         finally { connectionLock.Release(); }
         using var cancellationScope = cancellation;
@@ -1069,34 +1105,69 @@ public sealed class MusicSession
         {
             EnsurePlaybackCaches();
             var selected = tracks.Select(CurrentRecording).DistinctBy(t => t.Id).ToList();
-            var completed = 0;
-            foreach (var original in selected)
+            for (var index = 0; index < selected.Count; index++)
             {
+                var original = selected[index];
+                DownloadingId = original.Id; Progress = null;
+                DownloadStatus = $"Downloading {index + 1} of {selected.Count} · {original.Title}";
+                Changed?.Invoke();
                 cancellation.Token.ThrowIfCancellationRequested();
                 if (DownloadsWifiOnly && !HomeConnection)
                     throw new InvalidOperationException("Connect to Wi-Fi or Ethernet to keep songs offline, or turn off Wi-Fi-only downloads in settings.");
-                var track = await PlaybackEditionAsync(original, api, quality, cancellation.Token);
+                MusicTrack track;
+                using (var preparation = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token))
+                {
+                    preparation.CancelAfter(TimeSpan.FromMinutes(10));
+                    var recording = await EnsureServerRecordingAsync(original, preparation.Token, background: true, prefetch: true);
+                    track = await PlaybackEditionAsync(recording, api, quality, preparation.Token);
+                }
                 EnsureCurrent(version);
-                DownloadingId = track.Id; Progress = new(0, track.DownloadSize);
-                SetMessage($"Saving {++completed} of {selected.Count}: {track.Title}");
+                Progress = new(0, track.DownloadSize);
+                DownloadProgressChanged?.Invoke();
                 await offline.DownloadAsync(track, api, cancellation.Token,
                     new Progress<DownloadProgress>(value =>
                     {
-                        if (version != accountVersion || !ReferenceEquals(downloadCancellation, cancellation)) return;
-                        Progress = value; Changed?.Invoke();
+                        if (version != accountVersion || !ReferenceEquals(downloadCancellation, cancellation) || DownloadingId != track.Id) return;
+                        Progress = value; DownloadProgressChanged?.Invoke();
                     }), playbackCaches.GetValueOrDefault(quality));
-                await ReadDownloadsAsync();
+                await downloadIndex.WaitAsync();
+                try
+                {
+                    EnsureCurrent(version);
+                    Downloads = Downloads.Where(t => t.Id != track.Id).Append(track).ToList();
+                    DownloadedBytes = Downloads.Sum(t => t.DownloadSize);
+                }
+                finally { downloadIndex.Release(); }
+                Changed?.Invoke();
             }
-            if (version == accountVersion) SetMessage("Downloads ready for offline listening.");
+            if (version == accountVersion) Message = selected.Count == 1 ? "Song downloaded." : "Songs downloaded.";
         }
         catch (Exception) when (cancellation.IsCancellationRequested)
-        { if (version == accountVersion) SetMessage(networkPaused ? "Download paused: connect to Wi-Fi, then choose Keep on this device to resume." : "Download paused. Download again to resume."); }
+        { if (version == accountVersion) Message = networkPaused ? "Download paused. Connect to Wi-Fi, then download again." : "Download paused. Download again to resume."; }
+        catch (Exception error)
+        {
+            if (version == accountVersion && DownloadingId is { } id)
+                DownloadFailure = (id, DownloadErrorMessage(error));
+            throw;
+        }
         finally
         {
             Microsoft.Maui.Networking.Connectivity.Current.ConnectivityChanged -= NetworkChanged;
-            downloadCancellation = null; DownloadingId = null; Progress = null; Changed?.Invoke();
+            downloadCancellation = null; DownloadingId = null; Progress = null; DownloadStatus = ""; Changed?.Invoke();
         }
     }
+
+    public static string DownloadErrorMessage(Exception error) => error switch
+    {
+        FamilyHubApiException { StatusCode: 401 } => "Sign in to the server again.",
+        FamilyHubApiException or HttpRequestException => "The server could not send the audio. Check the connection.",
+        OperationCanceledException => "The download timed out.",
+        InvalidDataException => "The audio did not pass verification.",
+        EndOfStreamException => "The audio transfer was interrupted.",
+        IOException or UnauthorizedAccessException => "The device could not save the audio. Check available storage.",
+        InvalidOperationException => error.Message,
+        _ => "The song could not be downloaded."
+    };
 
     public void CancelDownload() => downloadCancellation?.Cancel();
     public async Task RemoveDownloadAsync(MusicTrack track)

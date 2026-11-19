@@ -35,6 +35,7 @@ await renderer.Dispatcher.InvokeAsync(async () => {
     Save("loaded", html);
     Console.WriteLine($"PASS rendered component timeouts in {watch.Elapsed.TotalSeconds:F2}s and successful retries");
 });
+await DownloadStateChecks.RunAsync();
 void Save(string name, string html) {
     var css = string.Join("\n", new[]{"music_web/static/shell.css", "clients/FamilyHub.App/wwwroot/app-native.css", "clients/FamilyHub.App/wwwroot/server-stats.css", "clients/FamilyHub.App/wwwroot/stats-pages.css", "clients/FamilyHub.App/wwwroot/music-admin.css"}.Where(File.Exists).Select(File.ReadAllText));
     File.WriteAllText($".local/ui/{name}.html", "<!doctype html><html><meta name='viewport' content='width=device-width,initial-scale=1'><style>"+css+"\nhtml,body{height:auto;min-height:100%;overflow:visible}body{display:block;margin:0;padding:24px;background:#07101f;color:#edf2fa;font-family:Arial,sans-serif}.server-work-page{height:auto;overflow:visible;max-width:1100px;margin:auto;display:grid;gap:24px}button{min-height:44px}</style><main class='server-work-page'>"+html+"</main></html>");
@@ -46,6 +47,10 @@ sealed class CaptureActivator : IComponentActivator {
 sealed class NoJs : IJSRuntime {
     public ValueTask<T> InvokeAsync<T>(string id, object?[]? args) => ValueTask.FromResult(default(T)!);
     public ValueTask<T> InvokeAsync<T>(string id, CancellationToken token, object?[]? args) => ValueTask.FromResult(default(T)!);
+}
+sealed class Launcher {
+    public static Launcher Default { get; } = new();
+    public Task<bool> OpenAsync(Uri uri) => Task.FromResult(true);
 }
 sealed class FixtureHandler : HttpMessageHandler {
     public static bool Block = true;
@@ -63,6 +68,6 @@ sealed class FixtureHandler : HttpMessageHandler {
         return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK){Content=new StringContent(JsonSerializer.Serialize(data),Encoding.UTF8,"application/json")});
     }
 }
-namespace FamilyHub.App.Services { public sealed class MusicPlayer { public bool FollowingHost => false; public Task PlayAsync(MusicTrack track)=>Task.CompletedTask; } }
+namespace FamilyHub.App.Services { public sealed class MusicPlayer { public bool FollowingHost => false; public MusicTrack? Current => null; public double Position => 0; public Task PlayAsync(MusicTrack track)=>Task.CompletedTask; } }
 
 namespace FamilyHub.ServerWork.Tests.Components { public sealed class ListenerMenu : ComponentBase { [Parameter] public ListenerStatistics? Profile { get; set; } } }

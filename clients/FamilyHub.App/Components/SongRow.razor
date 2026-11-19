@@ -19,16 +19,18 @@
         <span class="playlist-track-key" title="@Track.KeyName">@Track.Key</span>
         <span class="playlist-track-duration">@(Track.Duration > 0 ? $"{(int)Track.Duration / 60}:{(int)Track.Duration % 60:00}" : "")</span>
     }
-    <span class="storage-state @StateClass" role="img" aria-label="@StateLabel" title="@StateLabel"><MusicIcon Name="@StateIcon" /></span>
+    @{ var storage = StorageState; }
+    <span class="storage-state @storage.Style" role="img" aria-label="@storage.Label" title="@storage.Label"><MusicIcon Name="@storage.Icon" /></span>
     @* Fixed columns preserve action alignment across every row. *@
     <div class="row-actions">
-    @if (!FindRecording)
+    @if (!FindRecording && AddToPlaylist.HasDelegate)
     {
-        @if (AddToPlaylist.HasDelegate) { <button id="@playlistButtonId" class="row-action song-playlist-add @(InPlaylist ? "is-added" : "")" @onclick="() => AddToPlaylist.InvokeAsync((Track, playlistButtonId))" aria-label="Add @Track.Title to playlist" title="Add to playlist" aria-haspopup="dialog"><MusicIcon Name="@(InPlaylist ? "check-circle" : "plus-circle")" /></button> }
-
+        <button id="@playlistButtonId" class="row-action song-playlist-add @(InPlaylist ? "is-added" : "")"
+                @onclick="() => AddToPlaylist.InvokeAsync((Track, playlistButtonId))" aria-label="Add @Track.Title to playlist"
+                title="Add to playlist" aria-haspopup="dialog">
+            <MusicIcon Name="@(InPlaylist ? "check-circle" : "plus-circle")" />
+        </button>
     }
-    else
-    { <button class="row-action row-reveal row-find" @onclick="Play" aria-label="Find recording for @Track.Title" title="Find recording"><MusicIcon Name="search" /></button> }
     @if (!FindRecording && !Track.Saved && !PlaylistColumns)
     {
         <button class="row-action row-reveal" aria-disabled="@SaveDisabled" @onclick="SaveToLibrary" aria-label="@($"{SaveLabel}: {Track.Title}")" title="@SaveLabel"><MusicIcon Name="@(saveState == "Saved" ? "cloud-check" : "cloud-empty")" /><span class="sr" role="status">@saveState</span></button>
@@ -38,7 +40,14 @@
         <div class="dialog-heading"><strong>@Track.Title</strong><button id="@(menuId + "-close")" class="quiet" aria-label="Close song options" @onclick="CloseMenu"><MusicIcon Name="close" /></button></div>
         @if (AddToPlaylist.HasDelegate && !FindRecording) { <button id="@(menuId + "-playlist")" @onclick="MenuPlaylist"><MusicIcon Name="plus-circle" />Add to playlist</button> }
         @if (!FindRecording) { <button @onclick="MenuQueue"><MusicIcon Name="queue" />Add to queue</button> }
-        @if (!FindRecording) { <button @onclick="MenuKeep" aria-disabled="@(kept || !Session.Connected || Session.DownloadingId is not null ? "true" : "false")"><MusicIcon Name="@(kept ? "check" : "down")" />@(kept ? "Downloaded" : "Download to this device")</button> }
+        @if (!FindRecording)
+        {
+            <button @onclick="MenuKeep" aria-disabled="@(DownloadUnavailable ? "true" : "false")">
+                <MusicIcon Name="@(kept ? "check" : Downloading ? "clock" : DownloadError is not null ? "refresh" : "download")" />
+                @(kept ? "Downloaded" : Downloading ? "Downloading to this device" : DownloadError is not null ? "Retry download" : "Download to this device")
+            </button>
+            @if (DownloadError is { } downloadError) { <p class="entry-error" role="status">@downloadError</p> }
+        }
         @if (!FindRecording && !Track.Saved) { <button aria-disabled="@SaveDisabled" @onclick="SaveToLibrary"><MusicIcon Name="plus-circle" />@SaveLabel</button> }
         @if (!FindRecording) { <button disabled="@followBusy" @onclick="FollowArtist"><MusicIcon Name="plus-circle" />@(followed ? "Unfollow " : "Follow ")@Track.Channel</button> }
         @if (saveState.Length > 0) { <p role="status">@saveState</p> }
@@ -83,7 +92,8 @@
     }
     private Task CloseMenu() => JS.InvokeVoidAsync("familyhub.closeDialog", menuId, moreId).AsTask();
     private Task MenuPlaylist() => AddToPlaylist.InvokeAsync((Track, menuId + "-playlist"));
-    private async Task MenuKeep() { if (kept || !Session.Connected || Session.DownloadingId is not null) return; await CloseMenu(); await Keep.InvokeAsync(); }
+    private bool DownloadUnavailable => kept || !Session.Connected || Session.DownloadingId is not null;
+    private Task MenuKeep() => DownloadUnavailable ? Task.CompletedTask : Keep.InvokeAsync();
     private async Task MenuQueue() { await CloseMenu(); await Queue.InvokeAsync(); }
     private async Task MenuRemove() { await CloseMenu(); await Remove.InvokeAsync(); await JS.InvokeVoidAsync("familyhub.focus", "content"); }
     private bool saveBusy, followBusy, followed;
@@ -152,7 +162,11 @@
         finally { followBusy = false; }
     }
     private bool kept => Session.KeptOnDevice(Track);
-    private string StateLabel => kept ? "Downloaded" : Session.OnThisDevice(Track) ? "Cached" : Track.Saved ? "On server" : "Not on server";
-    private string StateIcon => kept ? "device-check" : Session.OnThisDevice(Track) ? "device" : Track.Saved ? "cloud-check" : "cloud-empty";
-    private string StateClass => kept ? "is-kept" : Session.OnThisDevice(Track) ? "is-cached" : Track.Saved ? "is-server" : "";
+    private bool Downloading => !FindRecording && Session.DownloadingId == Track.Id;
+    private string? DownloadError => !FindRecording && Session.DownloadFailure is { } failure && failure.TrackId == Track.Id ? failure.Message : null;
+    private (string Label, string Icon, string Style) StorageState => kept ? ("Downloaded", "device-check", "is-kept")
+        : Downloading ? ("Downloading", "clock", "is-server")
+        : DownloadError is not null ? ("Download failed", "alert", "")
+        : Session.OnThisDevice(Track) ? ("Cached", "device", "is-cached")
+        : Track.Saved ? ("On server", "cloud-check", "is-server") : ("Not on server", "cloud-empty", "");
 }

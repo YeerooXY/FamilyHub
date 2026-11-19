@@ -670,7 +670,7 @@ body[data-view=preferences] #view-title { width:min(900px,100%); margin-inline:a
 .glass-dialog[popover] { position:fixed; inset:auto; margin:0; color:var(--ink); }
 .glass-dialog[popover]:popover-open { animation:dialog-enter .18s cubic-bezier(.2,.8,.2,1); }
 .glass-dialog[popover]::backdrop { background:transparent; backdrop-filter:none; }
-.song-menu { box-shadow:0 12px 32px #0007,inset 0 1px #ffffff08; }
+.song-menu { max-height:min(calc(100dvh - 48px),calc(100dvh - var(--panel-top,8px) - 8px)); background-color:var(--panel-bg); box-shadow:0 12px 32px #0007,inset 0 1px #ffffff08; }
 #now-add-playlist.is-added { color:#56d58e; }
 @media(prefers-reduced-motion:reduce) { .glass-dialog[popover]:popover-open { animation:none; } }
 .now-playing-group { justify-content:flex-start; }
@@ -731,7 +731,7 @@ body[data-view=preferences] #view-title { width:min(900px,100%); margin-inline:a
 .playlist-details-dialog textarea { flex:1; min-height:122px; resize:vertical; width:100%; padding:12px; border:1px solid #ffffff16; border-radius:8px; background:#ffffff09; color:var(--ink); font:inherit; }
 .details-footer { display:flex; justify-content:space-between; align-items:center; gap:16px; }.details-footer > .primary { margin-left:auto; min-width:100px; }
 .details-footer .quiet { display:inline-flex; align-items:center; gap:8px; }
-@media(max-width:1000px) { .playlist-column-headings,.playlist-song-list .song-row.has-playlist-columns { grid-template-columns:24px minmax(0,1fr) 92px 40px; gap:6px; }.playlist-column-headings>span:nth-child(3),.playlist-column-headings>span:nth-child(4),.has-playlist-columns .playlist-track-album,.has-playlist-columns .storage-state { display:none; }.has-playlist-columns .playlist-track-added { grid-column:2 / -1; grid-row:2; display:flex; flex-wrap:wrap; gap:8px 16px; padding:0 0 4px 60px; }.playlist-column-headings>span:last-child,.has-playlist-columns .playlist-track-duration { grid-column:4; }.playlist-song-list .has-playlist-columns .row-actions { grid-column:3; }.has-playlist-columns .song-primary .cover { width:44px; height:44px; } }
+@media(max-width:1000px) { .playlist-column-headings,.playlist-song-list .song-row.has-playlist-columns { grid-template-columns:24px minmax(0,1fr) 28px 92px 40px; gap:6px; }.playlist-column-headings>span:nth-child(3),.playlist-column-headings>span:nth-child(4),.has-playlist-columns .playlist-track-album { display:none; }.has-playlist-columns .playlist-track-added { grid-column:2 / -1; grid-row:2; display:flex; flex-wrap:wrap; gap:8px 16px; padding:0 0 4px 60px; }.has-playlist-columns .storage-state { grid-column:3; }.playlist-column-headings>span:last-child,.has-playlist-columns .playlist-track-duration { grid-column:5; }.playlist-song-list .has-playlist-columns .row-actions { grid-column:4; }.has-playlist-columns .song-primary .cover { width:44px; height:44px; } }
 @media(max-width:480px) { .playlist-details-fields { grid-template-columns:1fr; }.playlist-details-dialog .details-cover { width:140px; height:140px; margin:0 auto; }.details-cover-column { justify-items:center; }.details-cover-paste { width:140px; }.details-footer { flex-wrap:wrap; } }
 @media(prefers-reduced-motion:reduce) { .details-cover-caption { transition:none; } }
 /* Playlist tools size to their label rather than stretching with the header. */
@@ -807,6 +807,10 @@ input:not([type=range]),textarea,[contenteditable=true] { -webkit-user-select:te
 .device-sizes>div { display:grid; gap:2px; }
 .device-sizes dt { font-size:12px; color:var(--muted); }
 .device-sizes dd { margin:0; font-size:14px; font-weight:600; font-variant-numeric:tabular-nums; }
+.playlist-device-count { padding:2px 8px; border:1px solid currentColor; border-radius:999px; font-variant-numeric:tabular-nums; }
+.device-download-progress { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin-bottom:12px; font-size:13px; }
+.device-download-progress>span { min-width:0; overflow-wrap:anywhere; }
+.device-download-progress progress { flex:1 1 80px; width:auto; margin:0; }
 
 /* Phones: the status bar area (clock, battery) shows the page's frame colour instead of the
    background's blue top glow. Zero height where there is no status bar. */
@@ -826,6 +830,7 @@ body::before { content:""; position:fixed; inset:0 0 auto; z-index:1000; height:
    darker strip behind the actions that fades into the page. */
 @media(min-width:721px) {
  .playlist-hero.glass-panel { margin:-24px -24px 0; padding:0; border:0; border-radius:10px 10px 0 0; background:none; box-shadow:none; -webkit-backdrop-filter:none; backdrop-filter:none; }
+ .device-download-progress ~ .playlist-hero.glass-panel,#feedback:not(:empty) ~ .playlist-hero.glass-panel { margin-top:0; }
  .playlist-band { padding:20px 24px 28px; border-radius:10px 10px 0 0; background:linear-gradient(180deg,color-mix(in srgb,rgb(var(--playlist-tint,80 90 120)) 88%,#0b0d14),color-mix(in srgb,rgb(var(--playlist-tint,80 90 120)) 64%,#0b0d14)); }
  .playlist-band .playlist-back { margin-bottom:20px; }
  .playlist-hero .playlist-action-bar { padding:24px 24px 40px; background:linear-gradient(180deg,color-mix(in srgb,rgb(var(--playlist-tint,80 90 120)) 30%,#0b0d14f2),transparent); }

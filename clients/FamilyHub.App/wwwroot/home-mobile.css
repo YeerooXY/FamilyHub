@@ -99,10 +99,11 @@
  .playlist-column-headings { display:none; }
 
  /* Bigger song rows: about two fit under the header on a phone. */
- .playlist-song-list .song-row.has-playlist-columns { grid-template-columns:minmax(0,1fr) auto; gap:0 4px; padding:8px 0; }
+ .playlist-song-list .song-row.has-playlist-columns { grid-template-columns:minmax(0,1fr) 28px auto; gap:0 4px; padding:8px 0; }
  .has-playlist-columns .song-primary { grid-column:1; }
  .has-playlist-columns .playlist-track-number,.has-playlist-columns .playlist-track-duration { display:none; }
- .playlist-song-list .has-playlist-columns .row-actions { grid-column:2; }
+ .has-playlist-columns .storage-state { grid-column:2; }
+ .playlist-song-list .has-playlist-columns .row-actions { grid-column:3; }
  .has-playlist-columns .playlist-track-added { grid-column:1 / -1; padding-left:78px; }
  .has-playlist-columns .song-primary { grid-template-columns:64px minmax(0,1fr); gap:14px; min-height:72px; }
  .has-playlist-columns .song-primary .cover,.has-playlist-columns .song-artwork { width:64px; height:64px; }

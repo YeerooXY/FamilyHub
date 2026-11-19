@@ -1,0 +1,25 @@
+@inject MusicSession Session
+
+@{
+    var downloaded = Tracks.Count(Session.KeptOnDevice);
+    var cached = Tracks.Count(Session.OnThisDevice) - downloaded;
+}
+@if (ShowSizes)
+{
+    <dl class="device-sizes">
+        <div><dt>Downloaded</dt><dd>@Songs(downloaded), @Size(Session.DownloadedBytes)</dd></div>
+        <div><dt>Cached while playing</dt><dd>@Songs(cached), @Size(Math.Max(0, Session.DeviceBytes - Session.DownloadedBytes))</dd></div>
+    </dl>
+}
+else
+{
+    <span class="playlist-device-count">@downloaded downloaded</span>
+    <span class="playlist-device-count">@cached cached</span>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<MusicTrack> Tracks { get; set; } = [];
+    [Parameter] public bool ShowSizes { get; set; }
+    private static string Songs(int count) => $"{count} {(count == 1 ? "song" : "songs")}";
+    private static string Size(long bytes) => bytes >= 1L << 30 ? $"{bytes / (double)(1L << 30):0.0} GB" : $"{bytes / (double)(1L << 20):0.0} MB";
+}

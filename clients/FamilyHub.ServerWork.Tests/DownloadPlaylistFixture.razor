@@ -1,0 +1,38 @@
+@implements IDisposable
+@inject MusicSession Session
+
+@{
+    var playlist = Session.Playlists.Single();
+    var tracks = playlist.Tracks.Select(Session.Resolve).OfType<MusicTrack>().ToList();
+}
+@if (Session.DownloadingId is not null) { <DeviceDownloadProgress Status="@Session.DownloadStatus" /> }
+<section class="playlist-hero glass-panel">
+    <div class="playlist-band">
+        <h1>@playlist.Name</h1>
+        <div class="playlist-summary"><DeviceDownloadCounts Tracks="tracks" /></div>
+    </div>
+    <div class="playlist-action-bar"><PlaylistDownloadButton Tracks="tracks" SongCount="playlist.Tracks.Count" Download="() => Download(tracks)" /></div>
+</section>
+<PlaylistTransfer Playlist="playlist" />
+<div class="library-list unified-song-list playlist-song-list">
+    @for (var i = 0; i < playlist.Tracks.Count; i++)
+    {
+        var entry = playlist.Tracks[i];
+        var recording = Session.Resolve(entry);
+        var track = recording ?? new MusicTrack { Title = entry.Title, Channel = entry.Artist };
+        <SongRow @key="i" Track="track" Number="@(i + 1)" PlaylistColumns="true" FindRecording="@(recording is null)"
+            AddToPlaylist="_ => { }" Remove="() => { }" RemoveLabel="Remove from playlist" Keep="() => Download([track])" />
+    }
+</div>
+<DeviceDownloadCounts Tracks="Session.DeviceTracks" ShowSizes="true" />
+
+@code {
+    protected override void OnInitialized() => Session.Changed += OnChanged;
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+    private async Task Download(IReadOnlyList<MusicTrack> tracks)
+    {
+        try { await Session.DownloadAsync(tracks); }
+        catch (Exception) when (Session.DownloadFailure is not null) { }
+    }
+    public void Dispose() => Session.Changed -= OnChanged;
+}

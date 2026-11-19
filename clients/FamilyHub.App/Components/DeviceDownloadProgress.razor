@@ -1,0 +1,15 @@
+@implements IDisposable
+@inject MusicSession Session
+
+<div class="device-download-progress">
+    <span role="status">@Status</span>
+    <progress aria-label="Device download progress" max="@(Session.Progress?.Total ?? 1)" value="@Session.Progress?.Received"></progress>
+    <button id="pause-download" class="quiet" @onclick="Session.CancelDownload">Pause download</button>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Status { get; set; } = "";
+    protected override void OnInitialized() => Session.DownloadProgressChanged += ProgressChanged;
+    private void ProgressChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Session.DownloadProgressChanged -= ProgressChanged;
+}
