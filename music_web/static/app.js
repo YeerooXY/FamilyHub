@@ -28,12 +28,15 @@ function el(tag, attrs, ...kids) {
   return node;
 }
 
-async function api(path, { method = "GET", json, form, signal } = {}) {
+async function api(path, { method = "GET", json, form, signal, background } = {}) {
   const init = { method, credentials: "same-origin", headers: { "X-CSRFToken": csrf }, signal };
+  if (background) init.headers["X-FamilyHub-Activity"] = "background";
   if (json) { init.body = JSON.stringify(json); init.headers["Content-Type"] = "application/json"; }
   if (form) init.body = form;
   let res;
-  try { res = await fetch(path, init); } catch { throw new Error("Cannot reach the server."); }
+  try { res = await fetch(path, init); } catch {
+    throw new Error(signal?.reason?.name === "TimeoutError" ? "The request timed out. Try again." : "Cannot reach the server.");
+  }
   if (res.status === 401) { location.href = "/login"; throw new Error("Sign in required."); }
   let data = {};
   try { data = await res.json(); } catch { /* non-JSON error body */ }
@@ -130,6 +133,15 @@ function renderResults(list) {
   if(hadFocus) (ul.querySelector("button") || $("q")).focus();
   requestAnimationFrame(refreshVisiblePreviews);
 }
+function appendSearchResults(results) {
+  const fresh = results.filter(t => !visibleResults.some(v => sourceKey(v) === sourceKey(t)));
+  visibleResults.push(...fresh);
+  $("results").append(...fresh.map(searchRow));
+  $("results-set").hidden = !visibleResults.length;
+  updateSongStates();
+  scheduleVisiblePreviews();
+  return fresh;
+}
 $("search-form").addEventListener("submit", async e => {
   clearTimeout(typingTimer);
   searchDirty = false;
@@ -140,16 +152,26 @@ $("search-form").addEventListener("submit", async e => {
   const version = ++searchVersion;
   searchQuery = q; searchOffset = null; searchPreviewTracks = []; $("load-more-search").hidden = true;
   searchController?.abort(); searchController = new AbortController();
+  const signal = AbortSignal.any([searchController.signal, AbortSignal.timeout(150000)]);
   out.textContent = "Searching…";
   out.classList.remove("is-error", "is-feedback");
   $("pick").setAttribute("aria-busy", "true");
   $("search-form").classList.add("is-searching");
   try {
-    const {results, next_offset} = await api("/api/search", {method:"POST", json:{query:q, include_long:$("include-long-mixes").checked}, signal:searchController.signal});
-    if(version !== searchVersion) return;
-    searchOffset = next_offset ?? null; $("load-more-search").hidden = searchOffset === null;
-    renderResults(results); out.textContent = results.length ? `${results.length} songs` : "No results. Try different words.";
-    out.classList.toggle("is-feedback", !results.length);
+    const json = {query:q, include_long:$("include-long-mixes").checked};
+    let page = await api("/api/search", {method:"POST", json, signal});
+    if (version !== searchVersion) return;
+    renderResults(page.results);
+    while (page.complete === false) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (version !== searchVersion) return;
+      page = await api("/api/search", {method:"POST", json, signal, background:true});
+      if (version !== searchVersion) return;
+      appendSearchResults(page.results);
+    }
+    searchOffset = page.next_offset ?? null; $("load-more-search").hidden = searchOffset === null;
+    out.textContent = visibleResults.length ? `${visibleResults.length} songs` : "No results. Try different words.";
+    out.classList.toggle("is-feedback", !visibleResults.length);
   } catch(err) { if(version === searchVersion) { out.textContent = err.message; out.classList.add("is-error"); } }
   finally { if(version === searchVersion) { $("pick").setAttribute("aria-busy", "false"); $("search-form").classList.remove("is-searching"); } }
 });
@@ -1161,16 +1183,12 @@ async function moreSearch() {
   try {
     const {results, next_offset} = await api("/api/search", {method:"POST", json:{query:searchQuery, offset:searchOffset, include_long:$("include-long-mixes").checked}});
     if (version !== searchVersion) return;
-    const fresh = results.filter(t => !visibleResults.some(v => sourceKey(v) === sourceKey(t)));
-    visibleResults.push(...fresh);
-    $("results").append(...fresh.map(searchRow));
+    const fresh = appendSearchResults(results);
     if (playbackSearchQuery === searchQuery && currentTrack) { queue.push(...fresh.filter(t => !heard.has(t.url) && !queue.some(q => sourceKey(q) === sourceKey(t)))); renderQueue(); }
-    scheduleVisiblePreviews();
     searchOffset = next_offset ?? null;
     if (searchOffset === null && document.activeElement === $("load-more-search")) $("results").lastElementChild?.querySelector("button")?.focus();
     $("load-more-search").hidden = searchOffset === null;
     $("search-status").textContent = visibleResults.length + " songs";
-    updateSongStates();
     requestAnimationFrame(() => {
       if (version === searchVersion && document.body.dataset.view === "search" && searchOffset !== null && $("load-more-search").getBoundingClientRect().top < $("content").getBoundingClientRect().bottom + 100) moreSearch();
     });
