@@ -37,7 +37,7 @@ The phone search placeholder clips at 390 px on the base revision. The header an
 
 ## Integration with main 0.1.72
 
-The captures and results in this record cover the original popup revision. Verification of the combined popup, notice, and download changes is pending in Windows Chromium at 1280 and 2000 px, emulated Mac WebKit at 850 px, and emulated Android Chromium and iPhone WebKit at 390 px.
+The captures and results above cover the original popup revision. The merged popup, notice and download changes passed the popup regression (`tests/music_popup_unification.cjs`) in Windows Chromium at 1280 and 2000 px, emulated Mac WebKit at 850 px, and emulated Android Chromium and iPhone WebKit at 390 px, with the Windows build, 930 portable client checks and the server work component suite. Merged captures stayed in `.local/popup-captures-merged` and were spot-checked at full size (song menu at 1280 px, update sheet at 390 px). The update fixture now offers version 9.9.9 so the update dialog appears for any released app version. Physical Mac, Android and iPhone devices remain unverified.
 
 ## Regression checks
 

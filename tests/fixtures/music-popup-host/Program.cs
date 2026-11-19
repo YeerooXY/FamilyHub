@@ -146,7 +146,7 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
             "/api/listening/pokes" when ListenRequest => """{"requests":[{"id":"invite-1","sender":"june","name":"June","kind":"invite","room_id":"fixture-room"}]}""",
             "/api/listening/pokes" => """{"requests":[]}""",
             "/api/app-updates/windows-x64" when Startup == "update" => JsonSerializer.Serialize(
-                new AppRelease("0.1.72", ReleaseHash, 32 * 1024 * 1024, "/api/app-updates/windows-x64/" + ReleaseHash)),
+                new AppRelease("9.9.9", ReleaseHash, 32 * 1024 * 1024, "/api/app-updates/windows-x64/" + ReleaseHash)),
             "/api/discovery/follow" => """{"artists":[]}""",
             "/api/playback/devices" => """{"devices":[{"id":"other","name":"Living room PC","kind":"windows"},{"id":"phone","name":"June’s phone","kind":"android"}]}""",
             "/api/catalogue/reports" when request.Method == HttpMethod.Get => """{"reports":[]}""",
