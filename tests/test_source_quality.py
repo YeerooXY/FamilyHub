@@ -160,9 +160,20 @@ class QualityScanTests(Base):
         for path in Path(self.ws).glob('yt-*'):
             _, manifest, _ = self.intake.load_item(str(path))
             saved[manifest['source']['id']] = dict(item=str(path), manifest=manifest)
+        review = self.state.catalogue_review
+        old_digest = saved[native.FIRST]['manifest']['import']['library_sha256']
+        new_digest = saved[native.SECOND]['manifest']['import']['library_sha256']
+        review.observe(dict(id=native.SECOND, title='First', channel='Artist'), {}, new_digest)
+        review.data['overrides'][native.FIRST] = dict(sha256=old_digest, values={'artist': 'Family artist', 'genre': 'Rock'})
+        review.data['overrides'][native.SECOND] = dict(sha256=new_digest, values={'album': 'Family album'})
+        review.dirty = True
         replace_saved(self.ws, self.lib, native.FIRST, candidate, saved.get, store,
-                      self.state.catalogue_review, ListeningStats(self.ws), self.intake,
+                      review, ListeningStats(self.ws), self.intake,
                       automatic=dict(title='First', artist='Artist', damaged=True))
+        self.assertEqual(review.overrides(native.SECOND, new_digest),
+                         {'album': 'Family album', 'artist': 'Family artist', 'genre': 'Rock'})
+        row = review.data['metadata'][native.SECOND]
+        review.edit_metadata(native.SECOND, row['revision'], {'genre': 'Rock'})
         self.assertFalse(item.exists())
         self.assertFalse(target.exists())
         self.assertEqual(self.state.source_quality.snapshot()['fixed'][0]['id'], native.FIRST)
@@ -186,6 +197,8 @@ class QualityScanTests(Base):
         self.assertEqual(restored['name'], 'Changed after replacement')
         self.assertEqual([row['source_id'] for row in restored['tracks']], [native.FIRST, 'other000000', native.SECOND])
         self.assertEqual(store.read('sample-a', late)['tracks'][0]['source_id'], native.FIRST)
+        self.assertEqual(review.overrides(native.FIRST, old_digest), {'artist': 'Family artist', 'genre': 'Rock'})
+        self.assertEqual(review.overrides(native.SECOND, new_digest), {'album': 'Family album', 'genre': 'Rock'})
         snapshot = self.state.source_quality.snapshot()
         self.assertEqual(snapshot['fixed'], [])
         self.assertTrue(snapshot['songs'][0]['automatic_skipped'])
@@ -290,6 +303,32 @@ class QualityScanTests(Base):
         self.assertEqual(result.json['counts']['total'], 0)
         self.assertEqual(result.json['songs'], [])
 
+    def test_failed_source_search_exposes_retry_and_does_not_search_again_early(self):
+        native.NativeMusicApi.recording(self)
+        scanner = self.state.source_quality
+        with patch('music_web.source_quality.analyze', return_value={'verdict': 'suspect', 'bands_db': []}), \
+                patch.object(self.intake, 'cmd_search', side_effect=OSError) as search:
+            self.assertTrue(scanner.scan_once())
+            row = scanner.snapshot()['songs'][0]
+            self.assertEqual(row['retry_reason'], 'Source search unavailable')
+            self.assertGreater(row['retry_at'], time.time())
+            self.assertTrue(scanner.scan_once())
+            search.assert_called_once()
+
+    def test_idle_scan_limits_audio_measurement_per_pass(self):
+        for source in (native.FIRST, native.SECOND):
+            native.NativeMusicApi.recording(self, source_id=source)
+        scanner = self.state.source_quality
+        scanner.limit_search = True
+        with patch('music_web.source_quality.SCAN_BATCH', 1), \
+                patch('music_web.source_quality.analyze', return_value={'verdict': 'clean', 'bands_db': []}) as measure, \
+                patch.object(self.intake, 'cmd_search', return_value={'results': []}):
+            self.assertTrue(scanner.scan_once())
+            self.assertEqual(measure.call_count, 1)
+            scanner.scan_once()
+            scanner.scan_once()
+            self.assertEqual(measure.call_count, 2)
+
 
 class QualitySnapshotTests(unittest.TestCase):
     def setUp(self):
@@ -360,6 +399,7 @@ class AutomaticMatchTests(unittest.TestCase):
             with self.subTest(channel=channel):
                 self.assertEqual(automatic_match(track, dict(candidate, channel=channel))['id'], native.SECOND)
         for changes in (dict(id=native.FIRST), dict(title='First (Live)'), dict(title='Another - First'),
+                        dict(track_title='First (Radio Edit)'), dict(artist='Artist & Guest'),
                         dict(channel='Different - Topic', kind='topic'), dict(channel='Artist Fan'),
                         dict(channel='Artist'), dict(duration=183.01), dict(duration=None), dict(duration=float('nan'))):
             with self.subTest(changes=changes):

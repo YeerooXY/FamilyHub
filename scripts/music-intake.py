@@ -271,6 +271,7 @@ def validate(m, dirname):
              and not any(p in ("", ".", "..") for p in parts), "import.path")
         need(imp.get("sha256") == a["sha256"], "import.sha256")
         need(isinstance(imp.get("library_sha256"), str) and SHA_RE.fullmatch(imp["library_sha256"]), "import.library_sha256")
+        need("automatic_title" not in imp or type(imp["automatic_title"]) is bool, "import.automatic_title")
 
 
 def read_manifest(path):
@@ -1284,11 +1285,12 @@ def cmd_import(args):
                 except FileExistsError:
                     raise IntakeError(f"a file appeared at {dest} during import; nothing was changed") from None
                 if prev:
-                    record.update({key: prev[key] for key in ('added_by', 'added_at') if key in prev})
+                    record.update({key: prev[key] for key in ('added_by', 'added_at', 'automatic_title') if key in prev})
                 else:
                     record['added_at'] = datetime.now(timezone.utc).isoformat()
                     if getattr(args, 'added_by', None):
                         record['added_by'] = args.added_by
+                    record['automatic_title'] = getattr(args, 'automatic_title', False)
                 m['import'] = record
                 try:
                     write_manifest(d, m)

@@ -76,9 +76,10 @@ def main():
     timer = threading.Timer(3, release.set)
     try:
         with mock.patch.object(intake, 'cmd_fetch', side_effect=fetch), mock.patch.object(intake, 'pump_preview', side_effect=pump), mock.patch.object(intake, 'tool', side_effect=lambda name: sys.executable if name == 'yt-dlp' else name), mock.patch.object(intake, 'cmd_import'):
+            action = 'a' * 32
             start = time.perf_counter()
             timer.start()
-            job = json.loads(request('POST', '/api/jobs', {'url': URL}))['job']
+            job = json.loads(request('POST', '/api/jobs', {'url': URL, 'play_action': action}))['job']
             submitted = time.perf_counter()
             while 'media_url' not in job:
                 time.sleep(.02)
@@ -87,11 +88,16 @@ def main():
                     raise RuntimeError(job)
             base = job['media_url'].rsplit('/', 1)[0]
             audio = request('GET', base + '/init.mp4') + request('GET', base + '/seg00000.m4s')
-            first_byte = time.perf_counter()
+            first_segment = time.perf_counter()
             decoded = subprocess.run(['ffmpeg', '-v', 'error', '-i', 'pipe:0', '-f', 's16le', '-'], input=audio, capture_output=True, check=True)
+            decoded_at = time.perf_counter()
             assert len(decoded.stdout) > 1000
-            print(json.dumps(dict(post_ms=round((submitted-start)*1000), first_audio_ms=round((first_byte-start)*1000),
-                                  audio_before_backlog_release=not release.is_set(), **{k+'_ms': round((v-start)*1000) for k,v in stages.items()})), flush=True)
+            events = json.loads(request('GET', '/api/playback/diagnostics'))['actions'][0]['events']
+            assert {'job_accepted', 'worker_started', 'preview_ready', 'preview_segment_response_ready'} <= {row['stage'] for row in events}
+            print(json.dumps(dict(post_ms=round((submitted-start)*1000), first_segment_ms=round((first_segment-start)*1000),
+                                  decoded_audio_ms=round((decoded_at-start)*1000),
+                                  segment_before_backlog_release=first_segment < start + 3, server_events=events,
+                                  **{k+'_ms': round((v-start)*1000) for k,v in stages.items()})), flush=True)
             release.set()
             fixture.wait(client, job['id'])
     finally:

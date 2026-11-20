@@ -255,16 +255,23 @@ body[data-navigation=compact] .sidebar-top .library-title { display:none; }
 .playlist-toolbar button,.playlist-heading .actions button { display:inline-flex; align-items:center; gap:8px; }
 .playlist-toolbar .icon,.playlist-heading .actions .icon { width:18px; height:18px; }
 .playlist-tools { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-bottom:20px; }
-.playlist-tools .playlist-filters { position:static; flex-wrap:nowrap; max-width:100%; overflow-x:auto; margin:0; padding:4px; transition:none; }
+.playlist-tools .playlist-filters { position:static; flex-wrap:wrap; max-width:100%; overflow:visible; margin:0; padding:0; transition:none; }
 .playlist-filters button { flex:none; border-radius:999px; white-space:nowrap; transition:none; }
 /* Filter pills and sort share the search field's 48 px height. */
 .playlist-tools .playlist-filters button,.playlist-tools #playlist-sort { height:48px; min-height:48px; padding:0 20px; font-size:15px; }
 .playlist-filters button:hover,.playlist-filters button:active { transform:none!important; }
-.playlist-search { position:relative; display:flex; align-items:center; flex:1 1 180px; min-width:0; }
-.playlist-search>.icon { position:absolute; left:16px; top:50%; transform:translateY(-50%); width:24px; height:24px; pointer-events:none; color:var(--muted); }
-.playlist-tools #playlist-search { width:100%; min-width:0; height:48px; min-height:48px; margin:0; padding:0 20px 0 54px; border-radius:28px; border-color:transparent; background:#242424; font-size:15px; }
-.playlist-tools #playlist-search:hover { border-color:#555; background:#2a2a2a; }
-.playlist-tools #playlist-search:focus-visible { outline:2px solid #fff; outline-offset:0; }
+.collection-search { position:relative; display:flex; align-items:center; min-width:0; }
+.collection-search > .icon { position:absolute; inset-inline-start:16px; width:20px; height:20px; pointer-events:none; color:var(--muted); }
+.collection-search > :is(#library-filter,#playlist-search,#genre-search) {
+    width:100%; min-width:0; height:48px; margin:0; padding:0 44px 0 46px; border-radius:24px;
+    border:1px solid transparent; background:#242424; font-size:15px;
+}
+.collection-search > :is(#library-filter,#playlist-search,#genre-search):hover { border-color:#555; background:#2a2a2a; }
+.collection-search > :is(#library-filter,#playlist-search,#genre-search):focus-visible { outline:2px solid var(--focus,#fff); outline-offset:2px; }
+#playlist-search::-webkit-search-cancel-button { display:none; }
+.collection-search .collection-search-clear { position:absolute; inset-inline-end:2px; display:grid; place-items:center; width:44px; min-height:44px; padding:0; border-radius:50%; }
+.collection-search-clear .icon { width:16px; height:16px; }
+.playlist-search { flex:1 1 140px; }
 .playlist-tools #playlist-sort { display:flex; align-items:center; gap:8px; flex:none; margin:0; transition:none; transform:none!important; }
 .playlist-tools #playlist-sort .icon { width:16px; height:16px; }
 .playlist-sort-options { width:180px; }
@@ -273,7 +280,11 @@ body[data-navigation=compact] .sidebar-top .library-title { display:none; }
 .playlist-tools :is(input,select,button):focus-visible,.playlist-empty button:focus-visible { outline:2px solid var(--focus,var(--accent-blue)); outline-offset:2px; }
 .playlist-empty { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:13px; color:var(--muted); }
 .playlist-empty .quiet { padding:4px; font-size:13px; transition:none; transform:none!important; }
-.playlist-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:20px; }
+.playlist-collection-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; margin-bottom:16px; }
+.playlist-collection-heading > h1 { margin:0; }
+.playlist-collection + .playlist-collection { margin-top:24px; }
+.playlist-collection > h2 { margin:0 0 12px; font-size:20px; }
+.playlist-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,230px),1fr)); gap:20px; }
 .playlist-card { display:flex; flex-direction:column; padding:16px; align-items:stretch; gap:10px; text-align:left; min-width:0; }
 .playlist-card>.cover { width:100%; height:auto; aspect-ratio:1; border-radius:10px; }
 .playlist-card strong { font-size:17px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -360,6 +371,7 @@ body[data-view=search] .workspace>main { display:flex; flex-direction:column; ov
 @media(max-width:900px) and (min-width:721px) { .player-bar { grid-template-columns:minmax(180px,1fr) minmax(200px,2fr) 150px; } }
 @media(max-width:720px) {
  .playlist-tools .playlist-filters { flex-basis:100%; }
+ .playlist-tools .playlist-filters button { height:44px; min-height:44px; padding-inline:12px; font-size:14px; }
  .playlist-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
  .playlist-card { padding:12px; }
  .playlist-card strong { font-size:15px; }
@@ -692,7 +704,12 @@ body[data-view=preferences] #view-title { width:min(900px,100%); margin-inline:a
 .playlist-heading > .playlist-details-open,.playlist-heading > .playlist-coauthors { align-self:flex-start; width:fit-content; max-width:100%; }
 .playlist-details-open,.playlist-coauthors { transition:background-color .15s ease,color .15s ease; }
 .playlist-details-open:hover,.playlist-details-open:active,.playlist-coauthors:hover,.playlist-coauthors:active { transform:none!important; filter:none!important; }
-.library-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.library-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:16px; }
+.library-toolbar .collection-search { flex:1 1 140px; max-width:460px; }
+.library-toolbar :is(.library-genre-toggle,.upload-open),.playlist-collection-heading .upload-open { min-height:48px; padding-inline:14px; }
+.library-genre-toggle { display:flex; align-items:center; gap:8px; max-width:42%; }
+.library-genre-toggle > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.library-genre-toggle .icon { width:16px; height:16px; flex:none; }
 .upload-open { display:inline-flex; align-items:center; gap:8px; flex-shrink:0; }
 .upload-limits { font-size:12px; color:var(--muted); margin-top:4px; }.upload-selection { margin:20px 0; border-top:1px solid #ffffff10; padding-top:16px; }.upload-selection>div,.upload-status>div { display:flex; justify-content:space-between; align-items:center; gap:12px; }.upload-selection>div>span { color:var(--muted); font-size:12px; }.upload-selection ul { list-style:none; padding:0; margin:12px 0; max-height:180px; overflow:auto; }.upload-selection li { display:flex; align-items:center; gap:10px; padding:7px 0; font-size:12px; }.upload-selection li span { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.upload-selection li>.icon { width:18px; height:18px; flex-shrink:0; color:var(--muted); }.upload-selection li>.icon:last-child:not(:first-child) { color:var(--mint); }.upload-selection>small { color:var(--muted); font-size:12px; }
 .upload-status { display:grid; gap:12px; margin:20px 0; font-size:13px; }.upload-status>div>span,.upload-status>small { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }.upload-status progress { width:100%; height:6px; accent-color:var(--accent-blue); }
@@ -752,10 +769,12 @@ input:not([type=range]),textarea,[contenteditable=true],[contenteditable=true] *
 @media(max-width:720px) { .playlist-identity>.cover,.playlist-identity>.playlist-image-picker { align-self:flex-start; }.playlist-identity .image-picker-caption { opacity:0; }.playlist-identity .playlist-image-picker:focus-within .image-picker-caption { opacity:1; } }
 
 /* Downloaded view: kept songs and the playback cache are counted separately. */
-.device-sizes { display:flex; flex-wrap:wrap; gap:8px 24px; margin:0; }
-.device-sizes>div { display:grid; gap:2px; }
-.device-sizes dt { font-size:12px; color:var(--muted); }
-.device-sizes dd { margin:0; font-size:14px; font-weight:600; font-variant-numeric:tabular-nums; }
+.device-sizes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; width:min(100%,392px); margin:0 0 16px; }
+.device-sizes > button { display:grid; gap:4px; min-height:62px; padding:8px 12px; border-radius:8px; text-align:start; }
+.device-sizes > button[aria-pressed=true] { border-color:var(--accent-blue); background:color-mix(in srgb,var(--accent-blue) 16%,#242424); }
+.device-sizes strong { font-size:14px; }
+.device-size { color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; }
+.playback-cache-note { margin:0 0 16px; }
 .playlist-device-count { padding:2px 8px; border:1px solid currentColor; border-radius:999px; font-variant-numeric:tabular-nums; }
 .device-download-progress { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin-bottom:12px; font-size:13px; }
 .device-download-progress>span { min-width:0; overflow-wrap:anywhere; }
@@ -804,23 +823,15 @@ body::before { content:""; position:fixed; inset:0 0 auto; z-index:1000; height:
 /* Keep the 24 px icon family at 2 CSS px when controls resize it. */
 .music-icon :is(path, circle, ellipse, rect, line, polyline, polygon) { vector-effect:non-scaling-stroke; }
 
-/* Keep the search and its shortcuts visible without letting suggestions cover the search field. */
-.genre-filter { position:sticky; top:0; z-index:5; display:grid; gap:8px; margin:0 -24px 16px; padding:12px 24px; background:var(--panel-hue,var(--panel-bg)); }
-.genre-filter .genre-top { position:static; margin:0; padding:2px; }
-.genre-search { position:relative; width:min(100%,360px); }
-.genre-search > .icon { position:absolute; inset-inline-start:14px; top:12px; width:20px; height:20px; pointer-events:none; color:var(--ink); }
-.genre-search input { width:100%; min-height:44px; padding-inline:44px; }
-.genre-search .genre-clear { position:absolute; inset-inline-end:0; top:0; min-width:44px; min-height:44px; }
-.genre-search :is(ul,.genre-no-results) { position:absolute; inset:calc(100% + 4px) 0 auto; z-index:1; max-height:min(280px,40dvh); overflow:auto; display:grid; margin:0; padding:4px; border:1px solid var(--border,#ffffff40); border-radius:12px; background:var(--surface,#101b2e); box-shadow:0 8px 20px #0006; list-style:none; }
-.genre-search .genre-no-results { padding:10px 12px; color:var(--muted); }
-.genre-search ul[hidden] { display:none; }
-.genre-search [role=option] { padding:10px 12px; border-radius:8px; cursor:pointer; overflow-wrap:anywhere; }
-.genre-search [role=option]:is(:hover,[aria-selected=true]) { background:#ffffff22; }
-
-@media(max-width:720px) {
- .genre-filter { margin-inline:-16px; padding:10px 16px; }
- .genre-filter .genre-top { padding:2px; }
+.genre-dialog { --popup-width:380px; }
+#genre-options { position:relative; max-height:min(280px,42dvh); overflow:auto; margin:8px 0 0; padding:0; list-style:none; }
+#genre-options [role=option] {
+    display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:44px; padding:8px 12px;
+    border-radius:8px; cursor:pointer; overflow-wrap:anywhere;
 }
+#genre-options [role=option][aria-selected=true] { background:#ffffff20; }
+@media(hover:hover) { #genre-options [role=option]:hover { background:#ffffff20; } }
+#genre-options .icon { flex:none; width:18px; height:18px; }
 
 /* No pinch or double-tap zoom: the layout is already sized for touch, and a stray zoom leaves the app stuck enlarged. */
 html, body { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }

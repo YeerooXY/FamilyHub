@@ -21,7 +21,8 @@ class RequestDispatcher:
         watch = query.get("watch") == ["1"]
         background = request.headers.get("X_FAMILYHUB_ACTIVITY") == "background"
         lane = "ordinary"
-        if path.startswith('/api/playback/') or path == '/api/profile/playback' or path.startswith('/api/listening/rooms'):
+        if (path.startswith('/api/playback/') and path != '/api/playback/diagnostics'
+                or path == '/api/profile/playback' or path.startswith('/api/listening/rooms')):
             lane = 'control'
         elif watch:
             lane = "watch"
@@ -32,7 +33,8 @@ class RequestDispatcher:
         elif request.command == 'POST' and (path in ('/api/uploads', '/api/library/additions')
                 or path.startswith('/api/playlists/') and path.endswith(('/download', '/prepare', '/import'))):
             lane = 'download'
-        elif "/media/" in path or path.startswith("/api/library/") and ("/playback/" in path or path.endswith("/download")):
+        elif "/media/" in path or path.startswith("/api/library/") and (
+                "/playback/" in path or "/playback-source/" in path or path.endswith("/download")):
             lane = "media" if not background and (query.get('ticket') or '/media/' in path) else "download"
         elif path.startswith('/api/library/') and path.endswith('/playback-info'):
             # Installed phone downloaders use the same metadata route as players.

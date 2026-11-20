@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 from .catalogue_review import normal, seed
 from .playlists import preferred_match, rank_matches, repoint_recording, source_tier
-from .review_confidence import MATCH_DURATION_SECONDS, close_duration
+from .review_confidence import MATCH_DURATION_SECONDS, close_duration, presentation_title
 from .worker_activity import WorkerActivity
 from .resources import audio_command, background_command, background_request, observe
 
@@ -28,12 +28,23 @@ SIZE = 4096
 RATE = 48000
 # Before download only: silence at either end can add this much; trimmed lengths must match within 3 s.
 MAX_UNTRIMMED_DIFFERENCE = 15
+SCAN_BATCH = 8
+SEARCH_RETRY_SECONDS = (300, 1800, 7200)
 BANDS = ((1000, 8000), (14000, 15500), (16000, 17000), (17500, 19000), (19000, 20500))
+OFFICIAL_CHANNEL = re.compile(r'(.+?)(?:\s*[-\u2010-\u2015]\s*Topic|\s+Official|\s*VEVO)', re.I)
 
 
 def official_replacement(track, candidates, search=None):
-    return preferred_match([candidate for candidate in rank_matches(track, candidates, search=search)
-                            if candidate['source_tier'] <= 2 and candidate.get('id') != track['id']])
+    artist = track['artist']
+    title = normal(presentation_title(track['title'], artist))
+    eligible = []
+    for candidate in rank_matches(track, candidates, search=search):
+        official = OFFICIAL_CHANNEL.fullmatch(candidate.get('channel') or '')
+        if (candidate['source_tier'] <= 2 and candidate.get('id') != track['id']
+                and normal(presentation_title(candidate.get('title') or '', artist)) == title
+                and (not official or normal(official[1]) == normal(artist))):
+            eligible.append(candidate)
+    return preferred_match(eligible)
 
 
 def manual_match(track, candidate):
@@ -46,27 +57,30 @@ def manual_match(track, candidate):
 
 
 def automatic_match(track, candidate):
-    if (not candidate or not re.fullmatch(r'[A-Za-z0-9_-]{11}', candidate.get('id') or '')
+    if (not candidate or not re.fullmatch(r'[A-Za-z0-9_-]{11}', track.get('id') or '')
+            or not re.fullmatch(r'[A-Za-z0-9_-]{11}', candidate.get('id') or '')
             or candidate['id'] == track['id'] or not close_duration(track.get('duration'), candidate.get('duration'))):
         return None
     artist = normal(track.get('artist'))
     channel = candidate.get('channel') or ''
-    official = re.fullmatch(r'(.+?)(?:\s*[-\u2010-\u2015]\s*Topic|\s+Official|\s*VEVO)', channel, re.I)
+    official = OFFICIAL_CHANNEL.fullmatch(channel)
     if not artist or not official or normal(official[1]) != artist:
         return None
 
-    def presentation_title(title):
-        labels = r'(?:official(?: music)? (?:audio|video)|lyrics?(?: video)?|audio|video|hq|hd|visualizer)'
-        return normal(re.sub(r'\s*(?:[\[(]\s*'+labels+r'\s*[\])]|\s+-\s+'+labels+r')$', '', title, flags=re.I))
-
-    title = presentation_title(track['title'])
-    candidate_title = presentation_title(candidate.get('title') or '')
-    if not title or candidate_title not in (title, f'{artist} {title}'):
+    title = normal(presentation_title(track['title'], track['artist']))
+    if not title or any(normal(presentation_title(value, track['artist'])) != title
+                        for value in (candidate.get('title') or '', candidate.get('track_title') or track['title'])):
+        return None
+    if candidate.get('artist') and normal(candidate['artist']) != artist:
         return None
     return official_replacement(track, [candidate])
 
 
 class ScanPaused(Exception):
+    pass
+
+
+class SourceCheckError(ValueError):
     pass
 
 
@@ -220,15 +234,18 @@ class SourceQuality:
         try:
             active_keys = set()
             deferred = False
+            work = 0
             for item in sorted(self.workspace.iterdir()):
                 if not self.idle() or self.stop.is_set():
                     return
                 if not self.intake.ID_RE.fullmatch(item.name) or not item.name.startswith(('yt-', 'local-')):
                     continue
                 try:
-                    _, manifest, audio = self.intake.load_item(str(item))
+                    directory, manifest = self.intake.read_manifest(str(item))
                     if not manifest.get('import') or manifest.get('edit'):
                         continue
+                    stat = self.intake.regular_file(os.path.join(directory, manifest['audio']['file']), 'staged audio')
+                    stamp = [stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino]
                     source = manifest['source']
                     identifier = source['id'] if source['kind'] == 'youtube' else manifest['id']
                     digest = manifest['audio']['sha256']
@@ -236,29 +253,44 @@ class SourceQuality:
                     active_keys.add(key)
                     with self.lock:
                         row = copy.deepcopy(self.rows.get(key))
+                        if self.active_keys is not None:
+                            self.active_keys.add(key)
                     if row is not None and any(row.get(flag) for flag in ('dismissed', 'replaced_by', 'replacing')):
                         continue
                     if row is not None and not row.get('channel'):
                         row['channel'] = source.get('channel') or manifest['import']['artist']
                         self.save(key, row)
-                    if row is None:
+                    if row is None or row.get('stamp', stamp) != stamp:
+                        if self.limit_search and work >= SCAN_BATCH:
+                            return True
+                        work += 1
+                        _, checked, audio = self.intake.load_item(str(item))
+                        if checked != manifest:
+                            continue
                         record = manifest['import']
                         metadata = self.review.overrides(identifier, record['library_sha256']) if self.review else {}
-                        track = seed(source, dict(title=record['title'], channel=metadata.get('artist', record['artist']),
+                        track = seed(source, dict(title=metadata.get('title', record['title']), channel=metadata.get('artist', record['artist']),
                                                   duration=manifest['audio']['duration']))
                         tier = source_tier(source, track['artist']) if source['kind'] == 'youtube' else None
                         with self.activity.track(record['title']):
                             result = analyze(audio, manifest['audio']['duration'], self.idle,
                                              governor=getattr(self.intake, 'RESOURCES', None))
-                        row = dict(id=identifier, sha256=digest, channel=source.get('channel', record['artist']), **track, **result, source_tier=tier,
+                        row = dict(id=identifier, sha256=digest, stamp=stamp, channel=source.get('channel', record['artist']), **track, **result, source_tier=tier,
                                    proposed_replacement=None, replacement_checked=False)
                         self.save(key, row)
-                    if (row['verdict'] == 'suspect' or row['source_tier'] == 3) and not row['replacement_checked']:
+                    if (row['verdict'] == 'suspect' or row['source_tier'] == 3) and not row.get('replacement_checked'):
                         if not self.idle():
                             return
-                        if self.limit_search and not self.review.reserve_automatic('source search'):
+                        if row.get('retry_at', 0) > time.time():
                             deferred = True
                             continue
+                        if self.limit_search:
+                            if work >= SCAN_BATCH:
+                                return True
+                            if not self.review.reserve_automatic('source search'):
+                                deferred = True
+                                continue
+                        work += 1
                         query = (row['artist'].split(',')[0] + ' ' + row['title'])[:200]
                         with self.activity.track(row['title']):
                             def search(args):
@@ -266,7 +298,18 @@ class SourceQuality:
                                 args.youtube_background = True
                                 args.main_only = self.limit_search
                                 return self.intake.cmd_search(args)
-                            found = search(SimpleNamespace(query=query, limit=30, offset=0))['results']
+                            try:
+                                found = search(SimpleNamespace(query=query, limit=30, offset=0))['results']
+                            except (OSError, ValueError, KeyError, self.intake.IntakeError):
+                                attempts = row.get('search_attempts', 0)
+                                with self.lock:
+                                    current = self.rows[key]
+                                    retry = (dict(retry_at=time.time() + SEARCH_RETRY_SECONDS[attempts],
+                                                  retry_reason='Source search unavailable') if attempts < len(SEARCH_RETRY_SECONDS)
+                                             else dict(retry_at=0, retry_reason='Source search unavailable', replacement_checked=True))
+                                    self.save(key, dict(current, search_attempts=attempts+1, **retry))
+                                deferred |= bool(retry['retry_at'])
+                                continue
                             if not self.idle():
                                 return
                             if self.limit_search:
@@ -277,7 +320,8 @@ class SourceQuality:
                         row['replacement_checked'] = True
                         with self.lock:
                             current = self.rows[key]
-                            self.save(key, dict(current, proposed_replacement=row['proposed_replacement'], replacement_checked=True))
+                            self.save(key, dict(current, proposed_replacement=row['proposed_replacement'], replacement_checked=True,
+                                                retry_at=0, retry_reason=''))
                         if self.limit_search and strict:
                             self.candidate_ready()
                 except ScanPaused:
@@ -299,6 +343,7 @@ class SourceQuality:
         counts['tier_3'] = sum(r['source_tier'] == 3 for r in rows)
         counts['total'] = len(rows)
         songs = []
+        retry = self.review.automatic_retry('source search') if self.limit_search else 0
         for row in rows:
             event = journal.get(row['id'], {})
             if row.get('dismissed') or row.get('replaced_by') or (
@@ -306,6 +351,12 @@ class SourceQuality:
                 continue
             candidate = row.get('proposed_replacement')
             row['proposed_replacement'] = manual_match(row, candidate)
+            row.pop('stamp', None)
+            if not row.get('replacement_checked'):
+                if retry and retry > row.get('retry_at', 0):
+                    row.update(retry_at=retry, retry_reason='Hourly catalogue limit')
+                elif retry is None:
+                    row.update(retry_at=0, retry_reason='Automatic source search is off')
             if row['verdict'] == 'suspect' or row['source_tier'] == 3 and (row['proposed_replacement'] or row.get('replacing')):
                 songs.append(row)
         counts['damaged'] = sum(row['verdict'] == 'suspect' for row in songs)
@@ -324,35 +375,53 @@ def write_json(path, value):
 
 
 def replace_saved(workspace, library, old_id, candidate, saved_source, playlists, review, stats, intake, length=None,
-                  automatic=None, expected_digest=None):
+                  automatic=None, expected_digest=None, verified_digest=None):
     """Archive originals and retain metadata snapshots for manual undo and crash recovery."""
     workspace, library = Path(workspace), Path(library)
     old, new = saved_source(old_id), saved_source(candidate['id'])
     if not old or not new:
-        raise ValueError('Both recordings must be saved before replacement.')
+        raise SourceCheckError('Both recordings must be saved before replacement.')
     if expected_digest is not None and old['manifest']['audio']['sha256'] != expected_digest:
-        raise ValueError('The original recording changed before replacement.')
+        raise SourceCheckError('The original recording changed before replacement.')
+    if verified_digest is not None and new['manifest']['audio']['sha256'] != verified_digest:
+        raise SourceCheckError('The replacement recording changed after verification.')
     old_record, new_record = old['manifest']['import'], new['manifest']['import']
     # Compare the lengths people hear: uploads often carry extra silence that is trimmed away.
     measure = length or (lambda saved: saved['manifest']['audio']['duration'])
     if not close_duration(measure(old), measure(new)):
-        raise ValueError(f'After trimming silence, the downloaded recording differs by more than {MATCH_DURATION_SECONDS} seconds.')
+        raise SourceCheckError(f'After trimming silence, the recordings differ by more than {MATCH_DURATION_SECONDS} seconds.')
     item = Path(old['item'])
     target = library.joinpath(*old_record['path'].split('/'))
     new_target = library.joinpath(*new_record['path'].split('/'))
     if (item.parent.resolve() != workspace.resolve() or not intake.inside(str(target), str(library))
+            or not intake.inside(str(new_target), str(library))
             or target.resolve() == new_target.resolve()):
-        raise ValueError('The original recording cannot be safely archived.')
+        raise SourceCheckError('The original recording cannot be safely archived.')
     archive = workspace / '.replaced' / old_id
     journal = workspace / '.replacements.json'
     records = json.loads(journal.read_text(encoding='utf-8')) if journal.exists() else {}
+    if records.get(candidate['id'], {}).get('state') in ('done', 'pending', 'undoing') or any(
+            event['new_id'] == old_id and event['state'] in ('done', 'undoing') for event in records.values()):
+        raise SourceCheckError('Undo the earlier source replacement before replacing this recording.')
     if archive.exists() and records.get(old_id, {}).get('state') not in ('rolled_back', 'undone'):
-        raise ValueError('A previous replacement archive needs review before retrying.')
+        raise SourceCheckError('A previous replacement archive needs review before retrying.')
+    moves = ((target, archive / 'library' / target.name), (item, archive / item.name))
+    if any(os.path.lexists(destination) for _, destination in moves):
+        raise SourceCheckError('The replacement archive already contains files for this recording.')
     archive.mkdir(parents=True, exist_ok=True)
     entry = dict(new_id=candidate['id'], match=dict(candidate), state='pending', item=str(item), library_file=str(target),
                  old_sha256=old['manifest']['audio']['sha256'], backups=[])
     if automatic:
         entry['automatic'] = {**automatic, 'fixed_at': int(time.time())}
+    new_digest = new_record['library_sha256']
+    previous_entry = review.data['overrides'].get(candidate['id'], {})
+    if previous_entry.get('sha256') != new_digest:
+        previous_entry = {}
+    previous_values = previous_entry.get('values', {})
+    transferred = {key: value for key, value in review.overrides(old_id, old_record['library_sha256']).items()
+                   if key not in previous_values and (new_record.get('automatic_title') is not False or key not in new_record)}
+    if automatic and transferred:
+        entry['transferred_metadata'] = dict(sha256=new_digest, values=transferred)
     records[old_id] = entry
 
     def backup(path):
@@ -383,11 +452,9 @@ def replace_saved(workspace, library, old_id, candidate, saved_source, playlists
     old_review, old_devices = copy.deepcopy(review.data), copy.deepcopy(stats.devices)
     moved = []
     try:
-        values = review.overrides(old_id, old_record['library_sha256'])
-        if values:
-            if automatic:
-                values.update(review.overrides(candidate['id'], new_record['library_sha256']))
-            review.data['overrides'][candidate['id']] = dict(sha256=new_record['library_sha256'], values=values)
+        if transferred:
+            review.data['overrides'][candidate['id']] = dict(previous_entry, sha256=new_digest,
+                                                            values={**previous_values, **transferred})
             review.dirty = True
             review.flush()
         for device in stats.devices.values():
@@ -399,7 +466,7 @@ def replace_saved(workspace, library, old_id, candidate, saved_source, playlists
             write_json(path, data)
         if lyrics.exists() and not new_lyrics.exists():
             shutil.copy2(lyrics, new_lyrics)
-        for source, destination in ((target, archive / 'library' / target.name), (item, archive / item.name)):
+        for source, destination in moves:
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(source), str(destination))
             moved.append((source, destination))
@@ -420,7 +487,7 @@ def replace_saved(workspace, library, old_id, candidate, saved_source, playlists
         raise
 
 
-def undo_saved(workspace, old_id, records, playlists):
+def undo_saved(workspace, library, old_id, records, playlists, review):
     """Resume a restore from its journal, changing only entries still using this replacement."""
     entry = records.get(old_id, {})
     if not entry.get('automatic') or entry.get('state') not in ('done', 'undoing', 'undone'):
@@ -430,9 +497,11 @@ def undo_saved(workspace, old_id, records, playlists):
     root = Path(workspace)
     archive = root / '.replaced' / old_id
     item, library_file = Path(entry['item']), Path(entry['library_file'])
+    if item.resolve().parent != root.resolve() or not library_file.resolve().is_relative_to(Path(library).resolve()):
+        raise ValueError('The original recording cannot be restored outside the library and workspace.')
     moves = ((archive / 'library' / library_file.name, library_file), (archive / item.name, item))
     for source, destination in moves:
-        if source.exists() == destination.exists() or entry['state'] == 'done' and not source.exists():
+        if os.path.lexists(source) == os.path.lexists(destination) or entry['state'] == 'done' and not source.exists():
             raise ValueError('The original file cannot be restored safely. Check the replacement archive.')
     entry['state'] = 'undoing'
     journal = root / '.replacements.json'
@@ -459,6 +528,16 @@ def undo_saved(workspace, old_id, records, playlists):
         if changed:
             data['revision'] = data.get('revision', 0) + 1
             write_json(path, data)
+    transferred = entry.get('transferred_metadata')
+    if transferred:
+        saved = review.data['overrides'].get(entry['new_id'], {})
+        if saved.get('sha256') == transferred['sha256']:
+            remaining = {key: value for key, value in saved['values'].items()
+                         if key in saved.get('manual', ()) or transferred['values'].get(key) != value}
+            if remaining != saved['values']:
+                review.data['overrides'][entry['new_id']] = dict(saved, values=remaining)
+                review.dirty = True
+                review.flush()
     entry['state'] = 'undone'
     write_json(journal, records)
     return entry['old_sha256']
@@ -492,6 +571,7 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
         for key, row in rows:
             event = journal.get(row['id'], {})
             if (event.get('state') in ('done', 'undoing', 'undone', 'pending')
+                    or any(entry['new_id'] == row['id'] and entry['state'] in ('done', 'undoing') for entry in journal.values())
                     or not (row['verdict'] == 'suspect' or row['source_tier'] == 3)):
                 continue
             candidate = automatic_match(row, row.get('proposed_replacement'))
@@ -535,12 +615,14 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
                         scanner.save(key, dict(scanner.rows[key], replacing=False, queued=False, replaced_by=candidate['id']))
             except ScanPaused:
                 with scanner.lock:
-                    scanner.save(key, dict(scanner.rows[key], replacing=False, queued=False))
+                    scanner.save(key, dict(scanner.rows[key], replacing=not automatic, queued=not automatic))
+                if not automatic:
+                    pending.put(job)
             except Exception as error:
                 app.logger.warning('Source replacement failed: %s', type(error).__name__)
                 with scanner.lock:
                     scanner.save(key, dict(scanner.rows[key], replacing=False, queued=False,
-                                           automatic_skipped=bool(automatic), replacement_error=(
+                                           automatic_skipped=bool(automatic), replacement_error=str(error) if isinstance(error, SourceCheckError) else (
                                                'Automatic replacement stopped. Compare the recordings before trying again.' if automatic else
                                                'Replacement failed. Review the saved recording and try again.')))
 

@@ -157,6 +157,7 @@ public partial class MainPage : ContentPage
     {
         // Leave headroom under the server's 15-second expiry, even on a metered idle connection.
         var playingOrConnecting = player.PlaybackRequested || player.RemotePlaying || session.HandoffPending;
+        UpdatePlaybackNetwork();
         session.IdleHeartbeatSeconds = !playingOrConnecting && MeteredConnection() ? 10 : 5;
         var interval = TimeSpan.FromSeconds(session.IdleHeartbeatSeconds);
         if (activityTimer.Interval != interval) activityTimer.Interval = interval;
@@ -166,8 +167,15 @@ public partial class MainPage : ContentPage
     }
 #if IOS || MACCATALYST
     private readonly Network.NWPathMonitor pathMonitor = new();
-    private bool meteredApplePath;
+    private bool meteredApplePath = true;
 #endif
+    private void UpdatePlaybackNetwork()
+    {
+        var eligible = !MeteredConnection() && Connectivity.Current.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
+        if (session.CanWarmPlayback == eligible) return;
+        session.CanWarmPlayback = eligible;
+        player.PlaybackNetworkChanged();
+    }
     private bool MeteredConnection()
     {
 #if WINDOWS
@@ -175,7 +183,8 @@ public partial class MainPage : ContentPage
         if (cost?.NetworkCostType is global::Windows.Networking.Connectivity.NetworkCostType.Fixed or global::Windows.Networking.Connectivity.NetworkCostType.Variable) return true;
 #elif ANDROID
         var manager = Android.App.Application.Context.GetSystemService(Android.Content.Context.ConnectivityService) as Android.Net.ConnectivityManager;
-        if (manager?.IsActiveNetworkMetered == true) return true;
+        if (manager is null || manager.IsActiveNetworkMetered ||
+            manager.RestrictBackgroundStatus != Android.Net.RestrictBackgroundStatus.Disabled) return true;
 #elif IOS || MACCATALYST
         if (meteredApplePath) return true;
 #endif
@@ -249,17 +258,23 @@ public partial class MainPage : ContentPage
         )
 	{
 		InitializeComponent();
+        this.devices = devices;
+        this.session = session;
+        this.player = player;
 #if WINDOWS || MACCATALYST
         BackgroundColor = Colors.Black;
 #endif
 #if IOS || MACCATALYST
         pathMonitor.SetQueue(CoreFoundation.DispatchQueue.MainQueue);
-        pathMonitor.SnapshotHandler = path => meteredApplePath = path.IsExpensive || path.IsConstrained;
+        pathMonitor.SnapshotHandler = path =>
+        {
+            meteredApplePath = path.IsExpensive || path.IsConstrained;
+            UpdatePlaybackNetwork();
+        };
         pathMonitor.Start();
 #endif
-        this.devices = devices;
-        this.session = session;
-        this.player = player;
+        Connectivity.Current.ConnectivityChanged += (_, _) => Dispatcher.Dispatch(UpdatePlaybackNetwork);
+        UpdatePlaybackNetwork();
 #if WINDOWS
         this.discord = discord;
         player.Changed += UpdateDiscord;

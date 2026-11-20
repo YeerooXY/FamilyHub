@@ -1,0 +1,75 @@
+@implements IDisposable
+@inject MusicSession Session
+@using System.Text.Json.Serialization
+
+<section class="settings-panel glass-panel" aria-labelledby="playback-timing-title">
+    <h2 id="playback-timing-title">Playback diagnostics</h2>
+    <div class="setting-row">
+        <span>Recent playback timings for this profile</span>
+        <button @onclick="Read" aria-disabled="@(loading ? "true" : "false")">@(actions is null ? "Load timings" : "Refresh timings")</button>
+    </div>
+    <p class="setting-help" role="status">@status</p>
+    @if (actions is { Length: > 0 })
+    {
+        @foreach (var action in actions)
+        {
+            <details @key="action.Action">
+                <summary>@Summary(action)</summary>
+                <dl>
+                    @foreach (var stage in action.Events)
+                    {
+                        <div class="setting-row"><dt>@Label(stage.Stage)</dt><dd>@(stage.ClientMs ?? stage.ServerMs) ms</dd></div>
+                    }
+                </dl>
+            </details>
+        }
+    }
+</section>
+
+@code {
+    private sealed record TimingEvent(string Stage, [property: JsonPropertyName("client_ms")] int? ClientMs,
+        [property: JsonPropertyName("server_ms")] int? ServerMs);
+    private sealed record PlayAction(string Action, TimingEvent[] Events);
+    private sealed record TimingResult(PlayAction[] Actions);
+    private PlayAction[]? actions;
+    private readonly CancellationTokenSource lifetime = new();
+    private bool loading;
+    private string status = "";
+
+    private async Task Read()
+    {
+        if (loading) return;
+        var api = Session.Api;
+        if (!Session.Connected || api is null) { status = "Connect to the server to load timings."; return; }
+        loading = true;
+        status = "Loading timings…";
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        request.CancelAfter(TimeSpan.FromSeconds(8));
+        try
+        {
+            var result = await api.RequestJsonAsync<TimingResult>(HttpMethod.Get, "/api/playback/diagnostics",
+                cancellationToken: request.Token, background: true);
+            if (lifetime.IsCancellationRequested || Session.Api != api) return;
+            actions = result.Actions;
+            status = actions.Length == 0 ? "No playback timings in the last 30 minutes."
+                : "Newest first. Device times start at play. Server times start when the request arrives.";
+        }
+        catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException or System.Text.Json.JsonException)
+        {
+            if (!lifetime.IsCancellationRequested) status = "Could not load timings. Try again.";
+        }
+        finally { loading = false; }
+    }
+
+    private static string Label(string stage) => stage.StartsWith("client_", StringComparison.Ordinal)
+        ? "Device · " + stage[7..].Replace('_', ' ') : "Server · " + stage.Replace('_', ' ');
+
+    private static string Summary(PlayAction action)
+    {
+        var id = action.Action[..Math.Min(8, action.Action.Length)];
+        var progress = action.Events.FirstOrDefault(e => e.Stage is "client_position_advanced" or "client_fallback_position_advanced");
+        return progress?.ClientMs is { } ms ? $"Play {id} · position advanced at {ms:N0} ms" : $"Play {id}";
+    }
+
+    public void Dispose() { lifetime.Cancel(); lifetime.Dispose(); }
+}

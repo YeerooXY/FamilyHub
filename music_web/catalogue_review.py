@@ -6,19 +6,18 @@ from pathlib import Path
 import re
 import threading
 import time
-import unicodedata
 from .musicbrainz import read as musicbrainz, Throttled
 from .genres import group as genre_group
 from . import catalog_search
-from .review_confidence import DEFAULT_AUTO_RESOLUTIONS_PER_HOUR, MUSICBRAINZ_MIN_SCORE, close_duration
+from .review_confidence import DEFAULT_AUTO_RESOLUTIONS_PER_HOUR, MUSICBRAINZ_MIN_SCORE, close_duration, normal, presentation_title
 
 ID=re.compile(r'(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})')
 UNKNOWN={'','unknown','unknown artist','unknown album','unsorted','selected recordings','youtube','local imports'}
-FIELDS=('artist','album','genre')
+FIELDS=('title','artist','album','genre')
 # Raise when the lookup improves: automatic results from older versions are looked up again.
-# 4: Require matching artist credits and playback length for automatic provider edits.
-LOOKUP_VERSION=4
-AUTOMATIC_SOURCES={'No unique title, artist and duration match','Deezer/iTunes','Lookup unavailable; review manually','MusicBrainz','File/source tags',''}
+# 5: Preserve named editions and verify title changes against recording credits.
+LOOKUP_VERSION=5
+AUTOMATIC_SOURCES={'No unique title, artist and duration match','Deezer/iTunes','Lookup unavailable; review manually','MusicBrainz','File/source tags','No unambiguous artist',''}
 # Failed lookups (MusicBrainz busy or unreachable) retry after 30 minutes, then 1, 2 and 4 hours.
 RETRY_SECONDS=(1800,3600,7200,14400)
 
@@ -32,14 +31,16 @@ def text(value,limit=120):
         raise ReviewError('Enter text without control characters.')
     return value.strip()
 
-def normal(value):
-    value=''.join(c for c in unicodedata.normalize('NFKD',value or '') if not unicodedata.combining(c))
-    return re.sub(r'[^\w]+',' ',value.casefold()).strip()
+def pending_fields(row):
+    current = row['current']
+    fields = [key for key in ('artist', 'album', 'genre') if missing(current.get(key))]
+    if 'title_baseline' in row and current.get('title') == row['title_baseline']:
+        fields.insert(0, 'title')
+    return fields
 
 def core_title(value):
-    # "Song (feat. X)", "Song [Remastered 2011]" and "Song - Radio Edit" name the same song for matching.
-    # Brackets naming a different performance (live, remix, acoustic...) stay part of the title.
-    value=re.sub(r'\s*[\[(][^\])]*[\])]',lambda m:m.group(0) if re.search(r'live|remix|acoustic|instrumental|slowed|sped|nightcore|cover|demo|karaoke|unplugged|version|re.record|mashup|reverb|8d',m.group(0),re.I) else '',value or '')
+    value=presentation_title(value or '')
+    value=re.sub(r'\s*[\[(]\s*(?:feat\.?\s+[^\])]+|ft\.?\s+[^\])]+|featuring\s+[^\])]+|(?:\d{4} )?remaster(?:ed)?(?: \d{4})?)[\])]', '', value, flags=re.I)
     value=re.sub(r'\s+(?:feat\.?|ft\.?|featuring)\s.*$','',value,flags=re.I)
     value=re.sub(r'\s+-\s+(?:radio edit|remaster(?:ed)?(?: \d{4})?|single version|original mix)$','',value,flags=re.I)
     return normal(value)
@@ -60,11 +61,8 @@ def artist_genre(artist_id='',name=''):
 def seed(source,track):
     title=source.get('track_title') or track['title']
     artist=source.get('artist') or track.get('channel','')
-    parts=re.split(r'\s+[-\u2013\u2014]\s+',title,maxsplit=1)
-    if not source.get('track_title') and len(parts)==2:
-        artist=source.get('artist') or parts[0];title=parts[1]
-    title=re.sub(r'\s*[\[(][^\])]*(?:official|audio|video|lyrics|release|hq|hd)[^\])]*[\])]',lambda m:m.group(0) if re.search(r'remix|live|acoustic|slowed|nightcore|instrumental|cover|sped|karaoke|demo|edit|version',m.group(0),re.I) else '',title,flags=re.I).strip()
     artist=re.sub(r'\s*-?\s*Topic$|VEVO$','',artist,flags=re.I).strip()
+    title=presentation_title(title, artist)
     return dict(title=title[:200],artist=artist[:120],duration=track.get('original_duration') or track.get('duration') or 0)
 
 def lookup(row,search=None):
@@ -73,11 +71,12 @@ def lookup(row,search=None):
     if not still or result['source'] in ('File/source tags','No unambiguous artist'):return result
     found=(search or catalog_search.candidates)(row['seed'],core_title,normal)
     result['candidates']=found
-    album=catalog_search.agreed_album(found,normal) if 'album' in still else ''
-    if album and any(c['source'] == 'Deezer' and c['album'] and c['album_type'] != 'compile' for c in found):
+    verified = [c for c in found if normal(c['artist']) == normal(row['seed']['artist'])]
+    album=catalog_search.agreed_album(verified,normal) if 'album' in still else ''
+    if album and any(c['source'] == 'Deezer' and c['album'] and c['album_type'] != 'compile' for c in verified):
         result['values']['album']=result['suggested']['album']=text(album)
         if not result['source_url']:
-            result['source']='Deezer/iTunes';result['source_url']=next((c['url'] for c in found if c['url'].startswith('https://')),'')
+            result['source']='Deezer/iTunes';result['source_url']=next((c['url'] for c in verified if c['url'].startswith('https://')),'')
     return result
 
 def musicbrainz_lookup(row):
@@ -111,11 +110,16 @@ def musicbrainz_lookup(row):
             c.get('name', c.get('artist', {}).get('name', '')) + c.get('joinphrase', '')
             for c in r['artist-credit'] if isinstance(c, dict))) for r in exact.values()):
         return dict(values=values,suggested=suggested,source_url='',source='No unique title, artist and duration match')
-    identifier=max(exact.values(),key=lambda r:(int(r.get('score',0)),len(r.get('releases') or [])))['id']
+    same_edition = [r for r in exact.values() if normal(r.get('title')) == normal(title)]
+    identifier=max(same_edition or exact.values(),key=lambda r:(int(r.get('score',0)),len(r.get('releases') or [])))['id']
     record=musicbrainz('recording/'+identifier,inc='artists+releases+genres')
     source_url='https://musicbrainz.org/recording/'+identifier
     credit=''.join(c.get('name',c.get('artist',{}).get('name',''))+c.get('joinphrase','') for c in record.get('artist-credit',[]) if isinstance(c,dict)).strip()
     if credit:suggested['artist']=credit[:120]
+    canonical = record.get('title') or exact[identifier].get('title', '')
+    if ('title' in row['missing'] and canonical and len(canonical) <= 120 and normal(canonical) == normal(title)
+            and normal(credit) == normal(artist)):
+        suggested['title'] = canonical
     releases=[r for r in record.get('releases',[]) if r.get('status')=='Official' and 'Compilation' not in r.get('release-group',{}).get('secondary-types',[])]
     albums=[r for r in releases if r.get('release-group',{}).get('primary-type')=='Album']
     titles={r['title'] for r in albums or releases if r.get('title')}
@@ -127,7 +131,8 @@ def musicbrainz_lookup(row):
         genre=artist_genre(artist_id=credited) if credited else ''
         if genre:suggested['genre']=genre
     for key,value in suggested.items():
-        if key in row['missing'] and not missing(value):values.setdefault(key,value)
+        if key in row['missing'] and not missing(value) and (key != 'title' or row.get('automatic_title')):
+            values.setdefault(key,value)
     return dict(values=values,suggested=suggested,source_url=source_url,source='MusicBrainz')
 
 class CatalogueReview:
@@ -147,22 +152,37 @@ class CatalogueReview:
             if self.data.get('throttle_reset')!=1 and row.get('state')=='queued' and row.get('attempts'):
                 row.update(attempts=0);row.pop('retry_at',None);self.dirty=True
             # Automatic results from an older lookup get one more try; owner edits keep their fields.
-            if row.get('state')=='review' and row.get('lookup_version',1)<LOOKUP_VERSION and row.get('source','') in AUTOMATIC_SOURCES:
-                row.update(state='queued',lookup_version=LOOKUP_VERSION,attempts=0);row.pop('retry_at',None);self.dirty=True
+            if (row.get('state')=='review' and not row.get('automatic_undone')
+                    and row.get('lookup_version',1)<LOOKUP_VERSION and row.get('source','') in AUTOMATIC_SOURCES):
+                row.update(state='queued',lookup_version=LOOKUP_VERSION,attempts=0)
+                row.pop('retry_at',None);row.pop('retry_reason',None);self.dirty=True
         if self.data.get('throttle_reset')!=1:self.data['throttle_reset']=1;self.dirty=True
+
+    def _budget_retry(self, recent, kind):
+        if not self.automatic_limit:
+            return None
+        retry = recent[-self.automatic_limit][0] + 3600 if len(recent) >= self.automatic_limit else 0
+        if self.source_automation and self.automatic_limit >= 3:
+            # Leave capacity for searches and replacements while metadata is backlogged.
+            shares = {'metadata': self.automatic_limit * 2 // 3, 'source search': max(1, self.automatic_limit // 6)}
+            same_kind = [attempt for attempt in recent if attempt[1] == kind]
+            share = shares.get(kind)
+            if share and len(same_kind) >= share:
+                retry = max(retry, same_kind[-share][0] + 3600)
+        return retry
+
+    def automatic_retry(self, kind='metadata'):
+        with self.lock:
+            recent = [attempt for attempt in self.data.get('automatic_attempts', []) if attempt[0] > self.clock() - 3600]
+            return self._budget_retry(recent, kind)
 
     def reserve_automatic(self, kind='metadata'):
         """Count attempts across both workers and retain the rolling limit across restarts."""
         with self.lock:
             now = self.clock()
             recent = [attempt for attempt in self.data.get('automatic_attempts', []) if attempt[0] > now - 3600]
-            if len(recent) >= self.automatic_limit:
+            if self._budget_retry(recent, kind) != 0:
                 return False
-            if self.source_automation and self.automatic_limit >= 3:
-                # Leave capacity for both audio searches and replacements while metadata is backlogged.
-                shares = {'metadata': self.automatic_limit * 2 // 3, 'source search': max(1, self.automatic_limit // 6)}
-                if kind in shares and sum(attempt[1] == kind for attempt in recent) >= shares[kind]:
-                    return False
             self.data['automatic_attempts'] = recent + [[now, kind]]
             self.dirty = True
             self.flush()
@@ -185,33 +205,47 @@ class CatalogueReview:
         row=self.data['overrides'].get(identifier,{})
         return dict(row.get('values',{})) if row.get('sha256')==digest else {}
 
-    def observe(self,track,source,digest):
+    def observe(self,track,source,digest,automatic_title=None):
         if not self.lock.acquire(blocking=False):
             return  # The next library scan retries optional metadata observation.
         try:
-            self._observe(track,source,digest)
+            self._observe(track,source,digest,automatic_title)
         finally:
             self.lock.release()
 
-    def _observe(self,track,source,digest):
-        identifier=track['id'];current=dict(artist=track['channel'],album=track.get('library_album',''),genre=track.get('genre',''))
-        absent=[key for key in FIELDS if missing(current[key])]
+    def _observe(self,track,source,digest,automatic_title):
+        identifier=track['id']
+        current=dict(title=track['title'],artist=track['channel'],album=track.get('library_album',''),genre=track.get('genre',''))
+        seed_info = seed(source, track)
         with self.lock:
             existing=self.data['metadata'].get(identifier)
-            if existing and existing['sha256']==digest:
+            same = existing and existing['sha256'] == digest
+            baseline = {}
+            if (automatic_title is not False and source.get('kind') == 'youtube'
+                    and 'title' not in self.overrides(identifier, digest)
+                    and current['title'] == (source.get('track_title') or source.get('title') or '')[:120]
+                    and (not same or 'title_baseline' not in existing)
+                    and not missing(seed_info['artist']) and seed_info['title'] != current['title']):
+                baseline = dict(title_baseline=current['title'], automatic_title=automatic_title is True)
+            absent = pending_fields({**(existing if same else {}), **baseline, 'current': current})
+            if same:
                 if existing['missing']!=absent or existing['current']!=current or existing['title']!=track['title']:
-                    existing.update(missing=absent,current=current,title=track['title'],revision=existing['revision']+1)
+                    existing.update(baseline,missing=absent,current=current,title=track['title'],seed=seed_info,revision=existing['revision']+1)
                     if not absent:existing['state']='done'
-                    elif existing['state']=='processing':existing['state']='queued'
+                    elif existing['state']=='processing' or baseline:
+                        existing['state']='queued' if self.automatic_limit else 'review'
                     self.dirty=True
                 return
             if not absent or len(self.data['metadata'])>=self.MAX_ROWS:return
-            self.data['metadata'][identifier]=dict(id=identifier,sha256=digest,title=track['title'],current=current,missing=absent,seed=seed(source,track),
+            self.data['metadata'][identifier]=dict(id=identifier,sha256=digest,title=track['title'],current=current,missing=absent,seed=seed_info,**baseline,
                 embedded={k:source.get(k,'') for k in ('artist','album')},state='queued' if self.automatic_limit else 'review',
                 revision=1,suggested={},source='',source_url='')
             created=self.data['metadata'][identifier]
-            trusted={key:re.sub(r'[\x00-\x1f\x7f]',' ',source[key])[:120] for key in ('artist','album') if key in absent and not missing(source.get(key))}
+            trusted={key:re.sub(r'[\x00-\x1f\x7f]',' ',source[key])[:120].strip() for key in ('artist','album')
+                     if key in absent and not missing(source.get(key))}
+            trusted = {key: value for key, value in trusted.items() if not missing(value)}
             if trusted:
+                self._record_fix(created, trusted)
                 self._apply(created,trusted)
                 if created['missing'] and self.automatic_limit:created['state']='queued'
             self.dirty=True
@@ -274,19 +308,52 @@ class CatalogueReview:
         valid={key:text(value,80 if key=='genre' else 120) for key,value in values.items() if key in FIELDS}
         valid={key:value for key,value in valid.items() if not missing(value)}
         previous=self.data['overrides'].get(row['id'],{})
-        saved=dict(previous.get('values',{})) if previous.get('sha256')==row['sha256'] else {}
-        saved.update(valid);self.data['overrides'][row['id']]=dict(sha256=row['sha256'],values=saved)
-        row['current'].update(valid);row['missing']=[key for key in FIELDS if missing(row['current'].get(key))]
+        if previous.get('sha256')!=row['sha256']:
+            previous = {}
+        if valid:
+            self.data['overrides'][row['id']]=dict(previous, sha256=row['sha256'], values={**previous.get('values', {}), **valid})
+        row['current'].update(valid)
+        row['title'] = row['current'].get('title', row['title'])
+        row['missing']=pending_fields(row)
         row.update(state='review' if row['missing'] else 'done',revision=row['revision']+1)
         self.dirty=True
+
+    def _record_fix(self, row, values):
+        identifier, digest = row['id'], row['sha256']
+        fixes = self.data['metadata_fixed']
+        fixed = fixes.get(identifier)
+        if not fixed or fixed['sha256'] != digest:
+            fixed = fixes[identifier] = dict(id=identifier, sha256=digest, title=row['title'],
+                                            artist=row['seed']['artist'], previous={}, applied={})
+        for key, value in values.items():
+            fixed['previous'].setdefault(key, row['current'].get(key, ''))
+            fixed['applied'][key] = value
+        fixed.update(fixed_at=int(self.clock()), title=values.get('title', row['title']))
 
     def edit_metadata(self,identifier,revision,values):
         with self.lock:
             row=self.data['metadata'].get(identifier)
             if not row:raise ReviewError('Metadata request not found.')
             if type(revision) is not int or row['revision']!=revision:raise ReviewError('This metadata changed. Open it again.',409)
-            if not isinstance(values,dict) or not values or set(values)-set(FIELDS):raise ReviewError('Choose artist, album or genre fields.')
-            self._apply(row,values);self.flush();return copy.deepcopy(row)
+            if not isinstance(values,dict) or not values or set(values)-set(FIELDS):raise ReviewError('Choose title, artist, album or genre fields.')
+            self._apply(row,values)
+            manual = {key for key, value in values.items() if not missing(value)}
+            if manual:
+                saved = self.data['overrides'][identifier]
+                self.data['overrides'][identifier] = dict(saved, manual=sorted(manual.union(saved.get('manual', []))))
+            if 'title' in values and not missing(values['title']):
+                row.pop('title_baseline', None)
+                row['missing'] = pending_fields(row)
+                row['state'] = 'review' if row['missing'] else 'done'
+            row.pop('retry_at', None);row.pop('retry_reason', None)
+            fixed = self.data['metadata_fixed'].get(identifier)
+            if fixed and fixed['sha256'] == row['sha256']:
+                for key in manual:
+                    fixed['applied'].pop(key, None)
+                    fixed['previous'].pop(key, None)
+                if not fixed['applied']:
+                    del self.data['metadata_fixed'][identifier]
+            self.flush();return copy.deepcopy(row)
 
     def undo_metadata(self, identifier, digest):
         with self.lock:
@@ -301,8 +368,9 @@ class CatalogueReview:
                     values.pop(key)
                     row['current'][key] = fixed['previous'][key]
             self.data['overrides'][identifier] = dict(saved, values=values)
-            row['missing'] = [key for key in FIELDS if missing(row['current'].get(key))]
-            row.update(state='review' if row['missing'] else 'done', revision=row['revision']+1)
+            row['title'] = row['current'].get('title', row['title'])
+            row['missing'] = pending_fields(row)
+            row.update(state='review' if row['missing'] else 'done', revision=row['revision']+1, automatic_undone=True)
             del self.data['metadata_fixed'][identifier]
             self.dirty = True
             self.flush()
@@ -310,7 +378,7 @@ class CatalogueReview:
     def process_one(self,allowed,resolver=lookup):
         if not allowed():return False
         with self.lock:
-            now=time.time()
+            now=self.clock()
             archived = self.archived_ids()
             row=next((r for r in self.data['metadata'].values() if r['id'] not in archived and r['state']=='queued' and r.get('retry_at',0)<=now),None)
             if row is None or not self.reserve_automatic():return False
@@ -329,29 +397,25 @@ class CatalogueReview:
             if result=='throttled':
                 # Being told to slow down is not the song's fault: try it again in two minutes
                 # without using one of its attempts.
-                row.update(state='queued',retry_at=time.time()+120,revision=row['revision']+1)
+                row.update(state='queued',retry_at=self.clock()+120,retry_reason='MusicBrainz rate limit',revision=row['revision']+1)
                 self.dirty=True;self.flush();return True
             if result is None:
                 attempts=row.get('attempts',0)
                 if attempts<len(RETRY_SECONDS):
-                    row.update(state='queued',attempts=attempts+1,retry_at=time.time()+RETRY_SECONDS[attempts],revision=row['revision']+1)
+                    row.update(state='queued',attempts=attempts+1,retry_at=self.clock()+RETRY_SECONDS[attempts],
+                               retry_reason='Catalogue lookup unavailable',revision=row['revision']+1)
                     self.dirty=True;self.flush();return True
                 result=dict(values={},suggested={},source_url='',source='Lookup unavailable; review manually')
             row['lookup_version']=LOOKUP_VERSION
+            row.pop('retry_at', None);row.pop('retry_reason', None)
             row.update(suggested=result.get('suggested',{}),source=result.get('source',''),source_url=result.get('source_url',''))
             if result.get('candidates'):row['candidates']=[{k:str(c.get(k,''))[:200] for k in ('source','artist','album','album_type','genre','url')} for c in result['candidates'][:6]]
-            values = {k:v for k,v in result.get('values',{}).items() if k in row['missing'] and not missing(v)}
+            saved = self.overrides(row['id'], row['sha256'])
+            values = {k:v for k,v in result.get('values',{}).items()
+                      if k in row['missing'] and k not in saved and not missing(v)
+                      and (k != 'title' or row.get('automatic_title'))}
             if values:
-                identifier, digest = row['id'], row['sha256']
-                fixes = self.data['metadata_fixed']
-                fixed = fixes.get(identifier)
-                if not fixed or fixed['sha256'] != digest:
-                    fixed = fixes[identifier] = dict(id=identifier, sha256=digest, title=row['title'],
-                        artist=row['seed']['artist'], previous={}, applied={})
-                for key, value in values.items():
-                    fixed['previous'].setdefault(key, row['current'].get(key, ''))
-                    fixed['applied'][key] = value
-                fixed['fixed_at'] = int(self.clock())
+                self._record_fix(row, values)
             self._apply(row,values)
             self.flush()
         return True
@@ -384,23 +448,32 @@ class CatalogueReview:
             left=[r for r in rows if r['state'] in ('queued','processing')]
             if not left:return None
             done=sum(1 for r in rows if r.get('lookup_version')==LOOKUP_VERSION and r['state'] not in ('queued','processing'))
-            now=time.time()
-            waiting=sum(1 for r in left if r['state']=='queued' and r.get('retry_at',0)>now)
+            now=self.clock()
+            retry = self.automatic_retry()
+            waiting=sum(1 for r in left if r['state']=='queued' and (r.get('retry_at',0)>now or retry))
             current=next((r['title'] for r in left if r['state']=='processing'),'')
             return dict(processed=done,total=done+len(left),remaining=len(left),waiting=waiting,current_title=current)
 
-    def snapshot(self,query="",limit=100):
+    def snapshot(self,query="",limit=100,work="",metadata_automatic=True):
         with self.lock:
             archived = self.archived_ids()
             trim=[copy.deepcopy(r) for r in self.data['trimming'].values() if r['id'] not in archived and r['state']!='done']
             metadata=[copy.deepcopy(r) for r in self.data['metadata'].values() if r['id'] not in archived and r['state']!='done']
+            if work:
+                metadata = [row for row in metadata if (metadata_automatic and row['state'] in ('queued', 'processing')) == (work == 'queue')]
+                if work == 'queue':
+                    trim = []
+            retry = self.automatic_retry()
+            for row in metadata:
+                if row['state'] == 'queued' and retry and retry > row.get('retry_at', 0):
+                    row.update(retry_at=retry, retry_reason='Hourly catalogue limit')
             if query:
                 wanted=normal(query);trim=[r for r in trim if wanted in normal(r['title']+' '+r['artist'])];metadata=[r for r in metadata if wanted in normal(r['title']+' '+r['current']['artist'])]
-            metadata.sort(key=lambda row:(row['state']!='review',row['title'].casefold()))
+            metadata.sort(key=lambda row:(row['state']!='review', row.get('retry_at',0), row['title'].casefold()))
             return dict(trimming=trim[:limit],metadata=metadata[:limit],trimming_total=len(trim),metadata_total=len(metadata))
 
 
-def register(app,body,review,recording,admin,rate,playlist_gaps=lambda: []):
+def register(app,body,review,recording,admin,rate,playlist_gaps=lambda: [],metadata_automatic=True):
     import math
     from flask import g,jsonify,request
     @app.errorhandler(ReviewError)
@@ -408,6 +481,8 @@ def register(app,body,review,recording,admin,rate,playlist_gaps=lambda: []):
     @app.get('/api/catalogue/review')
     def review_queues():
         query=request.args.get('q','')
+        work=request.args.get('work','')
+        if work not in ('','choice','queue'):raise ReviewError('Choose a valid review filter.')
         if len(query)>120:raise ReviewError('Search up to 120 characters.')
         try:limit=int(request.args.get('limit','100'))
         except ValueError:raise ReviewError('Choose a valid review page size.')
@@ -416,6 +491,8 @@ def register(app,body,review,recording,admin,rate,playlist_gaps=lambda: []):
         extra = {}
         if editable:
             gaps = playlist_gaps()
+            if work:
+                gaps = [row for row in gaps if bool(row.get('retry_at') or row['state'] in ('queued','ready','running','preparing')) == (work == 'queue')]
             if query:
                 wanted = normal(query)
                 gaps = [row for row in gaps if wanted in normal(' '.join(row[k] for k in ('title', 'artist', 'playlist_name')))]
@@ -425,7 +502,7 @@ def register(app,body,review,recording,admin,rate,playlist_gaps=lambda: []):
                          for row in review.data['metadata_fixed'].values() if row['id'] not in archived
                          and review.data['metadata'][row['id']]['sha256'] == row['sha256']]
             extra = dict(playlist_gaps=gaps[:limit], playlist_gaps_total=len(gaps), metadata_fixed=fixed)
-        return jsonify(**review.snapshot(query,limit),can_edit=editable,**extra)
+        return jsonify(**review.snapshot(query,limit,work,metadata_automatic),can_edit=editable,metadata_automatic=metadata_automatic,**extra)
 
     @app.post('/api/catalogue/<section>/resolve-all')
     def resolve_many(section):

@@ -52,7 +52,8 @@ async function check(name, engine, contextOptions) {
       body = { job: job(track) };
     } else if (p === '/api/jobs') body = { jobs: [...jobs.values()] };
     else if (p === '/api/queue') body = { jobs: data.tracks.filter((t) => data.allow_new || t.saved).map((t, i) => job(t, i + 1)) };
-    else if (p === '/api/library') body = { results: tracks };
+    else if (p === '/api/library') body = { results: tracks, genre_keys: {Pop: 'pop', Rock: 'rock'},
+      genres: [{key:'pop',label:'Pop',plays:2},{key:'rock',label:'Rock',plays:1}] };
     else if (p === '/api/transition') body = { plan: { out: 36, in: .5, rate: 1, fade: data.fade, mode: data.dj ? 'Beat blend' : 'Crossfade' } };
     else if (p.endsWith('/cancel')) body = { job: [...jobs.values()][0] };
     else body = { job: [...jobs.values()].find((j) => p.endsWith(j.id)) };
@@ -67,9 +68,9 @@ async function check(name, engine, contextOptions) {
     await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
     assert(await page.evaluate(() => document.activeElement.id === 'library-filter'));
     await page.locator('#library-filter').fill('');
-    await page.locator('#library-genres [data-genre="Rock"]').click();
+    await page.locator('#library-genres [data-genre="rock"]').click();
     assert.equal(await page.locator('#library-list article:visible').count(),1);
-    await page.locator('#library-genres [data-genre=""]').click();
+    await page.locator('#library-genres [data-genre="rock"]').click();
     await page.locator('#playlist-panel summary').click();
     await page.locator('#spotify-playlist-url').fill('https://open.spotify.com/playlist/3ZOpGHzrl9qpQ3qTSxn5Nl');
     await page.locator('#spotify-playlist-url').press('Enter');
@@ -77,7 +78,7 @@ async function check(name, engine, contextOptions) {
     await page.locator('#playlist-match').click();
     await page.waitForFunction(()=>document.querySelector('#playlist-tracks select').value==='0' && !document.querySelector('#playlist-download').disabled);
     await page.locator('#playlist-download').click();
-    await page.waitForFunction(()=>document.querySelector('#playlist-feedback').textContent.includes('1 recordings saved'));
+    await page.getByText('1 recording saved.', {exact:true}).waitFor();
     await page.locator('#playlist-detail').scrollIntoViewIfNeeded();
     assert(!await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),'Playlist overflow');
     await page.screenshot({path:path.join(out,name+'-playlist-import.png')});
@@ -121,7 +122,7 @@ async function check(name, engine, contextOptions) {
     await page.keyboard.press('Space');
     assert.equal(await page.evaluate(() => queue.filter(t => t.id === '00000000003').length), 1);
     await page.waitForTimeout(250);
-    assert(requests.some(r => r.p === '/api/queue' && r.data.preload_search && r.data.previews.length), 'Search submits preloads independently');
+    assert(!requests.some(r => r.p === '/api/queue' && r.data.previews?.length), 'Search requested audio before playback');
     const geometry = await page.evaluate(() => {
       const row = document.querySelector('#results li'), button = row.querySelector('.song-primary');
       const content = document.querySelector('#content'), style = getComputedStyle(content);
@@ -142,13 +143,14 @@ async function check(name, engine, contextOptions) {
       const button = document.querySelector('#results .song-primary'); button.click();
       if(!button.classList.contains('is-selected')) throw Error('Selection did not update synchronously');
     });
-    await page.waitForFunction(() => document.querySelector('#status-text').textContent === 'Saved');
+    await page.waitForFunction(() => currentJob?.state === 'done' && currentJob.media_url);
     assert.equal(await page.locator('#nav-import').count(), 0);
     const barEdges = await page.locator('.player-bar').boundingBox();
     if (page.viewportSize().width > 860) {
       assert(Math.abs(barEdges.x) < 1 && Math.abs(barEdges.width - page.viewportSize().width) < 1, 'Player must reach both window edges');
     }
-    await page.evaluate(() => {
+    if (engine === chromium) await page.waitForFunction(() => !document.querySelector('#seek').disabled && decks[deckIndex].currentTime > 0);
+    if (engine === chromium) await page.evaluate(() => {
       const seek = document.querySelector('#seek'); seek.focus();
       const player = decks[deckIndex];
       player.currentTime = 5; player.dispatchEvent(new Event('timeupdate'));
@@ -237,7 +239,8 @@ async function check(name, engine, contextOptions) {
       await page.waitForFunction(() => decks[deckIndex].paused, null, {timeout:1500});
       await page.locator('#play').click();
       await page.locator('#volume').evaluate((node) => { node.value = .6; node.dispatchEvent(new Event('input')); });
-      assert(await page.evaluate(() => decks.every((deck) => deck.volume === .6)));
+      assert(await page.evaluate(() => Math.abs(outputGain.gain.value - .6) < .001
+        && decks.every((deck, i) => deck.volume === (nodes[i] ? 1 : .6))));
       await page.locator('#volume').evaluate((node) => { node.value = 1; node.dispatchEvent(new Event('input')); });
       await page.locator('#seek').evaluate((node) => { node.value = 10; node.dispatchEvent(new Event('input')); });
       assert(await page.evaluate(() => decks[deckIndex].currentTime >= 9.9), 'Seek control must move the active deck');

@@ -65,9 +65,18 @@ static MusicSession MakeSession(string repo)
     var library = albums.SelectMany((album, number) => Enumerable.Range(1, 3).Select(i => new MusicTrack {
         Title = i == 1 ? new[] { "First Light", "City Lights", "Afterglow", "Northbound", "Passing Clouds", "Soft Focus", "Midwinter", "Sand and Stone" }[number] : album + " – Part " + i,
         LibraryAlbum = album, Channel = new[] { "North Atlas", "Glass Harbor", "June Echo", "Silver Current" }[number % 4],
+        Genre = new[] { "R&B / Soul", "Rhythm and Blues", "Drum and Bass", "DnB", "Rock", "Pop", "Jazz", "Ambient" }[number],
         Id = (number * 10 + i).ToString("D11"), Duration = 203, Saved = true
     })).ToList();
     Set("Library", library);
+    var kept = library[^4];
+    var cached = library[^3];
+    Set("Downloads", new List<MusicTrack> { kept });
+    Set("DownloadedBytes", 2L * 1024 * 1024);
+    typeof(MusicSession).GetField("cachedTracks", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(session, new[] { cached });
+    typeof(MusicSession).GetField("cachedHashes", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(session,
+        new Dictionary<string, HashSet<string>> { [cached.Id] = [cached.DownloadSha256] });
+    typeof(MusicSession).GetField("cachedBytes", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(session, 1024L * 1024);
     var api = new FamilyHubApi(new Uri(session.Server), new FixtureApi(library));
     typeof(FamilyHubApi).GetField("csrf", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(api, "fixture-csrf");
     Set("Api", api);
@@ -76,7 +85,11 @@ static MusicSession MakeSession(string repo)
         Tracks = library.Skip(i * 2).Take(4).Select(t => new PlaylistTrack {
             Title = t.Title, Artist = t.Channel, SourceId = t.Id, State = "saved", Duration = t.Duration, Album = t.LibraryAlbum, AddedBy = "fixture", AddedAt = "2026-11-17T18:00:00Z"
         }).Concat(i == 7 ? [new PlaylistTrack { Title = "Station Lights", Artist = "North Atlas", State = "review" }] : []).ToList()
-    }).ToList());
+    }).Concat([
+        new MusicPlaylist { Id = "shared", Name = "Café Tapes", OwnerId = "june", OwnerName = "June", CanEdit = true, CoAuthors = ["fixture"] },
+        new MusicPlaylist { Id = "radio", Name = "Night Station", OwnerId = "fixture", OwnerName = "Alex", Radio = true },
+        new MusicPlaylist { Id = "old-radio", Name = "Early Station", OwnerId = "fixture", OwnerName = "Alex", SourceUrl = "familyhub-radio:track:42" }
+    ]).ToList());
     foreach (var track in library.Where((_, i) => i % 3 == 0).Reverse()) session.RecordListen(track);
     return session;
 }
@@ -141,6 +154,7 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
         var body = path switch
         {
             "/api/library" => JsonSerializer.Serialize(new { results = library }),
+            "/api/playback/diagnostics" => """{"actions":[{"action":"fedcba98765432100123456789abcdef","events":[{"stage":"client_play","client_ms":0},{"stage":"stream_response_ready","server_ms":180},{"stage":"client_position_advanced","client_ms":740}]}]}""",
             "/api/search" => "{\"tracks\":[],\"results\":[],\"complete\":true}",
             "/api/listening/rooms" => """{"rooms":[]}""",
             "/api/listening/pokes" when ListenRequest => """{"requests":[{"id":"invite-1","sender":"june","name":"June","kind":"invite","room_id":"fixture-room"}]}""",
@@ -150,6 +164,9 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
             "/api/discovery/follow" => """{"artists":[]}""",
             "/api/playback/devices" => """{"devices":[{"id":"other","name":"Living room PC","kind":"windows"},{"id":"phone","name":"June’s phone","kind":"android"}]}""",
             "/api/catalogue/reports" when request.Method == HttpMethod.Get => """{"reports":[]}""",
+            "/api/catalogue/review" when request.RequestUri.Query.Contains("work=queue") => """
+                {"can_edit":true,"playlist_gaps_total":1,"playlist_gaps":[{"playlist_id":"mix7","owner_id":"fixture","playlist_name":"First Listen","title":"Queued recording","retry_reason":"No verified recording match","retry_at":1800000000,"state":"error"}]}
+                """,
             "/api/catalogue/review" => """
                 {"can_edit":true,"metadata_total":1,
                  "metadata":[{"id":"00000000001","title":"First Light","missing":["album"],"current":{"artist":"North Atlas","title":"First Light"},"suggested":{"album":"Evening Signals"}}],
@@ -162,9 +179,12 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
                 {"total_seconds":10800,"storage_total_bytes":107374182400,"storage_free_bytes":64424509440,
                  "wrapped_year":2026,"daily":[{"day":"2026-11-17","seconds":3600},{"day":"2026-11-18","seconds":7200}],
                  "profiles":[{"id":"fixture","name":"Alex","online":true,"seconds":7000,"qualified_plays":41,"active_months":3,
-                  "wrapped":{"songs_added":14,"total_minutes":116,"favourite_artist":"North Atlas","favourite_genre":"Indie rock","longest_streak_days":6}},
+                  "wrapped":{"songs_added":14,"total_minutes":116,"favourite_artist":"North Atlas","favourite_genre":"Indie rock","longest_streak_days":6,
+                   "night_owl_share":0.25,"most_replayed_song":{"title":"Station Lights","artist":"North Atlas","replays":1},"mainstream_score":0.4,
+                   "early_listeners":["Glass Harbor","Silver Current"],"chart_date":"2026-11-18"}},
                  {"id":"june","name":"June","seconds":3800,"qualified_plays":22,"active_months":2,
                   "wrapped":{"songs_added":7,"total_minutes":63,"favourite_artist":"June Echo","favourite_genre":"Ambient","longest_streak_days":4}}],
+                 "records":[{"id":"streak","title":"Longest streak","owner":"fixture","user":"Alex","day":"2026-11-18","days":6}],
                  "jobs":[{"id":"job1","title":"Late Night Mix","kind":"playlist","state":"running","progress":38,"total":8,"processed":3}]}
                 """,
             _ when path.EndsWith("/lyrics") => "{\"state\":\"synced\",\"lines\":[{\"t\":0,\"text\":\"Streetlights fade into the morning\"},{\"t\":12,\"text\":\"The first train crosses the river\"},{\"t\":24,\"text\":\"Clouds move over the northern hills\"},{\"t\":36,\"text\":\"Windows open on the avenue\"}]}",

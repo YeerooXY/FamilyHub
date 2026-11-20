@@ -6,10 +6,14 @@
 }
 @if (ShowSizes)
 {
-    <dl class="device-sizes">
-        <div><dt>Downloaded</dt><dd>@Songs(downloaded), @Size(Session.DownloadedBytes)</dd></div>
-        <div><dt>Cached while playing</dt><dd>@Songs(cached), @Size(Math.Max(0, Session.DeviceBytes - Session.DownloadedBytes))</dd></div>
-    </dl>
+    <div class="device-sizes" role="group" aria-label="Songs on this device">
+        <button id="kept-downloads" type="button" aria-pressed="@(!CacheSelected ? "true" : "false")" @onclick="() => CacheSelectedChanged.InvokeAsync(false)">
+            <strong>Kept downloads</strong><span class="device-size">@Songs(downloaded), @Size(Session.DownloadedBytes)</span>
+        </button>
+        <button id="cached-downloads" type="button" aria-pressed="@(CacheSelected ? "true" : "false")" @onclick="() => CacheSelectedChanged.InvokeAsync(true)">
+            <strong>Playback cache</strong><span class="device-size">@Songs(cached), @Size(Math.Max(0, Session.DeviceBytes - Session.DownloadedBytes))</span>
+        </button>
+    </div>
 }
 else
 {
@@ -20,6 +24,8 @@ else
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<MusicTrack> Tracks { get; set; } = [];
     [Parameter] public bool ShowSizes { get; set; }
+    [Parameter] public bool CacheSelected { get; set; }
+    [Parameter] public EventCallback<bool> CacheSelectedChanged { get; set; }
     private static string Songs(int count) => $"{count} {(count == 1 ? "song" : "songs")}";
     private static string Size(long bytes) => bytes >= 1L << 30 ? $"{bytes / (double)(1L << 30):0.0} GB" : $"{bytes / (double)(1L << 20):0.0} MB";
 }

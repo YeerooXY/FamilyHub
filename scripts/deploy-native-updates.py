@@ -24,14 +24,17 @@ def main():
     ssh = ['ssh', *options, host]
     incoming = '/tmp/familyhub-update-' + uuid.uuid4().hex
     subprocess.run([*ssh, 'mkdir -m 700 ' + incoming], check=True, cwd=ROOT)
-    files = [ROOT / 'music_web' / name for name in ('__init__.py', 'app_updates.py', 'playlist_artwork.py', 'playlists.py', 'finished_audio.py', 'audio_profile.py', 'mobile_audio.py', 'playlist_preparation.py', 'profile_artwork.py', 'profiles.py', 'public_playlists.py', 'listening_rooms.py', 'listening_versions.py', 'listening_history.py', 'listening_stats.py', 'catalogue_review.py', 'source_quality.py', 'analysis.py', 'song_analysis.py', 'worker_activity.py', 'musicbrainz.py', 'catalog_search.py', 'genres.py', 'lyrics.py', '__main__.py', 'link_playlists.py', 'playback_devices.py', 'radio.py', 'http_dispatch.py', 'snapshots.py', 'resources.py', 'discovery.py')]
+    web_files = ('__init__.py', 'app_updates.py', 'playlist_artwork.py', 'playlists.py', 'finished_audio.py', 'audio_profile.py', 'mobile_audio.py', 'playlist_preparation.py', 'profile_artwork.py', 'profiles.py', 'public_playlists.py', 'listening_rooms.py', 'listening_versions.py', 'listening_history.py', 'listening_stats.py', 'catalogue_review.py', 'source_quality.py', 'analysis.py', 'song_analysis.py', 'worker_activity.py', 'musicbrainz.py', 'catalog_search.py', 'genres.py', 'lyrics.py', '__main__.py', 'link_playlists.py', 'playback_devices.py', 'radio.py', 'http_dispatch.py', 'playback_diagnostics.py', 'review_confidence.py', 'snapshots.py', 'resources.py', 'discovery.py') + (
+        'static/app.js', 'static/playlists.js', 'static/prefix-cache.js', 'templates/index.html',
+    )
+    files = [ROOT / 'music_web' / name for name in web_files]
     files.append(ROOT / 'scripts' / 'music-intake.py')
     for platform in platforms:
         manifest = release / (platform + '.json')
         data = json.loads(manifest.read_text(encoding='utf-8'))
         files.extend((manifest, release / data['file']))
     subprocess.run(['scp', *options, *map(str, files), host + ':' + incoming + '/'], check=True, cwd=ROOT)
-    remote = 'incoming = ' + repr(incoming) + '\nplatforms = ' + repr(platforms) + '\n' + r'''
+    remote = 'incoming = ' + repr(incoming) + '\nplatforms = ' + repr(platforms) + '\nweb_files = ' + repr(web_files) + '\n' + r'''
 import hashlib,json,os,pathlib,shutil,subprocess,time,urllib.request
 incoming=pathlib.Path(incoming)
 config=json.loads(pathlib.Path('/etc/familyhub-music-web/config.json').read_text())
@@ -40,7 +43,7 @@ base=pathlib.Path('/usr/local/lib/familyhub/mobile/music_web')
 service='familyhub-music-web.service'
 pid=subprocess.check_output(['systemctl','show',service,'-p','MainPID','--value'],text=True).strip()
 # UI-only releases update packages without restarting active acquisition.
-code_targets=[(incoming/name,base/name) for name in ('__init__.py','app_updates.py','playlist_artwork.py','playlists.py','finished_audio.py','audio_profile.py','mobile_audio.py','playlist_preparation.py','profile_artwork.py','profiles.py','public_playlists.py', 'listening_rooms.py', 'listening_versions.py', 'listening_history.py', 'listening_stats.py', 'catalogue_review.py', 'source_quality.py', 'analysis.py', 'song_analysis.py', 'worker_activity.py', 'musicbrainz.py', 'catalog_search.py', 'genres.py', 'lyrics.py','__main__.py','link_playlists.py', 'playback_devices.py', 'radio.py', 'http_dispatch.py', 'snapshots.py', 'resources.py', 'discovery.py')]
+code_targets=[(incoming/pathlib.Path(name).name,base/name) for name in web_files]
 code_targets.append((incoming/'music-intake.py',pathlib.Path('/usr/local/lib/familyhub/music-intake.py')))
 code_changed=any(not target.exists() or hashlib.sha256(source.read_bytes()).digest()!=hashlib.sha256(target.read_bytes()).digest() for source,target in code_targets)
 if code_changed and pid!='0' and subprocess.run(['pgrep','-P',pid],capture_output=True).returncode==0:
@@ -51,10 +54,12 @@ intake=pathlib.Path('/usr/local/lib/familyhub/music-intake.py')
 intake_stat=intake.stat()
 shutil.copy2(intake,backup/'music-intake.py')
 originals={}
-for name in ('__init__.py','app_updates.py','playlist_artwork.py','playlists.py','finished_audio.py', 'audio_profile.py', 'mobile_audio.py', 'playlist_preparation.py', 'profile_artwork.py', 'profiles.py', 'public_playlists.py', 'listening_rooms.py', 'listening_versions.py', 'listening_history.py', 'listening_stats.py', 'catalogue_review.py', 'source_quality.py', 'analysis.py', 'song_analysis.py', 'worker_activity.py', 'musicbrainz.py', 'catalog_search.py', 'genres.py', 'lyrics.py', '__main__.py', 'link_playlists.py', 'playback_devices.py', 'radio.py', 'http_dispatch.py', 'snapshots.py', 'resources.py', 'discovery.py'):
+for name in web_files:
     original=base/name
     originals[name]=original.exists()
-    if original.exists():shutil.copy2(original,backup/name)
+    if original.exists():
+        (backup/name).parent.mkdir(parents=True,exist_ok=True)
+        shutil.copy2(original,backup/name)
 for platform in platforms:
     data=json.loads((incoming/(platform+'.json')).read_text())
     source=incoming/data['file']
@@ -83,7 +88,7 @@ try:
     os.chmod(intake,intake_stat.st_mode)
     os.chown(intake,intake_stat.st_uid,intake_stat.st_gid)
     for name in originals:
-        shutil.copy2(incoming/name,base/name)
+        shutil.copy2(incoming/pathlib.Path(name).name,base/name)
     subprocess.run(['systemctl','start',service],check=True)
     for attempt in range(30):
         try:

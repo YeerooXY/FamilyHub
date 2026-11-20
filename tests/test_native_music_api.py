@@ -27,6 +27,21 @@ class FinishedAudioRequired(Base):
         for suffix in ('download', 'playback-info'):
             self.assertEqual(self.go(client, 'GET', f'/api/library/{FIRST}/{suffix}').status_code, 503)
 
+    def test_explicit_stream_can_open_verified_source_while_purification_is_pending(self):
+        NativeMusicApi.recording(self)
+        client, _ = self.signed_in()
+        info = self.go(client, 'GET', f'/api/library/{FIRST}/playback-info?stream=1&play_action=' + 'b' * 32)
+        self.assertEqual(info.status_code, 200)
+        self.assertIn('/playback-source/', info.json['download_url'])
+        self.assertEqual(self.go(client, 'GET', info.json['download_url']).status_code, 404)
+        stream = self.go(self.app.test_client(), 'GET', info.json['stream_url'], headers={'Range': 'bytes=0-255'})
+        self.assertEqual(stream.status_code, 206)
+        self.assertEqual(len(stream.data), 256)
+        self.assertEqual(stream.headers['ETag'], f'"{info.json["download_sha256"]}"')
+        events = self.go(client, 'GET', '/api/playback/diagnostics').json['actions'][0]['events']
+        self.assertEqual({event['stage'] for event in events},
+                         {'playback_info_started', 'playback_info_ready', 'stream_requested', 'stream_response_ready'})
+
     def test_persisted_saved_playlist_reports_unfinished_audio_as_preparing(self):
         NativeMusicApi.recording(self)
         PlaylistStore(self.ws).save('sample-a', {'id': 'p' * 22, 'name': 'Old playlist', 'revision': 1,
@@ -344,6 +359,20 @@ class NativeMusicApi(Base):
         with patch('music_web.ListeningVersions.select', return_value=(edition, str(target))):
             result = self.go(client, 'GET', '/api/playlists').json['playlists'][0]['tracks'][0]
         self.assertEqual((result['source_id'], result['state']), (FIRST, 'saved'))
+
+    def test_saved_recording_is_reused_across_playlists_without_search(self):
+        self.recording(title='Artist - First (Official Audio)')
+        client, token = self.signed_in()
+        store = PlaylistStore(self.ws)
+        source = {'title': 'First', 'artist': 'Artist', 'duration': .02, 'state': 'unmatched'}
+        for pid in ('a'*22, 'b'*22):
+            store.save('sample-a', dict(id=pid, name=pid, tracks=[
+                dict(source), dict(source, title='First (Live)'), dict(source, artist='Artist & Guest')]))
+        with patch.object(self.intake, 'cmd_search', side_effect=AssertionError('Expected a saved recording')):
+            response = self.go(client, 'GET', '/api/playlists')
+        self.assertEqual(response.status_code, 200)
+        for playlist in response.json['playlists']:
+            self.assertEqual([track.get('source_id') for track in playlist['tracks']], [FIRST, None, None])
 
     def test_playlist_survives_app_restart(self):
         self.recording()

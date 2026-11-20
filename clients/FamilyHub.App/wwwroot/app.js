@@ -34,6 +34,7 @@ window.familyhub.syncChrome = () => {
     chromeScheduled = true;
     requestAnimationFrame(async () => {
         chromeScheduled = false;
+        positionAnchoredPopup(document.querySelector('[data-popup-anchor][open]'));
         const header = document.querySelector('.app-header');
         const height = header?.getBoundingClientRect().bottom ?? 48;
         const rects = [...document.querySelectorAll('.app-header button,.app-header input,.app-header a,.app-header form,.skip:focus')]
@@ -75,6 +76,15 @@ window.familyhub.saveAppearance = (key,theme,collapsed,effects,width=232) => {
     applyAppearance(theme,collapsed,effects,width);
     try { localStorage.setItem('familyhub:appearance:'+key,JSON.stringify({theme,collapsed,effects,width})); } catch {}
 };
+window.familyhub.loadPlaylistCollection = key => {
+    let saved;
+    try { saved = JSON.parse(localStorage.getItem('familyhub:playlist-collection:' + key)); } catch {}
+    const ids = value => Array.isArray(value) ? [...new Set(value.filter(id => typeof id === 'string'))] : [];
+    return {pinned:ids(saved?.pinned), recent:ids(saved?.recent).slice(0, 12)};
+};
+window.familyhub.savePlaylistCollection = (key, collection) => {
+    try { localStorage.setItem('familyhub:playlist-collection:' + key, JSON.stringify(collection)); } catch {}
+};
 let observedPanel;
 function syncPanelSkies() {
     if (!window.PaddockEffects || !document.body.dataset.theme) return;
@@ -107,6 +117,14 @@ window.familyhub.observePanel = () => {
 };
 
 let openDialogs = [];
+function positionAnchoredPopup(dialog) {
+    if (!dialog?.dataset.popupAnchor) return;
+    const anchor = document.getElementById(dialog.dataset.popupAnchor);
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    dialog.style.setProperty('--popup-anchor-top', `${rect.bottom + 8}px`);
+    dialog.style.setProperty('--popup-anchor-right', `${Math.max(8, innerWidth - rect.right)}px`);
+}
 window.familyhub.showDialog = (id, focusId, openerId) => {
     const dialog = document.getElementById(id);
     if (!dialog || dialog.open) return;
@@ -135,6 +153,7 @@ window.familyhub.showDialog = (id, focusId, openerId) => {
             (target?.isConnected && target.getClientRects().length ? target : fallback())?.focus({preventScroll:true});
         });
     }
+    positionAnchoredPopup(dialog);
     dialog.showModal();
     (document.getElementById(focusId) || dialog.querySelector('button,input'))?.focus({preventScroll:true});
 };
@@ -143,27 +162,28 @@ window.familyhub.closeDialog = (id, successorId) => {
     if (!dialog) return;
     const successor = document.getElementById(successorId);
     if (successor) dialog._returnFocus = successor;
+    if (dialog._closing) return dialog._closing;
     // Dialogs marked animated-dialog play their closing animation first, unless motion is reduced.
-    if (dialog.classList.contains('animated-dialog') && dialog.open && !dialog._closing
+    if (dialog.classList.contains('animated-dialog') && dialog.open
         && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        dialog._closing = true;
         dialog.classList.add('is-closing');
-        let done = false;
-        const ended = event => { if (event.target === dialog) finish(); };
-        const finish = () => {
-            if (done) return;
-            done = true; dialog._closing = false;
-            dialog.removeEventListener('animationend', ended);
-            dialog.classList.remove('is-closing');
-            if (dialog.open) dialog.close();
-            const target = dialog._returnFocus;
-            if (target?.isConnected) target.focus({preventScroll:true});
-        };
-        dialog.addEventListener('animationend', ended);
-        setTimeout(finish, 260);
-        return;
+        dialog._closing = new Promise(resolve => {
+            const ended = event => { if (event.target === dialog) finish(); };
+            const finish = () => {
+                clearTimeout(timeout);
+                dialog._closing = null;
+                dialog.removeEventListener('animationend', ended);
+                dialog.classList.remove('is-closing');
+                if (dialog.open) dialog.close();
+                const target = dialog._returnFocus;
+                if (target?.isConnected && target.getClientRects().length) target.focus({preventScroll:true});
+                resolve();
+            };
+            const timeout = setTimeout(finish, 260);
+            dialog.addEventListener('animationend', ended);
+        });
+        return dialog._closing;
     }
-    if (dialog._closing) return;
     dialog.close();
     const target = dialog._returnFocus;
     if (target?.isConnected && target.getClientRects().length) target.focus({preventScroll:true});
@@ -538,7 +558,7 @@ window.familyhub.bindGenreSearch = () => {
     const input = document.getElementById('genre-search');
     input?.addEventListener('keydown', event => {
         const expanded = input.getAttribute('aria-expanded') === 'true';
-        if (['ArrowDown', 'ArrowUp'].includes(event.key) || expanded && ['Enter', 'Escape'].includes(event.key)) event.preventDefault();
+        if (expanded && ['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key)) event.preventDefault();
     });
 };
 window.familyhub.revealGenreOption = id => {
@@ -548,10 +568,6 @@ window.familyhub.revealGenreOption = id => {
     if (option.offsetTop < list.scrollTop) list.scrollTop = option.offsetTop;
     const bottom = option.offsetTop + option.offsetHeight;
     if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
-};
-window.familyhub.restoreGenreFocus = removed => {
-    if (document.activeElement === document.body && removed.includes(lastFocusId))
-        familyhub.focus(familyhub.isPhone() ? 'view-title' : 'genre-search');
 };
 window.familyhub.focusInOpenDialog = id => {
     const target = document.getElementById(id);
@@ -656,7 +672,8 @@ window.familyhub.bindPopupSheet = (id, closeId) => {
     });
     const begin = (y, target) => {
         start = null;
-        if (!familyhub.isPhone() || !isOpen() || !inPanel(target) || panel.scrollTop > 0 && !target.closest('.dialog-heading') ||
+        if (!familyhub.isPhone() || !isOpen() || panel.matches('.popup-centered,[data-popup-anchor]') ||
+            !inPanel(target) || panel.scrollTop > 0 && !target.closest('.dialog-heading') ||
             target.closest('input,select,textarea,[contenteditable=true]')) return;
         start = y;
         moved = 0;

@@ -52,9 +52,12 @@ async function geometry(surface) {
         const close = header?.querySelector('button');
         const rows = [...node.querySelectorAll(':scope > button')].filter(row =>
             row.getClientRects().length && row.querySelector(':scope > .icon') && !row.classList.contains('player-tools-close'));
+        const avatar = document.getElementById('profile-toggle');
         return {
             style: Object.fromEntries(properties.map(property => [property, css[property]])),
             backdrop: node.matches('dialog') ? getComputedStyle(node, '::backdrop').backgroundColor : null,
+            viewport: [innerWidth, innerHeight],
+            anchor: node.id === 'profile-menu' && avatar ? px(avatar) : null,
             box: px(node), header: header ? px(header) : null, title: title ? {...px(title), text: firstText(title)} : null,
             close: close ? {...px(close), icon: px(close.querySelector('.icon'))} : null,
             rows: rows.map(row => ({
@@ -69,9 +72,11 @@ async function geometry(surface) {
 
 function checkGeometry(metrics, name, phone, connect) {
     const {style, box, title, close, rows} = metrics;
+    const anchored = name.endsWith('/profile-menu');
+    const centered = /\/(create-playlist|genre)$/.test(name);
     const near = (actual, expected, label) => assert.ok(Math.abs(actual - expected) < 0.11,
         name + ' ' + label + ' was ' + actual + ', expected ' + expected);
-    if (connect) {
+    if (connect && !anchored && !centered) {
         assert.deepEqual(style, connect.style, name + ' surface');
         if (metrics.backdrop !== null) assert.equal(metrics.backdrop, connect.backdrop, name + ' backdrop');
         near(close.width, connect.close.width, 'close target width');
@@ -81,14 +86,26 @@ function checkGeometry(metrics, name, phone, connect) {
             near(title.text.y - metrics.header.y, connect.title.text.y - connect.header.y, 'heading baseline');
     }
     assert.equal(style.backgroundColor, phone ? 'rgb(31, 31, 31)' : 'rgb(18, 18, 18)', name);
-    assert.equal(style.borderTopLeftRadius, phone ? '18px' : '8px', name);
+    assert.equal(style.borderTopLeftRadius, anchored || centered ? '12px' : phone ? '18px' : '8px', name);
     assert.equal(style.borderTopWidth, '0px', name);
     assert.equal(style.animationName, 'none', name + ' reduced motion');
     near(title.x - box.x, phone ? 24 : 16, 'heading left inset');
     near(box.x + box.width - close.x - close.width, phone ? 12 : 8, 'close right inset');
     near(title.y + title.height / 2, close.y + close.height / 2, 'close center');
     const textRow = rows.find(row => row.text);
-    if (rows.length) near(box.width, phone ? 390 : 340, 'menu width');
+    if (rows.length) near(box.width, anchored ? 264 : phone ? 390 : 340, 'menu width');
+    const [viewportWidth, viewportHeight] = metrics.viewport;
+    if (centered) {
+        near(box.x + box.width / 2, viewportWidth / 2, 'horizontal center');
+        near(box.y + box.height / 2, viewportHeight / 2, 'vertical center');
+        assert.ok(box.x >= 16 && box.y >= 16, name + ' viewport inset');
+    }
+    if (anchored) {
+        const {anchor} = metrics;
+        near(box.y - anchor.y - anchor.height, 8, 'gap below avatar');
+        near(box.x + box.width, Math.min(viewportWidth - 8, anchor.x + anchor.width), 'right edge under avatar');
+        assert.ok(box.y + box.height < viewportHeight - 7 && box.height < 340, name + ' compact height');
+    }
     for (const row of rows) {
         near(row.icon.width, 20, row.label + ' icon width');
         near(row.icon.height, 20, row.label + ' icon height');
@@ -142,6 +159,7 @@ async function audit(name, engine, options) {
     const heading = text => page.getByRole('heading', {name: text, exact: true});
     const select = async node => { if (phone) await node.tap(); else await node.click(); };
     const closeByEscape = async surface => { await page.keyboard.press('Escape'); await surface.waitFor({state: 'hidden'}); };
+    const focused = id => page.waitForFunction(expected => document.activeElement?.id === expected, id);
     const open = async (opener, id) => {
         await select(opener);
         const surface = target(id);
@@ -247,6 +265,68 @@ async function audit(name, engine, options) {
         } else await select(target('open-library'));
         await target('library-add-songs').waitFor();
         await capture('library');
+        if (!before) {
+            const songSearch = page.getByRole('searchbox', {name: 'Search songs', exact: true});
+            const rows = page.locator('.library-list [data-recording-id]');
+            await songSearch.fill('first light');
+            await rows.filter({hasText: 'First Light'}).waitFor();
+            await page.waitForFunction(() => document.querySelectorAll('.library-list [data-recording-id]').length === 1);
+            await select(page.getByRole('button', {name: 'Clear song search'}));
+            await focused('library-filter');
+            await songSearch.fill('missing recording');
+            await page.getByText('No songs match these filters.', {exact: true}).waitFor();
+            await select(page.getByRole('button', {name: 'Reset song filters'}));
+            await focused('library-filter');
+
+            const genres = await open(target('genre-toggle'), 'genre-dialog');
+            await capture('genre', genres);
+            await focused('genre-close');
+            await page.keyboard.press('Tab');
+            await focused('genre-search');
+            const genreSearch = genres.getByRole('combobox', {name: 'Search genres'});
+            await genreSearch.fill('missing genre');
+            await genres.getByText('No genres match this search.', {exact: true}).waitFor();
+            await genreSearch.fill('rnb');
+            const alias = genres.getByRole('option', {name: 'R&B / Soul', exact: true});
+            await alias.waitFor();
+            await genres.getByRole('option', {name: 'All genres', exact: true}).waitFor({state: 'hidden'});
+            await page.keyboard.press('ArrowDown');
+            await page.waitForFunction(() => document.getElementById('genre-search').getAttribute('aria-activedescendant') === 'genre-option-0');
+            await page.keyboard.press('Enter');
+            await genres.waitFor({state: 'hidden'});
+            await focused('genre-toggle');
+            await page.waitForFunction(() => document.querySelectorAll('.library-list [data-recording-id]').length === 6);
+            await open(target('genre-toggle'), 'genre-dialog');
+            await select(genres.getByRole('option', {name: 'All genres', exact: true}));
+            await genres.waitFor({state: 'hidden'});
+            await focused('genre-toggle');
+
+            const libraryToolbar = await target('library-filter').boundingBox();
+            await select(page.getByRole('button', {name: 'Downloaded', exact: true}).filter({visible: true}));
+            const kept = page.getByRole('button', {name: /^Kept downloads/});
+            await kept.waitFor();
+            await focused('content');
+            const downloadedToolbar = await target('library-filter').boundingBox();
+            assert.deepEqual([libraryToolbar.x, libraryToolbar.height], [downloadedToolbar.x, downloadedToolbar.height], name + ' shared song search');
+            assert.equal(await kept.getAttribute('aria-pressed'), 'true');
+            assert.match(await kept.locator('.device-size').innerText(), /^1 song, 2[.,]0 MB$/);
+            await rows.filter({hasText: 'Winter Sessions – Part 3'}).waitFor();
+            assert.equal(await rows.count(), 1);
+            const cache = page.getByRole('button', {name: /^Playback cache/});
+            assert.match(await cache.locator('.device-size').innerText(), /^1 song, 1[.,]0 MB$/);
+            await cache.press('Space');
+            await rows.filter({hasText: 'Sand and Stone'}).waitFor();
+            assert.equal(await rows.count(), 1);
+            assert.equal(await cache.getAttribute('aria-pressed'), 'true');
+            await focused('cached-downloads');
+            await open(target('genre-toggle'), 'genre-dialog');
+            await genres.getByRole('option', {name: 'Ambient', exact: true}).waitFor();
+            await closeByEscape(genres);
+            await focused('genre-toggle');
+            await capture('downloaded');
+            if (phone) await select(page.getByRole('button', {name: 'Songs', exact: true}));
+            else await select(target('open-library'));
+        }
 
         const add = await open(target('library-add-songs'), 'add-songs-dialog');
         await capture('add-songs', add);
@@ -328,13 +408,54 @@ async function audit(name, engine, options) {
         await capture('queue');
 
         await select(playlists);
+        const playlistCard = key => page.locator(`[data-playlist-key="${key}"]`);
+        const filterPlaylists = label => select(page.getByRole('button', {name: label, exact: true}));
+        if (!before) {
+            await heading('Playlists').waitFor();
+            const shared = playlistCard('june:shared');
+            await filterPlaylists('Mine');
+            await shared.waitFor({state: 'hidden'});
+            const playlistSearch = target('playlist-search');
+            await playlistSearch.fill('cafe');
+            await shared.waitFor();
+            await playlistCard('fixture:mix0').waitFor({state: 'hidden'});
+            await select(page.getByRole('button', {name: 'Clear playlist search'}));
+            await focused('playlist-search');
+            await playlistSearch.fill('missing playlist');
+            await page.getByText('No playlists match.', {exact: true}).waitFor();
+            await select(page.getByRole('button', {name: 'Clear playlist search'}));
+            await filterPlaylists('Shared with me');
+            await shared.waitFor();
+            await playlistCard('fixture:mix0').waitFor({state: 'hidden'});
+            await filterPlaylists('Radio & mixes');
+            await playlistCard('fixture:radio').waitFor();
+            await playlistCard('fixture:old-radio').waitFor();
+            await playlistCard('fixture:mix0').waitFor();
+            await shared.waitFor({state: 'hidden'});
+            await filterPlaylists('All');
+            await shared.waitFor();
+            await capture('playlist-collection');
+        }
         const sort = await open(target('playlist-sort'), 'playlist-sort-options');
         await capture('playlist-sort', sort, true);
         await closeByEscape(sort);
         const create = await open(target('create-playlist'), 'create-playlist-dialog');
         await capture('create-playlist', create);
+        if (!before) {
+            await focused('create-playlist-heading');
+            await page.keyboard.press('Shift+Tab');
+            await focused('create-playlist-submit');
+            await page.keyboard.press('Tab');
+            assert.equal(await create.getByRole('button', {name:'Close create playlist'}).evaluate(button => button === document.activeElement), true);
+            await page.emulateMedia({reducedMotion: 'no-preference'});
+            assert.equal(await create.evaluate(node => getComputedStyle(node).animationName), 'popup-fade-in');
+        }
         await closeByEscape(create);
-        await select(page.locator('[data-playlist-key="fixture:mix0"]'));
+        if (!before) {
+            await focused('create-playlist');
+            await page.emulateMedia({reducedMotion: 'reduce'});
+        }
+        await select(playlistCard('fixture:mix0'));
         await heading('Late Night Mix').waitFor();
         await page.locator('.playlist-hero[data-tint-source]').waitFor();
         await capture('playlist');
@@ -373,7 +494,16 @@ async function audit(name, engine, options) {
         await nav('Server work');
         await page.locator('.server-page[aria-busy=false]').waitFor();
         await capture('server-work');
-        await select(page.getByRole('button', {name: /Missing metadata/}));
+        if (!before) {
+            await select(page.getByRole('button', {name: 'Queued & retrying'}));
+            await heading('Queued recording').waitFor();
+            await page.getByText(/No verified recording match/).waitFor();
+            await select(page.getByRole('button', {name: 'Recently fixed'}));
+            await heading('Fixed automatically').waitFor();
+            await select(page.getByRole('button', {name: 'Needs your choice'}));
+            await heading('Station Lights').waitFor();
+        }
+        await select(page.getByRole('button', {name: /Song details/}));
         await target('metadata-00000000001').waitFor();
         await target('catalogue-review-title').evaluate(node => {
             const main = node.closest('main');
@@ -400,12 +530,66 @@ async function audit(name, engine, options) {
             const main = node.closest('main');
             main.scrollTop += node.getBoundingClientRect().top - main.getBoundingClientRect().top - 16;
         });
-        await page.waitForFunction(() => {
+        await page.waitForFunction(selector => {
             const main = document.getElementById('content').getBoundingClientRect();
-            const card = document.querySelector('.lb-wrapped-card').getBoundingClientRect();
-            return card.top >= main.top && card.top < main.bottom;
-        });
+            const comparison = document.querySelector(selector)?.getBoundingClientRect();
+            return comparison && comparison.top >= main.top && comparison.top < main.bottom;
+        }, before ? '.lb-wrapped-card' : '.lb-wrapped-scroll');
         await capture('wrapped');
+        if (!before) {
+            const table = page.getByRole('table', {name: 'Listening by member'});
+            const scroll = target('lb-wrapped-scroll');
+            const member = page.getByRole('combobox', {name: 'Family member'});
+            const alex = table.getByRole('columnheader', {name: 'Alex', exact: true});
+            const june = table.getByRole('columnheader', {name: 'June', exact: true});
+            const rowHeaders = table.getByRole('rowheader');
+            const cell = (label, value) => table.getByRole('row')
+                .filter({has: page.getByRole('rowheader', {name: label, exact: true})})
+                .getByRole('cell', {name: value, exact: true});
+            await alex.waitFor();
+            assert.deepEqual(await rowHeaders.allTextContents(), ['Songs added', 'Listening time', 'Favourite artist',
+                'Favourite genre', 'Longest streak', 'Night owl', 'Most replayed', 'Mainstream score', 'Early listener']);
+            for (const [label, value] of [['Songs added', '14'], ['Listening time', '116 min'],
+                ['Favourite artist', 'North Atlas'], ['Favourite genre', 'Indie rock'], ['Longest streak', '6 days'],
+                ['Night owl', '25%'], ['Most replayed', 'Station Lights (1 replay, North Atlas)'],
+                ['Mainstream score', '40%'], ['Early listener', 'Glass Harbor, Silver Current']]) {
+                await cell(label, value).waitFor();
+            }
+            if (phone) {
+                await member.waitFor();
+                await june.waitFor({state: 'hidden'});
+                assert.equal(await member.inputValue(), 'fixture');
+                assert(await scroll.evaluate(node => node.scrollWidth <= node.clientWidth + 1), 'Phone comparison must fit its panel');
+                await member.focus();
+                await member.selectOption('june');
+                await june.waitFor();
+                await alex.waitFor({state: 'hidden'});
+                await cell('Listening time', '63 min').waitFor();
+                await cell('Most replayed', '—').waitFor();
+                assert(await member.evaluate(node => node === document.activeElement), 'Changing member must preserve selector focus');
+                if (engine === chromium) {
+                    await page.keyboard.press('Tab');
+                    assert(await scroll.evaluate(node => node === document.activeElement));
+                    await page.keyboard.press('Shift+Tab');
+                    assert(await member.evaluate(node => node === document.activeElement));
+                }
+                await member.selectOption('fixture');
+                await alex.waitFor();
+            } else {
+                await member.waitFor({state: 'hidden'});
+                await june.waitFor();
+                await cell('Listening time', '63 min').waitFor();
+                await scroll.focus();
+                assert(await scroll.evaluate(node => node === document.activeElement), 'Desktop comparison must accept keyboard focus');
+            }
+            const help = target('lb-wrapped-help');
+            await help.press('Enter');
+            await page.getByText('Deezer chart checked 18 Nov 2026.').waitFor();
+            await help.press('Enter');
+            assert(await help.evaluate(node => node === document.activeElement), 'Toggling help must preserve focus');
+            assert(await heading('Records').evaluate(node => Boolean(document.querySelector('.lb-wrapped')
+                .compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)), 'Records must follow annual listening');
+        }
         const listener = page.locator('.listener-options').first();
         if (await listener.count()) {
             const id = (await listener.getAttribute('id')) + '-dialog';
@@ -413,12 +597,30 @@ async function audit(name, engine, options) {
             await capture('listener-menu', target(id), true);
             await closeByEscape(target(id));
         }
-        await open(target('profile-toggle'), 'profile-menu');
-        await capture('profile-menu', target('profile-menu'), true);
+        const profile = await open(target('profile-toggle'), 'profile-menu');
+        await capture('profile-menu', profile, true);
+        if (!before) {
+            await focused('profile-menu-close');
+            await page.keyboard.press('Shift+Tab');
+            await focused('open-settings');
+            await page.keyboard.press('Tab');
+            await focused('profile-menu-close');
+            await closeByEscape(profile);
+            await focused('profile-toggle');
+            await page.waitForFunction(() => document.getElementById('profile-toggle').getAttribute('aria-expanded') === 'false');
+            await open(target('profile-toggle'), 'profile-menu');
+        }
         await select(target('open-settings'));
         await heading('Settings').waitFor();
         await page.waitForFunction(() => document.body.dataset.view === 'preferences');
         await capture('settings');
+        if (!before) {
+            await page.getByRole('button', {name: 'Load timings'}).press('Enter');
+            const action = page.locator('summary').filter({hasText: 'position advanced at 740 ms'});
+            await action.waitFor();
+            await action.press('Space');
+            await page.getByText(/stream response ready/i).waitFor();
+        }
         await open(target('clear-history'), 'clear-history-dialog');
         await capture('clear-history', target('clear-history-dialog'));
         await closeByEscape(target('clear-history-dialog'));
@@ -432,6 +634,31 @@ async function audit(name, engine, options) {
             } finally {
                 await page.request.post(origin + '/fixture/listening-request/false');
             }
+        }
+        if (!before) {
+            await select(playlists);
+            const recent = page.getByRole('region', {name: 'Recent', exact: true});
+            const pinned = page.getByRole('region', {name: 'Pinned', exact: true});
+            await recent.locator('[data-playlist-key="fixture:mix0"]').waitFor();
+            await select(playlistCard('fixture:mix0'));
+            await focused('view-title');
+            await playlistMenu();
+            assert.equal(await target('pin-playlist').innerText(), 'Pin playlist');
+            await select(target('pin-playlist'));
+            await focused('playlist-menu-toggle');
+            await select(page.getByRole('button', {name: 'All playlists', exact: true}));
+            await pinned.locator('[data-playlist-key="fixture:mix0"]').waitFor();
+            await focused('playlist-card-fixture:mix0');
+            await page.reload();
+            await select(playlists);
+            await pinned.locator('[data-playlist-key="fixture:mix0"]').waitFor();
+            await select(playlistCard('fixture:mix0'));
+            await playlistMenu();
+            assert.equal(await target('pin-playlist').innerText(), 'Unpin playlist');
+            await select(target('pin-playlist'));
+            await focused('playlist-menu-toggle');
+            await select(page.getByRole('button', {name: 'All playlists', exact: true}));
+            await recent.locator('[data-playlist-key="fixture:mix0"]').waitFor();
         }
         for (const [scenario, id, state] of [
             ['update', 'update-dialog', 'update'],

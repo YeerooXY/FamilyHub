@@ -29,13 +29,16 @@ class WorkerCapacityTests(Base):
 
     def test_acquisition_capacity_uses_the_configured_pool_limit(self):
         client, _ = self.signed_in()
-        rows = self.go(client, 'GET', '/api/server/stats').json['workers']
+        payload = self.go(client, 'GET', '/api/server/stats').json
+        rows = payload['workers']
         self.assertEqual(len([r for r in rows if r['id'].startswith('acquisition-')]), 11)
         self.assertFalse(any(r['id'].startswith(('tagging-', 'song-analysis-', 'source-quality-', 'genre-')) for r in rows))
+        self.assertFalse(payload['catalogue_workers']['metadata'])
+        self.assertFalse(payload['catalogue_workers']['source_scan'])
 
 
 class EnabledWorkerTests(Base):
-    extra = dict(SOURCE_QUALITY_SCAN=True, SONG_ANALYSIS_SCAN=True, METADATA_LOOKUP=True,
+    extra = dict(SOURCE_QUALITY_SCAN=True, SOURCE_AUTO_REPLACE=False, SONG_ANALYSIS_SCAN=True, METADATA_LOOKUP=True,
                  GENRE_LOOKUP=True, AUTO_PLAYLIST_DOWNLOADS=True)
 
     def setUp(self):
@@ -48,6 +51,12 @@ class EnabledWorkerTests(Base):
         def slots():
             return {row['id']: row for row in self.go(client, 'GET', '/api/server/stats').json['workers']}
         initial = slots()
+        settings = self.go(client, 'GET', '/api/server/stats').json['catalogue_workers']
+        self.assertTrue(settings['source_scan'])
+        self.assertTrue(settings['metadata'])
+        self.assertTrue(settings['playlist_matching'])
+        self.assertFalse(settings['source_auto_replace'])
+        self.assertEqual(settings['automatic_attempts_per_hour'], self.state.catalogue_review.automatic_limit)
         self.assertEqual(len(initial), 24)
         self.assertTrue(all(initial[key]['state'] == 'idle' for key in
                             ('source-quality-0', 'song-analysis-0', 'tagging-0', 'genre-0', 'playlist-queue-0')))

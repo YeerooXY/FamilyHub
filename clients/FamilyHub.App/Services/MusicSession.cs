@@ -64,6 +64,7 @@ public sealed class MusicSession
     public string ActiveStreamingQuality => HomeConnection ? StreamingQualityWifi : StreamingQualityMobile;
     public int CacheLimitGb { get; private set; } = 3;
     public bool DownloadsWifiOnly { get; private set; } = true;
+    internal bool CanWarmPlayback { get; set; }
     private static bool HomeConnection => Microsoft.Maui.Networking.Connectivity.Current.ConnectionProfiles.Any(
         p => p is Microsoft.Maui.Networking.ConnectionProfile.WiFi or Microsoft.Maui.Networking.ConnectionProfile.Ethernet)
         && !Microsoft.Maui.Networking.Connectivity.Current.ConnectionProfiles.Contains(Microsoft.Maui.Networking.ConnectionProfile.Cellular);
@@ -969,9 +970,12 @@ public sealed class MusicSession
     public MusicTrack CurrentRecording(MusicTrack track) =>
         libraryById.TryGetValue(track.Id, out var current) && (Connected || current.DownloadSha256 == track.DownloadSha256) ? current : track;
 
-    public MusicTrack PlaybackRecording(MusicTrack track, string path) =>
-        Offline?.GetDownloadedPath(track.Id) == path && downloadsById.TryGetValue(track.Id, out var saved) ? saved :
-        playbackRecords.GetValueOrDefault(path, track);
+    public MusicTrack PlaybackRecording(MusicTrack track, string path)
+    {
+        if (IsStream(path)) return playbackRecords.TryRemove(path, out var stream) ? stream : track;
+        return Offline?.GetDownloadedPath(track.Id) == path && downloadsById.TryGetValue(track.Id, out var saved) ? saved :
+            playbackRecords.GetValueOrDefault(path, track);
+    }
 
     public string? LocalPath(MusicTrack track)
     {
@@ -1310,25 +1314,44 @@ public sealed class MusicSession
         return path;
     }
 
-    private bool streamingFailed;
-    public bool CanStream => !streamingFailed;
-    public void StreamingFailed() => streamingFailed = true;
+    public bool CanStream => true;
     public static bool IsStream(string source) => source.StartsWith("https://", StringComparison.Ordinal);
 
-    public async Task<string> StreamPlaybackAsync(MusicTrack track, double lead, CancellationToken cancellationToken, bool background = false)
+    internal void ReportPlaybackStage(string action, string stage, long elapsed)
     {
-        track = CurrentRecording(track);
+        if (Connected && Api is { } api && elapsed is >= 0 and <= 3600000)
+            _ = SendPlaybackStageAsync(api, action, stage, elapsed);
+    }
+    private static async Task SendPlaybackStageAsync(FamilyHubApi api, string action, string stage, long elapsed)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        try
+        {
+            await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, "/api/playback/diagnostics",
+                new { action, stage, elapsed_ms = elapsed }, timeout.Token, background: true);
+        }
+        catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException
+            or ObjectDisposedException or JsonException or IOException or InvalidDataException) { }
+    }
+
+    public async Task<string> StreamPlaybackAsync(MusicTrack track, double lead, CancellationToken cancellationToken, bool background = false, string? action = null)
+    {
         var api = OnlineApi();
         var version = accountVersion;
-        if (track.PlaybackVersion == "preview-hls" && track.StreamUrl.Length > 0)
+        cancellationToken.ThrowIfCancellationRequested();
+        if (track.PlaybackVersion is "preview-hls" or "preview-source" && track.StreamUrl.Length > 0)
         {
             var preview = api.ResolveUri(track.StreamUrl).AbsoluteUri;
             playbackRecords[preview] = track;
             return preview;
         }
+        track = CurrentRecording(track);
         if (track.PlaybackInfoUrl != $"/api/library/{track.Id}/playback-info")
             throw new InvalidDataException("Streaming is unavailable for this recording.");
-        var info = await api.RequestJsonAsync<MusicTrack>(HttpMethod.Get, PlaybackInfoUrl(track, ActiveStreamingQuality, lead) + "&stream=1", cancellationToken: cancellationToken, background: background);
+        var url = PlaybackInfoUrl(track, ActiveStreamingQuality, lead) + "&stream=1";
+        if (action is not null) url += "&play_action=" + Uri.EscapeDataString(action);
+        var info = await api.RequestJsonAsync<MusicTrack>(HttpMethod.Get, url, cancellationToken: cancellationToken, background: background);
+        cancellationToken.ThrowIfCancellationRequested();
         EnsureCurrent(version);
         if (info.Id != track.Id || info.StreamUrl.Length == 0) throw new InvalidDataException("The stream link does not match this recording.");
         var stream = api.ResolveUri(info.StreamUrl).AbsoluteUri;
@@ -1583,23 +1606,28 @@ public sealed class MusicSession
             .DistinctBy(Similarity.SongKey));
     }
 
-    public async Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken cancellationToken, bool allowPreview = false, bool background = false, bool prefetch = false)
+    public async Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken cancellationToken, bool allowPreview = false,
+        bool background = false, bool prefetch = false, string? action = null, bool fallback = false)
     {
         if (!string.IsNullOrEmpty(track.DownloadUrl)) return track;
         var version = accountVersion;
         var api = OnlineApi();
         var created = await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, "/api/jobs",
-            new { url = track.Url, title = track.Title, channel = track.Channel, allow_new = true, prefetch }, cancellationToken, background);
+            new { url = track.Url, title = track.Title, channel = track.Channel, allow_new = true, prefetch, play_action = action }, cancellationToken, background);
         var job = created.GetProperty("job");
         var id = job.GetProperty("id").GetString();
-        while (job.GetProperty("state").GetString() is "queued" or "running")
+        while (true)
         {
-            if (allowPreview && job.TryGetProperty("source_id", out var source) && source.GetString() == track.Id && job.TryGetProperty("stream_url", out var preview) && preview.GetString() is { Length: > 0 } url)
+            if (allowPreview && job.TryGetProperty("source_id", out var source) && source.GetString() == track.Id)
             {
                 EnsureCurrent(version);
-                return track with { StreamUrl = url, PlaybackVersion = "preview-hls" };
+                if (!fallback && job.TryGetProperty("stream_url", out var preview) && preview.GetString() is { Length: > 0 } url)
+                    return track with { StreamUrl = url, PlaybackVersion = "preview-hls" };
+                if (job.TryGetProperty("fallback_stream_url", out var original) && original.GetString() is { Length: > 0 } originalUrl)
+                    return track with { StreamUrl = originalUrl, PlaybackVersion = "preview-source" };
             }
-            await Task.Delay(1000, cancellationToken);
+            if (job.GetProperty("state").GetString() is not ("queued" or "running")) break;
+            await Task.Delay(allowPreview ? 300 : 1000, cancellationToken);
             job = (await api.RequestJsonAsync<JsonElement>(HttpMethod.Get, "/api/jobs/" + id, cancellationToken: cancellationToken, background: true)).GetProperty("job");
         }
         if (job.GetProperty("state").GetString() != "done")

@@ -32,9 +32,10 @@
     </ChildContent>
 </PlaylistTransfer>
 <DeviceDownloadCounts Tracks="tracks" />
-<DeviceDownloadCounts Tracks="Session.DeviceTracks" ShowSizes="true" />
+<DeviceDownloadCounts Tracks="Session.DeviceTracks" ShowSizes="true" @bind-CacheSelected="cacheSelected" />
 
 @code {
+    private bool cacheSelected;
     protected override void OnInitialized() => Session.Changed += OnChanged;
     private void OnChanged() => _ = InvokeAsync(StateHasChanged);
     private async Task Download(IReadOnlyList<MusicTrack> tracks)

@@ -21,7 +21,7 @@
     <Notice Message="@StatusText" Level="@(error is not null && !Offline ? "error" : Offline ? "warning" : "info")"
         ActionLabel="@(error is not null && !Offline ? Leaderboard ? "Retry leaderboard" : "Retry server work" : null)"
         Action="RefreshNow" Busy="@Refreshing" FocusTarget="#server-stats-refresh" />
-    @if (ShowSnapshotNotice) { <Notice Level="warning" Message="Showing the last server snapshot. Refresh to check for updates." /> }
+    @if (data is not null && SnapshotStale) { <small class="catalogue-timestamp">Server updated @snapshotAt.ToLocalTime().ToString("t")</small> }
     @if (data is { } stats && Leaderboard)
     {
         var ranking = Ranking.ToList();
@@ -125,35 +125,49 @@
                 {
                     <Notice Level="empty" Message="Play or add songs to see this year's listening summary." />
                 }
-                <div class="lb-wrapped-grid">
-                    @foreach (var profile in wrappedProfiles)
-                    {
-                        var wrapped = profile.Wrapped!;
-                        var replay = wrapped.MostReplayedSong;
-                        <article class="lb-wrapped-card glass-panel" @key="profile.Id">
-                            <h3><ProfileAvatar Profile="ProfileFor(profile)" Size="36" ShowCrown="false" /> <span>@profile.Name</span></h3>
-                            <dl>
-                                <div><dt><MusicIcon Name="plus-circle" />Songs added</dt><dd>@wrapped.SongsAdded.ToString("N0", Inv)</dd></div>
-                                <div><dt><MusicIcon Name="clock" />Listening time</dt><dd>@wrapped.TotalMinutes.ToString("0.#", Inv) min</dd></div>
-                                <div><dt><MusicIcon Name="person" />Favourite artist</dt><dd>@(wrapped.FavouriteArtist ?? "—")</dd></div>
-                                <div><dt><MusicIcon Name="music" />Favourite genre</dt><dd>@(wrapped.FavouriteGenre ?? "—")</dd></div>
-                                <div><dt><MusicIcon Name="crown" />Longest streak</dt><dd>@(wrapped.LongestStreakDays == 1 ? "1 day" : $"{wrapped.LongestStreakDays} days")</dd></div>
-                                <div><dt><MusicIcon Name="moon" />Night owl</dt><dd>@Percent(wrapped.NightOwlShare)</dd></div>
-                                <div><dt><MusicIcon Name="repeat" />Most replayed</dt><dd>@(replay is null ? "—" : replay.Title ?? "Unknown song")@if (replay is not null) { <small>@replay.Replays × replayed@(string.IsNullOrEmpty(replay.Artist) ? "" : " · " + replay.Artist)</small> }</dd></div>
-                                <div><dt><MusicIcon Name="radio" />Mainstream score</dt><dd>@Percent(wrapped.MainstreamScore)</dd></div>
-                            </dl>
-                            @if (wrapped.EarlyListeners.Count > 0)
-                            {
-                                <p class="lb-early"><MusicIcon Name="sparkle" /><span><strong>Early listener</strong> @string.Join(", ", wrapped.EarlyListeners)</span></p>
-                            }
-                        </article>
-                    }
-                </div>
-                @if (wrappedProfiles.Count > 0)
+                else
                 {
+                    var selectedMember = wrappedProfiles.Find(p => p.Id == wrappedMemberId) ?? wrappedProfiles[0];
                     var chartDate = wrappedProfiles.Select(p => p.Wrapped?.ChartDate).FirstOrDefault(d => d is not null);
+                    <div class="lb-wrapped-picker">
+                        <label for="lb-wrapped-member">Family member</label>
+                        <select id="lb-wrapped-member" aria-controls="lb-wrapped-table" @bind:get="selectedMember.Id" @bind:set="SetWrappedMember">
+                            @foreach (var profile in wrappedProfiles)
+                            {
+                                <option value="@profile.Id" @key="profile.Id">@profile.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div id="lb-wrapped-scroll" class="lb-wrapped-scroll glass-panel" role="region" aria-labelledby="lb-wrapped-title" tabindex="0">
+                        <table id="lb-wrapped-table" class="lb-wrapped-table">
+                            <caption class="sr">Listening by member</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Metric</th>
+                                    @foreach (var profile in wrappedProfiles)
+                                    {
+                                        <th scope="col" class="lb-wrapped-person @(profile.Id == selectedMember.Id ? "is-selected" : "")" @key="profile.Id">
+                                            <span><ProfileAvatar Profile="ProfileFor(profile)" Size="36" ShowCrown="false" /> @profile.Name</span>
+                                        </th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var metric in WrappedMetrics)
+                                {
+                                    <tr @key="metric.Label">
+                                        <th scope="row">@metric.Label</th>
+                                        @foreach (var profile in wrappedProfiles)
+                                        {
+                                            <td class="lb-wrapped-person @(profile.Id == selectedMember.Id ? "is-selected" : "")" @key="profile.Id">@metric.Value(profile.Wrapped!)</td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
                     <details class="lb-wrapped-help">
-                        <summary>How scores are counted</summary>
+                        <summary id="lb-wrapped-help">How scores are counted</summary>
                         <p>Night owl is the share of completed plays that started from 00:00 to 05:59 UTC. Replays count each time you listen to a song again this year.</p>
                         <p>Mainstream score is the share of your top 10 artists and top 10 songs that appear in Deezer’s chart. Early listener marks artists you played before FamilyHub observed them enter the chart.</p>
                         <p>@(chartDate is null ? "Deezer chart unavailable. Refresh the leaderboard to check again." : $"Deezer chart checked {ExactDay(chartDate)}.")</p>
@@ -164,11 +178,20 @@
     }
     else if (!Leaderboard && data is not null)
     {
+        <details class="srv-details">
+        <summary>Server details</summary>
         <div class="srv-grid">
             @if (data is { } server)
             {
                 <section class="stats-work srv-work glass-panel" aria-labelledby="stats-work-title">
                     <div class="stats-section-heading"><h2 id="stats-work-title">Worker activity</h2></div>
+                    @if (server.Workers.Count > 0)
+                    {
+                        var activeWorkers = server.Workers.Count(worker => worker.State == "working");
+                        <p class="srv-work-empty">@(activeWorkers == 0 ? "No active workers" : activeWorkers == 1 ? "1 active worker" : $"{activeWorkers} active workers")
+                            @if (server.CataloguePaused) { <span> · Catalogue work paused while the server is in use</span> }
+                        </p>
+                    }
                     @if (server.WorkerStages is null && server.PlaylistBacklog is null)
                     {
                         <Notice Level="warning" Message="Update the server to see queue and retry counts." />
@@ -179,6 +202,8 @@
                     }
                     else
                     {
+                        <details class="srv-worker-details">
+                        <summary><MusicIcon Name="chevron-down" />Queues and retries</summary>
                         <ul class="srv-stage-cards">
                         @foreach (var stage in server.WorkerStages ?? [])
                         {
@@ -204,6 +229,7 @@
                             </li>
                         }
                         </ul>
+                        </details>
                     }
                     @if (server.Workers.Count > 0)
                     {
@@ -238,6 +264,19 @@
                             </ul>
                         </details>
                     }
+                    @if (server.CatalogueWorkers is { } settings)
+                    {
+                        <details class="srv-worker-details">
+                            <summary><MusicIcon Name="chevron-down" />Catalogue worker configuration</summary>
+                            <dl class="srv-storage-facts">
+                                <div><dt>Playlist matching and downloads</dt><dd>@OnOff(settings.PlaylistMatching)</dd></div>
+                                <div><dt>Metadata lookup</dt><dd>@OnOff(settings.Metadata)</dd></div>
+                                <div><dt>Source quality scan</dt><dd>@OnOff(settings.SourceScan)</dd></div>
+                                <div><dt>Automatic source replacement</dt><dd>@OnOff(settings.SourceAutoReplace)</dd></div>
+                                <div><dt>Automatic catalogue attempts per hour</dt><dd>@settings.AttemptsPerHour</dd></div>
+                            </dl>
+                        </details>
+                    }
                 </section>
             }
             @if (data is { } figures)
@@ -259,6 +298,7 @@
                 </section>
             }
         </div>
+        </details>
     }
     @if (Leaderboard && data is { Records.Count: > 0 } recordStats)
     {
@@ -289,6 +329,27 @@
 
 @code {
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+    private static readonly (string Label, Func<WrappedStatistics, string> Value)[] WrappedMetrics =
+    [
+        ("Songs added", wrapped => wrapped.SongsAdded.ToString("N0", Inv)),
+        ("Listening time", wrapped => $"{wrapped.TotalMinutes.ToString("0.#", Inv)} min"),
+        ("Favourite artist", wrapped => wrapped.FavouriteArtist ?? "—"),
+        ("Favourite genre", wrapped => wrapped.FavouriteGenre ?? "—"),
+        ("Longest streak", wrapped => wrapped.LongestStreakDays == 1 ? "1 day" : $"{wrapped.LongestStreakDays} days"),
+        ("Night owl", wrapped => Percent(wrapped.NightOwlShare)),
+        ("Most replayed", wrapped => ReplayValue(wrapped.MostReplayedSong)),
+        ("Mainstream score", wrapped => Percent(wrapped.MainstreamScore)),
+        ("Early listener", wrapped => wrapped.EarlyListeners.Count > 0 ? string.Join(", ", wrapped.EarlyListeners) : "—"),
+    ];
+    private string? wrappedMemberId;
+    private void SetWrappedMember(string? id) => wrappedMemberId = id;
+    private static string ReplayValue(WrappedSong? replay)
+    {
+        if (replay is null) return "—";
+        var count = $"{replay.Replays.ToString("N0", Inv)} {(replay.Replays == 1 ? "replay" : "replays")}";
+        var artist = string.IsNullOrEmpty(replay.Artist) ? "" : $", {replay.Artist}";
+        return $"{replay.Title ?? "Unknown song"} ({count}{artist})";
+    }
     private ServerStatistics? data;
     private string period = "month";
     private string PeriodLabel => period == "week" ? "7 days" : period == "all" ? "All time" : "This month";
@@ -307,6 +368,7 @@
     private ListenerProfile ProfileFor(ListenerStatistics row) => Session.Profiles.FirstOrDefault(p => p.Id == row.Id) ?? new() { Id = row.Id, Name = row.Name };
     private ListenerProfile RecordProfile(ListeningRecord row) => Session.Profiles.FirstOrDefault(p => p.Id == row.Owner) ?? new() { Id = row.Owner, Name = row.User };
     private static string DayLabel(string day) => DateTime.TryParse(day, out var date) ? date.ToString("d MMM", Inv) : day;
+    private static string OnOff(bool enabled) => enabled ? "On" : "Off";
     private static string ExactDay(string day) => DateTime.TryParse(day, Inv, DateTimeStyles.None, out var date) ? date.ToString("d MMM yyyy", Inv) : day;
     private static string ExactDuration(double seconds)
     {
@@ -344,16 +406,15 @@
     }
     private string Identity => Session.Server + "\n" + Session.User;
 
+    private DateTimeOffset snapshotAt;
     private int snapshotRetries;
     private bool followingUp;
     private bool SnapshotStale => data?.SnapshotAgeSeconds > 1;
-    private bool snapshotExhausted;
-    private bool ShowSnapshotNotice => snapshotExhausted && SnapshotStale;
     private void QueueSnapshotRefresh()
     {
         if (disposed) return;
-        if (!SnapshotStale) { snapshotExhausted = false; return; }
-        if (snapshotRetries >= 3) { snapshotExhausted = true; StateHasChanged(); return; }
+        if (!SnapshotStale) return;
+        if (snapshotRetries >= 3) return;
         snapshotRetries++;
         _ = Task.Delay(TimeSpan.FromSeconds(2.5), lifetime.Token).ContinueWith(
             async t => { if (!t.IsCanceled && !disposed) await InvokeAsync(() => { followingUp = true; return Refresh(); }); },
@@ -363,7 +424,7 @@
     private async Task Refresh()
     {
         if (Refreshing || disposed || Offline) return;
-        if (!followingUp) { snapshotRetries = 0; snapshotExhausted = false; }
+        if (!followingUp) snapshotRetries = 0;
         followingUp = false;
         var identity = requestedIdentity = Identity;
         fetching = true;
@@ -380,6 +441,7 @@
             if (Leaderboard) await JS.InvokeVoidAsync("familyhub.captureLeaderboard").AsTask().WaitAsync(request.Token);
             await JS.InvokeVoidAsync("familyhub.captureStatsFocus").AsTask().WaitAsync(request.Token);
             data = result; Session.UpdateTopListener(result);
+            snapshotAt = DateTimeOffset.UtcNow.AddSeconds(-Math.Max(0, result.SnapshotAgeSeconds));
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { return; }
         catch (OperationCanceledException) { error = "The server did not answer in time. Check your connection and try again."; }
@@ -400,6 +462,7 @@
         if (requestedIdentity != Identity)
         {
             data = null;
+            wrappedMemberId = null;
             if (!fetching) await Refresh();
         }
         StateHasChanged();

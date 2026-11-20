@@ -1,7 +1,8 @@
 // Real browser/decks and synthetic HLS; controlled API states, no injected transition plan.
-const {chromium} = require('C:/Users/you/Projects/agent-dock/node_modules/playwright');
 const fs = require('fs'), path = require('path'), assert = require('assert');
 const root = path.resolve(__dirname, '..'), fixture = path.join(root, '.local/music-browser');
+const {chromium} = require(process.env.PLAYWRIGHT_MODULE ||
+  require.resolve('playwright', {paths:[root, path.resolve(root, '../agent-dock')]}));
 const tracks = Array.from({length: 24}, (_, i) => ({id: String(i+1).padStart(11,'0'), url:`https://www.youtube.com/watch?v=${String(i+1).padStart(11,'0')}`, title:`Track ${i+1}`, channel:'Test artist', saved:true, duration:40}));
 const jobs = new Map(), requests = [], errors = [];
 tracks.forEach(t=>t.saved=false);
@@ -50,8 +51,7 @@ function job(t, priority=0) {
   await page.waitForSelector('#results .song-primary');
   assert(requests.some(r=>r.p==='/api/search'),'Typing triggers search');
   await page.waitForTimeout(300);
-  const first = requests.filter(r=>r.p==='/api/queue'&&r.data.previews?.length).at(-1).data.previews;
-  assert(first.length>0&&first.length<8,'Only viewport-visible results are prepared');
+  assert(!requests.some(r=>r.p==='/api/queue'&&r.data.previews?.length),'Browsing search requested speculative audio');
   await page.locator('#results .song-primary').nth(2).click();
   await page.waitForFunction(()=>currentTrack?.id==='00000000003'&&queue.length>0);
   assert.equal(await page.evaluate(()=>queue[0].id),'00000000004','Next follows selected row');
@@ -61,8 +61,7 @@ function job(t, priority=0) {
   await page.locator('#content').evaluate(n=>n.scrollTop=n.scrollHeight);
   await page.waitForFunction(()=>visibleResults.length>8);
   await page.waitForTimeout(350);
-  const last = requests.filter(r=>r.p==='/api/queue'&&r.data.previews?.length).at(-1).data.previews;
-  assert(last.some(t=>!first.some(a=>a.id===t.id)),'Scrolling prepares newly visible results');
+  assert(!requests.some(r=>r.p==='/api/queue'&&r.data.previews?.length),'Scrolling search requested speculative audio');
   await page.locator('#profile-toggle').click();await page.locator('#nav-settings').click();
   await page.locator('#include-long-mixes').focus();await page.keyboard.press('Space');
   assert(await page.locator('#settings-view').isVisible());
@@ -71,6 +70,6 @@ function job(t, priority=0) {
   assert.equal(await page.locator('#q').inputValue(),'');
   assert(await page.evaluate(()=>document.activeElement.id==='q'),'Clear keeps focus in search');
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({typeSearch:true,orderedSkipping:true,viewportPreloads:true,infiniteScroll:true,settingsFocus:true,clearFocus:true}));
+  console.log(JSON.stringify({typeSearch:true,orderedSkipping:true,searchWithoutAudioPrefetch:true,infiniteScroll:true,settingsFocus:true,clearFocus:true}));
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

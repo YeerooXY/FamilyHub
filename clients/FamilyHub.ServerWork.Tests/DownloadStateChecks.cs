@@ -85,7 +85,7 @@ internal static class DownloadStateChecks
         try
         {
             await CheckAsync("The first device download did not update the row and both sets of counts during the batch.",
-                html => html.Contains("1 downloaded") && html.Contains("0 cached") && html.Contains("<dd>1 song,") &&
+                html => html.Contains("1 downloaded") && html.Contains("0 cached") && html.Contains("class=\"device-size\">1 song,") &&
                     html.Contains("Device download progress") && Row(html, "First song").Contains("aria-label=\"On this device\"") &&
                     Row(html, "Next song").Contains("aria-label=\"Downloading to this device\"") &&
                     Row(html, "Final song").Contains("aria-label=\"Waiting to download to this device\"") && Button(html, "Downloading to this device"));
@@ -93,7 +93,7 @@ internal static class DownloadStateChecks
         finally { resume.TrySetResult(); }
         await download.WaitAsync(TimeSpan.FromSeconds(8));
         await CheckAsync("The open playlist missed the final download.",
-            html => html.Contains("3 downloaded") && html.Contains("<dd>3 songs,") &&
+            html => html.Contains("3 downloaded") && html.Contains("class=\"device-size\">3 songs,") &&
                 Button(html, "Remove download") && Row(html, "Final song").Contains("aria-label=\"On this device\""));
         await renderer.Dispatcher.InvokeAsync(() => session.RemoveDownloadsAsync(server.Tracks));
         await CheckAsync("Removing downloads did not return the same control to device download without altering the server count.",

@@ -147,3 +147,21 @@ captures, measured geometry, and keyboard and touch coverage.
 [Popup verification](popup-unification-2026-11-19/README.md)
 
 The popup profiles await a rerun with main 0.1.72 integrated.
+
+## 20 November 2026 · Playback diagnostics
+
+Settings was checked against a local server fixture in Chromium at 1280 × 840
+and 390 × 840. Enter loaded the timings and kept focus on Refresh timings.
+Tab reached the first play, Space opened its device and server events, and
+Shift+Tab returned to Refresh timings. Fixture timings exercise presentation.
+Physical phone playback, battery use, and metered-network performance remain open.
+
+The combined native UI fixture passed the music popup suite at 1280 and
+2000 px in Chromium, 850 px in WebKit, and 390 px in both Android Chromium
+and iPhone WebKit emulation. The suite covers the Library and Downloaded
+filters, playlist ownership, pins, recents and navigation focus, centered
+playlist creation, the profile menu, review status filters, diagnostics,
+and the annual comparison table and member selector. The annual table also
+fit 320 × 720, 768 × 1024 and 844 × 390 without page overflow. The captures are in
+`.local/task-tmp/combined-ui/`. Physical platforms, enlarged text and
+assistive-technology output still require verification.

@@ -13,6 +13,7 @@ import unicodedata
 from types import SimpleNamespace
 from collections import defaultdict, deque
 from .resources import background_request
+from .review_confidence import close_duration, normal, presentation_title
 
 def track_identities(track):
     """Keys that make two playlist entries the same song: recording, Spotify URI or normalized title and artist."""
@@ -101,6 +102,19 @@ def duration_matches(track, recording):
     return any(type(value) in (int, float) and math.isfinite(value) and value > 0
                and abs(value - expected) <= max(8, expected * .07)
                for value in (recording.get("duration"), recording.get("original_duration")))
+
+
+def library_match_key(title, artist):
+    return normal(presentation_title(title, artist)), normal(artist)
+
+
+def reuse_library_match(track, recordings):
+    title, artist = library_match_key(track['title'], track['artist'])
+    if not title or artist in ('', 'youtube', 'unknown', 'unknown artist', 'local imports', 'various artists'):
+        return None
+    matches = [row for row in recordings if library_match_key(row['title'], row['channel']) == (title, artist)
+               and any(close_duration(track.get('duration'), row.get(key)) for key in ('duration', 'original_duration'))]
+    return matches[0] if len(matches) == 1 else None
 
 def matching_title(value):
     # Preserve named remixes and versions; remove only presentation/featured-credit labels.

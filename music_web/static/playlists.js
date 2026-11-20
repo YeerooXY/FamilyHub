@@ -73,7 +73,7 @@
         if(job.state!=='done')throw Error('Could not save '+selected.tracks[index].title+'. You can retry.');
         count++;await refresh();
       }
-      say(stopping ? 'Saving stopped. Resume to save the remaining recordings.' : '', stopping ? 'warning' : 'info');if (!stopping) toast(count+' recordings saved.');await loadLibrary();
+      say(stopping ? 'Saving stopped. Resume to save the remaining recordings.' : '', stopping ? 'warning' : 'info');if (!stopping) toast(count === 1 ? '1 recording saved.' : count+' recordings saved.');await loadLibrary();
     }catch(e){say(e.message, "error");}finally{controls(false);await refresh().catch(()=>{});render();}
   });
   $('playlist-play').addEventListener('click',()=>{

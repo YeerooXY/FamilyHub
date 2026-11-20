@@ -18,7 +18,8 @@ internal static class PlaybackFlowChecks
             if (request.RequestUri!.AbsolutePath == "/api/jobs")
             {
                 requests.Add(JsonSerializer.Deserialize<JsonElement>(await request.Content!.ReadAsStringAsync()));
-                value = new { job = new { id = "job", source_id = track.Id, state = "running", stream_url = "/api/jobs/job/media/index.m3u8?ticket=fixture" } };
+                value = new { job = new { id = "job", source_id = track.Id, state = "running", stream_url = "/api/jobs/job/media/index.m3u8?ticket=fixture",
+                    fallback_stream_url = "/api/jobs/job/media/source?ticket=fixture" } };
             }
             else value = request.RequestUri.AbsolutePath switch
             {
@@ -43,8 +44,13 @@ internal static class PlaybackFlowChecks
             Check((await session.StreamPlaybackAsync(playing, 0, CancellationToken.None)).Contains("index.m3u8"), "Preview was discarded before playback");
             await session.EnsureServerRecordingAsync(track, CancellationToken.None, allowPreview: true, background: true, prefetch: true);
             Check(requests[1].GetProperty("prefetch").GetBoolean(), "Upcoming song took explicit-play priority");
-            session.StreamingFailed();
-            Check(!session.CanStream, "Failed streaming lost the local-cache fallback");
+            var action = Guid.NewGuid().ToString("N");
+            var alternate = await session.EnsureServerRecordingAsync(track, CancellationToken.None, allowPreview: true, action: action, fallback: true);
+            Check(alternate.PlaybackVersion == "preview-source", "A failed preview waited for purification or reused HLS");
+            Check(requests[2].GetProperty("play_action").GetString() == action, "Recovery lost its playback action ID");
+            Check((await session.StreamPlaybackAsync(alternate, 0, CancellationToken.None)).Contains("/media/source"), "Recovery opened the wrong edition");
+            var following = await session.EnsureServerRecordingAsync(track, CancellationToken.None, allowPreview: true);
+            Check(following.PlaybackVersion == "preview-hls", "A previous attempt disabled streaming");
         }
         finally { session.Api?.Dispose(); }
         return checks;

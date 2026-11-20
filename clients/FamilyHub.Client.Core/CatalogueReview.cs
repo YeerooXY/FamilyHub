@@ -17,6 +17,8 @@ public sealed record SourceQualitySong
     [JsonPropertyName("queued")] public bool Queued { get; init; }
     [JsonPropertyName("replacement_checked")] public bool ReplacementChecked { get; init; }
     [JsonPropertyName("replacement_error")] public string? Error { get; init; }
+    [JsonPropertyName("retry_at")] public double RetryAt { get; init; }
+    [JsonPropertyName("retry_reason")] public string RetryReason { get; init; } = "";
     [JsonPropertyName("proposed_replacement")] public SourceQualityCandidate? Candidate { get; init; }
 }
 public sealed record SourceQualityCandidate
@@ -36,6 +38,7 @@ public sealed record CatalogueReviewSnapshot
     [JsonPropertyName("playlist_gaps_total")] public int PlaylistGapsTotal { get; init; }
     [JsonPropertyName("metadata_fixed")] public List<AutomaticMetadataFix> MetadataFixed { get; init; } = [];
     [JsonPropertyName("can_edit")] public bool CanEdit { get; init; }
+    [JsonPropertyName("metadata_automatic")] public bool? MetadataAutomatic { get; init; }
 }
 public sealed record PlaylistReviewGap
 {
@@ -47,6 +50,8 @@ public sealed record PlaylistReviewGap
     [JsonPropertyName("artist")] public string Artist { get; init; } = "";
     [JsonPropertyName("artwork_url")] public string? ArtworkUrl { get; init; }
     [JsonPropertyName("state")] public string State { get; init; } = "";
+    [JsonPropertyName("retry_at")] public double RetryAt { get; init; }
+    [JsonPropertyName("retry_reason")] public string RetryReason { get; init; } = "";
     [JsonPropertyName("can_edit")] public bool CanEdit { get; init; }
 }
 public sealed record AutomaticRecordingFix
@@ -83,6 +88,8 @@ public sealed record MetadataRequest
     [JsonPropertyName("state")] public string State { get; init; } = "";
     [JsonPropertyName("source_url")] public string SourceUrl { get; init; } = "";
     [JsonPropertyName("source")] public string Source { get; init; } = "";
+    [JsonPropertyName("retry_at")] public double RetryAt { get; init; }
+    [JsonPropertyName("retry_reason")] public string RetryReason { get; init; } = "";
     [JsonPropertyName("suggested")] public Dictionary<string,string> Suggested { get; init; } = [];
     /// <summary>The value to edit: a suggestion fills a field that is still missing.</summary>
     public string Draft(string key) => Missing.Contains(key) && Suggested.TryGetValue(key, out var value) && value.Length > 0 ? value : Current.GetValueOrDefault(key, "");

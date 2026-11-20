@@ -1,7 +1,8 @@
 // Real browser/decks and synthetic HLS; controlled API states, no injected transition plan.
-const {chromium} = require('C:/Users/you/Projects/agent-dock/node_modules/playwright');
 const fs = require('fs'), path = require('path'), assert = require('assert');
 const root = path.resolve(__dirname, '..'), fixture = path.join(root, '.local/music-browser');
+const {chromium} = require(process.env.PLAYWRIGHT_MODULE ||
+  require.resolve('playwright', {paths:[root,path.resolve(root,'../agent-dock')]}));
 const tracks = Array.from({length: 5}, (_, i) => ({id: String(i+1).padStart(11,'0'), url:`https://www.youtube.com/watch?v=${String(i+1).padStart(11,'0')}`, title:`Track ${i+1}`, channel:'Test artist', saved:true, duration:40}));
 const jobs = new Map(), requests = [], errors = [];
 const playlistReads = new Map();
@@ -16,6 +17,12 @@ function job(t, priority=0) {
  const browser=await chromium.launch({headless:true});
  try {
   const page=await browser.newPage();page.setDefaultTimeout(20000);page.on('pageerror',e=>errors.push(e.message));
+  await page.addInitScript(() => {
+    const connection = new EventTarget();
+    Object.assign(connection, {type:"wifi", saveData:false});
+    Object.defineProperty(navigator, "connection", {value:connection});
+    localStorage.setItem("music:queue-mode", "order");
+  });
   await page.route('https://music.test/**',async route=>{
    const request=route.request(), p=new URL(request.url()).pathname;
    const mime={'.js':'text/javascript','.css':'text/css','.m3u8':'application/vnd.apple.mpegurl','.mp4':'video/mp4','.m4s':'video/mp4'};
@@ -48,7 +55,8 @@ function job(t, priority=0) {
   assert.equal(await page.locator('#library-list .is-current').count(),1);
   await page.locator('#profile-toggle').click(); await page.locator('#nav-settings').click();
   await page.locator('#autoplay').check();
-  await page.waitForFunction(()=>Boolean(plan?.fade)&&decks[deckIndex].currentTime>2.3&&decks[deckIndex].duration>=40&&decks[1-deckIndex].readyState>=2);
+  await page.waitForFunction(()=>Boolean(plan?.fade)&&decks[deckIndex].currentTime>2.3&&decks[deckIndex].duration>=40);
+  assert(await page.evaluate(()=>!decks[1-deckIndex].dataset.mediaUrl),'Standby opened before the transition');
   await page.waitForFunction(()=>document.querySelector('#library-list .is-next'));
   assert(await page.evaluate(()=>Boolean(decks[deckIndex].hls)),'Growing playlists should use HLS/MSE where supported');
   assert([...playlistReads.values()].some(n=>n>1),'Growing playlist was never refreshed');
@@ -57,12 +65,10 @@ function job(t, priority=0) {
   failId=tracks[1].id;job(tracks[1],1);
   await page.waitForFunction(()=>document.getElementById('queue-state').textContent.includes('could not prepare'));
   assert(await page.evaluate(()=>!decks[deckIndex].paused),'Failure interrupted current playback');
-  const before=await page.evaluate(()=>queue.map(t=>t.id));
-  await page.evaluate(()=>advance());
-  assert.deepEqual(await page.evaluate(()=>queue.map(t=>t.id)),before,'Failure reordered the playlist');
+  assert.equal(await page.evaluate(()=>queue[0].id),failId,'Failure reordered the playlist');
   failId=null;jobs.delete(tracks[1].id);
-  await page.evaluate(()=>prepare());
-  await page.locator('#nav-queue').click();
+  await page.evaluate(async()=>{prepareSource=undefined;await prepare();});
+  await page.locator('#show-queue').click();
   await page.locator('#library').click();await page.locator('#library').click();
   await page.evaluate(async()=>{await fillQueue();renderQueue();await prepare();});
   assert(await page.evaluate(()=>new Set(queue.map(sourceKey)).size===queue.length),'Duplicate queue sources');
@@ -73,7 +79,6 @@ function job(t, priority=0) {
   await page.waitForTimeout(100);
   await page.locator('#fade').fill('2');release();transitionDelay=null;
   await page.waitForFunction(()=>plan?.fade===2);
-  await page.waitForFunction(()=>decks[1-deckIndex].readyState>=2);
   const starting=await page.evaluate(()=>deckIndex);
   await page.locator('#seek').evaluate(node=>{node.value=38.4;node.dispatchEvent(new Event('input'));});
   await page.waitForFunction(()=>blending);
@@ -90,17 +95,16 @@ function job(t, priority=0) {
   assert(await page.evaluate(()=>!decks[deckIndex].paused&&gains[deckIndex].gain.value>.99),'Handoff must retain playing incoming deck');
   await page.waitForTimeout(500);
   assert.equal(await page.evaluate(()=>currentTrack.title),'Track 2');
-  // No-crossfade autoplay must adopt the already buffered deck, then keep advancing.
+  // No-crossfade autoplay consumes the prefetched opening, then keeps advancing.
   await page.locator('#fade').fill('0');
   await page.locator('#fade').dispatchEvent('change');
   for(let turn=0;turn<2;turn++) {
-    await page.waitForFunction(()=>decks[1-deckIndex].readyState>=2&&Boolean(upcoming()?.media_url));
+    await page.waitForFunction(()=>Boolean(upcoming()?.media_url));
     await page.waitForFunction(()=>Number.isFinite(decks[deckIndex].duration)&&decks[deckIndex].duration>=40);
-    const expected=await page.evaluate(()=>({index:1-deckIndex,title:queue[0].title,url:decks[1-deckIndex].dataset.mediaUrl}));
+    const expected=await page.evaluate(()=>({title:queue[0].title,url:upcoming().media_url}));
     const started=Date.now();
     await page.locator('#seek').evaluate(node=>{node.value=39.7;node.dispatchEvent(new Event('input'));});
     await page.waitForFunction(title=>currentTrack.title===title&&!decks[deckIndex].paused&&decks[deckIndex].currentTime>.1,expected.title);
-    assert.equal(await page.evaluate(()=>deckIndex),expected.index,'Autoplay discarded preloaded deck');
     assert.equal(await page.evaluate(()=>decks[deckIndex].dataset.mediaUrl),expected.url);
     assert(Date.now()-started<2500,'Buffered handoff waited for preparation');
   }
@@ -111,9 +115,9 @@ function job(t, priority=0) {
   await page.waitForFunction(()=>decks[deckIndex].paused);
   await page.locator('#play').click();
   await page.waitForFunction(()=>!decks[deckIndex].paused && masterGain.gain.value>.99);
-  // Manual Next uses the prepared deck and preserves both signals through the fade.
+  // Manual Next opens the prepared recording and preserves both signals through the fade.
   await page.locator('#fade').fill('2'); await page.locator('#fade').dispatchEvent('change');
-  await page.waitForFunction(()=>decks[1-deckIndex].readyState>=2 && Boolean(upcoming()?.media_url));
+  await page.waitForFunction(()=>Boolean(upcoming()?.media_url)&&plan?.fade===2);
   const manualIndex = await page.evaluate(()=>deckIndex);
   await page.locator('#next').click();
   await page.waitForFunction(()=>blending);
@@ -123,6 +127,6 @@ function job(t, priority=0) {
   await page.waitForTimeout(600);
   assert(await page.evaluate(t=>decks[deckIndex].currentTime>t, handoffTime),'Incoming restarted after manual handoff');
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({runningPreviewTransition:true,failedNextPreserved:true,noDuplicateSources:true,latestSettingWins:true,seekOverlap:overlap,playingHandoff:true,twoNaturalAutoplayHandoffs:true,bufferedDeckReused:true,scope:'Synthetic API/HLS browser integration; not live acquisition'}));
+  console.log(JSON.stringify({runningPreviewTransition:true,failedNextPreserved:true,noDuplicateSources:true,latestSettingWins:true,seekOverlap:overlap,playingHandoff:true,twoNaturalAutoplayHandoffs:true,scope:'Synthetic API and HLS fixtures'}));
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -170,11 +170,11 @@ body[data-effects=off] .listener-equalizer.is-playing i { animation:none; }
 .catalogue-toolbar { margin-bottom:16px; }
 .catalogue-toolbar h2 { margin:0; }
 .catalogue-categories { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
-.catalogue-category {
+.catalogue-review button.catalogue-category {
     display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:6px 10px 6px 12px;
     border:1px solid var(--border,#ffffff24); border-radius:999px; font-size:13px; white-space:nowrap;
 }
-.catalogue-category[aria-pressed=true] {
+.catalogue-review button.catalogue-category[aria-pressed=true] {
     border-color:var(--accent-blue); background:color-mix(in srgb,var(--accent-blue) 14%,transparent); color:var(--ink);
 }
 .catalogue-pool { padding:clamp(12px,2.5vw,24px); min-width:0; container-type:inline-size; }
@@ -201,6 +201,7 @@ body[data-effects=off] .listener-equalizer.is-playing i { animation:none; }
 .catalogue-track h3,.catalogue-row p { overflow-wrap:anywhere; }
 .catalogue-row p { margin:0; font-size:13px; line-height:1.45; }
 .catalogue-artist,.catalogue-reason { color:var(--muted); }
+.catalogue-timestamp { color:var(--muted); font-size:.875em; font-variant-numeric:tabular-nums; }
 .catalogue-row .catalogue-progress { color:var(--accent-blue); }
 .catalogue-actions { grid-area:actions; display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:6px; }
 .catalogue-control {

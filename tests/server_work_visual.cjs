@@ -22,7 +22,10 @@ const assert = require('assert/strict');
         assert(await page.getByRole('button',{name:'Retry song review',exact:true}).isVisible());
         assert.equal(await page.locator('[aria-busy="true"]').count(),0);
       }
-      if(state==='loaded') await page.getByText('Worker slots', {exact:true}).click();
+      if(state==='loaded') {
+        await page.getByText('Server details', {exact:true}).click();
+        await page.getByText('Worker slots', {exact:true}).click();
+      }
       await page.screenshot({path:`${output}/${name}-${state}.png`,fullPage:true});
       console.log(`PASS ${name} ${state}, ${await page.locator('button').count()} controls`);
     }

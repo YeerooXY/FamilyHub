@@ -37,7 +37,7 @@ async function check([name, engine, profile]) {
             const timeout = AbortSignal.timeout.bind(AbortSignal);
             AbortSignal.timeout = ms => timeout(Math.min(ms, 1000));
         });
-        const errors = [], requests = [];
+        const errors = [], requests = [], timings = [];
         let response = 'offline';
         page.on('pageerror', error => errors.push(error.message));
         await page.route('https://music.test/**', async route => {
@@ -56,6 +56,10 @@ async function check([name, engine, profile]) {
             if (pathname === '/api/recommendations') return route.fulfill({ json: { results: search } });
             if (pathname === '/api/playlists') return route.fulfill({ json: { playlists: [playlist] } });
             if (pathname === '/api/queue') return route.fulfill({ json: { jobs: [] } });
+            if (pathname === '/api/playback/diagnostics') {
+                timings.push(request.postDataJSON());
+                return route.fulfill({ json: { ok: true } });
+            }
             if (pathname === '/api/playback/devices') return route.fulfill({ json: { devices: [
                 { id: receiver, kind: 'android', name: 'Fixture phone', age: 0 }
             ] } });
@@ -74,7 +78,7 @@ async function check([name, engine, profile]) {
                 }
                 if (typeof response === 'number') return route.fulfill({ status: response, json: { error: 'Playback is temporarily unavailable. Try again.' } });
                 return route.fulfill({ json: { job: { id: 'job', source_id: requests.at(-1).id, state: 'done',
-                    media_url: '/fixture/hls/index.m3u8', message: 'Ready' } } });
+                    media_url: '/fixture/hls/index.m3u8', fallback_url: '/fixture/audio.flac', message: 'Ready' } } });
             }
             return route.fulfill({ json: {} });
         });
@@ -113,6 +117,17 @@ async function check([name, engine, profile]) {
         assert(await retry.isHidden());
         assert.equal(requests.length, 6);
         assert(requests.every(request => request.id === search[0].id && request.allow_new));
+        if (engine === chromium) {
+            const action = requests.at(-1).play_action;
+            const reported = page.waitForResponse(response => response.url().endsWith('/api/playback/diagnostics') &&
+                response.request().postDataJSON()?.stage === 'fallback_position_advanced');
+            await page.evaluate(() => decks[deckIndex].dispatchEvent(new Event('error')));
+            await page.waitForFunction(() => decks[deckIndex].dataset.mediaUrl === '/fixture/audio.flac' &&
+                !decks[deckIndex].paused && playAction.stages.has('fallback_position_advanced'));
+            await reported;
+            for (const stage of ['play', 'ready', 'playing', 'stream_failed', 'fallback', 'fallback_playing', 'fallback_position_advanced'])
+                assert(timings.some(entry => entry.action === action && entry.stage === stage), 'Missing timing ' + stage);
+        }
         assert.deepEqual(await page.evaluate(() => queue.map(track => track.title)), ['Local song 2', 'Local song 3', 'Search song 2']);
         await page.locator('#connect-open').click();
         const target = page.getByRole('button', { name: 'Fixture phone' });

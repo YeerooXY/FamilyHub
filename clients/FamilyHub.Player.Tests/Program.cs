@@ -93,6 +93,37 @@ for (var run = 0; run < 100; run++)
     Check(player.QueueIndex == 1 && !player.PlaybackRequested, "Ended event advanced paused selection");
 }
 {
+    var session = new MusicSession { Stream = true, CanWarmPlayback = true };
+    var primary = new WindowsAudioPlayer(); var standby = new WindowsAudioPlayer();
+    var player = new MusicPlayer(session) { AutoDj = false };
+    player.AttachDecks(primary, standby);
+    var sequence = tracks.Take(3).Select(track => track with { Saved = true }).ToArray();
+    await player.PlayAsync(sequence[0], sequence);
+    // Advance both clocks past the player's two-second warm-up retry.
+    await Task.Delay(2100);
+    primary.Tick(24);
+    Check(standby.Path?.StartsWith("https://") == true && !standby.Playing, "Wi-Fi did not open only the next track");
+    standby.RaiseFailed();
+    Check(primary.Playing && player.Current == sequence[0], "A standby stream failure stopped current playback");
+    await player.NextAsync();
+    Check(player.Current == sequence[1] && primary.Path == "fixture" && player.Playing, "The failed next stream did not recover from the cache");
+    Check(session.Stages.Any(entry => entry.Stage == "next_stream_failed") && session.Stages.Any(entry => entry.Stage == "fallback_playing"),
+        "Next-stream recovery was not logged");
+    session.CanWarmPlayback = false;
+    player.PlaybackNetworkChanged();
+    primary.Tick(23);
+    Check(standby.Path is null, "A metered connection opened a speculative stream");
+    await player.NextAsync();
+    Check(primary.Path?.StartsWith("https://") == true, "A later track inherited the failed next stream's fallback");
+    primary.Tick(6);
+    var action = session.Stages.Last(entry => entry.Stage == "play").Action;
+    primary.RaiseFailed();
+    Check(player.Current == sequence[2] && primary.Path == "fixture" && primary.StartedAt == 6,
+        "Current stream recovery lost the track or playhead");
+    Check(session.Stages.Contains((action, "stream_failed")) && session.Stages.Contains((action, "fallback_playing")),
+        "Current stream recovery lost its action correlation");
+}
+{
     var (session, player) = Setup();
     await player.PlayAsync(tracks[0], tracks);
     var native = WindowsAudioPlayer.Last!;
@@ -129,7 +160,8 @@ for (var run = 0; run < 100; run++)
     await player.PlayAsync(tracks[0], tracks); session.Delay = true;
     player.AddToQueue(tracks[7]); primary.Tick(24);
     Check(player.Queue[1].Id == tracks[1].Id && player.Queue[2].Id == tracks[7].Id, "Unready queued song discarded the prepared fallback");
-    await player.StopAsync(); session.Complete(0); await Task.Delay(10);
+    Check(session.DownloadRequests == 0, "Preparing a queued song started a speculative full download");
+    await player.StopAsync();
     Check(player.Current is null && !primary.Playing && !secondary.Playing, "Stopping a fade left a deck audible");
 }
 {
@@ -397,35 +429,35 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
         "Receiver lost the queue, index, playhead or playback modes");
     await source.ApplyPlaybackCommandAsync(new() { Action = "pause", DeviceId = targetSession.DeviceId, Playing = true }, list, () => Task.FromResult(true));
     source.UiActive = target.UiActive = false;
-    targetSecondary.RaiseEnded(); await Task.Yield();
+    (targetPrimary.Playing ? targetPrimary : targetSecondary).RaiseEnded(); await Task.Yield();
     Check(target.Playing && target.Current?.Id == ids[2] && target.QueueIndex == 2 && targetSession.LocalPlays == 0
         && target.Current.Url == "https://www.youtube.com/watch?v=" + ids[2],
         "The receiving deck did not advance locally while the sender was idle");
     Check(source.RemoteActive && !source.Playing && source.Queue.Select(track => track.Id).SequenceEqual(ids),
         "The sender lost its queue while following the receiver");
-    targetSecondary.Tick(5);
+    (targetPrimary.Playing ? targetPrimary : targetSecondary).Tick(5);
     var second = first with { Id = "return", Resume = target.CaptureResume() };
     Check(await source.ApplyPlaybackCommandAsync(second, list, () => Task.FromResult(true)), "Original device could not take playback back");
     await target.ApplyPlaybackCommandAsync(new() { Action = "pause", DeviceId = sourceSession.DeviceId, Playing = true }, list, () => Task.FromResult(true));
     Check(source.Playing && source.Position == 5 && source.QueueIndex == 2 && source.Queue.Select(track => track.Id).SequenceEqual(ids),
         "Returning playback lost the receiver's song, position or queue");
-    sourceSecondary.RaiseEnded(); await Task.Yield();
+    (sourcePrimary.Playing ? sourcePrimary : sourceSecondary).RaiseEnded(); await Task.Yield();
     Check(source.Playing && source.Current?.Id == ids[3], "Original device did not advance after taking playback back");
-    sourceSecondary.RaiseEnded(); await Task.Yield();
+    (sourcePrimary.Playing ? sourcePrimary : sourceSecondary).RaiseEnded(); await Task.Yield();
     Check(source.Playing && source.Current?.Id == ids[0], "Repeat all was lost after taking playback back");
 
     ready = new();
     var third = first with { Id = "near-end", Resume = source.CaptureResume()! with { Position = 29 } };
     started = target.ApplyPlaybackCommandAsync(third, list, () => ready.Task);
-    Check(target.ReportingHandoff?.Deck == targetPrimary, "Receiver did not stage the recording returning at its end");
-    targetPrimary.RaiseEnded();
+    Check(target.ReportingHandoff is not null, "Receiver did not stage the recording returning at its end");
+    ((WindowsAudioPlayer)target.ReportingHandoff!.Deck).RaiseEnded();
     ready.SetResult(true);
     Check(await started && target.Playing && target.Current?.Id == ids[1] && target.QueueIndex == 1,
         "Receiver lost the end of the song while waiting for confirmation");
 
     var stopped = first with { Id = "autoplay-off", Resume = third.Resume! with { Autoplay = false } };
     Check(await target.ApplyPlaybackCommandAsync(stopped, list, () => Task.FromResult(true)), "Receiver could not load the autoplay-off handoff");
-    targetSecondary.RaiseEnded(); await Task.Yield();
+    (targetPrimary.Playing ? targetPrimary : targetSecondary).RaiseEnded(); await Task.Yield();
     Check(!target.Playing && !target.Autoplay && target.Current?.Id == ids[0] && target.Queue.Count == ids.Count,
         "Receiver ignored autoplay off or discarded the queue at the end");
 
@@ -500,7 +532,7 @@ public static class MainThread
 namespace CommunityToolkit.Maui.Views { public sealed class MediaElement { } }
 namespace FamilyHub.Client.Core
 {
-    public sealed record MusicTrack(string Id = "", string Title = "", string Channel = "") { public string Url { get; init; } = ""; public double? PlaybackGainDb { get; init; } public double? Lufs { get; init; } public double? TruePeak { get; init; } public string PlaybackVersion { get; init; } = ""; public double Duration { get; init; } = 30; }
+    public sealed record MusicTrack(string Id = "", string Title = "", string Channel = "") { public string Url { get; init; } = ""; public double? PlaybackGainDb { get; init; } public double? Lufs { get; init; } public double? TruePeak { get; init; } public string PlaybackVersion { get; init; } = ""; public double Duration { get; init; } = 30; public bool Saved { get; init; } }
     public sealed record ListenerPreferences { public string VolumeLevel { get; init; } = "normal"; public bool ListeningHistoryPaused { get; init; } }
     public sealed record PlaybackResume
     {
@@ -533,15 +565,24 @@ namespace FamilyHub.App.Services
         public bool Delay { get; set; }
         public List<string> Messages { get; } = [];
         private readonly List<TaskCompletionSource<string>> requests = [];
-        public string? LocalPath(MusicTrack track) => Delay ? null : FailPlayback ? "fail" : "fixture";
+        public int DownloadRequests => requests.Count;
+        public bool Stream { get; set; }
+        public bool CanWarmPlayback { get; set; }
+        public List<(string Action, string Stage)> Stages { get; } = [];
+        public void ReportPlaybackStage(string action, string stage, long elapsed) => Stages.Add((action, stage));
+        public string? LocalPath(MusicTrack track) => Delay || Stream ? null : FailPlayback ? "fail" : "fixture";
         public Task<string?> GetCachedPlaybackPathAsync(MusicTrack track, CancellationToken token) => Task.FromResult<string?>(null);
-        public Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken token, bool allowPreview = false, bool background = false, bool prefetch = false) => Task.FromResult(track);
-        public bool CanStream => false;
-        public void StreamingFailed() { }
+        public Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken token, bool allowPreview = false,
+            bool background = false, bool prefetch = false, string? action = null, bool fallback = false) => Task.FromResult(track);
+        public bool CanStream => Stream;
         public static bool IsStream(string source) => source.StartsWith("https://", StringComparison.Ordinal);
-        public Task<string> StreamPlaybackAsync(MusicTrack track, double lead, CancellationToken token, bool background = false) => throw new InvalidOperationException("Streaming is off in tests.");
+        public Task<string> StreamPlaybackAsync(MusicTrack track, double lead, CancellationToken token, bool background = false, string? action = null) =>
+            Task.FromResult("https://music.test/stream");
         public Task<string> CachePlaybackAsync(MusicTrack track, CancellationToken token, double lead = 0, bool background = false)
-        { var request = new TaskCompletionSource<string>(); requests.Add(request); return request.Task; }
+        {
+            if (Stream) return Task.FromResult("fixture");
+            var request = new TaskCompletionSource<string>(); requests.Add(request); return request.Task;
+        }
         public void Complete(int i) => requests[i].SetResult("fixture");
         public void Fail(int i) => requests[i].SetException(new IOException("Old request failed"));
         public void TimeOut(int i) => requests[i].SetCanceled();
@@ -567,6 +608,7 @@ namespace FamilyHub.App.Services
         public bool Opening => HoldOpening;
         public bool PlaybackRequested { get; private set; }
         public string? Title { get; private set; }
+        public string? Path { get; private set; }
         public double Position { get; private set; }
         public double? StartedAt { get; private set; }
         public double Duration => Title is null ? 0 : 30;
@@ -581,7 +623,7 @@ namespace FamilyHub.App.Services
         public void PlayFile(string path, string title, string artist, bool play = true, bool background = false)
         {
             if (path == "fail") throw new IOException();
-            Position = 0; StartedAt = null; Title = title; SetPlaying(play);
+            Position = 0; StartedAt = null; Title = title; Path = path; SetPlaying(play);
         }
         public void SetPlaying(bool play)
         {
@@ -589,8 +631,9 @@ namespace FamilyHub.App.Services
             PlaybackRequested = play; Changed?.Invoke();
         }
         public void RaiseEnded() => Ended?.Invoke();
+        public void RaiseFailed() { PlaybackRequested = false; Failed?.Invoke("Fixture stream failed"); }
         public void Seek(double seconds) { Position = seconds; Seeks++; Changed?.Invoke(); }
         public void Tick(double seconds) { Position += seconds * PlaybackRate; Changed?.Invoke(); }
-        public void Stop() { Title = null; PlaybackRequested = false; Changed?.Invoke(); }
+        public void Stop() { Title = null; Path = null; PlaybackRequested = false; Changed?.Invoke(); }
     }
 }

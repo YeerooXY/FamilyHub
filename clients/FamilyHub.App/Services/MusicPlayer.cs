@@ -14,6 +14,37 @@ public sealed class MusicPlayer(MusicSession session)
     private int index = -1, blendTarget = -1;
     private long requestVersion;
     private bool preparing, sourceReady, blending, warming, incomingFailed;
+    private MusicTrack? failedNext;
+    private readonly Dictionary<IAudioDeck, PlayAction> playActions = [];
+    private sealed class PlayAction
+    {
+        public readonly string Id = Guid.NewGuid().ToString("N");
+        public readonly long Started = Environment.TickCount64;
+        public readonly HashSet<string> Stages = [];
+        public bool Fallback;
+        public double? Position;
+    }
+    private void Report(PlayAction? action, string stage)
+    {
+        if (action is not null && action.Stages.Add(stage))
+            session.ReportPlaybackStage(action.Id, stage, Environment.TickCount64 - action.Started);
+    }
+    private PlayAction BeginPlayback()
+    {
+        var action = new PlayAction();
+        Report(action, "play");
+        return action;
+    }
+    private void ObservePlayback(IAudioDeck owner, bool audible)
+    {
+        if (!playActions.TryGetValue(owner, out var action)) return;
+        if (!owner.Opening && owner.Duration > 0) Report(action, action.Fallback ? "fallback_ready" : "ready");
+        if (!owner.Playing || owner.Opening || Seeking || resumeStartPending) return;
+        Report(action, action.Fallback ? "fallback_playing" : "playing");
+        action.Position ??= owner.Position;
+        if (audible && owner.Volume > 0 && owner.Position > action.Position + .05 && owner.Position < action.Position + 3)
+            Report(action, action.Fallback ? "fallback_position_advanced" : "position_advanced");
+    }
     private double volume = 1, blendGain, listenedSeconds, lastListeningPosition;
     private bool listenRecorded, eventFinalized;
     private bool lastSamplePlaying;
@@ -255,9 +286,14 @@ public sealed class MusicPlayer(MusicSession session)
                 if (!preparing && sourceReady && !blending && !resumeStartPending)
                 {
                     // Native transport play changes the deck directly; app and remote actions set intent first.
-                    if (!PlaybackRequested && owner.PlaybackRequested && !FollowingHost && !RemoteActive) session.MarkLocalPlayback();
+                    if (!PlaybackRequested && owner.PlaybackRequested && !FollowingHost)
+                    {
+                        session.MarkLocalPlayback();
+                        playActions[owner] = BeginPlayback();
+                    }
                     PlaybackRequested = owner.PlaybackRequested;
                 }
+                if (sourceReady) ObservePlayback(owner, audible: !blending || blendGain < 1);
                 _ = ApplyResumePositionAsync();
                 RecordListening();
 #if !WINDOWS
@@ -272,6 +308,7 @@ public sealed class MusicPlayer(MusicSession session)
             }
             else if (ReferenceEquals(standby, owner))
             {
+                if (blending) ObservePlayback(owner, audible: blendGain > 0);
                 if (blending && owner.Playing && incomingStarted is null && !FollowingHost && !session.PlaybackPreferences.ListeningHistoryPaused)
                 { incomingStarted = DateTimeOffset.UtcNow; incomingOwner = session.HistoryOwner; }
                 TryBlend();
@@ -283,27 +320,50 @@ public sealed class MusicPlayer(MusicSession session)
             if (!ReferenceEquals(deck, owner) || preparing || blending || !sourceReady || !PlaybackRequested) return;
             await AdvanceAfterEndAsync();
         };
-        owner.Failed += _message =>
+        owner.Failed += _message => HandleDeckFailure(owner);
+    }
+    private void HandleDeckFailure(IAudioDeck owner)
+    {
+        var streamed = streamedDecks.Remove(owner);
+        var action = playActions.GetValueOrDefault(owner);
+        if (ReferenceEquals(deck, owner))
         {
-            var streamed = streamedDecks.Remove(owner);
-            if (streamed) session.StreamingFailed();
-            if (ReferenceEquals(deck, owner))
+            if (!sourceReady || RemoteActive) return;
+            if (streamed) Report(action, "stream_failed");
+            if (streamed && PlaybackRequested && Current is { } current && action?.Fallback != true)
             {
-                // A failed stream retries once from a full download, at the same place in the song.
-                if (streamed && PlaybackRequested && Current is { } current && !FollowingHost)
-                {
-                    if (Position > 0) resumePosition = Position;
-                    sourceReady = false;
-                    _ = MainThread.InvokeOnMainThreadAsync(() => PlayCoreAsync(current, queue, index, true, true, retry: true, background: true));
-                    return;
-                }
-                FinishListening("stopped"); sourceReady = false; resumeStartPending = false;
-                PlaybackRequested = false;
-                session.SetMessage("Playback stopped. Retry the song or play a downloaded copy.", "error", playback: true);
-                Changed?.Invoke();
+                resumePosition = Math.Max(Math.Max(Position, lastListeningPosition), resumePosition ?? 0);
+                sourceReady = false;
+                _ = RecoverPlaybackAsync(current, action, current.PlaybackVersion == "preview-hls");
+                return;
             }
-            else { FinishIncomingListening("stopped"); incomingFailed = true; preparedTrack = null; if (streamed) attemptedNext = null; }
-        };
+            Report(action, "failed");
+            FinishListening("stopped"); sourceReady = false; resumeStartPending = false; PlaybackRequested = false;
+            session.SetMessage("Playback stopped. Retry the song or play a downloaded copy.", "error", playback: true);
+            Changed?.Invoke();
+        }
+        else if (ReferenceEquals(standby, owner))
+        {
+            if (streamed && preparedTrack is { } next)
+            {
+                failedNext = next;
+                if (deck is not null) Report(playActions.GetValueOrDefault(deck), "next_stream_failed");
+            }
+            Report(action, "failed");
+            FinishIncomingListening("stopped"); incomingFailed = true; preparedTrack = null;
+            session.PinUpcomingPlayback(null);
+            if (!blending && !receivingHandoff) owner.Stop();
+        }
+    }
+    private async Task RecoverPlaybackAsync(MusicTrack track, PlayAction? action, bool alternatePreview)
+    {
+        var version = requestVersion + 1;
+        try { await PlayCoreAsync(track, queue, index, !FollowingHost, true, retry: true, background: true, action: action, alternatePreview: alternatePreview); }
+        catch (Exception error) when (error is IOException or InvalidOperationException or HttpRequestException or FamilyHubApiException or InvalidDataException)
+        {
+            if (requestVersion == version)
+                session.SetMessage("Playback stopped. Retry the song or play a downloaded copy.", "error", playback: true);
+        }
     }
     private async Task AdvanceAfterEndAsync()
     {
@@ -428,13 +488,23 @@ public sealed class MusicPlayer(MusicSession session)
             Changed?.Invoke();
         });
 
-    private async Task PlayCoreAsync(MusicTrack track, IEnumerable<MusicTrack>? sequence, int? sequenceStartIndex, bool play, bool advance = false, bool retry = false, bool background = false)
+    private async Task PlayCoreAsync(MusicTrack track, IEnumerable<MusicTrack>? sequence, int? sequenceStartIndex, bool play,
+        bool advance = false, bool retry = false, bool background = false, PlayAction? action = null, bool alternatePreview = false)
     {
         if (deck is null) throw new InvalidOperationException("Player is starting. Try again.");
         var selected = sequence?.ToList() ?? [track];
         var selectedIndex = sequenceStartIndex ?? selected.FindIndex(t => t.Id == track.Id);
         if (selectedIndex < 0 || selectedIndex >= selected.Count || selected[selectedIndex].Id != track.Id)
             throw new ArgumentException("Choose a recording in this queue.");
+        action ??= play ? BeginPlayback() : null;
+        var useFallback = retry || advance && ReferenceEquals(track, failedNext);
+        var openedNext = !useFallback && !blending && IncomingReady && ReferenceEquals(preparedTrack, track) ? standby : null;
+        failedNext = null;
+        if (useFallback && action is not null)
+        {
+            action.Fallback = true; action.Position = null;
+            Report(action, "fallback");
+        }
         if (!retry)
         {
             FinishListening("skipped");
@@ -446,7 +516,7 @@ public sealed class MusicPlayer(MusicSession session)
         var previousManual = manualQueue.ToArray();
         var version = ++requestVersion;
         ControlRevision++; lastHostControl = -1; filteredDrift = 0; largeDriftSamples = 0;
-        CancelUpcoming(); preparation?.Cancel();
+        CancelUpcoming(keepReady: openedNext is not null); preparation?.Cancel();
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(10));
         preparation = cancellation;
         preparing = true; PlaybackRequested = play; sourceReady = false; resumeStartPending = false;
@@ -458,6 +528,10 @@ public sealed class MusicPlayer(MusicSession session)
         Current = track;
         if (!retry) { listenRecorded = false; listenedSeconds = 0; }
         lastListeningPosition = 0;
+        streamedDecks.Remove(deck);
+        if (playActions.Remove(deck, out var replaced) && replaced != action
+            && !replaced.Stages.Contains("playing") && !replaced.Stages.Contains("fallback_playing") && !replaced.Stages.Contains("failed"))
+            Report(replaced, "cancelled");
         deck.Stop(); session.PinPlayback(null); session.PinPreparingPlayback(track.Id); Changed?.Invoke();
         void Restore()
         {
@@ -468,23 +542,40 @@ public sealed class MusicPlayer(MusicSession session)
         }
         try
         {
-            var path = await PrepareFile(track, cancellation.Token, background: background);
+            if (openedNext is not null)
+            {
+                deck.TransportEnabled = false;
+                standby = deck; deck = openedNext;
+                preparedTrack = null; session.PinUpcomingPlayback(null);
+                Current = queue[index] = selected[selectedIndex];
+                session.PinPlayback(Current.Id);
+                if (action is not null) playActions[deck] = action;
+                preparing = false; sourceReady = true; deck.TransportEnabled = !FollowingHost; ApplyVolumes();
+                deck.SetPlaying(PlaybackRequested);
+                if (streamedDecks.Contains(deck) && action is not null) _ = WatchStreamStartAsync(deck, action, version);
+                return;
+            }
+            var path = await PrepareFile(track, cancellation.Token, background: background, action: action,
+                fallback: useFallback, alternatePreview: alternatePreview);
             cancellation.Token.ThrowIfCancellationRequested();
             if (version != requestVersion) return;
             track = session.PlaybackRecording(session.CurrentRecording(track), path);
             Current = track; queue[index] = track; session.PinPlayback(track.Id);
             preparing = false; sourceReady = true; deck.TransportEnabled = !FollowingHost; ApplyVolumes();
             MarkStream(deck, path);
+            if (action is not null) playActions[deck] = action;
             resumeStartPending = PlaybackRequested && resumePosition is > 0;
             deck.PlayFile(path, track.Title, track.Channel, PlaybackRequested && !resumeStartPending, background);
+            if (MusicSession.IsStream(path) && action is not null) _ = WatchStreamStartAsync(deck, action, version);
         }
         catch (OperationCanceledException error)
         {
-            if (version != requestVersion) return;
+            if (version != requestVersion) { Report(action, "cancelled"); return; }
+            Report(action, "failed");
             sourceReady = false; Restore();
             throw new InvalidOperationException("The server took too long to prepare this song. Try playing it again.", error);
         }
-        catch { if (version != requestVersion) return; sourceReady = false; Restore(); throw; }
+        catch { if (version != requestVersion) return; Report(action, "failed"); sourceReady = false; Restore(); throw; }
         finally
         {
             if (version == requestVersion)
@@ -495,22 +586,50 @@ public sealed class MusicPlayer(MusicSession session)
             }
         }
     }
-    private async Task<string> PrepareFile(MusicTrack track, CancellationToken token, double lead = 0, bool background = false)
+    private async Task WatchStreamStartAsync(IAudioDeck owner, PlayAction action, long version)
     {
-        var path = session.LocalPath(track) ?? await session.GetCachedPlaybackPathAsync(track, token);
-        if (path is not null) return path;
+        await Task.Delay(TimeSpan.FromSeconds(12));
+        if (requestVersion == version && playActions.GetValueOrDefault(owner) == action && PlaybackRequested
+            && ReferenceEquals(deck, owner) && !action.Stages.Contains(action.Fallback ? "fallback_playing" : "playing"))
+            HandleDeckFailure(owner);
+    }
+
+    private async Task<string> PrepareFile(MusicTrack track, CancellationToken token, bool background = false,
+        PlayAction? action = null, bool fallback = false, bool alternatePreview = false)
+    {
+        var path = session.LocalPath(track);
+        if (path is not null) { Report(action, "kept_download"); return path; }
+        path = await session.GetCachedPlaybackPathAsync(track, token);
+        if (path is not null) { Report(action, "cache_hit"); return path; }
+        Report(action, "cache_miss");
         if (!session.Connected) throw new InvalidOperationException("This song is not downloaded on this device. Connect to play it.");
-        var saved = await session.EnsureServerRecordingAsync(track, token, session.CanStream && lead <= 0, background, prefetch: lead > 0);
-        if (session.CanStream)
+        var canStream = session.CanStream && (!fallback || alternatePreview);
+        var saved = await session.EnsureServerRecordingAsync(track, token, canStream, background, action: action?.Id, fallback: alternatePreview);
+        if (canStream)
         {
-            try { return await session.StreamPlaybackAsync(saved, lead, token, background); }
-            catch (Exception error) when (error is InvalidDataException or FamilyHubApiException or HttpRequestException) { }
+            try { return await session.StreamPlaybackAsync(saved, 0, token, background, action?.Id); }
+            catch (Exception error) when (error is InvalidDataException or FamilyHubApiException or HttpRequestException)
+            {
+                Report(action, "stream_failed");
+                if (action is not null) action.Fallback = true;
+                Report(action, "fallback");
+                if (saved.PlaybackVersion is "preview-hls" or "preview-source")
+                    saved = await session.EnsureServerRecordingAsync(track, token, background: background, action: action?.Id);
+            }
         }
-        return await session.CachePlaybackAsync(saved, token, lead, background);
+        return await session.CachePlaybackAsync(saved, token, background: background);
+    }
+    internal void PlaybackNetworkChanged()
+    {
+        if (!session.CanWarmPlayback && !blending && (warming || standby is not null && streamedDecks.Contains(standby)))
+            CancelUpcoming(preserveChoice: true);
+        else if (session.CanWarmPlayback && preparedTrack is null && !warming)
+        { attemptedNext = null; retryUpcomingAt = 0; }
+        if (PlaybackRequested) WarmNext();
     }
     private void WarmNext()
     {
-        if (receivingHandoff || Current?.PlaybackVersion == "preview-hls") return;
+        if (receivingHandoff || Current?.PlaybackVersion is "preview-hls" or "preview-source") return;
         if (RepeatMode == "one" || standby is null || blending || warming || !PlaybackRequested || index + 1 >= queue.Count) return;
         if (Duration <= 0 || Duration - Position > Math.Max(30, FadeDuration + 15)) return;
         var next = index + 1;
@@ -531,28 +650,52 @@ public sealed class MusicPlayer(MusicSession session)
     private async Task PrepareUpcomingAsync(int next, MusicTrack original, long version, CancellationTokenSource cancellation)
     {
         var token = cancellation.Token;
+        var attemptedStream = false;
         session.PinPreparingNextPlayback(original.Id);
         try
         {
             var track = session.CurrentRecording(original);
-            var path = await PrepareFile(track, token, Math.Max(0, Duration - Position), background: true);
+            var path = session.LocalPath(track) ?? await session.GetCachedPlaybackPathAsync(track, token);
+            if (path is null)
+            {
+                // Let the standby deck open an existing recording near the transition.
+                // Speculation never starts acquisition, encoding or a complete cache download.
+                if (!session.CanWarmPlayback || !session.CanStream || !track.Saved || ReferenceEquals(original, failedNext)
+                    || !session.Connected)
+                    return;
+                if (Duration - Position > FadeDuration + 8)
+                {
+                    attemptedNext = null; retryUpcomingAt = Environment.TickCount64 + 2000;
+                    return;
+                }
+                attemptedStream = true;
+                path = await session.StreamPlaybackAsync(track, 0, token, background: true);
+            }
             token.ThrowIfCancellationRequested();
             if (version != requestVersion || next >= queue.Count || !ReferenceEquals(queue[next], original) || standby is null) return;
             track = session.PlaybackRecording(session.CurrentRecording(track), path);
             if (manualQueue.Remove(original)) { track = track with { }; manualQueue.Add(track); }
             queue[next] = track;
-            preparedTrack = null; incomingFailed = false;
-            standby.Stop(); standby.TransportEnabled = false; standby.Volume = 0;
+            incomingFailed = false;
+            standby.Stop(); playActions.Remove(standby); standby.TransportEnabled = false; standby.Volume = 0;
             MarkStream(standby, path);
+            preparedTrack = track;
             standby.PlayFile(path, track.Title, track.Channel, false, background: true);
-            preparedTrack = track; session.PinUpcomingPlayback(track.Id);
+            if (!incomingFailed) session.PinUpcomingPlayback(track.Id);
+            if (MusicSession.IsStream(path)) _ = WatchUpcomingOpenAsync(standby, track, token);
             cancellation.CancelAfter(Timeout.InfiniteTimeSpan);
             Changed?.Invoke(); TryBlend();
         }
-        catch (Exception error) when (error is OperationCanceledException or IOException or HttpRequestException or InvalidOperationException or FamilyHubApiException)
+        catch (Exception error) when (error is OperationCanceledException or IOException or HttpRequestException
+            or InvalidOperationException or InvalidDataException or FamilyHubApiException)
         {
             if (ReferenceEquals(upcomingPreparation, cancellation) && version == requestVersion)
-            { attemptedNext = null; retryUpcomingAt = Environment.TickCount64 + 10000; }
+            {
+                if (attemptedStream && error is not OperationCanceledException && next < queue.Count) failedNext = queue[next];
+                else { attemptedNext = null; retryUpcomingAt = Environment.TickCount64 + 10000; }
+                preparedTrack = null;
+                if (standby is { } owner) { streamedDecks.Remove(owner); owner.Stop(); }
+            }
         }
         finally
         {
@@ -560,11 +703,18 @@ public sealed class MusicPlayer(MusicSession session)
             { warming = false; session.PinPreparingNextPlayback(null); }
         }
     }
+    private async Task WatchUpcomingOpenAsync(IAudioDeck owner, MusicTrack track, CancellationToken token)
+    {
+        try { await Task.Delay(TimeSpan.FromSeconds(8), token); }
+        catch (OperationCanceledException) { return; }
+        if (ReferenceEquals(preparedTrack, track) && ReferenceEquals(standby, owner) && owner.Opening)
+            HandleDeckFailure(owner);
+    }
     private int PreparedIndex => preparedTrack is null ? -1 : queue.FindIndex(index + 1, t => ReferenceEquals(t, preparedTrack));
     private bool IncomingReady => standby is not null && preparedTrack is not null && !standby.Opening && !incomingFailed && PreparedIndex > index;
     private void TryBlend()
     {
-        if (Current?.PlaybackVersion == "preview-hls" || preparedTrack?.PlaybackVersion == "preview-hls") return;
+        if (Current?.PlaybackVersion is "preview-hls" or "preview-source" || preparedTrack?.PlaybackVersion is "preview-hls" or "preview-source") return;
         if (!Autoplay || RepeatMode == "one" || !AutoDj || FollowingHost || blending || preparing || !sourceReady || !Playing || !PlaybackRequested || !IncomingReady || Duration <= 0) return;
         if (Position < Duration - FadeDuration || Duration - Position <= .15) return;
         _ = BlendAsync(completed: true);
@@ -582,6 +732,9 @@ public sealed class MusicPlayer(MusicSession session)
         blending = true; blendTarget = index + 1;
         incomingStarted = null; incomingOwner = session.HistoryOwner;
         var version = requestVersion; var outgoing = deck; var incoming = standby;
+        var action = BeginPlayback();
+        playActions[incoming] = action;
+        ObservePlayback(incoming, audible: false);
         try
         {
             if (next != blendTarget) Changed?.Invoke();
@@ -607,11 +760,13 @@ public sealed class MusicPlayer(MusicSession session)
         {
             if (version == requestVersion && ReferenceEquals(deck, outgoing))
             {
+                Report(action, "failed");
                 blending = false; blendTarget = -1; preparedTrack = null; incoming.Stop(); blendGain = 0; ApplyVolumes();
                 session.SetMessage("The transition could not finish. Choose a song from the queue.", "error"); Changed?.Invoke();
                 if (outgoing.Duration > 0 && outgoing.Position >= outgoing.Duration - .1) await NextCoreAsync(background: true);
             }
         }
+        finally { if (ReferenceEquals(upcomingPreparation, cancellation)) upcomingPreparation = null; }
     }
     private void CancelUpcoming(bool keepReady = false, bool preserveChoice = false)
     {
@@ -622,7 +777,13 @@ public sealed class MusicPlayer(MusicSession session)
         {
             FinishIncomingListening("skipped");
             blending = false; blendTarget = -1; preparedTrack = null; blendGain = 0;
-            standby?.Stop(); session.PinUpcomingPlayback(null);
+            if (standby is { } owner)
+            {
+                streamedDecks.Remove(owner);
+                playActions.Remove(owner);
+                owner.Stop();
+            }
+            session.PinUpcomingPlayback(null);
         }
         session.PinPreparingNextPlayback(null); ApplyVolumes();
     }
@@ -677,6 +838,8 @@ public sealed class MusicPlayer(MusicSession session)
         if (!preparing && !sourceReady) { await PlayCoreAsync(Current, queue, index, true, background: !localUserAction); return; }
         PlaybackRequested = !PlaybackRequested;
         ControlRevision++;
+        if (PlaybackRequested && !preparing && !blending) playActions[deck] = BeginPlayback();
+        if (!PlaybackRequested && !blending) CancelUpcoming(preserveChoice: true);
         if (!preparing && !resumeStartPending) { deck.SetPlaying(PlaybackRequested); if (blending) standby?.SetPlaying(PlaybackRequested); }
         if (PlaybackRequested && !blending) WarmNext();
         Changed?.Invoke();
@@ -699,6 +862,7 @@ public sealed class MusicPlayer(MusicSession session)
     {
         if (deck is null || Seeking) return;
         Seeking = true; lastListeningPosition = seconds; session.InvalidateListeningBaseline();
+        if (playActions.TryGetValue(deck, out var action)) action.Position = null;
         try { await deck.SeekAsync(seconds); }
         finally { Seeking = false; SeekRevision++; session.InvalidateListeningBaseline(); Changed?.Invoke(); }
     }
@@ -730,7 +894,8 @@ public sealed class MusicPlayer(MusicSession session)
             next = 0;
         }
         if (!background) UserPlaybackRevision++;
-        if (Current?.PlaybackVersion != "preview-hls" && preparedTrack?.PlaybackVersion != "preview-hls" && AutoDj && !blending && IncomingReady && Playing && Duration - Position > .15) return BlendAsync();
+        if (Current?.PlaybackVersion is not ("preview-hls" or "preview-source") && preparedTrack?.PlaybackVersion is not ("preview-hls" or "preview-source")
+            && AutoDj && !blending && IncomingReady && Playing && Duration - Position > .15) return BlendAsync();
         var sequence = queue;
         if (Shuffle && !preserveHandoffOrder && !FollowingHost && !manualQueue.Contains(queue[next]) && !nextChosen)
         {
@@ -848,30 +1013,43 @@ public sealed class MusicPlayer(MusicSession session)
         }
         var at = state.Index;
         var track = tracks[at];
+        var action = play ? BeginPlayback() : null;
         var version = requestVersion;
         receivingHandoff = true; handoffTrackEnded = false;
         CancelUpcoming();
         bool CurrentRequest() => version == requestVersion && !FollowingHost && ReferenceEquals(standby, incoming);
         try
         {
-            var path = await PrepareFile(track, token, background: true);
-            if (!CurrentRequest()) return false;
-            token.ThrowIfCancellationRequested();
-            track = tracks[at] = session.PlaybackRecording(track, path);
-            session.PinUpcomingPlayback(track.Id);
-            incomingFailed = false;
-            incoming.TransportEnabled = false;
-            MarkStream(incoming, path);
-            incoming.PlayFile(path, track.Title, track.Channel, false, background: true);
-            while (CurrentRequest() && !incomingFailed && (incoming.Opening || incoming.Duration <= 0))
-                await Task.Delay(50, token);
+            var original = track;
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                var path = await PrepareFile(original, token, background: true, action: action, fallback: attempt > 0,
+                    alternatePreview: attempt > 0 && track.PlaybackVersion == "preview-hls");
+                if (!CurrentRequest()) return false;
+                token.ThrowIfCancellationRequested();
+                track = tracks[at] = session.PlaybackRecording(original, path);
+                session.PinUpcomingPlayback(track.Id);
+                incomingFailed = false;
+                incoming.TransportEnabled = false;
+                MarkStream(incoming, path);
+                incoming.PlayFile(path, track.Title, track.Channel, false, background: true);
+                while (CurrentRequest() && !incomingFailed && (incoming.Opening || incoming.Duration <= 0))
+                    await Task.Delay(50, token);
+                if (!incomingFailed || !MusicSession.IsStream(path) || attempt > 0) break;
+                Report(action, "stream_failed");
+                if (action is not null) action.Fallback = true;
+                Report(action, "fallback");
+            }
             if (!CurrentRequest() || incomingFailed) return false;
+            if (action is not null) playActions[incoming] = action;
+            ObservePlayback(incoming, audible: false);
             if (state.Position > 0) await incoming.SeekAsync(state.Position).WaitAsync(token);
             if (!CurrentRequest() || incomingFailed) return false;
             if (play) incoming.SetPlaying(true);
             while (CurrentRequest() && !incomingFailed && (incoming.Opening || incoming.Playing != play))
                 await Task.Delay(50, token);
             if (!CurrentRequest() || incomingFailed || !double.IsFinite(incoming.Position) || Math.Abs(incoming.Position - state.Position) > 5) return false;
+            ObservePlayback(incoming, audible: false);
 
             ReportingHandoff = new(track, tracks, at, incoming, state);
             if (!await confirm() || !CurrentRequest() || incomingFailed) return false;
@@ -887,13 +1065,19 @@ public sealed class MusicPlayer(MusicSession session)
             resumePosition = null; resumeStartPending = false; queueSource = eventSource = "other";
             eventStarted = null; eventFinalized = false; listenRecorded = false; listenedSeconds = 0; lastListeningPosition = incoming.Position;
             deck.TransportEnabled = true; ApplyVolumes();
+            if (action is not null) action.Position = incoming.Position;
             session.PinPlayback(track.Id); session.PinPreparingPlayback(null); ControlRevision++;
             return true;
         }
         finally
         {
             ReportingHandoff = null; receivingHandoff = false;
-            if (ReferenceEquals(standby, incoming)) incoming.Stop();
+            if (ReferenceEquals(standby, incoming))
+            {
+                Report(action, "failed");
+                streamedDecks.Remove(incoming); playActions.Remove(incoming);
+                incoming.Stop();
+            }
             session.PinUpcomingPlayback(null);
             if (ReferenceEquals(deck, incoming) && handoffTrackEnded && play) _ = AdvanceAfterEndAsync();
             else { Changed?.Invoke(); if (Playing) WarmNext(); }

@@ -15,13 +15,22 @@
     <p class="sr" role="status" aria-live="polite" aria-atomic="true">@announcement</p>
     <Notice Level="error" Message="@error" ActionLabel="@(error is not null && Online ? "Retry song review" : null)"
         Action="Refresh" Busy="@Unavailable" FocusTarget="#catalogue-refresh" />
-    @if (ShowSnapshotNotice) { <Notice Level="warning" Message="Showing the last review snapshot. Refresh to check for updates." /> }
+    @if (data is not null) { <small class="catalogue-timestamp">Review updated @snapshotAt.ToLocalTime().ToString("t")</small> }
     @if (!Online) { <Notice Level="warning" Message="@(data is null ? "Connect to the server to review songs." : "Server offline. Showing the last loaded review.")" /> }
     else if (data is null && error is null) { <Notice Message="Loading song review…" /> }
     @if (data is { } snapshot)
     {
+        <div class="catalogue-categories" role="group" aria-label="Review status">
+            @foreach (var (id, label) in WorkViews.Where(v => snapshot.CanEdit || v.Id != "fixed"))
+            {
+                <button class="quiet catalogue-category" aria-pressed="@Aria(workView == id)" aria-disabled="@Aria(Unavailable)"
+                        @onclick="() => ChangeWorkView(id)">@label</button>
+            }
+        </div>
+        @if (workView != "fixed")
+        {
         <div class="catalogue-categories" role="group" aria-label="Review categories">
-            @foreach (var category in Categories.Where(c => snapshot.CanEdit || !c.AdminOnly))
+            @foreach (var category in VisibleCategories(snapshot).Where(c => c.Id == active || Count(c.Id) > 0))
             {
                 <button class="quiet catalogue-category" aria-pressed="@Aria(active == category.Id)"
                         aria-controls="catalogue-category-panel" @onclick="() => active = category.Id">
@@ -29,13 +38,14 @@
                 </button>
             }
         </div>
+        }
         var section = Categories.First(c => c.Id == active);
         var limit = Limit(active);
         <section id="catalogue-category-panel" class="glass-panel catalogue-pool" aria-labelledby="catalogue-category-title">
             <header class="music-admin-heading catalogue-section-heading">
                 <div>
                     <h3 id="catalogue-category-title" tabindex="-1">@section.Label</h3>
-                    @if (section.Description.Length > 0) { <p class="catalogue-description">@section.Description</p> }
+                    @if (active == "fixed" && Count(active) > 0) { <p class="catalogue-description">Undo restores the original recording or details.</p> }
                 </div>
                 @if (snapshot.CanEdit)
                 {
@@ -82,6 +92,7 @@
                                 </div>
                                 <div class="catalogue-details">
                                     <p class="catalogue-reason">@row.PlaylistName · @GapReason(row.State)</p>
+                                    @Retry(row.RetryAt, row.RetryReason)
                                 </div>
                                 <div class="catalogue-actions">
                                     <button class="quiet catalogue-control" aria-label="@(row.CanEdit ? $"Review the recording of {title} in {row.PlaylistName}" : $"Open {row.PlaylistName} for {title}")"
@@ -105,11 +116,13 @@
                                 <div class="catalogue-details">
                                     <p class="catalogue-reason">@(row.Issue == "decode_failed" ? "The server could not decode part of the audio." : row.Verdict == "suspect" ? "The scan found missing high frequencies." : "Unofficial upload.")</p>
                                     @if (row.Candidate is { } candidate) { <p class="catalogue-reason">Official source · @candidate.Channel</p> }
-                                    else if (row.ReplacementChecked) { <p class="catalogue-reason">No matching official source found.</p> }
+                                    else if (row.ReplacementChecked && row.RetryReason.Length == 0) { <p class="catalogue-reason">No matching official source found.</p> }
+                                    @Retry(row.RetryAt, row.RetryReason)
                                     @if (row.Replacing) { <p class="catalogue-progress">@(row.Queued ? "Replacement queued" : "Replacing recording…")</p> }
                                     @if (row.Error is not null) { <Notice Level="error" Message="@NoticeText.Detail(row.Error, "This replacement could not be checked. Refresh song review and try again.")" /> }
                                 </div>
                                 <div class="catalogue-actions">
+                                    @Listen(row.Id, title)
                                     @if (YouTubePreview(row.Candidate) is { } url)
                                     {
                                         <a class="quiet catalogue-control" href="@url" target="_blank" rel="noopener noreferrer"
@@ -117,7 +130,11 @@
                                             <MusicIcon Name="external-link" />YouTube
                                         </a>
                                     }
-                                    else { @Listen(row.Id, title) }
+                                    else if (row.ReplacementChecked && !row.Replacing)
+                                    {
+                                        <a class="quiet catalogue-control" href="@YouTubeSearch(row.Artist, title)" target="_blank" rel="noopener noreferrer"
+                                           aria-label="Find a source for @title on YouTube (opens in a new tab)"><MusicIcon Name="external-link" />Find source</a>
+                                    }
                                     @if (row.Candidate is not null || row.Replacing)
                                     {
                                         <button class="primary catalogue-control" aria-label="Replace @title" aria-disabled="@Aria(Unavailable || row.Replacing || row.Candidate is null)"
@@ -140,8 +157,14 @@
                                     <h3>@title</h3><p class="catalogue-artist">@performer</p>
                                 </div>
                                 <div class="catalogue-details">
-                                    <p class="catalogue-reason">Missing @string.Join(", ", row.Missing)</p>
-                                    @if (row.State is "queued" or "processing") { <p class="catalogue-progress">@(row.State == "queued" ? "Lookup queued" : "Looking up song details…")</p> }
+                                    <p class="catalogue-reason">@MetadataIssue(row)</p>
+                                    @if (row.State == "processing") { <p class="catalogue-progress">Looking up song details…</p> }
+                                    else if (row.State == "queued" && snapshot.MetadataAutomatic is false) { <p class="catalogue-reason">Automatic lookup is off.</p> }
+                                    else if (row.State == "queued" && row.RetryReason.Length == 0) { <p class="catalogue-reason">Lookup queued</p> }
+                                    else if (row.State == "queued") { @Retry(row.RetryAt, row.RetryReason) }
+                                    else if (row.Source == "No unique title, artist and duration match") { <p class="catalogue-reason">No verified catalogue match.</p> }
+                                    else if (row.Source == "Lookup unavailable; review manually") { <p class="catalogue-reason">Catalogue lookup unavailable.</p> }
+                                    else if (row.Missing.Any(row.Suggested.ContainsKey)) { <p class="catalogue-reason">Suggested details available.</p> }
                                 </div>
                                 <div class="catalogue-actions">
                                     @Listen(row.Id, title)
@@ -189,7 +212,7 @@
                                 </div>
                                 <div class="catalogue-details">
                                     <p class="catalogue-reason">@(row.Reason == "bad_quality" ? "Reported for poor audio or a live performance." : "Reported as the wrong recording.")</p>
-                                    <p class="catalogue-reason">@ProfileName(row.Profile) · @LocalTime(row.Time)</p>
+                                    <p class="catalogue-reason">@ProfileName(row.Profile) @Timestamp(row.Time)</p>
                                 </div>
                                 <div class="catalogue-actions">
                                     @Listen(row.Id, title)
@@ -212,7 +235,7 @@
                                 </div>
                                 <div class="catalogue-details">
                                     <p class="catalogue-reason">@row.Reason</p>
-                                    @if (row.Time > 0) { <p class="catalogue-reason">@LocalTime(row.Time)</p> }
+                                    @Timestamp(row.Time)
                                 </div>
                                 <div class="catalogue-actions">
                                     @Listen(row.ListeningId, title)
@@ -236,10 +259,14 @@
     <div class="dialog-heading"><h2 id="metadata-review-title">Song metadata</h2><button class="quiet" aria-label="Close metadata review" @onclick="Close"><MusicIcon Name="close" /></button></div>
     @if (editing is { } metadata)
     {
-        <p>@DisplayTitle(metadata.Title)</p>
+        <p>@metadata.Title</p>
         @if (metadata.Missing.Any(metadata.Suggested.ContainsKey)) { <p class="muted">Check the suggested values before saving.</p> }
     }
     <form @onsubmit="Save" @onsubmit:preventDefault>
+        @if (editing?.Current.ContainsKey("title") == true)
+        {
+            <label for="metadata-track-title">Title</label><input id="metadata-track-title" @bind="trackTitle" maxlength="120" />
+        }
         <label for="metadata-artist">Artist</label><input id="metadata-artist" @bind="artist" maxlength="120" />
         <label for="metadata-album">Album</label><input id="metadata-album" @bind="album" maxlength="120" />
         <label for="metadata-genre">Genre</label><input id="metadata-genre" @bind="genre" maxlength="80" />
@@ -255,20 +282,20 @@
 @code {
     [Parameter] public EventCallback<PlaylistReviewGap> OpenPlaylist { get; set; }
 
-    private sealed record Category(string Id, string Label, string Description, string Empty, bool AdminOnly = true);
+    private sealed record Category(string Id, string Label, string Empty, bool AdminOnly = true);
     private sealed record SongReport(string Key, string Id, string Title, string Artist, string Profile, string Reason, long Time);
     private sealed record SongReports(List<SongReport> Reports);
     private sealed record FixedEntry(string Id, string ListeningId, string Title, string Artist, string Reason, long Time, bool IsMetadata);
 
     private static readonly Category[] Categories =
     [
-        new("playlists", "Missing from playlists", "Choose recordings for songs that need a match.", "No missing playlist recordings."),
-        new("damaged", "Damaged audio", "Review recordings flagged by the audio scan.", "No damaged audio to review."),
-        new("unofficial", "Unofficial uploads", "Review uploads with a matching official recording.", "No unofficial uploads with an official alternative."),
-        new("metadata", "Missing metadata", "", "No missing song metadata.", false),
-        new("trimming", "Trimming", "Check the reported positions for unwanted audio.", "No trimming requests.", false),
-        new("reports", "Song reports", "Review problems reported by family profiles.", "No open song reports."),
-        new("fixed", "Fixed automatically", "Undo restores the previous recording or removes the automatically added details.", "No automatic fixes to review.")
+        new("playlists", "Missing from playlists", "No missing playlist recordings."),
+        new("damaged", "Damaged audio", "No damaged audio to review."),
+        new("unofficial", "Unofficial uploads", "No unofficial uploads with an official alternative."),
+        new("metadata", "Song details", "No song details to review.", false),
+        new("trimming", "Trimming", "No trimming requests.", false),
+        new("reports", "Song reports", "No open song reports."),
+        new("fixed", "Fixed automatically", "No automatic fixes to review.")
     ];
     private const int PageSize = 50;
     private const int MaxPageSize = 10000;
@@ -278,7 +305,7 @@
     private SourceQualitySnapshot quality = new();
     private List<SongReport> reports = [];
     private MetadataRequest? editing;
-    private string active = "playlists", artist = "", album = "", genre = "";
+    private string active = "playlists", trackTitle = "", artist = "", album = "", genre = "";
     private string? identity, error, editError, announcement, pendingFocus;
     private bool loading, saving, disposed, wasOnline;
     private bool Online => Session.Connected && Session.Api is not null;
@@ -324,15 +351,32 @@
     }
 
     private int snapshotRetries;
+    private DateTimeOffset snapshotAt;
+    private static readonly (string Id, string Label)[] WorkViews = [("choice", "Needs your choice"), ("queue", "Queued & retrying"), ("fixed", "Recently fixed")];
+    private string workView = "choice";
+    private IEnumerable<Category> VisibleCategories(CatalogueReviewSnapshot snapshot) =>
+        Categories.Where(c => (snapshot.CanEdit || !c.AdminOnly) && c.Id != "fixed" && (workView != "queue" || (c.Id != "reports" && c.Id != "trimming")));
+    private async Task ChangeWorkView(string id)
+    {
+        if (Unavailable || id == workView) return;
+        var previous = workView;
+        workView = id;
+        await Refresh();
+        if (error is not null) workView = previous;
+        else if (data is not null) SelectWorkCategory(data);
+    }
+    private void SelectWorkCategory(CatalogueReviewSnapshot snapshot)
+    {
+        var visible = VisibleCategories(snapshot);
+        active = workView == "fixed" ? "fixed" : (visible.FirstOrDefault(c => Count(c.Id) > 0) ?? visible.First()).Id;
+    }
     private bool followingUp;
     private bool SnapshotStale => data?.SnapshotAgeSeconds > 1;
-    private bool snapshotExhausted;
-    private bool ShowSnapshotNotice => snapshotExhausted && SnapshotStale;
     private void QueueSnapshotRefresh()
     {
         if (disposed) return;
-        if (!SnapshotStale) { snapshotExhausted = false; return; }
-        if (snapshotRetries >= 3) { snapshotExhausted = true; StateHasChanged(); return; }
+        if (!SnapshotStale) return;
+        if (snapshotRetries >= 3) return;
         snapshotRetries++;
         _ = Task.Delay(TimeSpan.FromSeconds(2.5), lifetime.Token).ContinueWith(
             async t => { if (!t.IsCanceled && !disposed) await InvokeAsync(() => { followingUp = true; return Refresh(); }); },
@@ -342,7 +386,7 @@
     private async Task Refresh()
     {
         if (Unavailable || disposed || Session.Api is not { } api) return;
-        if (!followingUp) { snapshotRetries = 0; snapshotExhausted = false; }
+        if (!followingUp) snapshotRetries = 0;
         followingUp = false;
         loading = true;
         error = null;
@@ -354,7 +398,7 @@
             request.CancelAfter(TimeSpan.FromSeconds(5));
             var limit = Math.Max(Limit("playlists"), Math.Max(Limit("metadata"), Limit("trimming")));
             var result = await api.RequestJsonAsync<CatalogueReviewSnapshot>(HttpMethod.Get,
-                "/api/catalogue/review?limit=" + limit, cancellationToken: request.Token).WaitAsync(request.Token);
+                $"/api/catalogue/review?limit={limit}&work={(workView == "queue" ? "queue" : "choice")}", cancellationToken: request.Token).WaitAsync(request.Token);
             var newQuality = new SourceQualitySnapshot();
             List<SongReport> newReports = [];
             if (result.CanEdit)
@@ -369,12 +413,13 @@
             var firstLoad = data is null;
             if (data?.CanEdit == true && !result.CanEdit && editing is not null) await Close();
             data = result;
+            snapshotAt = DateTimeOffset.UtcNow.AddSeconds(-Math.Max(0, result.SnapshotAgeSeconds));
             quality = newQuality;
             reports = newReports;
             if (firstLoad || !result.CanEdit && Categories.First(c => c.Id == active).AdminOnly)
             {
-                var visible = Categories.Where(c => result.CanEdit || !c.AdminOnly);
-                active = (visible.FirstOrDefault(c => Count(c.Id) > 0) ?? visible.First()).Id;
+                if (!result.CanEdit && workView == "fixed") workView = "choice";
+                SelectWorkCategory(result);
             }
         }
         catch (OperationCanceledException) when (disposed) { }
@@ -402,11 +447,12 @@
         _ => QualityRows(category).Count()
     };
     private IEnumerable<SourceQualitySong> QualityRows(string category) =>
-        quality.Songs.Where(r => (r.Verdict == "suspect") == (category == "damaged"));
+        quality.Songs.Where(r => (r.Verdict == "suspect") == (category == "damaged")
+            && (r.RetryAt > 0 || r.Replacing || r.Queued) == (workView == "queue"));
     private IEnumerable<FixedEntry> FixedRows(CatalogueReviewSnapshot snapshot) =>
         quality.Fixed.Select(r => new FixedEntry(r.Id, r.ReplacedBy, r.Title, r.Artist, "Replaced with an official recording.", r.FixedAt, false))
             .Concat(snapshot.MetadataFixed.Select(r => new FixedEntry(r.Id, r.Id, r.Title, r.Artist,
-                "Filled " + string.Join(", ", r.Fields) + ".", r.FixedAt, true)))
+                "Updated " + string.Join(", ", r.Fields) + ".", r.FixedAt, true)))
             .OrderByDescending(r => r.Time);
     private static string GapReason(string state) => state switch
     {
@@ -456,7 +502,26 @@
         "https://www.youtube.com/results?search_query=" + Uri.EscapeDataString(artist + " " + title + " official audio");
     private string ProfileName(string id) => Session.Profiles.FirstOrDefault(p => p.Id == id)?.Name ?? id;
     private static string Time(double seconds) => $"{(int)seconds / 60}:{(int)seconds % 60:00}";
-    private static string LocalTime(long seconds) => DateTimeOffset.FromUnixTimeSeconds(seconds).ToLocalTime().ToString("g");
+    private static string MetadataIssue(MetadataRequest row)
+    {
+        var fields = row.Missing.Where(field => field != "title").ToList();
+        var missing = fields.Count > 0 ? "Missing " + string.Join(", ", fields) : "";
+        return row.Missing.Contains("title") ? fields.Count > 0 ? "Verify title. " + missing : "Verify title." : missing;
+    }
+    private static RenderFragment Timestamp(double seconds) => @<text>
+        @if (seconds > 0 && seconds <= 253402300799)
+        {
+            var time = DateTimeOffset.FromUnixTimeSeconds((long)seconds);
+            <time class="catalogue-timestamp" datetime="@time.ToString("O")">@time.ToLocalTime().ToString("g")</time>
+        }
+    </text>;
+    private static RenderFragment Retry(double at, string reason) => @<text>
+        @if (at > 0)
+        {
+            <p class="catalogue-reason">@(reason.Length > 0 ? reason + ". " : "")Retry after @Timestamp(at)</p>
+        }
+        else if (reason.Length > 0) { <p class="catalogue-reason">@(reason + ".")</p> }
+    </text>;
 
     private async Task Play(string id)
     {
@@ -535,11 +600,13 @@
         if (Unavailable) return;
         editing = row;
         editError = null;
+        trackTitle = row.Draft("title");
         artist = Draft(row, "artist");
         album = Draft(row, "album");
         genre = Draft(row, "genre");
         StateHasChanged();
-        await JS.InvokeVoidAsync("familyhub.showDialog", "metadata-review-dialog", "metadata-artist");
+        await JS.InvokeVoidAsync("familyhub.showDialog", "metadata-review-dialog",
+            row.Missing.Contains("title") ? "metadata-track-title" : "metadata-artist");
     }
     private static string Draft(MetadataRequest row, string field) =>
         row.Missing.Contains(field) ? row.Suggested.GetValueOrDefault(field, "") : row.Draft(field);
@@ -552,8 +619,9 @@
     private async Task Save()
     {
         if (Unavailable || editing is not { } row || Session.Api is not { } api) return;
-        var values = new Dictionary<string, string> { ["artist"] = artist.Trim(), ["album"] = album.Trim(), ["genre"] = genre.Trim() }
-            .Where(p => p.Value.Length > 0 && p.Value != row.Current.GetValueOrDefault(p.Key)).ToDictionary(p => p.Key, p => p.Value);
+        var values = new Dictionary<string, string> { ["title"] = trackTitle.Trim(), ["artist"] = artist.Trim(), ["album"] = album.Trim(), ["genre"] = genre.Trim() }
+            .Where(p => p.Value.Length > 0 && (p.Value != row.Current.GetValueOrDefault(p.Key)
+                || p.Key == "title" && row.Missing.Contains("title"))).ToDictionary(p => p.Key, p => p.Value);
         if (values.Count == 0) { editError = "Enter or change a song detail before saving."; return; }
 
         saving = true;

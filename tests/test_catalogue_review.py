@@ -30,6 +30,16 @@ class ReviewStore(unittest.TestCase):
         self.assertEqual(self.store.overrides(FIRST,'b'*64),{})
         self.assertEqual(self.store.snapshot()['metadata_total'],0)
 
+    def test_review_status_filters_before_pagination_and_handles_disabled_automation(self):
+        self.observe()
+        self.store.flag_trim(TRACK,'a'*64,'one',12)
+        queue = self.store.snapshot(limit=1,work='queue')
+        self.assertEqual((queue['metadata_total'], queue['trimming_total']), (1, 0))
+        choices = self.store.snapshot(limit=1,work='choice')
+        self.assertEqual((choices['metadata_total'], choices['trimming_total']), (0, 1))
+        manual = self.store.snapshot(limit=1,work='choice',metadata_automatic=False)
+        self.assertEqual(manual['metadata'][0]['id'], FIRST)
+
     def test_shared_rolling_rate_limit_survives_restart_and_yields_to_playback(self):
         now = 10000
         store = CatalogueReview(self.tmp.name, automatic_limit=2, clock=lambda: now)
@@ -60,6 +70,53 @@ class ReviewStore(unittest.TestCase):
         self.assertEqual(store.snapshot()['metadata'][0]['missing'], ['genre'])
         self.assertEqual(store.data['metadata_fixed'], {})
         self.assertFalse(store.process_one(lambda: True, lambda row: self.fail('Undone metadata stays in review.')))
+
+    def test_verified_title_preserves_edition_and_undo_stays_in_review(self):
+        original = 'Artist - Song (Acoustic) [Official Video]'
+        track = dict(TRACK, title=original, library_album='Album', genre='Rock')
+        source = dict(kind='youtube', title=original, channel='Artist - Topic')
+        candidate = dict(id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', title='Song (Acoustic)', length=180000,
+                         score=100, **{'artist-credit': [{'name': 'Artist'}]})
+        details = {'title': candidate['title'], 'artist-credit': candidate['artist-credit']}
+        self.store.observe(track, source, 'a'*64, automatic_title=True)
+        row = self.store.snapshot()['metadata'][0]
+        self.assertEqual(row['missing'], ['title'])
+        with patch('music_web.catalogue_review.musicbrainz', return_value={'recordings': [
+                dict(candidate, title='Song (Live)')]}):
+            self.assertEqual(lookup(row)['values'], {})
+        with patch('music_web.catalogue_review.musicbrainz', side_effect=[{'recordings': [candidate]}, details]):
+            self.assertTrue(self.store.process_one(lambda: True))
+        self.assertEqual(self.store.overrides(FIRST, 'a'*64), {'title': 'Song (Acoustic)'})
+        self.store.undo_metadata(FIRST, 'a'*64)
+        reopened = CatalogueReview(self.tmp.name)
+        self.assertEqual(reopened.snapshot()['metadata'][0]['title'], original)
+        self.assertFalse(reopened.process_one(lambda: True))
+
+    def test_legacy_title_is_suggested_and_explicit_import_title_is_preserved(self):
+        track = dict(TRACK, library_album='Album', genre='Rock')
+        source = dict(kind='youtube', title=track['title'], channel='Artist - Topic')
+        self.store.observe(track, source, 'a'*64, automatic_title=False)
+        self.assertEqual(self.store.snapshot()['metadata'], [])
+        self.store.observe(track, source, 'a'*64)
+        row = self.store.snapshot()['metadata'][0]
+        self.assertEqual(row['missing'], ['title'])
+        candidate = dict(id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', title='Song', length=180000,
+                         score=100, **{'artist-credit': [{'name': 'Artist'}]})
+        with patch('music_web.catalogue_review.musicbrainz', side_effect=[
+                {'recordings': [candidate]}, {'title': 'Song', 'artist-credit': candidate['artist-credit']}]):
+            result = lookup(row)
+        self.assertEqual(result['suggested']['title'], 'Song')
+        self.assertEqual(result['values'], {})
+
+    def test_hourly_retry_exposes_next_attempt_and_reason(self):
+        now = 10000
+        store = CatalogueReview(self.tmp.name, automatic_limit=1, clock=lambda: now)
+        store.observe(TRACK, {}, 'a'*64)
+        self.assertTrue(store.reserve_automatic('source search'))
+        row = store.snapshot()['metadata'][0]
+        self.assertEqual((row['retry_at'], row['retry_reason']), (13600, 'Hourly catalogue limit'))
+        now += 3600
+        self.assertNotIn('retry_at', store.snapshot()['metadata'][0])
     def test_embedded_tags_are_used_without_lookup(self):
         self.store.observe({**TRACK,'channel':'Unknown artist'},{'artist':'Tagged artist','album':'Tagged album'},'a'*64)
         self.assertEqual(self.store.overrides(FIRST,'a'*64),dict(artist='Tagged artist',album='Tagged album'))

@@ -199,6 +199,7 @@
 
 @keyframes popup-side-in { from { opacity:0; transform:translateX(16px); } }
 @keyframes popup-sheet-in { from { transform:translateY(100%); } }
+@keyframes popup-fade-in { from { opacity:0; transform:translateY(-6px); } }
 @keyframes popup-out { to { opacity:0; transform:translate(var(--popup-exit-x),var(--popup-exit-y)); } }
 .popup-panel.animated-dialog.is-closing[open] { animation:popup-out .2s ease-in forwards; }
 
@@ -289,7 +290,46 @@
   #player-options > .dialog-heading { display:none; }
   #profile-menu.popup-menu > button.profile-phone-link { display:none; }
 }
+.popup-panel.popup-centered[open],
+#profile-menu.popup-panel[open] {
+  --popup-enter:popup-fade-in .18s var(--popup-ease);
+  --popup-radius:12px;
+  --popup-shadow:0 16px 48px #000a;
+  min-height:0;
+  height:fit-content;
+  padding-bottom:var(--popup-gutter);
+  scroll-padding-top:var(--popup-header-height);
+  touch-action:auto;
+}
+.popup-panel.popup-centered[open] {
+  --popup-backdrop:#0009;
+  --popup-exit-x:0px;
+  --popup-exit-y:6px;
+  --dialog-top:max(16px,env(safe-area-inset-top));
+  --dialog-bottom:max(16px,env(safe-area-inset-bottom));
+  inset:var(--dialog-top) max(16px,env(safe-area-inset-right)) var(--dialog-bottom) max(16px,env(safe-area-inset-left));
+  width:var(--popup-width,440px);
+  max-width:calc(100vw - max(16px,env(safe-area-inset-left)) - max(16px,env(safe-area-inset-right)));
+  max-height:calc(100dvh - var(--dialog-top) - var(--dialog-bottom));
+  margin:auto;
+}
+#profile-menu.popup-panel[open] {
+  --popup-backdrop:transparent;
+  --popup-header-height:52px;
+  --popup-heading-size:16px;
+  inset:var(--popup-anchor-top,64px) var(--popup-anchor-right,8px) auto auto;
+  width:264px;
+  max-width:calc(100vw - var(--popup-anchor-right,8px) - 8px);
+  max-height:calc(100dvh - var(--popup-anchor-top,64px) - max(8px,env(safe-area-inset-bottom)));
+  padding-bottom:var(--popup-edge);
+}
+.popup-panel.popup-centered .dialog-heading,
+#profile-menu.popup-panel .dialog-heading { padding-top:0; touch-action:auto; }
+.popup-panel.popup-centered .dialog-heading::before,
+#profile-menu.popup-panel .dialog-heading::before { content:none; }
+.create-playlist-screen.popup-centered { scroll-padding-bottom:76px; }
 @media(prefers-reduced-motion:reduce) {
   :root { --popup-enter:none; }
+  .popup-panel.popup-centered[open], #profile-menu.popup-panel[open] { --popup-enter:none; }
   .popup-panel.animated-dialog.is-closing[open] { animation:none; }
 }

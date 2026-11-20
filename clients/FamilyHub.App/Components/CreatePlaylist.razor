@@ -3,7 +3,7 @@
 
 @* Create playlist: one screen for an empty playlist, a pasted link from a supported site (detected
    from the link itself), or songs and folders from this device through the upload dialog. *@
-<dialog id="create-playlist-dialog" class="popup-panel create-playlist-screen animated-dialog" aria-labelledby="create-playlist-heading" data-return-focus="create-playlist" @onclose="Reset">
+<dialog id="create-playlist-dialog" class="popup-panel popup-centered create-playlist-screen animated-dialog" aria-labelledby="create-playlist-heading" data-return-focus="create-playlist" @onclose="Reset">
     <div class="dialog-heading"><h2 id="create-playlist-heading" tabindex="-1">Create playlist</h2><button class="quiet" aria-label="Close create playlist" @onclick="Close"><MusicIcon Name="close" /></button></div>
     <form class="create-playlist-form inline-form" @onsubmit="Submit" @onsubmit:preventDefault>
         <label class="create-field">
@@ -30,10 +30,10 @@
         </div></section>
 
         <section class="create-section create-options" aria-label="Playlist options">
-            <label class="create-toggle"><span><strong>Share with the family</strong><small>Everyone on this server can see and play it</small></span><input type="checkbox" role="switch" @bind="shared" /></label>
+            <label class="create-toggle"><span><strong>Share with the family</strong><small>Everyone on this server can see and play it.</small></span><input type="checkbox" role="switch" @bind="shared" /></label>
             @if (Source is not null)
             {
-                <label class="create-toggle"><span><strong>Download the songs to the server</strong><small>Starts after the songs are found; you can pause it later</small></span><input type="checkbox" role="switch" @bind="download" /></label>
+                <label class="create-toggle"><span><strong>Download songs to the server</strong><small>Downloads start after matching. You can pause them from the playlist.</small></span><input type="checkbox" role="switch" @bind="download" /></label>
             }
         </section>
 

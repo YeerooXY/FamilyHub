@@ -32,7 +32,44 @@ await renderer.Dispatcher.InvokeAsync(async () => {
     await Task.WhenAll(Refresh(typeof(ServerStats)), Refresh(typeof(CatalogueReviewPanel)));
     html = stats.ToHtmlString() + review.ToHtmlString();
     if (html.Contains("Retry server work") || html.Contains("Retry song review")) throw new Exception("Retry did not recover");
+    if (!stats.ToHtmlString().Contains("<details class=\"srv-worker-details\">")
+        || !html.Contains("Catalogue worker configuration") || !html.Contains("Automatic catalogue attempts per hour")
+        || !review.ToHtmlString().Contains("No song details to review."))
+        throw new Exception("Collapsed worker configuration or empty review was missing");
     Save("loaded", html);
+    FixtureHandler.CatalogueRows = true;
+    var activeReview = typeof(CatalogueReviewPanel).GetField("active", BindingFlags.NonPublic | BindingFlags.Instance)!;
+    async Task<string> RenderReview(string category)
+    {
+        activeReview.SetValue(activator.Instances[typeof(CatalogueReviewPanel)], category);
+        await Refresh(typeof(CatalogueReviewPanel));
+        return review.ToHtmlString();
+    }
+    var metadataReview = await RenderReview("metadata");
+    if (!metadataReview.Contains("MusicBrainz rate limit") || !metadataReview.Contains("Retry after") || !metadataReview.Contains("catalogue-timestamp")
+        || !metadataReview.Contains("Verify title") || !metadataReview.Contains("Edit details")
+        || !metadataReview.Contains("Looking up song details"))
+        throw new Exception("Song details did not render the retry, processing and edit states");
+    var openMetadata = typeof(CatalogueReviewPanel).GetMethod("Open", BindingFlags.NonPublic | BindingFlags.Instance)!;
+    await (Task)openMetadata.Invoke(activator.Instances[typeof(CatalogueReviewPanel)], [
+        new MetadataRequest { Id = "abcdefghijk", Title = "Fixture title (Official Audio)",
+            Current = new() { ["title"] = "Fixture title (Official Audio)" },
+            Suggested = new() { ["title"] = "Fixture title" }, Missing = ["title"] }
+    ])!;
+    var editor = review.ToHtmlString();
+    if (!editor.Contains("metadata-track-title") || !editor.Contains("Fixture title (Official Audio)")
+        || !editor.Contains("Check the suggested values before saving."))
+        throw new Exception("The title editor omitted the proposed title or original title");
+    var closeMetadata = typeof(CatalogueReviewPanel).GetMethod("Close", BindingFlags.NonPublic | BindingFlags.Instance)!;
+    await (Task)closeMetadata.Invoke(activator.Instances[typeof(CatalogueReviewPanel)], null)!;
+    var sourceReview = await RenderReview("damaged");
+    if (!sourceReview.Contains("Source search unavailable") || !sourceReview.Contains("Find source"))
+        throw new Exception("Source review did not render the failed search action");
+    var fixedReview = await RenderReview("fixed");
+    if (!fixedReview.Contains("Undo the automatic fix for") || !fixedReview.Contains("Updated title")
+        || !fixedReview.Contains("Replaced with an official recording"))
+        throw new Exception("Automatic fix history did not render both undo actions");
+    FixtureHandler.CatalogueRows = false;
     FixtureHandler.Offline = true;
     await session.RefreshAsync();
     if (session.Connected || !stats.ToHtmlString().Contains("Use Refresh to reconnect"))
@@ -51,7 +88,8 @@ await renderer.Dispatcher.InvokeAsync(async () => {
     await Refresh(typeof(ServerStats));
     var empty = leaderboard.ToHtmlString();
     if (!empty.Contains("No listening time recorded for this period") || !empty.Contains("listening summary.")
-        || !empty.Contains("Alex") || empty.Contains("lb-wrapped-card") || empty.Contains("lb-place-1") || empty.Contains("stats-line-chart"))
+        || !empty.Contains("Alex") || empty.Contains("lb-wrapped-table") || empty.Contains("lb-wrapped-member")
+        || empty.Contains("How scores are counted") || empty.Contains("lb-place-1") || empty.Contains("stats-line-chart"))
         throw new Exception("Empty leaderboard ranked a listener or omitted the Wrapped empty state and online profile");
     Save("leaderboard-empty", empty);
     foreach (var (platform, action, help) in new[]
@@ -129,6 +167,7 @@ sealed class Launcher {
 sealed class FixtureHandler : HttpMessageHandler {
     public static bool Block = true;
     public static bool Offline;
+    public static bool CatalogueRows;
     public const string PlaylistId = "0123456789abcdefghijkl";
     public static bool OtherDeviceAddedSong;
     public static int Removals;
@@ -175,9 +214,22 @@ sealed class FixtureHandler : HttpMessageHandler {
             "/api/playlists/" + PlaylistId => new { playlist = Playlist },
             "/api/playlists/" + AlbumId => new { playlist = AlbumPlaylist },
             "/api/discovery" => new { items = Array.Empty<object>() },
+            "/api/catalogue/review" when CatalogueRows => new {
+                can_edit = true, metadata_automatic = true, metadata_total = 2,
+                metadata = new[] {
+                    new { id = "abcdefghijk", title = "Fixture title", missing = new[] { "title" }, state = "queued", retry_at = 1795200000.5, retry_reason = "MusicBrainz rate limit" },
+                    new { id = "lmnopqrstuv", title = "Fixture processing", missing = new[] { "album" }, state = "processing", retry_at = 0d, retry_reason = "" }
+                },
+                metadata_fixed = new[] { new { id = "12345678901", title = "Verified title", fields = new[] { "title" }, fixed_at = 1795100000L } }
+            },
             "/api/catalogue/review" => new {can_edit=false,metadata=Array.Empty<object>(),trimming=Array.Empty<object>()},
+            "/api/catalogue/source-quality" => new {
+                songs = new[] { new { id = "abcdefghijk", title = "Source search", verdict = "suspect", replacement_checked = true, retry_at = 0, retry_reason = "Source search unavailable" } },
+                @fixed = new[] { new { id = "lmnopqrstuv", title = "Official source", replaced_by = "vwxyz012345", fixed_at = 1795100001L } }
+            },
+            "/api/catalogue/reports" => new { reports = Array.Empty<object>() },
             "/api/server/stats" when request.RequestUri.Query == "?leaderboard=1" => new {wrapped_year=2026,daily=new[]{new{day="2026-11-19",seconds=0}},profiles=new[]{new{id="alex",name="Alex",online=true,wrapped=new{total_minutes=0,songs_added=0}}}},
-            "/api/server/stats" => new {workers=new[]{new{id="acquisition-0",title="Listener",state="working",current_title="Veridis Quo"}},jobs=Array.Empty<object>(),worker_stages=new[]{new{stage="fetch",queued=24,backing_off=0,running=1}},storage_total_bytes=1000000000000L,storage_free_bytes=600000000000L},
+            "/api/server/stats" => new {workers=new[]{new{id="acquisition-0",title="Listener",state="working",current_title="Veridis Quo"}},jobs=Array.Empty<object>(),worker_stages=new[]{new{stage="fetch",queued=24,backing_off=0,running=1}},catalogue_workers=new{metadata=true,source_scan=true,source_auto_replace=false,playlist_matching=true,automatic_attempts_per_hour=30},storage_total_bytes=1000000000000L,storage_free_bytes=600000000000L},
             _ => new {} };
         return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK){Content=new StringContent(JsonSerializer.Serialize(data),Encoding.UTF8,"application/json")});
     }

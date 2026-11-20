@@ -1,0 +1,59 @@
+name: Playback timing
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'clients/FamilyHub.App/Services/MusicPlayer*.cs'
+      - 'clients/FamilyHub.App/Services/MusicSession*.cs'
+      - 'clients/FamilyHub.Player.Tests/**'
+      - 'music_web/**'
+      - 'scripts/music-intake.py'
+      - 'requirements-mobile.txt'
+      - 'tests/play_on_demand_benchmark.py'
+      - 'tests/test_play_on_demand.py'
+      - '.github/workflows/playback-timing.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native-player:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test native playback and recovery
+        run: dotnet run --project clients/FamilyHub.Player.Tests
+
+  loopback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install loopback test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          python3 -m venv "$RUNNER_TEMP/playback-env"
+          # These tests use the HTTP server and synthetic audio fixture.
+          grep -Ei '^(flask|flask-wtf|waitress)==' requirements-mobile.txt > "$RUNNER_TEMP/http-requirements.txt"
+          "$RUNNER_TEMP/playback-env/bin/pip" install -r "$RUNNER_TEMP/http-requirements.txt"
+          echo "$RUNNER_TEMP/playback-env/bin" >> "$GITHUB_PATH"
+      - name: Measure delivery of the first playable segment under load
+        shell: bash
+        run: |
+          python -m tests.play_on_demand_benchmark | tee playback-timing.json
+          jq -r '"### Loopback playback\n\n| Stage | Elapsed |\n|---|---:|",
+            "| Job accepted | \(.post_ms) ms |",
+            "| Dispatched | \(.dispatch_ms) ms |",
+            "| Metadata lane acquired | \(.metadata_ms) ms |",
+            "| Transfer lane acquired | \(.transfer_ms) ms |",
+            "| First playable segment received | \(.first_segment_ms) ms |",
+            "| Segment decoded and timings collected | \(.decoded_audio_ms) ms |",
+            "\nSegment received before the background release deadline: \(.segment_before_backlog_release)."' playback-timing.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Test on-demand playback
+        run: python -m unittest discover -s tests -p test_play_on_demand.py

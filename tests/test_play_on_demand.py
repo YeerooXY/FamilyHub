@@ -9,6 +9,42 @@ from music_web.resources import ResourceGovernor, TransferResources
 
 
 class ListenerAdmissionTests(Base):
+    def test_playback_diagnostics_correlate_stages_and_exclude_track_data(self):
+        client, token = self.signed_in()
+        other, _ = self.signed_in('sample-b')
+        endpoint = '/api/playback/diagnostics'
+        action = 'a' * 32
+        self.assertEqual(self.post(client, token, endpoint, json={
+            'action': action, 'stage': 'play', 'elapsed_ms': 0, 'url': URL}).status_code, 200)
+        with mock.patch('threading.Thread.start'):
+            response = self.post(client, token, '/api/jobs', json={'url': URL, 'play_action': action})
+        self.state.worker = None
+        self.assertEqual(response.status_code, 202)
+        for stage, elapsed in [('ready', 101), ('playing', 180), ('position_advanced', 300), ('position_advanced', 400)]:
+            self.assertEqual(self.post(client, token, endpoint, json={
+                'action': action, 'stage': stage, 'elapsed_ms': elapsed}).status_code, 200)
+        rows = self.go(client, 'GET', endpoint).json['actions']
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['action'], action)
+        events = {event['stage']: event for event in rows[0]['events']}
+        self.assertIn('server_ms', events['job_accepted'])
+        self.assertEqual(events['client_ready']['client_ms'], 101)
+        self.assertEqual(events['client_playing']['client_ms'], 180)
+        self.assertEqual(events['client_position_advanced']['client_ms'], 300)
+        self.assertNotIn(URL, str(rows))
+        self.assertNotIn('sample-a', str(rows))
+        self.assertEqual(self.go(other, 'GET', endpoint).json['actions'], [])
+        self.assertEqual(self.post(client, token, endpoint, json={
+            'action': action, 'stage': URL, 'elapsed_ms': 0}).status_code, 400)
+        self.assertEqual(self.post(client, token, endpoint, json={
+            'action': action, 'stage': 'play', 'elapsed_ms': -1}).status_code, 400)
+        self.assertEqual(self.go(client, 'POST', endpoint, json={
+            'action': action, 'stage': 'play', 'elapsed_ms': 0}).status_code, 400)
+        for n in range(40):
+            self.assertEqual(self.post(client, token, endpoint, json={
+                'action': f'{n:032x}', 'stage': 'play', 'elapsed_ms': 0}).status_code, 200)
+        self.assertEqual(len(self.go(client, 'GET', endpoint).json['actions']), 32)
+
     def test_background_download_promotes_a_completed_preview_to_an_import(self):
         client, token = self.signed_in()
         with mock.patch('threading.Thread.start'):

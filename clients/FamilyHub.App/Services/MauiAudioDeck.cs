@@ -46,13 +46,18 @@ internal sealed class MauiAudioDeck : IAudioDeck
             if (!Opening && PlaybackRequested && Duration > 0 && Position >= Duration - Math.Min(.5, Duration * .05))
             { Ended?.Invoke(); }
         });
-        media.MediaFailed += (_, _) => MainThread.BeginInvokeOnMainThread(() =>
+        media.MediaFailed += (_, _) =>
         {
-            pendingSource = null; PlaybackRequested = false;
-            positionTimer.Stop();
-            Failed?.Invoke("Playback failed. Select the song to retry, or download it and play the local copy.");
-            Changed?.Invoke();
-        });
+            var failedSource = media.Source;
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                if (failedSource is null || !ReferenceEquals(media.Source, failedSource)) return;
+                pendingSource = null; PlaybackRequested = false;
+                positionTimer.Stop();
+                Failed?.Invoke("Playback failed. Retry the song or play a downloaded copy.");
+                Changed?.Invoke();
+            });
+        };
     }
     public void PlayFile(string path, string title, string artist, bool play = true, bool background = false)
     {

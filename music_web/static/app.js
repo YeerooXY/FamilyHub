@@ -17,10 +17,10 @@ function recordSkip() {
   if (currentTrack && listeningSample.source === sourceKey(currentTrack) && listeningSample.seconds >= 2 && listeningSample.seconds < 30) listeningHistory.record(currentTrack,"skipped");
 }
 
-let visibleResults = [], searchPreviewTracks = [];
+let visibleResults = [];
 let searchVersion = 0, searchController = null;
 let searchQuery = "", searchOffset = null, searchLoading = false;
-let typingTimer = null, viewportTimer = null, playbackSearchQuery = null;
+let typingTimer = null, playbackSearchQuery = null;
 
 function el(tag, attrs, ...kids) {
   const node = document.createElement(tag);
@@ -121,26 +121,13 @@ function searchRow(track, context = "search") {
   });
   return el("li", {}, songButton(track, context), add);
 }
-function refreshVisiblePreviews() {
-  if (document.body.dataset.view !== "search" || !$("search-previews").checked) return;
-  const bounds = $("content").getBoundingClientRect();
-  const rows = [...$("results").children];
-  const candidates = rows.flatMap((row, index) => {
-    const box = row.getBoundingClientRect(), track = visibleResults[index];
-    return box.bottom > bounds.top && box.top < bounds.bottom && track?.duration > 0 && track.duration <= 600 ? [track] : [];
-  }).slice(0, 16);
-  if (candidates.map(sourceKey).join() === searchPreviewTracks.map(sourceKey).join()) return;
-  searchPreviewTracks = candidates; prepare();
-}
-function scheduleVisiblePreviews() { clearTimeout(viewportTimer); viewportTimer = setTimeout(refreshVisiblePreviews, 150); }
 function renderResults(list) {
-  visibleResults = list; searchPreviewTracks = [];
+  visibleResults = list;
   const ul = $("results"), hadFocus = ul.contains(document.activeElement);
   ul.replaceChildren(...list.map(searchRow));
   $("results-set").hidden = !list.length;
   updateSongStates();
   if(hadFocus) (ul.querySelector("button") || $("q")).focus();
-  requestAnimationFrame(refreshVisiblePreviews);
 }
 function appendSearchResults(results) {
   const fresh = results.filter(t => !visibleResults.some(v => sourceKey(v) === sourceKey(t)));
@@ -148,7 +135,6 @@ function appendSearchResults(results) {
   $("results").append(...fresh.map(searchRow));
   $("results-set").hidden = !visibleResults.length;
   updateSongStates();
-  scheduleVisiblePreviews();
   return fresh;
 }
 $("search-form").addEventListener("submit", async e => {
@@ -159,7 +145,7 @@ $("search-form").addEventListener("submit", async e => {
   if(!q) { notice(out, "Enter a song or artist.", {level:"warning"}); $("q").focus(); return; }
   if (e.submitter && matchMedia("(pointer: coarse)").matches) $("content").focus({preventScroll:true});
   const version = ++searchVersion;
-  searchQuery = q; searchOffset = null; searchPreviewTracks = []; $("load-more-search").hidden = true;
+  searchQuery = q; searchOffset = null; $("load-more-search").hidden = true;
   searchController?.abort(); searchController = new AbortController();
   const signal = AbortSignal.any([searchController.signal, AbortSignal.timeout(150000)]);
   notice(out, "Searching…", {quiet:true});
@@ -182,8 +168,11 @@ $("search-form").addEventListener("submit", async e => {
     else notice(out, "No songs match this search.", {level:"empty", fallback:"#view-title",
       action:{label:"Edit search", run:() => $("q").focus()}});
   } catch (error) {
-    if (version === searchVersion) notice(out, error.message, {level:"error", fallback:"#view-title",
-      action:{label:"Retry search", run:() => $("search-form").requestSubmit()}});
+    if (version === searchVersion) {
+      notice(out, error.message, {level:"error", fallback:"#view-title",
+        action:{label:"Retry search", run:() => $("search-form").requestSubmit()}});
+      if (document.activeElement === $("content")) $("q").focus({preventScroll:true});
+    }
   }
   finally { if(version === searchVersion) { $("pick").setAttribute("aria-busy", "false"); $("search-form").classList.remove("is-searching"); } }
 });
@@ -195,8 +184,6 @@ $("q").addEventListener("input", () => {
   else { searchQuery = ""; searchOffset = null; renderResults([]); notice("search-status", ""); $("load-more-search").hidden = true; }
 });
 $("clear-search").addEventListener("click", () => { $("q").value = ""; $("q").dispatchEvent(new Event("input")); $("q").focus(); });
-$("content").addEventListener("scroll", scheduleVisiblePreviews, {passive:true});
-window.addEventListener("resize", scheduleVisiblePreviews);
 
 // ---- status ----
 function playbackNotice(message, level = "info", recovery = false) {
@@ -211,18 +198,20 @@ function showJob(job) {
   updateSongStates();
   const active = unfinished(job);
   $("cancel").hidden = !active;
-  $("retry").disabled = !(job.media_url || job.source_id);
+  $("retry").disabled = !(job.media_url || job.fallback_url || job.source_id);
   $("status").hidden = false;
   $("busy").hidden = !active;
-  const failed = !active && !job.media_url;
+  const player = decks[deckIndex], primary = job.media_url, fallback = job.fallback_url;
+  const failed = !active && !primary && !fallback;
   $("retry").hidden = !failed;
   const cancelled = job.state === "cancelled";
   playbackNotice(cancelled ? "Playback preparation was cancelled." : failed ? "Playback could not be prepared." : active ? "Preparing playback…" : "",
     cancelled ? "warning" : failed ? "error" : "info", failed || active);
-  const player = decks[deckIndex];
   configureAudio(player, job);
-  if (job.media_url && player.dataset.mediaUrl !== job.media_url) {
-    loadPlayback(player, job.media_url);
+  if (player.dataset.failed === "true") {
+    recoverPlayback(player);
+  } else if (!player.dataset.mediaUrl && (primary || fallback)) {
+    loadPlayback(player, primary || fallback, !primary);
     player.hidden = false;
   }
   updateTransport();
@@ -233,6 +222,7 @@ const unfinished = job => job?.state === "running" || job?.state === "queued";
 // Stable decks: search, queue edits and status updates never replace an audio element.
 const decks = [$("preview-player"), $("next-player")];
 let deckIndex = 0, currentJob = null, statusJob = null, currentTrack = null, requestVersion = 0;
+let playAction = null, nextStreamFailure = null;
 let queue = [], pool = [], history = [], skipped = [], heard = new Set(), prepared = new Map();
 let wantPlayback = false, startPosition = null;
 let repeatMode = "off";
@@ -254,7 +244,30 @@ function sourceKey(track) {
   catch { return track?.url; } // The API validates pasted links; queue rendering must remain usable.
 }
 const preparedJob = (track) => prepared.get(sourceKey(track));
-const failedPreparation = (job) => job && (["error", "cancelled"].includes(job.state) || (job.state === "done" && !job.media_url));
+const failedPreparation = job => job && !job.media_url && !job.fallback_url && !unfinished(job);
+
+function playbackStage(action, stage) {
+  if (!action || action.stages.has(stage)) return;
+  const elapsed_ms = Math.round(performance.now() - action.started);
+  if (elapsed_ms > 3600000) return;
+  action.stages.add(stage);
+  fetch("/api/playback/diagnostics", {method:"POST", credentials:"same-origin", keepalive:true,
+    headers:{"Content-Type":"application/json", "X-CSRFToken":csrf, "X-FamilyHub-Activity":"background"},
+    body:JSON.stringify({action:action.id, stage, elapsed_ms})}).catch(() => {});
+}
+function beginPlayback() {
+  const action = {id:crypto.randomUUID().replaceAll("-", ""), started:performance.now(), stages:new Set()};
+  playbackStage(action, "play");
+  return action;
+}
+function discardMedia(player) {
+  clearTimeout(player.startDeadline);
+  delete player.dataset.mediaUrl;
+  delete player.dataset.failed;
+  player.pause();
+  player.hls?.destroy(); player.hls = null;
+  player.removeAttribute("src"); player.load();
+}
 function unlock() {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   if (!audioContext && AudioContext) {
@@ -277,8 +290,7 @@ function unlock() {
 }
 function attach(player, url) {
   if (player.dataset.mediaUrl === url) return;
-  player.pause();
-  player.hls?.destroy(); player.hls = null;
+  discardMedia(player);
   player.dataset.mediaUrl = url;
   player.dataset.cued = "false"; delete player.dataset.failed;
   // Prefer MSE for growing EVENT playlists; Chromium's native path can stall at the first segment.
@@ -287,15 +299,11 @@ function attach(player, url) {
       loader: window.MusicPrefixCache ? MusicPrefixCache.loader(Hls.DefaultConfig.loader) : Hls.DefaultConfig.loader });
     player.hls = hls; hls.loadSource(url); hls.attachMedia(player);
     hls.on(Hls.Events.ERROR, (_, data) => {
-      if (data.fatal) {
-        player.dataset.failed = "true";
-        if (player === decks[deckIndex]) playbackFailure("Audio could not load. Check your connection.");
-      }
+      if (data.fatal && player.hls === hls) mediaFailed(player);
     });
   } else if (player.canPlayType("application/vnd.apple.mpegurl")) player.src = url;
   else {
-    delete player.dataset.mediaUrl;
-    notice("status-text", "This browser cannot play the stream. Open the full library player from Settings.", {level:"warning"});
+    mediaFailed(player);
   }
 }
 function configureAudio(player, job) {
@@ -331,14 +339,64 @@ function startPlayback(player) {
 }
 function loadPlayback(player, url, direct = false) {
   if (direct) {
-    player.hls?.destroy(); player.hls = null;
+    discardMedia(player);
     player.dataset.mediaUrl = url;
     player.dataset.cued = "false";
-    player.src = url;
+    const mediaUrl = new URL(url, location.origin);
+    if (playAction && mediaUrl.origin === location.origin) mediaUrl.searchParams.set("play_action", playAction.id);
+    player.src = mediaUrl.href;
   } else {
     attach(player, url);
   }
+  if (player.dataset.mediaUrl !== url || player.dataset.failed === "true") return;
   startPlayback(player);
+  if (wantPlayback && player === decks[deckIndex]) {
+    const action = playAction;
+    clearTimeout(player.startDeadline);
+    player.startDeadline = setTimeout(() => {
+      if (action === playAction && player === decks[deckIndex] && player.dataset.mediaUrl === url && wantPlayback)
+        mediaFailed(player);
+    }, 10000);
+  }
+}
+function mediaFailed(player) {
+  if (!player.dataset.mediaUrl || player.dataset.failed === "true") return;
+  clearTimeout(player.startDeadline);
+  player.dataset.failed = "true";
+  if (player === handoff?.stage?.player) {
+    loadHandoffMedia(handoff.stage);
+    return;
+  }
+  if (player === decks[deckIndex]) recoverPlayback(player);
+  else if (player.dataset.mediaUrl === upcoming()?.media_url) {
+    nextStreamFailure = player.dataset.mediaUrl;
+    playbackStage(playAction, "next_stream_failed");
+  }
+}
+function recoverPlayback(player) {
+  const action = playAction;
+  playbackStage(action, "stream_failed");
+  const fallback = currentJob?.fallback_url || currentTrack?.download_url;
+  const refreshed = currentJob?.media_url;
+  if (wantPlayback && action && !action.refreshed && !action.fallback && refreshed && refreshed !== player.dataset.mediaUrl) {
+    action.refreshed = true;
+    loadPlayback(player, refreshed);
+    return;
+  }
+  if (wantPlayback && action && !action.fallback && fallback && fallback !== player.dataset.mediaUrl) {
+    action.fallback = true;
+    action.position = null;
+    playbackStage(action, "fallback");
+    startPosition ??= Math.max(jobCue(currentJob), player.currentTime || 0);
+    loadPlayback(player, fallback, true);
+    return;
+  }
+  if (wantPlayback && !action?.fallback && unfinished(currentJob)) {
+    playbackNotice("Preparing another audio stream.");
+    return;
+  }
+  playbackStage(action, "failed");
+  playbackFailure("Audio could not load. Retry playback.");
 }
 function rememberSaved(job) {
   if (!job?.saved || !job.source_id || savedSources.has(job.source_id)) return false;
@@ -380,7 +438,7 @@ function updateSongStates() {
     button.classList.toggle("is-added", added);
   });
 }
-async function smoothPause() {
+async function smoothPause(selecting = false) {
   wantPlayback = false;
   localPlayPending = localPlay = null;
   const version = ++pauseVersion;
@@ -394,6 +452,7 @@ async function smoothPause() {
   if (version === pauseVersion) decks.forEach(deck => {
     if (deck !== handoff?.stage?.player) deck.pause();
   });
+  if (!wantPlayback && !selecting) prepare();
 }
 async function safePlay(player) {
   ++pauseVersion;
@@ -404,23 +463,36 @@ async function safePlay(player) {
     masterGain.gain.linearRampToValueAtTime(1, now + .18);
   }
   cueAudio(player);
+  const url = player.dataset.mediaUrl;
   try {
     await player.play();
-    notice("playback-state", "Playing", {quiet:true});
     return true;
-  } catch {
-    notice("status-text", "Playback needs a tap. Use Play.", {level:"warning"});
+  } catch (error) {
+    if (player.dataset.mediaUrl !== url || error.name === "AbortError") return false;
+    if (error.name === "NotAllowedError") {
+      clearTimeout(player.startDeadline);
+      notice("status-text", "Playback needs a tap. Use Play.", {level:"warning"});
+    } else mediaFailed(player);
     return false;
   }
 }
 decks.forEach((player) => {
   player.addEventListener("loadedmetadata", () => {
     if (player === handoff?.stage?.player) return;
+    if (player === decks[deckIndex]) playbackStage(playAction, playAction?.fallback ? "fallback_ready" : "ready");
     if (player === decks[deckIndex] && startPosition !== null) startPlayback(player);
     else cueAudio(player);
   });
   player.addEventListener("waiting", () => { if (player === decks[deckIndex]) notice("playback-state", "Buffering", {quiet:true}); });
-  player.addEventListener("playing", () => { if (player === decks[deckIndex]) notice("playback-state", "Playing", {quiet:true}); });
+  player.addEventListener("canplay", () => { if (player === decks[1 - deckIndex]) checkBlend(); });
+  player.addEventListener("playing", () => {
+    if (player !== decks[deckIndex] || player === handoff?.stage?.player) return;
+    clearTimeout(player.startDeadline);
+    if (playAction) playAction.position = player.currentTime;
+    playbackStage(playAction, playAction?.fallback ? "fallback_playing" : "playing");
+    notice("playback-state", "Playing", {quiet:true});
+    prepare();
+  });
   player.addEventListener("pause", () => {
     if (player !== decks[deckIndex]) return;
     // Natural completion can dispatch pause just before the fade timer commits the handoff.
@@ -431,16 +503,19 @@ decks.forEach((player) => {
       gains.forEach((gain, i) => { gain.gain.cancelScheduledValues(audioContext.currentTime); gain.gain.value = i === deckIndex ? 1 : 0; });
     }
   });
-  player.addEventListener("error", () => {
-    if (player !== decks[deckIndex] || !player.dataset.mediaUrl) return;
-    playbackFailure("Audio could not load. Check your connection.");
-  });
+  player.addEventListener("error", () => mediaFailed(player));
   player.addEventListener("ended", () => { if (player === decks[deckIndex] && wantPlayback && $("autoplay").checked && !blending) advance(false); });
   player.addEventListener("timeupdate", () => {
+    if (player === decks[deckIndex] && !player.paused && !player.seeking && player.volume > 0 && !player.muted && playAction?.position != null
+        && player.currentTime > playAction.position + .05 && player.currentTime < playAction.position + 3)
+      playbackStage(playAction, playAction.fallback ? "fallback_position_advanced" : "position_advanced");
     checkBlend();
     if (player === decks[deckIndex] && !blending && !player.paused && currentJob?.playback?.end && player.currentTime >= currentJob.playback.end) {
       if ($("autoplay").checked) advance(false); else player.pause();
     }
+  });
+  player.addEventListener("seeked", () => {
+    if (player === decks[deckIndex] && playAction && !player.paused) playAction.position = player.currentTime;
   });
 });
 $("play").addEventListener("click", () => {
@@ -452,16 +527,7 @@ $("play").addEventListener("click", () => {
 });
 $("retry").addEventListener("click", () => {
   if (document.activeElement === $("retry")) $("play").focus({preventScroll:true});
-  unlock(); const player = decks[deckIndex], url = player.dataset.mediaUrl;
-  if (url) {
-    playbackNotice("");
-    localPlayPending = playbackEpoch;
-    wantPlayback = true;
-    startPosition ??= player.currentTime;
-    delete player.dataset.mediaUrl;
-    loadPlayback(player, url, Boolean(currentTrack?.download_url && url === currentTrack.download_url));
-  }
-  else if (currentTrack) listen(currentTrack, true, "retry");
+  if (currentTrack) listen(currentTrack, true, "retry");
 });
 $("cancel").addEventListener("click", async () => {
   if (!statusJob) return;
@@ -472,7 +538,9 @@ $("cancel").addEventListener("click", async () => {
 function playHere(local = true) {
   unlock();
   const player = decks[deckIndex];
+  if (player.dataset.failed === "true") { if (currentTrack) listen(currentTrack, true, "retry", local); return; }
   if (player.dataset.mediaUrl) {
+    if (player.paused) playAction = beginPlayback();
     if (local && player.paused) localPlayPending = playbackEpoch;
     wantPlayback = true;
     startPlayback(player);
@@ -493,12 +561,14 @@ async function listen(track, keepQueue = false, context = "search", local = true
   selectedSource = sourceKey(track);
   updateSongStates();
   unlock();
-  if (queueIdentity(currentTrack) === queueIdentity(track) && currentJob?.media_url) { playHere(local); return; }
+  if (context !== "retry" && queueIdentity(currentTrack) === queueIdentity(track) && decks[deckIndex].dataset.mediaUrl) { playHere(local); return; }
   if (!keepQueue) recordSkip();
+  const previousPlayer = decks[deckIndex], resume = context === "retry" ? startPosition ?? previousPlayer.currentTime : null;
   const version = ++requestVersion;
   const directUrl = !track.url && track.download_url;
-  const cached = directUrl ? null : preparedJob(track);
-  const loadedIndex = decks.findIndex(deck => deck !== handoff?.stage?.player && cached?.media_url && deck.dataset.mediaUrl === cached.media_url && deck.readyState >= 2);
+  const cached = directUrl || context === "retry" ? null : preparedJob(track);
+  const rejected = cached?.media_url && cached.media_url === nextStreamFailure;
+  const loadedIndex = decks.findIndex(deck => deck !== handoff?.stage?.player && !rejected && cached?.media_url && deck.dataset.mediaUrl === cached.media_url && deck.readyState >= 2);
   if (!keepQueue || context === "search") repeatMode = "off";
   if (!keepQueue) {
     if (context !== "recommendations") {
@@ -521,31 +591,43 @@ async function listen(track, keepQueue = false, context = "search", local = true
     if (local) localPlayPending = localEpoch;
     renderQueue(); checkBlend(true); return;
   }
-  if (!decks[deckIndex].paused) await smoothPause();
-  if (version !== requestVersion) return;
+  if (playAction && !playAction.stages.has("playing") && !playAction.stages.has("fallback_playing") && !playAction.stages.has("failed"))
+    playbackStage(playAction, "cancelled");
+  const action = beginPlayback();
+  if (!cached?.media_url || rejected) {
+    window.MusicPrefixCache?.cancel();
+    if (prepareController) { ++prepareVersion; prepareController.abort(); }
+  }
+  if (!decks[deckIndex].paused) await smoothPause(true);
+  if (version !== requestVersion) { playbackStage(action, "cancelled"); return; }
+  playAction = action;
+  action.promoting = !directUrl;
   localPlayPending = localEpoch;
   wantPlayback = true;
-  startPosition = null;
+  startPosition = resume > 0 ? resume : null;
   ++blendVersion;
   plan = null; planKey = ""; blending = false;
   if (loadedIndex >= 0) deckIndex = loadedIndex;
   decks.forEach((deck, i) => {
     if (deck === handoff?.stage?.player) return;
-    deck.pause(); deck.playbackRate = 1;
+    if (i !== deckIndex && deck.dataset.mediaUrl) discardMedia(deck);
+    else deck.pause();
+    deck.playbackRate = 1;
     if (gains[i]) { gains[i].gain.cancelScheduledValues(audioContext.currentTime); gains[i].gain.value = i === deckIndex ? 1 : 0; }
   });
   const player = decks[deckIndex];
-  if (loadedIndex < 0) {
-    player.hls?.destroy(); player.hls = null;
-    player.removeAttribute("src"); delete player.dataset.mediaUrl; player.load();
-  }
-  currentJob = cached?.media_url ? cached : null;
+  if (loadedIndex < 0) discardMedia(player);
+  currentJob = cached || null;
   if (context !== "previous" && currentTrack && queueIdentity(currentTrack) !== queueIdentity(track)) history.push(currentTrack);
   currentTrack = track;
   stalled = false;
   statusJob = null;
   playbackNotice("");
   updateNowPlaying();
+  if (rejected) {
+    player.dataset.mediaUrl = cached.media_url;
+    mediaFailed(player);
+  }
   if (directUrl) {
     heard.add(sourceKey(track));
     currentJob = {source_id:sourceKey(track), media_url:directUrl, playback:{duration:track.duration}};
@@ -555,9 +637,9 @@ async function listen(track, keepQueue = false, context = "search", local = true
     renderQueue(); prepare();
     return true;
   }
-  if (cached?.media_url) {
+  if (!rejected && (cached?.media_url || cached?.fallback_url)) {
     configureAudio(player, cached);
-    if (loadedIndex < 0) loadPlayback(player, cached.media_url);
+    if (loadedIndex < 0) loadPlayback(player, cached.media_url || cached.fallback_url, !cached.media_url);
     else {
       player.currentTime = cached.playback?.start || 0;
       startPlayback(player);
@@ -565,8 +647,11 @@ async function listen(track, keepQueue = false, context = "search", local = true
   }
   $("status").hidden = false; playbackNotice("Preparing playback…");
   try {
-    const { job } = await api("/api/jobs", { method: "POST", timeout: 15000, json: { ...track, allow_new: !keepQueue || context === "retry" || requestedTrack(track) || $("allow-new").checked, generation: Date.now() * 1000 + version } });
+    const { job } = await api("/api/jobs", { method: "POST", timeout: 15000, json: { ...track, play_action:action.id,
+      allow_new: !keepQueue || context === "retry" || requestedTrack(track) || $("allow-new").checked,
+      generation: Date.now() * 1000 + version } });
     if (version !== requestVersion) return;
+    action.promoting = false;
     currentJob = job; heard.add(sourceKey(track));
     showJob(job); scheduleJobs();
     await fillQueue();
@@ -575,9 +660,14 @@ async function listen(track, keepQueue = false, context = "search", local = true
     return true;
   } catch (err) {
     if (version === requestVersion) {
-      playbackFailure(err.message);
+      action.promoting = false;
+      if (!player.dataset.mediaUrl || player.dataset.failed === "true") {
+        playbackStage(action, "failed");
+        playbackFailure(err.message);
+      }
       renderQueue();
-      return Boolean(cached?.media_url);
+      prepare();
+      return Boolean(player.dataset.mediaUrl && player.dataset.failed !== "true");
     }
   }
 }
@@ -627,16 +717,29 @@ function renderQueue() {
   updateSongStates();
   if (focusedIndex >= 0) (list.children[Math.min(focusedIndex, list.children.length - 1)]?.querySelector("button") || $("next")).focus();
 }
+let prepareController, prepareSource;
 async function prepare() {
+  const allowedNetwork = window.MusicPrefixCache?.eligible();
+  if (allowedNetwork && playAction?.promoting && wantPlayback && !handoff?.stage) return;
+  const canWarm = allowedNetwork && wantPlayback && currentTrack
+    && !decks[deckIndex].paused && !handoff?.stage && ($("autoplay").checked || Number($("fade").value) > 0)
+    && repeatMode !== "one";
+  const next = canWarm && queue[0]?.url ? queue[0] : null;
+  const key = next ? JSON.stringify([sourceKey(next), requestedTrack(next) || false, $("allow-new").checked]) : "";
+  if (key === prepareSource || (!key && prepareSource === undefined)) return;
+  prepareSource = key;
   const version = ++prepareVersion;
-  const wanted = queue.slice(0, 6).map(track => ({...track, requested:requestedTrack(track)}));
-  const previews = $("search-previews").checked ? searchPreviewTracks : [];
-  const sources = new Set([...wanted, ...previews].map(sourceKey));
-  for (const key of prepared.keys()) if (!sources.has(key)) prepared.delete(key);
+  const wanted = next ? [{...next, requested:Boolean(requestedTrack(next))}] : [];
+  prepareController?.abort();
+  prepareController = new AbortController();
+  window.MusicPrefixCache?.cancel();
+  if (!blending && !handoff?.stage && decks[1 - deckIndex].dataset.mediaUrl) discardMedia(decks[1 - deckIndex]);
+  plan = null; planKey = "";
+  for (const key of prepared.keys()) if (!next || key !== sourceKey(next)) prepared.delete(key);
   try {
-    const { jobs } = await api("/api/queue", { method: "POST", timeout: 15000, json: {
-      tracks: wanted, previews,
-      allow_new: $("allow-new").checked, preload_search:$("search-previews").checked, generation: Date.now() * 1000 + version } });
+    const { jobs } = await api("/api/queue", { method: "POST", timeout: 15000, background:true,
+      signal:prepareController.signal, json: {
+      tracks: wanted, previews:[], allow_new: $("allow-new").checked, preload_search:false, generation: Date.now() * 1000 + version } });
     if (version !== prepareVersion) return;
     prepared = new Map(jobs.map((j) => [j.source_id, j]));
     if (jobs.map(rememberSaved).some(Boolean)) loadLibrary();
@@ -645,7 +748,9 @@ async function prepare() {
     scheduleJobs();
     notice("queue-state", jobs.length ? "Preparing queued recordings." : "", {quiet:true});
     preload();
-  } catch (err) { if (version === prepareVersion) notice("queue-state", err.message, {level:"error"}); }
+  } catch (err) {
+    if (version === prepareVersion) { prepareSource = undefined; notice("queue-state", err.message, {level:"error"}); }
+  }
 }
 function upcoming() { return queue[0] && preparedJob(queue[0]); }
 const jobCue = (job) => job?.playback?.start || 0;
@@ -654,18 +759,13 @@ function transitionKey() {
 }
 function preload() {
   if (handoff?.stage) return;
-  window.MusicPrefixCache?.warm([
-    preparedJob(queue[0]),
-    ...($("search-previews").checked ? searchPreviewTracks.map(preparedJob) : []),
-    ...queue.slice(1, 6).map(preparedJob)
-  ]);
   const job = upcoming();
+  if (wantPlayback && !decks[deckIndex].paused && job?.media_url !== nextStreamFailure) window.MusicPrefixCache?.warm(job);
   if (failedPreparation(job)) {
     plan = null; planKey = "";
     notice("queue-state", "Next song could not prepare. Choose a song or retry it.", {level:"error"});
     return;
   }
-  if (job?.media_url && !blending) { configureAudio(decks[1 - deckIndex], job); attach(decks[1 - deckIndex], job.media_url); }
   const key = transitionKey();
   if (currentJob && job?.media_url && key !== planKey && !planPending) {
     planPending = true;
@@ -770,17 +870,23 @@ async function advance(manual = false, local = manual) {
     unlock();
     if ((!manual && repeatMode === "one") || (repeatMode === "all" && !queue.length && !history.length)) {
       if (currentTrack && currentJob?.media_url) {
+        playAction = beginPlayback();
         startPosition = jobCue(currentJob);
         startPlayback(decks[deckIndex]);
       }
       return;
     }
-    if (!manual && failedPreparation(upcoming())) { preload(); return; }
     if (manual) recordSkip();
     if (manual && currentTrack) skipped = [...skipped.slice(-19), sourceKey(currentTrack)];
     const version = requestVersion;
     await fillQueue();
     if (version !== requestVersion) return;
+    const candidate = queue[0];
+    if (manual && candidate && plan?.fade && planKey === transitionKey() && !decks[deckIndex].paused) {
+      if (local) localPlayPending = playbackEpoch;
+      if (await checkBlend(true, {...plan, out:decks[deckIndex].currentTime})) return;
+      if (version !== requestVersion || queue[0] !== candidate) return;
+    }
     if (!queue.length && repeatMode === "all" && history.length && currentTrack) {
       const [first, ...following] = history;
       queue = [...following, currentTrack];
@@ -881,25 +987,40 @@ $("library").addEventListener("click", async () => {
     renderQueue(); await prepare();
   } catch (err) { notice("queue-state", err.message, {level:"error"}); }
 });
-for (const id of ["allow-new", "search-previews", "autoplay", "queue-mode", "fade", "dj"]) $(id).addEventListener("change", async () => {
-  unlock(); planKey = ""; plan = null; await fillQueue(); renderQueue(); prepare();
+for (const id of ["allow-new", "autoplay", "queue-mode", "fade", "dj"]) $(id).addEventListener("change", async () => {
+  unlock();
+  if (planKey !== transitionKey()) { planKey = ""; plan = null; }
+  await fillQueue(); renderQueue(); prepare();
 });
 $("fade").addEventListener("input", () => { plan = null; planKey = ""; preload(); });
 
-async function checkBlend(manual = false) {
+async function checkBlend(manual = false, selectedPlan = plan) {
   const outgoing = decks[deckIndex], next = upcoming();
-  if (handoff?.stage || blending || (!manual && (repeatMode === "one" || !$("autoplay").checked)) || outgoing.paused || !plan?.fade || !next?.media_url || outgoing.currentTime < plan.out) return;
+  if (handoff?.stage || blending || (!manual && (repeatMode === "one" || !$("autoplay").checked || planKey !== transitionKey()))
+      || outgoing.paused || !selectedPlan?.fade || !next?.media_url
+      || next.media_url === nextStreamFailure || outgoing.currentTime < selectedPlan.out) return false;
   if (gains.length !== 2 || audioContext?.state !== "running") {
     notice("mix-state", "Mixing needs an active audio session. Use Play; tracks otherwise play separately.", {level:"warning"});
-    return;
+    return false;
   }
   const oldIndex = deckIndex, nextIndex = 1 - oldIndex, incoming = decks[nextIndex];
-  if (incoming.readyState < 2) return;
-  const version = requestVersion, blendId = ++blendVersion, activePlan = { ...plan }, nextTrack = queue[0];
+  const version = requestVersion, nextTrack = queue[0];
+  if (incoming.dataset.mediaUrl !== next.media_url) { configureAudio(incoming, next); attach(incoming, next.media_url); }
+  if (manual && incoming.readyState < 2) {
+    const deadline = performance.now() + 1500;
+    while (incoming.readyState < 2 && incoming.dataset.failed !== "true" && performance.now() < deadline) {
+      if (version !== requestVersion || nextTrack !== queue[0] || outgoing.paused) return false;
+      if (blending) return true;
+      await new Promise(resolve => setTimeout(resolve, 40));
+    }
+  }
+  if (incoming.readyState < 2 || incoming.dataset.failed === "true") return false;
+  if (blending) return true;
+  const blendId = ++blendVersion, activePlan = { ...selectedPlan };
   // Seeking into the overlap starts the next song at its cue, with only the remaining time available.
   const end = currentJob?.playback?.end || currentTrack?.duration || outgoing.duration;
   const remaining = (end - outgoing.currentTime) / outgoing.playbackRate;
-  if (!Number.isFinite(remaining) || remaining <= .15) return;
+  if (!Number.isFinite(remaining) || remaining <= .15) return false;
   activePlan.fade = Math.min(activePlan.fade, remaining);
   blending = true;
   if (!("preservesPitch" in incoming) && activePlan.rate !== 1) {
@@ -908,16 +1029,24 @@ async function checkBlend(manual = false) {
   incoming.preservesPitch = true; incoming.playbackRate = activePlan.rate;
   configureAudio(incoming, next);
   incoming.currentTime = activePlan.in; incoming.dataset.cued = "true";
-  if (!(await safePlay(incoming))) { blending = false; return; }
-  if (version !== requestVersion || blendId !== blendVersion) return;
+  const action = beginPlayback();
+  playbackStage(action, "ready");
+  if (!(await safePlay(incoming))) {
+    playbackStage(action, "failed");
+    if (version === requestVersion && blendId === blendVersion) blending = false;
+    return false;
+  }
+  playbackStage(action, "playing");
+  if (version !== requestVersion || blendId !== blendVersion) return false;
   // A fulfilled play() is not evidence that decoded audio is progressing after a seek.
   const cue = incoming.currentTime, deadline = performance.now() + 4000;
   while (incoming.currentTime < cue + .04 || incoming.readyState < 3 || incoming.seeking) {
-    if (version !== requestVersion || blendId !== blendVersion) return;
+    if (version !== requestVersion || blendId !== blendVersion) return false;
     if (performance.now() > deadline || incoming.dataset.failed) {
+      mediaFailed(incoming); playbackStage(action, "failed");
       incoming.pause(); blending = false;
       if (outgoing.ended) advance();
-      return;
+      return false;
     }
     await new Promise(resolve => setTimeout(resolve, 40));
   }
@@ -926,24 +1055,27 @@ async function checkBlend(manual = false) {
   const now = audioContext.currentTime;
   gains[oldIndex].gain.cancelScheduledValues(now); gains[nextIndex].gain.cancelScheduledValues(now);
   const fadeStart = incoming.currentTime;
+  let lastProgress = fadeStart, progressAt = performance.now();
   function finishFade() {
     if (version !== requestVersion || blendId !== blendVersion) return;
     gains[oldIndex].gain.cancelScheduledValues(audioContext.currentTime); gains[oldIndex].gain.value = 0;
     gains[nextIndex].gain.cancelScheduledValues(audioContext.currentTime); gains[nextIndex].gain.value = 1;
     deckIndex = nextIndex;
-    outgoing.pause();
+    discardMedia(outgoing);
     if (outgoing === document.activeElement) $("play").focus();
     outgoing.hidden = true; incoming.hidden = false;
     history.push(currentTrack);
     const queuedIndex = queue.indexOf(nextTrack); if (queuedIndex >= 0) queue.splice(queuedIndex, 1);
     currentTrack = nextTrack; heard.add(sourceKey(currentTrack));
+    playAction = action;
     stalled = incoming.readyState < 3;
     markPlaybackStarted();
     updateNowPlaying();
     currentJob = next; plan = null; planKey = ""; blending = false;
     showJob(next);
     // Promote before queue reconciliation: otherwise removal from the queue can cancel the audible job.
-    api("/api/jobs", { method: "POST", json: { ...currentTrack, allow_new: requestedTrack(currentTrack) || $("allow-new").checked } }).then(async ({job}) => {
+    api("/api/jobs", { method: "POST", json: { ...currentTrack, play_action:action.id,
+      allow_new: requestedTrack(currentTrack) || $("allow-new").checked } }).then(async ({job}) => {
       if (version !== requestVersion || currentJob?.id !== next.id) return;
       currentJob = job; showJob(job); scheduleJobs();
       await fillQueue(); renderQueue(); prepare();
@@ -951,20 +1083,29 @@ async function checkBlend(manual = false) {
   }
   function ramp() {
     if (version !== requestVersion || blendId !== blendVersion) return;
+    if (incoming.currentTime > lastProgress) {
+      lastProgress = incoming.currentTime;
+      progressAt = performance.now();
+    } else if (performance.now() - progressAt > 4000) mediaFailed(incoming);
     if (incoming.dataset.failed) {
+      playbackStage(action, "failed");
       blending = false; incoming.pause();
+      gains[oldIndex].gain.cancelScheduledValues(audioContext.currentTime);
+      gains[nextIndex].gain.cancelScheduledValues(audioContext.currentTime);
       gains[oldIndex].gain.value = 1; gains[nextIndex].gain.value = 0;
-      notice("status-text", "Next song stopped buffering. Use Next to retry it.", {level:"warning"});
+      if (outgoing.ended) advance();
       return;
     }
     const progressing = incoming.readyState >= 3 && !incoming.seeking && !incoming.paused;
     const fraction = progressing ? Math.min(1, (incoming.currentTime - fadeStart) / incoming.playbackRate / activePlan.fade) : 0;
+    if (fraction > 0 && incoming.currentTime > fadeStart + .05) playbackStage(action, "position_advanced");
     gains[oldIndex].gain.setTargetAtTime(1 - fraction, audioContext.currentTime, .015);
     gains[nextIndex].gain.setTargetAtTime(fraction, audioContext.currentTime, .015);
     if (fraction >= 1) { finishFade(); return; }
     setTimeout(ramp, 40);
   }
   ramp();
+  return true;
 }
 
 // Navigation never replaces either audio deck.
@@ -990,7 +1131,6 @@ function setView(view) {
     document.querySelector(".workspace").scrollTop = 0;
   }
   if (view === "search") {
-    scheduleVisiblePreviews();
     if (searchDirty && $("q").value.trim()) { searchDirty = false; $("search-form").requestSubmit(); }
   }
 }
@@ -1170,7 +1310,7 @@ $("shuffle-toggle").addEventListener("click", () => {
   $("queue-mode").dispatchEvent(new Event("change"));
 });
 $("queue-mode").addEventListener("change", updateShuffle);
-for (const id of ["allow-new", "search-previews", "autoplay", "queue-mode", "fade", "dj", "volume"]) {
+for (const id of ["allow-new", "autoplay", "queue-mode", "fade", "dj", "volume"]) {
   try {
     const value = localStorage.getItem("music:" + id);
     if (value !== null) {
@@ -1211,8 +1351,12 @@ function updateNext() {
 }
 document.addEventListener("visibilitychange", () => {
   scheduleJobs();
+  prepare();
   if (!document.hidden && libraryDeferred) loadLibrary();
 });
+navigator.connection?.addEventListener?.("change", prepare);
+window.addEventListener("online", prepare);
+window.addEventListener("offline", prepare);
 
 function closeProfile(restore=false) {
   $("profile-menu").hidden = true;
@@ -1456,6 +1600,7 @@ function pauseDevicePlayback() {
   wantPlayback = false;
   ++pauseVersion;
   for (const deck of decks) deck.pause();
+  prepare();
   gains.forEach((gain, i) => {
     gain.gain.cancelScheduledValues(audioContext.currentTime);
     gain.gain.value = i === deckIndex ? 1 : 0;
@@ -1492,7 +1637,8 @@ async function applyPlaybackCommand(command) {
   const pending = handoff || beginHandoff(deviceId);
   watchHandoff(pending, command.id);
   if (blending) return;
-  const stage = pending.stage = {player:decks[1 - deckIndex], command};
+  const stage = pending.stage = {player:decks[1 - deckIndex], command, action:command.playing ? beginPlayback() : null};
+  prepare();
   const {track_ids:ids, index, position, shuffle, repeat_mode, autoplay} = command.resume;
   const source = remoteDevice?.track;
   try {
@@ -1519,30 +1665,44 @@ async function applyPlaybackCommand(command) {
     stage.repeatMode = ["all", "one"].includes(repeat_mode) ? repeat_mode : "off";
     stage.autoplay = autoplay !== false;
     stage.job = stage.track.download_url ? {source_id:ids[index], media_url:stage.track.download_url} :
-      (await api("/api/jobs", {method:"POST", json:{...stage.track, allow_new:true}})).job;
+      (await api("/api/jobs", {method:"POST", json:{...stage.track, allow_new:true, play_action:stage.action?.id}})).job;
     if (pending !== handoff) return;
     loadHandoffMedia(stage);
     scheduleJobs();
   } catch { /* The source keeps playback if this target cannot confirm. */ }
 }
 function loadHandoffMedia(stage) {
-  const url = stage.job?.media_url, player = stage.player;
-  if (!url || stage.loaded) return;
+  const player = stage.player;
+  const failed = stage.loaded && player.dataset.failed === "true";
+  if (stage.loaded && !failed || stage.acknowledged) return;
+  if (failed) playbackStage(stage.action, "stream_failed");
+  const primary = !failed && stage.job?.media_url;
+  const url = primary || stage.job?.fallback_url;
+  if (!url || failed && url === stage.url) return;
+  if (failed && stage.action) {
+    stage.action.fallback = true;
+    playbackStage(stage.action, "fallback");
+  }
   stage.loaded = true;
+  stage.url = url;
+  stage.started = stage.playing = stage.positioned = false;
   player.pause();
   player.playbackRate = 1;
   configureAudio(player, stage.job);
-  if (stage.track.download_url) {
-    player.hls?.destroy(); player.hls = null;
+  if (stage.track.download_url || !primary) {
+    discardMedia(player);
     player.dataset.mediaUrl = url;
-    player.src = url;
+    const mediaUrl = new URL(url, location.origin);
+    if (stage.action && mediaUrl.origin === location.origin) mediaUrl.searchParams.set("play_action", stage.action.id);
+    player.src = mediaUrl.href;
     player.load();
   } else attach(player, url);
   updateHandoffMedia(stage);
 }
 function updateHandoffMedia(stage) {
   const {player, command} = stage;
-  if (!stage.loaded || player.error || player.readyState < 1 || player.dataset.mediaUrl !== stage.job?.media_url) return;
+  if (!stage.loaded || player.error || player.readyState < 1 || player.dataset.mediaUrl !== stage.url) return;
+  playbackStage(stage.action, stage.action?.fallback ? "fallback_ready" : "ready");
   if (!stage.positioned) {
     stage.positioned = true;
     player.dataset.cued = "true";
@@ -1553,6 +1713,7 @@ function updateHandoffMedia(stage) {
     player.play().then(() => {
       if (stage !== handoff?.stage) return;
       stage.playing = true;
+      playbackStage(stage.action, stage.action?.fallback ? "fallback_playing" : "playing");
       updateHandoffMedia(stage);
     }).catch(() => {});
   }
@@ -1743,6 +1904,8 @@ function finishHandoff(pending, ready, message = "Could not switch playback. Try
       masterGain.gain.value = 1;
     }
     currentTrack = stage.track; currentJob = stage.job; statusJob = stage.job.id ? stage.job : null;
+    playAction = stage.action;
+    if (playAction) playAction.position = stage.player.currentTime;
     history = stage.history; queue = stage.queue; manualQueue.clear();
     repeatMode = stage.repeatMode;
     $("autoplay").checked = stage.autoplay;
@@ -1760,6 +1923,7 @@ function finishHandoff(pending, ready, message = "Could not switch playback. Try
     updateNowPlaying(); renderQueue(); prepare(); scheduleJobs();
     if (stage.player.ended && wantPlayback && $("autoplay").checked) advance(false);
   } else if (stage?.loaded) {
+    playbackStage(stage.action, "failed");
     stage.player.pause();
     stage.player.hls?.destroy(); stage.player.hls = null;
     stage.player.removeAttribute("src"); delete stage.player.dataset.mediaUrl;

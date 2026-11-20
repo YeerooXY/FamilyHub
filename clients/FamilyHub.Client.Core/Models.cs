@@ -59,6 +59,8 @@ public sealed record MusicPlaylist
     [JsonPropertyName("co_authors")] public List<string> CoAuthors { get; init; } = [];
     [JsonPropertyName("can_delete")] public bool CanDelete { get; init; }
     [JsonPropertyName("shared")] public bool Shared { get; init; }
+    [JsonPropertyName("radio")] public bool Radio { get; init; }
+    [JsonPropertyName("url")] public string SourceUrl { get; init; } = "";
     [JsonPropertyName("tracks")] public List<PlaylistTrack> Tracks { get; init; } = [];
 }
 
