@@ -218,7 +218,7 @@ async function nativeApp(page, name, profile) {
   assert(lastNotice.y + lastNotice.height <= player.y);
   if (output && ['windows-1280', 'iphone-webkit'].includes(name))
     await page.screenshot({ path: path.join(output, name + '-native-retry.png'), scale: 'css' });
-  for (const [button, successor] of [[serverRetry, 'server-stats-refresh'], [reviewRetry, 'catalogue-refresh']]) {
+  for (const [button, successor] of [[serverRetry, 'server-stats-refresh'], [reviewRetry, 'server-stats-refresh']]) {
     await button.press('Enter');
     await button.waitFor({ state: 'hidden' });
     await page.waitForFunction(id => document.activeElement.id === id, successor);

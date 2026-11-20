@@ -13,7 +13,7 @@ import unicodedata
 from types import SimpleNamespace
 from collections import defaultdict, deque
 from .resources import background_request
-from .review_confidence import close_duration, normal, presentation_title
+from .review_confidence import close_duration, normal, presentation_title, recording_labels
 
 def track_identities(track):
     """Keys that make two playlist entries the same song: recording, Spotify URI or normalized title and artist."""
@@ -340,6 +340,7 @@ def fetch_youtube_playlist(url, intake):
                      "title": str(row.get("title") or "Unavailable recording")[:300],
                      "channel": str(row.get("channel") or row.get("uploader") or "")[:300],
                      "duration": row.get("duration") or 0}
+            match["title"], match["channel"] = recording_labels({**match, "kind": "youtube"})
             tracks.append({"title": match["title"], "artist": match["channel"], "duration": match["duration"],
                            "spotify_uri": "youtube:" + row["id"], "source_id": row["id"], "match": match,
                            "candidates": [match], "state": "ready"})

@@ -27,7 +27,7 @@ from . import app_updates
 from . import profile_artwork
 from .listening_versions import ListeningVersions
 from .catalogue_review import CatalogueReview, register as register_catalogue_review
-from .review_confidence import DEFAULT_AUTO_RESOLUTIONS_PER_HOUR, normal, presentation_title
+from .review_confidence import DEFAULT_AUTO_RESOLUTIONS_PER_HOUR, normal, presentation_title, recording_labels
 from .source_quality import register as register_source_quality
 from .song_analysis import register as register_song_analysis
 from .finished_audio import FinishedAudio, prepare_record, activity as finished_audio_activity
@@ -1154,8 +1154,9 @@ def create_app(test_config=None):
                 source = item.get("manifest", {}).get("source", {})
                 with lock:
                     if job.get("automatic_meta") and source.get("title"):
-                        m = meta({"artist": (source.get("artist") or source.get("channel") or "YouTube").removesuffix(" - Topic")[:120],
-                                  "title": (source.get("track_title") or source["title"])[:120], "album": (source.get("album") or "Selected recordings")[:120]})
+                        title, artist = recording_labels(source)
+                        m = meta({"artist": (artist or "YouTube").removesuffix(" - Topic")[:120],
+                                  "title": title[:120], "album": (source.get("album") or "Selected recordings")[:120]})
                         job.update(meta=m, artist=m["artist"], title=m["title"])
                 if not job["save"] and (not item.get("existing", False) or any(
                         j.get("temporary_item") and j.get("item") == item["item"] for j in jobs.values())):
@@ -1214,7 +1215,8 @@ def create_app(test_config=None):
                 record = item.get("manifest", {}).get("import")
                 if record:
                     with job["publish"]:
-                        job.update(artist=record["artist"], title=record["title"])
+                        title, artist = recording_labels(item["manifest"]["source"], record)
+                        job.update(artist=artist, title=title)
                         job["committed"] = True
                 else:
                     with job["publish"], lock:
@@ -1589,6 +1591,8 @@ def create_app(test_config=None):
                         job = jobs.get(track.get("job_id"))
                         if ready:
                             track.update(source_id=ready["id"], match=ready, state="saved")
+                            if source and track.get("spotify_uri", "") in ("", "library:" + source, "youtube:" + source):
+                                track.update(title=ready["title"], artist=ready["channel"])
                             track.pop("backlog_retry", None)
                         elif job and job["owner"] == owner:
                             track["state"] = ("preparing" if job["state"] == "done"
@@ -2334,6 +2338,8 @@ def create_app(test_config=None):
             found = [r for r in found if include_long or not isinstance(r.get("duration"), (int, float)) or r["duration"] < 1800]
             next_page = offset + 8 if page_offset + 8 < len(found) else block + 30 if full and block + 30 < 3000 else None
             results = [{k: r.get(k) for k in ("id", "url", "title", "channel", "duration", "kind")} for r in found[page_offset:page_offset + 8]]
+            for track in results:
+                track["title"], track["channel"] = recording_labels({**track, "kind": "youtube"})
             if recommendation:
                 for track, original in zip(results, found[page_offset:page_offset + 8]):
                     track["genre"] = original.get('genre') or genre_labels.get(artist_name(track, {"artist": track.get("channel") or ""}))
@@ -2770,8 +2776,9 @@ def create_app(test_config=None):
         if not app.intake.inside(target, lib):
             raise ApiError("Recording unavailable.", 404)
         metadata = catalogue_review.overrides(recording_id,record["library_sha256"])
-        track = {"id": recording_id, "url": source.get("url", ""), "title": metadata.get("title",record["title"]),
-                 "channel": metadata.get("artist",record["artist"]), "library_album": metadata.get("album",record["album"]),
+        title, artist = recording_labels(source, record)
+        track = {"id": recording_id, "url": source.get("url", ""), "title": metadata.get("title",title),
+                 "channel": metadata.get("artist",artist), "library_album": metadata.get("album",record["album"]),
                  "genre": metadata.get("genre") or genre_labels.get(metadata.get("artist") or artist_name(source, record)), "duration": manifest["audio"]["duration"],
                  "saved": True, "download_url": "/api/library/" + recording_id + "/download",
                  "download_size": stat.st_size, "download_sha256": record["library_sha256"],
@@ -2982,11 +2989,12 @@ def create_app(test_config=None):
                 continue
             overrides = catalogue_review.overrides(identifier, record['library_sha256']) if record else {}
             record = record or {}
-            artist = overrides.get('artist') or record.get('artist') or artist_name(source, record) or source.get('channel', '')
+            title, artist = recording_labels(source, record)
+            artist = overrides.get('artist') or artist
             with genre_labels.lock:
                 genre = genre_labels.cache.get(artist.casefold(), {}).get('genre')
             album = record.get('album')
-            tracks[identifier] = dict(title=overrides.get('title') or record.get('title') or source.get('track_title') or source.get('title'),
+            tracks[identifier] = dict(title=overrides.get('title') or title,
                                       channel=artist, library_album=overrides.get('album') or (album if album != 'Selected recordings' else None) or source.get('album'),
                                       genre=overrides.get('genre') or genre)
         return tracks

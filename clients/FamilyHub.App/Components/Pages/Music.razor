@@ -373,8 +373,8 @@ else
     else if (view == "Stats")
     {
         <div class="server-work-page">
-            <ServerStats />
-            <CatalogueReviewPanel OpenPlaylist="OpenPlaylistReviewGap" />
+            <ServerStats RefreshReview="RefreshSongReview" />
+            <CatalogueReviewPanel @ref="songReview" OpenPlaylist="OpenPlaylistReviewGap" />
             <details class="server-work-mappings glass-panel" open="@mappingsOpen">
                 <summary id="artist-mappings-title" @onclick="ToggleMappings" @onclick:preventDefault><MusicIcon Name="chevron-down" />Artist mappings</summary>
                 @if (mappingsLoaded) { <ArtistMappings @key="(Session.Server, Session.User)" /> }
@@ -546,6 +546,8 @@ else
 </dialog>
 
 @code {
+    private CatalogueReviewPanel? songReview;
+    private Task RefreshSongReview() => songReview?.Refresh() ?? Task.CompletedTask;
     private SongPlaylistPicker? playlistPicker;
     private ReportSong? reportSong;
     private void OpenReportSong((MusicTrack Track, string Opener) value) => reportSong?.Open(value.Track, value.Opener);

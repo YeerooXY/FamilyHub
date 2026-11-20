@@ -5,17 +5,11 @@
 @inject MusicPlayer Player
 @inject IJSRuntime JS
 
-<section aria-labelledby="catalogue-review-title" class="music-admin catalogue-review" aria-busy="@Aria(loading && data is null)">
-    <header class="music-admin-heading catalogue-toolbar">
-        <h2 id="catalogue-review-title" tabindex="-1">Songs that need work</h2>
-        <button id="catalogue-refresh" class="quiet catalogue-control" aria-disabled="@Aria(Unavailable)" @onclick="Refresh">
-            <MusicIcon Name="refresh" />@(loading ? "Refreshing…" : "Refresh review")
-        </button>
-    </header>
+<section id="catalogue-review-title" tabindex="-1" aria-label="Song review" class="music-admin catalogue-review" aria-busy="@Aria(loading && data is null)">
     <p class="sr" role="status" aria-live="polite" aria-atomic="true">@announcement</p>
     <Notice Level="error" Message="@error" ActionLabel="@(error is not null && Online ? "Retry song review" : null)"
-        Action="Refresh" Busy="@Unavailable" FocusTarget="#catalogue-refresh" />
-    @if (data is not null) { <small class="catalogue-timestamp">Review updated @snapshotAt.ToLocalTime().ToString("t")</small> }
+        Action="Refresh" Busy="@Unavailable" FocusTarget="#server-stats-refresh" />
+    @if (data is not null && (!Online || error is not null || SnapshotStale)) { <small class="catalogue-timestamp">Review updated @snapshotAt.ToLocalTime().ToString("t")</small> }
     @if (!Online) { <Notice Level="warning" Message="@(data is null ? "Connect to the server to review songs." : "Server offline. Showing the last loaded review.")" /> }
     else if (data is null && error is null) { <Notice Message="Loading song review…" /> }
     @if (data is { } snapshot)
@@ -44,7 +38,7 @@
         <section id="catalogue-category-panel" class="glass-panel catalogue-pool" aria-labelledby="catalogue-category-title">
             <header class="music-admin-heading catalogue-section-heading">
                 <div>
-                    <h3 id="catalogue-category-title" tabindex="-1">@section.Label</h3>
+                    <h2 id="catalogue-category-title" tabindex="-1">@section.Label</h2>
                     @if (active == "fixed" && Count(active) > 0) { <p class="catalogue-description">Undo restores the original recording or details.</p> }
                 </div>
                 @if (snapshot.CanEdit)
@@ -383,7 +377,7 @@
             TaskScheduler.Default);
     }
 
-    private async Task Refresh()
+    public async Task Refresh()
     {
         if (Unavailable || disposed || Session.Api is not { } api) return;
         if (!followingUp) snapshotRetries = 0;

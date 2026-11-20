@@ -54,6 +54,37 @@ class FinishedAudioRequired(Base):
 
 
 class NativeMusicApi(Base):
+    def test_legacy_youtube_upload_labels_in_library_and_playlists(self):
+        examples = [
+            (FIRST, "it's murph, Arlo, Lizzy Land - Fade Into Nothing (Official Visualizer)",
+             "it's murph", "Fade Into Nothing", "it's murph, Arlo, Lizzy Land"),
+            (SECOND, "Rihanna - Don't Stop The Music (Audio)",
+             "Juan Marquez", "Don't Stop The Music", "Rihanna"),
+        ]
+        for identifier, upload, uploader, _, _ in examples:
+            item, _, manifest, _ = self.recording(identifier, upload)
+            manifest['import']['artist'] = uploader
+            manifest['source'].update(title=upload, channel=uploader)
+            self.intake.write_manifest(str(item), manifest)
+        client, token = self.signed_in()
+        rows = {row['id']: row for row in self.go(client, 'GET', '/api/library').json['results']}
+        playlist = self.create(client, token)
+        for identifier, _, _, title, artist in examples:
+            self.assertEqual((rows[identifier]['title'], rows[identifier]['channel']), (title, artist))
+            playlist = self.mutate(client, token, playlist, {'add_source_id': identifier}).json['playlist']
+            row = playlist['tracks'][-1]
+            self.assertEqual((row['title'], row['artist']), (title, artist))
+
+    def test_display_labels_respect_editions_tags_and_manual_edits(self):
+        source = dict(kind='youtube', title='Artist - Song - Part II (Live) [HD]', channel='Artist')
+        self.assertEqual(music_web.recording_labels(source), ('Song - Part II (Live)', 'Artist'))
+        self.assertEqual(music_web.recording_labels(dict(source, artist='Composer', track_title='Suite - Part II')),
+                         ('Suite - Part II', 'Composer'))
+        for record in [dict(title=source['title'], artist='DJ', automatic_title=False),
+                       dict(title='Personal title', artist='DJ')]:
+            self.assertEqual(music_web.recording_labels(source, record), (record['title'], 'DJ'))
+        self.assertEqual(music_web.recording_labels(dict(source, kind='local')), (source['title'], 'Artist'))
+
     def test_large_library_refresh_reuses_verified_recordings(self):
         for index in range(300):
             self.recording(source_id=f'{index:011d}')

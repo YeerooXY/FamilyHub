@@ -16,12 +16,12 @@
         {
             <div class="stats-server-status"><i class="stats-online-dot @(!Offline ? "is-online" : "")" aria-hidden="true"></i><span>@(Offline ? "Server offline" : "Server online")</span>@if (data is not null) { <span>@data.Profiles.Count(p => p.Listening) listening now</span> }</div>
         }
-        <button id="server-stats-refresh" class="quiet stats-refresh @(Refreshing ? "is-refreshing" : "")" aria-label="@(Leaderboard ? "Refresh leaderboard" : "Refresh server work")" title="Refresh" @onclick="RefreshNow" aria-disabled="@Aria(Refreshing)"><MusicIcon Name="refresh" /></button>
+        <button id="server-stats-refresh" class="quiet stats-refresh @(Refreshing ? "is-refreshing" : "")" aria-label="@(Leaderboard ? "Refresh leaderboard" : "Refresh server work")" title="Refresh" @onclick="RefreshPage" aria-disabled="@Aria(Refreshing)"><MusicIcon Name="refresh" /></button>
     </div>
     <Notice Message="@StatusText" Level="@(error is not null && !Offline ? "error" : Offline ? "warning" : "info")"
         ActionLabel="@(error is not null && !Offline ? Leaderboard ? "Retry leaderboard" : "Retry server work" : null)"
         Action="RefreshNow" Busy="@Refreshing" FocusTarget="#server-stats-refresh" />
-    @if (data is not null && SnapshotStale) { <small class="catalogue-timestamp">Server updated @snapshotAt.ToLocalTime().ToString("t")</small> }
+    @if (Leaderboard && SnapshotStale) { <small class="catalogue-timestamp">Server updated @snapshotAt.ToLocalTime().ToString("t")</small> }
     @if (data is { } stats && Leaderboard)
     {
         var ranking = Ranking.ToList();
@@ -180,6 +180,7 @@
     {
         <details class="srv-details">
         <summary>Server details</summary>
+        @if (SnapshotStale) { <small class="catalogue-timestamp">Server updated @snapshotAt.ToLocalTime().ToString("t")</small> }
         <div class="srv-grid">
             @if (data is { } server)
             {
@@ -357,6 +358,19 @@
     private IReadOnlyList<DailyListening> Days => (data?.Daily ?? []).Where(d => period == "all" || string.CompareOrdinal(d.Day,StartDay) >= 0).ToArray();
     private double SelectedTotal => period == "week" ? Days.Sum(d => d.Seconds) : data?.Profiles.Sum(PeriodSeconds) ?? 0;
     private double PeriodSeconds(ListenerStatistics profile) => period == "all" ? profile.Seconds : period == "month" ? profile.MonthSeconds : profile.Daily.Where(d => string.CompareOrdinal(d.Day,StartDay) >= 0).Sum(d => d.Seconds);
+    [Parameter] public EventCallback RefreshReview { get; set; }
+    private async Task RefreshPage()
+    {
+        if (disposed || Refreshing) return;
+        if (Offline || needsSignIn)
+        {
+            await RefreshNow();
+            if (!disposed && !Offline) await RefreshReview.InvokeAsync();
+            return;
+        }
+        await Task.WhenAll(Refresh(), RefreshReview.InvokeAsync());
+    }
+
     [Parameter] public bool Leaderboard { get; set; }
     private async Task SetPeriod(string value) { if (period == value) return; await JS.InvokeVoidAsync("familyhub.captureLeaderboard"); period = value; }
     private static string X(int i,int count) => (count <= 1 ? 280d : i * 560d / (count - 1)).ToString("0.##",Inv);

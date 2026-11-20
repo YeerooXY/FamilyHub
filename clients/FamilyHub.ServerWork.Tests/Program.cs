@@ -19,9 +19,11 @@ var services = new ServiceCollection().AddLogging().AddSingleton(session).AddSin
     .AddSingleton<IJSRuntime, NoJs>().AddSingleton<IComponentActivator>(activator).BuildServiceProvider();
 await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 await renderer.Dispatcher.InvokeAsync(async () => {
-    var stats = await renderer.RenderComponentAsync<ServerStats>();
     var review = await renderer.RenderComponentAsync<CatalogueReviewPanel>();
-    async Task Refresh(Type type) => await (Task)type.GetMethod("Refresh", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(activator.Instances[type], null)!;
+    var panel = (CatalogueReviewPanel)activator.Instances[typeof(CatalogueReviewPanel)];
+    var stats = await renderer.RenderComponentAsync<ServerStats>(ParameterView.FromDictionary(
+        new Dictionary<string, object?> { [nameof(ServerStats.RefreshReview)] = EventCallback.Factory.Create(panel, panel.Refresh) }));
+    async Task Refresh(Type type) => await (Task)type.GetMethod("Refresh", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(activator.Instances[type], null)!;
     var watch = System.Diagnostics.Stopwatch.StartNew();
     await Task.WhenAll(Refresh(typeof(ServerStats)), Refresh(typeof(CatalogueReviewPanel)));
     var html = stats.ToHtmlString() + review.ToHtmlString();
@@ -29,9 +31,12 @@ await renderer.Dispatcher.InvokeAsync(async () => {
     if (watch.Elapsed.TotalSeconds > 7) throw new Exception("Component timeout exceeded bound");
     Save("error", html);
     FixtureHandler.Block = false;
-    await Task.WhenAll(Refresh(typeof(ServerStats)), Refresh(typeof(CatalogueReviewPanel)));
+    await (Task)typeof(ServerStats).GetMethod("RefreshPage", BindingFlags.NonPublic | BindingFlags.Instance)!
+        .Invoke(activator.Instances[typeof(ServerStats)], null)!;
     html = stats.ToHtmlString() + review.ToHtmlString();
     if (html.Contains("Retry server work") || html.Contains("Retry song review")) throw new Exception("Retry did not recover");
+    if (html.Contains("Refresh review") || html.Contains("Songs that need work") || !html.Contains("Refresh server work"))
+        throw new Exception("Server work should have one shared refresh control");
     if (!stats.ToHtmlString().Contains("<details class=\"srv-worker-details\">")
         || !html.Contains("Catalogue worker configuration") || !html.Contains("Automatic catalogue attempts per hour")
         || !review.ToHtmlString().Contains("No song details to review."))
