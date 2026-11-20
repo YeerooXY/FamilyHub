@@ -6,7 +6,7 @@
 @if (Player.RemoteActive)
 {
     <div id="device-strip" class="device-strip" role="status">
-        <MusicIcon Name="volume" /><span>Playing on <strong>@Player.RemoteDeviceName</strong></span>
+        <MusicIcon Name="volume" /><span>@(Player.RemotePlaying ? "Playing on" : "Paused on") <strong>@Player.RemoteDeviceName</strong></span>
     </div>
 }
 

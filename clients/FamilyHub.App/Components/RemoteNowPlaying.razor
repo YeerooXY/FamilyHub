@@ -26,7 +26,7 @@
             </span>
         </button>
         <button id="remote-toggle" class="remote-mini-toggle" aria-disabled="@(connectingDevice is not null || toggling ? "true" : "false")" aria-label="@((device.IsPlaying ? "Pause on " : "Play on ") + device.Name)" @onclick="() => ToggleAsync(device)"><MusicIcon Name="@(device.IsPlaying ? "pause" : "play")" /></button>
-        <span class="remote-mini-line"><MusicIcon Name="volume" /><span>Playing on <strong>@device.Name</strong></span></span>
+        <span class="remote-mini-line" role="status"><MusicIcon Name="volume" /><span>@(device.IsPlaying ? "Playing on" : "Paused on") <strong>@device.Name</strong></span></span>
         @{ var duration = device.Duration ?? known?.Duration ?? 0;
            var position = Math.Clamp(device.PositionAt(Elapsed) ?? 0, 0, Math.Max(0, duration)); }
         @if (duration > 0 && Fresh && connectingDevice is null)
@@ -52,7 +52,14 @@
     {
         if (connectingDevice is not null || !Fresh) return;
         connectingDevice = source;
-        try { if (await TakeOver(source)) device = null; }
+        try
+        {
+            if (await TakeOver(source))
+            {
+                await JS.InvokeVoidAsync("familyhub.handFocusTo", "#remote-now-playing", "play");
+                device = null;
+            }
+        }
         finally { connectingDevice = null; }
     }
 

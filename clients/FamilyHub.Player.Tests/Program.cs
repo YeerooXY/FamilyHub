@@ -365,42 +365,64 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
     await player.ToggleAsync();
     Check(player.RemoteActive && !player.RemotePlaying && !player.Playing && session.LocalPlays == 1,
         "Pausing the remote player took playback back or echoed a local activation");
+    player.ApplyRemoteState(tracks[1].Id, true, 13);
+    Check(!player.RemotePlaying, "An earlier device poll replaced the pending pause");
     player.RemoteTick(); player.ApplyRemoteState(tracks[1].Id, false, 14);
     Check(session.LocalPlays == 1, "Following remote state activated local playback");
+    var confirmResume = new TaskCompletionSource<bool>();
+    var resumeAttempts = 0;
+    player.ResumeRemoteHere = async target =>
+    {
+        Check(target == new string('b', 32), "Play requested a move from the wrong device");
+        resumeAttempts++;
+        var resume = new PlaybackHandover { Action = "play", Playing = true,
+            Resume = new() { TrackIds = [tracks[1].Id], Index = 0, Position = 14 } };
+        return await player.ApplyPlaybackCommandAsync(resume, tracks, () => confirmResume.Task) ? null : "Move failed";
+    };
+    var pendingResume = player.ToggleAsync();
     await player.ToggleAsync();
-    Check(!player.RemoteActive && player.Playing && Math.Abs(player.Position - 14) < .01 && session.LocalPlays == 2,
-        "Pressing play did not take playback back locally");
+    Check(player.RemoteActive && !player.Playing && session.LocalPlays == 1 && resumeAttempts == 1,
+        "Resuming locally before confirmation lost remote ownership or started a duplicate handoff");
+    confirmResume.SetResult(false);
+    await pendingResume;
+    Check(player.RemoteActive && !player.Playing, "A failed resume dropped the remote controls");
+    confirmResume = new();
+    pendingResume = player.ToggleAsync();
+    confirmResume.SetResult(true);
+    await pendingResume;
+    Check(!player.RemoteActive && player.Playing && Math.Abs(player.Position - 14) < .01 && session.LocalPlays == 1,
+        "Confirmed Play did not resume locally from the remote checkpoint");
     await player.ApplyRemoteControlAsync(new() { Action = "pause" });
     await player.ApplyRemoteControlAsync(new() { Action = "play" });
-    Check(player.Playing && session.LocalPlays == 2, "Remote play echoed a local activation");
-    await player.PauseLocallyAsync(); primary.SetPlaying(true);
-    Check(player.PlaybackRequested && session.LocalPlays == 3, "Native transport play did not activate playback");
+    Check(player.Playing && session.LocalPlays == 1, "Remote play echoed a local activation");
+    await player.PauseLocallyAsync(); secondary.SetPlaying(true);
+    Check(player.PlaybackRequested && session.LocalPlays == 2, "Native transport play did not activate playback");
     var takeover = new PlaybackHandover { Id = "takeover", Action = "play", Resume = new() { TrackIds = [tracks[3].Id], Index = 0, Position = 8 }, Playing = true };
     var applied = await player.ApplyPlaybackCommandAsync(takeover, tracks, () => Task.FromResult(true));
-    Check(applied && player.Current == tracks[3] && player.Playing && player.Position == 8 && secondary.StartedAt == 8 && session.LocalPlays == 3,
+    Check(applied && player.Current == tracks[3] && player.Playing && player.Position == 8 && primary.StartedAt == 8 && session.LocalPlays == 2,
         "Manual transfer echoed a local activation or lost its checkpoint");
     player.EnterRemote(new string('b', 32), "Pixel", 9, true);
     var paused = takeover with { Id = "paused-takeover", Playing = false };
     var ready = new TaskCompletionSource<bool>();
-    primary.HoldOpening = true;
+    secondary.HoldOpening = true;
     var staged = player.ApplyPlaybackCommandAsync(paused, tracks, () => ready.Task);
     Check(!staged.IsCompleted && player.ReportingHandoff is null && player.RemoteActive, "Opening deck was reported as loaded");
-    primary.HoldOpening = false;
+    secondary.HoldOpening = false;
     for (var i = 0; i < 100 && player.ReportingHandoff is null; i++) await Task.Delay(10);
-    Check(!staged.IsCompleted && player.RemoteActive && primary.Title == tracks[3].Title && primary.Position == 8
-        && !primary.Playing && primary.StartedAt is null && player.ReportingHandoff?.Deck == primary,
+    Check(!staged.IsCompleted && player.RemoteActive && secondary.Title == tracks[3].Title && secondary.Position == 8
+        && !secondary.Playing && secondary.StartedAt is null && player.ReportingHandoff?.Deck == secondary,
         "Paused receiver must load and seek silently before confirmation");
     ready.SetResult(false);
-    Check(!await staged && player.RemoteActive && player.RemoteDeviceName == "Pixel" && primary.Title is null,
+    Check(!await staged && player.RemoteActive && player.RemoteDeviceName == "Pixel" && secondary.Title is null,
         "Failed handoff changed the output or left its staged recording loaded");
     applied = await player.ApplyPlaybackCommandAsync(paused with { Id = "confirmed" }, tracks, () => Task.FromResult(true));
-    Check(applied && !player.RemoteActive && !player.Playing && player.Current == tracks[3] && player.Position == 8 && primary.StartedAt is null,
+    Check(applied && !player.RemoteActive && !player.Playing && player.Current == tracks[3] && player.Position == 8 && secondary.StartedAt is null,
         "Confirmed paused takeover lost the checkpoint or started playback");
     player.EnterRemote(new string('b', 32), "Pixel", 9, true);
     await player.PlayAsync(tracks[5], tracks);
-    Check(!player.RemoteActive && player.Playing && session.LocalPlays == 4, "Choosing a song did not take playback back");
+    Check(!player.RemoteActive && player.Playing && session.LocalPlays == 3, "Choosing a song did not take playback back");
     var activations = session.LocalPlays;
-    primary.RaiseEnded(); await Task.Yield();
+    secondary.RaiseEnded(); await Task.Yield();
     Check(session.LocalPlays == activations, "Automatic queue advancement activated playback");
 }
 {
@@ -593,7 +615,7 @@ namespace FamilyHub.App.Services
         public void PinPreparingNextPlayback(string? id) { }
         // Connect to a device: the player tests run without a server.
         public string DeviceId { get; init; } = "0123456789abcdef0123456789abcdef";
-        public RemoteApi? Api => null;
+        public RemoteApi Api { get; } = new();
         public sealed class RemoteApi { public Task ControlPlaybackAsync(string from, string to, string action, double? position = null) => Task.CompletedTask; }
     }
     public sealed class WindowsAudioPlayer : IAudioDeck

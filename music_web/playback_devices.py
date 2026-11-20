@@ -278,8 +278,8 @@ class PlaybackDevices:
             raise DeviceError('Play a song first.')
         return self._start_handoff(user, source, target, dict(**queue, position=position), playing, rooms)
 
-    def takeover(self, user, source, target, rooms=None):
-        return self._start_handoff(user, source, target, None, None, rooms)
+    def takeover(self, user, source, target, rooms=None, start_playing=False):
+        return self._start_handoff(user, source, target, None, True if start_playing else None, rooms)
 
     def _start_handoff(self, user, source, target, resume, playing, rooms):
         if not valid_device(source) or not valid_device(target) or source == target:
@@ -312,7 +312,8 @@ class PlaybackDevices:
                     position += age
                 position = min(position, sender['duration'] if sender['duration'] is not None else 86400)
                 resume = dict(**sender['queue'], position=position)
-                playing = sender['status'] != 'paused'
+                if playing is None:
+                    playing = sender['status'] != 'paused'
             if user in self.pending:
                 self._finish_handoff(user, 'failed')
             command_id = secrets.token_hex(8)
@@ -378,7 +379,8 @@ def register_playback_devices(app, body, devices):
     @app.post('/api/playback/takeover')
     def takeover_playback():
         data = body(4096)
-        return jsonify(devices.takeover(g.user, data.get('from'), data.get('to'), app.extensions.get('listening_rooms'))), 202
+        return jsonify(devices.takeover(g.user, data.get('from'), data.get('to'), app.extensions.get('listening_rooms'),
+                                        start_playing=data.get('start_playing') is True)), 202
 
     @app.post('/api/playback/control')
     def control_playback():

@@ -106,8 +106,8 @@ public sealed class FamilyHubApi : IDisposable
     public Task<PlaybackDevicesResponse> GetPlaybackDevicesAsync(string deviceId, CancellationToken cancellationToken = default, bool background = false) =>
         RequestJsonAsync<PlaybackDevicesResponse>(HttpMethod.Get, "/api/playback/devices?device_id=" + Uri.EscapeDataString(deviceId), cancellationToken: cancellationToken, background: background);
 
-    public Task<PlaybackTransferReceipt> TakeOverPlaybackAsync(string fromDevice, string toDevice, CancellationToken cancellationToken = default) =>
-        RequestJsonAsync<PlaybackTransferReceipt>(HttpMethod.Post, "/api/playback/takeover", new { from = fromDevice, to = toDevice }, cancellationToken);
+    public Task<PlaybackTransferReceipt> TakeOverPlaybackAsync(string fromDevice, string toDevice, CancellationToken cancellationToken = default, bool startPlaying = false) =>
+        RequestJsonAsync<PlaybackTransferReceipt>(HttpMethod.Post, "/api/playback/takeover", new { from = fromDevice, to = toDevice, start_playing = startPlaying }, cancellationToken);
 
     private sealed record HandoffStatus(string State, string Target);
 

@@ -135,6 +135,7 @@ public sealed class MusicPlayer(MusicSession session)
     /// <summary>Whether the device this profile's music was sent to is playing (as last reported).</summary>
     public bool RemotePlaying { get; private set; }
     private long remoteAt;
+    private long? remotePauseRequestedAt;
     private double remoteValidFor = PlaybackDevice.OnlineSeconds, remoteDuration;
 
     // Remote mode: this device's copy of the queue follows the other device; resumePosition holds
@@ -144,6 +145,7 @@ public sealed class MusicPlayer(MusicSession session)
         if (FollowingHost) return;
         FinishListening("stopped");
         RemoteDeviceId = deviceId; RemoteDeviceName = name; RemotePlaying = playing; remoteAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        remotePauseRequestedAt = null;
         remoteValidFor = PlaybackDevice.OnlineSeconds; remoteDuration = 0;
         ++requestVersion; preparation?.Cancel(); preparation = null;
         preparing = false; PlaybackRequested = false; sourceReady = false; resumeStartPending = false;
@@ -156,6 +158,11 @@ public sealed class MusicPlayer(MusicSession session)
     public void ApplyRemoteState(string trackId, bool playing, double? position, double age = 0, double? duration = null)
     {
         if (!RemoteActive) return;
+        // The first poll can still report playback from before the phone handles its queued pause.
+        if (playing && remotePauseRequestedAt is { } pausedAt &&
+            System.Diagnostics.Stopwatch.GetElapsedTime(pausedAt).TotalSeconds < PlaybackDevice.OnlineSeconds)
+            return;
+        remotePauseRequestedAt = null;
         var at = trackId != Current?.Id && trackId.Length > 0 ? queue.FindIndex(t => t.Id == trackId) : -1;
         if (at >= 0 && at != index) { index = at; Current = queue[at]; }
         resumePosition = position is { } seconds ? Math.Max(0, seconds) : Position;
@@ -190,11 +197,29 @@ public sealed class MusicPlayer(MusicSession session)
         catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException)
         { await MainThread.InvokeOnMainThreadAsync(LeaveRemote); }
     }
-    private Task RemoteToggleAsync()
+    internal Func<string, Task<string?>>? ResumeRemoteHere { get; set; }
+    private bool remoteTogglePending;
+    private async Task RemoteToggleAsync()
     {
-        if (!RemotePlaying) { LeaveRemote(); return ToggleCoreAsync(true); }
-        resumePosition = Position; RemotePlaying = false; Changed?.Invoke();
-        return SendRemoteAsync("pause");
+        if (remoteTogglePending || session.Api is not { } api) return;
+        remoteTogglePending = true;
+        var target = RemoteDeviceId;
+        try
+        {
+            if (!RemotePlaying)
+            {
+                if (ResumeRemoteHere is { } resume && await resume(target) is { } error)
+                    session.SetMessage(error, "error");
+                return;
+            }
+            await api.ControlPlaybackAsync(session.DeviceId, target, "pause");
+            if (RemoteDeviceId != target) return;
+            remotePauseRequestedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            resumePosition = Position; RemotePlaying = false; Changed?.Invoke();
+        }
+        catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException)
+        { session.SetMessage("Playback could not pause. Check that the other device is online and try again.", "error"); }
+        finally { remoteTogglePending = false; }
     }
     public Task PauseLocallyAsync(bool background = true) => MainThread.InvokeOnMainThreadAsync(() =>
     {

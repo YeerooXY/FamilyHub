@@ -261,6 +261,7 @@ public partial class MainPage : ContentPage
         this.devices = devices;
         this.session = session;
         this.player = player;
+        player.ResumeRemoteHere = from => connection.ChooseAsync(from, session.DeviceId, startPlaying: true);
 #if WINDOWS || MACCATALYST
         BackgroundColor = Colors.Black;
 #endif

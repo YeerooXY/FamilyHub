@@ -352,6 +352,22 @@ class TakeoverRoutes(Base):
         self.assertEqual(source['command']['action'], 'pause')
         self.assertIsNone(report(PC, epoch=source['epoch'], acks=[source['command']['id']])['command'])
 
+        pause = self.post(client, token, '/api/playback/control', json={'from': PC, 'to': PHONE, 'action': 'pause'})
+        self.assertEqual(pause.status_code, 202)
+        self.assertEqual([control['action'] for control in report(PHONE, True, epoch=2)['controls']], ['pause'])
+        report(PHONE, epoch=2, track=TRACK, queue=QUEUE, position=42.5)
+        returned = self.post(client, token, '/api/playback/takeover',
+                             json={'from': PHONE, 'to': PC, 'start_playing': True})
+        self.assertEqual(returned.status_code, 202)
+        command = report(PC, epoch=2)['command']
+        self.assertTrue(command['playing'])
+        self.assertEqual(command['resume'], RESUME)
+        self.assertEqual(report(PC, epoch=2, track=TRACK, position=42.5, acks=[command['id']])['epoch'], 2)
+        self.assertEqual(report(PC, True, epoch=2, track=TRACK, position=42.5)['epoch'], 3)
+        source = report(PHONE, epoch=2)
+        self.assertEqual((source['command']['action'], source['command']['device_id']), ('pause', PC))
+        self.assertEqual(source['controls'], [])
+
     def test_both_handoff_routes_reject_a_listen_together_host(self):
         client, token = self.select()
         for device in (PC, PHONE):

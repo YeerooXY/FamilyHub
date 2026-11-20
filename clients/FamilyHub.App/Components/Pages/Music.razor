@@ -430,7 +430,7 @@ else
     <div class="transport"><div class="transport-buttons">
         <button id="shuffle-toggle" class="quiet" @onclick="ToggleShuffle" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Shuffle" aria-pressed="@Aria(Player.Shuffle)"><MusicIcon Name="shuffle" /></button>
         <button class="quiet" @onclick="() => RunPlayback(Player.PreviousAsync)" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Previous song"><MusicIcon Name="previous" /></button>
-        <button id="play" class="primary round @(Player.Preparing ? "is-preparing" : "")" @onclick="TogglePlayback" aria-busy="@Aria(Player.Preparing)" aria-label="@(Player.FollowingHost ? Together.LocallyPaused ? "Resume live session" : "Pause only for me" : ShowPause ? "Pause" : "Play")"><MusicIcon Name='@(ShowPause ? "pause" : "play")' /></button>
+        <button id="play" class="primary round @(Player.Preparing ? "is-preparing" : "")" @onclick="TogglePlayback" aria-busy="@Aria(Player.Preparing || Session.HandoffPending)" aria-label="@PlaybackButtonLabel"><MusicIcon Name='@(ShowPause ? "pause" : "play")' /></button>
         <button class="quiet" @onclick="() => RunPlayback(Player.NextAsync)" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Next song"><MusicIcon Name="next" /></button>
         <button id="repeat-toggle" class="quiet" @onclick="ToggleRepeat" aria-disabled="@Aria(Player.FollowingHost)" aria-pressed="@Aria(Player.RepeatMode != "off")" aria-label="@("Repeat " + Player.RepeatMode)" title="@("Repeat " + Player.RepeatMode)"><MusicIcon Name="@(Player.RepeatMode == "one" ? "repeat-one" : "repeat")" /></button>
         @if (playerExpanded)
@@ -557,6 +557,10 @@ else
     private Task AnswerSpotify(bool value) => Run(async () => { await Session.SaveSpotifyStatusAsync(value); await JS.InvokeVoidAsync("familyhub.closeDialog", "spotify-question-dialog", view == "Preferences" ? "spotify-premium" : "profile-toggle"); });
     // Pause appears only once audio is playing; preparing a song keeps the play icon with a loading state.
     private bool ShowPause => Player.RemoteActive ? Player.RemotePlaying : (Player.Playing || Player.Seeking) && Player.PlaybackRequested && !Player.Preparing;
+    private string PlaybackButtonLabel => Player.FollowingHost
+        ? Together.LocallyPaused ? "Resume live session" : "Pause only for me"
+        : Player.RemoteActive ? Player.RemotePlaying ? "Pause on " + Player.RemoteDeviceName : "Play on this device"
+        : ShowPause ? "Pause" : "Play";
     private void OpenPlaylistPicker((MusicTrack Track, string Opener) value) => playlistPicker?.Open(value.Track, value.Opener);
     private Task SetHistoryPaused(ChangeEventArgs args) => Run(async () =>
     {
@@ -987,7 +991,7 @@ else
         pendingFocus = "player-options-close";
     }
     private async Task ClosePlayerTools() { playerToolsOpen = false; await JS.InvokeVoidAsync("familyhub.focusVisible", "player-more", "show-queue"); }
-    private Task TogglePlayback() => Player.FollowingHost ? Together.ToggleLocalPauseAsync() : Player.Current is null ? QuickStart() : RunPlayback(Player.ToggleAsync);
+    private Task TogglePlayback() => Player.FollowingHost ? Together.ToggleLocalPauseAsync() : Player.Current is null && !Player.RemoteActive ? QuickStart() : RunPlayback(Player.ToggleAsync);
     private Task QuickStart() => RunPlayback(async () =>
     {
         var tracks = Player.Queue.Count > 0 ? Player.Queue.ToList() : Session.QuickPlayQueue();

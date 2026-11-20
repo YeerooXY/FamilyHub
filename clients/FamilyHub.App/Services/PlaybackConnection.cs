@@ -20,7 +20,7 @@ public sealed class PlaybackConnection(MusicSession session, MusicPlayer player)
         Changed?.Invoke();
     }
 
-    public async Task<string?> ChooseAsync(string from, string to, PlaybackDevice? source = null)
+    public async Task<string?> ChooseAsync(string from, string to, PlaybackDevice? source = null, bool startPlaying = false)
     {
         if (ConnectingTo is not null || receiving is not null) return "A device is already connecting.";
         if (player.FollowingHost) return "Leave Listen Together first, then choose a device.";
@@ -46,7 +46,7 @@ public sealed class PlaybackConnection(MusicSession session, MusicPlayer player)
             var position = resume?.Position ?? source?.PositionAt(0) ?? player.Position;
             var receipt = localSource
                 ? await api.TransferPlaybackAsync(from, to, resume!, playing, token)
-                : await api.TakeOverPlaybackAsync(from, to, token);
+                : await api.TakeOverPlaybackAsync(from, to, token, startPlaying);
             deadline.CancelAfter(Deadline);
             if (localResult is { } result)
             {
