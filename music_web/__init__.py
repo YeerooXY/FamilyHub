@@ -5,7 +5,7 @@ HLS and bounded beat analysis; browser decks handle playback. See docs/MOBILE_MU
 """
 import gzip, hashlib, hmac, importlib.util, io, json, logging, os, random, re, secrets, shutil, sys, threading, time, urllib.error, urllib.parse, urllib.request
 from collections import Counter, OrderedDict, defaultdict, deque
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -191,6 +191,8 @@ def create_app(test_config=None):
         MAX_CONTENT_LENGTH=max_upload + (1 << 20),
         WTF_CSRF_TIME_LIMIT=None, WTF_CSRF_SSL_STRICT=False)  # origin is checked in guard()
     app.intake = load_intake(cfg["CLI_PATH"])
+    from . import verified_hashes
+    verified_hashes.install(app.intake, ws, lib)
     catalogue_review = CatalogueReview(ws, cfg['AUTO_RESOLUTIONS_PER_HOUR'])
     metadata_lookup = bool(cfg.get("METADATA_LOOKUP", cfg["PUBLIC_ORIGIN"] != "https://music.test") and catalogue_review.automatic_limit)
     from .playback_devices import PlaybackDevices
@@ -722,7 +724,7 @@ def create_app(test_config=None):
             signature.append((st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
         return tuple(signature)
 
-    def saved_source(source_id, imported=True):
+    def saved_source(source_id, imported=True, candidates=None):
         key = (source_id, imported)
         with saved_lock:
             cached = saved_cache.get(key)
@@ -740,7 +742,7 @@ def create_app(test_config=None):
                 if saved_cache.get(key) is cached:
                     del saved_cache[key]
         # Hashing a cold song must not hold the library-wide cache mutex.
-        entry = validate_source(source_id, imported)
+        entry = validate_source(source_id, imported, candidates)
         with saved_lock:
             if entry:
                 saved_cache[key] = entry
@@ -748,9 +750,9 @@ def create_app(test_config=None):
                     saved_cache.popitem(last=False)
                 return entry[0]
 
-    def validate_source(source_id, imported):
+    def validate_source(source_id, imported, candidates):
         # Manifests remain the catalogue. Never infer recording identity from a title.
-        for name in os.listdir(ws):
+        for name in os.listdir(ws) if candidates is None else candidates:
             if not app.intake.ID_RE.fullmatch(name) or not (name.startswith("yt-" + source_id + "-") or name == source_id and name.startswith("local-")):
                 continue
             try:
@@ -2960,16 +2962,42 @@ def create_app(test_config=None):
         return send_file(path, conditional=True, etag=track["download_sha256"], max_age=0,
                          as_attachment=True, download_name=source_id + track["download_extension"])
 
-    def library_tracks(keep_going=lambda: True):
+    scan_lock = threading.Lock()
+    pending_scan = None
+
+    def library_tracks(keep_going=None):
+        nonlocal pending_scan
+        if keep_going is not None:
+            return scan_library(keep_going)
+        with scan_lock:
+            leader = pending_scan is None
+            if leader:
+                pending_scan = Future()
+            scan = pending_scan
+        if leader:
+            try:
+                scan.set_result(scan_library(lambda: True))
+            except Exception as error:
+                scan.set_exception(error)
+            finally:
+                with scan_lock:
+                    pending_scan = None
+        return [track.copy() for track in scan.result()]
+
+    def scan_library(keep_going):
         rows = []
+        sources = defaultdict(list)
         for name in os.listdir(ws):
-            if not keep_going():
-                break
             if not app.intake.ID_RE.fullmatch(name) or not name.startswith(("yt-", "local-")):
                 continue
+            identifier = name if name.startswith("local-") else name[3:14]
+            sources[identifier].append(name)
+        for identifier, candidates in sources.items():
+            if not keep_going():
+                break
             try:
-                result = saved_source(name if name.startswith("local-") else name[3:14])
-                if not result or os.path.basename(result["item"]) != name:
+                result = saved_source(identifier, candidates=candidates)
+                if not result:
                     continue
                 manifest = result["manifest"]
                 record, source = manifest.get("import"), manifest["source"]

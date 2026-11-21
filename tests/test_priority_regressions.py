@@ -125,6 +125,8 @@ class LaneRouting(unittest.TestCase):
         dispatcher.pools = {name: mock.Mock() for name in RequestDispatcher.LIMITS}
         for path, query, background, expected in (
             ('/api/playback/activity', '', True, 'control'),
+            ('/api/connect', '', False, 'control'),
+            ('/api/profile/select', '', False, 'control'),
             ('/api/playback/takeover', '', False, 'control'),
             ('/api/profile/playback', '', True, 'control'),
             ('/api/server/stats', '', True, 'snapshot'),

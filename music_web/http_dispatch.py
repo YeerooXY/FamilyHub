@@ -22,7 +22,8 @@ class RequestDispatcher:
         background = request.headers.get("X_FAMILYHUB_ACTIVITY") == "background"
         lane = "ordinary"
         if (path.startswith('/api/playback/') and path != '/api/playback/diagnostics'
-                or path == '/api/profile/playback' or path.startswith('/api/listening/rooms')):
+                or path in ('/api/connect', '/api/profile/select', '/api/profile/playback')
+                or path.startswith('/api/listening/rooms')):
             lane = 'control'
         elif watch:
             lane = "watch"
