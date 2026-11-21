@@ -1378,7 +1378,8 @@ public sealed class MusicSession
             PersistPlaybackAttempt(updated);
             elapsed = (long)(now - updated.Started).TotalMilliseconds;
         }
-        if (api is not null && stage != "checkpoint" && elapsed is >= 0 and <= 3600000)
+        if (api is not null && stage != "checkpoint" && !stage.StartsWith("notification_", StringComparison.Ordinal)
+            && elapsed is >= 0 and <= 3600000)
             _ = SendPlaybackStageAsync(api, id, stage, elapsed, (int)(position * 1000),
                 stage.StartsWith("native_", StringComparison.Ordinal) ? reason : null);
     }

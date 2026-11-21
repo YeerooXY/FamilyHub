@@ -156,6 +156,11 @@ public sealed class MusicPlayer(MusicSession session)
     /// <summary>Crossfade length in seconds while AutoDj is on (the "Crossfade songs" setting).</summary>
     public double CrossfadeSeconds { get; set; } = CrossfadeEnvelope.Seconds;
     public bool Crossfading => blending;
+    private bool ShowingIncoming => blending && blendGain >= .5 && preparedTrack is not null && standby is not null;
+    internal (MusicTrack? Track, double Position, double Duration, bool Playing, bool Preparing, bool CanSeek) NotificationPlayback =>
+        RemoteActive ? default : ShowingIncoming && standby is { } incoming
+            ? (preparedTrack, incoming.Position, incoming.Duration, incoming.Playing, PlaybackRequested && incoming.Opening, false)
+            : (Current, Position, Duration, Playing, PlaybackRequested && Preparing, CanSeek);
     public double FadePosition => blending ? standby?.Position ?? 0 : 0;
     public double FadeDuration => CrossfadeEnvelope.Duration(Duration, CrossfadeSeconds);
     public double FadeElapsed => blending ? blendGain * FadeDuration : 0;
@@ -449,6 +454,12 @@ public sealed class MusicPlayer(MusicSession session)
     {
         if (playActions.TryGetValue(owner, out var action))
             session.RecordPlaybackObservation(action.Id, stage, position, reason);
+    }
+    internal void TraceNotification(string stage, MusicTrack track, double position, string? reason = null)
+    {
+        var owner = ShowingIncoming ? standby : deck;
+        if (owner is not null && track.Id == NotificationPlayback.Track?.Id)
+            TracePlayback(owner, stage, position, reason);
     }
 
     private void TraceTransport(IAudioDeck owner)
@@ -907,7 +918,7 @@ public sealed class MusicPlayer(MusicSession session)
         {
             if (next != blendTarget) Changed?.Invoke();
             await DeckCrossfade.RunAsync(outgoing, incoming, duration ?? FadeDuration,
-                () => PlaybackRequested, gain => { blendGain = gain; ApplyVolumes(); }, cancellation.Token, () => incomingFailed, elapsed);
+                () => PlaybackRequested, SetBlendGain, cancellation.Token, () => incomingFailed, elapsed);
             if (version != requestVersion || !blending) return;
             FinishListening(completed ? "completed" : "skipped");
             eventSource = manualQueue.Contains(incomingTrack) ? "queue" : queueSource == "search" ? "auto_dj" : queueSource;
@@ -959,6 +970,13 @@ public sealed class MusicPlayer(MusicSession session)
     {
         if (deck is not null) deck.Volume = TrackVolume(Current) * (blending ? 1 - blendGain : 1);
         if (standby is not null) standby.Volume = blending ? TrackVolume(preparedTrack) * blendGain : 0;
+    }
+    private void SetBlendGain(double gain)
+    {
+        var previous = ShowingIncoming;
+        blendGain = gain;
+        ApplyVolumes();
+        if (previous != ShowingIncoming) Changed?.Invoke();
     }
     private double TrackVolume(MusicTrack? track)
     {

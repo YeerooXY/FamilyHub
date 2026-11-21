@@ -348,14 +348,42 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
     var session = new MusicSession(); var primary = new WindowsAudioPlayer(); var secondary = new WindowsAudioPlayer();
     var player = new MusicPlayer(session); player.AttachDecks(primary, secondary);
     var a = tracks[1] with { PlaybackGainDb = -13.24 }; var b = tracks[3] with { PlaybackGainDb = -2.06 };
+    player.UiActive = false;
+    var notifications = new List<string?>();
+    player.Changed += () => notifications.Add(player.NotificationPlayback.Track?.Id);
     await player.PlayAsync(a, [a, b]); primary.Tick(24); secondary.Tick(.1); await Task.Delay(90);
-    secondary.Tick(3); await Task.Delay(90);
+    Check(player.NotificationPlayback.Track?.Id == a.Id, "Preloading published the incoming song too early");
+    secondary.Tick(3.5); await Task.Delay(90);
+    var shown = player.NotificationPlayback;
+    Check(player.Crossfading && shown.Track?.Id == b.Id && shown.Position == secondary.Position
+        && shown.Duration == secondary.Duration && shown.Playing && notifications.Last() == b.Id,
+        "Background crossfade retained the outgoing notification or mixed positions across songs");
     var left = Math.Pow(10, -13.24 / 20); var right = Math.Pow(10, -2.06 / 20);
     Check(primary.Volume < left && secondary.Volume > 0 && secondary.Volume <= right, "Crossfade ignored each song's normalization");
     Check(Math.Abs(primary.Volume / left + secondary.Volume / right - 1) < .00001, "Normalization changed linear fade envelope");
     secondary.Tick(4); await Task.Delay(90);
     Check(player.Current?.Id == b.Id && Math.Abs(secondary.Volume - right) < .00001, "Normalization lost at deck handoff");
+    Check(player.NotificationPlayback.Track?.Id == b.Id && player.NotificationPlayback.CanSeek,
+        "Notification reverted to the outgoing deck after the crossfade");
     await player.StopAsync();
+}
+{
+    var session = new MusicSession();
+    var primary = new WindowsAudioPlayer();
+    var secondary = new WindowsAudioPlayer();
+    var player = new MusicPlayer(session) { UiActive = false };
+    player.AttachDecks(primary, secondary);
+    await player.PlayAsync(tracks[1], [tracks[1], tracks[3]]);
+    primary.Tick(24);
+    secondary.Tick(.1);
+    await Task.Delay(90);
+    secondary.Tick(4);
+    await Task.Delay(90);
+    Check(player.NotificationPlayback.Track?.Id == tracks[3].Id, "Incoming notification never appeared");
+    secondary.RaiseFailed();
+    await Task.Delay(90);
+    Check(!player.Crossfading && player.NotificationPlayback.Track?.Id == tracks[1].Id
+        && player.NotificationPlayback.Position == primary.Position, "Failed mix left the wrong song on Android controls");
 }
 {
     var session = new MusicSession(); var primary = new WindowsAudioPlayer(); var secondary = new WindowsAudioPlayer();

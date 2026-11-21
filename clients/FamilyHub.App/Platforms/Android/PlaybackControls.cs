@@ -29,14 +29,16 @@ internal sealed class PlaybackControls
     private readonly MusicPlayer player;
     private readonly MusicSession session;
     private readonly MediaSession media;
-    private string? artworkFor;
+    private (string Account, string Id)? artworkFor;
+    private CancellationTokenSource? artworkLoad;
     private Bitmap? artwork;
     private PlaybackStateCode lastState = Unknown;
     private PublishedMetadata? lastMetadata;
     private long lastActions, lastControlRevision = -1, lastSeekRevision = -1;
+    private long publicationVersion, trackVersion;
     private bool lastShuffle;
 
-    private sealed record PublishedMetadata(string Id, string Title, string Artist, string? Album, long Duration, Bitmap? Artwork);
+    private sealed record PublishedMetadata(string Account, string Id, string Title, string Artist, string? Album, long Duration, Bitmap? Artwork);
 
     private PlaybackControls(Context context, MusicPlayer player, MusicSession session)
     {
@@ -57,77 +59,201 @@ internal sealed class PlaybackControls
     private void Update()
     {
         if (!MainThread.IsMainThread) { MainThread.BeginInvokeOnMainThread(Update); return; }
-        var track = player.RemoteActive ? null : player.Current;
+        var playback = player.NotificationPlayback;
+        var track = playback.Track;
         if (track is null)
         {
+            if (lastMetadata is null) return;
             media.Active = false;
+            media.SetMetadata(null);
             PlaybackService.Clear(context);
+            publicationVersion++; trackVersion++;
             lastState = Unknown; lastMetadata = null;
+            artworkLoad?.Cancel();
+            artworkFor = null;
+            artwork?.Dispose();
+            artwork = null;
             return;
         }
-        var state = player.Playing ? PlaybackStateCode.Playing
-            : player.PlaybackRequested && player.Preparing ? PlaybackStateCode.Buffering : PlaybackStateCode.Paused;
+        var state = playback.Playing ? PlaybackStateCode.Playing
+            : playback.Preparing ? PlaybackStateCode.Buffering : PlaybackStateCode.Paused;
         var actions = PlaybackState.ActionPlay | PlaybackState.ActionPause | PlaybackState.ActionPlayPause | PlaybackState.ActionStop;
         // A Listen Together guest follows the host and cannot skip or seek.
-        if (!player.FollowingHost) actions |= PlaybackState.ActionSkipToNext | PlaybackState.ActionSkipToPrevious | (player.CanSeek ? PlaybackState.ActionSeekTo : 0);
+        if (!player.FollowingHost) actions |= PlaybackState.ActionSkipToNext | PlaybackState.ActionSkipToPrevious | (playback.CanSeek ? PlaybackState.ActionSeekTo : 0);
         var mixIcon = player.Shuffle ? Resource.Drawable.shuffle_on : Resource.Drawable.shuffle_off;
-        var duration = (long)(Math.Max(player.Duration, track.Duration) * 1000);
-        var current = new PublishedMetadata(track.Id, track.Title, track.Channel, track.LibraryAlbum, duration,
-            artworkFor == track.Id ? artwork : null);
-        var trackChanged = current.Id != lastMetadata?.Id;
+        var duration = (long)(Math.Max(playback.Duration, track.Duration) * 1000);
+        var identity = (Account: session.ArtworkScope, track.Id);
+        var current = new PublishedMetadata(identity.Account, track.Id, track.Title, track.Channel, track.LibraryAlbum, duration,
+            artworkFor == identity ? artwork : null);
+        var trackChanged = current.Id != lastMetadata?.Id || current.Account != lastMetadata?.Account;
         var metadataChanged = current != lastMetadata;
+        var artworkChanged = current.Artwork is not null && current.Artwork != lastMetadata?.Artwork;
 
         if (metadataChanged)
         {
-            using var metadata = new MediaMetadata.Builder();
-            metadata.PutString(MediaMetadata.MetadataKeyMediaId, current.Id);
-            metadata.PutString(MediaMetadata.MetadataKeyTitle, current.Title);
-            metadata.PutString(MediaMetadata.MetadataKeyArtist, current.Artist);
-            metadata.PutString(MediaMetadata.MetadataKeyAlbum, current.Album);
-            metadata.PutLong(MediaMetadata.MetadataKeyDuration, current.Duration);
-            if (current.Artwork is { } image) metadata.PutBitmap(MediaMetadata.MetadataKeyAlbumArt, image);
-            media.SetMetadata(metadata.Build());
+            PublishMetadata(current);
             lastMetadata = current;
         }
         if ((!player.Seeking || trackChanged) && (state != lastState || actions != lastActions || trackChanged
             || player.ControlRevision != lastControlRevision || player.SeekRevision != lastSeekRevision || player.Shuffle != lastShuffle))
         {
-            using var playback = new PlaybackState.Builder();
-            playback.SetActions(actions);
-            playback.AddCustomAction(ActionMix, player.Shuffle ? "Mix on" : "Mix off", mixIcon);
-            playback.SetState(state, (long)(player.Position * 1000), player.Playing ? 1f : 0f, SystemClock.ElapsedRealtime());
-            media.SetPlaybackState(playback.Build());
+            using var playbackState = new PlaybackState.Builder();
+            playbackState.SetActions(actions);
+            playbackState.AddCustomAction(ActionMix, player.Shuffle ? "Mix on" : "Mix off", mixIcon);
+            playbackState.SetState(state, (long)(playback.Position * 1000), playback.Playing ? 1f : 0f, SystemClock.ElapsedRealtime());
+            media.SetPlaybackState(playbackState.Build());
             lastActions = actions; lastControlRevision = player.ControlRevision; lastSeekRevision = player.SeekRevision;
         }
         media.Active = true;
-        if (state != lastState || metadataChanged || player.Shuffle != lastShuffle || !PlaybackService.IsStarted)
-        { lastState = state; lastShuffle = player.Shuffle; ShowNotification(current, state); }
-        if (trackChanged) _ = LoadArtwork(track);
+        if (state != lastState || metadataChanged || player.Shuffle != lastShuffle)
+        {
+            var reason = !trackChanged && artworkChanged ? "Artwork updated" :
+                state switch { PlaybackStateCode.Playing => "Playing", PlaybackStateCode.Buffering => "Preparing", _ => "Paused" };
+            lastState = state;
+            lastShuffle = player.Shuffle;
+            PublishNotification(current, track, state, playback.Position, reason, ++publicationVersion, retry: true);
+        }
+        if (trackChanged)
+        {
+            _ = VerifyNotificationAsync(track, identity.Account, ++trackVersion);
+            artworkLoad?.Cancel();
+            if (artworkFor != identity)
+            {
+                var pending = new CancellationTokenSource();
+                artworkLoad = pending;
+                _ = LoadArtwork(track, identity, pending);
+            }
+        }
     }
 
-    private async Task LoadArtwork(MusicTrack track)
+    private async Task LoadArtwork(MusicTrack track, (string Account, string Id) identity, CancellationTokenSource pending)
     {
         try
         {
-            var uri = await session.GetArtworkAsync(track);
+            var uri = await session.GetArtworkAsync(track, pending.Token);
             var comma = uri?.IndexOf(',') ?? -1;
-            if (comma < 0 || player.Current?.Id != track.Id) return;
+            if (comma < 0 || pending.IsCancellationRequested) return;
             var bytes = Convert.FromBase64String(uri![(comma + 1)..]);
-            var bitmap = await BitmapFactory.DecodeByteArrayAsync(bytes, 0, bytes.Length);
+            var bitmap = await Task.Run(() => DecodeArtwork(bytes), pending.Token);
             if (bitmap is null) return;
-            if (player.RemoteActive || player.Current?.Id != track.Id) { bitmap.Dispose(); return; }
-            artwork?.Dispose();
-            artwork = bitmap; artworkFor = track.Id;
-            MainThread.BeginInvokeOnMainThread(Update);
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                if (pending.IsCancellationRequested || player.NotificationPlayback.Track?.Id != identity.Id || session.ArtworkScope != identity.Account)
+                { bitmap.Dispose(); return; }
+                var previous = artwork;
+                artwork = bitmap; artworkFor = identity;
+                Update();
+                previous?.Dispose();
+            });
         }
-        catch (Exception) { /* The song plays without lock-screen artwork. */ }
+        catch (Exception error) when (error is System.OperationCanceledException or FormatException or IOException or HttpRequestException
+            or FamilyHubApiException or UnauthorizedAccessException or Java.Lang.RuntimeException) { }
+        finally
+        {
+            if (ReferenceEquals(artworkLoad, pending)) artworkLoad = null;
+            pending.Dispose();
+        }
+    }
+
+    private static Bitmap? DecodeArtwork(byte[] bytes)
+    {
+        using var options = new BitmapFactory.Options { InJustDecodeBounds = true };
+        BitmapFactory.DecodeByteArray(bytes, 0, bytes.Length, options)?.Dispose();
+        var size = Math.Max(options.OutWidth, options.OutHeight);
+        if (size <= 0) return null;
+        // The lock screen needs a small bitmap. Bound the pixels sent with session metadata and notifications.
+        options.InSampleSize = 1;
+        while (size / options.InSampleSize > 384) options.InSampleSize *= 2;
+        options.InJustDecodeBounds = false;
+        return BitmapFactory.DecodeByteArray(bytes, 0, bytes.Length, options);
     }
 
     private Notification.Action Action(int icon, string title, string action) =>
         new Notification.Action.Builder(Icon.CreateWithResource(context, icon), title,
             PendingIntent.GetService(context, action.GetHashCode(), new Intent(context, typeof(PlaybackService)).SetAction(action), PendingIntentFlags.Immutable)).Build();
 
-    private void ShowNotification(PublishedMetadata track, PlaybackStateCode state)
+    private void PublishNotification(PublishedMetadata metadata, MusicTrack track, PlaybackStateCode state,
+        double position, string reason, long version, bool retry)
+    {
+        if (version != publicationVersion || player.NotificationPlayback.Track?.Id != track.Id || session.ArtworkScope != metadata.Account)
+            return;
+        void Report(bool published)
+        {
+            if (version != publicationVersion || player.NotificationPlayback.Track?.Id != track.Id || session.ArtworkScope != metadata.Account)
+                return;
+            player.TraceNotification(published ? "notification_published" : "notification_failed", track, position,
+                published ? reason : "Android could not post the notification");
+            if (!published && retry) _ = RetryNotificationAsync(metadata, track, state, position, reason, version);
+        }
+        try { ShowNotification(metadata, state, Report); }
+        catch (Java.Lang.RuntimeException) { Report(false); }
+    }
+
+    private async Task RetryNotificationAsync(PublishedMetadata metadata, MusicTrack track, PlaybackStateCode state,
+        double position, string reason, long version)
+    {
+        await Task.Delay(750);
+        await MainThread.InvokeOnMainThreadAsync(() => PublishNotification(metadata, track, state, position, reason, version, retry: false));
+    }
+
+    private void PublishMetadata(PublishedMetadata current)
+    {
+        using var metadata = new MediaMetadata.Builder();
+        metadata.PutString(MediaMetadata.MetadataKeyMediaId, current.Id);
+        metadata.PutString(MediaMetadata.MetadataKeyTitle, current.Title);
+        metadata.PutString(MediaMetadata.MetadataKeyDisplayTitle, current.Title);
+        metadata.PutString(MediaMetadata.MetadataKeyArtist, current.Artist);
+        metadata.PutString(MediaMetadata.MetadataKeyDisplaySubtitle, current.Artist);
+        metadata.PutString(MediaMetadata.MetadataKeyAlbum, current.Album);
+        metadata.PutLong(MediaMetadata.MetadataKeyDuration, current.Duration);
+        if (current.Artwork is { } image) metadata.PutBitmap(MediaMetadata.MetadataKeyAlbumArt, image);
+        media.SetMetadata(metadata.Build());
+    }
+
+    private async Task VerifyNotificationAsync(MusicTrack track, string account, long version, bool repair = true)
+    {
+        await Task.Delay(1250);
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            var playback = player.NotificationPlayback;
+            if (version != trackVersion || playback.Track?.Id != track.Id || session.ArtworkScope != account) return;
+            string? failure;
+            try
+            {
+                using var metadata = media.Controller.Metadata;
+                if (metadata?.GetString(MediaMetadata.MetadataKeyMediaId) != track.Id ||
+                    metadata?.GetString(MediaMetadata.MetadataKeyTitle) != playback.Track.Title)
+                    failure = "Android media session title or song did not match";
+                else
+                {
+                    var manager = (NotificationManager?)context.GetSystemService(Context.NotificationService);
+                    var active = manager?.GetActiveNotifications()?.FirstOrDefault(item => item.Id == NotificationId);
+                    var title = active?.Notification?.Extras?.GetCharSequence(Notification.ExtraTitle)?.ToString();
+                    failure = active is null ? "Android had no active media notification"
+                        : title != playback.Track.Title ? "Android notification title did not match" : null;
+                }
+            }
+            catch (Java.Lang.RuntimeException)
+            {
+                player.TraceNotification("notification_unavailable", track, playback.Position);
+                return;
+            }
+            player.TraceNotification(failure is null ? "notification_verified" : "notification_mismatch", track, playback.Position,
+                failure);
+            if (failure is not null && repair && playback.Playing && lastMetadata is { } current)
+            {
+                try
+                {
+                    PublishMetadata(current);
+                    PublishNotification(current, track, lastState, playback.Position, "Retried title update", ++publicationVersion, retry: false);
+                    _ = VerifyNotificationAsync(track, account, version, repair: false);
+                }
+                catch (Java.Lang.RuntimeException) { player.TraceNotification("notification_failed", track, playback.Position); }
+            }
+        });
+    }
+
+    private void ShowNotification(PublishedMetadata track, PlaybackStateCode state, Action<bool> published)
     {
         var playing = state is PlaybackStateCode.Playing or PlaybackStateCode.Buffering;
         using var builder = new Notification.Builder(context, Channel);
@@ -141,10 +267,15 @@ internal sealed class PlaybackControls
             .AddAction(Action(Android.Resource.Drawable.IcMediaPrevious, "Previous", ActionPrevious))
             .AddAction(Action(playing ? Android.Resource.Drawable.IcMediaPause : Android.Resource.Drawable.IcMediaPlay, playing ? "Pause" : "Play", playing ? ActionPause : ActionPlay))
             .AddAction(Action(Android.Resource.Drawable.IcMediaNext, "Next", ActionNext))
-            .AddAction(Action(player.Shuffle ? Resource.Drawable.shuffle_on : Resource.Drawable.shuffle_off, "Mix", ActionMix))
-            .SetStyle(new Notification.MediaStyle().SetMediaSession(media.SessionToken).SetShowActionsInCompactView(0, 1, 2));
+            .AddAction(Action(player.Shuffle ? Resource.Drawable.shuffle_on : Resource.Drawable.shuffle_off, "Mix", ActionMix));
+        using var style = new Notification.MediaStyle();
+        style.SetMediaSession(media.SessionToken);
+        style.SetShowActionsInCompactView(0, 1, 2);
+        builder.SetStyle(style);
         if (track.Artwork is { } image) builder.SetLargeIcon(image);
-        PlaybackService.Show(context, builder.Build(), playing);
+        if (OperatingSystem.IsAndroidVersionAtLeast(31))
+            builder.SetForegroundServiceBehavior((int)NotificationForegroundService.Immediate);
+        PlaybackService.Show(context, builder.Build(), playing, published);
     }
 
     internal void Handle(string? action)
@@ -183,15 +314,19 @@ internal sealed class PlaybackControls
 [Service(Exported = false, ForegroundServiceType = Android.Content.PM.ForegroundService.TypeMediaPlayback)]
 internal sealed class PlaybackService : Service
 {
-    private static (Notification Notification, bool Playing)? latest;
+    private sealed record Publication(Notification Notification, bool Playing, Action<bool> Report);
+    private static Publication? latest;
     private static bool starting;
     private static PlaybackService? running;
+    private Publication? published;
+    private bool foreground;
     internal static bool IsStarted => starting || running is not null;
 
-    internal static void Show(Context context, Notification notification, bool playing)
+    internal static void Show(Context context, Notification notification, bool playing, Action<bool> report)
     {
-        latest = (notification, playing);
-        if (running is { } service) service.Refresh(notification, playing);
+        var pending = new Publication(notification, playing, report);
+        latest = pending;
+        if (running is { } service) service.Refresh(pending);
         else if (!starting)
         {
             try
@@ -199,9 +334,10 @@ internal sealed class PlaybackService : Service
                 context.StartForegroundService(new Intent(context, typeof(PlaybackService)));
                 starting = true;
             }
-            catch (Java.Lang.IllegalStateException error)
+            catch (Java.Lang.RuntimeException error)
             {
                 Android.Util.Log.Warn("FamilyHub", $"Playback service could not start: {error.GetType().Name}");
+                report(false);
             }
         }
     }
@@ -220,12 +356,12 @@ internal sealed class PlaybackService : Service
 
     public override StartCommandResult OnStartCommand(Intent? intent, StartCommandFlags flags, int startId)
     {
+        var enterForeground = starting;
         starting = false;
         if (latest is { } pending)
         {
             running = this;
-            EnterForeground(pending.Notification);
-            if (!pending.Playing) Refresh(pending.Notification, false);
+            if (!Refresh(pending, enterForeground) && enterForeground) StopSelf(startId);
             PlaybackControls.Current?.Handle(intent?.Action);
         }
         else StopSelf(startId);
@@ -233,13 +369,39 @@ internal sealed class PlaybackService : Service
     }
 
     // Paused: the notification stays but can be swiped away; playing: it stays in the foreground.
-    private void Refresh(Notification notification, bool playing)
+    private bool Refresh(Publication pending, bool enterForeground = false)
     {
-        if (playing) EnterForeground(notification);
-        else
+        if (!enterForeground && ReferenceEquals(pending, published)) return true;
+        try
         {
-            StopForeground(StopForegroundFlags.Detach);
-            (GetSystemService(NotificationService) as NotificationManager)?.Notify(PlaybackControls.NotificationId, notification);
+            if (enterForeground || pending.Playing && !foreground)
+            {
+                EnterForeground(pending.Notification);
+                foreground = true;
+                if (pending.Playing)
+                {
+                    published = pending;
+                    pending.Report(true);
+                    return true;
+                }
+            }
+            var notifications = (NotificationManager?)GetSystemService(NotificationService);
+            if (notifications is null) { pending.Report(false); return false; }
+            if (!pending.Playing && foreground)
+            {
+                StopForeground(StopForegroundFlags.Detach);
+                foreground = false;
+            }
+            notifications.Notify(PlaybackControls.NotificationId, pending.Notification);
+            published = pending;
+            pending.Report(true);
+            return true;
+        }
+        catch (Java.Lang.RuntimeException error)
+        {
+            Android.Util.Log.Warn("FamilyHub", $"Playback notification could not be published: {error.GetType().Name}");
+            pending.Report(false);
+            return false;
         }
     }
 

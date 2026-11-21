@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory)][string]$CurrentTitle,
     [Parameter(Mandatory)][string]$NextTitle,
     [string]$Adb = 'adb',
-    [string]$Serial
+    [string]$Serial,
+    [switch]$AutoDj
 )
 
 # With two tracks queued on a test device, start the first track and run this check.
@@ -19,8 +20,8 @@ function Read-Adb {
 }
 
 function Wait-ForTrack {
-    param([string]$Title, [int]$State = 3, [int]$MinimumPosition = 0)
-    $deadline = (Get-Date).AddSeconds(30)
+    param([string]$Title, [int]$State = 3, [int]$MinimumPosition = 0, [int]$TimeoutSeconds = 30)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
         $sessions = @(Read-Adb shell cmd media_session list-sessions | Where-Object { $_ -match "package=$([regex]::Escape($package))\s*$" })
         if ($sessions.Count -gt 1) { throw 'FamilyHub published multiple Android media sessions.' }
@@ -30,7 +31,13 @@ function Wait-ForTrack {
             if ($record.Success -and $record.Value -match "(?m)metadata: size=\d+, description=$([regex]::Escape($Title))(?:,|$)" -and
                 $record.Value -match "state=PlaybackState \{state=$State,\s*position=(\d+)") {
                 $position = [long]$Matches[1]
-                if ($position -ge $MinimumPosition) { return $position }
+                if ($position -ge $MinimumPosition) {
+                    $posted = (Read-Adb shell dumpsys notification --noredact) -join "`n"
+                    $entry = [regex]::Match($posted, '(?ms)^\s*NotificationRecord\([^\n]*\bpkg=org\.familyhub\.music\s[^\n]*\bid=4101\b[^\n]*\n(?<body>.*?)(?=^\s*NotificationRecord\(|^  \S|\z)')
+                    if ($entry.Success -and $entry.Groups['body'].Value -match "(?m)^\s*android\.title=String \($([regex]::Escape($Title))\)\s*$") {
+                        return $position
+                    }
+                }
             }
         }
         Start-Sleep -Milliseconds 500
@@ -46,8 +53,13 @@ Read-Adb shell cmd media_session dispatch pause | Out-Null
 $pausedAt = Wait-ForTrack $CurrentTitle -State 2 -MinimumPosition 2000
 Read-Adb shell cmd media_session dispatch play | Out-Null
 Wait-ForTrack $CurrentTitle -MinimumPosition ($pausedAt - 1000) | Out-Null
-Read-Adb shell cmd media_session dispatch next | Out-Null
-Wait-ForTrack $NextTitle | Out-Null
+if ($AutoDj) {
+    # Leave playback running so Auto DJ promotes the standby deck on its own.
+    Wait-ForTrack $NextTitle -TimeoutSeconds 600 | Out-Null
+} else {
+    Read-Adb shell cmd media_session dispatch next | Out-Null
+    Wait-ForTrack $NextTitle | Out-Null
+}
 Read-Adb shell cmd media_session dispatch previous | Out-Null
 Wait-ForTrack $CurrentTitle | Out-Null
 Write-Output 'PASS: Android media controls resumed at the checkpoint and published both tracks.'
