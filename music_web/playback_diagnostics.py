@@ -14,7 +14,7 @@ CLIENT_STAGES = frozenset({
 NATIVE_STAGES = frozenset({
     "background", "foreground", "early_end", "native_ended", "buffering", "native_buffering",
     "buffer_recovered", "native_ready", "unexpected_pause", "native_paused", "native_suppressed",
-    "player_error", "native_error", "interrupted",
+    "player_error", "native_error", "interrupted", "resume_seek", "resume_applied", "resume_failed",
 })
 
 # AndroidX Media3 1.8 PlaybackException names. Never retain free-form player or network errors.

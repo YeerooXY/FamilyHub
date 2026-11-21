@@ -118,6 +118,10 @@ class ListenerAdmissionTests(Base):
         self.assertEqual(events[-2], {'stage': 'client_native_error', 'client_ms': 50, 'position_ms': 49050,
                                       'reason': 'ERROR_CODE_TIMEOUT'})
         self.assertEqual(events[-1], {'stage': 'client_native_error', 'client_ms': 51, 'position_ms': 49051})
+        for stage in ('resume_seek', 'resume_failed', 'resume_applied'):
+            self.assertEqual(report(stage, 750, position_ms=50400).status_code, 200)
+            latest = self.go(client, 'GET', endpoint).json['actions'][0]['events'][-1]
+            self.assertEqual(latest, {'stage': 'client_' + stage, 'client_ms': 750, 'position_ms': 50400})
         self.assertEqual(self.go(other, 'GET', endpoint).json['actions'], [])
 
     def test_background_download_promotes_a_completed_preview_to_an_import(self):

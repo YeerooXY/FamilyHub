@@ -22,6 +22,10 @@ internal sealed class MauiAudioDeck : IAudioDeck
     public bool PlaybackRequested { get; private set; }
     public bool Playing => media.CurrentState == MediaElementState.Playing;
     public double Position => media.Position.TotalSeconds;
+#if ANDROID
+    public double SeekPosition => AudioRouting.Player(media)?.CurrentPosition is >= 0 and var milliseconds
+        ? milliseconds / 1000d : Position;
+#endif
     public double Duration => media.Duration.TotalSeconds;
     public double Volume { get => media.Volume; set => media.Volume = value; }
     public bool TransportEnabled { set { } }

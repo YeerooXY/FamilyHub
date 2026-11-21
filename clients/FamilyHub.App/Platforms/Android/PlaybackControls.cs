@@ -20,6 +20,7 @@ internal sealed class PlaybackControls
     internal const string Channel = "playback";
     internal const int NotificationId = 4101;
     internal const string ActionMix = "org.familyhub.music.mix", ActionPrevious = "org.familyhub.music.previous", ActionToggle = "org.familyhub.music.toggle", ActionNext = "org.familyhub.music.next";
+    internal const string ActionPlay = "org.familyhub.music.play", ActionPause = "org.familyhub.music.pause";
     private const PlaybackStateCode Unknown = PlaybackStateCode.None;
 
     internal static PlaybackControls? Current { get; private set; }
@@ -138,7 +139,7 @@ internal sealed class PlaybackControls
             .SetOngoing(playing)
             .SetContentIntent(media.Controller.SessionActivity)
             .AddAction(Action(Android.Resource.Drawable.IcMediaPrevious, "Previous", ActionPrevious))
-            .AddAction(Action(playing ? Android.Resource.Drawable.IcMediaPause : Android.Resource.Drawable.IcMediaPlay, playing ? "Pause" : "Play", ActionToggle))
+            .AddAction(Action(playing ? Android.Resource.Drawable.IcMediaPause : Android.Resource.Drawable.IcMediaPlay, playing ? "Pause" : "Play", playing ? ActionPause : ActionPlay))
             .AddAction(Action(Android.Resource.Drawable.IcMediaNext, "Next", ActionNext))
             .AddAction(Action(player.Shuffle ? Resource.Drawable.shuffle_on : Resource.Drawable.shuffle_off, "Mix", ActionMix))
             .SetStyle(new Notification.MediaStyle().SetMediaSession(media.SessionToken).SetShowActionsInCompactView(0, 1, 2));
@@ -154,6 +155,8 @@ internal sealed class PlaybackControls
             ActionPrevious => Run(player.PreviousAsync),
             ActionNext => Run(player.NextAsync),
             ActionToggle => Run(player.ToggleAsync),
+            ActionPlay => Run(() => player.SetTransportPlayingAsync(true)),
+            ActionPause => Run(() => player.SetTransportPlayingAsync(false)),
             _ => Task.CompletedTask,
         };
     }
@@ -167,11 +170,11 @@ internal sealed class PlaybackControls
     private sealed class Callbacks(PlaybackControls owner) : MediaSession.Callback
     {
         public override void OnCustomAction(string? action, Bundle? extras) => owner.Handle(action);
-        public override void OnPlay() { if (!owner.player.PlaybackRequested) owner.Handle(ActionToggle); }
-        public override void OnPause() { if (owner.player.PlaybackRequested) owner.Handle(ActionToggle); }
+        public override void OnPlay() => owner.Handle(ActionPlay);
+        public override void OnPause() => owner.Handle(ActionPause);
         public override void OnSkipToNext() => owner.Handle(ActionNext);
         public override void OnSkipToPrevious() => owner.Handle(ActionPrevious);
-        public override void OnStop() { if (owner.player.PlaybackRequested) owner.Handle(ActionToggle); }
+        public override void OnStop() => owner.Handle(ActionPause);
         public override void OnSeekTo(long pos) => _ = Run(() => owner.player.SeekAsync(pos / 1000.0));
     }
 }

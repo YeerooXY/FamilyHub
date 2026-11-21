@@ -198,6 +198,9 @@
         "native_suppressed" => "The phone suspended audio playback",
         "player_error" or "native_error" => "Audio player reported an error",
         "interrupted" => "Playback interrupted",
+        "resume_seek" => "Requested the saved position",
+        "resume_applied" => "Player reached the saved position",
+        "resume_failed" => "Player could not reach the saved position",
         _ => "Player state changed"
     };
 
@@ -273,7 +276,7 @@
     }
 
     private static bool IsInterruption(string stage) => stage is "early_end" or "interrupted" or "unexpected_pause"
-        or "native_paused" or "native_suppressed" or "native_error" or "player_error";
+        or "native_paused" or "native_suppressed" or "native_error" or "player_error" or "resume_failed";
 
     public void Dispose() { lifetime.Cancel(); lifetime.Dispose(); }
 }

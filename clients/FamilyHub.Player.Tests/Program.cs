@@ -185,6 +185,49 @@ for (var run = 0; run < 100; run++)
         "Play after a terminal failure restarted the song at zero");
 }
 {
+    var session = new MusicSession();
+    var primary = new WindowsAudioPlayer { LocalDuration = 180 };
+    var player = new MusicPlayer(session);
+    player.AttachDecks(primary, null);
+    await player.PlayAsync(tracks[0] with { Duration = 180 });
+    primary.Tick(35);
+    primary.SuspendWithoutFailure();
+    Check(player.PlaybackInterrupted, "An unexpected native stop was mistaken for user pause");
+    primary.IgnoreNextSeek = true;
+    await player.SetTransportPlayingAsync(true);
+    Check(!player.Playing && primary.StartedAt is null && player.CaptureResume()?.Position == 35,
+        "An unconfirmed native seek started playback or discarded the checkpoint");
+    var failed = session.Stages.Last(entry => entry.Stage == "play").Action;
+    Check(session.Observations.Contains((failed, "resume_seek", 35)) &&
+        session.Observations.Contains((failed, "resume_failed", 35)), "Resume telemetry lost the failed checkpoint");
+    await player.SetTransportPlayingAsync(true);
+    await player.SetTransportPlayingAsync(true);
+    Check(player.Playing && primary.StartedAt == 35,
+        "Play after an unconfirmed native seek restarted at zero");
+    var retried = session.Stages.Last(entry => entry.Stage == "play").Action;
+    Check(session.Observations.Contains((retried, "resume_applied", 35)), "Resume telemetry lost the confirmed position");
+    primary.Tick(1);
+    await player.SetTransportPlayingAsync(false);
+    await player.SetTransportPlayingAsync(false);
+    Check(!player.PlaybackRequested && player.Position == 36, "Duplicate Pause restarted playback or lost a deliberate pause");
+    await player.SetTransportPlayingAsync(true);
+    Check(player.Playing && player.Position == 36, "Play from deliberate pause reloaded the source");
+    primary.SuspendWithoutFailure();
+    await player.SetTransportPlayingAsync(false);
+    Check(!player.PlaybackRequested && !player.Playing && player.CaptureResume()?.Position == 36,
+        "Explicit Pause after an interruption restarted playback or lost its checkpoint");
+}
+{
+    var (session, player) = Setup();
+    await player.PlayAsync(tracks[0]);
+    var primary = WindowsAudioPlayer.Last!;
+    primary.Tick(.25);
+    primary.Tick(29.707);
+    primary.SuspendWithoutFailure();
+    Check(!player.PlaybackInterrupted && !session.Observations.Any(row => row.Stage == "unexpected_pause"),
+        "A position 43 ms before the natural end was reported as an unexpected pause");
+}
+{
     var (session, player) = Setup();
     await player.PlayAsync(tracks[0], tracks);
     var native = WindowsAudioPlayer.Last!;
@@ -695,7 +738,8 @@ namespace FamilyHub.App.Services
         public event Action? Changed;
         public event Action? Ended;
         public event Action<string>? Failed;
-        public bool Playing => PlaybackRequested;
+        private bool suspended;
+        public bool Playing => PlaybackRequested && !suspended;
         public bool HoldOpening { get; set; }
         public bool Opening => HoldOpening;
         public bool PlaybackRequested { get; private set; }
@@ -710,7 +754,13 @@ namespace FamilyHub.App.Services
         public double PlaybackRate { get; set; } = 1;
         public int Seeks { get; private set; }
         public bool TransportEnabled { private get; set; }
-        public Task SeekAsync(double seconds) { Seek(seconds); return Task.CompletedTask; }
+        public bool IgnoreNextSeek { get; set; }
+        public Task SeekAsync(double seconds)
+        {
+            if (IgnoreNextSeek) IgnoreNextSeek = false;
+            else Seek(seconds);
+            return Task.CompletedTask;
+        }
         public int Refreshes { get; private set; }
         public void RefreshPosition() => Refreshes++;
         public void PlayFile(string path, string title, string artist, bool play = true, bool background = false)
@@ -721,6 +771,7 @@ namespace FamilyHub.App.Services
         public void SetPlaying(bool play)
         {
             if (play) StartedAt ??= Position;
+            suspended = false;
             PlaybackRequested = play; Changed?.Invoke();
         }
         public void RaiseEnded() => Ended?.Invoke();
@@ -732,6 +783,11 @@ namespace FamilyHub.App.Services
         }
         public void Seek(double seconds) { Position = seconds; Seeks++; Changed?.Invoke(); }
         public void Tick(double seconds) { Position += seconds * PlaybackRate; Changed?.Invoke(); }
+        public void SuspendWithoutFailure()
+        {
+            Position = 0; Changed?.Invoke();
+            suspended = true; Changed?.Invoke();
+        }
         public void Stop() { Title = null; Path = null; PlaybackRequested = false; Changed?.Invoke(); }
     }
 }

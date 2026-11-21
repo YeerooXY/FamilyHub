@@ -9,6 +9,7 @@ public interface IAudioDeck
     bool PlaybackRequested { get; }
     bool Playing { get; }
     double Position { get; }
+    double SeekPosition => Position;
     double Duration { get; }
     double Volume { get; set; }
     bool TransportEnabled { set; }

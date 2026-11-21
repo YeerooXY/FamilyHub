@@ -280,6 +280,8 @@ public sealed class MusicPlayer(MusicSession session)
     public bool PlaybackRequested { get; private set; }
     public bool Preparing => preparing || (deck?.Opening ?? false);
     public bool Playing => deck?.Playing ?? false;
+    internal bool PlaybackInterrupted => PlaybackRequested && sourceReady && !Playing && !Preparing && !Seeking
+        && !resumeStartPending && lastListeningPosition > 0 && deck is { } owner && !AtTrackEnd(owner, TracePosition(owner));
     public double Position => (!sourceReady || resumeStartPending) && resumePosition is { } saved
         ? RemoteActive && RemotePlaying ? Math.Min(saved + Math.Min(remoteValidFor, System.Diagnostics.Stopwatch.GetElapsedTime(remoteAt).TotalSeconds),
             remoteDuration > 0 ? remoteDuration : Current?.Duration is > 0 and var length ? length : double.MaxValue) : saved
@@ -320,13 +322,23 @@ public sealed class MusicPlayer(MusicSession session)
         if (resumePosition is not { } position || !sourceReady || preparing || Seeking
             || deck is not { } owner || owner.Opening || owner.Duration <= 0) return;
         var version = requestVersion;
-        try { await SeekDeckAsync(Math.Clamp(position, 0, owner.Duration)); }
-        catch (Exception error) when (error is IOException or InvalidOperationException or OperationCanceledException)
+        TracePlayback(owner, "resume_seek", position);
+        try
         {
-            if (version == requestVersion && ReferenceEquals(deck, owner)) HandleDeckFailure(owner);
+            if (position > owner.Duration + .5) throw new InvalidOperationException("The saved position is outside this audio source.");
+            await SeekDeckAsync(Math.Clamp(position, 0, Math.Max(0, owner.Duration - .25)), confirm: true);
+        }
+        catch (Exception error) when (error is IOException or InvalidOperationException or OperationCanceledException or TimeoutException)
+        {
+            if (version == requestVersion && ReferenceEquals(deck, owner))
+            {
+                TracePlayback(owner, "resume_failed", position);
+                HandleDeckFailure(owner);
+            }
             return;
         }
         if (version != requestVersion || !ReferenceEquals(deck, owner) || !sourceReady) return;
+        TracePlayback(owner, "resume_applied", owner.SeekPosition);
         resumePosition = null;
         if (resumeStartPending)
         {
@@ -425,6 +437,12 @@ public sealed class MusicPlayer(MusicSession session)
 
     private double TracePosition(IAudioDeck owner) => Math.Max(owner.Position, lastListeningPosition);
 
+    private bool AtTrackEnd(IAudioDeck owner, double position)
+    {
+        var duration = Math.Max(owner.Duration, Current?.Duration ?? 0);
+        return duration > 0 && position >= duration - Math.Min(.5, duration * .05);
+    }
+
     private static string PlaybackStateLabel(IAudioDeck owner) => owner.Opening ? "Buffering" : owner.Playing ? "Playing" : "Paused";
 
     private void TracePlayback(IAudioDeck owner, string stage, double position, string? reason = null)
@@ -443,9 +461,10 @@ public sealed class MusicPlayer(MusicSession session)
             TracePlayback(owner, "buffer_recovered", position);
         action.WasBuffering = owner.Opening;
         var started = action.Stages.Contains("position_advanced") || action.Stages.Contains("fallback_position_advanced");
-        if (started && !owner.Opening && !owner.Playing && !action.UnexpectedPause)
+        var interrupted = started && !owner.Opening && !owner.Playing && !AtTrackEnd(owner, position);
+        if (interrupted && !action.UnexpectedPause)
             TracePlayback(owner, "unexpected_pause", position);
-        action.UnexpectedPause = started && !owner.Opening && !owner.Playing;
+        action.UnexpectedPause = interrupted;
         var now = Environment.TickCount64;
         if (owner.Playing && now - action.LastCheckpointAt >= 5000)
         {
@@ -463,8 +482,7 @@ public sealed class MusicPlayer(MusicSession session)
             if (!sourceReady || RemoteActive) return;
             TracePlayback(owner, "interrupted", TracePosition(owner));
             if (streamed) Report(action, "stream_failed");
-            var checkpoint = Math.Max(Math.Max(Position, lastListeningPosition), resumePosition ?? 0);
-            resumePosition = checkpoint > 0 ? checkpoint : null;
+            SaveInterruptedPosition();
             if (streamed && PlaybackRequested && Current is { } current && action?.Fallback != true)
             {
                 sourceReady = false;
@@ -489,6 +507,12 @@ public sealed class MusicPlayer(MusicSession session)
             session.PinUpcomingPlayback(null);
             if (!blending && !receivingHandoff) owner.Stop();
         }
+    }
+
+    private void SaveInterruptedPosition()
+    {
+        var checkpoint = Math.Max(Math.Max(Position, lastListeningPosition), resumePosition ?? 0);
+        resumePosition = checkpoint > 0 ? checkpoint : null;
     }
     private async Task RecoverPlaybackAsync(MusicTrack track, PlayAction? action, bool alternatePreview)
     {
@@ -521,7 +545,7 @@ public sealed class MusicPlayer(MusicSession session)
         var position = Position;
         var elapsed = position - lastListeningPosition;
         // A native source can reset its position before reporting that it stopped.
-        if (position > 0 || Playing) lastListeningPosition = position;
+        if (sourceReady && position > 0) lastListeningPosition = position;
         var now = Environment.TickCount64;
         var sampleSeconds = (now - lastListeningSample) / 1000d;
         lastListeningSample = now;
@@ -974,21 +998,27 @@ public sealed class MusicPlayer(MusicSession session)
         return true;
     }
     public Task ToggleAsync() => RemoteActive ? RemoteToggleAsync() : ToggleCoreAsync(true);
-    private Task ToggleCoreAsync(bool localUserAction)
+    internal Task SetTransportPlayingAsync(bool play) => ToggleCoreAsync(true, play);
+    private Task ToggleCoreAsync(bool localUserAction, bool? play = null)
     {
         var started = PlaybackTimestamp();
         return MainThread.InvokeOnMainThreadAsync(async () =>
         {
             RequirePlaybackControl();
-            if (deck is null || Current is null) return;
+            if (deck is null || Current is null || RemoteActive) return;
+            var interrupted = PlaybackInterrupted;
+            var start = play ?? (interrupted || !PlaybackRequested);
+            if (play.HasValue && start == PlaybackRequested && !interrupted) return;
             if (localUserAction) UserPlaybackRevision++;
-            if (localUserAction && (!PlaybackRequested || !preparing && !sourceReady)) session.MarkLocalPlayback();
-            if (!preparing && !sourceReady)
+            if (localUserAction && start) session.MarkLocalPlayback();
+            if (interrupted) SaveInterruptedPosition();
+            if (start && (interrupted || !preparing && !sourceReady))
             {
-                await PlayCoreAsync(Current, queue, index, true, background: !localUserAction, requestedAt: started);
+                await PlayCoreAsync(Current, queue, index, true, advance: interrupted, retry: interrupted,
+                    background: !localUserAction, requestedAt: started);
                 return;
             }
-            PlaybackRequested = !PlaybackRequested;
+            PlaybackRequested = start;
             ControlRevision++;
             if (PlaybackRequested && !preparing && !blending)
             {
@@ -998,7 +1028,12 @@ public sealed class MusicPlayer(MusicSession session)
                 if (streamedDecks.Contains(deck)) _ = WatchStreamStartAsync(deck, action, requestVersion);
             }
             if (!PlaybackRequested && !blending) CancelUpcoming(preserveChoice: true);
-            if (!preparing && !resumeStartPending) { deck.SetPlaying(PlaybackRequested); if (blending) standby?.SetPlaying(PlaybackRequested); }
+            if (interrupted)
+            {
+                sourceReady = false;
+                deck.Stop(); session.PinPlayback(null);
+            }
+            else if (!preparing && !resumeStartPending) { deck.SetPlaying(PlaybackRequested); if (blending) standby?.SetPlaying(PlaybackRequested); }
             if (PlaybackRequested && !blending) WarmNext();
             Changed?.Invoke();
         });
@@ -1017,12 +1052,24 @@ public sealed class MusicPlayer(MusicSession session)
         if (!blending) CancelUpcoming(true);
         Changed?.Invoke(); if (Playing) WarmNext();
     }
-    private async Task SeekDeckAsync(double seconds)
+    private async Task SeekDeckAsync(double seconds, bool confirm = false)
     {
-        if (deck is null || Seeking) return;
+        if (deck is not { } owner || Seeking) return;
         Seeking = true; lastListeningPosition = seconds; session.InvalidateListeningBaseline();
-        if (playActions.TryGetValue(deck, out var action)) action.Position = null;
-        try { await deck.SeekAsync(seconds); }
+        if (playActions.TryGetValue(owner, out var action)) action.Position = null;
+        try
+        {
+            var seek = owner.SeekAsync(seconds);
+            if (confirm) await seek.WaitAsync(TimeSpan.FromSeconds(8));
+            else await seek;
+            if (confirm)
+            {
+                owner.RefreshPosition();
+                var actual = owner.SeekPosition;
+                if (!double.IsFinite(actual) || Math.Abs(actual - seconds) > .5)
+                    throw new InvalidOperationException("The player could not restore the saved position.");
+            }
+        }
         finally { Seeking = false; SeekRevision++; session.InvalidateListeningBaseline(); Changed?.Invoke(); }
     }
     public Task SeekAsync(double seconds) => SeekAsync(seconds, background: false);
@@ -1263,8 +1310,8 @@ public sealed class MusicPlayer(MusicSession session)
         if (FollowingHost || RemoteActive || Current is null) return;
         switch (control.Action)
         {
-            case "play" when !PlaybackRequested: await ToggleCoreAsync(false); break;
-            case "pause" when PlaybackRequested: await ToggleCoreAsync(false); break;
+            case "play": await ToggleCoreAsync(false, true); break;
+            case "pause": await ToggleCoreAsync(false, false); break;
             case "next": await NextCoreAsync(background: true); break;
             case "previous": await PreviousAsync(background: true); break;
             case "seek" when control.Position is { } seconds: await SeekAsync(seconds, background: true); break;
