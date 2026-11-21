@@ -367,6 +367,33 @@ try
     Check(File.Exists(file), "Superseded cleanup deleted current edition");
     Check(File.ReadAllBytes(file).SequenceEqual(data), "Downloaded bytes differ");
     Check(await library.GetVerifiedDownloadedPathAsync(track) == file, "Verified warm cache was missed");
+    Check(library.GetDownloadedTrack(track.Id) == track, "Single recording metadata lookup changed the downloaded track");
+    var otherTrack = track with { Id = "zzzzzzzzzzz", DownloadUrl = "/api/library/zzzzzzzzzzz/download" };
+    var transferStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var releaseTransfer = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+    using (var slow = new FamilyHubApi(origin, new Handler(_ =>
+    {
+        transferStarted.SetResult();
+        return releaseTransfer.Task;
+    })))
+    {
+        var download = library.DownloadAsync(otherTrack, slow);
+        try
+        {
+            await transferStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Check(await library.GetVerifiedDownloadedPathAsync(track).WaitAsync(TimeSpan.FromSeconds(5)) == file,
+                "A cached recording waited for another song to download");
+            Check(await library.GetVerifiedDownloadedPathAsync(otherTrack).WaitAsync(TimeSpan.FromSeconds(5)) is null,
+                "In-progress download appeared as a verified file");
+            Check(library.GetDownloadedTrack(otherTrack.Id) is null, "In-progress download appeared in the metadata lookup");
+        }
+        finally
+        {
+            releaseTransfer.SetResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(data) });
+            await download;
+        }
+    }
+    await library.RemoveDownloadAsync(otherTrack.Id);
     await library.RemoveDownloadAsync(track.Id, canRemove: () => false);
     Check(File.Exists(file), "Pinned playback file was removed");
     Check(await library.GetVerifiedDownloadedPathAsync(track with { DownloadSha256 = new string('0', 64) }) is null,

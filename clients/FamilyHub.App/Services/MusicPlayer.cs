@@ -283,16 +283,17 @@ public sealed class MusicPlayer(MusicSession session)
         if (FollowingHost) throw new InvalidOperationException("The host controls playback. Leave Listen Together to choose your own music.");
     }
     public bool PlaybackRequested { get; private set; }
-    public bool Preparing => preparing || (deck?.Opening ?? false);
+    public bool Preparing => preparing || sourceReady && deck?.Opening == true;
     public bool Playing => deck?.Playing ?? false;
     internal bool PlaybackInterrupted => PlaybackRequested && sourceReady && !Playing && !Preparing && !Seeking
         && !resumeStartPending && lastListeningPosition > 0 && deck is { } owner && !AtTrackEnd(owner, TracePosition(owner));
     public double Position => (!sourceReady || resumeStartPending) && resumePosition is { } saved
         ? RemoteActive && RemotePlaying ? Math.Min(saved + Math.Min(remoteValidFor, System.Diagnostics.Stopwatch.GetElapsedTime(remoteAt).TotalSeconds),
             remoteDuration > 0 ? remoteDuration : Current?.Duration is > 0 and var length ? length : double.MaxValue) : saved
-        : deck?.Position ?? 0;
-    public double Duration => !sourceReady && resumePosition is not null ? Current?.Duration ?? 0 : deck?.Duration ?? 0;
-    public bool Seeking { get; private set; }
+        : sourceReady ? deck?.Position ?? 0 : 0;
+    public double Duration => preparing || !sourceReady || deck?.Opening == true ? Current?.Duration ?? 0 : deck?.Duration ?? 0;
+    private long? seekingVersion;
+    public bool Seeking => seekingVersion == requestVersion;
     public bool CanSeek => (sourceReady || resumePosition is not null) && !Preparing && !Seeking && Duration > 0;
 #if DEBUG
     internal object PlaybackState() => new
@@ -390,7 +391,7 @@ public sealed class MusicPlayer(MusicSession session)
                         var action = BeginPlayback();
                         RememberPlaybackAttempt(action, Current);
                         playActions[owner] = action;
-                        if (streamedDecks.Contains(owner)) _ = WatchStreamStartAsync(owner, action, requestVersion);
+                        _ = WatchPlaybackStartAsync(owner, action, requestVersion);
                     }
                     PlaybackRequested = owner.PlaybackRequested;
                 }
@@ -728,9 +729,9 @@ public sealed class MusicPlayer(MusicSession session)
                 Current = queue[index] = selected[selectedIndex];
                 session.PinPlayback(Current.Id);
                 if (action is not null) playActions[deck] = action;
-                preparing = false; sourceReady = true; deck.TransportEnabled = !FollowingHost; ApplyVolumes();
+                sourceReady = true; deck.TransportEnabled = !FollowingHost; ApplyVolumes();
                 deck.SetPlaying(PlaybackRequested);
-                if (streamedDecks.Contains(deck) && action is not null) _ = WatchStreamStartAsync(deck, action, version);
+                if (PlaybackRequested && action is not null) _ = WatchPlaybackStartAsync(deck, action, version);
                 return;
             }
             var path = await PrepareFile(track, cancellation.Token, background: background, action: action,
@@ -739,12 +740,12 @@ public sealed class MusicPlayer(MusicSession session)
             if (version != requestVersion) return;
             track = session.PlaybackRecording(session.CurrentRecording(track), path);
             Current = track; queue[index] = track; session.PinPlayback(track.Id);
-            preparing = false; sourceReady = true; deck.TransportEnabled = !FollowingHost; ApplyVolumes();
+            sourceReady = true; deck.TransportEnabled = !FollowingHost; ApplyVolumes();
             MarkStream(deck, path);
             if (action is not null) playActions[deck] = action;
             resumeStartPending = PlaybackRequested && resumePosition is > 0;
             deck.PlayFile(path, track.Title, track.Channel, PlaybackRequested && !resumeStartPending, background);
-            if (MusicSession.IsStream(path) && action is not null) _ = WatchStreamStartAsync(deck, action, version);
+            if (PlaybackRequested && action is not null) _ = WatchPlaybackStartAsync(deck, action, version);
         }
         catch (OperationCanceledException error)
         {
@@ -764,7 +765,7 @@ public sealed class MusicPlayer(MusicSession session)
             }
         }
     }
-    private async Task WatchStreamStartAsync(IAudioDeck owner, PlayAction action, long version)
+    private async Task WatchPlaybackStartAsync(IAudioDeck owner, PlayAction action, long version)
     {
         await Task.Delay(TimeSpan.FromSeconds(12));
         if (requestVersion == version && playActions.GetValueOrDefault(owner) == action && PlaybackRequested
@@ -1043,7 +1044,7 @@ public sealed class MusicPlayer(MusicSession session)
                 var action = BeginPlayback(started);
                 RememberPlaybackAttempt(action, Current);
                 playActions[deck] = action;
-                if (streamedDecks.Contains(deck)) _ = WatchStreamStartAsync(deck, action, requestVersion);
+                _ = WatchPlaybackStartAsync(deck, action, requestVersion);
             }
             if (!PlaybackRequested && !blending) CancelUpcoming(preserveChoice: true);
             if (interrupted)
@@ -1073,7 +1074,8 @@ public sealed class MusicPlayer(MusicSession session)
     private async Task SeekDeckAsync(double seconds, bool confirm = false)
     {
         if (deck is not { } owner || Seeking) return;
-        Seeking = true; lastListeningPosition = seconds; session.InvalidateListeningBaseline();
+        var version = requestVersion;
+        seekingVersion = version; lastListeningPosition = seconds; session.InvalidateListeningBaseline();
         if (playActions.TryGetValue(owner, out var action)) action.Position = null;
         try
         {
@@ -1088,7 +1090,11 @@ public sealed class MusicPlayer(MusicSession session)
                     throw new InvalidOperationException("The player could not restore the saved position.");
             }
         }
-        finally { Seeking = false; SeekRevision++; session.InvalidateListeningBaseline(); Changed?.Invoke(); }
+        finally
+        {
+            if (seekingVersion == version) seekingVersion = null;
+            if (requestVersion == version) { SeekRevision++; session.InvalidateListeningBaseline(); Changed?.Invoke(); }
+        }
     }
     public Task SeekAsync(double seconds) => SeekAsync(seconds, background: false);
     private Task SeekAsync(double seconds, bool background) => RemoteActive ? RemoteSeekAsync(seconds) : MainThread.InvokeOnMainThreadAsync(async () =>
@@ -1106,7 +1112,15 @@ public sealed class MusicPlayer(MusicSession session)
         // Seeking keeps the selected next recording and its preparation.
         if (blending) CancelUpcoming(preserveChoice: true);
         lastListeningPosition = Math.Clamp(seconds, 0, Duration);
-        await SeekDeckAsync(lastListeningPosition); if (Playing) WarmNext();
+        var version = requestVersion;
+        try { await SeekDeckAsync(lastListeningPosition); }
+        catch (Exception error) when (error is TimeoutException or OperationCanceledException or InvalidOperationException)
+        {
+            if (version == requestVersion)
+                session.SetMessage("The player could not seek to that position. Try again.", "error", playback: true);
+            return;
+        }
+        if (version == requestVersion && Playing) WarmNext();
     });
     public Task NextAsync() { if (RemoteActive) return SendRemoteAsync("next"); RequirePlaybackControl(); return MainThread.InvokeOnMainThreadAsync(() => NextCoreAsync(background: false)); }
     private Task NextCoreAsync(bool background)

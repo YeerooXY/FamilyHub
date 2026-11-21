@@ -1301,13 +1301,11 @@ public sealed class MusicSession
         var quality = ActiveStreamingQuality;
         var cache = PlaybackCache;
         if (cache is null || !track.Saved || string.IsNullOrEmpty(track.DownloadSha256)) return null;
-        if (quality != "max")
+        if (quality != "max" && cache.GetDownloadedTrack(track.Id) is { } compressed
+            && compressed.PlaybackSourceSha256 == track.DownloadSha256
+            && (!Connected || compressed.PlaybackVersion == TierVersion(quality)))
         {
-            var expectedVersion = TierVersion(quality);
-            var compressed = (await cache.ListDownloadsAsync(cancellationToken)).FirstOrDefault(t =>
-                t.Id == track.Id && t.PlaybackSourceSha256 == track.DownloadSha256
-                    && (!Connected || t.PlaybackVersion == expectedVersion));
-            if (compressed is not null) track = compressed;
+            track = compressed;
         }
         string? path;
         try { path = await cache.GetVerifiedDownloadedPathAsync(track, cancellationToken); }

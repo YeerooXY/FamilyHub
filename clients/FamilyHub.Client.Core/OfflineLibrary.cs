@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -11,7 +12,7 @@ public sealed class OfflineLibrary
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Uri server;
     private readonly string user;
-    private readonly Dictionary<string, (long Length, DateTime Written, DateTime Created, string Hash)> verified = [];
+    private readonly ConcurrentDictionary<string, (long Length, DateTime Written, DateTime Created, string Hash)> verified = [];
     private static readonly HashSet<string> Extensions = [".m4a", ".mp3", ".flac", ".wav", ".ogg", ".opus", ".webm", ".aac", ".mp4"];
     public string RootDirectory { get; }
 
@@ -52,7 +53,11 @@ public sealed class OfflineLibrary
         catch (Exception error) when (error is IOException or System.Text.Json.JsonException or UnauthorizedAccessException) { return null; }
     }
 
-    public string? GetDownloadedPath(string trackId)
+    public string? GetDownloadedPath(string trackId) => GetDownloaded(trackId)?.Path;
+
+    public MusicTrack? GetDownloadedTrack(string trackId) => GetDownloaded(trackId)?.Track;
+
+    private (MusicTrack Track, string Path)? GetDownloaded(string trackId)
     {
         ValidateId(trackId);
         try
@@ -64,7 +69,7 @@ public sealed class OfflineLibrary
             ValidateTrack(track);
             var path = AudioPath(track);
             if (!File.Exists(path) || new FileInfo(path).Length != track.DownloadSize) return null;
-            return path;
+            return (track, path);
         }
         catch (Exception error) when (error is IOException or JsonException or ArgumentException or InvalidDataException)
         {
@@ -94,13 +99,13 @@ public sealed class OfflineLibrary
     public async Task<string?> GetVerifiedDownloadedPathAsync(MusicTrack track, CancellationToken cancellationToken = default)
     {
         ValidateTrack(track);
-        await gate.WaitAsync(cancellationToken);
+        var path = AudioPath(track);
         try
         {
-            var path = AudioPath(track);
+            // Downloads publish content-addressed audio atomically after verification.
             return await HasExpectedHashAsync(path, track, cancellationToken) ? path : null;
         }
-        finally { gate.Release(); }
+        catch (IOException) { return null; }
     }
 
     public async Task<string> DownloadAsync(MusicTrack track, FamilyHubApi api, CancellationToken cancellationToken = default,
@@ -183,7 +188,7 @@ public sealed class OfflineLibrary
                 throw new InvalidDataException("The audio download failed its size or SHA-256 check. Download it again.");
             }
             File.Move(part, final, true);
-            verified.Remove(part);
+            verified.TryRemove(part, out _);
             RememberVerified(final, track);
             await WriteJsonAsync(FileKey(track.Id) + ".download.json", track, cancellationToken);
             RemoveSupersededAudio(track, final);
@@ -202,7 +207,7 @@ public sealed class OfflineLibrary
             // Recheck after queued downloads finish; a recording may have become active while waiting.
             if (canRemove is not null && !canRemove()) return;
             var key = FileKey(trackId);
-            foreach (var path in Directory.EnumerateFiles(RootDirectory, key + ".*")) { File.Delete(path); verified.Remove(path); }
+            foreach (var path in Directory.EnumerateFiles(RootDirectory, key + ".*")) { File.Delete(path); verified.TryRemove(path, out _); }
         }
         finally { gate.Release(); }
     }
@@ -217,7 +222,7 @@ public sealed class OfflineLibrary
                 || !Extensions.Contains(Path.GetExtension(path).ToLowerInvariant())
                 || !Regex.IsMatch(Path.GetFileNameWithoutExtension(path), "^" + key + @"\.[a-f0-9]{64}$")) continue;
             // An actively playing Windows file may stay locked until the next download.
-            try { File.Delete(path); verified.Remove(path); }
+            try { File.Delete(path); verified.TryRemove(path, out _); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
@@ -245,13 +250,16 @@ public sealed class OfflineLibrary
     {
         cancellationToken.ThrowIfCancellationRequested();
         var info = new FileInfo(path);
-        if (!info.Exists || info.Length != track.DownloadSize) { verified.Remove(path); return false; }
+        if (!info.Exists || info.Length != track.DownloadSize) { verified.TryRemove(path, out _); return false; }
         var stamp = (info.Length, info.LastWriteTimeUtc, info.CreationTimeUtc, track.DownloadSha256.ToUpperInvariant());
         if (verified.TryGetValue(path, out var previous) && previous == stamp) return true;
-        await using var input = File.OpenRead(path);
+        await using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
         var hash = await SHA256.HashDataAsync(input, cancellationToken);
+        info.Refresh();
         if (!Convert.ToHexString(hash).Equals(track.DownloadSha256, StringComparison.OrdinalIgnoreCase))
-        { verified.Remove(path); return false; }
+        { verified.TryRemove(path, out _); return false; }
+        if (!info.Exists || (info.Length, info.LastWriteTimeUtc, info.CreationTimeUtc) != (stamp.Item1, stamp.Item2, stamp.Item3))
+            return false;
         verified[path] = stamp;
         return true;
     }

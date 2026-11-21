@@ -8,6 +8,26 @@ static (MusicSession Session, MusicPlayer Player) Setup()
 }
 var tracks = Enumerable.Range(0, 8).Select(i => new MusicTrack(i % 2 == 0 ? "duplicate" : $"id{i}", $"Occurrence {i}", "Artist")).ToList();
 {
+    var session = new MusicSession();
+    var player = new MusicPlayer(session) { AutoDj = false };
+    var audio = new WindowsAudioPlayer { LocalDuration = 145 };
+    player.AttachDecks(audio, null);
+    var next = tracks[3] with { Duration = 138 };
+    await player.PlayAsync(tracks[1], [tracks[1], next]);
+    audio.PendingSeek = new();
+    var oldSeek = player.SeekAsync(144.9);
+    session.Delay = true;
+    audio.RaiseEnded();
+    Check(player.Current == next && player.Preparing && !player.Seeking && player.Position == 0 && player.Duration == 138,
+        "Seeking to the end left the next song with the old seek or duration");
+    session.Complete(0);
+    audio.Tick(.25);
+    Check(player.Playing && player.PlaybackRequested && !player.Preparing, "Next song remained stuck preparing");
+    audio.PendingSeek.SetResult();
+    await oldSeek;
+    Check(player.Current == next && player.Playing && player.Position == .25, "A late seek completion disturbed the next song");
+}
+{
     var (_, player) = Setup();
     await player.PlayAsync(tracks[1], source: "radio");
     player.ToggleShuffle();
@@ -783,11 +803,12 @@ namespace FamilyHub.App.Services
         public int Seeks { get; private set; }
         public bool TransportEnabled { private get; set; }
         public bool IgnoreNextSeek { get; set; }
+        public TaskCompletionSource? PendingSeek { get; set; }
         public Task SeekAsync(double seconds)
         {
             if (IgnoreNextSeek) IgnoreNextSeek = false;
             else Seek(seconds);
-            return Task.CompletedTask;
+            return PendingSeek?.Task ?? Task.CompletedTask;
         }
         public int Refreshes { get; private set; }
         public void RefreshPosition() => Refreshes++;

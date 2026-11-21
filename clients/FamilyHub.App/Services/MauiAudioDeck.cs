@@ -10,7 +10,9 @@ internal sealed class MauiAudioDeck : IAudioDeck
     private readonly MediaElement media;
     internal event Action<string, double, string?>? DiagnosticObserved;
 #if ANDROID
+    private const int NativeReady = 3, NativeEnded = 4;
     private readonly AudioDiagnostics diagnostics;
+    private TaskCompletionSource? nativeSeek;
 #endif
     private MediaSource? pendingSource;
     private readonly IDispatcherTimer positionTimer;
@@ -34,8 +36,16 @@ internal sealed class MauiAudioDeck : IAudioDeck
     {
         this.media = media;
 #if ANDROID
-        diagnostics = new AudioDiagnostics((stage, position, reason) => DiagnosticObserved?.Invoke(stage, position, reason));
-        media.HandlerChanging += (_, _) => diagnostics.Attach(null);
+        diagnostics = new AudioDiagnostics((stage, position, reason) =>
+        {
+            if (stage is "native_ready" or "native_ended" or "native_error") nativeSeek?.TrySetResult();
+            DiagnosticObserved?.Invoke(stage, position, reason);
+        });
+        media.HandlerChanging += (_, _) =>
+        {
+            nativeSeek?.TrySetResult();
+            diagnostics.Attach(null);
+        };
 #endif
         positionTimer = media.Dispatcher.CreateTimer();
         positionTimer.Interval = TimeSpan.FromSeconds(1);
@@ -46,28 +56,38 @@ internal sealed class MauiAudioDeck : IAudioDeck
         };
         media.PositionChanged += (_, _) => Changed?.Invoke();
         media.StateChanged += (_, _) => Changed?.Invoke();
-        media.MediaOpened += (_, _) => MainThread.BeginInvokeOnMainThread(() =>
+        media.MediaOpened += (_, _) =>
         {
-            if (pendingSource is null || !ReferenceEquals(media.Source, pendingSource)) return;
-            pendingSource = null;
-            if (!PlaybackRequested) { media.Pause(); positionTimer.Stop(); }
-            Changed?.Invoke();
-        });
+            var openedSource = media.Source;
+            media.Dispatcher.Dispatch(() =>
+            {
+                if (openedSource is null || !ReferenceEquals(openedSource, pendingSource)
+                    || !ReferenceEquals(media.Source, openedSource)) return;
+                pendingSource = null;
+                if (!PlaybackRequested) { media.Pause(); positionTimer.Stop(); }
+                Changed?.Invoke();
+            });
+        };
         media.MediaEnded += (_, _) =>
         {
             var endedSource = media.Source;
-            MainThread.BeginInvokeOnMainThread(() =>
+            // Toolkit still writes its stopped state after raising MediaEnded. Advance after that callback unwinds.
+            media.Dispatcher.Dispatch(() =>
             {
-                if (endedSource is not null && ReferenceEquals(media.Source, endedSource) && !Opening && PlaybackRequested)
-                    Ended?.Invoke();
+                if (endedSource is null || !ReferenceEquals(media.Source, endedSource) || Opening || !PlaybackRequested) return;
+#if ANDROID
+                if (AudioRouting.Player(media) is { PlaybackState: not NativeEnded }) return;
+#endif
+                Ended?.Invoke();
             });
         };
         media.MediaFailed += (_, _) =>
         {
             var failedSource = media.Source;
-            MainThread.BeginInvokeOnMainThread(() =>
+            media.Dispatcher.Dispatch(() =>
             {
-                if (failedSource is null || !ReferenceEquals(media.Source, failedSource)) return;
+                if (failedSource is null || !ReferenceEquals(media.Source, failedSource)
+                    || media.CurrentState != MediaElementState.Failed) return;
                 pendingSource = null; PlaybackRequested = false;
                 positionTimer.Stop();
                 Failed?.Invoke("Playback failed. Retry the song or play a downloaded copy.");
@@ -78,6 +98,9 @@ internal sealed class MauiAudioDeck : IAudioDeck
     public void PlayFile(string path, string title, string artist, bool play = true, bool background = false)
     {
         if (media.Handler is null) throw new InvalidOperationException("The audio player is not ready. Reopen the app and try again.");
+#if ANDROID
+        nativeSeek?.TrySetResult();
+#endif
         PlaybackRequested = play;
         media.MetadataTitle = title; media.MetadataArtist = artist; media.ShouldAutoPlay = play;
         var streaming = path.StartsWith("https://", StringComparison.Ordinal);
@@ -101,8 +124,55 @@ internal sealed class MauiAudioDeck : IAudioDeck
         PlaybackRequested = play; media.ShouldAutoPlay = play;
         if (play) { media.Play(); positionTimer.Start(); } else { media.Pause(); positionTimer.Stop(); }
     }
-    public Task SeekAsync(double seconds) => media.SeekTo(TimeSpan.FromSeconds(Math.Clamp(seconds, 0, Duration)));
+    public Task SeekAsync(double seconds)
+    {
+        var position = TimeSpan.FromSeconds(Math.Clamp(seconds, 0, Duration));
+#if ANDROID
+        return SeekOnAndroidAsync(position);
+#else
+        return media.SeekTo(position);
+#endif
+    }
+
+#if ANDROID
+    private async Task SeekOnAndroidAsync(TimeSpan position)
+    {
+        var source = media.Source;
+        var handler = media.Handler;
+        if (source is null) return;
+        if (AudioRouting.Player(media) is not { } player)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+            await media.SeekTo(position, timeout.Token);
+            return;
+        }
+        // A seek exactly to the end can go straight from buffering to ended. Toolkit completes only on ready.
+        nativeSeek?.TrySetResult();
+        var seek = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        nativeSeek = seek;
+        try
+        {
+            player.SeekTo((long)position.TotalMilliseconds);
+            if (player.PlaybackState is not (NativeReady or NativeEnded) && player.PlayerError is null)
+                await seek.Task.WaitAsync(TimeSpan.FromSeconds(6));
+            if (!ReferenceEquals(nativeSeek, seek) || !ReferenceEquals(media.Source, source) || !ReferenceEquals(media.Handler, handler)) return;
+            if (player.PlayerError is not null) throw new InvalidOperationException("The player could not seek to this position.");
+            RefreshPosition();
+        }
+        finally
+        {
+            if (ReferenceEquals(nativeSeek, seek)) nativeSeek = null;
+        }
+    }
+#endif
+
     public void RefreshPosition() => media.Handler?.Invoke("StatusUpdated", null);
-    public void Stop() { positionTimer.Stop(); pendingSource = null; PlaybackRequested = false; media.Stop(); media.Source = null; }
+    public void Stop()
+    {
+#if ANDROID
+        nativeSeek?.TrySetResult();
+#endif
+        positionTimer.Stop(); pendingSource = null; PlaybackRequested = false; media.Stop(); media.Source = null;
+    }
 }
 #endif
