@@ -92,6 +92,34 @@ class ListenerAdmissionTests(Base):
                 'action': f'{n:032x}', 'stage': 'play', 'elapsed_ms': 0}).status_code, 200)
         self.assertEqual(len(self.go(client, 'GET', endpoint).json['actions']), 32)
 
+    def test_native_playback_observations_keep_recent_positions_and_known_reasons(self):
+        client, token = self.signed_in()
+        other, _ = self.signed_in('sample-b')
+        endpoint = '/api/playback/diagnostics'
+        action = 'a' * 32
+
+        def report(stage, elapsed=0, **fields):
+            return self.post(client, token, endpoint, json={
+                'action': action, 'stage': stage, 'elapsed_ms': elapsed, **fields})
+
+        self.assertEqual(report('play').status_code, 200)
+        for elapsed in range(33):
+            self.assertEqual(report('native_buffering', elapsed, position_ms=49000 + elapsed).status_code, 200)
+        self.assertEqual(report('native_error', 50, position_ms=49050, reason='ERROR_CODE_TIMEOUT').status_code, 200)
+        self.assertEqual(report('native_error', 51, position_ms=49051, reason=URL).status_code, 200)
+        self.assertEqual(report('native_buffering', position_ms=True).status_code, 400)
+        self.assertEqual(report('native_buffering', position_ms=-1).status_code, 400)
+        self.assertEqual(report('native_buffering', position_ms=86400001).status_code, 400)
+
+        events = self.go(client, 'GET', endpoint).json['actions'][0]['events']
+        self.assertEqual(len(events), 33)
+        self.assertEqual(events[0], {'stage': 'client_play', 'client_ms': 0})
+        self.assertEqual(events[1], {'stage': 'client_native_buffering', 'client_ms': 3, 'position_ms': 49003})
+        self.assertEqual(events[-2], {'stage': 'client_native_error', 'client_ms': 50, 'position_ms': 49050,
+                                      'reason': 'ERROR_CODE_TIMEOUT'})
+        self.assertEqual(events[-1], {'stage': 'client_native_error', 'client_ms': 51, 'position_ms': 49051})
+        self.assertEqual(self.go(other, 'GET', endpoint).json['actions'], [])
+
     def test_background_download_promotes_a_completed_preview_to_an_import(self):
         client, token = self.signed_in()
         with mock.patch('threading.Thread.start'):

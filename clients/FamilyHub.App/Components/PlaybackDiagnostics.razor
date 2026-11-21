@@ -20,18 +20,43 @@
                 <summary>
                     <strong>@(string.IsNullOrWhiteSpace(attempt?.Title) ? "Unknown song" : attempt.Title)</strong>
                     <span> · @(started?.ToLocalTime().ToString("T") ?? "Time unavailable") · </span>
-                    @Summary(action)
+                    @Summary(action, attempt?.Observations)
                 </summary>
+                @if (attempt?.Observations is { Length: > 0 } observations)
+                {
+                    <h3>On this device</h3>
+                    <dl>
+                        @foreach (var observation in observations)
+                        {
+                            <div class="setting-row">
+                                <dt>@ObservationLabel(observation.Stage) @ObservationReason(observation.Reason)</dt>
+                                <dd>@observation.Time.ToLocalTime().ToString("T") · Song position @SongPosition(observation.Position)</dd>
+                            </div>
+                        }
+                    </dl>
+                }
                 @foreach (var device in new[] { true, false })
                 {
-                    var stages = action.Events.Where(e => device ? e.ClientMs.HasValue : e.ServerMs.HasValue)
+                    var stages = action.Events.Where(e => device
+                            ? e.ClientMs.HasValue && (!e.PositionMs.HasValue || attempt?.Observations is not { Length: > 0 })
+                            : e.ServerMs.HasValue)
                         .OrderBy(e => device ? e.ClientMs : e.ServerMs).ToArray();
                     if (stages.Length == 0) continue;
                     <h3>@(device ? "Device timings" : "Server timings")</h3>
                     <dl>
                     @foreach (var stage in stages)
                     {
-                        <div class="setting-row"><dt>@Label(stage.Stage)</dt><dd>@Duration((device ? stage.ClientMs : stage.ServerMs)!.Value)</dd></div>
+                        var observationStage = stage.PositionMs.HasValue && stage.Stage.StartsWith("client_", StringComparison.Ordinal);
+                        <div class="setting-row">
+                            <dt>@(observationStage ? ObservationLabel(stage.Stage[7..]) : Label(stage.Stage)) @ObservationReason(stage.Reason)</dt>
+                            <dd>
+                                @Duration((device ? stage.ClientMs : stage.ServerMs)!.Value)
+                                @if (stage.PositionMs is int position)
+                                {
+                                    <span> · Song position @SongPosition(position / 1000d)</span>
+                                }
+                            </dd>
+                        </div>
                     }
                     </dl>
                 }
@@ -42,7 +67,8 @@
 
 @code {
     private sealed record TimingEvent(string Stage, [property: JsonPropertyName("client_ms")] int? ClientMs,
-        [property: JsonPropertyName("server_ms")] int? ServerMs);
+        [property: JsonPropertyName("server_ms")] int? ServerMs,
+        [property: JsonPropertyName("position_ms")] int? PositionMs = null, string? Reason = null);
     private sealed record PlayAction(string Action, TimingEvent[] Events);
     private sealed record TimingResult(PlayAction[] Actions);
     private PlayAction[]? actions;
@@ -70,10 +96,10 @@
             var result = await api.RequestJsonAsync<TimingResult>(HttpMethod.Get, "/api/playback/diagnostics",
                 cancellationToken: request.Token, background: true);
             if (lifetime.IsCancellationRequested || Session.Api != api) return;
-            await UpdateActions(result.Actions);
-            status = actions.Length == 0 ? "No playback attempts in the last 30 minutes."
-                : actions.Length == 1 ? "1 playback attempt. Open it for detailed timings."
-                : $"{actions.Length} playback attempts. Open an attempt for detailed timings.";
+            var count = await UpdateActions(result.Actions);
+            status = count == 0 ? "No playback attempts in the last 30 minutes."
+                : count == 1 ? "1 playback attempt. Open it for detailed timings."
+                : $"{count} playback attempts. Open an attempt for detailed timings.";
         }
         catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException or System.Text.Json.JsonException)
         {
@@ -90,7 +116,7 @@
         ? $"{reason} Showing playback attempts from this device."
         : $"{reason} This device has no playback attempts in the last 30 minutes.";
 
-    private async Task UpdateActions(PlayAction[] remote)
+    private async Task<int> UpdateActions(PlayAction[] remote)
     {
         var recent = Session.RecentPlaybackAttempts().ToDictionary(item => item.Id);
         var next = Merge(remote, recent);
@@ -105,6 +131,7 @@
         }
         local = recent;
         actions = next;
+        return next.Length;
     }
 
     private static PlayAction[] Merge(PlayAction[] remote, Dictionary<string, MusicSession.LocalPlaybackAttempt> local)
@@ -116,7 +143,11 @@
             var action = byId.GetValueOrDefault(id) ?? new PlayAction(id, []);
             var events = action.Events;
             if (local.TryGetValue(id, out var attempt))
-                events = [.. events.Concat(attempt.Stages.Select(s => new TimingEvent(s.Key, s.Value, null))).DistinctBy(e => e.Stage)];
+            {
+                var seen = events.Select(e => e.Stage).ToHashSet();
+                events = [.. events, .. attempt.Stages.Where(s => !seen.Contains(s.Key))
+                    .Select(s => new TimingEvent(s.Key, s.Value, null))];
+            }
             return action with { Events = events };
         }).OrderByDescending(action => local.GetValueOrDefault(action.Action)?.Started).ToArray();
     }
@@ -154,14 +185,81 @@
 
     private static string Duration(int ms) => ms < 1000 ? $"{ms} ms" : $"{ms / 1000d:0.##} s";
 
-    private static string Summary(PlayAction action)
+    private static string ObservationLabel(string stage) => stage switch
+    {
+        "foreground" => "Returned to the app",
+        "background" => "App went into the background",
+        "checkpoint" => "Player position saved",
+        "early_end" => "Stream ended early",
+        "native_ended" => "Audio player reached the end",
+        "buffering" or "native_buffering" => "Waiting for audio",
+        "buffer_recovered" or "native_ready" => "Audio ready",
+        "unexpected_pause" or "native_paused" => "Player paused while playback was requested",
+        "native_suppressed" => "The phone suspended audio playback",
+        "player_error" or "native_error" => "Audio player reported an error",
+        "interrupted" => "Playback interrupted",
+        _ => "Player state changed"
+    };
+
+    private static string ObservationReason(string? code)
+    {
+        var reason = code switch
+        {
+            "audio_focus_loss" or "transient_audio_focus_loss" => "another app or the phone interrupted audio",
+            "audio_output_disconnected" => "the audio output disconnected",
+            "remote_control" => "a connected control paused playback",
+            "user_request" => "received a pause request",
+            "end_of_item" => "the player reached the end of its audio",
+            "suppressed_too_long" => "audio stayed suspended",
+            "unsuitable_audio_output" => "the audio output was unavailable",
+            "other" => "cause unavailable",
+            "ERROR_CODE_IO_NETWORK_CONNECTION_FAILED" => "the network connection failed",
+            "ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT" or "ERROR_CODE_TIMEOUT" => "the player timed out",
+            "ERROR_CODE_IO_BAD_HTTP_STATUS" => "the server rejected the audio request",
+            "ERROR_CODE_IO_FILE_NOT_FOUND" => "the audio file could not be found",
+            "ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE" => "the requested part of the song was unavailable",
+            "ERROR_CODE_BEHIND_LIVE_WINDOW" => "the stream moved past the requested position",
+            "ERROR_CODE_PARSING_CONTAINER_MALFORMED" or "ERROR_CODE_PARSING_MANIFEST_MALFORMED" => "the audio stream was damaged",
+            "ERROR_CODE_DECODER_INIT_FAILED" or "ERROR_CODE_DECODING_FAILED" => "the phone could not decode the audio",
+            "ERROR_CODE_DECODING_FORMAT_UNSUPPORTED" or "ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED" => "the audio format was unsupported",
+            "ERROR_CODE_AUDIO_TRACK_INIT_FAILED" or "ERROR_CODE_AUDIO_TRACK_WRITE_FAILED"
+                or "ERROR_CODE_AUDIO_TRACK_OFFLOAD_INIT_FAILED" or "ERROR_CODE_AUDIO_TRACK_OFFLOAD_WRITE_FAILED" => "the phone could not send audio to the output",
+            _ => code
+        };
+        return string.IsNullOrWhiteSpace(reason) ? "" : $"({reason})";
+    }
+
+    private static string SongPosition(double seconds)
+    {
+        var elapsed = TimeSpan.FromSeconds(seconds);
+        return elapsed.TotalHours >= 1 ? elapsed.ToString(@"h\:mm\:ss") : elapsed.ToString(@"m\:ss");
+    }
+
+    private static string Summary(PlayAction action, MusicSession.PlaybackObservation[]? observations)
     {
         int? Time(string name) => action.Events.FirstOrDefault(e => e.Stage == name)?.ClientMs;
         var first = Time("client_position_advanced");
         var retry = Time("client_fallback_position_advanced");
         var started = first ?? retry;
         var interrupted = Time("client_stream_failed");
-        if (Time("client_failed").HasValue) return started.HasValue ? "Started, then stopped unexpectedly." : "Couldn’t start playing.";
+        var failed = Time("client_failed");
+        double? interruptionPosition = null;
+        if (observations is { Length: > 0 })
+        {
+            var issue = failed.HasValue ? observations.LastOrDefault(item => IsInterruption(item.Stage)) : observations[^1];
+            if (issue is not null && IsInterruption(issue.Stage)) interruptionPosition = issue.Position;
+        }
+        else
+        {
+            var latest = action.Events.Where(e => e.PositionMs.HasValue && e.Stage.StartsWith("client_", StringComparison.Ordinal))
+                .OrderByDescending(e => e.ClientMs);
+            var issue = failed.HasValue ? latest.FirstOrDefault(e => IsInterruption(e.Stage[7..])) : latest.FirstOrDefault();
+            if (issue?.PositionMs is int position && IsInterruption(issue.Stage[7..])) interruptionPosition = position / 1000d;
+        }
+        if (interruptionPosition is double seconds)
+            return started.HasValue || seconds > 0
+                ? $"Playback interrupted at {SongPosition(seconds)}." : "Playback was interrupted before the song started.";
+        if (failed.HasValue) return started.HasValue ? "Started, then stopped unexpectedly." : "Couldn’t start playing.";
         if (Time("client_cancelled").HasValue) return started.HasValue ? "Started, then stopped." : "Cancelled before the song started.";
         if (first.HasValue && retry.HasValue && interrupted >= first && interrupted <= retry)
             return "Started playing again after a retry.";
@@ -173,6 +271,9 @@
         if (interrupted.HasValue) return "The stream stopped before the song started.";
         return "Playback start is unconfirmed.";
     }
+
+    private static bool IsInterruption(string stage) => stage is "early_end" or "interrupted" or "unexpected_pause"
+        or "native_paused" or "native_suppressed" or "native_error" or "player_error";
 
     public void Dispose() { lifetime.Cancel(); lifetime.Dispose(); }
 }

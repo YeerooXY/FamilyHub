@@ -662,10 +662,10 @@ async function audit(name, engine, options) {
             const refreshAttempts = diagnostics.getByRole('button', {name: 'Refresh attempts'});
             const action = diagnostics.locator('summary').filter({hasText: 'Started, then stopped unexpectedly.'});
             await action.waitFor();
-            assert.match(await action.innerText(), /First Light · \d{1,2}:\d{2}.* · Started, then stopped unexpectedly\./);
+            assert.match(await action.innerText(), /First Light\s+· \d{1,2}:\d{2}.* ·\s+Started, then stopped unexpectedly\./);
             const older = diagnostics.locator('summary').filter({hasText: 'Unknown song · Time unavailable'});
-            assert.match(await older.nth(0).innerText(), /Time unavailable · The retry loaded\. Playback start is unconfirmed\./);
-            assert.match(await older.nth(1).innerText(), /Time unavailable · Started playing\./);
+            assert.match(await older.nth(0).innerText(), /Time unavailable ·\s+The retry loaded\. Playback start is unconfirmed\./);
+            assert.match(await older.nth(1).innerText(), /Time unavailable ·\s+Started playing\./);
             assert.doesNotMatch(await diagnostics.innerText(), /fedcba98|adb80533|cdb80533/);
             assert.equal(await refreshAttempts.evaluate(node => node === document.activeElement), true);
             const firstAttempt = diagnostics.locator('summary').first();
@@ -677,7 +677,16 @@ async function audit(name, engine, options) {
             await page.keyboard.press('Space');
             await diagnostics.getByText(/stream response ready/i).waitFor();
             assert.equal(await action.evaluate(node => node === document.activeElement), true);
-            assert.doesNotMatch(await diagnostics.innerText(), /fedcba98|adb80533|cdb80533/);
+            const persisted = diagnostics.locator('summary').filter({hasText: 'Playback interrupted at 0:49.'});
+            assert.match(await persisted.innerText(), /City Lights/);
+            await persisted.press('Enter');
+            await diagnostics.getByText('Stream ended early', {exact: true}).waitFor();
+            await diagnostics.getByText(/Song position 0:49/).waitFor();
+            const mirrored = diagnostics.locator('summary').filter({hasText: 'Playback interrupted at 0:50.'});
+            await mirrored.press('Enter');
+            await diagnostics.getByText('Audio player reported an error (the player timed out)', {exact: true}).waitFor();
+            await diagnostics.getByText(/Song position 0:50/).waitFor();
+            assert.doesNotMatch(await diagnostics.innerText(), /fedcba98|adb80533|cdb80533|edcba987|ddcba987/);
         }
         await open(target('clear-history'), 'clear-history-dialog');
         await capture('clear-history', target('clear-history-dialog'));

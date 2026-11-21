@@ -166,6 +166,7 @@ for (var run = 0; run < 100; run++)
     var preview = tracks[0] with { Duration = 180, PlaybackVersion = "preview-hls" };
     await player.PlayAsync(preview, [preview, tracks[1]]);
     primary.Tick(30);
+    player.UiActive = false;
     primary.RaiseEnded();
     Check(player.Current?.Id == preview.Id && primary.Path == "fixture" && primary.StartedAt == 30,
         "An early preview end advanced the queue or restarted at zero");
@@ -173,6 +174,11 @@ for (var run = 0; run < 100; run++)
     primary.RaiseFailed(resetPosition: true);
     Check(!player.PlaybackRequested && player.CaptureResume()?.Position == 32,
         "A terminal playback failure lost the last position");
+    var attempt = session.Stages.First(entry => entry.Stage == "play").Action;
+    Check(session.Observations.Contains((attempt, "background", 30)) &&
+        session.Observations.Contains((attempt, "early_end", 30)) &&
+        session.Observations.Contains((attempt, "interrupted", 32)),
+        "Playback diagnostics lost the background, early end or terminal interruption position");
     session.Stream = false;
     await player.ToggleAsync();
     Check(player.Current?.Id == preview.Id && primary.StartedAt == 32,
@@ -646,8 +652,11 @@ namespace FamilyHub.App.Services
         public bool Stream { get; set; }
         public bool CanWarmPlayback { get; set; }
         public List<(string Action, string Stage)> Stages { get; } = [];
+        public List<(string Action, string Stage, double Position)> Observations { get; } = [];
         public Dictionary<(string Action, string Stage), long> StageTimes { get; } = [];
         public void RememberPlaybackAttempt(string action, MusicTrack track, DateTimeOffset requestedAt) { }
+        public void RecordPlaybackObservation(string action, string stage, double position, string? reason) =>
+            Observations.Add((action, stage, position));
         public void ReportPlaybackStage(string action, string stage, long elapsed)
         {
             Stages.Add((action, stage));

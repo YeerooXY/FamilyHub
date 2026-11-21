@@ -19,6 +19,10 @@ public static class MauiProgram
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
 			});
 
+#if ANDROID
+        builder.ConfigureMauiHandlers(handlers =>
+            handlers.AddHandler<CommunityToolkit.Maui.Views.MediaElement, LocalAudioHandler>());
+#endif
 		builder.Services.AddMauiBlazorWebView();
         builder.Services.AddSingleton<MusicSession>();
         builder.Services.AddSingleton<MusicPlayer>();

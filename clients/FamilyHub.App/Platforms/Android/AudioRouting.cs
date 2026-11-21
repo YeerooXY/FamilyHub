@@ -69,7 +69,7 @@ internal sealed class AudioRouting : AudioDeviceCallback
         catch (Exception) { /* Routing stays with the system when the player is not ready. */ }
     }
 
-    private static IExoPlayer? Player(MediaElement player) =>
+    internal static IExoPlayer? Player(MediaElement player) =>
         player.Handler?.PlatformView is Android.Views.View view && Find(view)?.Player is { } playerView
             ? playerView.JavaCast<IExoPlayer>() : null;
 

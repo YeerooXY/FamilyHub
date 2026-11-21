@@ -8,6 +8,10 @@ namespace FamilyHub.App.Services;
 internal sealed class MauiAudioDeck : IAudioDeck
 {
     private readonly MediaElement media;
+    internal event Action<string, double, string?>? DiagnosticObserved;
+#if ANDROID
+    private readonly AudioDiagnostics diagnostics;
+#endif
     private MediaSource? pendingSource;
     private readonly IDispatcherTimer positionTimer;
     public double FastPositionWindow { get; set; }
@@ -25,6 +29,10 @@ internal sealed class MauiAudioDeck : IAudioDeck
     public MauiAudioDeck(MediaElement media)
     {
         this.media = media;
+#if ANDROID
+        diagnostics = new AudioDiagnostics((stage, position, reason) => DiagnosticObserved?.Invoke(stage, position, reason));
+        media.HandlerChanging += (_, _) => diagnostics.Attach(null);
+#endif
         positionTimer = media.Dispatcher.CreateTimer();
         positionTimer.Interval = TimeSpan.FromSeconds(1);
         positionTimer.Tick += (_, _) => {
@@ -75,6 +83,9 @@ internal sealed class MauiAudioDeck : IAudioDeck
             pendingSource = MediaSource.FromUri(new Uri(path), new Dictionary<string, string> { [FamilyHubApi.ActivityHeader] = FamilyHubApi.BackgroundActivity });
         else
             pendingSource = MediaSource.FromUri(path);
+#if ANDROID
+        diagnostics.Attach(AudioRouting.Player(media));
+#endif
         media.Source = pendingSource;
 #if ANDROID
         AudioRouting.Apply(media, streaming);

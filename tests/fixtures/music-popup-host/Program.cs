@@ -78,8 +78,15 @@ static MusicSession MakeSession(string repo)
     if (FixtureApi.Startup == "similar-preparing")
         library[1] = library[1] with { Title = "Local Match", Channel = "Fixture Seed", Genre = "Fixture Genre" };
     Set("Library", library);
-    typeof(MusicSession).GetMethod("RememberPlaybackAttempt", BindingFlags.Instance | BindingFlags.NonPublic)!
-        .Invoke(session, ["fedcba98765432100123456789abcdef", library[0], DateTimeOffset.UtcNow.AddMinutes(-2)]);
+    var rememberPlayback = typeof(MusicSession).GetMethod("RememberPlaybackAttempt", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    rememberPlayback.Invoke(session, ["fedcba98765432100123456789abcdef", library[0], DateTimeOffset.UtcNow.AddMinutes(-2)]);
+    const string interruptedAttempt = "edcba98765432100123456789abcdef0";
+    rememberPlayback.Invoke(session, [interruptedAttempt, library[3], DateTimeOffset.UtcNow.AddMinutes(-1)]);
+    typeof(MusicSession).GetMethod("RecordPlaybackObservation", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .Invoke(session, [interruptedAttempt, "early_end", 49.5, null]);
+    var inMemoryAttempts = (System.Collections.IDictionary)typeof(MusicSession)
+        .GetField("localPlaybackAttempts", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(session)!;
+    inMemoryAttempts.Remove((session.Server, session.User, interruptedAttempt));
     var kept = library[^4];
     var cached = library[^3];
     Set("Downloads", new List<MusicTrack> { kept });
@@ -240,7 +247,10 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
                         {"stage":"client_fallback","client_ms":35187},
                         {"stage":"client_fallback_ready","client_ms":77640}]},
                     {"action":"cdb80533000000000000000000000000","events":[
-                        {"stage":"client_position_advanced","client_ms":745}]}
+                        {"stage":"client_position_advanced","client_ms":745}]},
+                    {"action":"ddcba98765432100123456789abcdef0","events":[
+                        {"stage":"client_position_advanced","client_ms":745},
+                        {"stage":"client_native_error","client_ms":52300,"position_ms":50411,"reason":"ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT"}]}
                 ]}
                 """,
             "/api/search" => "{\"tracks\":[],\"results\":[],\"complete\":true}",

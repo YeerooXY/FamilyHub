@@ -32,7 +32,7 @@ from .source_quality import register as register_source_quality
 from .song_analysis import register as register_song_analysis
 from .finished_audio import FinishedAudio, prepare_record, activity as finished_audio_activity
 from .playlist_artwork import PlaylistArtwork, ArtworkError
-from .playback_diagnostics import PlaybackDiagnostics, CLIENT_STAGES
+from .playback_diagnostics import PlaybackDiagnostics, CLIENT_STAGES, NATIVE_STAGES, NATIVE_REASONS
 from .lyrics import LyricsCache
 from .worker_activity import WorkerActivity, stage_summary
 from .resources import (ResourceGovernor, TransferResources, PROVIDERS, background_activity, background_request,
@@ -240,10 +240,20 @@ def create_app(test_config=None):
             return jsonify(actions=playback_diagnostics.recent(g.user))
         data = body(limit=1024)
         action, stage, elapsed = (data.get(key) for key in ("action", "stage", "elapsed_ms"))
-        if (not playback_diagnostics.valid(action) or not isinstance(stage, str) or stage not in CLIENT_STAGES
+        if (not playback_diagnostics.valid(action) or not isinstance(stage, str)
+                or (stage not in CLIENT_STAGES and stage not in NATIVE_STAGES)
                 or type(elapsed) is not int or not 0 <= elapsed <= 3600000):
             raise ApiError("Invalid playback timing.")
-        playback_diagnostics.record(g.user, action, "client_" + stage, client_ms=elapsed, begin=True)
+        observation = None
+        if stage in NATIVE_STAGES:
+            position, reason = data.get("position_ms"), data.get("reason")
+            if type(position) is not int or not 0 <= position <= 86400000:
+                raise ApiError("Invalid playback position.")
+            observation = {"position_ms": position}
+            if isinstance(reason, str) and reason in NATIVE_REASONS.get(stage, ()):
+                observation["reason"] = reason
+        playback_diagnostics.record(g.user, action, "client_" + stage, client_ms=elapsed, begin=True,
+                                    observation=observation)
         return jsonify(ok=True)
     transfers = TransferResources(transfer_limit(), lambda: min(
         MAX_CACHE_BYTES - scratch_size(ws, lib, app.intake), shutil.disk_usage(ws).free - MIN_FREE_BYTES),

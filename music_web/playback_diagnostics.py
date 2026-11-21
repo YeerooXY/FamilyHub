@@ -11,6 +11,38 @@ CLIENT_STAGES = frozenset({
     "fallback_ready", "fallback_playing", "fallback_position_advanced", "next_stream_failed",
 })
 
+NATIVE_STAGES = frozenset({
+    "background", "foreground", "early_end", "native_ended", "buffering", "native_buffering",
+    "buffer_recovered", "native_ready", "unexpected_pause", "native_paused", "native_suppressed",
+    "player_error", "native_error", "interrupted",
+})
+
+# AndroidX Media3 1.8 PlaybackException names. Never retain free-form player or network errors.
+MEDIA3_ERRORS = frozenset("ERROR_CODE_" + name for name in """
+    INVALID_STATE BAD_VALUE PERMISSION_DENIED NOT_SUPPORTED DISCONNECTED AUTHENTICATION_EXPIRED
+    PREMIUM_ACCOUNT_REQUIRED CONCURRENT_STREAM_LIMIT PARENTAL_CONTROL_RESTRICTED NOT_AVAILABLE_IN_REGION
+    SKIP_LIMIT_REACHED SETUP_REQUIRED END_OF_PLAYLIST CONTENT_ALREADY_PLAYING UNSPECIFIED REMOTE_ERROR
+    BEHIND_LIVE_WINDOW TIMEOUT FAILED_RUNTIME_CHECK IO_UNSPECIFIED IO_NETWORK_CONNECTION_FAILED
+    IO_NETWORK_CONNECTION_TIMEOUT IO_INVALID_HTTP_CONTENT_TYPE IO_BAD_HTTP_STATUS IO_FILE_NOT_FOUND
+    IO_NO_PERMISSION IO_CLEARTEXT_NOT_PERMITTED IO_READ_POSITION_OUT_OF_RANGE PARSING_CONTAINER_MALFORMED
+    PARSING_MANIFEST_MALFORMED PARSING_CONTAINER_UNSUPPORTED PARSING_MANIFEST_UNSUPPORTED
+    DECODER_INIT_FAILED DECODER_QUERY_FAILED DECODING_FAILED DECODING_FORMAT_EXCEEDS_CAPABILITIES
+    DECODING_FORMAT_UNSUPPORTED DECODING_RESOURCES_RECLAIMED AUDIO_TRACK_INIT_FAILED
+    AUDIO_TRACK_WRITE_FAILED AUDIO_TRACK_OFFLOAD_INIT_FAILED AUDIO_TRACK_OFFLOAD_WRITE_FAILED
+    DRM_UNSPECIFIED DRM_SCHEME_UNSUPPORTED DRM_PROVISIONING_FAILED DRM_CONTENT_ERROR
+    DRM_LICENSE_ACQUISITION_FAILED DRM_DISALLOWED_OPERATION DRM_SYSTEM_ERROR DRM_DEVICE_REVOKED
+    DRM_LICENSE_EXPIRED
+""".split())
+
+NATIVE_REASONS = {
+    "native_error": MEDIA3_ERRORS,
+    "native_paused": frozenset({
+        "audio_focus_loss", "audio_output_disconnected", "remote_control", "user_request",
+        "end_of_item", "suppressed_too_long", "other",
+    }),
+    "native_suppressed": frozenset({"transient_audio_focus_loss", "unsuitable_audio_output", "other"}),
+}
+
 
 class PlaybackDiagnostics:
     def __init__(self):
@@ -25,7 +57,7 @@ class PlaybackDiagnostics:
         while self.actions and next(iter(self.actions.values()))[1] <= now - 1800:
             self.actions.popitem(last=False)
 
-    def record(self, owner, action, stage, *, client_ms=None, begin=False):
+    def record(self, owner, action, stage, *, client_ms=None, begin=False, observation=None):
         if not self.valid(action):
             return
         with self.lock:
@@ -42,10 +74,21 @@ class PlaybackDiagnostics:
                 if len(self.actions) > 256:
                     self.actions.popitem(last=False)
             _, started, events = self.actions[key]
-            if len(events) < 32:
-                events.setdefault(stage, {"stage": stage, **(
-                    {"client_ms": client_ms} if client_ms is not None
-                    else {"server_ms": round((now - started) * 1000)})})
+            event = {"stage": stage}
+            if client_ms is None:
+                event["server_ms"] = round((now - started) * 1000)
+            else:
+                event["client_ms"] = client_ms
+            if observation is not None:
+                recent_observations = [key for key in events if isinstance(key, tuple)]
+                event.update(observation)
+                observation_key = tuple(event.items())
+                if observation_key not in events:
+                    if len(recent_observations) >= 32:
+                        del events[recent_observations[0]]
+                    events[observation_key] = event
+            elif len(events) - sum(isinstance(key, tuple) for key in events) < 32:
+                events.setdefault(stage, event)
 
     def recent(self, owner):
         with self.lock:

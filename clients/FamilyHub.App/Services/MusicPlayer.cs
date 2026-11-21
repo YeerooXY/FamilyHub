@@ -28,6 +28,9 @@ public sealed class MusicPlayer(MusicSession session)
         public bool Identified;
         public double? Position;
         public long PositionAt;
+        public long LastCheckpointAt;
+        public bool WasBuffering;
+        public bool UnexpectedPause;
     }
     public static long PlaybackTimestamp() => Stopwatch.GetTimestamp();
     private void Report(PlayAction? action, string stage)
@@ -114,7 +117,18 @@ public sealed class MusicPlayer(MusicSession session)
     public long ControlRevision { get; private set; }
     public long SeekRevision { get; private set; }
     private int syncSeeks;
-    public bool UiActive { get; set; } = true;
+    private bool uiActive = true;
+    public bool UiActive
+    {
+        get => uiActive;
+        set
+        {
+            if (uiActive == value) return;
+            uiActive = value;
+            if (deck is { } owner && !RemoteActive && (PlaybackRequested || owner.Playing))
+                TracePlayback(owner, value ? "foreground" : "background", TracePosition(owner), PlaybackStateLabel(owner));
+        }
+    }
     public event Action? Changed;
     public MusicTrack? Current { get; private set; }
     public IReadOnlyList<MusicTrack> Queue => queue;
@@ -337,6 +351,14 @@ public sealed class MusicPlayer(MusicSession session)
     }
     private void Bind(IAudioDeck owner)
     {
+#if !WINDOWS
+        if (owner is MauiAudioDeck diagnostics)
+            diagnostics.DiagnosticObserved += (stage, position, reason) =>
+            {
+                if (!ReferenceEquals(deck, owner) || RemoteActive || stage == "native_paused" && !PlaybackRequested) return;
+                TracePlayback(owner, stage, position, reason);
+            };
+#endif
         owner.Changed += () =>
         {
             if (ReferenceEquals(deck, owner))
@@ -355,7 +377,11 @@ public sealed class MusicPlayer(MusicSession session)
                     }
                     PlaybackRequested = owner.PlaybackRequested;
                 }
-                if (sourceReady) ObservePlayback(owner, audible: !blending || blendGain < 1);
+                if (sourceReady)
+                {
+                    TraceTransport(owner);
+                    ObservePlayback(owner, audible: !blending || blendGain < 1);
+                }
                 _ = ApplyResumePositionAsync();
                 RecordListening();
 #if !WINDOWS
@@ -383,13 +409,51 @@ public sealed class MusicPlayer(MusicSession session)
             if (streamedDecks.Contains(owner) && Current?.Duration is > 0 and var expectedDuration
                 && Math.Max(owner.Position, lastListeningPosition) < expectedDuration - Math.Clamp(expectedDuration * .05, 3, 10))
             {
+                TracePlayback(owner, "early_end", TracePosition(owner));
                 HandleDeckFailure(owner);
                 return;
             }
             await AdvanceAfterEndAsync();
         };
-        owner.Failed += _message => HandleDeckFailure(owner);
+        owner.Failed += _ =>
+        {
+            if (ReferenceEquals(deck, owner) && !RemoteActive)
+                TracePlayback(owner, "player_error", TracePosition(owner));
+            HandleDeckFailure(owner);
+        };
     }
+
+    private double TracePosition(IAudioDeck owner) => Math.Max(owner.Position, lastListeningPosition);
+
+    private static string PlaybackStateLabel(IAudioDeck owner) => owner.Opening ? "Buffering" : owner.Playing ? "Playing" : "Paused";
+
+    private void TracePlayback(IAudioDeck owner, string stage, double position, string? reason = null)
+    {
+        if (playActions.TryGetValue(owner, out var action))
+            session.RecordPlaybackObservation(action.Id, stage, position, reason);
+    }
+
+    private void TraceTransport(IAudioDeck owner)
+    {
+        if (!PlaybackRequested || Seeking || resumeStartPending || !playActions.TryGetValue(owner, out var action)) return;
+        var position = TracePosition(owner);
+        if (owner.Opening && !action.WasBuffering)
+            TracePlayback(owner, "buffering", position);
+        if (!owner.Opening && action.WasBuffering && owner.Playing)
+            TracePlayback(owner, "buffer_recovered", position);
+        action.WasBuffering = owner.Opening;
+        var started = action.Stages.Contains("position_advanced") || action.Stages.Contains("fallback_position_advanced");
+        if (started && !owner.Opening && !owner.Playing && !action.UnexpectedPause)
+            TracePlayback(owner, "unexpected_pause", position);
+        action.UnexpectedPause = started && !owner.Opening && !owner.Playing;
+        var now = Environment.TickCount64;
+        if (owner.Playing && now - action.LastCheckpointAt >= 5000)
+        {
+            action.LastCheckpointAt = now;
+            TracePlayback(owner, "checkpoint", position, uiActive ? "Playing in app" : "Playing in background");
+        }
+    }
+
     private void HandleDeckFailure(IAudioDeck owner)
     {
         var streamed = streamedDecks.Remove(owner);
@@ -397,6 +461,7 @@ public sealed class MusicPlayer(MusicSession session)
         if (ReferenceEquals(deck, owner))
         {
             if (!sourceReady || RemoteActive) return;
+            TracePlayback(owner, "interrupted", TracePosition(owner));
             if (streamed) Report(action, "stream_failed");
             var checkpoint = Math.Max(Math.Max(Position, lastListeningPosition), resumePosition ?? 0);
             resumePosition = checkpoint > 0 ? checkpoint : null;

@@ -1320,9 +1320,11 @@ public sealed class MusicSession
     public bool CanStream => true;
     public static bool IsStream(string source) => source.StartsWith("https://", StringComparison.Ordinal);
 
+    internal sealed record PlaybackObservation(string Stage, DateTimeOffset Time, double Position, string? Reason);
     internal sealed record LocalPlaybackAttempt(string Id, string Title, DateTimeOffset Started,
-        Dictionary<string, int> Stages);
+        Dictionary<string, int> Stages, PlaybackObservation[]? Observations = null);
     private readonly Dictionary<(string Server, string Profile, string Id), LocalPlaybackAttempt> localPlaybackAttempts = [];
+    private string PlaybackLogKey => PreferenceKey(Server, User) + ":playback-log";
 
     private LocalPlaybackAttempt LocalAttempt(string id)
     {
@@ -1347,25 +1349,82 @@ public sealed class MusicSession
     {
         var cutoff = DateTimeOffset.UtcNow.AddMinutes(-30);
         lock (localPlaybackAttempts)
-            return localPlaybackAttempts.Where(pair => pair.Key.Server == Server && pair.Key.Profile == User && pair.Value.Started >= cutoff)
+            return localPlaybackAttempts.Where(pair => pair.Key.Server == Server && pair.Key.Profile == User)
                 .Select(pair => pair.Value with { Stages = new(pair.Value.Stages) })
-                .OrderByDescending(item => item.Started).Take(32).ToArray();
+                .Concat(ReadPlaybackLog()).DistinctBy(item => item.Id)
+                .Where(item => item.Started >= cutoff || item.Observations?.LastOrDefault()?.Time >= cutoff)
+                .OrderByDescending(item => item.Observations?.LastOrDefault()?.Time ?? item.Started).Take(32).ToArray();
+    }
+
+    internal void RecordPlaybackObservation(string id, string stage, double position, string? reason)
+    {
+        if (string.IsNullOrEmpty(User) || string.IsNullOrEmpty(Server) || !double.IsFinite(position)) return;
+        var api = Connected ? Api : null;
+        var now = DateTimeOffset.UtcNow;
+        long elapsed;
+        position = Math.Clamp(position, 0, 86400);
+        lock (localPlaybackAttempts)
+        {
+            var key = (Server, User, id);
+            if (!localPlaybackAttempts.TryGetValue(key, out var attempt) || string.IsNullOrWhiteSpace(attempt.Title)) return;
+            var previous = attempt.Observations ?? [];
+            if (previous.LastOrDefault() is { } last && last.Stage == stage && stage != "checkpoint"
+                && now - last.Time < TimeSpan.FromSeconds(1)) return;
+            var observation = new PlaybackObservation(stage, now, position, reason);
+            if (previous.LastOrDefault()?.Stage == "checkpoint" && stage == "checkpoint")
+                previous = previous[..^1];
+            var updated = attempt with { Observations = [.. previous.TakeLast(23), observation] };
+            localPlaybackAttempts[key] = updated;
+            PersistPlaybackAttempt(updated);
+            elapsed = (long)(now - updated.Started).TotalMilliseconds;
+        }
+        if (api is not null && stage != "checkpoint" && elapsed is >= 0 and <= 3600000)
+            _ = SendPlaybackStageAsync(api, id, stage, elapsed, (int)(position * 1000),
+                stage.StartsWith("native_", StringComparison.Ordinal) ? reason : null);
+    }
+
+    private void PersistPlaybackAttempt(LocalPlaybackAttempt attempt)
+    {
+        var cutoff = DateTimeOffset.UtcNow.AddMinutes(-30);
+        var log = ReadPlaybackLog().Where(item => item.Id != attempt.Id && item.Observations?.LastOrDefault()?.Time >= cutoff)
+            .Prepend(attempt).Take(12);
+        try { Preferences.Default.Set(PlaybackLogKey, JsonSerializer.Serialize(log)); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException) { }
+    }
+
+    private LocalPlaybackAttempt[] ReadPlaybackLog()
+    {
+        try { return JsonSerializer.Deserialize<LocalPlaybackAttempt[]>(Preferences.Default.Get(PlaybackLogKey, "[]")) ?? []; }
+        catch (Exception error) when (error is JsonException or IOException or UnauthorizedAccessException or InvalidOperationException)
+        { return []; }
     }
 
     internal void ReportPlaybackStage(string action, string stage, long elapsed)
     {
         if (elapsed is < 0 or > 3600000) return;
-        lock (localPlaybackAttempts) LocalAttempt(action).Stages.TryAdd("client_" + stage, (int)elapsed);
+        lock (localPlaybackAttempts)
+        {
+            var attempt = LocalAttempt(action);
+            attempt.Stages.TryAdd("client_" + stage, (int)elapsed);
+            if (stage is "failed" or "cancelled" && attempt.Observations is { Length: > 0 })
+                PersistPlaybackAttempt(attempt);
+        }
         if (Connected && Api is { } api)
             _ = SendPlaybackStageAsync(api, action, stage, elapsed);
     }
-    private static async Task SendPlaybackStageAsync(FamilyHubApi api, string action, string stage, long elapsed)
+    private static async Task SendPlaybackStageAsync(FamilyHubApi api, string action, string stage, long elapsed,
+        int? positionMs = null, string? reason = null)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
         try
         {
-            await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, "/api/playback/diagnostics",
-                new { action, stage, elapsed_ms = elapsed }, timeout.Token, background: true);
+            object payload = (positionMs, reason) switch
+            {
+                (null, _) => new { action, stage, elapsed_ms = elapsed },
+                (_, null) => new { action, stage, elapsed_ms = elapsed, position_ms = positionMs },
+                _ => new { action, stage, elapsed_ms = elapsed, position_ms = positionMs, reason }
+            };
+            await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, "/api/playback/diagnostics", payload, timeout.Token, background: true);
         }
         catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException
             or ObjectDisposedException or JsonException or IOException or InvalidDataException) { }
