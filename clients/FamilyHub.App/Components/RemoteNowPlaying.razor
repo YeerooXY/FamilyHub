@@ -14,14 +14,14 @@
         <button id="remote-take-over" class="remote-mini-main" @onclick="() => ConnectAsync(device)" aria-disabled="@(connectingDevice is not null ? "true" : "false")" aria-label="@($"Move {track.Title} to this device")" title="Play on this device">
             <TrackCover Track="@(known ?? new MusicTrack { Id = track.Id, Title = track.Title, Channel = track.Channel })" />
             <span class="remote-mini-copy">
-                <strong>@track.Title</strong>
+                <strong id="remote-song-title"><span class="marquee-text">@(known?.DisplayTitle ?? MusicTrack.CompactTitle(track.Title))</span></strong>
                 @if (connectingDevice is not null)
                 {
                     <small role="status">Connecting...</small>
                 }
                 else
                 {
-                    <small>@track.Channel</small>
+                    <small>@(known?.Channel ?? track.Channel)</small>
                 }
             </span>
         </button>
@@ -134,6 +134,11 @@
         DevicePoll.Unwatch(DevicesChanged);
         loop?.Cancel(); loop?.Dispose(); loop = null; device = null;
     }
-    protected override void OnAfterRender(bool firstRender) => Player.SetRemotePeek(Device?.Track is not null);
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var visible = Device?.Track is not null;
+        Player.SetRemotePeek(visible);
+        if (visible) await JS.InvokeVoidAsync("familyhub.fitTitle");
+    }
     public void Dispose() { StopWatching(); Player.SetRemotePeek(false); }
 }

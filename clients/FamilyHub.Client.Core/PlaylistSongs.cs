@@ -9,26 +9,34 @@ public static class PlaylistSongs
             ? entry.Album : track?.LibraryAlbum is { Length: > 0 } album && album != "Selected recordings" ? album : "";
 
     public static List<int> Positions(MusicPlaylist playlist, Func<PlaylistTrack, MusicTrack?> resolve,
-        string search, string sort, bool mixesOnly, MusicTrack? current)
+        string search, string sort, bool mixesOnly, MusicTrack? current, bool? descending = null,
+        Func<PlaylistTrack, string>? contributor = null)
     {
         var rows = playlist.Tracks.Select((entry, position) => (Entry: entry, Track: resolve(entry), Position: position))
             .Where(row => (!mixesOnly || MixesWith(row.Track, current)) &&
                 CultureInfo.CurrentCulture.CompareInfo.IndexOf(
                     (row.Track?.Title ?? row.Entry.Title) + " " + (row.Track?.Channel ?? row.Entry.Artist) + " " + Album(row.Entry, row.Track),
                     search.Trim(), CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace) >= 0);
+        var reverse = descending ?? (sort == "Date added");
+        var names = StringComparer.CurrentCultureIgnoreCase;
         rows = sort switch
         {
-            "Title" => rows.OrderBy(row => row.Track?.Title ?? row.Entry.Title, StringComparer.CurrentCultureIgnoreCase),
-            "Artist" => rows.OrderBy(row => row.Track?.Channel ?? row.Entry.Artist, StringComparer.CurrentCultureIgnoreCase),
-            "Album" => rows.OrderBy(row => Album(row.Entry, row.Track), StringComparer.CurrentCultureIgnoreCase),
-            "Date added" => rows.OrderByDescending(row => DateTimeOffset.TryParse(row.Entry.AddedAt, out var date) ? date : DateTimeOffset.MinValue),
-            "Duration" => rows.OrderBy(row => row.Track?.Duration ?? row.Entry.Duration),
-            "BPM" => rows.OrderBy(row => row.Track?.Bpm ?? int.MaxValue),
-            "Key" => rows.OrderBy(row => CamelotIndex(row.Track?.Key) ?? int.MaxValue),
+            "Position" => Order(rows, row => row.Position, reverse),
+            "Title" => Order(rows, row => row.Track?.DisplayTitle ?? row.Entry.Title, reverse, names),
+            "Artist" => Order(rows, row => row.Track?.Channel ?? row.Entry.Artist, reverse, names),
+            "Album" => Order(rows, row => Album(row.Entry, row.Track), reverse, names),
+            "Added by" => Order(rows, row => contributor?.Invoke(row.Entry) ?? row.Entry.AddedBy ?? playlist.OwnerId, reverse, names),
+            "Date added" => Order(rows, row => DateTimeOffset.TryParse(row.Entry.AddedAt, out var date) ? date : DateTimeOffset.MinValue, reverse),
+            "Duration" => Order(rows, row => row.Track?.Duration ?? row.Entry.Duration, reverse),
+            "BPM" => Order(rows, row => row.Track?.Bpm ?? (reverse ? int.MinValue : int.MaxValue), reverse),
+            "Key" => Order(rows, row => CamelotIndex(row.Track?.Key) ?? (reverse ? int.MinValue : int.MaxValue), reverse),
             _ => rows
         };
         return rows.Select(row => row.Position).ToList();
     }
+
+    private static IOrderedEnumerable<T> Order<T, TKey>(IEnumerable<T> rows, Func<T, TKey> key, bool reverse, IComparer<TKey>? comparer = null) =>
+        reverse ? rows.OrderByDescending(key, comparer) : rows.OrderBy(key, comparer);
 
     public static bool MixesWith(MusicTrack? candidate, MusicTrack? current)
     {

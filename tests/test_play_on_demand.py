@@ -2,6 +2,7 @@
 import threading
 import time
 from contextlib import ExitStack
+from pathlib import Path
 from unittest import mock
 
 from tests.test_music_web import Base, URL
@@ -9,6 +10,52 @@ from music_web.resources import ResourceGovernor, TransferResources
 
 
 class ListenerAdmissionTests(Base):
+    def test_windows_preview_waits_for_two_segments_or_endlist(self):
+        client, token = self.signed_in()
+        publications = []
+        published = threading.Event()
+        release = threading.Event()
+
+        def fetch(args):
+            root = Path(args.preview)
+            root.mkdir()
+            for asset in ("init.mp4", "seg00000.m4s", "seg00001.m4s"):
+                (root / asset).write_bytes(b"media")
+            playlist = root / "index.m3u8"
+            for extra in publications:
+                playlist.write_text("#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:1,\nseg00000.m4s\n" + extra,
+                                    encoding="utf-8")
+                args.notify()
+                published.set()
+                if not release.wait(3):
+                    raise RuntimeError("publication check did not finish")
+                release.clear()
+            return {"item": "fixture"}
+
+        cases = (("#EXTINF:1,\nseg00001.m4s\n", False), ("#EXT-X-ENDLIST\n", True))
+        with mock.patch.object(self.intake, "cmd_fetch", side_effect=fetch), mock.patch.object(self.intake, "cmd_import"):
+            for index, (ready_manifest, single_segment) in enumerate(cases):
+                with self.subTest(single_segment=single_segment):
+                    action = str(index + 1) * 32
+                    publications[:] = ["", ready_manifest, ready_manifest]
+                    url = self.intake.WATCH + f'{index:011x}'
+                    response = self.post(client, token, "/api/jobs", json={"url": url, "play_action": action})
+                    path = "/api/jobs/" + response.json["job"]["id"]
+                    try:
+                        for ready in (False, True, True):
+                            self.assertTrue(published.wait(3))
+                            published.clear()
+                            job = self.go(client, "GET", path).json["job"]
+                            self.assertIn("stream_url", job)
+                            self.assertIs(job["windows_preview_ready"], ready)
+                            release.set()
+                        self.wait(client, response.json["job"]["id"])
+                    finally:
+                        release.set()
+                    rows = self.go(client, "GET", "/api/playback/diagnostics").json["actions"]
+                    stages = [event["stage"] for row in rows if row["action"] == action for event in row["events"]]
+                    self.assertEqual(stages.count("windows_preview_ready"), 1)
+
     def test_playback_diagnostics_correlate_stages_and_exclude_track_data(self):
         client, token = self.signed_in()
         other, _ = self.signed_in('sample-b')

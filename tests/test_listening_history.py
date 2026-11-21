@@ -158,6 +158,37 @@ class HistoryStoreTests(unittest.TestCase):
         self.assertEqual(store.wrapped('alex', 2026, {})['total_minutes'], 0)
         self.assertFalse(path.with_suffix('.yearly.json').exists())
 
+    def test_counter_days_drive_time_and_streak_and_titles_follow_saved_recordings(self):
+        labels = {'abcdefghijk': {'title': 'Old title', 'channel': 'Artist'}}
+        counters = {'2026-10-31': 120, '2026-11-01': 60, '2026-11-02': 180}
+        store = ListeningHistory(self.tmp.name, lambda: self.now, track_metadata=lambda ids: labels,
+                                 yearly_daily=lambda user, year: counters if user == 'alex' and year == 2026 else {})
+        first = self.event(started_at='2026-11-01T01:00:00Z')
+        second = self.event(started_at='2026-11-01T01:02:00Z', outcome='skipped')
+        store.append('alex', [first, second])
+        labels['abcdefghijk']['title'] = 'Reviewed title'
+        labels['abcdefghijk']['channel'] = 'Reviewed artist'
+        detailed = store.wrapped('alex', 2026, {}, full=True)
+        compact = store.wrapped('alex', 2026, {})
+        self.assertEqual(detailed['total_minutes'], 6)
+        self.assertEqual(compact['total_minutes'], 6)
+        self.assertEqual(detailed['monthly_minutes'][9:11], [2, 4])
+        self.assertEqual(detailed['longest_streak'], {'day': '2026-10-31', 'end_day': '2026-11-02', 'days': 3})
+        self.assertEqual(compact['longest_streak_days'], 3)
+        self.assertEqual(detailed['devices']['pc']['minutes'], 200 / 60)
+        self.assertEqual(detailed['top_songs'][0]['seconds'], 200)
+        self.assertEqual(detailed['top_songs'][0]['title'], 'Reviewed title')
+        self.assertEqual(detailed['most_skipped_song']['title'], 'Reviewed title')
+        self.assertEqual(compact['most_replayed_song']['title'], 'Reviewed title')
+        self.assertEqual(compact['most_replayed_song']['artist'], 'Reviewed artist')
+
+        only_counters = ListeningHistory(self.tmp.name, lambda: self.now,
+                                         yearly_daily=lambda user, year: counters)
+        no_songs = only_counters.wrapped('bob', 2026, {}, full=True)
+        self.assertEqual(no_songs['total_minutes'], 6)
+        self.assertIsNone(no_songs['top_hour'])
+        self.assertEqual(no_songs['top_songs'], [])
+
     def test_chart_cache_baseline_later_entry_and_failed_refresh(self):
         def chart(artist):
             return {'artists': {'data': [{'name': artist}]},

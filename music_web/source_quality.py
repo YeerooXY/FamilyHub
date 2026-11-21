@@ -17,7 +17,7 @@ import time
 from contextlib import nullcontext
 from types import SimpleNamespace
 
-from .catalogue_review import normal, seed
+from .catalogue_review import ReviewError, normal, seed
 from .playlists import preferred_match, rank_matches, repoint_recording, source_tier
 from .review_confidence import MATCH_DURATION_SECONDS, close_duration, presentation_title
 from .worker_activity import WorkerActivity
@@ -277,7 +277,14 @@ class SourceQuality:
                                              governor=getattr(self.intake, 'RESOURCES', None))
                         row = dict(id=identifier, sha256=digest, stamp=stamp, channel=source.get('channel', record['artist']), **track, **result, source_tier=tier,
                                    proposed_replacement=None, replacement_checked=False)
-                        self.save(key, row)
+                        with self.lock:
+                            current = self.rows.get(key, {})
+                            if current.get('replacing'):
+                                continue
+                            if current.get('explicit'):
+                                row.update(explicit=True, automatic_skipped=True,
+                                           replacement_error=current.get('replacement_error'))
+                            self.save(key, row)
                     if (row['verdict'] == 'suspect' or row['source_tier'] == 3) and not row.get('replacement_checked'):
                         if not self.idle():
                             return
@@ -334,6 +341,16 @@ class SourceQuality:
         finally:
             self.scan_lock.release()
 
+    def report_status(self, reports):
+        identifiers = {report['id'] for report in reports}
+        with self.lock:
+            status = {row['id']: row for key, row in self.rows.items()
+                      if row['id'] in identifiers and (self.active_keys is None or key in self.active_keys or row.get('explicit'))}
+            for report in reports:
+                row = status.get(report['id'], {})
+                report.update(replacing=bool(row.get('replacing')), replacement_error=row.get('replacement_error'))
+        return reports
+
     def snapshot(self):
         with self.lock:
             journal = self.replacements()
@@ -343,6 +360,10 @@ class SourceQuality:
         counts['tier_3'] = sum(r['source_tier'] == 3 for r in rows)
         counts['total'] = len(rows)
         songs = []
+        reported = set()
+        if self.review is not None:
+            with self.review.lock:
+                reported = {entry['id'] for entry in self.review.data['reports'].values()}
         retry = self.review.automatic_retry('source search') if self.limit_search else 0
         for row in rows:
             event = journal.get(row['id'], {})
@@ -357,14 +378,18 @@ class SourceQuality:
                     row.update(retry_at=retry, retry_reason='Hourly catalogue limit')
                 elif retry is None:
                     row.update(retry_at=0, retry_reason='Automatic source search is off')
-            if row['verdict'] == 'suspect' or row['source_tier'] == 3 and (row['proposed_replacement'] or row.get('replacing')):
+            source_review = (row['proposed_replacement'] or row.get('replacing') or row.get('explicit')
+                             or row.get('replacement_checked') and row['id'] in reported)
+            if row['verdict'] == 'suspect' or row['source_tier'] == 3 and source_review:
                 songs.append(row)
         counts['damaged'] = sum(row['verdict'] == 'suspect' for row in songs)
         counts['unofficial'] = len(songs) - counts['damaged']
-        fixed = [dict(id=identifier, replaced_by=event['new_id'], title=event['automatic']['title'],
-                      artist=event['automatic']['artist'], fixed_at=event['automatic']['fixed_at'])
-                 for identifier, event in journal.items()
-                 if event.get('state') in ('done', 'undoing') and event.get('automatic')]
+        fixed = []
+        for identifier, event in journal.items():
+            details = event.get('explicit') or event.get('automatic')
+            if details and event.get('state') in ('done', 'undoing'):
+                fixed.append(dict(id=identifier, replaced_by=event['new_id'], title=details['title'],
+                                  artist=details['artist'], fixed_at=details['fixed_at']))
         return dict(counts=counts, songs=songs, fixed=sorted(fixed, key=lambda row: row['fixed_at'], reverse=True))
 
 
@@ -375,7 +400,7 @@ def write_json(path, value):
 
 
 def replace_saved(workspace, library, old_id, candidate, saved_source, playlists, review, stats, intake, length=None,
-                  automatic=None, expected_digest=None, verified_digest=None):
+                  automatic=None, expected_digest=None, verified_digest=None, explicit=None):
     """Archive originals and retain metadata snapshots for manual undo and crash recovery."""
     workspace, library = Path(workspace), Path(library)
     old, new = saved_source(old_id), saved_source(candidate['id'])
@@ -388,7 +413,7 @@ def replace_saved(workspace, library, old_id, candidate, saved_source, playlists
     old_record, new_record = old['manifest']['import'], new['manifest']['import']
     # Compare the lengths people hear: uploads often carry extra silence that is trimmed away.
     measure = length or (lambda saved: saved['manifest']['audio']['duration'])
-    if not close_duration(measure(old), measure(new)):
+    if explicit is None and not close_duration(measure(old), measure(new)):
         raise SourceCheckError(f'After trimming silence, the recordings differ by more than {MATCH_DURATION_SECONDS} seconds.')
     item = Path(old['item'])
     target = library.joinpath(*old_record['path'].split('/'))
@@ -413,13 +438,15 @@ def replace_saved(workspace, library, old_id, candidate, saved_source, playlists
                  old_sha256=old['manifest']['audio']['sha256'], backups=[])
     if automatic:
         entry['automatic'] = {**automatic, 'fixed_at': int(time.time())}
+    if explicit:
+        entry['explicit'] = {**explicit, 'fixed_at': int(time.time())}
     new_digest = new_record['library_sha256']
     previous_entry = review.data['overrides'].get(candidate['id'], {})
     if previous_entry.get('sha256') != new_digest:
         previous_entry = {}
     previous_values = previous_entry.get('values', {})
     transferred = {key: value for key, value in review.overrides(old_id, old_record['library_sha256']).items()
-                   if key not in previous_values and (new_record.get('automatic_title') is not False or key not in new_record)}
+                   if not explicit and key not in previous_values and (new_record.get('automatic_title') is not False or key not in new_record)}
     if automatic and transferred:
         entry['transferred_metadata'] = dict(sha256=new_digest, values=transferred)
     records[old_id] = entry
@@ -447,7 +474,7 @@ def replace_saved(workspace, library, old_id, candidate, saved_source, playlists
     lyrics = workspace / '.lyrics' / (old_id + '.json')
     new_lyrics = lyrics.with_name(candidate['id'] + '.json')
     backup(new_lyrics)
-    entry['lyrics_created'] = str(new_lyrics) if lyrics.exists() and not new_lyrics.exists() else None
+    entry['lyrics_created'] = str(new_lyrics) if not explicit and lyrics.exists() and not new_lyrics.exists() else None
     write_json(journal, records)
     old_review, old_devices = copy.deepcopy(review.data), copy.deepcopy(stats.devices)
     moved = []
@@ -464,7 +491,7 @@ def replace_saved(workspace, library, old_id, candidate, saved_source, playlists
         # Statistics contain aggregate counters, so their persisted totals need no conversion.
         for path, data in changes:
             write_json(path, data)
-        if lyrics.exists() and not new_lyrics.exists():
+        if entry['lyrics_created']:
             shutil.copy2(lyrics, new_lyrics)
         for source, destination in moves:
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -490,8 +517,8 @@ def replace_saved(workspace, library, old_id, candidate, saved_source, playlists
 def undo_saved(workspace, library, old_id, records, playlists, review):
     """Resume a restore from its journal, changing only entries still using this replacement."""
     entry = records.get(old_id, {})
-    if not entry.get('automatic') or entry.get('state') not in ('done', 'undoing', 'undone'):
-        raise ValueError('This automatic replacement is unavailable. Refresh the review in Server work.')
+    if not (entry.get('automatic') or entry.get('explicit')) or entry.get('state') not in ('done', 'undoing', 'undone'):
+        raise ValueError('This replacement is unavailable. Refresh the review in Server work.')
     if entry['state'] == 'undone':
         return entry['old_sha256']
     root = Path(workspace)
@@ -544,7 +571,7 @@ def undo_saved(workspace, library, old_id, records, playlists, review):
 
 
 def register(app, workspace, intake, idle, admin, review, enabled=True, replace=None, busy=lambda identifier: False,
-             automatic_user=None, undo=None):
+             automatic_user=None, undo=None, *, body, report_source):
     from flask import jsonify, request, g
     automatic_user = automatic_user if enabled and review.automatic_limit > 0 else None
     review.source_automation = bool(automatic_user)
@@ -557,9 +584,45 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
         return (not row.get('dismissed') and not row.get('replaced_by')
                 and (scanner.active_keys is None or key in scanner.active_keys))
 
-    def enqueue(key, row, candidate, user):
-        scanner.save(key, dict(row, replacing=True, queued=True, replacement_error=None))
-        pending.put((key, row['id'], candidate, user, None, row['sha256']))
+    def enqueue(key, row, candidate, user, explicit=None):
+        scanner.save(key, dict(row, replacing=True, queued=True, replacement_error=None,
+                               explicit=bool(explicit), automatic_skipped=bool(explicit) or row.get('automatic_skipped', False)))
+        pending.put((key, row['id'], candidate, user, None, row['sha256'], explicit))
+
+    def enqueue_explicit(key, row, url):
+        if not isinstance(url, str) or len(url) > 1024:
+            raise ReviewError('Enter a YouTube recording link.')
+        try:
+            candidate_id = intake.video_id(url.strip())
+        except intake.IntakeError:
+            raise ReviewError('Enter a YouTube recording link.')
+        if candidate_id == row['id']:
+            raise ReviewError('Choose a different recording.')
+        if replace is None:
+            raise ReviewError('Replacement is unavailable on this server.', 409)
+        details = dict(title=row['title'], artist=row['artist'])
+        candidate = dict(id=candidate_id, url=intake.WATCH + candidate_id, title=row['title'], channel=row['artist'])
+        enqueue(key, row, candidate, g.user, details)
+
+    @app.post('/api/catalogue/reports/replace')
+    def replace_report():
+        if not admin():
+            raise ReviewError('Only the admin can review song reports.', 403)
+        data = body(2048)
+        report_key = data.get('key')
+        with review.lock:
+            report = review.data['reports'].get(report_key) if isinstance(report_key, str) else None
+            if not report or report['resolved']:
+                raise ReviewError('Song report not found.', 404)
+        identifier = report['id']
+        original = report_source(identifier)
+        key = identifier + ':' + original['sha256']
+        with scanner.lock:
+            row = scanner.rows.get(key, original)
+            if row.get('replacing') or row.get('replaced_by'):
+                raise ReviewError('This recording has a replacement in progress or already applied.', 409)
+            enqueue_explicit(key, row, data.get('url'))
+        return jsonify(state='replacing'), 202
 
     def automatic_job():
         if not automatic_user or not idle():
@@ -584,7 +647,7 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
                     return None
                 scanner.save(key, dict(row, replacing=True, queued=True, replacement_error=None))
             details = dict(title=row['title'], artist=row['artist'], duration=row['duration'], damaged=row['verdict'] == 'suspect')
-            return (key, row['id'], candidate, automatic_user, details, row['sha256'])
+            return (key, row['id'], candidate, automatic_user, details, row['sha256'], None)
 
     def work():
         background_request.set(True)
@@ -601,7 +664,7 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
                     continue
             if job is None:
                 continue
-            key, identifier, candidate, user, automatic, digest = job
+            key, identifier, candidate, user, automatic, digest, explicit = job
             try:
                 while not idle() or busy(identifier) or busy(candidate['id']):
                     if scanner.stop.wait(30):
@@ -610,7 +673,7 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
                     with scanner.lock:
                         scanner.save(key, dict(scanner.rows[key], queued=False))
                     with scanner.replacement_activity.track(candidate['title']), observe(getattr(intake, 'RESOURCES', None), 'source replacement'):
-                        replace(user, identifier, candidate, automatic, digest)
+                        replace(user, identifier, candidate, automatic, digest, explicit)
                     with scanner.lock:
                         scanner.save(key, dict(scanner.rows[key], replacing=False, queued=False, replaced_by=candidate['id']))
             except ScanPaused:
@@ -622,7 +685,7 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
                 app.logger.warning('Source replacement failed: %s', type(error).__name__)
                 with scanner.lock:
                     scanner.save(key, dict(scanner.rows[key], replacing=False, queued=False,
-                                           automatic_skipped=bool(automatic), replacement_error=str(error) if isinstance(error, SourceCheckError) else (
+                                           automatic_skipped=bool(automatic or explicit), replacement_error=str(error) if isinstance(error, SourceCheckError) else (
                                                'Automatic replacement stopped. Compare the recordings before trying again.' if automatic else
                                                'Replacement failed. Review the saved recording and try again.')))
 
@@ -677,6 +740,7 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
             return jsonify(state='undone')
         if action not in ('replace', 'dismiss'):
             return jsonify(error='Unknown source quality action.'), 404
+        data = body(2048) if action == 'replace' else None
         with scanner.lock:
             found = next(((key, row) for key, row in scanner.rows.items() if row['id'] == identifier and visible(key, row)), None)
             if not found:
@@ -687,7 +751,9 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
             if action == 'dismiss':
                 scanner.save(key, dict(row, dismissed=True))
                 return jsonify(state='done')
-            data = request.get_json(silent=True)
+            if 'url' in data:
+                enqueue_explicit(key, row, data['url'])
+                return jsonify(state='replacing'), 202
             candidate = row.get('proposed_replacement')
             if not isinstance(data, dict) or not candidate or data.get('candidate_id') != candidate['id']:
                 return jsonify(error='Choose the proposed official recording.'), 400

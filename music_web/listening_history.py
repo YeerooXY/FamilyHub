@@ -17,10 +17,12 @@ from .genres import genre_key, genre_label, most_common_genre
 class ListeningHistory:
     MAX_BATCH = 100
 
-    def __init__(self, workspace, utc=lambda: datetime.now(timezone.utc), track_metadata=lambda ids: {}):
+    def __init__(self, workspace, utc=lambda: datetime.now(timezone.utc), track_metadata=lambda ids: {},
+                 yearly_daily=lambda profile, year: {}):
         self.root = Path(workspace) / '.listening-history'
         self.utc = utc
         self.track_metadata = track_metadata
+        self.yearly_daily = yearly_daily
         self.lock = threading.RLock()
         self.cache = {}
         self.last_prune = None
@@ -197,7 +199,9 @@ class ListeningHistory:
         with self.lock:
             path = self.path(profile)
             years = self._state(path, self._cleared(path))['years']
-        result, artists, songs = yearly_summary(years, year, full=full)
+        result, artists, songs = yearly_summary(years, year, full=full,
+                                                counted_daily=self.yearly_daily(profile, year),
+                                                track_metadata=self.track_metadata)
         first = first_artists(years, year) if chart.get('day') else {}
         return {**result, **compare(chart, artists, songs, first)}
 
@@ -249,10 +253,10 @@ class ListeningHistory:
                     recent_history=[e['recording_id'] for e in events[-200:]])
 
 
-def register(app, workspace, body, profiles, admins, metadata, profile_lock, *, track_metadata, chart, songs_added, clear_totals):
+def register(app, workspace, body, profiles, admins, metadata, profile_lock, *, track_metadata, chart, songs_added, clear_totals, yearly_daily):
     from flask import g, jsonify, request, abort
 
-    store = ListeningHistory(workspace, track_metadata=track_metadata)
+    store = ListeningHistory(workspace, track_metadata=track_metadata, yearly_daily=yearly_daily)
     app.extensions['listening_history'] = store
     prune_slot = threading.BoundedSemaphore(1)
 
@@ -303,10 +307,11 @@ def register(app, workspace, body, profiles, admins, metadata, profile_lock, *, 
         except ValueError:
             return jsonify(error='Choose a past or current calendar year.'), 400
         snapshot = chart.snapshot()
+        additions = songs_added(year)
         with profile_lock:
             if profiles and profiles.preferences(g.user)['listening_history_paused']:
                 return jsonify(year=year, paused=True)
-            return jsonify(paused=False, songs_added=songs_added(year).get(g.user, 0),
+            return jsonify(paused=False, songs_added=additions.get(g.user, 0),
                            **store.wrapped(g.user, year, snapshot, full=True))
 
     @app.get('/api/listening/events')

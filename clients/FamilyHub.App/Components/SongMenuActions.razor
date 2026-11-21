@@ -1,5 +1,16 @@
 ﻿@inject MusicSession Session
 
+@if (Track.Bpm is > 0 || !string.IsNullOrWhiteSpace(Track.Key))
+{
+    <p>
+        @if (Track.Bpm is > 0) { <span>@Track.Bpm BPM</span> }
+        @if (!string.IsNullOrWhiteSpace(Track.Key))
+        {
+            @if (Track.Bpm is > 0) { <span aria-hidden="true"> · </span> }
+            <span>Key @(string.IsNullOrWhiteSpace(Track.KeyName) ? Track.Key : $"{Track.KeyName} ({Track.Key})")</span>
+        }
+    </p>
+}
 @if (!FindRecording && Keep.HasDelegate)
 {
     <button @onclick="Download" aria-disabled="@(DownloadUnavailable ? "true" : "false")">

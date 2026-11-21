@@ -29,13 +29,13 @@
         @if (choices.Count > 0)
         {
             <h3>Choose a recording</h3>
-            @foreach (var track in choices) { <SongRow Track="track" Play="() => PlayTracks.InvokeAsync(new List<MusicTrack> { track })" /> }
+            @foreach (var track in choices) { <SongRow Track="track" Play="() => PlayTracks.InvokeAsync((new[] { track }, MusicPlayer.PlaybackTimestamp()))" /> }
             <button @onclick="() => choices.Clear()">Close recording choices</button>
         }
     </section>
 }
 @code {
-    [Parameter] public EventCallback<List<MusicTrack>> PlayTracks { get; set; }
+    [Parameter] public EventCallback<(IEnumerable<MusicTrack> Tracks, long RequestedAt)> PlayTracks { get; set; }
     private List<DiscoveryItem> items = [];
     private List<MusicTrack> choices = [];
     private readonly HashSet<string> failedCovers = [];
@@ -78,12 +78,13 @@
     private async Task Play(DiscoveryItem item)
     {
         if (busy || Session.Api is null) return;
+        var requestedAt = MusicPlayer.PlaybackTimestamp();
         busy = true; choices.Clear(); message = "Finding recordings...";
         try {
             var query = await Session.Api.RequestJsonAsync<DiscoveryQuery>(HttpMethod.Post, "/api/discovery/" + item.Id + "/play", new { });
             item.Seen = true;
             var saved = Session.Library.FirstOrDefault(t => t.Title.Equals(item.Title, StringComparison.OrdinalIgnoreCase) && t.Channel.Equals(item.Artist, StringComparison.OrdinalIgnoreCase));
-            if (saved is not null) { await PlayTracks.InvokeAsync(new List<MusicTrack> { saved }); message = ""; return; }
+            if (saved is not null) { await PlayTracks.InvokeAsync((new[] { saved }, requestedAt)); message = ""; return; }
             choices = (await Session.Api.RequestJsonAsync<SearchPage>(HttpMethod.Post, "/api/search", new { query = query.Query })).Tracks;
             message = choices.Count == 0 ? "This release is unavailable. Try again later." : "";
         }

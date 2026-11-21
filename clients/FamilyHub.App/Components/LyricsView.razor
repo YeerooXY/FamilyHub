@@ -12,7 +12,7 @@
         <section id="lyrics-view" class="popup-panel lyrics-view is-open" role="dialog" aria-labelledby="lyrics-title">
             <div class="lyrics-header">
                 <div class="dialog-heading"><h2 id="lyrics-title">Lyrics</h2><button id="lyrics-close" class="quiet" aria-label="Close lyrics" @onclick="Close"><MusicIcon Name="close" /></button></div>
-                <div class="lyrics-song"><TrackCover @key="track.Id" Track="track" /><div><strong>@track.Title</strong><span>@track.Channel</span></div>
+                <div class="lyrics-song"><TrackCover @key="track.Id" Track="track" /><div><strong>@track.DisplayTitle</strong><span>@track.Channel</span></div>
                 @if (current.State == "synced")
                 {
                     <div class="lyrics-timing" role="group" aria-label="Lyrics timing">

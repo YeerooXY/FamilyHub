@@ -73,7 +73,8 @@ function playerIcon(name) {
   return svg;
 }
 function displaySongTitle(title) {
-  return String(title || "").replace(/\s*[\[(](?:(?:official )?(?:music video|audio|video|lyrics?)|hd)[\])]/gi, "").trim() || title;
+  const clean = String(title || "").replace(/\s*[\[(](?:(?:official )?(?:music video|audio|video|lyrics?)|hd)[\])]/gi, "").trim();
+  return clean.replace(/\s+(?:\(original mix\)|\[original mix\]|[-–—]\s+original mix)$/i, "").trim() || clean || title;
 }
 for (const box of document.querySelectorAll(".player-title")) {
   const title = box.firstElementChild;
@@ -100,7 +101,7 @@ function cover(track) {
 }
 function songButton(track, context = "queue") {
   const button = el("button", {type:"button", class:"song-primary", "data-source":sourceKey(track), "aria-label":"Play " + track.title},
-    cover(track), el("span", {class:"song-text"}, el("strong", {}, track.title || "Untitled"),
+    cover(track), el("span", {class:"song-text"}, el("strong", {title:track.title || ""}, displaySongTitle(track.title) || "Untitled"),
     el("small", {}, track.channel || track.artist || ""), el("span", {class:"song-next"}, "Up next")),
     el("span", {class:"storage-state", role:"img"}),
     el("span", {class:"time"}, duration(track.duration)), el("span", {class:"song-playing", "aria-hidden":"true"}, el("i"), el("i"), el("i")));

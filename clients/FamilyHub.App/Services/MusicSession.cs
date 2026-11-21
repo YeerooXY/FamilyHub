@@ -20,6 +20,7 @@ public sealed class MusicSession
     public List<ListenerProfile> Profiles { get; private set; } = [];
     public bool NeedsProfileSelection { get; private set; }
     public ListenerPreferences PlaybackPreferences { get; private set; } = new();
+    public bool MoviesEnabled { get; private set; }
     public bool Connected { get; private set; }
     public bool UiActive { get; set; } = true;
     public int IdleHeartbeatSeconds { get; set; } = 5;
@@ -655,6 +656,7 @@ public sealed class MusicSession
         accountVersion++; TopListenerId = null; topListenerChecked = default;
         playbackCaches.Clear();
         PinPlayback(null); PinPreparingPlayback(null);
+        MoviesEnabled = false;
         User = ""; ProfileName = ""; Offline = null; Connected = false;
         Library = []; Playlists = []; Downloads = []; DownloadedBytes = 0;
         DownloadFailure = null;
@@ -715,6 +717,7 @@ public sealed class MusicSession
         var library = await offline.GetLibraryAsync();
         var playlists = await offline.GetPlaylistsAsync();
         Configure(candidate.ServerOrigin.AbsoluteUri, selection.Profile.Id, candidate, offline);
+        MoviesEnabled = selection.MoviesEnabled;
         ProfileName = selection.Profile.Name; Profiles = profiles; NeedsProfileSelection = false;
         StoreProfiles(Server, profiles);
         Library = library; Playlists = playlists; Connected = true; UpdateMessage("", "info");
@@ -1317,9 +1320,43 @@ public sealed class MusicSession
     public bool CanStream => true;
     public static bool IsStream(string source) => source.StartsWith("https://", StringComparison.Ordinal);
 
+    internal sealed record LocalPlaybackAttempt(string Id, string Title, DateTimeOffset Started,
+        Dictionary<string, int> Stages);
+    private readonly Dictionary<(string Server, string Profile, string Id), LocalPlaybackAttempt> localPlaybackAttempts = [];
+
+    private LocalPlaybackAttempt LocalAttempt(string id)
+    {
+        var key = (Server, User, id);
+        if (localPlaybackAttempts.TryGetValue(key, out var attempt)) return attempt;
+        if (localPlaybackAttempts.Count >= 64)
+            localPlaybackAttempts.Remove(localPlaybackAttempts.MinBy(pair => pair.Value.Started).Key);
+        return localPlaybackAttempts[key] = new(id, "", DateTimeOffset.UtcNow, []);
+    }
+
+    internal void RememberPlaybackAttempt(string action, MusicTrack track, DateTimeOffset started)
+    {
+        lock (localPlaybackAttempts)
+        {
+            var attempt = LocalAttempt(action);
+            if (attempt.Title.Length == 0)
+                localPlaybackAttempts[(Server, User, action)] = attempt with { Title = track.Title, Started = started };
+        }
+    }
+
+    internal LocalPlaybackAttempt[] RecentPlaybackAttempts()
+    {
+        var cutoff = DateTimeOffset.UtcNow.AddMinutes(-30);
+        lock (localPlaybackAttempts)
+            return localPlaybackAttempts.Where(pair => pair.Key.Server == Server && pair.Key.Profile == User && pair.Value.Started >= cutoff)
+                .Select(pair => pair.Value with { Stages = new(pair.Value.Stages) })
+                .OrderByDescending(item => item.Started).Take(32).ToArray();
+    }
+
     internal void ReportPlaybackStage(string action, string stage, long elapsed)
     {
-        if (Connected && Api is { } api && elapsed is >= 0 and <= 3600000)
+        if (elapsed is < 0 or > 3600000) return;
+        lock (localPlaybackAttempts) LocalAttempt(action).Stages.TryAdd("client_" + stage, (int)elapsed);
+        if (Connected && Api is { } api)
             _ = SendPlaybackStageAsync(api, action, stage, elapsed);
     }
     private static async Task SendPlaybackStageAsync(FamilyHubApi api, string action, string stage, long elapsed)
@@ -1585,25 +1622,51 @@ public sealed class MusicSession
             .DistinctBy(Similarity.SongKey).ToArray();
         return [seed, .. RankRecommendations(similar).Take(30)];
     }
-    public async Task<List<MusicTrack>> SimilarAsync(MusicTrack seed)
+    public List<MusicTrack> KnownSimilar(MusicTrack seed) => RankRecommendations(MatchingSongs(seed, Connected ? Library : Downloads));
+    private static IEnumerable<MusicTrack> MatchingSongs(MusicTrack seed, IEnumerable<MusicTrack> tracks)
     {
-        if (!Connected) return RankRecommendations(Downloads.Where(t => t.Id != seed.Id && Similarity.IsSimilar(seed, t)));
+        var seedKey = Similarity.SongKey(seed);
+        return tracks.Where(t => t.Id != seed.Id && Similarity.IsSimilar(seed, t) && Similarity.SongKey(t) != seedKey)
+            .DistinctBy(Similarity.SongKey);
+    }
+    public async Task<List<MusicTrack>> SimilarAsync(MusicTrack seed, CancellationToken cancellationToken = default)
+    {
+        if (!Connected) return KnownSimilar(seed);
         var version = accountVersion;
         var artist = Similarity.Artist(seed);
-        if (string.IsNullOrEmpty(artist)) return [];
+        if (artist.Length == 0) return [];
+        artist = artist[..Math.Min(artist.Length, 120)];
         var candidates = new List<MusicTrack>();
-        string? seedGenre = null; int? offset = 0;
-        for (var page = 0; page < 4 && offset is not null; page++)
+        var anchor = seed;
+        Exception? lookupFailure = null;
+        int? offset = 0;
+        try
         {
-            var result = await OnlineApi().RequestJsonAsync<Results>(HttpMethod.Post, "/api/recommendations",
-                new { query = artist[..Math.Min(artist.Length, 120)] + " official audio", seed_artist = artist[..Math.Min(artist.Length, 120)], offset = offset.Value },
-                background: page > 0);
-            EnsureCurrent(version); seedGenre ??= result.SeedGenre;
-            candidates.AddRange(result.Tracks); offset = result.NextOffset;
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(20));
+            for (var page = 0; page < 4 && offset is not null; page++)
+            {
+                var result = await OnlineApi().RequestJsonAsync<Results>(HttpMethod.Post, "/api/recommendations",
+                    new { query = artist + " official audio", seed_artist = artist, offset = offset.Value }, timeout.Token, background: page > 0);
+                EnsureCurrent(version);
+                if (GenreNames.Key(anchor.Genre) == "unsorted" && GenreNames.Key(result.SeedGenre) != "unsorted")
+                    anchor = seed with { Genre = result.SeedGenre };
+                candidates.AddRange(result.Tracks);
+                offset = result.NextOffset > offset && !MatchingSongs(anchor, Library.Concat(candidates)).Skip(19).Any()
+                    ? result.NextOffset : null;
+            }
         }
-        var anchor = seed with { Genre = string.IsNullOrEmpty(seed.Genre) || seed.Genre == "Unsorted" ? seedGenre ?? "" : seed.Genre };
-        return RankRecommendations(candidates.Concat(Library).Where(t => t.Id != seed.Id && Similarity.IsSimilar(anchor, t))
-            .DistinctBy(Similarity.SongKey));
+        catch (Exception failure) when (failure is HttpRequestException or IOException or JsonException
+            or OperationCanceledException or FamilyHubApiException { RequiresSignIn: false })
+        {
+            lookupFailure = failure;
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        EnsureCurrent(version);
+        var similar = RankRecommendations(MatchingSongs(anchor, Library.Concat(candidates)));
+        if (similar.Count == 0 && lookupFailure is not null)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(lookupFailure);
+        return similar;
     }
 
     public async Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken cancellationToken, bool allowPreview = false,
@@ -1621,7 +1684,10 @@ public sealed class MusicSession
             if (allowPreview && job.TryGetProperty("source_id", out var source) && source.GetString() == track.Id)
             {
                 EnsureCurrent(version);
-                if (!fallback && job.TryGetProperty("stream_url", out var preview) && preview.GetString() is { Length: > 0 } url)
+                // The Windows media engine needs more than one segment in a growing playlist.
+                var previewReady = !OperatingSystem.IsWindows() || !job.TryGetProperty("windows_preview_ready", out var ready)
+                    || ready.ValueKind != JsonValueKind.False;
+                if (!fallback && previewReady && job.TryGetProperty("stream_url", out var preview) && preview.GetString() is { Length: > 0 } url)
                     return track with { StreamUrl = url, PlaybackVersion = "preview-hls" };
                 if (job.TryGetProperty("fallback_stream_url", out var original) && original.GetString() is { Length: > 0 } originalUrl)
                     return track with { StreamUrl = originalUrl, PlaybackVersion = "preview-source" };

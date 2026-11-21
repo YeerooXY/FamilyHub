@@ -12,14 +12,25 @@ internal static class PlaybackFlowChecks
         void Check(bool condition, string message) { if (!condition) throw new Exception(message); checks++; }
         var requests = new List<JsonElement>();
         var track = new MusicTrack { Id = "abcdefghijk", Title = "Playback fixture", Url = "https://www.youtube.com/watch?v=abcdefghijk" };
+        var checkWindowsPreview = false;
+        var sourceReady = false;
+        var polls = 0;
+        object GrowingPreview(bool ready) => new { job = new { id = "job", source_id = track.Id, state = "running",
+            windows_preview_ready = ready, stream_url = "/api/jobs/job/media/index.m3u8?ticket=fixture",
+            fallback_stream_url = sourceReady ? "/api/jobs/job/media/source?ticket=fixture" : null } };
         FamilyHubApi Api(Uri origin) => new(origin, new Handler(async request =>
         {
             object value;
             if (request.RequestUri!.AbsolutePath == "/api/jobs")
             {
                 requests.Add(JsonSerializer.Deserialize<JsonElement>(await request.Content!.ReadAsStringAsync()));
-                value = new { job = new { id = "job", source_id = track.Id, state = "running", stream_url = "/api/jobs/job/media/index.m3u8?ticket=fixture",
+                value = checkWindowsPreview ? GrowingPreview(false) : new { job = new { id = "job", source_id = track.Id, state = "running", stream_url = "/api/jobs/job/media/index.m3u8?ticket=fixture",
                     fallback_stream_url = "/api/jobs/job/media/source?ticket=fixture" } };
+            }
+            else if (request.RequestUri.AbsolutePath == "/api/jobs/job")
+            {
+                polls++;
+                value = GrowingPreview(true);
             }
             else value = request.RequestUri.AbsolutePath switch
             {
@@ -51,6 +62,14 @@ internal static class PlaybackFlowChecks
             Check((await session.StreamPlaybackAsync(alternate, 0, CancellationToken.None)).Contains("/media/source"), "Recovery opened the wrong edition");
             var following = await session.EnsureServerRecordingAsync(track, CancellationToken.None, allowPreview: true);
             Check(following.PlaybackVersion == "preview-hls", "A previous attempt disabled streaming");
+            checkWindowsPreview = true;
+            var growing = await session.EnsureServerRecordingAsync(track, CancellationToken.None, allowPreview: true);
+            Check(growing.PlaybackVersion == "preview-hls" && polls == (OperatingSystem.IsWindows() ? 1 : 0),
+                "The Windows preview buffer flag was not applied per platform");
+            sourceReady = true;
+            var readySource = await session.EnsureServerRecordingAsync(track, CancellationToken.None, allowPreview: true);
+            Check(readySource.PlaybackVersion == (OperatingSystem.IsWindows() ? "preview-source" : "preview-hls")
+                && polls == (OperatingSystem.IsWindows() ? 1 : 0), "An openable source did not start immediately");
         }
         finally { session.Api?.Dispose(); }
         return checks;

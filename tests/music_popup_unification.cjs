@@ -483,9 +483,17 @@ async function audit(name, engine, options) {
         const transfer = target('add-songs-dialog').or(target('transfer-import-dialog')).filter({visible:true});
         await capture('playlist-import', transfer);
         await closeByEscape(transfer);
-        const songSort = await open(target('playlist-song-sort'), 'playlist-song-sort-options');
-        await capture('song-sort', songSort, true);
-        await closeByEscape(songSort);
+        if (before) {
+            const songSort = await open(target('playlist-song-sort'), 'playlist-song-sort-options');
+            await capture('song-sort', songSort, true);
+            await closeByEscape(songSort);
+        } else {
+            const titleSort = page.locator('.playlist-column-headings [data-sort="Title"]');
+            for (const direction of ['ascending', 'descending', null]) {
+                await select(titleSort);
+                await page.waitForFunction(value => document.querySelector('[data-sort="Title"]').getAttribute('data-direction') === value, direction);
+            }
+        }
         await select(target('open-home'));
         await select(page.locator('#home-albums-shelf .home-card').first());
         await target('play-album').waitFor();
@@ -493,15 +501,40 @@ async function audit(name, engine, options) {
 
         await nav('Server work');
         await page.locator('.server-page[aria-busy=false]').waitFor();
+        if (!before) await target('catalogue-filter-metadata').waitFor();
         await capture('server-work');
         if (!before) {
-            await select(page.getByRole('button', {name: 'Queued & retrying'}));
+            assert.equal(await target('catalogue-category-panel').count(), 0);
+            assert.equal(await page.locator('.srv-automatic details').getAttribute('open'), null);
+            assert.equal(await page.locator('.srv-review-links button').count(), 8);
+            const workers = page.locator('.srv-automatic summary');
+            await workers.focus();
+            await workers.press('Space');
+            assert(await workers.evaluate(node => node.parentElement.open && document.activeElement === node));
+            await workers.press('Enter');
+            assert(await workers.evaluate(node => !node.parentElement.open && document.activeElement === node));
+            const queue = target('catalogue-view-queue');
+            await queue.focus();
+            await queue.press('Enter');
+            await focused('review-action-heading');
+            await select(target('catalogue-filter-playlists'));
             await heading('Queued recording').waitFor();
             await page.getByText(/No verified recording match/).waitFor();
-            await select(page.getByRole('button', {name: 'Recently fixed'}));
-            await heading('Fixed automatically').waitFor();
-            await select(page.getByRole('button', {name: 'Needs your choice'}));
-            await heading('Station Lights').waitFor();
+            await focused('catalogue-category-title');
+            await page.keyboard.press('Shift+Tab');
+            await focused('catalogue-back');
+            await page.keyboard.press('Space');
+            await focused('catalogue-filter-playlists');
+            await page.keyboard.press('Shift+Tab');
+            await focused('catalogue-back');
+            await page.keyboard.press('Enter');
+            await focused('catalogue-view-queue');
+            await page.keyboard.press('Tab');
+            await focused('catalogue-view-fixed');
+            await page.keyboard.press('Enter');
+            await heading('Fixed recordings and details').waitFor();
+            await select(target('catalogue-back'));
+            await focused('catalogue-view-fixed');
         }
         await select(page.getByRole('button', {name: /Song details/}));
         await target('metadata-00000000001').waitFor();
@@ -517,6 +550,7 @@ async function audit(name, engine, options) {
         await page.locator('.artist-mapping-row').first().waitFor();
         await page.locator('.artist-mappings').scrollIntoViewIfNeeded();
         await capture('artist-mappings');
+        if (!before) await select(target('catalogue-back'));
         await select(page.getByRole('button', {name: /Missing from playlists/}));
         await open(page.getByRole('button', {name: /Review the recording of Station Lights/}), 'transfer-review-dialog');
         await target('transfer-review-dialog').getByText('Station Lights', {exact: true}).first().waitFor();
@@ -534,54 +568,39 @@ async function audit(name, engine, options) {
             const main = document.getElementById('content').getBoundingClientRect();
             const comparison = document.querySelector(selector)?.getBoundingClientRect();
             return comparison && comparison.top >= main.top && comparison.top < main.bottom;
-        }, before ? '.lb-wrapped-card' : '.lb-wrapped-scroll');
+        }, before ? '.lb-wrapped-card' : '.lb-year-metrics');
         await capture('wrapped');
         if (!before) {
-            const table = page.getByRole('table', {name: 'Listening by member'});
-            const scroll = target('lb-wrapped-scroll');
-            const member = page.getByRole('combobox', {name: 'Family member'});
-            const alex = table.getByRole('columnheader', {name: 'Alex', exact: true});
-            const june = table.getByRole('columnheader', {name: 'June', exact: true});
-            const rowHeaders = table.getByRole('rowheader');
-            const cell = (label, value) => table.getByRole('row')
-                .filter({has: page.getByRole('rowheader', {name: label, exact: true})})
-                .getByRole('cell', {name: value, exact: true});
-            await alex.waitFor();
-            assert.deepEqual(await rowHeaders.allTextContents(), ['Songs added', 'Listening time', 'Favourite artist',
-                'Favourite genre', 'Longest streak', 'Night owl', 'Most replayed', 'Mainstream score', 'Early listener']);
-            for (const [label, value] of [['Songs added', '14'], ['Listening time', '116 min'],
-                ['Favourite artist', 'North Atlas'], ['Favourite genre', 'Indie rock'], ['Longest streak', '6 days'],
-                ['Night owl', '25%'], ['Most replayed', 'Station Lights (1 replay, North Atlas)'],
-                ['Mainstream score', '40%'], ['Early listener', 'Glass Harbor, Silver Current']]) {
-                await cell(label, value).waitFor();
-            }
-            if (phone) {
-                await member.waitFor();
-                await june.waitFor({state: 'hidden'});
-                assert.equal(await member.inputValue(), 'fixture');
-                assert(await scroll.evaluate(node => node.scrollWidth <= node.clientWidth + 1), 'Phone comparison must fit its panel');
-                await member.focus();
-                await member.selectOption('june');
-                await june.waitFor();
-                await alex.waitFor({state: 'hidden'});
-                await cell('Listening time', '63 min').waitFor();
-                await cell('Most replayed', '—').waitFor();
-                assert(await member.evaluate(node => node === document.activeElement), 'Changing member must preserve selector focus');
-                if (engine === chromium) {
-                    await page.keyboard.press('Tab');
-                    assert(await scroll.evaluate(node => node === document.activeElement));
-                    await page.keyboard.press('Shift+Tab');
-                    assert(await member.evaluate(node => node === document.activeElement));
-                }
-                await member.selectOption('fixture');
-                await alex.waitFor();
-            } else {
-                await member.waitFor({state: 'hidden'});
-                await june.waitFor();
-                await cell('Listening time', '63 min').waitFor();
-                await scroll.focus();
-                assert(await scroll.evaluate(node => node === document.activeElement), 'Desktop comparison must accept keyboard focus');
-            }
+            const picker = target('lb-wrapped-member');
+            const metrics = page.locator('.lb-year-metrics');
+            const check = async (label, value) => {
+                const text = await metrics.locator('div').filter({has:page.getByText(label,{exact:true})}).locator('dd').innerText();
+                assert.equal(text,value);
+            };
+            assert.equal(await picker.getAttribute('aria-label'), 'Choose listener, Alex');
+            assert.equal(await metrics.locator('dt').count(),9);
+            await check('Songs added','14');
+            await check('Listening time','116 min');
+            await check('Favourite artist','North Atlas');
+            await check('Most replayed','Station Lights (1 replay, North Atlas)');
+            assert(await metrics.evaluate(node => node.scrollWidth <= node.clientWidth + 1));
+            await picker.focus();
+            await page.keyboard.press('Enter');
+            const menu = target('lb-person-menu');
+            await menu.waitFor();
+            await menu.getByRole('button',{name:'June'}).focus();
+            await page.keyboard.press('Space');
+            await menu.waitFor({state:'hidden'});
+            await page.waitForFunction(() => document.querySelector('#lb-wrapped-member').textContent.includes('June'));
+            await check('Listening time','63 min');
+            assert(await picker.evaluate(node => node === document.activeElement));
+            await picker.press('Enter');
+            await menu.waitFor();
+            await page.keyboard.press('Escape');
+            await menu.waitFor({state:'hidden'});
+            await picker.press('Enter');
+            await menu.getByRole('button',{name:'Alex'}).click();
+            await menu.waitFor({state:'hidden'});
             const help = target('lb-wrapped-help');
             await help.press('Enter');
             await page.getByText('Deezer chart checked 18 Nov 2026.').waitFor();
@@ -615,11 +634,50 @@ async function audit(name, engine, options) {
         await page.waitForFunction(() => document.body.dataset.view === 'preferences');
         await capture('settings');
         if (!before) {
-            await page.getByRole('button', {name: 'Load timings'}).press('Enter');
-            const action = page.locator('summary').filter({hasText: 'position advanced at 740 ms'});
+            await target('settings-general').focus();
+            await page.keyboard.press('Tab');
+            await focused('settings-music');
+            await page.keyboard.press('Tab');
+            await focused('settings-movies');
+            await page.keyboard.press('Space');
+            const audio = target('movie-preferred-audio');
+            await audio.selectOption('hu');
+            await page.getByText('Movie preferences saved.', {exact: true}).waitFor();
+            const subtitles = target('movie-preferred-subtitles');
+            await subtitles.selectOption('off');
+            await page.waitForFunction(() => JSON.parse(localStorage.getItem(
+                'familyhub:movie-tracks:' + JSON.stringify({server: 'https://music.fixture.test/', profile: 'fixture'})))?.subtitles === 'off');
+            await target('settings-movies').focus();
+            await page.keyboard.press('Shift+Tab');
+            await focused('settings-music');
+            await page.keyboard.press('Enter');
+            await heading('Playback and storage').waitFor();
+            await focused('settings-music');
+            await target('settings-movies').press('Enter');
+            await page.waitForFunction(() => document.getElementById('movie-preferred-audio')?.value === 'hu');
+            assert.equal(await subtitles.inputValue(), 'off');
+            await target('settings-music').press('Enter');
+            const diagnostics = page.getByRole('region', {name: 'Playback diagnostics'});
+            await diagnostics.getByRole('button', {name: 'Load attempts'}).press('Enter');
+            const refreshAttempts = diagnostics.getByRole('button', {name: 'Refresh attempts'});
+            const action = diagnostics.locator('summary').filter({hasText: 'Started, then stopped unexpectedly.'});
             await action.waitFor();
-            await action.press('Space');
-            await page.getByText(/stream response ready/i).waitFor();
+            assert.match(await action.innerText(), /First Light · \d{1,2}:\d{2}.* · Started, then stopped unexpectedly\./);
+            const older = diagnostics.locator('summary').filter({hasText: 'Unknown song · Time unavailable'});
+            assert.match(await older.nth(0).innerText(), /Time unavailable · The retry loaded\. Playback start is unconfirmed\./);
+            assert.match(await older.nth(1).innerText(), /Time unavailable · Started playing\./);
+            assert.doesNotMatch(await diagnostics.innerText(), /fedcba98|adb80533|cdb80533/);
+            assert.equal(await refreshAttempts.evaluate(node => node === document.activeElement), true);
+            const firstAttempt = diagnostics.locator('summary').first();
+            await page.keyboard.press('Tab');
+            assert.equal(await firstAttempt.evaluate(node => node === document.activeElement), true);
+            await page.keyboard.press('Shift+Tab');
+            assert.equal(await refreshAttempts.evaluate(node => node === document.activeElement), true);
+            await action.focus();
+            await page.keyboard.press('Space');
+            await diagnostics.getByText(/stream response ready/i).waitFor();
+            assert.equal(await action.evaluate(node => node === document.activeElement), true);
+            assert.doesNotMatch(await diagnostics.innerText(), /fedcba98|adb80533|cdb80533/);
         }
         await open(target('clear-history'), 'clear-history-dialog');
         await capture('clear-history', target('clear-history-dialog'));

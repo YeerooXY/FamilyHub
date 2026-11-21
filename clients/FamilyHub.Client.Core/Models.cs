@@ -7,6 +7,17 @@ public sealed record MusicTrack
     [JsonPropertyName("id")] public string Id { get; init; } = "";
     [JsonPropertyName("url")] public string Url { get; init; } = "";
     [JsonPropertyName("title")] public string Title { get; init; } = "";
+    [JsonIgnore] public string DisplayTitle => CompactTitle(Title);
+    private static readonly string[] OriginalMixSuffixes = [" (Original Mix)", " [Original Mix]", " - Original Mix", " – Original Mix", " — Original Mix"];
+
+    public static string CompactTitle(string title)
+    {
+        foreach (var suffix in OriginalMixSuffixes)
+            if (title.Length > suffix.Length && title.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                return title[..^suffix.Length].TrimEnd();
+        return title;
+    }
+
     [JsonPropertyName("channel")] public string Channel { get; init; } = "";
     [JsonPropertyName("library_album")] public string LibraryAlbum { get; init; } = "";
     [JsonPropertyName("genre")] public string Genre { get; init; } = "";
@@ -111,6 +122,7 @@ public sealed record ProfileConnection
 
 public sealed record ProfileSelection
 {
+    [JsonPropertyName("movies_enabled")] public bool MoviesEnabled { get; init; }
     [JsonPropertyName("profile")] public ListenerProfile Profile { get; init; } = new();
     [JsonPropertyName("preferences")] public ListenerPreferences Preferences { get; init; } = new();
     [JsonPropertyName("csrf_token")] public string CsrfToken { get; init; } = "";

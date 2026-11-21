@@ -504,13 +504,15 @@ class YouTubeDeferred(IntakeError):
     pass
 
 
-def youtube_run(command, timeout, what, want_stdout=False, caller="fetch", background=None, media=False):
+def youtube_run(command, timeout, what, want_stdout=False, caller="fetch", background=None, media=False, on_start=None):
     if background is None:
         background = getattr(CONTROL, "background", False)
     # Background refusals are retried after cooldown, never persisted as failed matches.
     while True:
         turn = media_turn(caller, background) if media else YOUTUBE.request(caller, background)
         with turn:
+            if on_start:
+                on_start()
             result = run(command, timeout, what, want_stdout)
             refused = YOUTUBE.result(caller, result[0], result[2], media)
         if background and refused:
@@ -729,9 +731,12 @@ def fetch_audio(args, vid, meta):
     tool("ffmpeg"), tool("ffprobe")
     # bestaudio only: without an audio-only format yt-dlp fails here; nothing substitutes a video download.
     base = [tool("yt-dlp"), "--ignore-config", "--no-playlist", "-f", "bestaudio"]
+    stage = getattr(args, "stage", lambda _: None)
     err = ""
     if meta is None:
-        rc, out, err = youtube_run(base + ["--dump-single-json", "--", url], 120, "yt-dlp metadata", True)
+        stage("source_metadata_wait")
+        rc, out, err = youtube_run(base + ["--dump-single-json", "--", url], 120, "yt-dlp metadata", True,
+                                   on_start=lambda: stage("source_metadata_started"))
         try:
             meta = json.loads(out) if rc == 0 else None
         except ValueError:
@@ -742,6 +747,7 @@ def fetch_audio(args, vid, meta):
         raise IntakeError("live and upcoming streams are not accepted")
     if not (isnum(meta.get("duration")) and 0 < meta["duration"] <= MAX_SECONDS):
         raise IntakeError(f"video duration is unknown or longer than {MAX_SECONDS} s")
+    stage("source_metadata_ready")
     source = {"kind": "youtube", "url": url, "id": vid, "title": clip(meta.get("title")),
               "channel": clip(meta.get("channel") or meta.get("uploader")), "lossy": True,
               "artist": clip(meta.get("artist")), "album": clip(meta.get("album")), "track_title": clip(meta.get("track")),
@@ -893,10 +899,13 @@ def pump_preview(command, *args, **kwargs):
     # Each attempt owns these newly created paths; a refusal leaves a partial spool.
     spool = args[0] if args else kwargs["spool"]
     root = args[1] if len(args) > 1 else kwargs["root"]
+    stage = kwargs.get("stage", lambda _: None)
     while True:
         background = getattr(CONTROL, "background", False)
         retry_paths = not os.path.lexists(root) and not os.path.lexists(spool)
+        stage("source_transfer_wait")
         with media_turn("fetch", background):
+            stage("source_transfer_admitted")
             try:
                 result = _pump_preview(command, *args, **kwargs)
             except IntakeError as error:
@@ -924,7 +933,8 @@ def pump_preview(command, *args, **kwargs):
 
 
 def _pump_preview(command, spool, root, cancel, notify=lambda: None, budget=lambda: None,
-                 max_bytes=2 << 30, timeout=1800, idle=45, progress=lambda **fields: None, total_bytes=None):
+                 max_bytes=2 << 30, timeout=1800, idle=45, progress=lambda **fields: None, total_bytes=None,
+                 stage=lambda _: None):
     """One source, exact spool and a detachable bounded encoder branch; no browser owns the pipe."""
     os.mkdir(root, 0o700)
     started = last = time.monotonic()
@@ -967,8 +977,10 @@ def _pump_preview(command, spool, root, cancel, notify=lambda: None, budget=lamb
                 encoder.stdin.close()
     try:
         permit.enter_context(audio_permit())
+        stage("source_encoder_admitted")
         source = spawn(command, stdout=subprocess.PIPE, stderr=source_error, stdin=subprocess.DEVNULL)
         procs.append(source)
+        stage("source_process_started")
         encoder_command = hls_command("pipe:0", root)
         encoder = spawn(AUDIO_COMMAND(encoder_command) if AUDIO_COMMAND else encoder_command, cwd=root, stdin=subprocess.PIPE,
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -1107,7 +1119,8 @@ def progressive_fetch(args, metadata, source, max_bytes=2 << 30, scratch_limit=0
                                   args.preview, cancel, args.notify, budget,
                                   progress=getattr(args, "progress", lambda **fields: None),
                                   max_bytes=max_bytes,
-                                  total_bytes=exact_download_size(metadata))
+                                  total_bytes=exact_download_size(metadata),
+                                  stage=getattr(args, "stage", lambda _: None))
         if cancel.is_set():
             raise IntakeError("cancelled")
         info = probe(spool)

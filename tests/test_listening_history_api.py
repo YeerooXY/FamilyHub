@@ -90,7 +90,14 @@ class HistoryApiTests(Base):
         counter = dict(device_id='b' * 32, playing=True, counters=[dict(day=fixture.now.date().isoformat(), seconds=60, plays=1)])
         activity = '/api/playback/activity'
         self.assertEqual(self.post(bob, bob_token, activity, json=counter).status_code, 200)
-        self.assertEqual(self.go(alice, 'GET', stats).json['total_seconds'], 60)
+        board = self.go(alice, 'GET', stats).json
+        self.assertEqual(board['total_seconds'], 60)
+        family_wrapped = next(row['wrapped'] for row in board['profiles'] if row['id'] == 'sample-b')
+        private = self.go(bob, 'GET', wrapped).json
+        self.assertEqual(family_wrapped['total_minutes'], private['total_minutes'])
+        self.assertEqual(private['total_minutes'], 1)
+        self.assertEqual(private['monthly_minutes'][fixture.now.month - 1], 1)
+        self.assertEqual(private['top_songs'][0]['seconds'], event['listened_seconds'])
         self.assertEqual(self.go(bob, 'PATCH', '/api/profile/preferences', json={'listening_history_paused': True},
                                  headers={'X-CSRFToken': bob_token}).status_code, 200)
         self.assertEqual([row['id'] for row in self.go(alice, 'GET', stats).json['profiles']], ['sample-a'])

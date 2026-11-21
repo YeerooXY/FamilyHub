@@ -6,7 +6,7 @@
     @if (PlaylistColumns) { <span class="playlist-track-number">@Number</span> }
     <button id="@primaryId" class="song-primary @(Current ? "is-current" : "") @(Current && Playing ? "is-playing" : "")" @onclick="Play" aria-label="@((FindRecording ? "Find recording for " : "Play ") + Track.Title)">
         <span class="song-artwork"><TrackCover Track="Track" /><span class="artwork-play" aria-hidden="true"><MusicIcon Name="@(FindRecording ? "search" : "play")" /></span></span>
-        <span class="song-text"><strong>@Track.Title</strong><small>@Track.Channel</small></span>
+        <span class="song-text"><strong title="@Track.Title">@Track.DisplayTitle</strong><small>@Track.Channel</small></span>
     </button>
     @if (PlaylistColumns)
     {

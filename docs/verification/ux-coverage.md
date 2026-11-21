@@ -165,3 +165,33 @@ and the annual comparison table and member selector. The annual table also
 fit 320 × 720, 768 × 1024 and 844 × 390 without page overflow. The captures are in
 `.local/task-tmp/combined-ui/`. Physical platforms, enlarged text and
 assistive-technology output still require verification.
+
+## 21 November 2026 · Movies & TV development client
+
+The Windows app built successfully. Chromium exercised the movie client against the
+Debian Jellyfin fixture from a separate local web origin. The 1080p sample advanced
+during playback, switched audio, loaded two Hungarian WebVTT cues, and returned
+focus to the selected title using Enter, Tab, Shift+Tab and Space. Catalogue content
+fit 390 and 768 px widths. The keyboard playback path also ran at 1280 px.
+The movie and family profile tests cover regular users, rejected admin sessions and
+unlinked profiles. A later check used a 90-minute fixture with two independent
+Chromium sessions. The same viewer resumed at 20:00 from both Continue watching
+and a catalogue opened before the first device saved progress. Switching to
+Hungarian audio preserved the position with native HLS and with the bundled HLS
+player. A different viewer started at the beginning. Library
+search found the 1080p film and the S01E01 episode by title on the live server.
+Physical phone and projector playback,
+screen-reader announcements, enlarged text, motion, visual review inside the
+installed app, and the complete network recovery flow remain unverified.
+
+## 21 November 2026 · Server work and annual listening
+
+The merged development client passed the dashboard and annual profile-switch
+flows in desktop Chromium and iPhone WebKit emulation. The recording-choice
+flow also passed at 850 px in WebKit and 412 px in Chromium. Checks covered
+keyboard opening, dismissal, selection, focus restoration, replacement errors
+and retry, and preserving all nine metrics for one viewer. The desktop annual
+panel was visually inspected. The Windows client built and the component suite
+checked shared refresh and independent failure recovery. Physical device
+behavior, enlarged text, screen-reader speech, and full motion coverage remain
+unverified.

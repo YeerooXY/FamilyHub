@@ -9,6 +9,18 @@ from music_web import musicbrainz
 class MusicBrainzTests(unittest.TestCase):
     def setUp(self):
         musicbrainz._next = 0.0
+        musicbrainz._cooldown = 0.0
+        self.addCleanup(setattr, musicbrainz, '_cooldown', 0.0)
+
+    def test_retry_after_pauses_other_requests(self):
+        opener = mock.Mock()
+        opener.open.side_effect = urllib.error.HTTPError("https://musicbrainz.org", 429, "Slow down", {"Retry-After": "300"}, None)
+        with mock.patch.object(musicbrainz.urllib.request, "build_opener", return_value=opener):
+            for path in ("artist/", "recording/"):
+                with self.assertRaises(musicbrainz.Throttled) as result:
+                    musicbrainz.read(path, query="x")
+                self.assertGreater(result.exception.delay, 299)
+        self.assertEqual(opener.open.call_count, 1)
 
     def busy(self):
         return urllib.error.HTTPError("https://musicbrainz.org", 503, "Service Temporarily Unavailable", {}, io.BytesIO(b""))

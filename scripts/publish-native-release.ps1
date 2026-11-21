@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory)][string]$NotesFile,
     [string]$WindowsDirectory,
-    [string]$AndroidPackage
+    [string]$AndroidPackage,
+    [switch]$AssetsOnly
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
@@ -37,7 +38,9 @@ try {
             throw "GitHub package verification failed for $($local.Name). The release remains a draft."
         }
     }
-    & python scripts/deploy-native-updates.py $release
+    $mirrorArguments = @('scripts/deploy-native-updates.py', $release)
+    if ($AssetsOnly) { $mirrorArguments += '--assets-only' }
+    & python @mirrorArguments
     if ($LASTEXITCODE) { throw 'The update mirror deployment failed. The GitHub release remains a draft.' }
     & gh release edit $tag --repo $repository --draft=false --latest
     if ($LASTEXITCODE) { throw 'The update mirror is ready, but GitHub release publication failed.' }

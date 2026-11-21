@@ -75,11 +75,12 @@ class Progressive(Base):
         root, spool = self.tmp / "hls", self.tmp / "spool"
         result, failures = {}, []
         byte_progress = []
+        stages = []
         cancel = threading.Event()
         def run():
             try:
                 result.update(mi.pump_preview(command, str(spool), str(root), cancel, timeout=30,
-                                              progress=lambda **fields: byte_progress.append(fields)))
+                                              progress=lambda **fields: byte_progress.append(fields), stage=stages.append))
             except Exception as e:
                 failures.append(e)
         thread = threading.Thread(target=run)
@@ -99,6 +100,8 @@ class Progressive(Base):
                 time.sleep(.05)
             self.assertTrue(decoded, str(failures))
             self.assertFalse(eof.exists(), "upstream EOF must still be held behind the barrier")
+            self.assertEqual(stages, ["source_transfer_wait", "source_transfer_admitted",
+                                      "source_encoder_admitted", "source_process_started"])
             self.assertGreater(byte_progress[-1]["download_bytes"], 0)
             self.assertIsNone(byte_progress[-1]["download_total_bytes"])
         finally:

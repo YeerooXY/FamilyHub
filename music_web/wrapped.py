@@ -60,7 +60,7 @@ def top(rows):
     return sorted(rows, key=lambda row: (-row['seconds'], -row['plays'], row['name'].casefold()))
 
 
-def yearly_summary(years, year, *, full=False):
+def yearly_summary(years, year, *, full=False, counted_daily=None, track_metadata=lambda ids: {}):
     data = years.get(str(year), {})
     songs, artists, albums, genres = [], {}, {}, {}
     genre_labels = defaultdict(Counter)
@@ -87,14 +87,26 @@ def yearly_summary(years, year, *, full=False):
         if song['replays']:
             replayed.append(song)
 
-    daily = data.get('daily', {})
+    # Counters split elapsed playback at UTC midnight. Events group it under the start date.
+    daily = counted_daily or data.get('daily', {})
     hours, plays = data.get('hours', [0] * 24), data.get('hourly_plays', [0] * 24)
     streak = longest_streak(daily)
-    seconds = sum(hours)
+    seconds = sum(daily.values())
     for key, group in genres.items():
         group['name'] = most_common_genre(genre_labels[key])
     songs, artists, genres = top(songs), top(artists.values()), top(genres.values())
     replay = most(replayed, 'replays')
+    skipped_song = most(skipped, 'skips') if full else None
+    displayed = songs if full else songs[:10]
+    labelled = [*displayed, *(row for row in (replay, skipped_song) if row)]
+    metadata = track_metadata({row['id'] for row in labelled}) if labelled else {}
+    for row in labelled:
+        saved = metadata.get(row['id'], {})
+        title = saved.get('title')
+        if title:
+            row.update(title=title, name=title)
+        if saved.get('channel'):
+            row['artist'] = saved['channel']
     if replay and not full:
         replay = {key: replay[key] for key in ('title', 'artist', 'replays')}
     result = dict(year=year, timezone='UTC', total_minutes=seconds / 60,
@@ -111,8 +123,8 @@ def yearly_summary(years, year, *, full=False):
         result.update(top_songs=minutes(songs), top_artists=minutes(artists),
                       top_albums=minutes(top(albums.values())), top_genres=minutes(genres),
                       distinct_artists=len(artists), first_listened_per_artist={name: when for name, when in first.values()},
-                      monthly_minutes=monthly, top_hour=max(range(24), key=hours.__getitem__) if seconds else None,
-                      longest_streak=streak, most_skipped_song=most(skipped, 'skips'),
+                      monthly_minutes=monthly, top_hour=max(range(24), key=hours.__getitem__) if any(hours) else None,
+                      longest_streak=streak, most_skipped_song=skipped_song,
                       devices={name: dict(plays=row['plays'], minutes=row['seconds'] / 60)
                                for name, row in data.get('devices', {}).items()})
     return result, artists[:10], songs[:10]

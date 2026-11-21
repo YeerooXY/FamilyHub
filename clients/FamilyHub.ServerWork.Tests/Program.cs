@@ -19,36 +19,61 @@ var services = new ServiceCollection().AddLogging().AddSingleton(session).AddSin
     .AddSingleton<IJSRuntime, NoJs>().AddSingleton<IComponentActivator>(activator).BuildServiceProvider();
 await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 await renderer.Dispatcher.InvokeAsync(async () => {
-    var review = await renderer.RenderComponentAsync<CatalogueReviewPanel>();
-    var panel = (CatalogueReviewPanel)activator.Instances[typeof(CatalogueReviewPanel)];
+    RenderFragment songReview = builder =>
+    {
+        builder.OpenComponent<CatalogueReviewPanel>(0);
+        builder.CloseComponent();
+    };
     var stats = await renderer.RenderComponentAsync<ServerStats>(ParameterView.FromDictionary(
-        new Dictionary<string, object?> { [nameof(ServerStats.RefreshReview)] = EventCallback.Factory.Create(panel, panel.Refresh) }));
+        new Dictionary<string, object?>
+        {
+            [nameof(ServerStats.ChildContent)] = songReview,
+            [nameof(ServerStats.RefreshReview)] = EventCallback.Factory.Create(activator,
+                () => ((CatalogueReviewPanel)activator.Instances[typeof(CatalogueReviewPanel)]).Refresh())
+        }));
     async Task Refresh(Type type) => await (Task)type.GetMethod("Refresh", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(activator.Instances[type], null)!;
     var watch = System.Diagnostics.Stopwatch.StartNew();
     await Task.WhenAll(Refresh(typeof(ServerStats)), Refresh(typeof(CatalogueReviewPanel)));
-    var html = stats.ToHtmlString() + review.ToHtmlString();
+    var html = stats.ToHtmlString();
     if (!html.Contains("Retry server work") || !html.Contains("Retry song review") || html.Contains("aria-busy=\"true\"")) throw new Exception("Timeout did not end loading and expose retries");
     if (watch.Elapsed.TotalSeconds > 7) throw new Exception("Component timeout exceeded bound");
     Save("error", html);
     FixtureHandler.Block = false;
     await (Task)typeof(ServerStats).GetMethod("RefreshPage", BindingFlags.NonPublic | BindingFlags.Instance)!
         .Invoke(activator.Instances[typeof(ServerStats)], null)!;
-    html = stats.ToHtmlString() + review.ToHtmlString();
+    html = stats.ToHtmlString();
     if (html.Contains("Retry server work") || html.Contains("Retry song review")) throw new Exception("Retry did not recover");
     if (html.Contains("Refresh review") || html.Contains("Songs that need work") || !html.Contains("Refresh server work"))
         throw new Exception("Server work should have one shared refresh control");
-    if (!stats.ToHtmlString().Contains("<details class=\"srv-worker-details\">")
+    var automatic = html.IndexOf("Automatic work", StringComparison.Ordinal);
+    var reviewHeading = html.IndexOf(">Song review</h2>", StringComparison.Ordinal);
+    var details = html.IndexOf("<summary>Server details</summary>", StringComparison.Ordinal);
+    if (automatic < 0 || reviewHeading <= automatic || details <= reviewHeading
+        || !html.Contains("Veridis Quo") || !html.Contains("24 queued") || !html.Contains("0 waiting to retry")
         || !html.Contains("Catalogue worker configuration") || !html.Contains("Automatic catalogue attempts per hour")
-        || !review.ToHtmlString().Contains("No song details to review."))
-        throw new Exception("Collapsed worker configuration or empty review was missing");
+        || !html.Contains("Needs your choice") || html.Contains("Recently fixed")
+        || !html.Contains("catalogue-filter-metadata") || html.Contains("catalogue-category-panel"))
+        throw new Exception("The dashboard did not render live worker data, review defaults and collapsed details in order");
     Save("loaded", html);
+    async Task CheckIndependentFailure(string path, string expectedRetry, string healthyContent)
+    {
+        FixtureHandler.FailedPath = path;
+        await (Task)typeof(ServerStats).GetMethod("RefreshPage", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(activator.Instances[typeof(ServerStats)], null)!;
+        var dashboard = stats.ToHtmlString();
+        if (!dashboard.Contains(expectedRetry) || !dashboard.Contains(healthyContent))
+            throw new Exception("The failed section hid its retry or interrupted the healthy section");
+    }
+    await CheckIndependentFailure("/api/server/stats", "Retry server work", "catalogue-filter-metadata");
+    await CheckIndependentFailure("/api/catalogue/review", "Retry song review", "Veridis Quo");
+    FixtureHandler.FailedPath = null;
     FixtureHandler.CatalogueRows = true;
     var activeReview = typeof(CatalogueReviewPanel).GetField("active", BindingFlags.NonPublic | BindingFlags.Instance)!;
     async Task<string> RenderReview(string category)
     {
         activeReview.SetValue(activator.Instances[typeof(CatalogueReviewPanel)], category);
         await Refresh(typeof(CatalogueReviewPanel));
-        return review.ToHtmlString();
+        return stats.ToHtmlString();
     }
     var metadataReview = await RenderReview("metadata");
     if (!metadataReview.Contains("MusicBrainz rate limit") || !metadataReview.Contains("Retry after") || !metadataReview.Contains("catalogue-timestamp")
@@ -61,18 +86,18 @@ await renderer.Dispatcher.InvokeAsync(async () => {
             Current = new() { ["title"] = "Fixture title (Official Audio)" },
             Suggested = new() { ["title"] = "Fixture title" }, Missing = ["title"] }
     ])!;
-    var editor = review.ToHtmlString();
+    var editor = stats.ToHtmlString();
     if (!editor.Contains("metadata-track-title") || !editor.Contains("Fixture title (Official Audio)")
         || !editor.Contains("Check the suggested values before saving."))
         throw new Exception("The title editor omitted the proposed title or original title");
     var closeMetadata = typeof(CatalogueReviewPanel).GetMethod("Close", BindingFlags.NonPublic | BindingFlags.Instance)!;
     await (Task)closeMetadata.Invoke(activator.Instances[typeof(CatalogueReviewPanel)], null)!;
     var sourceReview = await RenderReview("damaged");
-    if (!sourceReview.Contains("Source search unavailable") || !sourceReview.Contains("Find source"))
+    if (!sourceReview.Contains("Source search unavailable") || !sourceReview.Contains("Choose recording"))
         throw new Exception("Source review did not render the failed search action");
     var fixedReview = await RenderReview("fixed");
-    if (!fixedReview.Contains("Undo the automatic fix for") || !fixedReview.Contains("Updated title")
-        || !fixedReview.Contains("Replaced with an official recording"))
+    if (!fixedReview.Contains("Undo the fix for") || !fixedReview.Contains("Updated title")
+        || !fixedReview.Contains("Recording replaced."))
         throw new Exception("Automatic fix history did not render both undo actions");
     FixtureHandler.CatalogueRows = false;
     FixtureHandler.Offline = true;
@@ -92,8 +117,8 @@ await renderer.Dispatcher.InvokeAsync(async () => {
     FixtureHandler.Block = false;
     await Refresh(typeof(ServerStats));
     var empty = leaderboard.ToHtmlString();
-    if (!empty.Contains("No listening time recorded for this period") || !empty.Contains("listening summary.")
-        || !empty.Contains("Alex") || empty.Contains("lb-wrapped-table") || empty.Contains("lb-wrapped-member")
+    if (!empty.Contains("No listening time recorded for this period") || !empty.Contains("No listening or song additions recorded")
+        || !empty.Contains("Alex") || empty.Contains("lb-wrapped-table")
         || empty.Contains("How scores are counted") || empty.Contains("lb-place-1") || empty.Contains("stats-line-chart"))
         throw new Exception("Empty leaderboard ranked a listener or omitted the Wrapped empty state and online profile");
     Save("leaderboard-empty", empty);
@@ -175,6 +200,7 @@ sealed class FixtureHandler : HttpMessageHandler {
     public static bool CatalogueRows;
     public const string PlaylistId = "0123456789abcdefghijkl";
     public static bool OtherDeviceAddedSong;
+    public static string? FailedPath;
     public static int Removals;
     public static bool AlbumMode;
     public static int AlbumCreates;
@@ -187,6 +213,7 @@ sealed class FixtureHandler : HttpMessageHandler {
         tracks = OtherDeviceAddedSong ? new[] { new { source_id = "abcdefghijk" } } : [] };
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) {
         var path=request.RequestUri!.AbsolutePath;
+        if (path == FailedPath) return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));
         if (Offline) throw new HttpRequestException("Fixture server offline");
         if (AlbumMode && request.Method == HttpMethod.Post && path == "/api/playlists") AlbumCreates++;
         if (path == "/api/playlists/" + AlbumId && request.Method == HttpMethod.Patch)
@@ -239,7 +266,7 @@ sealed class FixtureHandler : HttpMessageHandler {
         return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK){Content=new StringContent(JsonSerializer.Serialize(data),Encoding.UTF8,"application/json")});
     }
 }
-namespace FamilyHub.App.Services { public sealed class MusicPlayer { public bool FollowingHost => false; public MusicTrack? Current => null; public double Position => 0; public Task PlayAsync(MusicTrack track)=>Task.CompletedTask; } }
+namespace FamilyHub.App.Services { public sealed class MusicPlayer { public bool FollowingHost => false; public MusicTrack? Current => null; public double Position => 0; public static long PlaybackTimestamp() => System.Diagnostics.Stopwatch.GetTimestamp(); public Task PlayAsync(MusicTrack track, long? requestedAt = null)=>Task.CompletedTask; } }
 
 namespace FamilyHub.App.Services
 {

@@ -76,6 +76,10 @@ class NativeMusicApi(Base):
             self.assertEqual((row['title'], row['artist']), (title, artist))
 
     def test_display_labels_respect_editions_tags_and_manual_edits(self):
+        upload = 'DJ Splash - This Is My Life (Original Mix)'
+        source = dict(kind='youtube', title=upload, channel='Dance uploads')
+        self.assertEqual(music_web.recording_labels(source, dict(title=upload, artist='DJ Splash')),
+                         ('This Is My Life (Original Mix)', 'DJ Splash'))
         source = dict(kind='youtube', title='Artist - Song - Part II (Live) [HD]', channel='Artist')
         self.assertEqual(music_web.recording_labels(source), ('Song - Part II (Live)', 'Artist'))
         self.assertEqual(music_web.recording_labels(dict(source, artist='Composer', track_title='Suite - Part II')),

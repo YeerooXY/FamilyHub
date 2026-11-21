@@ -1,5 +1,6 @@
 using Android.Media;
 using Android.Runtime;
+using AndroidX.Media3.Common;
 using AndroidX.Media3.ExoPlayer;
 using AndroidX.Media3.UI;
 using CommunityToolkit.Maui.Views;
@@ -29,9 +30,11 @@ internal sealed class AudioRouting : AudioDeviceCallback
     /// <summary>The system output chooser decides again, e.g. to move sound back to the phone.</summary>
     public static void Clear() => current?.Prefer(null);
 
-    /// <summary>A player that opens a new song keeps the current preference.</summary>
-    public static void Apply(MediaElement player)
+    /// <summary>Keep playback running with the display off and preserve the preferred output.</summary>
+    public static void Apply(MediaElement player, bool streaming)
     {
+        if (Player(player) is not { } exo) return;
+        exo.SetWakeMode(streaming ? C.WakeModeNetwork : C.WakeModeLocal);
         if (current?.preferred is { } device) SetPreferred(player, device);
     }
 
@@ -61,11 +64,14 @@ internal sealed class AudioRouting : AudioDeviceCallback
     {
         try
         {
-            if (player.Handler?.PlatformView is Android.Views.View view && Find(view)?.Player is { } exo)
-                exo.JavaCast<IExoPlayer>()?.SetPreferredAudioDevice(device);
+            Player(player)?.SetPreferredAudioDevice(device);
         }
         catch (Exception) { /* Routing stays with the system when the player is not ready. */ }
     }
+
+    private static IExoPlayer? Player(MediaElement player) =>
+        player.Handler?.PlatformView is Android.Views.View view && Find(view)?.Player is { } playerView
+            ? playerView.JavaCast<IExoPlayer>() : null;
 
     private static PlayerView? Find(Android.Views.View view)
     {

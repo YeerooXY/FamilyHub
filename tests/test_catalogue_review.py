@@ -71,6 +71,16 @@ class ReviewStore(unittest.TestCase):
         self.assertEqual(store.data['metadata_fixed'], {})
         self.assertFalse(store.process_one(lambda: True, lambda row: self.fail('Undone metadata stays in review.')))
 
+    def test_default_metadata_capacity_preserves_source_search_budget(self):
+        self.store.source_automation = True
+        for _ in range(120):
+            self.assertTrue(self.store.reserve_automatic())
+        self.assertFalse(self.store.reserve_automatic())
+        for _ in range(5):
+            self.assertTrue(self.store.reserve_automatic('source search'))
+        self.assertFalse(self.store.reserve_automatic('source search'))
+        self.assertTrue(self.store.reserve_automatic('source replacement'))
+
     def test_verified_title_preserves_edition_and_undo_stays_in_review(self):
         original = 'Artist - Song (Acoustic) [Official Video]'
         track = dict(TRACK, title=original, library_album='Album', genre='Rock')

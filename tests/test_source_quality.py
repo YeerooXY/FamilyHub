@@ -71,7 +71,9 @@ class QualityScanTests(Base):
 
     def wait_replaced(self):
         for _ in range(300):
-            if not any(row.get('replacing') for row in self.state.source_quality.rows.values()): break
+            scanner = self.state.source_quality
+            if not scanner.replace_lock.locked() and not any(row.get('replacing') for row in scanner.rows.values()):
+                break
             time.sleep(.02)
         self.assertFalse(any(row.get('replacing') for row in self.state.source_quality.rows.values()))
         self.assertFalse(self.state.source_quality.replace_lock.locked())
@@ -133,6 +135,56 @@ class QualityScanTests(Base):
         # An in-flight playlist preparation must not write the archived ID back later.
         store.save('sample-a', dict(id='q' * 22, tracks=[dict(source_id=native.FIRST, match=dict(id=native.FIRST))]))
         self.assertEqual(store.read('sample-a', 'q' * 22)['tracks'][0]['source_id'], native.SECOND)
+
+    def test_report_can_replace_live_with_studio_and_undo_without_a_scan_proposal(self):
+        _, original_file, _, _ = native.NativeMusicApi.recording(self, title='First (Live)')
+        studio_item, studio_file, studio_manifest, _ = native.NativeMusicApi.recording(
+            self, source_id=native.SECOND, title='First', samples=b'\x03\x04' * 40000)
+        studio_manifest['audio']['duration'] = 5
+        self.intake.write_manifest(str(studio_item), studio_manifest)
+        store = PlaylistStore(self.ws)
+        playlist_id = 'p' * 22
+        store.save('sample-a', dict(id=playlist_id, name='Playlist', tracks=[dict(source_id=native.FIRST)]))
+        admin, token = self.signed_in()
+        reports_url = '/api/catalogue/reports'
+        report = dict(id=native.FIRST, reason='wrong_source')
+        key = self.post(admin, token, reports_url, json=report).json['report']['key']
+        self.post(admin, token, reports_url + '/resolve', json=dict(key=key))
+        reopened = self.post(admin, token, reports_url, json=report).json['report']
+        self.assertFalse(reopened['resolved'])
+        url = 'https://youtu.be/' + native.SECOND
+        self.assertEqual(self.post(admin, token, reports_url + '/replace',
+                                   json=dict(key=key, url='https://example.com/watch?v=' + native.SECOND)).status_code, 400)
+        with patch('music_web.source_quality.analyze', return_value=dict(verdict='clean')):
+            response = self.post(admin, token, reports_url + '/replace', json=dict(key=key, url=url))
+            self.assertEqual(response.status_code, 202, response.json)
+            self.wait_replaced()
+        self.assertFalse(original_file.exists())
+        self.assertTrue(studio_file.exists())
+        self.assertEqual(store.read('sample-a', playlist_id)['tracks'][0]['source_id'], native.SECOND)
+        self.assertEqual(self.go(admin, 'GET', reports_url).json['reports'], [])
+        self.assertEqual(self.state.source_quality.snapshot()['fixed'][0]['replaced_by'], native.SECOND)
+
+        response = self.post(admin, token, f'/api/catalogue/source-quality/{native.FIRST}/undo')
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertTrue(original_file.exists())
+        self.assertEqual(store.read('sample-a', playlist_id)['tracks'][0]['source_id'], native.FIRST)
+        self.assertEqual(self.go(admin, 'GET', reports_url).json['reports'][0]['key'], key)
+
+    def test_source_quality_accepts_explicit_choice_without_a_suggestion(self):
+        _, _, manifest, _ = self.proposal()
+        key = native.FIRST + ':' + manifest['audio']['sha256']
+        scan = self.state.source_quality
+        scan.save(key, dict(scan.rows[key], verdict='clean', proposed_replacement=None, replacement_checked=True))
+        self.assertFalse(scan.snapshot()['songs'])
+        self.state.catalogue_review.report_song(dict(id=native.FIRST, title='First', channel='Artist'), 'sample-a', 'wrong_source')
+        self.assertEqual(scan.snapshot()['songs'][0]['id'], native.FIRST)
+        self.state.jobs['busy'] = dict(source_id=native.SECOND, state='running')
+        admin, token = self.signed_in()
+        response = self.post(admin, token, f'/api/catalogue/source-quality/{native.FIRST}/replace',
+                             json=dict(url='https://youtu.be/' + native.SECOND))
+        self.assertEqual(response.status_code, 202, response.json)
+        self.assertTrue(scan.snapshot()['songs'][0]['replacing'])
 
     def test_lengths_are_compared_after_trimming(self):
         item, _, manifest, candidate = self.proposal()

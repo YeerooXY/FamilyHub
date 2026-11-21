@@ -1,0 +1,77 @@
+﻿@implements IAsyncDisposable
+@inject MusicSession Session
+@inject MusicPlayer Player
+@inject IJSRuntime JS
+
+<div @ref="host" class="movie-library"></div>
+@if (message.Length > 0)
+{
+    <p role="status">@message</p>
+    @if (failed) { <button class="quiet" @onclick="Retry">Retry movies</button> }
+}
+
+@code {
+    private ElementReference host;
+    private IJSObjectReference? module, shelf;
+    private DotNetObjectReference<MoviesView>? callback;
+    private readonly CancellationTokenSource closed = new();
+    private string message = "Loading movies…";
+    private bool failed, loading;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await Load();
+    }
+
+    private async Task Retry() => await Load();
+
+    private async Task Load()
+    {
+        if (loading || closed.IsCancellationRequested) return;
+        loading = true;
+        try
+        {
+            var api = Session.Api ?? throw new InvalidOperationException();
+            var viewer = new { server = Session.Server, profile = Session.User };
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./movies.js");
+            callback ??= DotNetObjectReference.Create(this);
+            var connection = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/movies/session",
+                new { device = Guid.NewGuid().ToString("N") }, cancellationToken: closed.Token);
+            if (closed.IsCancellationRequested) return;
+            shelf = await module.InvokeAsync<IJSObjectReference>("openMovies", host, connection, callback, viewer);
+            if (closed.IsCancellationRequested) { await shelf.InvokeVoidAsync("close"); return; }
+            message = "";
+            failed = false;
+        }
+        catch (Exception) when (!closed.IsCancellationRequested)
+        {
+            message = "Movies are unavailable. Check the Jellyfin connection for this profile.";
+            failed = true;
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            loading = false;
+            if (!closed.IsCancellationRequested) await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [JSInvokable]
+    public async Task MovieStarted()
+    {
+        if (!closed.IsCancellationRequested && Player.Playing && !Player.RemoteActive)
+            await Player.PauseLocallyAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        closed.Cancel();
+        try
+        {
+            if (shelf is not null) { await shelf.InvokeVoidAsync("close"); await shelf.DisposeAsync(); }
+            if (module is not null) await module.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+        finally { callback?.Dispose(); }
+    }
+}

@@ -9,7 +9,7 @@ const { PNG } = require(require.resolve('playwright-core/lib/utilsBundle', { pat
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 const web = 'clients/FamilyHub.App/wwwroot/';
 const styles = [...read(web + 'index.html').matchAll(/rel="stylesheet" href="([^"]+)"/g)]
-    .map(([, file]) => read(file === 'shell.css' ? 'music_web/static/shell.css' : web + file)).join('\n');
+    .map(([, file]) => read(fs.existsSync(path.join(root, web, file)) ? web + file : 'music_web/static/' + file)).join('\n');
 const seekSource = read('clients/FamilyHub.App/Components/SeekBar.razor');
 const seekMarkup = seekSource.slice(seekSource.indexOf('<div class="seek-row">'), seekSource.indexOf('@code'))
     .replace(/style=".*"(?=>)/, 'style="--seek-position:50%"')
@@ -176,7 +176,13 @@ async function seekPixels(page, input) {
             assert.equal(short.height, 44);
             closeTo(centerY(short), centerY(await page.locator('.now-copy').boundingBox()), 'text centre');
             closeTo(centerY(short), centerY(await page.locator('.now-playing .cover').boundingBox()), 'cover centre');
-            assert(await title.evaluate(node => node.scrollWidth > node.clientWidth && getComputedStyle(node).textOverflow === 'ellipsis'));
+            await page.evaluate(() => familyhub.fitTitle());
+            assert(await title.locator('.marquee-text').evaluate(node => node.scrollWidth > node.clientWidth && getComputedStyle(node).textOverflow === 'ellipsis'));
+            await page.emulateMedia({ reducedMotion: 'no-preference' });
+            await title.locator('.marquee-copy[aria-hidden=true]').waitFor();
+            assert(await title.evaluate(node => node.querySelector('.marquee-text').getAnimations().length === 1));
+            await page.emulateMedia({ reducedMotion: 'reduce' });
+            await title.locator('.marquee-copy').waitFor({state:'detached'});
             assert.equal((await add.locator('.icon').boundingBox()).width, 16);
             await add.hover();
             assert.equal(await add.evaluate(node => getComputedStyle(node).backgroundColor), 'rgba(0, 0, 0, 0)');
@@ -198,8 +204,10 @@ async function seekPixels(page, input) {
                     document.getElementById('device-strip').remove();
                     node.classList.add('is-remote-peek');
                     node.insertAdjacentHTML('afterend',
-                        '<section class="remote-mini"><span class="remote-mini-line">Playing on Kitchen</span></section>');
+                        '<section class="remote-mini"><button class="remote-mini-main"><span class="cover"></span><span class="remote-mini-copy"><strong id="remote-song-title"><span class="marquee-text">This Is My Life (Original Mix)</span></strong><small>DJ Splash</small></span></button><span class="remote-mini-line">Playing on Kitchen</span></section>');
                 });
+                await page.emulateMedia({ reducedMotion: 'no-preference' });
+                await page.locator('#remote-song-title .marquee-copy').waitFor();
                 const remote = PNG.sync.read(await page.screenshot());
                 assert(blackBottom(remote), 'The remote player has a black bottom edge');
             }

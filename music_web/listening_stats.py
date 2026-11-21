@@ -286,6 +286,13 @@ class ListeningStats:
             year, month = (year + 1, 1) if month == 12 else (year, month + 1)
         return events[-1][1], changed
 
+    def yearly_daily(self, user, year):
+        with self.lock:
+            today = self.utc().date().isoformat()
+            prefix = f'{year:04d}-'
+            return {day: seconds for day, seconds in self.data['daily'].get(user, {}).items()
+                    if day.startswith(prefix) and day <= today and seconds > 0}
+
     def snapshot(self, profiles, subscription_history=None, *, hidden=()):
         with self.lock:
             self._expire(self.clock())

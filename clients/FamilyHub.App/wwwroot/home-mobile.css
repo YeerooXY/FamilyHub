@@ -100,7 +100,10 @@
  .playlist-action-bar .playlist-add-song { width:44px; padding:10px; font-size:0; gap:0; }
  .playlist-action-bar .playlist-play { grid-area:1 / -2; justify-self:end; width:56px; height:56px; }
  .playlist-action-bar .playlist-download { grid-area:1 / 5; justify-self:start; }
- .playlist-column-headings { display:none; }
+ .playlist-column-headings { display:flex; align-items:center; gap:12px; overflow-x:auto; position:static; }
+ .playlist-column-headings > span { flex:none; }
+ .playlist-column-headings > span:nth-child(n) { display:inline-flex; gap:12px; }
+ .playlist-column-headings button.playlist-column-label { min-height:44px; }
 
  /* Bigger song rows: about two fit under the header on a phone. */
  .playlist-song-list .song-row.has-playlist-columns { grid-template-columns:minmax(0,1fr) 44px auto; gap:0 4px; padding:8px 0; }

@@ -38,7 +38,7 @@
             <div class="home-shortcuts">
                 @foreach (var (track, index) in recent.Select((t, i) => (t, i)))
                 {
-                    <button class="home-shortcut" @key="track.Id" @onclick="() => PlayTracks.InvokeAsync(recent.Skip(index).ToList())" aria-label="Play @track.Title"><TrackCover Track="track" /><span>@track.Title</span></button>
+                    <button class="home-shortcut" @key="track.Id" @onclick="() => PlayTracks.InvokeAsync((recent.Skip(index), MusicPlayer.PlaybackTimestamp()))" aria-label="Play @track.Title"><TrackCover Track="track" /><span>@track.DisplayTitle</span></button>
                 }
             </div>
         </section>
@@ -82,7 +82,7 @@
 @code {
     [Parameter] public EventCallback<MusicPlaylist> OpenPlaylist { get; set; }
     [Parameter] public EventCallback<(string Name, string Artist, List<MusicTrack> Tracks, string Opener)> OpenAlbum { get; set; }
-    [Parameter] public EventCallback<List<MusicTrack>> PlayTracks { get; set; }
+    [Parameter] public EventCallback<(IEnumerable<MusicTrack> Tracks, long RequestedAt)> PlayTracks { get; set; }
     [Parameter] public EventCallback<MusicTrack> StartRadio { get; set; }
     [Parameter] public MusicTrack? CurrentTrack { get; set; }
     [Parameter] public bool RadioBusy { get; set; }

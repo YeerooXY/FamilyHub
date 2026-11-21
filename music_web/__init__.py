@@ -6,7 +6,7 @@ HLS and bounded beat analysis; browser decks handle playback. See docs/MOBILE_MU
 import gzip, hashlib, hmac, importlib.util, io, json, logging, os, random, re, secrets, shutil, sys, threading, time, urllib.error, urllib.parse, urllib.request
 from collections import Counter, OrderedDict, defaultdict, deque
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -481,7 +481,8 @@ def create_app(test_config=None):
             resources.remember_profile(profile["id"])
         else:
             resources.presence((profile["id"], session["sid"]))
-        return jsonify(profile=profile, preferences=preferences, csrf_token=generate_csrf())
+        return jsonify(profile=profile, preferences=preferences, csrf_token=generate_csrf(),
+                       movies_enabled=bool(cfg.get("JELLYFIN_PUBLIC_URL") and profile["id"] in cfg.get("JELLYFIN_PROFILES", {})))
 
     @app.route("/api/profile/playback", methods=["GET", "PUT", "PATCH"])
     def family_playback():
@@ -689,6 +690,7 @@ def create_app(test_config=None):
         if include_media and job["preview_state"] == "ready":
             out["media_url"] = f"/api/jobs/{job['id']}/media/index.m3u8"
             out["stream_url"] = stream_url(out["media_url"])
+            out["windows_preview_ready"] = job.get("windows_preview_ready", False)
         if include_media and job.get("source_ready") and job["state"] != "cancelled":
             out["fallback_url"] = f"/api/jobs/{job['id']}/media/source"
             out["fallback_stream_url"] = stream_url(out["fallback_url"])
@@ -870,18 +872,19 @@ def create_app(test_config=None):
         names = {p["id"]: p["name"] for p in profiles}
         leaderboard = request.args.get('leaderboard') == '1'
         chart = deezer_chart.snapshot() if leaderboard and family_mode else {}
-        preferences = profile_store.read()['preferences'] if family_mode else {}
-        enabled = [p for p in profiles if not preferences.get(p['id'], {}).get('listening_history_paused')]
-        result = listening_stats.snapshot(enabled if leaderboard else profiles,
-                                          profile_store.subscription_history() if family_mode else None,
-                                          hidden={p['id'] for p in profiles if p not in enabled})
-        if leaderboard and family_mode:
-            year = listening_history.utc().year
-            additions = songs_added(year)
-            result['wrapped_year'] = year
-            for row in result['profiles']:
-                wrapped = listening_history.wrapped(row['id'], year, chart)
-                row['wrapped'] = dict(wrapped, songs_added=additions.get(row['id'], 0))
+        wrapped_year = listening_history.utc().year if leaderboard and family_mode else None
+        additions = songs_added(wrapped_year) if wrapped_year is not None else {}
+        with catalogue_lock if leaderboard else nullcontext():
+            preferences = profile_store.read()['preferences'] if family_mode else {}
+            enabled = [p for p in profiles if not preferences.get(p['id'], {}).get('listening_history_paused')]
+            result = listening_stats.snapshot(enabled if leaderboard else profiles,
+                                              profile_store.subscription_history() if family_mode else None,
+                                              hidden={p['id'] for p in profiles if p not in enabled})
+            if wrapped_year is not None:
+                result['wrapped_year'] = wrapped_year
+                for row in result['profiles']:
+                    wrapped = listening_history.wrapped(row['id'], wrapped_year, chart)
+                    row['wrapped'] = dict(wrapped, songs_added=additions.get(row['id'], 0))
         if leaderboard:
             return jsonify(result)
         disk = shutil.disk_usage(lib)
@@ -1002,8 +1005,8 @@ def create_app(test_config=None):
                 job["progress_at"] = now
                 job_changed.notify_all()
 
-    def publish_assets(job):
-        if job.get("preview_failed"):
+    def publish_assets(job, *, completed=False):
+        if job.get("preview_failed") and not completed:
             return
         root = os.path.join(ws, ".preview-" + job["id"])
         try:
@@ -1012,9 +1015,11 @@ def create_app(test_config=None):
             app.intake.regular_file(playlist, "playlist")
             with open(playlist, encoding="utf-8") as fh:
                 text = fh.read(1 << 20)
-            names = {"index.m3u8", "init.mp4"} | set(re.findall(r"^seg\d{5}\.m4s$", text, re.M))
-            if not any(n.startswith("seg") for n in names):
+            lines = text.splitlines()
+            segments = {line for line in lines if line and not line.startswith("#")}
+            if not segments or any(not re.fullmatch(r"seg\d{5}\.m4s", name) for name in segments):
                 return
+            names = {"index.m3u8", "init.mp4"} | segments
             for name in names:
                 app.intake.regular_file(os.path.join(root, name), "asset")
             with lock:
@@ -1022,6 +1027,10 @@ def create_app(test_config=None):
                 if job["preview_state"] != "ready":
                     job_playback_stage(job, "preview_ready")
                 job["preview_state"] = "ready"
+                windows_ready = len(segments) >= 2 or "#EXT-X-ENDLIST" in lines
+                if windows_ready and not job.get("windows_preview_ready"):
+                    job_playback_stage(job, "windows_preview_ready")
+                job["windows_preview_ready"] = windows_ready
                 cached = [j for j in jobs.values() if j["preview_state"] == "ready"]
                 victims = preview_victims(cached, job)
                 for old in victims[:max(0, len(cached) - MAX_PREVIEWS)]:
@@ -1141,6 +1150,7 @@ def create_app(test_config=None):
                             preview=os.path.join(ws, ".preview-" + job["id"]), cancel=job["cancel"],
                             notify=lambda: publish_assets(job), budget=lambda: job_budget(job),
                             progress=lambda **fields: download_progress(job, **fields),
+                            stage=lambda stage: job_playback_stage(job, stage),
                             cleanup_preview=lambda: remove_preview(job["id"]),
                             preview_failed=lambda: job.update(preview_state="unavailable", preview_failed=True)))
                     finally:
@@ -1196,6 +1206,7 @@ def create_app(test_config=None):
                             old["preview_state"] = "expired"
                     preview = intake.cmd_preview(SimpleNamespace(item=item["item"], output=root,
                         notify=lambda: publish_assets(job)))
+                    publish_assets(job, completed=True)
                     with lock:
                         job["assets"].update(preview["assets"])
                         job["preview_state"] = "ready"
@@ -1942,7 +1953,17 @@ def create_app(test_config=None):
         with lock:
             return any(j.get('source_id') == identifier and j['state'] in ('queued', 'running') for j in jobs.values())
 
-    def replace_source(user, identifier, candidate, automatic, expected_digest):
+    def report_source(identifier):
+        saved = saved_source(identifier)
+        if not saved:
+            raise ApiError("This recording is unavailable.", 404)
+        manifest = saved['manifest']
+        record = manifest['import']
+        return dict(id=identifier, sha256=manifest['audio']['sha256'], title=record['title'],
+                    artist=record['artist'], duration=manifest['audio']['duration'], verdict='unknown',
+                    source_tier=None, stamp=None)
+
+    def replace_source(user, identifier, candidate, automatic, expected_digest, explicit):
         from .source_quality import analyze, automatic_match, manual_match, replace_saved, ScanPaused, SourceCheckError
         if not background_idle():
             raise ScanPaused()
@@ -1973,7 +1994,12 @@ def create_app(test_config=None):
             raise SourceCheckError('The suggested recording could not be prepared.')
         _, manifest, audio = app.intake.load_item(new['item'])
         candidate_source = dict(manifest['source'], duration=manifest['audio']['duration'])
-        if automatic:
+        if explicit:
+            candidate = {**candidate, 'title': manifest['import']['title'],
+                         'channel': candidate_source.get('channel') or manifest['import']['artist'],
+                         'duration': candidate_source['duration']}
+            identity = True
+        elif automatic:
             new_digest = manifest['import']['library_sha256']
             if listening_versions.versions.get(candidate['id'], {}).get('source_sha256') == new_digest:
                 raise SourceCheckError('The suggested recording has a custom listening edition. Compare the recordings before replacing it.')
@@ -1997,7 +2023,7 @@ def create_app(test_config=None):
                 replace_saved(ws, lib, identifier, candidate, saved_source, playlist_store,
                               catalogue_review, listening_stats, app.intake,
                               length=lambda saved: library_record(saved)[0]['duration'], automatic=automatic,
-                              expected_digest=expected_digest, verified_digest=manifest['audio']['sha256'])
+                              expected_digest=expected_digest, verified_digest=manifest['audio']['sha256'], explicit=explicit)
 
     def undo_source(identifier, records):
         from .source_quality import undo_saved
@@ -2012,7 +2038,7 @@ def create_app(test_config=None):
     source_scan = cfg.get('SOURCE_QUALITY_SCAN', cfg['PUBLIC_ORIGIN'] != 'https://music.test')
     register_source_quality(app, ws, app.intake, background_idle, lambda: g.user in cfg['ADMIN_USERS'], catalogue_review,
                             source_scan,
-                            replace=replace_source, busy=replacement_busy, undo=undo_source,
+                            replace=replace_source, busy=replacement_busy, undo=undo_source, body=body, report_source=report_source,
                             automatic_user=next(iter(cfg['ADMIN_USERS']), None) if cfg.get('SOURCE_AUTO_REPLACE', True) else None)
     def song_analysis_idle():
         with lock:
@@ -2531,6 +2557,8 @@ def create_app(test_config=None):
                 playback_diagnostics.record(g.user, action, "job_accepted", begin=True)
                 if job["preview_state"] == "ready":
                     job_playback_stage(job, "preview_ready")
+                    if job.get("windows_preview_ready"):
+                        job_playback_stage(job, "windows_preview_ready")
                 if job.get("source_ready"):
                     job_playback_stage(job, "source_ready")
             if explicit and job["meta"] != m:
@@ -3260,11 +3288,14 @@ def create_app(test_config=None):
     from .listening_history import register as register_listening_history
     listening_history = register_listening_history(app, ws, body, profile_store, cfg["ADMIN_USERS"],
         lambda: {t["id"]: t for t in library_tracks()}, catalogue_lock, track_metadata=history_metadata,
-        chart=deezer_chart, songs_added=songs_added, clear_totals=listening_stats.clear)
+        chart=deezer_chart, songs_added=songs_added, clear_totals=listening_stats.clear,
+        yearly_daily=listening_stats.yearly_daily)
     from .discovery import register as register_discovery
     register_discovery(app, ws, body, cfg["ADMIN_USERS"], library_tracks,
                        cfg.get("DISCOVERY_WORKER", cfg["PUBLIC_ORIGIN"] != "https://music.test"), background_idle)
     from .listening_rooms import register_listening_rooms
+    from .movies import register_movies
+    register_movies(app, cfg, body, allow)
     register_listening_rooms(app, body, profile_store, resources)
     from .playback_devices import register_playback_devices
     register_playback_devices(app, body, playback_devices)

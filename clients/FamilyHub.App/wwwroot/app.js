@@ -274,6 +274,19 @@ window.familyhub.finishPlaylistNameEdit = async () => {
 };
 
 let searchPageObserver;
+customElements.define('playlist-page-end', class extends HTMLElement {
+    watch(reference) {
+        this.observer = new IntersectionObserver(entries => {
+            if (this.isConnected && entries.some(entry => entry.isIntersecting)) {
+                this.observer.disconnect();
+                reference.invokeMethodAsync('LoadNextPage').catch(() => {});
+            }
+        }, {root: this.closest('main'), rootMargin: '0px 0px 240px 0px'});
+        this.observer.observe(this);
+    }
+    disconnectedCallback() { this.observer?.disconnect(); }
+});
+window.familyhub.observePlaylistEnd = (element, reference) => element?.watch(reference);
 window.familyhub.observeSearch = (reference, version) => {
     searchPageObserver?.disconnect();
     const root = document.getElementById('results'), sentinel = document.getElementById('search-more-sentinel');
@@ -593,16 +606,31 @@ window.familyhub.fitTitle = () => {
  // Full-screen Now Playing and lyrics cover the star background; stop drawing it meanwhile.
  const covered=document.hidden||document.body.classList.contains('native-hidden')||!!document.querySelector('.player-bar.is-expanded,.lyrics-view');
  if((document.body.dataset.visualPaused==='true')!==covered){ if(covered)document.body.dataset.visualPaused='true'; else delete document.body.dataset.visualPaused; }
- const title=document.getElementById('now-title'), text=title?.querySelector('.marquee-text'); if(!text)return;
- const expanded=!!title.closest('.player-bar.is-expanded');
- const enabled=expanded||familyhub.isPhone();
- const key=[text.textContent,enabled,title.clientWidth,document.hidden,document.body.classList.contains('native-hidden'),matchMedia('(prefers-reduced-motion: reduce)').matches].join('|');
+ const remote=document.getElementById('remote-song-title');
+ const title=remote?.clientWidth ? remote : document.getElementById('now-title');
+ if(title!==familyhub.fittedTitle){
+  familyhub.titleResize?.disconnect();
+  familyhub.titleAnimations?.forEach(a=>a.cancel());
+  if(familyhub.fittedTitle){
+   familyhub.fittedTitle.querySelector('.marquee-copy')?.remove();
+   familyhub.fittedTitle.classList.remove('is-marquee');
+   delete familyhub.fittedTitle.dataset.fitted;
+  }
+  familyhub.fittedTitle=title;
+  if(title){
+   familyhub.titleResize??=new ResizeObserver(()=>familyhub.fitTitle());
+   familyhub.titleResize.observe(title);
+  }
+ }
+ const text=title?.querySelector('.marquee-text'); if(!text)return;
+ const key=[text.textContent,title.clientWidth,document.hidden,document.body.classList.contains('native-hidden'),matchMedia('(prefers-reduced-motion: reduce)').matches].join('|');
  if(title.dataset.fitted===key)return;
  title.dataset.fitted=key;
  familyhub.titleAnimations?.forEach(a=>a.cancel()); familyhub.titleAnimations=[];
  title.querySelector('.marquee-copy')?.remove();
  title.classList.remove('is-marquee');
- if(!enabled||document.hidden||document.body.classList.contains('native-hidden'))return;
+ title.title=text.textContent;
+ if(!title.clientWidth||document.hidden||document.body.classList.contains('native-hidden'))return;
  const overflow=text.scrollWidth>title.clientWidth+2 && !matchMedia('(prefers-reduced-motion: reduce)').matches;
  if(!overflow)return;
  title.classList.add('is-marquee');

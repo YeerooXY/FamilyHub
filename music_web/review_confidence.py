@@ -5,7 +5,7 @@ import unicodedata
 
 MATCH_DURATION_SECONDS = 3
 MUSICBRAINZ_MIN_SCORE = 90
-DEFAULT_AUTO_RESOLUTIONS_PER_HOUR = 30
+DEFAULT_AUTO_RESOLUTIONS_PER_HOUR = 130
 
 _PRESENTATION = r'(?:(?:official\s+)?(?:(?:music )?(?:audio|video)|visualizer|lyrics?(?: video)?)|hq|hd|4k)'
 _TITLE_SUFFIX = re.compile(r'(?:\s*(?:\[\s*'+_PRESENTATION+r'\s*\]|\(\s*'+_PRESENTATION+r'\s*\)|\s+-\s+'+_PRESENTATION+r'))+\s*$', re.I)
@@ -45,8 +45,9 @@ def recording_labels(source, record=None):
         credits = [normal(name) for name in prefix.split(',')]
         known = normal(re.sub(r'\s*-\s*Topic$|VEVO$', '', credited or channel, flags=re.I))
         prefix_matches = known and (known == normal(prefix) or known in credits)
+        saved_credit_matches = bool(record.get('artist')) and normal(record['artist']) == normal(prefix)
         upload_label = clean != upload.strip() and (not credited or normal(credited) == normal(channel))
-        if prefix_matches or upload_label:
+        if prefix_matches or saved_credit_matches or upload_label:
             inferred = prefix
             clean = song
     if artist in (credited, channel, channel.removesuffix(' - Topic'), 'YouTube'):

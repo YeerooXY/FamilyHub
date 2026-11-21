@@ -524,7 +524,7 @@ class PreparedMetadata(Base):
         from types import SimpleNamespace
         import threading
         paths = []
-        def pump(command, *args, progress, total_bytes, max_bytes):
+        def pump(command, *args, progress, total_bytes, max_bytes, stage):
             self.assertTrue(callable(progress))
             self.assertIsNone(total_bytes)
             progress(download_bytes=100, download_total_bytes=None)
@@ -553,7 +553,10 @@ class PreparedMetadata(Base):
                     "url": "https://media.example/audio?token=private", "title": "Song",
                     "protocol": "https", "filesize": 12345}
         paths = []
-        def pump(command, *args, progress, total_bytes, max_bytes):
+        stages = []
+        def pump(command, *args, progress, total_bytes, max_bytes, stage):
+            self.assertEqual(stages, ["source_metadata_wait", "source_metadata_started", "source_metadata_ready"])
+            self.assertEqual(stage, stages.append)
             self.assertTrue(callable(progress))
             self.assertEqual(total_bytes, 12345)
             self.assertEqual(max_bytes, 12345)
@@ -568,7 +571,8 @@ class PreparedMetadata(Base):
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             raise mi.IntakeError("source failed")
         args = SimpleNamespace(url=url, workspace=str(self.ws), preview=str(self.tmp / "hls"),
-                               cancel=threading.Event(), notify=lambda: None, budget=lambda: None)
+                               cancel=threading.Event(), notify=lambda: None, budget=lambda: None,
+                               stage=stages.append)
         with mock.patch.object(mi, "tool", side_effect=lambda name: name), \
                 mock.patch.object(mi, "run", return_value=(0, json.dumps(metadata).encode(), "")) as run, \
                 mock.patch.object(mi, "pump_preview", side_effect=pump):

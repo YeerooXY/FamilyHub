@@ -1,6 +1,7 @@
 param(
     # The finished native-ios.yml run that built this version's IPA.
-    [Parameter(Mandatory)][long]$RunId
+    [Parameter(Mandatory)][long]$RunId,
+    [switch]$AssetsOnly
 )
 # Attaches the iPhone build to the already published release, publishes the SideStore source next to it,
 # and tells the server about the new version so the iPhone app shows "Update available".
@@ -26,7 +27,9 @@ try {
     if ($LASTEXITCODE) { throw 'Could not write the SideStore source.' }
     & gh release upload $tag (Join-Path $release $name) (Join-Path $release 'sidestore.json') --repo $repository --clobber
     if ($LASTEXITCODE) { throw 'GitHub upload failed.' }
-    & python scripts/deploy-native-updates.py $release --platforms ios
+    $mirrorArguments = @('scripts/deploy-native-updates.py', $release, '--platforms', 'ios')
+    if ($AssetsOnly) { $mirrorArguments += '--assets-only' }
+    & python @mirrorArguments
     if ($LASTEXITCODE) { throw 'The server update notice failed. The GitHub release already has the IPA and source.' }
     Write-Output "SideStore source: https://github.com/$repository/releases/latest/download/sidestore.json"
 } finally { Pop-Location }

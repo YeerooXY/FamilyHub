@@ -1,26 +1,40 @@
 @implements IDisposable
 @inject MusicSession Session
+@inject IJSRuntime JS
 @using System.Text.Json.Serialization
 
-<section class="settings-panel glass-panel" aria-labelledby="playback-timing-title">
+<section id="playback-diagnostics" class="settings-panel glass-panel" aria-labelledby="playback-timing-title">
     <h2 id="playback-timing-title">Playback diagnostics</h2>
     <div class="setting-row">
-        <span>Recent playback timings for this profile</span>
-        <button @onclick="Read" aria-disabled="@(loading ? "true" : "false")">@(actions is null ? "Load timings" : "Refresh timings")</button>
+        <span>Music playback attempts in the last 30 minutes</span>
+        <button id="playback-diagnostics-refresh" @onclick="Read" aria-disabled="@(loading ? "true" : "false")">@(actions is null ? "Load attempts" : "Refresh attempts")</button>
     </div>
     <p class="setting-help" role="status">@status</p>
     @if (actions is { Length: > 0 })
     {
         @foreach (var action in actions)
         {
+            var attempt = local.GetValueOrDefault(action.Action);
+            var started = attempt?.Started;
             <details @key="action.Action">
-                <summary>@Summary(action)</summary>
-                <dl>
-                    @foreach (var stage in action.Events)
+                <summary>
+                    <strong>@(string.IsNullOrWhiteSpace(attempt?.Title) ? "Unknown song" : attempt.Title)</strong>
+                    <span> · @(started?.ToLocalTime().ToString("T") ?? "Time unavailable") · </span>
+                    @Summary(action)
+                </summary>
+                @foreach (var device in new[] { true, false })
+                {
+                    var stages = action.Events.Where(e => device ? e.ClientMs.HasValue : e.ServerMs.HasValue)
+                        .OrderBy(e => device ? e.ClientMs : e.ServerMs).ToArray();
+                    if (stages.Length == 0) continue;
+                    <h3>@(device ? "Device timings" : "Server timings")</h3>
+                    <dl>
+                    @foreach (var stage in stages)
                     {
-                        <div class="setting-row"><dt>@Label(stage.Stage)</dt><dd>@(stage.ClientMs ?? stage.ServerMs) ms</dd></div>
+                        <div class="setting-row"><dt>@Label(stage.Stage)</dt><dd>@Duration((device ? stage.ClientMs : stage.ServerMs)!.Value)</dd></div>
                     }
-                </dl>
+                    </dl>
+                }
             </details>
         }
     }
@@ -32,6 +46,7 @@
     private sealed record PlayAction(string Action, TimingEvent[] Events);
     private sealed record TimingResult(PlayAction[] Actions);
     private PlayAction[]? actions;
+    private Dictionary<string, MusicSession.LocalPlaybackAttempt> local = [];
     private readonly CancellationTokenSource lifetime = new();
     private bool loading;
     private string status = "";
@@ -40,35 +55,123 @@
     {
         if (loading) return;
         var api = Session.Api;
-        if (!Session.Connected || api is null) { status = "Connect to the server to load timings."; return; }
         loading = true;
-        status = "Loading timings…";
-        using var request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-        request.CancelAfter(TimeSpan.FromSeconds(8));
+        status = "Loading playback attempts…";
         try
         {
+            if (!Session.Connected || api is null)
+            {
+                await UpdateActions([]);
+                status = DeviceStatus("Offline.");
+                return;
+            }
+            using var request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            request.CancelAfter(TimeSpan.FromSeconds(8));
             var result = await api.RequestJsonAsync<TimingResult>(HttpMethod.Get, "/api/playback/diagnostics",
                 cancellationToken: request.Token, background: true);
             if (lifetime.IsCancellationRequested || Session.Api != api) return;
-            actions = result.Actions;
-            status = actions.Length == 0 ? "No playback timings in the last 30 minutes."
-                : "Newest first. Device times start at play. Server times start when the request arrives.";
+            await UpdateActions(result.Actions);
+            status = actions.Length == 0 ? "No playback attempts in the last 30 minutes."
+                : actions.Length == 1 ? "1 playback attempt. Open it for detailed timings."
+                : $"{actions.Length} playback attempts. Open an attempt for detailed timings.";
         }
         catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException or System.Text.Json.JsonException)
         {
-            if (!lifetime.IsCancellationRequested) status = "Could not load timings. Try again.";
+            if (!lifetime.IsCancellationRequested)
+            {
+                await UpdateActions([]);
+                status = DeviceStatus("Server timings are unavailable.");
+            }
         }
         finally { loading = false; }
     }
 
-    private static string Label(string stage) => stage.StartsWith("client_", StringComparison.Ordinal)
-        ? "Device · " + stage[7..].Replace('_', ' ') : "Server · " + stage.Replace('_', ' ');
+    private string DeviceStatus(string reason) => actions is { Length: > 0 }
+        ? $"{reason} Showing playback attempts from this device."
+        : $"{reason} This device has no playback attempts in the last 30 minutes.";
+
+    private async Task UpdateActions(PlayAction[] remote)
+    {
+        var recent = Session.RecentPlaybackAttempts().ToDictionary(item => item.Id);
+        var next = Merge(remote, recent);
+        if (actions is { Length: > 0 })
+        {
+            var nextIds = next.Select(action => action.Action).ToHashSet();
+            var removed = actions.Select((action, index) => (action, index))
+                .Where(row => !nextIds.Contains(row.action.Action))
+                .Select(row => $"#playback-diagnostics > details:nth-of-type({row.index + 1})").ToArray();
+            if (removed.Length > 0)
+                await JS.InvokeVoidAsync("familyhub.focusIfWithin", string.Join(", ", removed), "playback-diagnostics-refresh");
+        }
+        local = recent;
+        actions = next;
+    }
+
+    private static PlayAction[] Merge(PlayAction[] remote, Dictionary<string, MusicSession.LocalPlaybackAttempt> local)
+    {
+        var byId = remote.ToDictionary(action => action.Action);
+        var ids = local.Keys.Where(id => !byId.ContainsKey(id)).Concat(remote.Select(action => action.Action));
+        return ids.Select(id =>
+        {
+            var action = byId.GetValueOrDefault(id) ?? new PlayAction(id, []);
+            var events = action.Events;
+            if (local.TryGetValue(id, out var attempt))
+                events = [.. events.Concat(attempt.Stages.Select(s => new TimingEvent(s.Key, s.Value, null))).DistinctBy(e => e.Stage)];
+            return action with { Events = events };
+        }).OrderByDescending(action => local.GetValueOrDefault(action.Action)?.Started).ToArray();
+    }
+
+    private static string Label(string stage) => stage switch
+    {
+        "client_play" => "Player began handling playback",
+        "client_position_advanced" => "Playback position moved",
+        "client_fallback_position_advanced" => "Playback position moved after retry",
+        "client_ready" => "Player loaded the track",
+        "client_playing" => "Player reported playing",
+        "client_fallback" => "Retry started",
+        "client_fallback_ready" => "Player loaded the retry source",
+        "client_stream_failed" => "Stream failed to start or continue",
+        "client_cache_miss" => "Track absent from device cache",
+        "job_accepted" => "Preparation request accepted",
+        "worker_started" => "Preparation started",
+        "source_metadata_wait" => "Waiting for a source lookup",
+        "source_metadata_started" => "Looking up the audio source",
+        "source_metadata_ready" => "Audio source details received",
+        "source_transfer_wait" => "Waiting to start the download",
+        "source_transfer_admitted" => "Download slot available",
+        "source_encoder_admitted" => "Encoder slot available",
+        "source_process_started" => "Downloader started",
+        "source_bytes_received" => "First source bytes reported",
+        "preview_ready" => "First preview segment available",
+        "windows_preview_ready" => "Preview ready for Windows",
+        "preview_segment_response_ready" => "Preview segment ready to send",
+        "stream_response_ready" => "Stream response ready",
+        "source_ready" => "Original audio available",
+        "client_failed" => "Playback failed",
+        "client_cancelled" => "Attempt cancelled",
+        _ => (stage.StartsWith("client_", StringComparison.Ordinal) ? stage[7..] : stage).Replace('_', ' ')
+    };
+
+    private static string Duration(int ms) => ms < 1000 ? $"{ms} ms" : $"{ms / 1000d:0.##} s";
 
     private static string Summary(PlayAction action)
     {
-        var id = action.Action[..Math.Min(8, action.Action.Length)];
-        var progress = action.Events.FirstOrDefault(e => e.Stage is "client_position_advanced" or "client_fallback_position_advanced");
-        return progress?.ClientMs is { } ms ? $"Play {id} · position advanced at {ms:N0} ms" : $"Play {id}";
+        int? Time(string name) => action.Events.FirstOrDefault(e => e.Stage == name)?.ClientMs;
+        var first = Time("client_position_advanced");
+        var retry = Time("client_fallback_position_advanced");
+        var started = first ?? retry;
+        var interrupted = Time("client_stream_failed");
+        if (Time("client_failed").HasValue) return started.HasValue ? "Started, then stopped unexpectedly." : "Couldn’t start playing.";
+        if (Time("client_cancelled").HasValue) return started.HasValue ? "Started, then stopped." : "Cancelled before the song started.";
+        if (first.HasValue && retry.HasValue && interrupted >= first && interrupted <= retry)
+            return "Started playing again after a retry.";
+        if (started.HasValue && interrupted >= started) return "Started, then the stream stopped.";
+        if (retry.HasValue) return "Started playing after a retry.";
+        if (first.HasValue) return "Started playing.";
+        if (Time("client_fallback_ready").HasValue) return "The retry loaded. Playback start is unconfirmed.";
+        if (Time("client_fallback").HasValue) return "A retry began. Playback start is unconfirmed.";
+        if (interrupted.HasValue) return "The stream stopped before the song started.";
+        return "Playback start is unconfirmed.";
     }
 
     public void Dispose() { lifetime.Cancel(); lifetime.Dispose(); }

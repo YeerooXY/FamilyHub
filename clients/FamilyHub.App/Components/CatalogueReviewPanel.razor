@@ -5,7 +5,8 @@
 @inject MusicPlayer Player
 @inject IJSRuntime JS
 
-<section id="catalogue-review-title" tabindex="-1" aria-label="Song review" class="music-admin catalogue-review" aria-busy="@Aria(loading && data is null)">
+<section id="catalogue-review-title" tabindex="-1" aria-labelledby="srv-review-heading" class="music-admin catalogue-review srv-review" aria-busy="@Aria(loading && data is null)">
+    <h2 id="srv-review-heading">Song review</h2>
     <p class="sr" role="status" aria-live="polite" aria-atomic="true">@announcement</p>
     <Notice Level="error" Message="@error" ActionLabel="@(error is not null && Online ? "Retry song review" : null)"
         Action="Refresh" Busy="@Unavailable" FocusTarget="#server-stats-refresh" />
@@ -14,25 +15,62 @@
     else if (data is null && error is null) { <Notice Message="Loading song review…" /> }
     @if (data is { } snapshot)
     {
-        <div class="catalogue-categories" role="group" aria-label="Review status">
-            @foreach (var (id, label) in WorkViews.Where(v => snapshot.CanEdit || v.Id != "fixed"))
-            {
-                <button class="quiet catalogue-category" aria-pressed="@Aria(workView == id)" aria-disabled="@Aria(Unavailable)"
-                        @onclick="() => ChangeWorkView(id)">@label</button>
-            }
-        </div>
-        @if (workView != "fixed")
+        @if (active is null)
         {
-        <div class="catalogue-categories" role="group" aria-label="Review categories">
-            @foreach (var category in VisibleCategories(snapshot).Where(c => c.Id == active || Count(c.Id) > 0))
+            var queued = workView == "queue";
+            @if (queued)
             {
-                <button class="quiet catalogue-category" aria-pressed="@Aria(active == category.Id)"
-                        aria-controls="catalogue-category-panel" @onclick="() => active = category.Id">
-                    @category.Label <span class="music-admin-count">@Count(category.Id)</span>
+                <button type="button" id="catalogue-back" class="quiet catalogue-control" aria-disabled="@Aria(Unavailable)" @onclick='() => ChangeWorkView("choice")'>
+                    <MusicIcon Name="chevron-down" />Back to song review
                 </button>
             }
-        </div>
+            <div class="srv-review-overview">
+                <section aria-labelledby="review-action-heading">
+                    <h3 id="review-action-heading" tabindex="-1">@(queued ? "Queued & retrying" : "Needs your choice")</h3>
+                    <ul class="srv-review-links">
+                        @foreach (var category in VisibleCategories(snapshot))
+                        {
+                            <li @key="category.Id">
+                                <button type="button" id="@("catalogue-filter-" + category.Id)" class="quiet srv-review-link"
+                                        aria-disabled="@Aria(loading || saving)" @onclick="() => SelectCategory(category)">
+                                    <span>@category.Label</span><span class="srv-review-count">@Count(category.Id)</span>
+                                    <MusicIcon Name="chevron-down" />
+                                </button>
+                            </li>
+                        }
+                    </ul>
+                </section>
+                @if (!queued)
+                {
+                    <section aria-labelledby="review-activity-heading">
+                        <h3 id="review-activity-heading">Activity</h3>
+                        <ul class="srv-review-links">
+                            <li>
+                                <button type="button" id="catalogue-view-queue" class="quiet srv-review-link"
+                                        aria-disabled="@Aria(Unavailable)" @onclick='() => ChangeWorkView("queue")'>
+                                    <span>Queued &amp; retrying</span><MusicIcon Name="chevron-down" />
+                                </button>
+                            </li>
+                            @if (snapshot.CanEdit)
+                            {
+                                <li>
+                                    <button type="button" id="catalogue-view-fixed" class="quiet srv-review-link"
+                                            aria-disabled="@Aria(loading || saving)" @onclick='() => SelectCategory(Categories.First(c => c.Id == "fixed"))'>
+                                        <span>Recently fixed</span><span class="srv-review-count">@Count("fixed")</span>
+                                        <MusicIcon Name="chevron-down" />
+                                    </button>
+                                </li>
+                            }
+                        </ul>
+                    </section>
+                }
+            </div>
         }
+        else
+        {
+        <button type="button" id="catalogue-back" class="quiet catalogue-control" aria-disabled="@Aria(loading || saving)" @onclick="BackToCategoryList">
+            <MusicIcon Name="chevron-down" />@(workView == "queue" ? "Back to queued & retrying" : "Back to song review")
+        </button>
         var section = Categories.First(c => c.Id == active);
         var limit = Limit(active);
         <section id="catalogue-category-panel" class="glass-panel catalogue-pool" aria-labelledby="catalogue-category-title">
@@ -57,10 +95,10 @@
                         <button class="quiet catalogue-control" aria-disabled="@Aria(Unavailable)"
                                 @onclick='() => ResolveAll("trimming", snapshot.Trimming.Take(limit).Select(r => r.Id))'>Resolve shown requests</button>
                     }
-                    else if (active == "reports" && reports.Count > 0)
+                    else if (active == "reports" && reports.Take(limit).Any(r => !r.Replacing))
                     {
                         <button class="quiet catalogue-control" aria-disabled="@Aria(Unavailable)"
-                                @onclick='() => ResolveAll("reports", reports.Take(limit).Select(r => r.Key))'>Resolve shown reports</button>
+                                @onclick='() => ResolveAll("reports", reports.Take(limit).Where(r => !r.Replacing).Select(r => r.Key))'>Resolve shown reports</button>
                     }
                 }
             </header>
@@ -112,30 +150,16 @@
                                     @if (row.Candidate is { } candidate) { <p class="catalogue-reason">Official source · @candidate.Channel</p> }
                                     else if (row.ReplacementChecked && row.RetryReason.Length == 0) { <p class="catalogue-reason">No matching official source found.</p> }
                                     @Retry(row.RetryAt, row.RetryReason)
-                                    @if (row.Replacing) { <p class="catalogue-progress">@(row.Queued ? "Replacement queued" : "Replacing recording…")</p> }
+                                    @if (row.Replacing) { <p class="catalogue-progress" role="status">@(row.Queued ? "Replacement queued" : "Replacing recording…")</p> }
                                     @if (row.Error is not null) { <Notice Level="error" Message="@NoticeText.Detail(row.Error, "This replacement could not be checked. Refresh song review and try again.")" /> }
                                 </div>
                                 <div class="catalogue-actions">
                                     @Listen(row.Id, title)
-                                    @if (YouTubePreview(row.Candidate) is { } url)
-                                    {
-                                        <a class="quiet catalogue-control" href="@url" target="_blank" rel="noopener noreferrer"
-                                           aria-label="Preview the official recording of @title on YouTube (opens in a new tab)">
-                                            <MusicIcon Name="external-link" />YouTube
-                                        </a>
-                                    }
-                                    else if (row.ReplacementChecked && !row.Replacing)
-                                    {
-                                        <a class="quiet catalogue-control" href="@YouTubeSearch(row.Artist, title)" target="_blank" rel="noopener noreferrer"
-                                           aria-label="Find a source for @title on YouTube (opens in a new tab)"><MusicIcon Name="external-link" />Find source</a>
-                                    }
-                                    @if (row.Candidate is not null || row.Replacing)
-                                    {
-                                        <button class="primary catalogue-control" aria-label="Replace @title" aria-disabled="@Aria(Unavailable || row.Replacing || row.Candidate is null)"
-                                                @onclick="() => QualityAction(row, true)">Replace</button>
-                                    }
+                                    <button id="@RecordingOpener(row.Id, false)" class="primary catalogue-control" aria-label="Choose a recording for @title"
+                                            aria-haspopup="dialog" aria-disabled="@Aria(Unavailable || row.Replacing)"
+                                            @onclick="() => OpenRecording(row.Id, title, row.Artist, false, row.Replacing, row.Candidate)">Choose recording</button>
                                     <button class="quiet catalogue-control" aria-label="Keep @title" aria-disabled="@Aria(Unavailable || row.Replacing)"
-                                            @onclick="() => QualityAction(row, false)">Keep</button>
+                                            @onclick="() => KeepRecording(row)">Keep</button>
                                 </div>
                             </article>
                         }
@@ -199,7 +223,7 @@
                         @foreach (var row in reports.Take(limit))
                         {
                             var title = DisplayTitle(row.Title);
-                            <article class="catalogue-row" @key="row.Key">
+                            <article class="catalogue-row" @key="row.Key" aria-busy="@Aria(row.Replacing)">
                                 @Cover(row.Id, title, row.Artist)
                                 <div class="catalogue-track">
                                     <h3>@title</h3><p class="catalogue-artist">@row.Artist</p>
@@ -207,13 +231,16 @@
                                 <div class="catalogue-details">
                                     <p class="catalogue-reason">@(row.Reason == "bad_quality" ? "Reported for poor audio or a live performance." : "Reported as the wrong recording.")</p>
                                     <p class="catalogue-reason">@ProfileName(row.Profile) @Timestamp(row.Time)</p>
+                                    @if (row.Replacing) { <p class="catalogue-progress" role="status">Replacement queued</p> }
+                                    @if (row.ReplacementError is not null) { <Notice Level="error" Message="@NoticeText.Detail(row.ReplacementError, "Could not prepare the replacement. Choose a recording to try again.")" /> }
                                 </div>
                                 <div class="catalogue-actions">
                                     @Listen(row.Id, title)
-                                    <a class="quiet catalogue-control" href="@YouTubeSearch(row.Artist, title)" target="_blank" rel="noopener noreferrer"
-                                       aria-label="Find a source for @title on YouTube (opens in a new tab)"><MusicIcon Name="external-link" />Find source</a>
-                                    <button class="primary catalogue-control" aria-label="Resolve the report for @title" aria-disabled="@Aria(Unavailable)"
-                                            @onclick="() => ResolveReport(row.Key)">Mark resolved</button>
+                                    <button id="@RecordingOpener(row.Key, true)" class="primary catalogue-control" aria-label="Choose a recording for @title"
+                                            aria-haspopup="dialog" aria-disabled="@Aria(Unavailable || row.Replacing)"
+                                            @onclick="() => OpenRecording(row.Key, title, row.Artist, true, row.Replacing)">Choose recording</button>
+                                    <button class="quiet catalogue-control" aria-label="Resolve the report for @title" aria-disabled="@Aria(Unavailable || row.Replacing)"
+                                            @onclick="() => ResolveReport(row)">Mark resolved</button>
                                 </div>
                             </article>
                         }
@@ -233,7 +260,7 @@
                                 </div>
                                 <div class="catalogue-actions">
                                     @Listen(row.ListeningId, title)
-                                    <button class="quiet catalogue-control" aria-label="Undo the automatic fix for @title" aria-disabled="@Aria(Unavailable)"
+                                    <button class="quiet catalogue-control" aria-label="Undo the fix for @title" aria-disabled="@Aria(Unavailable)"
                                             @onclick="() => Undo(row)">Undo</button>
                                 </div>
                             </article>
@@ -246,8 +273,39 @@
                 <button class="quiet catalogue-control catalogue-more" aria-disabled="@Aria(Unavailable)" @onclick="ShowMore">Show more</button>
             }
         </section>
+        }
     }
 </section>
+
+<dialog id="@RecordingDialog" class="popup-panel metadata-review-dialog" aria-labelledby="recording-review-title" data-return-focus="catalogue-category-title" @onclose="RecordingClosed">
+    <div class="dialog-heading">
+        <h2 id="recording-review-title">Choose recording</h2>
+        <button id="recording-review-close" type="button" class="quiet" aria-label="Close recording choice" @onclick="CloseRecording"><MusicIcon Name="close" /></button>
+    </div>
+    @if (recordingChoice is { } choice)
+    {
+        <p>@choice.Title @if (choice.Artist.Length > 0) { <span class="muted">· @choice.Artist</span> }</p>
+        @if (YouTubePreview(choice.Candidate) is { } preview)
+        {
+            <div class="catalogue-recording-suggestion">
+                <a class="quiet catalogue-control" href="@preview" target="_blank" rel="noopener noreferrer"
+                   aria-label="Preview the suggested recording on YouTube (opens in a new tab)"><MusicIcon Name="external-link" />Preview suggestion</a>
+                <button type="button" class="quiet catalogue-control" aria-disabled="@Aria(Unavailable)"
+                        @onclick="() => QueueRecording(useSuggestion: true)">Queue suggested recording</button>
+            </div>
+        }
+        <form @onsubmit="() => QueueRecording(useSuggestion: false)" @onsubmit:preventDefault aria-busy="@Aria(saving)">
+            <a class="quiet catalogue-control" href="@YouTubeSearch(choice.Artist, choice.Title)" target="_blank" rel="noopener noreferrer"
+               aria-label="Search for this song on YouTube (opens in a new tab)"><MusicIcon Name="external-link" />Search YouTube</a>
+            <label for="recording-review-url">YouTube recording link</label>
+            <input id="recording-review-url" type="text" inputmode="url" maxlength="2048" @bind="recordingUrl" @bind:event="oninput"
+                   readonly="@saving" aria-invalid="@Aria(invalidRecordingUrl)" />
+            <Notice Level="error" Message="@recordingError" />
+            <button type="submit" class="primary catalogue-control" aria-disabled="@Aria(Unavailable)">Queue replacement</button>
+        </form>
+        <p class="sr" role="status" aria-live="polite">@(saving ? "Queuing replacement." : null)</p>
+    }
+</dialog>
 
 <dialog id="metadata-review-dialog" class="popup-panel metadata-review-dialog" aria-labelledby="metadata-review-title" data-return-focus="catalogue-category-title">
     <div class="dialog-heading"><h2 id="metadata-review-title">Song metadata</h2><button class="quiet" aria-label="Close metadata review" @onclick="Close"><MusicIcon Name="close" /></button></div>
@@ -277,7 +335,9 @@
     [Parameter] public EventCallback<PlaylistReviewGap> OpenPlaylist { get; set; }
 
     private sealed record Category(string Id, string Label, string Empty, bool AdminOnly = true);
-    private sealed record SongReport(string Key, string Id, string Title, string Artist, string Profile, string Reason, long Time);
+    private sealed record SongReport(string Key, string Id, string Title, string Artist, string Profile, string Reason, long Time,
+        bool Replacing = false, [property: System.Text.Json.Serialization.JsonPropertyName("replacement_error")] string? ReplacementError = null);
+    private sealed record RecordingChoice(string Key, string Title, string Artist, bool IsReport, SourceQualityCandidate? Candidate);
     private sealed record SongReports(List<SongReport> Reports);
     private sealed record FixedEntry(string Id, string ListeningId, string Title, string Artist, string Reason, long Time, bool IsMetadata);
 
@@ -289,7 +349,7 @@
         new("metadata", "Song details", "No song details to review.", false),
         new("trimming", "Trimming", "No trimming requests.", false),
         new("reports", "Song reports", "No open song reports."),
-        new("fixed", "Fixed automatically", "No automatic fixes to review.")
+        new("fixed", "Fixed recordings and details", "No recent fixes.")
     ];
     private const int PageSize = 50;
     private const int MaxPageSize = 10000;
@@ -299,7 +359,13 @@
     private SourceQualitySnapshot quality = new();
     private List<SongReport> reports = [];
     private MetadataRequest? editing;
-    private string active = "playlists", trackTitle = "", artist = "", album = "", genre = "";
+    private const string RecordingDialog = "recording-review-dialog";
+    private RecordingChoice? recordingChoice;
+    private string recordingUrl = "";
+    private string? recordingError;
+    private bool openRecordingAfterRender, invalidRecordingUrl;
+    private string trackTitle = "", artist = "", album = "", genre = "";
+    private string? active;
     private string? identity, error, editError, announcement, pendingFocus;
     private bool loading, saving, disposed, wasOnline;
     private bool Online => Session.Connected && Session.Api is not null;
@@ -311,6 +377,11 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender) await UpdateConnection();
+        if (openRecordingAfterRender && recordingChoice is { } choice)
+        {
+            openRecordingAfterRender = false;
+            await JS.InvokeVoidAsync("familyhub.showDialog", RecordingDialog, "recording-review-close", RecordingOpener(choice.Key, choice.IsReport));
+        }
         if (pendingFocus is { } id)
         {
             pendingFocus = null;
@@ -333,12 +404,17 @@
         if (changed)
         {
             identity = currentIdentity;
+            if (data is not null)
+                await JS.InvokeVoidAsync("familyhub.focusIfWithin", ".srv-review-overview, #catalogue-back, #catalogue-category-panel", "catalogue-review-title");
             data = null;
             quality = new();
             reports = [];
             limits.Clear();
+            workView = "choice";
+            active = null;
             error = announcement = null;
             if (editing is not null) await Close();
+            if (recordingChoice is not null) await CloseRecording("catalogue-review-title");
         }
         if ((changed || reconnected) && Online && !loading && !saving) await Refresh();
         else StateHasChanged();
@@ -346,23 +422,27 @@
 
     private int snapshotRetries;
     private DateTimeOffset snapshotAt;
-    private static readonly (string Id, string Label)[] WorkViews = [("choice", "Needs your choice"), ("queue", "Queued & retrying"), ("fixed", "Recently fixed")];
     private string workView = "choice";
     private IEnumerable<Category> VisibleCategories(CatalogueReviewSnapshot snapshot) =>
         Categories.Where(c => (snapshot.CanEdit || !c.AdminOnly) && c.Id != "fixed" && (workView != "queue" || (c.Id != "reports" && c.Id != "trimming")));
-    private async Task ChangeWorkView(string id)
+    private void SelectCategory(Category category)
     {
-        if (Unavailable || id == workView) return;
-        var previous = workView;
-        workView = id;
-        await Refresh();
-        if (error is not null) workView = previous;
-        else if (data is not null) SelectWorkCategory(data);
+        if (loading || saving) return;
+        active = category.Id;
+        pendingFocus = "catalogue-category-title";
     }
-    private void SelectWorkCategory(CatalogueReviewSnapshot snapshot)
+
+    private void BackToCategoryList()
     {
-        var visible = VisibleCategories(snapshot);
-        active = workView == "fixed" ? "fixed" : (visible.FirstOrDefault(c => Count(c.Id) > 0) ?? visible.First()).Id;
+        if (loading || saving) return;
+        pendingFocus = active == "fixed" ? "catalogue-view-fixed" : "catalogue-filter-" + active;
+        active = null;
+    }
+
+    private async Task ChangeWorkView(string view)
+    {
+        if (Unavailable || view == workView) return;
+        await RefreshForView(view);
     }
     private bool followingUp;
     private bool SnapshotStale => data?.SnapshotAgeSeconds > 1;
@@ -377,7 +457,9 @@
             TaskScheduler.Default);
     }
 
-    public async Task Refresh()
+    public Task Refresh() => RefreshForView(workView);
+
+    private async Task RefreshForView(string requestedView)
     {
         if (Unavailable || disposed || Session.Api is not { } api) return;
         if (!followingUp) snapshotRetries = 0;
@@ -392,7 +474,7 @@
             request.CancelAfter(TimeSpan.FromSeconds(5));
             var limit = Math.Max(Limit("playlists"), Math.Max(Limit("metadata"), Limit("trimming")));
             var result = await api.RequestJsonAsync<CatalogueReviewSnapshot>(HttpMethod.Get,
-                $"/api/catalogue/review?limit={limit}&work={(workView == "queue" ? "queue" : "choice")}", cancellationToken: request.Token).WaitAsync(request.Token);
+                $"/api/catalogue/review?limit={limit}&work={(requestedView == "queue" ? "queue" : "choice")}", cancellationToken: request.Token).WaitAsync(request.Token);
             var newQuality = new SourceQualitySnapshot();
             List<SongReport> newReports = [];
             if (result.CanEdit)
@@ -404,17 +486,24 @@
                 newReports = (await reportTask).Reports;
             }
             if (disposed || Identity != requestIdentity) return;
-            var firstLoad = data is null;
-            if (data?.CanEdit == true && !result.CanEdit && editing is not null) await Close();
+            if (data?.CanEdit == true && !result.CanEdit)
+            {
+                if (editing is not null)
+                {
+                    editing = null;
+                    await JS.InvokeVoidAsync("familyhub.closeDialog", "metadata-review-dialog", "catalogue-review-title");
+                }
+                await JS.InvokeVoidAsync("familyhub.focusIfWithin", "#catalogue-view-fixed, #catalogue-category-panel, #catalogue-filter-playlists, #catalogue-filter-damaged, #catalogue-filter-unofficial, #catalogue-filter-reports", "catalogue-review-title");
+                if (recordingChoice is not null) await CloseRecording("catalogue-review-title");
+            }
             data = result;
             snapshotAt = DateTimeOffset.UtcNow.AddSeconds(-Math.Max(0, result.SnapshotAgeSeconds));
             quality = newQuality;
             reports = newReports;
-            if (firstLoad || !result.CanEdit && Categories.First(c => c.Id == active).AdminOnly)
-            {
-                if (!result.CanEdit && workView == "fixed") workView = "choice";
-                SelectWorkCategory(result);
-            }
+            if (workView != requestedView)
+                pendingFocus = requestedView == "queue" ? "review-action-heading" : "catalogue-view-queue";
+            workView = requestedView;
+            if (!result.CanEdit && Categories.Any(c => c.Id == active && c.AdminOnly)) active = null;
         }
         catch (OperationCanceledException) when (disposed) { }
         catch (Exception) { if (Identity == requestIdentity) error = "Could not load song review."; }
@@ -444,7 +533,7 @@
         quality.Songs.Where(r => (r.Verdict == "suspect") == (category == "damaged")
             && (r.RetryAt > 0 || r.Replacing || r.Queued) == (workView == "queue"));
     private IEnumerable<FixedEntry> FixedRows(CatalogueReviewSnapshot snapshot) =>
-        quality.Fixed.Select(r => new FixedEntry(r.Id, r.ReplacedBy, r.Title, r.Artist, "Replaced with an official recording.", r.FixedAt, false))
+        quality.Fixed.Select(r => new FixedEntry(r.Id, r.ReplacedBy, r.Title, r.Artist, "Recording replaced.", r.FixedAt, false))
             .Concat(snapshot.MetadataFixed.Select(r => new FixedEntry(r.Id, r.Id, r.Title, r.Artist,
                 "Updated " + string.Join(", ", r.Fields) + ".", r.FixedAt, true)))
             .OrderByDescending(r => r.Time);
@@ -460,8 +549,7 @@
     };
     private async Task ShowMore()
     {
-        if (Unavailable) return;
-        var category = active;
+        if (Unavailable || active is not { } category) return;
         var previous = Limit(category);
         limits[category] = Math.Min(MaxPageSize, previous + PageSize);
         if (category is "playlists" or "metadata" or "trimming")
@@ -519,14 +607,14 @@
 
     private async Task Play(string id)
     {
+        var requestedAt = MusicPlayer.PlaybackTimestamp();
         if (Player.FollowingHost || Session.Library.FirstOrDefault(t => t.Id == id && t.Saved) is not { } track) return;
-        try { await Player.PlayAsync(track); }
+        try { await Player.PlayAsync(track, requestedAt: requestedAt); }
         catch (Exception) { error = "Could not play this recording. Try listening again."; }
     }
 
-    private Task QualityAction(SourceQualitySong row, bool replace) =>
-        Write(HttpMethod.Post, "/api/catalogue/source-quality/" + row.Id + (replace ? "/replace" : "/dismiss"),
-            new { candidate_id = row.Candidate?.Id }, replace ? "Replacement queued." : "Recording kept.");
+    private Task KeepRecording(SourceQualitySong row) => row.Replacing ? Task.CompletedTask :
+        Write(HttpMethod.Post, "/api/catalogue/source-quality/" + Uri.EscapeDataString(row.Id) + "/dismiss", new { }, "Recording kept.");
     private Task ReplaceAll(string category) =>
         Mutate(async api =>
         {
@@ -536,8 +624,8 @@
         });
     private Task ResolveTrimming(string id) =>
         Write(HttpMethod.Post, $"/api/catalogue/trimming/{id}/resolve", new { }, "Trimming request resolved.");
-    private Task ResolveReport(string key) =>
-        Write(HttpMethod.Post, "/api/catalogue/reports/resolve", new { key }, "Song report resolved.");
+    private Task ResolveReport(SongReport row) => row.Replacing ? Task.CompletedTask :
+        Write(HttpMethod.Post, "/api/catalogue/reports/resolve", new { key = row.Key }, "Song report resolved.");
     private Task ResolveAll(string category, IEnumerable<string> visibleIds) =>
         Mutate(async api =>
         {
@@ -586,6 +674,80 @@
             saving = false;
             if (!disposed) await Refresh();
             if (!disposed && Identity == requestIdentity && failureMessage is not null) error = failureMessage;
+        }
+    }
+
+    private static string RecordingOpener(string key, bool isReport) => (isReport ? "report-recording-" : "quality-recording-") + key;
+
+    private void OpenRecording(string key, string title, string artist, bool isReport, bool replacing, SourceQualityCandidate? candidate = null)
+    {
+        if (Unavailable || replacing || data?.CanEdit != true) return;
+        recordingChoice = new(key, title, artist, isReport, candidate);
+        recordingUrl = "";
+        recordingError = null;
+        invalidRecordingUrl = false;
+        openRecordingAfterRender = true;
+    }
+
+    private Task CloseRecording() => CloseRecording(saving ? "catalogue-category-title" : null);
+
+    private void RecordingClosed()
+    {
+        if (recordingChoice is not null && saving) pendingFocus = "catalogue-category-title";
+        recordingChoice = null;
+    }
+
+    private async Task CloseRecording(string? successor)
+    {
+        recordingChoice = null;
+        openRecordingAfterRender = false;
+        await JS.InvokeVoidAsync("familyhub.closeDialog", RecordingDialog, successor);
+    }
+
+    private async Task QueueRecording(bool useSuggestion)
+    {
+        if (Unavailable || data?.CanEdit != true || recordingChoice is not { } choice || Session.Api is not { } api) return;
+        var url = recordingUrl.Trim();
+        if (useSuggestion ? choice.Candidate is null : url.Length == 0)
+        {
+            recordingError = "Enter a YouTube recording link.";
+            invalidRecordingUrl = !useSuggestion;
+            if (invalidRecordingUrl) await JS.InvokeVoidAsync("familyhub.focus", "recording-review-url");
+            return;
+        }
+
+        var requestIdentity = Identity;
+        saving = true;
+        recordingError = null;
+        invalidRecordingUrl = false;
+        var queued = false;
+        try
+        {
+            var path = choice.IsReport ? "/api/catalogue/reports/replace" : $"/api/catalogue/source-quality/{Uri.EscapeDataString(choice.Key)}/replace";
+            object body = choice.IsReport ? new { key = choice.Key, url } :
+                useSuggestion ? new { candidate_id = choice.Candidate!.Id } : new { url };
+            await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, path, body, lifetime.Token);
+            if (disposed || Identity != requestIdentity) return;
+            queued = true;
+            if (choice.IsReport)
+                reports = reports.Select(row => row.Key == choice.Key ? row with { Replacing = true, ReplacementError = null } : row).ToList();
+            else
+                quality = quality with { Songs = quality.Songs.Select(row => row.Id == choice.Key ? row with { Replacing = true, Queued = true, Error = null } : row).ToList() };
+            if (recordingChoice == choice) await CloseRecording("catalogue-category-title");
+            await JS.InvokeVoidAsync("FamilyHubNotices.toast", "Replacement queued.");
+        }
+        catch (OperationCanceledException) when (disposed) { }
+        catch (Exception failure)
+        {
+            if (disposed || Identity != requestIdentity) return;
+            var message = SafeError(failure, "Could not queue the replacement. Try again.");
+            if (recordingChoice == choice) recordingError = message;
+            else error = message;
+        }
+        finally
+        {
+            saving = false;
+            if (!disposed && (queued || Identity != requestIdentity)) await Refresh();
         }
     }
 

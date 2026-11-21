@@ -104,7 +104,7 @@ internal static class DownloadStateChecks
 
     private static string Row(string html, string title) =>
         html.Split("<article data-recording-id=").Skip(1).Select(part => part.Split("</article>")[0])
-            .Single(part => part.Contains($"<strong>{title}</strong>"));
+            .Single(part => part.Contains($"aria-label=\"Play {title}\"") || part.Contains($"aria-label=\"Find recording for {title}\""));
 
     private static bool Button(string html, string label)
     {

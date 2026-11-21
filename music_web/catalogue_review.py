@@ -164,11 +164,15 @@ class CatalogueReview:
         retry = recent[-self.automatic_limit][0] + 3600 if len(recent) >= self.automatic_limit else 0
         if self.source_automation and self.automatic_limit >= 3:
             # Leave capacity for searches and replacements while metadata is backlogged.
-            shares = {'metadata': self.automatic_limit * 2 // 3, 'source search': max(1, self.automatic_limit // 6)}
+            source_budget = min(30, self.automatic_limit)
+            shares = {'metadata': self.automatic_limit - (source_budget - source_budget * 2 // 3),
+                      'source search': max(1, source_budget // 6), 'source replacement': source_budget}
             same_kind = [attempt for attempt in recent if attempt[1] == kind]
             share = shares.get(kind)
             if share and len(same_kind) >= share:
                 retry = max(retry, same_kind[-share][0] + 3600)
+        if kind == 'metadata' and self.data.get('provider_retry_at', 0) > self.clock():
+            retry = max(retry, self.data['provider_retry_at'])
         return retry
 
     def automatic_retry(self, kind='metadata'):
@@ -256,8 +260,8 @@ class CatalogueReview:
         key = user + ':' + track['id'] + ':' + reason
         with self.lock:
             reports = self.data['reports']
-            if key not in reports:
-                if len(reports) >= self.MAX_ROWS: raise ReviewError('The report queue is full.')
+            if key not in reports or reports[key]['resolved']:
+                if key not in reports and len(reports) >= self.MAX_ROWS: raise ReviewError('The report queue is full.')
                 reports[key] = dict(key=key, id=track['id'], title=track['title'], artist=track['channel'],
                                     profile=user, reason=reason, time=int(time.time()), resolved=False)
                 self.dirty = True
@@ -387,7 +391,12 @@ class CatalogueReview:
             result=resolver(captured)
             if not isinstance(result,dict) or not isinstance(result.get('values',{}),dict):raise ReviewError('Invalid metadata result.')
             result['values']={key:text(value,80 if key=='genre' else 120) for key,value in result.get('values',{}).items() if key in FIELDS}
-        except Throttled:result='throttled'
+        except Throttled as error:
+            result='throttled'
+            with self.lock:
+                self.data['provider_retry_at'] = self.clock() + error.delay
+                self.dirty = True
+                self.flush()
         except Exception:result=None
         with self.lock:
             if self.data['metadata'].get(row['id']) is not row or row['revision']!=version or row['state']!='processing':return True
@@ -397,7 +406,7 @@ class CatalogueReview:
             if result=='throttled':
                 # Being told to slow down is not the song's fault: try it again in two minutes
                 # without using one of its attempts.
-                row.update(state='queued',retry_at=self.clock()+120,retry_reason='MusicBrainz rate limit',revision=row['revision']+1)
+                row.update(state='queued',retry_at=self.data['provider_retry_at'],retry_reason='MusicBrainz rate limit',revision=row['revision']+1)
                 self.dirty=True;self.flush();return True
             if result is None:
                 attempts=row.get('attempts',0)
@@ -466,7 +475,8 @@ class CatalogueReview:
             retry = self.automatic_retry()
             for row in metadata:
                 if row['state'] == 'queued' and retry and retry > row.get('retry_at', 0):
-                    row.update(retry_at=retry, retry_reason='Hourly catalogue limit')
+                    reason = 'MusicBrainz rate limit' if retry == self.data.get('provider_retry_at') else 'Hourly catalogue limit'
+                    row.update(retry_at=retry, retry_reason=reason)
             if query:
                 wanted=normal(query);trim=[r for r in trim if wanted in normal(r['title']+' '+r['artist'])];metadata=[r for r in metadata if wanted in normal(r['title']+' '+r['current']['artist'])]
             metadata.sort(key=lambda row:(row['state']!='review', row.get('retry_at',0), row['title'].casefold()))
@@ -528,7 +538,10 @@ def register(app,body,review,recording,admin,rate,playlist_gaps=lambda: [],metad
     def song_reports():
         if not admin(): return jsonify(error='Only the admin can review song reports.'), 403
         with review.lock:
-            return jsonify(reports=[copy.deepcopy(r) for r in review.data['reports'].values() if not r['resolved']])
+            archived = review.archived_ids()
+            reports = [copy.deepcopy(r) for r in review.data['reports'].values()
+                       if not r['resolved'] and r['id'] not in archived]
+        return jsonify(reports=app.extensions['music'].source_quality.report_status(reports))
 
     @app.post('/api/catalogue/reports/resolve')
     def resolve_song_report():

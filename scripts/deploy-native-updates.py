@@ -12,6 +12,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('release', type=Path)
     parser.add_argument('--platforms', default='windows-x64,android', help='comma-separated: windows-x64, android, ios')
+    parser.add_argument('--assets-only', action='store_true', help='Mirror native packages without updating server code')
     args = parser.parse_args()
     platforms = [p for p in args.platforms.split(',') if p]
     if not platforms or any(p not in ('windows-x64', 'android', 'ios') for p in platforms):
@@ -25,41 +26,48 @@ def main():
     incoming = '/tmp/familyhub-update-' + uuid.uuid4().hex
     subprocess.run([*ssh, 'mkdir -m 700 ' + incoming], check=True, cwd=ROOT)
     web_files = ('__init__.py', 'app_updates.py', 'playlist_artwork.py', 'playlists.py', 'finished_audio.py', 'audio_profile.py', 'mobile_audio.py', 'playlist_preparation.py', 'profile_artwork.py', 'profiles.py', 'public_playlists.py', 'listening_rooms.py', 'listening_versions.py', 'listening_history.py', 'listening_stats.py', 'catalogue_review.py', 'source_quality.py', 'analysis.py', 'song_analysis.py', 'worker_activity.py', 'musicbrainz.py', 'catalog_search.py', 'genres.py', 'lyrics.py', '__main__.py', 'link_playlists.py', 'playback_devices.py', 'radio.py', 'http_dispatch.py', 'playback_diagnostics.py', 'review_confidence.py', 'snapshots.py', 'resources.py', 'discovery.py') + (
-        'static/app.js', 'static/playlists.js', 'static/prefix-cache.js', 'templates/index.html',
+        'movies.py', 'static/app.js', 'static/playlists.js', 'static/prefix-cache.js', 'templates/index.html',
     )
-    files = [ROOT / 'music_web' / name for name in web_files]
-    files.append(ROOT / 'scripts' / 'music-intake.py')
+    files = []
+    if not args.assets_only:
+        files.extend(ROOT / 'music_web' / name for name in web_files)
+        files.append(ROOT / 'scripts' / 'music-intake.py')
     for platform in platforms:
         manifest = release / (platform + '.json')
         data = json.loads(manifest.read_text(encoding='utf-8'))
         files.extend((manifest, release / data['file']))
     subprocess.run(['scp', *options, *map(str, files), host + ':' + incoming + '/'], check=True, cwd=ROOT)
-    remote = 'incoming = ' + repr(incoming) + '\nplatforms = ' + repr(platforms) + '\nweb_files = ' + repr(web_files) + '\n' + r'''
+    remote = (
+        f'incoming = {incoming!r}\nplatforms = {platforms!r}\n'
+        f'web_files = {web_files!r}\nassets_only = {args.assets_only!r}\n' + r'''
 import hashlib,json,os,pathlib,shutil,subprocess,time,urllib.request
 incoming=pathlib.Path(incoming)
 config=json.loads(pathlib.Path('/etc/familyhub-music-web/config.json').read_text())
 root=pathlib.Path(config['WORKSPACE'])/'.app-updates'
 base=pathlib.Path('/usr/local/lib/familyhub/mobile/music_web')
 service='familyhub-music-web.service'
-pid=subprocess.check_output(['systemctl','show',service,'-p','MainPID','--value'],text=True).strip()
-# UI-only releases update packages without restarting active acquisition.
-code_targets=[(incoming/pathlib.Path(name).name,base/name) for name in web_files]
-code_targets.append((incoming/'music-intake.py',pathlib.Path('/usr/local/lib/familyhub/music-intake.py')))
-code_changed=any(not target.exists() or hashlib.sha256(source.read_bytes()).digest()!=hashlib.sha256(target.read_bytes()).digest() for source,target in code_targets)
-if code_changed and pid!='0' and subprocess.run(['pgrep','-P',pid],capture_output=True).returncode==0:
-    raise RuntimeError('An acquisition or analysis is active. Retry deployment after it finishes.')
+intake=pathlib.Path('/usr/local/lib/familyhub/music-intake.py')
+code_changed=False
+if not assets_only:
+    code_targets=[(incoming/pathlib.Path(name).name,base/name) for name in web_files]
+    code_targets.append((incoming/'music-intake.py',intake))
+    code_changed=any(not target.exists() or hashlib.sha256(source.read_bytes()).digest()!=hashlib.sha256(target.read_bytes()).digest() for source,target in code_targets)
+    if code_changed:
+        pid=subprocess.check_output(['systemctl','show',service,'-p','MainPID','--value'],text=True).strip()
+        if pid!='0' and subprocess.run(['pgrep','-P',pid],capture_output=True).returncode==0:
+            raise RuntimeError('An acquisition or analysis is active. Retry deployment after it finishes.')
 backup=pathlib.Path('/usr/local/lib/familyhub')/('before-native-updates-'+str(time.time_ns()))
 backup.mkdir(mode=0o700)
-intake=pathlib.Path('/usr/local/lib/familyhub/music-intake.py')
-intake_stat=intake.stat()
-shutil.copy2(intake,backup/'music-intake.py')
 originals={}
-for name in web_files:
-    original=base/name
-    originals[name]=original.exists()
-    if original.exists():
-        (backup/name).parent.mkdir(parents=True,exist_ok=True)
-        shutil.copy2(original,backup/name)
+if not assets_only:
+    intake_stat=intake.stat()
+    shutil.copy2(intake,backup/'music-intake.py')
+    for name in web_files:
+        original=base/name
+        originals[name]=original.exists()
+        if original.exists():
+            (backup/name).parent.mkdir(parents=True,exist_ok=True)
+            shutil.copy2(original,backup/name)
 for platform in platforms:
     data=json.loads((incoming/(platform+'.json')).read_text())
     source=incoming/data['file']
@@ -110,7 +118,7 @@ except Exception:
     raise
 shutil.rmtree(incoming)
 print(json.dumps({'version':data['version'],'backup':str(backup),'sha256':data['sha256']}))
-'''
+''')
     result = subprocess.run([*ssh, 'sudo -n python3 -'], input=remote, text=True,
                             encoding='utf-8', capture_output=True, timeout=120, cwd=ROOT)
     if result.returncode:

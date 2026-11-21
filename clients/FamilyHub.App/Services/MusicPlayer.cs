@@ -1,5 +1,6 @@
 ﻿using CommunityToolkit.Maui.Views;
 using FamilyHub.Client.Core;
+using System.Diagnostics;
 
 namespace FamilyHub.App.Services;
 
@@ -16,34 +17,64 @@ public sealed class MusicPlayer(MusicSession session)
     private bool preparing, sourceReady, blending, warming, incomingFailed;
     private MusicTrack? failedNext;
     private readonly Dictionary<IAudioDeck, PlayAction> playActions = [];
-    private sealed class PlayAction
+    private sealed class PlayAction(long started)
     {
         public readonly string Id = Guid.NewGuid().ToString("N");
-        public readonly long Started = Environment.TickCount64;
+        public readonly long Started = started;
         public readonly HashSet<string> Stages = [];
         public bool Fallback;
+        public bool Progressed;
+        public bool Audible;
+        public bool Identified;
         public double? Position;
+        public long PositionAt;
     }
+    public static long PlaybackTimestamp() => Stopwatch.GetTimestamp();
     private void Report(PlayAction? action, string stage)
     {
         if (action is not null && action.Stages.Add(stage))
-            session.ReportPlaybackStage(action.Id, stage, Environment.TickCount64 - action.Started);
+            session.ReportPlaybackStage(action.Id, stage, stage == "play" ? 0 : (long)Stopwatch.GetElapsedTime(action.Started).TotalMilliseconds);
     }
-    private PlayAction BeginPlayback()
+    private PlayAction BeginPlayback(long? requestedAt = null)
     {
-        var action = new PlayAction();
+        var action = new PlayAction(requestedAt ?? PlaybackTimestamp());
         Report(action, "play");
         return action;
+    }
+    private void RememberPlaybackAttempt(PlayAction? action, MusicTrack? track)
+    {
+        if (action is null || action.Identified || track is null) return;
+        action.Identified = true;
+        session.RememberPlaybackAttempt(action.Id, track, DateTimeOffset.UtcNow - Stopwatch.GetElapsedTime(action.Started));
     }
     private void ObservePlayback(IAudioDeck owner, bool audible)
     {
         if (!playActions.TryGetValue(owner, out var action)) return;
         if (!owner.Opening && owner.Duration > 0) Report(action, action.Fallback ? "fallback_ready" : "ready");
-        if (!owner.Playing || owner.Opening || Seeking || resumeStartPending) return;
+        if (!owner.PlaybackRequested || !owner.Playing || owner.Opening || Seeking || resumeStartPending)
+        {
+            action.Position = null;
+            return;
+        }
         Report(action, action.Fallback ? "fallback_playing" : "playing");
-        action.Position ??= owner.Position;
-        if (audible && owner.Volume > 0 && owner.Position > action.Position + .05 && owner.Position < action.Position + 3)
-            Report(action, action.Fallback ? "fallback_position_advanced" : "position_advanced");
+        var position = owner.Position;
+        if (!double.IsFinite(position)) { action.Position = null; return; }
+        audible &= owner.Volume > 0;
+        var sampledAt = PlaybackTimestamp();
+        var delta = position - (action.Position ?? position);
+        // Stream opening and decoder resets can jump the media clock by a segment.
+        if (delta is > .05 and < 3 && delta <= Stopwatch.GetElapsedTime(action.PositionAt, sampledAt).TotalSeconds + .5)
+        {
+            action.Progressed = true;
+            if (audible && action.Audible)
+                Report(action, action.Fallback ? "fallback_position_advanced" : "position_advanced");
+        }
+        if (action.Position is null || delta < 0 || delta > .05 || audible != action.Audible)
+        {
+            action.Position = position;
+            action.PositionAt = sampledAt;
+        }
+        action.Audible = audible;
     }
     private double volume = 1, blendGain, listenedSeconds, lastListeningPosition;
     private bool listenRecorded, eventFinalized;
@@ -272,15 +303,18 @@ public sealed class MusicPlayer(MusicSession session)
     }
     private async Task ApplyResumePositionAsync()
     {
-        if (resumePosition is not { } position || !sourceReady || preparing || Seeking || deck is not { } owner || owner.Opening) return;
+        if (resumePosition is not { } position || !sourceReady || preparing || Seeking
+            || deck is not { } owner || owner.Opening || owner.Duration <= 0) return;
         var version = requestVersion;
-        if (owner.Duration > 0)
+        try { await SeekDeckAsync(Math.Clamp(position, 0, owner.Duration)); }
+        catch (Exception error) when (error is IOException or InvalidOperationException or OperationCanceledException)
         {
-            resumePosition = null;
-            try { await SeekDeckAsync(Math.Clamp(position, 0, owner.Duration)); }
-            catch (Exception error) when (error is IOException or InvalidOperationException) { }
+            if (version == requestVersion && ReferenceEquals(deck, owner)) HandleDeckFailure(owner);
+            return;
         }
-        if (resumeStartPending && version == requestVersion && ReferenceEquals(deck, owner))
+        if (version != requestVersion || !ReferenceEquals(deck, owner) || !sourceReady) return;
+        resumePosition = null;
+        if (resumeStartPending)
         {
             resumeStartPending = false;
             owner.SetPlaying(PlaybackRequested);
@@ -314,7 +348,10 @@ public sealed class MusicPlayer(MusicSession session)
                     if (!PlaybackRequested && owner.PlaybackRequested && !FollowingHost)
                     {
                         session.MarkLocalPlayback();
-                        playActions[owner] = BeginPlayback();
+                        var action = BeginPlayback();
+                        RememberPlaybackAttempt(action, Current);
+                        playActions[owner] = action;
+                        if (streamedDecks.Contains(owner)) _ = WatchStreamStartAsync(owner, action, requestVersion);
                     }
                     PlaybackRequested = owner.PlaybackRequested;
                 }
@@ -343,6 +380,12 @@ public sealed class MusicPlayer(MusicSession session)
         {
             if (ReferenceEquals(ReportingHandoff?.Deck, owner)) { handoffTrackEnded = true; return; }
             if (!ReferenceEquals(deck, owner) || preparing || blending || !sourceReady || !PlaybackRequested) return;
+            if (streamedDecks.Contains(owner) && Current?.Duration is > 0 and var expectedDuration
+                && Math.Max(owner.Position, lastListeningPosition) < expectedDuration - Math.Clamp(expectedDuration * .05, 3, 10))
+            {
+                HandleDeckFailure(owner);
+                return;
+            }
             await AdvanceAfterEndAsync();
         };
         owner.Failed += _message => HandleDeckFailure(owner);
@@ -355,15 +398,17 @@ public sealed class MusicPlayer(MusicSession session)
         {
             if (!sourceReady || RemoteActive) return;
             if (streamed) Report(action, "stream_failed");
+            var checkpoint = Math.Max(Math.Max(Position, lastListeningPosition), resumePosition ?? 0);
+            resumePosition = checkpoint > 0 ? checkpoint : null;
             if (streamed && PlaybackRequested && Current is { } current && action?.Fallback != true)
             {
-                resumePosition = Math.Max(Math.Max(Position, lastListeningPosition), resumePosition ?? 0);
                 sourceReady = false;
-                _ = RecoverPlaybackAsync(current, action, current.PlaybackVersion == "preview-hls");
+                _ = RecoverPlaybackAsync(current, action, current.PlaybackVersion == "preview-hls" && resumePosition is null);
                 return;
             }
             Report(action, "failed");
             FinishListening("stopped"); sourceReady = false; resumeStartPending = false; PlaybackRequested = false;
+            owner.Stop(); session.PinPlayback(null);
             session.SetMessage("Playback stopped. Retry the song or play a downloaded copy.", "error", playback: true);
             Changed?.Invoke();
         }
@@ -408,7 +453,10 @@ public sealed class MusicPlayer(MusicSession session)
     private void MarkStream(IAudioDeck target, string source) { if (MusicSession.IsStream(source)) streamedDecks.Add(target); else streamedDecks.Remove(target); }
     private void RecordListening()
     {
-        var elapsed = Position - lastListeningPosition; lastListeningPosition = Position;
+        var position = Position;
+        var elapsed = position - lastListeningPosition;
+        // A native source can reset its position before reporting that it stopped.
+        if (position > 0 || Playing) lastListeningPosition = position;
         var now = Environment.TickCount64;
         var sampleSeconds = (now - lastListeningSample) / 1000d;
         lastListeningSample = now;
@@ -434,8 +482,10 @@ public sealed class MusicPlayer(MusicSession session)
         if (!listenRecorded && sourceReady && Playing && Current is { } track && listenedSeconds >= Math.Min(30, Duration > 0 ? Duration / 2 : 30))
         { session.RecordListen(track); listenRecorded = true; }
     }
-    public Task PlayAsync(MusicTrack track, IEnumerable<MusicTrack>? sequence = null, int? sequenceStartIndex = null, string source = "library")
+    public Task PlayAsync(MusicTrack track, IEnumerable<MusicTrack>? sequence = null, int? sequenceStartIndex = null,
+        string source = "library", long? requestedAt = null)
     {
+        var started = requestedAt ?? PlaybackTimestamp();
         RequirePlaybackControl();
         return MainThread.InvokeOnMainThreadAsync(() =>
         {
@@ -444,7 +494,7 @@ public sealed class MusicPlayer(MusicSession session)
             LeaveRemote();
             Autoplay = true; preserveHandoffOrder = false;
             FinishListening("skipped"); queueSource = source;
-            return PlayCoreAsync(track, sequence, sequenceStartIndex, true);
+            return PlayCoreAsync(track, sequence, sequenceStartIndex, true, requestedAt: started);
         });
     }
 
@@ -514,20 +564,23 @@ public sealed class MusicPlayer(MusicSession session)
         });
 
     private async Task PlayCoreAsync(MusicTrack track, IEnumerable<MusicTrack>? sequence, int? sequenceStartIndex, bool play,
-        bool advance = false, bool retry = false, bool background = false, PlayAction? action = null, bool alternatePreview = false)
+        bool advance = false, bool retry = false, bool background = false, PlayAction? action = null, bool alternatePreview = false,
+        long? requestedAt = null)
     {
+        var started = requestedAt ?? PlaybackTimestamp();
         if (deck is null) throw new InvalidOperationException("Player is starting. Try again.");
         var selected = sequence?.ToList() ?? [track];
         var selectedIndex = sequenceStartIndex ?? selected.FindIndex(t => t.Id == track.Id);
         if (selectedIndex < 0 || selectedIndex >= selected.Count || selected[selectedIndex].Id != track.Id)
             throw new ArgumentException("Choose a recording in this queue.");
-        action ??= play ? BeginPlayback() : null;
+        action ??= play ? BeginPlayback(started) : null;
+        RememberPlaybackAttempt(action, track);
         var useFallback = retry || advance && ReferenceEquals(track, failedNext);
         var openedNext = !useFallback && !blending && IncomingReady && ReferenceEquals(preparedTrack, track) ? standby : null;
         failedNext = null;
         if (useFallback && action is not null)
         {
-            action.Fallback = true; action.Position = null;
+            action.Fallback = true; action.Position = null; action.Progressed = false;
             Report(action, "fallback");
         }
         if (!retry)
@@ -615,7 +668,7 @@ public sealed class MusicPlayer(MusicSession session)
     {
         await Task.Delay(TimeSpan.FromSeconds(12));
         if (requestVersion == version && playActions.GetValueOrDefault(owner) == action && PlaybackRequested
-            && ReferenceEquals(deck, owner) && !action.Stages.Contains(action.Fallback ? "fallback_playing" : "playing"))
+            && ReferenceEquals(deck, owner) && !action.Progressed)
             HandleDeckFailure(owner);
     }
 
@@ -758,6 +811,7 @@ public sealed class MusicPlayer(MusicSession session)
         incomingStarted = null; incomingOwner = session.HistoryOwner;
         var version = requestVersion; var outgoing = deck; var incoming = standby;
         var action = BeginPlayback();
+        RememberPlaybackAttempt(action, incomingTrack);
         playActions[incoming] = action;
         ObservePlayback(incoming, audible: false);
         try
@@ -838,7 +892,7 @@ public sealed class MusicPlayer(MusicSession session)
         var legacy = track?.PlaybackGainDb ?? 0;
         return double.IsFinite(legacy) ? Math.Clamp(legacy, -60, 6) : 0;
     }
-    public bool ReplaceUpcoming(string seedId, IEnumerable<MusicTrack> tracks)
+    public bool ReplaceUpcoming(string seedId, IEnumerable<MusicTrack> tracks, string source = "auto_dj")
     {
         RequirePlaybackControl();
         if (Current?.Id != seedId || preparing) return false;
@@ -847,28 +901,43 @@ public sealed class MusicPlayer(MusicSession session)
         var keep = blending ? blendTarget + 1 : index + 1;
         if (!blending) CancelUpcoming();
         queueSnapshot = null; queue.RemoveRange(keep, queue.Count - keep);
-        manualQueue.Clear(); queueSource = "auto_dj";
+        manualQueue.Clear(); queueSource = source;
         var audibleNext = blending ? preparedTrack?.Id : null;
         queue.AddRange(candidates.Where(t => t.Id != audibleNext));
+        if (source == "radio") order = queue.ToList();
         Changed?.Invoke(); if (Playing && !blending) WarmNext();
         return true;
     }
     public Task ToggleAsync() => RemoteActive ? RemoteToggleAsync() : ToggleCoreAsync(true);
-    private Task ToggleCoreAsync(bool localUserAction) => MainThread.InvokeOnMainThreadAsync(async () =>
+    private Task ToggleCoreAsync(bool localUserAction)
     {
-        RequirePlaybackControl();
-        if (deck is null || Current is null) return;
-        if (localUserAction) UserPlaybackRevision++;
-        if (localUserAction && (!PlaybackRequested || !preparing && !sourceReady)) session.MarkLocalPlayback();
-        if (!preparing && !sourceReady) { await PlayCoreAsync(Current, queue, index, true, background: !localUserAction); return; }
-        PlaybackRequested = !PlaybackRequested;
-        ControlRevision++;
-        if (PlaybackRequested && !preparing && !blending) playActions[deck] = BeginPlayback();
-        if (!PlaybackRequested && !blending) CancelUpcoming(preserveChoice: true);
-        if (!preparing && !resumeStartPending) { deck.SetPlaying(PlaybackRequested); if (blending) standby?.SetPlaying(PlaybackRequested); }
-        if (PlaybackRequested && !blending) WarmNext();
-        Changed?.Invoke();
-    });
+        var started = PlaybackTimestamp();
+        return MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            RequirePlaybackControl();
+            if (deck is null || Current is null) return;
+            if (localUserAction) UserPlaybackRevision++;
+            if (localUserAction && (!PlaybackRequested || !preparing && !sourceReady)) session.MarkLocalPlayback();
+            if (!preparing && !sourceReady)
+            {
+                await PlayCoreAsync(Current, queue, index, true, background: !localUserAction, requestedAt: started);
+                return;
+            }
+            PlaybackRequested = !PlaybackRequested;
+            ControlRevision++;
+            if (PlaybackRequested && !preparing && !blending)
+            {
+                var action = BeginPlayback(started);
+                RememberPlaybackAttempt(action, Current);
+                playActions[deck] = action;
+                if (streamedDecks.Contains(deck)) _ = WatchStreamStartAsync(deck, action, requestVersion);
+            }
+            if (!PlaybackRequested && !blending) CancelUpcoming(preserveChoice: true);
+            if (!preparing && !resumeStartPending) { deck.SetPlaying(PlaybackRequested); if (blending) standby?.SetPlaying(PlaybackRequested); }
+            if (PlaybackRequested && !blending) WarmNext();
+            Changed?.Invoke();
+        });
+    }
     public Task SetVolumeAsync(double value) => MainThread.InvokeOnMainThreadAsync(() =>
     {
         if (!double.IsFinite(value)) throw new ArgumentOutOfRangeException(nameof(value));
@@ -991,6 +1060,7 @@ public sealed class MusicPlayer(MusicSession session)
             }
             if (first < 0) first = insertion;
             queue.Insert(insertion++, entry);
+            if (!manual && queueSource == "radio") order.Add(entry);
             changed = true;
         }
         if (changed)
@@ -1039,6 +1109,7 @@ public sealed class MusicPlayer(MusicSession session)
         var at = state.Index;
         var track = tracks[at];
         var action = play ? BeginPlayback() : null;
+        RememberPlaybackAttempt(action, track);
         var version = requestVersion;
         receivingHandoff = true; handoffTrackEnded = false;
         CancelUpcoming();
@@ -1090,7 +1161,7 @@ public sealed class MusicPlayer(MusicSession session)
             resumePosition = null; resumeStartPending = false; queueSource = eventSource = "other";
             eventStarted = null; eventFinalized = false; listenRecorded = false; listenedSeconds = 0; lastListeningPosition = incoming.Position;
             deck.TransportEnabled = true; ApplyVolumes();
-            if (action is not null) action.Position = incoming.Position;
+            ObservePlayback(incoming, audible: true);
             session.PinPlayback(track.Id); session.PinPreparingPlayback(null); ControlRevision++;
             return true;
         }

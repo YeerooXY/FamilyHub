@@ -41,11 +41,15 @@ internal sealed class MauiAudioDeck : IAudioDeck
             if (!PlaybackRequested) { media.Pause(); positionTimer.Stop(); }
             Changed?.Invoke();
         });
-        media.MediaEnded += (_, _) => MainThread.BeginInvokeOnMainThread(() =>
+        media.MediaEnded += (_, _) =>
         {
-            if (!Opening && PlaybackRequested && Duration > 0 && Position >= Duration - Math.Min(.5, Duration * .05))
-            { Ended?.Invoke(); }
-        });
+            var endedSource = media.Source;
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                if (endedSource is not null && ReferenceEquals(media.Source, endedSource) && !Opening && PlaybackRequested)
+                    Ended?.Invoke();
+            });
+        };
         media.MediaFailed += (_, _) =>
         {
             var failedSource = media.Source;
@@ -64,7 +68,8 @@ internal sealed class MauiAudioDeck : IAudioDeck
         if (media.Handler is null) throw new InvalidOperationException("The audio player is not ready. Reopen the app and try again.");
         PlaybackRequested = play;
         media.MetadataTitle = title; media.MetadataArtist = artist; media.ShouldAutoPlay = play;
-        if (!path.StartsWith("https://", StringComparison.Ordinal))
+        var streaming = path.StartsWith("https://", StringComparison.Ordinal);
+        if (!streaming)
             pendingSource = MediaSource.FromFile(path);
         else if (background)
             pendingSource = MediaSource.FromUri(new Uri(path), new Dictionary<string, string> { [FamilyHubApi.ActivityHeader] = FamilyHubApi.BackgroundActivity });
@@ -72,7 +77,7 @@ internal sealed class MauiAudioDeck : IAudioDeck
             pendingSource = MediaSource.FromUri(path);
         media.Source = pendingSource;
 #if ANDROID
-        AudioRouting.Apply(media);
+        AudioRouting.Apply(media, streaming);
 #endif
         positionTimer.Start();
     }

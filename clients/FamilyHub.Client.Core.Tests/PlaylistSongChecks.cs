@@ -11,6 +11,11 @@ static class PlaylistSongChecks
         Check(oldTrack.Bpm is null && oldTrack.Key is null && oldTrack.KeyName is null, "Old track JSON acquired invented analysis");
         var current = JsonSerializer.Deserialize<MusicTrack>("{\"id\":\"current\",\"bpm\":100,\"key\":\"12A\",\"key_name\":\"C# minor\"}")!;
         Check(current.Bpm == 100 && current.Key == "12A" && current.KeyName == "C# minor", "Analysis JSON did not deserialize");
+        var original = current with { Title = "This Is My Life (Original Mix)" };
+        Check(original.DisplayTitle == "This Is My Life" && original.Title.EndsWith("(Original Mix)"),
+            "Compact titles must preserve the recording edition for details and matching");
+        foreach (var title in new[] { "This Is My Life (Extended Mix)", "This Is My Life (Live)", "Original Mix" })
+            Check(MusicTrack.CompactTitle(title) == title, "A distinctive recording title was hidden");
         foreach (var key in new[] { "12A", "12B", "11A", "1A" })
             foreach (var bpm in new[] { 94, 100, 106, 47, 50, 53, 188, 200, 212 })
                 Check(PlaylistSongs.MixesWith(current with { Key = key, Bpm = bpm }, current), "Compatible Camelot/BPM rejected: " + key + "/" + bpm);
@@ -44,6 +49,10 @@ static class PlaylistSongChecks
             ("BPM", [2, 1, 4, 0, 3]), ("Key", [1, 4, 0, 2, 3]) })
             Check(Positions(sort).SequenceEqual(expected), "Incorrect playlist sort: " + sort);
         Check(Positions(search: " FIRST ").SequenceEqual(new[] { 1, 4 }), "Album search or duplicates lost");
+        Check(PlaylistSongs.Positions(playlist, Resolve, "", "BPM", false, current, true).SequenceEqual(new[] { 0, 1, 4, 2, 3 }),
+            "Descending tempo lost stable ties or put missing tempos first");
+        Check(PlaylistSongs.Positions(playlist, Resolve, "", "Position", false, current, true).SequenceEqual(new[] { 4, 3, 2, 1, 0 }),
+            "Descending playlist position did not reverse the original order");
         Check(Positions(search: "unmatched artist").SequenceEqual(new[] { 3 }), "Unmatched metadata not searchable");
         Check(Positions(search: "missing title").Count == 0, "Empty search results failed");
         Check(Positions("BPM", mixes: true).SequenceEqual(new[] { 2, 1, 4 }), "Mix filter/sort lost visible order");

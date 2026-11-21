@@ -13,8 +13,8 @@
     <MauiXamlInflator>SourceGen</MauiXamlInflator>
     <ApplicationTitle>FamilyHub Music</ApplicationTitle>
     <ApplicationId>org.familyhub.music</ApplicationId>
-    <ApplicationDisplayVersion>0.1.75</ApplicationDisplayVersion>
-    <ApplicationVersion>76</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1.76</ApplicationDisplayVersion>
+    <ApplicationVersion>77</ApplicationVersion>
     <Version>$(ApplicationDisplayVersion)</Version>
     <WindowsPackageType>None</WindowsPackageType>
     <DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
@@ -41,6 +41,8 @@
     <Content Include="..\..\music_web\static\shell.css" Link="wwwroot\shell.css" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\music_web\static\notices.css" Link="wwwroot\notices.css" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\music_web\static\notices.js" Link="wwwroot\notices.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\music_web\static\vendor\hls.light.min.js" Link="wwwroot\vendor\hls.light.min.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\music_web\static\vendor\hls.LICENSE" Link="wwwroot\vendor\hls.LICENSE" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\FamilyHub.Client.Core\FamilyHub.Client.Core.csproj" />
     <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.130" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="10.0.130" />

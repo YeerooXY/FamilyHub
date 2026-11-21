@@ -3,7 +3,7 @@
 @inject MusicSession Session
 @inject IJSRuntime JS
 
-<div class="server-stats @(Leaderboard ? "leaderboard-page" : "server-page")" aria-busy="@Aria(Refreshing && data is null)">
+<div class="server-stats @(Leaderboard ? "leaderboard-page" : "server-page")" aria-busy="@Aria(Leaderboard && Refreshing && data is null)">
     <div class="stats-toolbar">
         @if (Leaderboard)
         {
@@ -14,7 +14,7 @@
         }
         else
         {
-            <div class="stats-server-status"><i class="stats-online-dot @(!Offline ? "is-online" : "")" aria-hidden="true"></i><span>@(Offline ? "Server offline" : "Server online")</span>@if (data is not null) { <span>@data.Profiles.Count(p => p.Listening) listening now</span> }</div>
+            <div class="stats-server-status"><i class="stats-online-dot @(!Offline ? "is-online" : "")" aria-hidden="true"></i><span>@(Offline ? "Server offline" : "Server online")</span></div>
         }
         <button id="server-stats-refresh" class="quiet stats-refresh @(Refreshing ? "is-refreshing" : "")" aria-label="@(Leaderboard ? "Refresh leaderboard" : "Refresh server work")" title="Refresh" @onclick="RefreshPage" aria-disabled="@Aria(Refreshing)"><MusicIcon Name="refresh" /></button>
     </div>
@@ -114,60 +114,46 @@
         </section>
         @if (stats.WrappedYear is { } year)
         {
-            var wrappedProfiles = stats.Profiles.Where(p => p.Wrapped is { } wrapped && (wrapped.TotalMinutes > 0 || wrapped.SongsAdded > 0)).ToList();
+            var members = stats.Profiles;
+            var member = members.Find(p => p.Id == wrappedMemberId) ?? members.Find(p => p.Id == Session.User) ?? members.FirstOrDefault();
             <section class="lb-wrapped" aria-labelledby="lb-wrapped-title">
-                <h2 id="lb-wrapped-title">@year listening</h2>
-                @if (stats.Profiles.Count == 0)
+                <header class="lb-person-header">
+                    <h2 id="lb-wrapped-title">@year listening</h2>
+                    @if (member is not null)
+                    {
+                        <button type="button" id="lb-wrapped-member" class="lb-person-picker" aria-haspopup="dialog" aria-label="@($"Choose listener, {member.Name}")" @onclick="() => OpenMemberPicker(member.Id)">
+                            <ProfileAvatar Profile="ProfileFor(member)" Size="30" ShowCrown="false" /><span>@member.Name</span><MusicIcon Name="chevron-down" />
+                        </button>
+                        <dialog id="lb-person-menu" class="popup-panel popup-menu" data-popup-anchor="lb-wrapped-member" aria-label="Choose listener">
+                            @foreach (var person in members)
+                            {
+                                <button id="@("lb-person-" + person.Id)" type="button" @key="person.Id" aria-pressed="@Aria(person.Id == member.Id)" @onclick="() => SelectMember(person.Id)">
+                                    <ProfileAvatar Profile="ProfileFor(person)" Size="30" ShowCrown="false" /><span>@person.Name</span>
+                                </button>
+                            }
+                        </dialog>
+                    }
+                </header>
+                @if (member is null)
                 {
                     <Notice Level="empty" Message="No profiles have listening history enabled." />
                 }
-                else if (wrappedProfiles.Count == 0)
+                else if (member.Wrapped is not { } summary || summary.TotalMinutes <= 0 && summary.SongsAdded <= 0)
                 {
-                    <Notice Level="empty" Message="Play or add songs to see this year's listening summary." />
+                    <Notice Level="empty" Message="@($"No listening or song additions recorded for {member.Name} in {year}.")" />
                 }
                 else
                 {
-                    var selectedMember = wrappedProfiles.Find(p => p.Id == wrappedMemberId) ?? wrappedProfiles[0];
-                    var chartDate = wrappedProfiles.Select(p => p.Wrapped?.ChartDate).FirstOrDefault(d => d is not null);
-                    <div class="lb-wrapped-picker">
-                        <label for="lb-wrapped-member">Family member</label>
-                        <select id="lb-wrapped-member" aria-controls="lb-wrapped-table" @bind:get="selectedMember.Id" @bind:set="SetWrappedMember">
-                            @foreach (var profile in wrappedProfiles)
-                            {
-                                <option value="@profile.Id" @key="profile.Id">@profile.Name</option>
-                            }
-                        </select>
-                    </div>
-                    <div id="lb-wrapped-scroll" class="lb-wrapped-scroll glass-panel" role="region" aria-labelledby="lb-wrapped-title" tabindex="0">
-                        <table id="lb-wrapped-table" class="lb-wrapped-table">
-                            <caption class="sr">Listening by member</caption>
-                            <thead>
-                                <tr>
-                                    <th scope="col">Metric</th>
-                                    @foreach (var profile in wrappedProfiles)
-                                    {
-                                        <th scope="col" class="lb-wrapped-person @(profile.Id == selectedMember.Id ? "is-selected" : "")" @key="profile.Id">
-                                            <span><ProfileAvatar Profile="ProfileFor(profile)" Size="36" ShowCrown="false" /> @profile.Name</span>
-                                        </th>
-                                    }
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var metric in WrappedMetrics)
-                                {
-                                    <tr @key="metric.Label">
-                                        <th scope="row">@metric.Label</th>
-                                        @foreach (var profile in wrappedProfiles)
-                                        {
-                                            <td class="lb-wrapped-person @(profile.Id == selectedMember.Id ? "is-selected" : "")" @key="profile.Id">@metric.Value(profile.Wrapped!)</td>
-                                        }
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
+                    var chartDate = summary.ChartDate;
+                    <dl class="lb-year-metrics glass-panel" aria-label="@($"Listening statistics for {member.Name}")">
+                        @foreach (var metric in WrappedMetrics)
+                        {
+                            <div @key="metric.Label"><dt>@metric.Label</dt><dd>@metric.Value(summary)</dd></div>
+                        }
+                    </dl>
                     <details class="lb-wrapped-help">
                         <summary id="lb-wrapped-help">How scores are counted</summary>
+                        <p>Listening time and streaks use recorded daily playback. Favourites and replays use song history.</p>
                         <p>Night owl is the share of completed plays that started from 00:00 to 05:59 UTC. Replays count each time you listen to a song again this year.</p>
                         <p>Mainstream score is the share of your top 10 artists and top 10 songs that appear in Deezer’s chart. Early listener marks artists you played before FamilyHub observed them enter the chart.</p>
                         <p>@(chartDate is null ? "Deezer chart unavailable. Refresh the leaderboard to check again." : $"Deezer chart checked {ExactDay(chartDate)}.")</p>
@@ -176,22 +162,39 @@
             </section>
         }
     }
-    else if (!Leaderboard && data is not null)
+    else if (!Leaderboard)
     {
-        <details class="srv-details">
-        <summary>Server details</summary>
-        @if (SnapshotStale) { <small class="catalogue-timestamp">Server updated @snapshotAt.ToLocalTime().ToString("t")</small> }
-        <div class="srv-grid">
+        <section class="glass-panel srv-automatic" aria-labelledby="stats-work-title" aria-busy="@Aria(Refreshing && data is null)">
+            <h2 id="stats-work-title">Automatic work</h2>
             @if (data is { } server)
             {
-                <section class="stats-work srv-work glass-panel" aria-labelledby="stats-work-title">
-                    <div class="stats-section-heading"><h2 id="stats-work-title">Worker activity</h2></div>
-                    @if (server.Workers.Count > 0)
+                var jobs = server.Workers.Where(worker => worker.State == "working").ToList();
+                <div class="srv-worker-summary" role="status">
+                    <span>@(jobs.Count == 1 ? "1 active worker" : $"{jobs.Count} active workers")</span>
+                    @if (server.WorkerStages is { } stages)
                     {
-                        var activeWorkers = server.Workers.Count(worker => worker.State == "working");
-                        <p class="srv-work-empty">@(activeWorkers == 0 ? "No active workers" : activeWorkers == 1 ? "1 active worker" : $"{activeWorkers} active workers")
-                            @if (server.CataloguePaused) { <span> · Catalogue work paused while the server is in use</span> }
-                        </p>
+                        <span>@stages.Sum(stage => stage.Queued) queued</span>
+                        <span>@stages.Sum(stage => stage.BackingOff) waiting to retry</span>
+                    }
+                    @if (server.CataloguePaused) { <span>Catalogue work paused while the server is in use.</span> }
+                </div>
+                @if (SnapshotStale || Offline || error is not null) { <small class="catalogue-timestamp">Server updated @snapshotAt.ToLocalTime().ToString("t")</small> }
+                <details class="srv-worker-details">
+                    <summary><MusicIcon Name="chevron-down" />Workers, queues and retries</summary>
+                    @if (jobs.Count > 0)
+                    {
+                        <ul class="srv-work-list srv-current-jobs" aria-label="Active jobs">
+                            @foreach (var job in jobs)
+                            {
+                                <li class="srv-work-job" @key="job.Id">
+                                    <strong>@job.Title</strong>
+                                    @if (!string.IsNullOrWhiteSpace(job.CurrentTitle)) { <span class="stats-current-action">@job.CurrentTitle</span> }
+                                    @if (job.Phase.Length > 0) { <small>@job.Phase</small> }
+                                    @if (job.Progress is { } percent) { <div class="stats-meter" role="progressbar" aria-label="@job.Title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@percent.ToString("0", Inv)"><i style="width:@percent.ToString("0.###", Inv)%"></i></div> }
+                                    @if (job.Owner.Length > 0) { <span class="stats-job-requester"><ProfileAvatar Profile="WorkProfile(job)" Size="24" /><span>@job.User</span></span> }
+                                </li>
+                            }
+                        </ul>
                     }
                     @if (server.WorkerStages is null && server.PlaylistBacklog is null)
                     {
@@ -203,8 +206,6 @@
                     }
                     else
                     {
-                        <details class="srv-worker-details">
-                        <summary><MusicIcon Name="chevron-down" />Queues and retries</summary>
                         <ul class="srv-stage-cards">
                         @foreach (var stage in server.WorkerStages ?? [])
                         {
@@ -213,7 +214,7 @@
                                 <h3><MusicIcon Name="@icon" />@title</h3>
                                 <dl>
                                     <div><dt>Queued</dt><dd class="music-admin-count">@stage.Queued</dd></div>
-                                    <div><dt>Backing off</dt><dd class="music-admin-count">@stage.BackingOff</dd></div>
+                                    <div><dt>Waiting to retry</dt><dd class="music-admin-count">@stage.BackingOff</dd></div>
                                     <div><dt>Running</dt><dd class="music-admin-count">@stage.Running</dd></div>
                                 </dl>
                             </li>
@@ -230,14 +231,30 @@
                             </li>
                         }
                         </ul>
-                        </details>
                     }
-                    @if (server.Workers.Count > 0)
+                </details>
+            }
+            else if (!Offline && error is null)
+            {
+                <p class="srv-work-empty" role="status">Loading automatic work…</p>
+            }
+        </section>
+        @ChildContent
+        @if (data is { } details)
+        {
+            var used = Math.Max(0, details.StorageTotalBytes - details.StorageFreeBytes);
+            var usedPercent = details.StorageTotalBytes > 0 ? Math.Clamp(100d * used / details.StorageTotalBytes, 0, 100) : 0;
+            <details class="srv-details">
+                <summary>Server details</summary>
+                <div class="srv-grid">
+                    <section class="srv-work glass-panel" aria-labelledby="srv-workers-title">
+                        <h2 id="srv-workers-title">Workers</h2>
+                    @if (details.Workers.Count > 0)
                     {
                         <details class="srv-worker-details">
                             <summary><MusicIcon Name="chevron-down" />Worker slots</summary>
                             <ul class="srv-work-list">
-                            @foreach (var group in WorkGroups(server.Workers))
+                            @foreach (var group in WorkGroups(details.Workers))
                             {
                                 var working = group.Workers.Where(w => w.State == "working").ToList();
                                 var first = group.Workers[0];
@@ -250,22 +267,12 @@
                                     {
                                         <small class="srv-work-wait">Waiting for @(char.ToLowerInvariant(first.WaitingFor[0]) + first.WaitingFor[1..])</small>
                                     }
-                                    @foreach (var job in working)
-                                    {
-                                        var percent = job.Progress;
-                                        <div class="srv-work-job" @key="job.Id">
-                                            @if (!string.IsNullOrWhiteSpace(job.CurrentTitle)) { <span class="stats-current-action">@job.CurrentTitle</span> }
-                                            @if (job.Phase.Length > 0) { <small>@job.Phase</small> }
-                                            @if (percent is not null) { <div class="stats-meter" role="progressbar" aria-label="@job.Title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@percent.Value.ToString("0", Inv)"><i style="width:@percent.Value.ToString("0.###", Inv)%"></i></div> }
-                                            @if (job.Owner.Length > 0) { <span class="stats-job-requester"><ProfileAvatar Profile="WorkProfile(job)" Size="24" /><span>@job.User</span></span> }
-                                        </div>
-                                    }
                                 </li>
                             }
                             </ul>
                         </details>
                     }
-                    @if (server.CatalogueWorkers is { } settings)
+                    @if (details.CatalogueWorkers is { } settings)
                     {
                         <details class="srv-worker-details">
                             <summary><MusicIcon Name="chevron-down" />Catalogue worker configuration</summary>
@@ -278,28 +285,23 @@
                             </dl>
                         </details>
                     }
-                </section>
-            }
-            @if (data is { } figures)
-            {
-                var used = Math.Max(0, figures.StorageTotalBytes - figures.StorageFreeBytes);
-                var usedPercent = figures.StorageTotalBytes > 0 ? Math.Clamp(100d * used / figures.StorageTotalBytes, 0, 100) : 0;
-                <section class="srv-savings glass-panel" aria-labelledby="srv-savings-title">
-                    <h2 id="srv-savings-title">Savings</h2>
-                    <div class="srv-figures">
-                        <div class="srv-figure"><span>Total saved</span><strong>@Huf(figures.SavedHuf)<small> Ft</small></strong></div>
-                        <div class="srv-figure"><span>Per month</span><strong>@Huf(figures.MonthlySavedHuf)<small> Ft</small></strong></div>
-                        <div class="srv-figure"><span>Withheld from streamers</span><strong>@Usd(figures.RoyaltyUsd)</strong><small>@figures.TotalQualifiedPlays.ToString("N0", Inv) plays</small></div>
-                    </div>
-                </section>
-                <section class="srv-storage glass-panel" aria-labelledby="srv-storage-title">
-                    <h2 id="srv-storage-title">Storage</h2>
-                    <div class="srv-ring" style="--used:@usedPercent.ToString("0.#", Inv)" role="img" aria-label="@($"{usedPercent:0} percent of storage used")"><span><strong>@usedPercent.ToString("0", Inv)%</strong><small>used</small></span></div>
-                    <dl class="srv-storage-facts"><div><dt>Used</dt><dd>@Bytes(used)</dd></div><div><dt>Free</dt><dd>@Bytes(figures.StorageFreeBytes)</dd></div><div><dt>Total</dt><dd>@Bytes(figures.StorageTotalBytes)</dd></div></dl>
-                </section>
-            }
-        </div>
-        </details>
+                    </section>
+                    <section class="srv-savings glass-panel" aria-labelledby="srv-savings-title">
+                        <h2 id="srv-savings-title">Savings</h2>
+                        <div class="srv-figures">
+                            <div class="srv-figure"><span>Total saved</span><strong>@Huf(details.SavedHuf)<small> Ft</small></strong></div>
+                            <div class="srv-figure"><span>Per month</span><strong>@Huf(details.MonthlySavedHuf)<small> Ft</small></strong></div>
+                            <div class="srv-figure"><span>Withheld from streamers</span><strong>@Usd(details.RoyaltyUsd)</strong><small>@details.TotalQualifiedPlays.ToString("N0", Inv) plays</small></div>
+                        </div>
+                    </section>
+                    <section class="srv-storage glass-panel" aria-labelledby="srv-storage-title">
+                        <h2 id="srv-storage-title">Storage</h2>
+                        <div class="srv-ring" style="--used:@usedPercent.ToString("0.#", Inv)" role="img" aria-label="@($"{usedPercent:0} percent of storage used")"><span><strong>@usedPercent.ToString("0", Inv)%</strong><small>used</small></span></div>
+                        <dl class="srv-storage-facts"><div><dt>Used</dt><dd>@Bytes(used)</dd></div><div><dt>Free</dt><dd>@Bytes(details.StorageFreeBytes)</dd></div><div><dt>Total</dt><dd>@Bytes(details.StorageTotalBytes)</dd></div></dl>
+                    </section>
+                </div>
+            </details>
+        }
     }
     @if (Leaderboard && data is { Records.Count: > 0 } recordStats)
     {
@@ -343,7 +345,13 @@
         ("Early listener", wrapped => wrapped.EarlyListeners.Count > 0 ? string.Join(", ", wrapped.EarlyListeners) : "—"),
     ];
     private string? wrappedMemberId;
-    private void SetWrappedMember(string? id) => wrappedMemberId = id;
+    private Task OpenMemberPicker(string id) =>
+        JS.InvokeVoidAsync("familyhub.showDialog", "lb-person-menu", "lb-person-" + id, "lb-wrapped-member").AsTask();
+    private async Task SelectMember(string id)
+    {
+        wrappedMemberId = id;
+        await JS.InvokeVoidAsync("familyhub.closeDialog", "lb-person-menu", "lb-wrapped-member");
+    }
     private static string ReplayValue(WrappedSong? replay)
     {
         if (replay is null) return "—";
@@ -358,6 +366,7 @@
     private IReadOnlyList<DailyListening> Days => (data?.Daily ?? []).Where(d => period == "all" || string.CompareOrdinal(d.Day,StartDay) >= 0).ToArray();
     private double SelectedTotal => period == "week" ? Days.Sum(d => d.Seconds) : data?.Profiles.Sum(PeriodSeconds) ?? 0;
     private double PeriodSeconds(ListenerStatistics profile) => period == "all" ? profile.Seconds : period == "month" ? profile.MonthSeconds : profile.Daily.Where(d => string.CompareOrdinal(d.Day,StartDay) >= 0).Sum(d => d.Seconds);
+    [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public EventCallback RefreshReview { get; set; }
     private async Task RefreshPage()
     {
@@ -450,7 +459,17 @@
             using var request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             request.CancelAfter(TimeSpan.FromSeconds(5));
             var api = Session.Api!;
-            var result = await api.GetServerStatsAsync(request.Token, leaderboard: Leaderboard).WaitAsync(request.Token);
+            ServerStatistics result;
+            try
+            {
+                result = await api.GetServerStatsAsync(request.Token, leaderboard: Leaderboard).WaitAsync(request.Token);
+            }
+            catch (FamilyHubApiException failure) when (Leaderboard && data is null && failure.StatusCode == 503)
+            {
+                // A cold snapshot can still be building after the first request returns.
+                await Task.Delay(TimeSpan.FromSeconds(1), request.Token);
+                result = await api.GetServerStatsAsync(request.Token, leaderboard: true).WaitAsync(request.Token);
+            }
             if (disposed || identity != Identity) return;
             if (Leaderboard) await JS.InvokeVoidAsync("familyhub.captureLeaderboard").AsTask().WaitAsync(request.Token);
             await JS.InvokeVoidAsync("familyhub.captureStatsFocus").AsTask().WaitAsync(request.Token);
@@ -461,7 +480,7 @@
         catch (OperationCanceledException) { error = "The server did not answer in time. Check your connection and try again."; }
         catch (FamilyHubApiException failure) when (failure.RequiresSignIn)
         { needsSignIn = true; error = "Your session expired. Retry to reconnect."; }
-        catch (Exception) { error = "Could not load listening and server statistics."; }
+        catch (Exception) { error = Leaderboard ? "Could not load the leaderboard." : "Could not load automatic work."; }
         finally
         {
             fetching = false;
@@ -485,10 +504,26 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender) await UpdateIdentity();
+        if (firstRender)
+        {
+            if (Leaderboard) _ = RefreshVisibleLeaderboard();
+            await UpdateIdentity();
+        }
         await JS.InvokeVoidAsync("familyhub.animateLeaderboard");
         await JS.InvokeVoidAsync("familyhub.restoreStatsFocus");
     }
+    private async Task RefreshVisibleLeaderboard()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(lifetime.Token))
+                if (Leaderboard && Session.UiActive && !Offline)
+                    await InvokeAsync(Refresh);
+        }
+        catch (OperationCanceledException) when (disposed) { }
+    }
+
     private static (string Title, string Icon) StageDisplay(string stage) => stage switch
     {
         "analysis" => ("Audio analysis", "music"),

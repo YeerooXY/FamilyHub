@@ -7,6 +7,38 @@ static (MusicSession Session, MusicPlayer Player) Setup()
     var session = new MusicSession(); var player = new MusicPlayer(session); player.Attach(new()); return (session, player);
 }
 var tracks = Enumerable.Range(0, 8).Select(i => new MusicTrack(i % 2 == 0 ? "duplicate" : $"id{i}", $"Occurrence {i}", "Artist")).ToList();
+{
+    var (_, player) = Setup();
+    await player.PlayAsync(tracks[1], source: "radio");
+    player.ToggleShuffle();
+    player.AddToQueue(tracks[3], manual: false);
+    player.AddToQueue(tracks[5], manual: false);
+    player.ToggleShuffle();
+    Check(player.Queue.Select(track => track.Id).SequenceEqual(new[] { tracks[1].Id, tracks[3].Id, tracks[5].Id }),
+        "Turning shuffle off dropped asynchronously queued radio songs");
+}
+{
+    var (session, player) = Setup();
+    var requestedAt = MusicPlayer.PlaybackTimestamp() - 30 * System.Diagnostics.Stopwatch.Frequency;
+    await player.PlayAsync(tracks[0], requestedAt: requestedAt);
+    var native = WindowsAudioPlayer.Last!;
+    var action = session.Stages.Single(entry => entry.Stage == "play").Action;
+    native.Tick(0);
+    Check(!session.Stages.Contains((action, "position_advanced")), "A playing state without progress was reported as startup");
+    native.Tick(2);
+    Check(!session.Stages.Contains((action, "position_advanced")), "An instant segment-sized jump was reported as startup");
+    await player.SeekAsync(19);
+    native.Tick(0);
+    Check(!session.Stages.Contains((action, "position_advanced")), "A seek was reported as startup");
+    await player.SetVolumeAsync(0);
+    native.Tick(.25); native.Tick(.25);
+    await player.SetVolumeAsync(1);
+    native.Tick(0);
+    Check(!session.Stages.Contains((action, "position_advanced")), "Muted progress was reported as audible startup");
+    native.Tick(.25);
+    Check(session.StageTimes[(action, "play")] == 0 && session.StageTimes[(action, "position_advanced")] >= 30_000,
+        "Startup timing excluded time spent before the player received the track");
+}
 for (var run = 0; run < 30; run++)
 {
     var session = new MusicSession(); var player = new MusicPlayer(session);
@@ -122,6 +154,29 @@ for (var run = 0; run < 100; run++)
         "Current stream recovery lost the track or playhead");
     Check(session.Stages.Contains((action, "stream_failed")) && session.Stages.Contains((action, "fallback_playing")),
         "Current stream recovery lost its action correlation");
+    Check(!session.Stages.Contains((action, "fallback_position_advanced")), "A restored playhead was counted as fallback startup");
+    primary.Tick(.25);
+    Check(session.Stages.Contains((action, "fallback_position_advanced")), "Real progress after restoring the playhead was missed");
+}
+{
+    var session = new MusicSession { Stream = true };
+    var primary = new WindowsAudioPlayer { LocalDuration = 180 };
+    var player = new MusicPlayer(session);
+    player.AttachDecks(primary, null);
+    var preview = tracks[0] with { Duration = 180, PlaybackVersion = "preview-hls" };
+    await player.PlayAsync(preview, [preview, tracks[1]]);
+    primary.Tick(30);
+    primary.RaiseEnded();
+    Check(player.Current?.Id == preview.Id && primary.Path == "fixture" && primary.StartedAt == 30,
+        "An early preview end advanced the queue or restarted at zero");
+    primary.Tick(2);
+    primary.RaiseFailed(resetPosition: true);
+    Check(!player.PlaybackRequested && player.CaptureResume()?.Position == 32,
+        "A terminal playback failure lost the last position");
+    session.Stream = false;
+    await player.ToggleAsync();
+    Check(player.Current?.Id == preview.Id && primary.StartedAt == 32,
+        "Play after a terminal failure restarted the song at zero");
 }
 {
     var (session, player) = Setup();
@@ -591,7 +646,13 @@ namespace FamilyHub.App.Services
         public bool Stream { get; set; }
         public bool CanWarmPlayback { get; set; }
         public List<(string Action, string Stage)> Stages { get; } = [];
-        public void ReportPlaybackStage(string action, string stage, long elapsed) => Stages.Add((action, stage));
+        public Dictionary<(string Action, string Stage), long> StageTimes { get; } = [];
+        public void RememberPlaybackAttempt(string action, MusicTrack track, DateTimeOffset requestedAt) { }
+        public void ReportPlaybackStage(string action, string stage, long elapsed)
+        {
+            Stages.Add((action, stage));
+            StageTimes[(action, stage)] = elapsed;
+        }
         public string? LocalPath(MusicTrack track) => Delay || Stream ? null : FailPlayback ? "fail" : "fixture";
         public Task<string?> GetCachedPlaybackPathAsync(MusicTrack track, CancellationToken token) => Task.FromResult<string?>(null);
         public Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken token, bool allowPreview = false,
@@ -633,7 +694,8 @@ namespace FamilyHub.App.Services
         public string? Path { get; private set; }
         public double Position { get; private set; }
         public double? StartedAt { get; private set; }
-        public double Duration => Title is null ? 0 : 30;
+        public double LocalDuration { get; set; } = 30;
+        public double Duration => Title is null ? 0 : Path?.StartsWith("https://") == true ? 30 : LocalDuration;
         public double Volume { get; set; }
         public bool SupportsPlaybackRate => true;
         public double PlaybackRate { get; set; } = 1;
@@ -653,7 +715,12 @@ namespace FamilyHub.App.Services
             PlaybackRequested = play; Changed?.Invoke();
         }
         public void RaiseEnded() => Ended?.Invoke();
-        public void RaiseFailed() { PlaybackRequested = false; Failed?.Invoke("Fixture stream failed"); }
+        public void RaiseFailed(bool resetPosition = false)
+        {
+            PlaybackRequested = false;
+            if (resetPosition) { Position = 0; Changed?.Invoke(); }
+            Failed?.Invoke("Fixture stream failed");
+        }
         public void Seek(double seconds) { Position = seconds; Seeks++; Changed?.Invoke(); }
         public void Tick(double seconds) { Position += seconds * PlaybackRate; Changed?.Invoke(); }
         public void Stop() { Title = null; Path = null; PlaybackRequested = false; Changed?.Invoke(); }

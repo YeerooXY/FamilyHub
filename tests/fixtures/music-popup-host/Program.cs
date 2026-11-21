@@ -42,7 +42,12 @@ foreach (var folder in new[] { "clients/FamilyHub.App/wwwroot", "music_web/stati
     app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(folder.StartsWith("clients") && Environment.GetEnvironmentVariable("POPUP_BASELINE_ASSETS") is { } assets ? assets : Path.Combine(repo, folder)) });
 app.UseAntiforgery();
 app.MapPost("/fixture/listening-request/{show:bool}", (bool show) => FixtureApi.ListenRequest = show);
-app.MapPost("/fixture/startup/{scenario}", (string scenario) => FixtureApi.Startup = scenario);
+app.MapPost("/fixture/startup/{scenario}", (string scenario) =>
+{
+    FixtureApi.SimilarRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    FixtureApi.Startup = scenario;
+});
+app.MapPost("/fixture/similar-release", () => FixtureApi.SimilarRelease.TrySetResult());
 
 app.MapStaticAssets();
 app.MapRazorComponents<MusicPopupHost.Review>().AddInteractiveServerRenderMode();
@@ -68,7 +73,13 @@ static MusicSession MakeSession(string repo)
         Genre = new[] { "R&B / Soul", "Rhythm and Blues", "Drum and Bass", "DnB", "Rock", "Pop", "Jazz", "Ambient" }[number],
         Id = (number * 10 + i).ToString("D11"), Duration = 203, Saved = true
     })).ToList();
+    if (FixtureApi.Startup.StartsWith("similar-"))
+        library[0] = library[0] with { Channel = "Fixture Seed", Genre = "Fixture Genre" };
+    if (FixtureApi.Startup == "similar-preparing")
+        library[1] = library[1] with { Title = "Local Match", Channel = "Fixture Seed", Genre = "Fixture Genre" };
     Set("Library", library);
+    typeof(MusicSession).GetMethod("RememberPlaybackAttempt", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .Invoke(session, ["fedcba98765432100123456789abcdef", library[0], DateTimeOffset.UtcNow.AddMinutes(-2)]);
     var kept = library[^4];
     var cached = library[^3];
     Set("Downloads", new List<MusicTrack> { kept });
@@ -84,7 +95,10 @@ static MusicSession MakeSession(string repo)
     Set("Playlists", mixes.Select((name, i) => new MusicPlaylist { Id = "mix" + i, Name = name, OwnerId = "fixture", OwnerName = "Alex", CanEdit = true, CanDelete = true, CanManageAuthors = true, Shared = true, CoverUrl = "/test/mix" + (20 + i),
         Tracks = library.Skip(i * 2).Take(4).Select(t => new PlaylistTrack {
             Title = t.Title, Artist = t.Channel, SourceId = t.Id, State = "saved", Duration = t.Duration, Album = t.LibraryAlbum, AddedBy = "fixture", AddedAt = "2026-11-17T18:00:00Z"
-        }).Concat(i == 7 ? [new PlaylistTrack { Title = "Station Lights", Artist = "North Atlas", State = "review" }] : []).ToList()
+        }).Concat(i == 7 ? [new PlaylistTrack { Title = "Station Lights", Artist = "North Atlas", State = "review" }] : [])
+          .Concat(i == 0 && FixtureApi.Startup == "paging"
+              ? Enumerable.Range(1, 121).Select(n => new PlaylistTrack { Title = $"Paging song {n:D3}", Artist = "North Atlas" })
+              : []).ToList()
     }).Concat([
         new MusicPlaylist { Id = "shared", Name = "Café Tapes", OwnerId = "june", OwnerName = "June", CanEdit = true, CoAuthors = ["fixture"] },
         new MusicPlaylist { Id = "radio", Name = "Night Station", OwnerId = "fixture", OwnerName = "Alex", Radio = true },
@@ -107,7 +121,17 @@ sealed class MemoryPreferences : IPreferences
 static class PlatformStubs
 {
     public static bool OnMainThread(ref bool __result) { __result = true; return false; }
-    public static bool CachedFile(ref Task<string> __result) { __result = Task.FromResult("fixture.mp3"); return false; }
+    public static bool CachedFile(MusicTrack track, CancellationToken token, ref Task<string> __result)
+    {
+        __result = FixtureApi.Startup == "similar-preparing" && track.Id == "00000000001"
+            ? DelayFileAsync(token) : Task.FromResult("fixture.mp3");
+        return false;
+    }
+    private static async Task<string> DelayFileAsync(CancellationToken token)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(15), token);
+        return "fixture.mp3";
+    }
     public static bool DeviceName(ref string __result) { __result = "This computer"; return false; }
     public static bool DefaultHttpHandler(ref HttpMessageHandler __result) { __result = new FixtureApi([]); return false; }
     public static bool ListAudioOutputs(ref Task<List<AudioOutput>> __result)
@@ -141,20 +165,84 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
 {
     public static volatile bool ListenRequest;
     public static volatile string Startup = "none";
+    public static volatile TaskCompletionSource SimilarRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private bool reportReplacing;
+    private bool qualityReplacing;
+    private bool unofficialReplacing;
     private static readonly string ReleaseHash = new('a', 64);
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
     {
         var path = request.RequestUri!.AbsolutePath;
+        if (path == "/api/recommendations" && Startup.StartsWith("similar-"))
+        {
+            using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
+            var offset = payload.RootElement.GetProperty("offset").GetInt32();
+            await SimilarRelease.Task.WaitAsync(token);
+            await Task.Delay(300, token);
+            var failed = Startup == "similar-error" || offset > 0;
+            var response = failed ? """{"error":"Similar songs are unavailable right now."}"""
+                : Startup == "similar-empty" ? """{"results":[],"state":"empty"}"""
+                : """
+                  {"results":[
+                    {"id":"fixture-001","title":"First Light (Official Audio)","channel":"Fixture Seed"},
+                    {"id":"fixture-002","title":"Online Match","channel":"Fixture Seed"},
+                    {"id":"fixture-003","title":"Unrelated Song","channel":"Other Artist"}],
+                    "next_offset":8,"state":"ready"}
+                  """;
+            return new HttpResponseMessage(failed ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK)
+            {
+                Content = new StringContent(response, Encoding.UTF8, "application/json")
+            };
+        }
         if (path == "/api/listening/events") {
             using var events = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new {
                 acknowledged = events.RootElement.GetProperty("events").EnumerateArray().Select(e => e.GetProperty("event_id").GetString()).ToList()
             }), Encoding.UTF8, "application/json") };
         }
+        if (request.Method == HttpMethod.Post &&
+            (path is "/api/catalogue/reports/replace" or "/api/catalogue/source-quality/00000000002/replace"
+                or "/api/catalogue/source-quality/00000000003/replace"))
+        {
+            using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
+            var fields = payload.RootElement;
+            var isReport = path == "/api/catalogue/reports/replace";
+            var isSuggested = path == "/api/catalogue/source-quality/00000000002/replace";
+            var approved = isSuggested
+                ? fields.GetProperty("candidate_id").GetString() == "Station0001"
+                : (!isReport || fields.GetProperty("key").GetString() == "fixture:00000000001") &&
+                    fields.GetProperty("url").GetString() == "https://youtu.be/Station0001";
+            if (!approved)
+                return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                {
+                    Content = new StringContent("""{"error":"Choose a valid YouTube recording link."}""", Encoding.UTF8, "application/json")
+                };
+            if (isReport) reportReplacing = true;
+            else if (isSuggested) qualityReplacing = true;
+            else unofficialReplacing = true;
+            return new HttpResponseMessage(HttpStatusCode.Accepted)
+            {
+                Content = new StringContent("""{"state":"replacing"}""", Encoding.UTF8, "application/json")
+            };
+        }
         var body = path switch
         {
             "/api/library" => JsonSerializer.Serialize(new { results = library }),
-            "/api/playback/diagnostics" => """{"actions":[{"action":"fedcba98765432100123456789abcdef","events":[{"stage":"client_play","client_ms":0},{"stage":"stream_response_ready","server_ms":180},{"stage":"client_position_advanced","client_ms":740}]}]}""",
+            "/api/playback/diagnostics" => """
+                {"actions":[
+                    {"action":"fedcba98765432100123456789abcdef","events":[
+                        {"stage":"client_play","client_ms":0},
+                        {"stage":"stream_response_ready","server_ms":180},
+                        {"stage":"client_position_advanced","client_ms":740},
+                        {"stage":"client_stream_failed","client_ms":6000},
+                        {"stage":"client_failed","client_ms":7000}]},
+                    {"action":"adb80533000000000000000000000000","events":[
+                        {"stage":"client_fallback","client_ms":35187},
+                        {"stage":"client_fallback_ready","client_ms":77640}]},
+                    {"action":"cdb80533000000000000000000000000","events":[
+                        {"stage":"client_position_advanced","client_ms":745}]}
+                ]}
+                """,
             "/api/search" => "{\"tracks\":[],\"results\":[],\"complete\":true}",
             "/api/listening/rooms" => """{"rooms":[]}""",
             "/api/listening/pokes" when ListenRequest => """{"requests":[{"id":"invite-1","sender":"june","name":"June","kind":"invite","room_id":"fixture-room"}]}""",
@@ -163,7 +251,19 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
                 new AppRelease("9.9.9", ReleaseHash, 32 * 1024 * 1024, "/api/app-updates/windows-x64/" + ReleaseHash)),
             "/api/discovery/follow" => """{"artists":[]}""",
             "/api/playback/devices" => """{"devices":[{"id":"other","name":"Living room PC","kind":"windows"},{"id":"phone","name":"June’s phone","kind":"android"}]}""",
-            "/api/catalogue/reports" when request.Method == HttpMethod.Get => """{"reports":[]}""",
+            "/api/catalogue/reports" when request.Method == HttpMethod.Get =>
+                $$"""{"reports":[{"key":"fixture:00000000001","id":"00000000001","title":"First Light","artist":"North Atlas","profile":"june","reason":"wrong_recording","replacing":{{(reportReplacing ? "true" : "false")}}}]}""",
+            "/api/catalogue/source-quality" =>
+                $$"""
+                {"songs":[
+                    {"id":"00000000002","title":"Evening Signals","artist":"North Atlas","verdict":"suspect",
+                     "replacing":{{(qualityReplacing ? "true" : "false")}},"queued":{{(qualityReplacing ? "true" : "false")}},
+                     "proposed_replacement":{"id":"Station0001","channel":"North Atlas"}
+                    },
+                    {"id":"00000000003","title":"Northbound","artist":"North Atlas","verdict":"unofficial",
+                     "replacing":{{(unofficialReplacing ? "true" : "false")}},"replacement_checked":true}
+                ]}
+                """,
             "/api/catalogue/review" when request.RequestUri.Query.Contains("work=queue") => """
                 {"can_edit":true,"playlist_gaps_total":1,"playlist_gaps":[{"playlist_id":"mix7","owner_id":"fixture","playlist_name":"First Listen","title":"Queued recording","retry_reason":"No verified recording match","retry_at":1800000000,"state":"error"}]}
                 """,

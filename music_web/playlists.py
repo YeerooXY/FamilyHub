@@ -182,7 +182,7 @@ def rank_matches(track, candidates, search=None):
 
 
 def repoint_recording(track, old_id, replacement):
-    if replacement.get('automatic'):
+    if replacement.get('automatic') or replacement.get('explicit'):
         original = {field: track[field] for field in ('source_id', 'match', 'state') if field in track}
         track.setdefault('replacement_origins', {})[old_id] = original
     track.update(source_id=replacement['new_id'], match=replacement['match'], state='saved')

@@ -1,0 +1,20 @@
+@implements IDisposable
+@inject IJSRuntime JS
+
+<playlist-page-end @ref="element" aria-hidden="true"></playlist-page-end>
+
+@code {
+    [Parameter] public EventCallback Reached { get; set; }
+    private ElementReference element;
+    private DotNetObjectReference<PlaylistPageEnd>? reference;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        reference = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("familyhub.observePlaylistEnd", element, reference);
+    }
+
+    [JSInvokable] public Task LoadNextPage() => Reached.InvokeAsync();
+    public void Dispose() => reference?.Dispose();
+}

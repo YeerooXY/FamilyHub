@@ -12,6 +12,9 @@
 .now-playing .cover { width:56px; height:56px; flex-shrink:0; }
 #show-queue.now-playing .now-copy { width:auto; min-width:0; padding-right:0; }
 .now-playing #now-title { font-size:14px; line-height:1.35; }
+.player-bar #now-title, #remote-song-title { display:flex; min-width:0; overflow:hidden; white-space:nowrap; }
+.player-bar #now-title .marquee-text, #remote-song-title .marquee-text { flex:none; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+.player-bar #now-title.is-marquee .marquee-text, #remote-song-title.is-marquee .marquee-text { max-width:none; overflow:visible; padding-right:48px; }
 .now-playing #now-artist { font-size:12px; margin-top:2px; }
 .transport { max-width:none; }
 .transport-buttons { gap:4px; height:44px; }

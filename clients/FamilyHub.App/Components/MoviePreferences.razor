@@ -1,0 +1,88 @@
+@implements IAsyncDisposable
+@inject MusicSession Session
+@inject IJSRuntime JS
+
+<section class="settings-panel glass-panel" aria-labelledby="movie-settings-heading">
+    <h2 id="movie-settings-heading">Playback languages</h2>
+    <div class="setting-row">
+        <label for="movie-preferred-audio">Preferred audio</label>
+        <select id="movie-preferred-audio" @bind="preferences.Audio" @bind:after="Save" disabled="@(!ready)">
+            <option value="default">Media default</option>
+            <option value="hu">Hungarian</option>
+            <option value="en">English</option>
+        </select>
+    </div>
+    <div class="setting-row">
+        <label for="movie-preferred-subtitles">Preferred subtitles</label>
+        <select id="movie-preferred-subtitles" @bind="preferences.Subtitles" @bind:after="Save" disabled="@(!ready)">
+            <option value="default">Media default</option>
+            <option value="off">Off</option>
+            <option value="hu">Hungarian</option>
+            <option value="en">English</option>
+        </select>
+    </div>
+    <p class="setting-help">Saved on this device for your profile.</p>
+    <p class="setting-help" role="status">@message</p>
+</section>
+
+@code {
+    private sealed record Preferences
+    {
+        public Preferences() { }
+        public string Audio { get; set; } = "default";
+        public string Subtitles { get; set; } = "default";
+    }
+
+    private Preferences preferences = new();
+    private IJSObjectReference? module;
+    private object viewer = default!;
+    private string message = "Loading preferences…";
+    private bool ready, disposed;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        viewer = new { server = Session.Server, profile = Session.User };
+        try
+        {
+            var imported = await JS.InvokeAsync<IJSObjectReference>("import", "./movies.js");
+            if (disposed) { await DisposeModule(imported); return; }
+            module = imported;
+            preferences = await module.InvokeAsync<Preferences>("readMoviePreferences", viewer);
+            ready = true;
+            message = "";
+        }
+        catch (JSException)
+        {
+            message = "Movie preferences are unavailable. Reopen Movies settings to try again.";
+        }
+        if (!disposed) StateHasChanged();
+    }
+
+    private async Task Save()
+    {
+        if (module is null || disposed) return;
+        try
+        {
+            message = await module.InvokeAsync<bool>("saveMoviePreferences", viewer, preferences)
+                ? "Movie preferences saved."
+                : "This device could not save your movie preferences.";
+        }
+        catch (JSException)
+        {
+            message = "This device could not save your movie preferences.";
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        if (module is not null) await DisposeModule(module);
+    }
+
+    private static async ValueTask DisposeModule(IJSObjectReference reference)
+    {
+        try { await reference.DisposeAsync(); }
+        catch (JSDisconnectedException) { }
+    }
+}
