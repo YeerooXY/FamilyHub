@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Reflection;
 using System.Text;
@@ -9,6 +10,9 @@ using Microsoft.Maui.Storage;
 using HarmonyLib;
 using Microsoft.Maui.ApplicationModel;
 
+if (Environment.GetEnvironmentVariable("POPUP_CULTURE") is { Length: > 0 } culture)
+    CultureInfo.DefaultThreadCurrentCulture = CultureInfo.GetCultureInfo(culture);
+
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseStaticWebAssets();
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
@@ -16,9 +20,11 @@ var checkout = new DirectoryInfo(builder.Environment.ContentRootPath);
 while (checkout is not null && !Directory.Exists(Path.Combine(checkout.FullName, "music_web")))
     checkout = checkout.Parent;
 var repo = checkout?.FullName ?? throw new InvalidOperationException("Run the fixture inside the FamilyHub checkout.");
+var feedbackDrafts = Path.Combine(repo, ".local", "popup-feedback-drafts", Guid.NewGuid().ToString("N"));
 builder.Services.AddRazorComponents().AddInteractiveServerComponents()
     .AddHubOptions(options => options.MaximumReceiveMessageSize = 256 * 1024);
 builder.Services.AddScoped<MusicSession>(_ => MakeSession(repo));
+builder.Services.AddSingleton(new FeedbackDrafts(feedbackDrafts));
 builder.Services.AddSingleton(_ => new PublicAppReleases(new HttpClient(new FixtureApi([]))));
 builder.Services.AddScoped(service => {
     var player = new MusicPlayer(service.GetRequiredService<MusicSession>());
@@ -62,6 +68,8 @@ app.MapPost("/fixture/wordle-member/{count:int}/{submitted:bool}", (int count, b
     FixtureApi.WordleMember = (count, submitted);
 });
 app.MapGet("/fixture/wordle-activity", () => Results.Text(FixtureApi.WordleActivity, "application/json"));
+app.MapGet("/fixture/feedback-submission", () => Results.Text(FixtureApi.FeedbackSubmission, "application/json"));
+app.MapGet("/fixture/feedback-draft", () => Results.Json(Directory.Exists(feedbackDrafts) && Directory.EnumerateFiles(feedbackDrafts, "*.json").Any()));
 
 app.MapStaticAssets();
 app.MapRazorComponents<MusicPopupHost.Review>().AddInteractiveServerRenderMode();
@@ -176,7 +184,7 @@ sealed class FixtureDeck : IAudioDeck
     public bool PlaybackRequested => Playing;
     public bool Playing { get; private set; }
     public double Position { get; private set; }
-    public double Duration => 203;
+    public double Duration { get; } = FixtureApi.Startup == "seek-localized" ? 317.5 : 203;
     public double Volume { get; set; }
     public bool TransportEnabled { private get; set; }
     public void PlayFile(string path, string title, string artist, bool play = true, bool background = false) => SetPlaying(play);
@@ -197,6 +205,10 @@ sealed class FixtureLauncher : ILauncher
 
 sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
 {
+    internal static string FeedbackSubmission { get; private set; } = "{}";
+    private JsonElement? report;
+    private string feedbackStatus = "new";
+    private readonly List<string> feedbackReplies = [];
     internal static DateTimeOffset WordleReset { get; set; } = DateTimeOffset.UtcNow.AddDays(1);
     internal static (int Count, bool Submitted) WordleMember { get; set; } = (-1, false);
     internal static string WordleActivity { get; private set; } = "{}";
@@ -273,6 +285,45 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
             {
                 Content = new StringContent(response, Encoding.UTF8, "application/json")
             };
+        }
+        if (path == "/api/feedback" || path.StartsWith("/api/feedback/", StringComparison.Ordinal))
+        {
+            static HttpResponseMessage Feedback(object value, HttpStatusCode status = HttpStatusCode.OK) => new(status)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(value), Encoding.UTF8, "application/json")
+            };
+            if (path == "/api/feedback" && request.Method == HttpMethod.Post)
+            {
+                if (Startup == "feedback-offline") return Feedback(new { error = "Feedback is offline. Try again." }, HttpStatusCode.ServiceUnavailable);
+                FeedbackSubmission = await request.Content!.ReadAsStringAsync(token);
+                using var payload = JsonDocument.Parse(FeedbackSubmission);
+                report = payload.RootElement.Clone();
+                return Feedback(new { id = report.Value.GetProperty("id").GetString() }, HttpStatusCode.Created);
+            }
+            var developer = Startup == "feedback-admin";
+            if (report is not { } saved) return Feedback(new { can_manage = developer, reports = Array.Empty<object>() });
+            var id = saved.GetProperty("id").GetString();
+            var kind = saved.GetProperty("kind").GetString();
+            var description = saved.GetProperty("description").GetString();
+            if (path == "/api/feedback")
+                return Feedback(new { can_manage = developer, reports = new[] { new { id, author = "Alex", kind, summary = description, status = feedbackStatus } } });
+            if (path.Contains("/images/", StringComparison.Ordinal))
+                return Feedback(new { mime = "image/png", data = saved.GetProperty("images")[0].GetProperty("data").GetString() });
+            if (request.Method != HttpMethod.Get)
+            {
+                using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
+                if (path.EndsWith("/replies", StringComparison.Ordinal))
+                {
+                    feedbackReplies.Add(payload.RootElement.GetProperty("message").GetString()!);
+                    feedbackStatus = developer ? "waiting" : "new";
+                }
+                else feedbackStatus = payload.RootElement.GetProperty("status").GetString()!;
+                return Feedback(new { ok = true });
+            }
+            return Feedback(new { id, kind, author = "Alex", description, status = feedbackStatus,
+                replies = feedbackReplies.Select(message => new { author = "Developer", message }),
+                events = developer ? saved.GetProperty("events") : (JsonElement?)null,
+                images = saved.GetProperty("images").EnumerateArray().Select((image, index) => new { index, name = image.GetProperty("name").GetString() }) });
         }
         if (path == "/api/wordle/activity")
         {

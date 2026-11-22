@@ -30,6 +30,8 @@
                     <button id="transfer-progress-action" class="quiet" @onclick="ProgressAction" aria-disabled="@Aria(requesting || watchError is null && state.State == "pausing")">
                         @(watchError is not null ? "Reconnect to progress" : Working ? state.State == "pausing" ? "Pausing..." : state.Mode == "download" ? "Pause server download" : "Pause matching" : RetryableImport ? "Retry import" : "Close")
                     </button>
+                    @if (state.State == "error" && ReportProblem.HasDelegate)
+                    { <button id="report-import-problem" class="quiet" type="button" aria-haspopup="dialog" @onclick="ReportProblem">Report this problem</button> }
                 </div>
                 @if (state.Mode != "download" && state.Recent.Any(RecentNeedsAttention))
                 {
@@ -95,6 +97,7 @@
     [Parameter, EditorRequired] public MusicPlaylist Playlist { get; set; } = null!;
     [Parameter] public EventCallback Updated { get; set; }
     [Parameter] public RenderFragment<PlaylistTransfer>? Header { get; set; }
+    [Parameter] public EventCallback ReportProblem { get; set; }
     [Parameter] public RenderFragment<PlaylistTransfer>? ChildContent { get; set; }
     [Parameter] public int? InitialReviewIndex { get; set; }
     private bool NeedsAttention(PlaylistTrack track) => track.State is "review" or "error" && !Session.OnServer(track);

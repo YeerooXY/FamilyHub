@@ -13,7 +13,7 @@ const styles = [...read(web + 'index.html').matchAll(/rel="stylesheet" href="([^
 const seekSource = read('clients/FamilyHub.App/Components/SeekBar.razor');
 const seekMarkup = seekSource.slice(seekSource.indexOf('<div class="seek-row">'), seekSource.indexOf('@code'))
     .replace(/style=".*"(?=>)/, 'style="--seek-position:50%"')
-    .replaceAll('@Time(Position)', '1:30').replace('@Time(Player.Duration)', '3:00')
+    .replaceAll('@Time(Position)', '1:30').replace('@Time(Duration)', '3:00')
     .replace(/<input[\s\S]*?\/>/, '<input aria-label="Playback position" type="range" min="0" max="180" value="90" step="0.1">');
 const icon = '<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor"/></svg>';
 const html = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style>
@@ -165,6 +165,23 @@ async function seekPixels(page, input) {
             await page.mouse.move(pointerX, centerY(box) + 40);
             await page.mouse.up();
             assert.equal(await input.evaluate(node => node.parentNode.classList.contains('is-dragging')), false);
+
+            await page.mouse.move(pointerX, centerY(box));
+            const beforeInvalid = await footer.locator('.seek-elapsed').textContent();
+            await input.evaluate(node => {
+                node.max = '317,5';
+                node.parentNode.style.setProperty('--seek-position', 'NaN%');
+                node.dispatchEvent(new Event('input'));
+            });
+            assert.equal(await tip.isVisible(), false);
+            assert.equal(await footer.locator('.seek-elapsed').textContent(), beforeInvalid);
+            assert.deepEqual((await seekPixels(page, input)).trackEdge, [77, 77, 77]);
+            await input.evaluate(node => {
+                node.max = '180';
+                node.value = '90';
+                node.dispatchEvent(new Event('input'));
+            });
+            assert.match(await tip.textContent(), /^\d{1,2}:\d{2}$/);
 
             const add = page.locator('#now-add-playlist');
             const short = await add.boundingBox();

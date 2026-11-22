@@ -2,7 +2,91 @@ let lastFocusId = "";
 document.addEventListener("focusin", event => { if (event.target !== document.body) lastFocusId = event.target.id; });
 window.familyhub = { press(id) { document.getElementById(id)?.click(); }, retainFocus(id) { if (document.activeElement === document.body) document.getElementById(id)?.focus(); }, restoreFocus(removedId, successorId) {
     if (document.activeElement?.id === removedId || (document.activeElement === document.body && lastFocusId === removedId)) document.getElementById(successorId)?.focus();
-}, view(name) { document.body.dataset.view = name; const content = document.getElementById("content"); if (content) content.scrollTop = 0; if (document.activeElement === document.body) document.getElementById("content")?.focus(); }, focus(id) { const target = document.getElementById(id); if (target) target.focus(); else requestAnimationFrame(() => document.getElementById(id)?.focus()); } };
+}, view(name) { document.body.dataset.view = name; familyhub.feedback?.screen(); const content = document.getElementById("content"); if (content) content.scrollTop = 0; if (document.activeElement === document.body) document.getElementById("content")?.focus(); }, focus(id) { const target = document.getElementById(id); if (target) target.focus(); else requestAnimationFrame(() => document.getElementById(id)?.focus()); } };
+
+// Collect control actions only. Never read text, form values, paths, URLs, or key characters.
+window.familyhub.feedback = (() => {
+    const keys = new Set(['Enter', 'Escape', ' ', 'Tab', 'Backspace', 'Delete', 'Home', 'End', 'PageUp', 'PageDown',
+        'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
+    const known = new Set(['open-hub', 'profile-toggle', 'open-settings', 'open-feedback', 'open-library', 'search-form',
+        'q', 'play', 'previous', 'next', 'volume', 'show-queue', 'create-playlist', 'keep-playlist', 'report-song',
+        'profile-display-name', 'profile-save-name', 'feedback-description', 'feedback-attach']);
+    const controls = 'button,a,input,textarea,select,summary,[role=button],label,video,audio';
+    const week = 7 * 86400;
+    let storageKey, events = [], timer, pointer;
+    const scrollTimes = new WeakMap();
+    const now = () => Math.floor(Date.now() / 1000);
+    const currentScreen = () => document.querySelector('.feedback-screen[open]') ? 'feedback' : document.body.dataset.view || 'app';
+    function flush() {
+        clearTimeout(timer);
+        timer = undefined;
+        if (storageKey) try { localStorage.setItem(storageKey, JSON.stringify(events)); } catch {}
+    }
+    function add(event, control, key) {
+        if (!storageKey) return;
+        const at = now();
+        const screen = currentScreen();
+        events.push({at, event, screen, control, key});
+        while (events.length > 1600 || events[0].at < at - week) events.shift();
+        timer ??= setTimeout(flush, 750);
+    }
+    function target(element) {
+        const control = element?.closest?.(controls) || element?.closest?.('form,section,main,dialog,footer');
+        if (!control) return 'area';
+        if (known.has(control.id)) return control.id;
+        if (control.matches('.seek-control input')) return 'seek-bar';
+        if (control.matches('.dw-enter')) return 'wordle-submit';
+        if (control.matches('.dw-key')) return 'wordle-key';
+        if (control.matches('.song-primary')) return 'song-row';
+        const level = Array.from(control.parentElement?.children || []).indexOf(control) + 1;
+        return `${control.localName}-${level}`;
+    }
+    document.addEventListener('click', event => { if (event.isTrusted) add('click', target(event.target)); }, true);
+    document.addEventListener('change', event => { if (event.isTrusted) add('change', target(event.target)); }, true);
+    document.addEventListener('submit', event => { if (event.isTrusted) add('submit', target(event.submitter || event.target)); }, true);
+    document.addEventListener('keydown', event => {
+        if (!event.isTrusted || event.repeat || event.isComposing || !keys.has(event.key)) return;
+        if (event.target?.closest?.('textarea,input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=button]),[contenteditable=true]') && !['Enter', 'Escape', 'Tab'].includes(event.key)) return;
+        add('key', target(event.target), event.key === ' ' ? 'Space' : event.key);
+    }, true);
+    document.addEventListener('pointerdown', event => {
+        if (event.isTrusted) pointer = {id: event.pointerId, x: event.clientX, y: event.clientY, control: target(event.target)};
+    }, true);
+    document.addEventListener('pointerup', event => {
+        if (event.isTrusted && pointer?.id === event.pointerId && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 10)
+            add('drag', pointer.control);
+        pointer = undefined;
+    }, true);
+    document.addEventListener('pointercancel', () => { pointer = undefined; }, true);
+    document.addEventListener('scrollend', event => {
+        if (!event.isTrusted || Date.now() - (scrollTimes.get(event.target) || 0) < 1000) return;
+        scrollTimes.set(event.target, Date.now());
+        add('scroll', target(event.target));
+    }, true);
+    window.addEventListener('error', () => add('error', 'client'));
+    window.addEventListener('unhandledrejection', () => add('error', 'request'));
+    window.addEventListener('pagehide', flush);
+    return {
+        useProfile(identity) {
+            const next = identity ? 'familyhub:feedback-events:' + identity : undefined;
+            if (next === storageKey) return;
+            flush();
+            storageKey = next;
+            events = [];
+            pointer = undefined;
+            if (next) try {
+                const parsed = JSON.parse(localStorage.getItem(next) || '[]');
+                if (Array.isArray(parsed)) events = parsed.filter(item => item?.at >= now() - week).slice(-1600);
+            } catch {}
+            add('screen');
+        },
+        screen() { add('screen'); },
+        context(control) {
+            if (['import-failed', 'playback-failed'].includes(control)) add('context', control);
+        },
+        recent() { return events.filter(item => item.at >= now() - 900).slice(-200); }
+    };
+})();
 document.addEventListener('click', event => { if(event.target.closest('[aria-disabled="true"]')) { event.preventDefault(); event.stopImmediatePropagation(); } },true);
 
 function applyWindowChrome(chrome) {
@@ -320,33 +404,38 @@ new MutationObserver(()=>{
 window.familyhub.bindSeekHover = input => {
     const control = input.closest('.seek-control'), row = control.closest('.seek-row');
     const output = control.querySelector('.seek-tooltip'), elapsed = row.querySelector('.seek-elapsed');
-    let hoverX, dragPointer, lastValue = Number(input.value), initialValue = lastValue;
+    let hoverX, dragPointer, lastValue = input.valueAsNumber, initialValue = lastValue;
     const time = seconds => { seconds = Math.floor(Math.max(0, seconds)); return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0'); };
     const preview = () => {
-        const value = Math.max(0, Math.min(Number(input.max), lastValue));
-        const percent = (100 * value / Math.max(1, Number(input.max))) + '%';
+        const max = Number(input.max);
+        if (!Number.isFinite(max) || max <= 0 || !Number.isFinite(lastValue)) return;
+        const value = Math.max(0, Math.min(max, lastValue));
+        const percent = (100 * (value / max)) + '%';
         if (control.style.getPropertyValue('--seek-position') !== percent) control.style.setProperty('--seek-position', percent);
         // Change the text node Blazor rendered; replacing it (textContent) detaches Blazor's node
         // and the time then stops following playback.
         const write = (element, text) => { const node = element.firstChild; if (node && node.nodeType === 3 && !node.nextSibling) { if (node.nodeValue !== text) node.nodeValue = text; } else if (element.textContent !== text) element.textContent = text; };
         write(elapsed, time(value));
-        if (dragPointer !== undefined && Number(input.value) !== value) input.value = String(value);
+        if (dragPointer !== undefined && input.valueAsNumber !== value) input.value = String(value);
     };
     const paint = () => {
         if (input.disabled || (dragPointer === undefined && hoverX === undefined && document.activeElement !== input)) return;
         const rect = input.getBoundingClientRect();
+        const max = Number(input.max), value = input.valueAsNumber;
+        output.hidden = !Number.isFinite(max) || max <= 0 || !Number.isFinite(value) || rect.width <= 12;
+        if (output.hidden) return;
         // Native range values are mapped between the centres of the 12 px thumb at either end.
-        const thumbTravel = Math.max(1, rect.width - 12);
+        const thumbTravel = rect.width - 12;
         const hovering = dragPointer === undefined && hoverX !== undefined;
-        const pointer = hovering ? hoverX - rect.left : 6 + thumbTravel * (Number(input.value) / Number(input.max));
+        const pointer = hovering ? hoverX - rect.left : 6 + thumbTravel * (value / max);
         const fraction = Math.max(0, Math.min(1, (pointer - 6) / thumbTravel));
-        const label = time(hovering ? fraction * Number(input.max) : Number(input.value));
+        const label = time(hovering ? fraction * max : value);
         if (output.textContent !== label) output.textContent = label;
         const half = output.getBoundingClientRect().width / 2;
         output.style.left = Math.max(half, Math.min(rect.width - half, pointer)) + 'px';
     };
     const setHover = event => {
-        hoverX = event && event.pointerType !== 'touch' ? event.clientX : undefined;
+        hoverX = event?.pointerType !== 'touch' && Number.isFinite(event?.clientX) ? event.clientX : undefined;
         control.classList.toggle('is-hovering', hoverX !== undefined);
         paint();
     };
@@ -372,7 +461,7 @@ window.familyhub.bindSeekHover = input => {
     input.addEventListener('pointerdown', event => {
         if (input.disabled || event.button !== 0 || dragPointer !== undefined) return;
         dragPointer = event.pointerId;
-        initialValue = lastValue = Number(input.value);
+        initialValue = lastValue = input.valueAsNumber;
         control.classList.toggle('is-touch-interaction', event.pointerType === 'touch');
         control.classList.add('is-dragging');
         setHover(event);
@@ -381,7 +470,7 @@ window.familyhub.bindSeekHover = input => {
     });
     input.addEventListener('input', () => {
         if (input.disabled) return;
-        lastValue = Number(input.value);
+        lastValue = input.valueAsNumber;
         preview();
         paint();
     });
@@ -587,9 +676,11 @@ window.familyhub.revealGenreOption = id => {
     const bottom = option.offsetTop + option.offsetHeight;
     if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
 };
-window.familyhub.focusInOpenDialog = id => {
+window.familyhub.focusInOpenDialog = (id, onlyIfOutside = false) => {
     const target = document.getElementById(id);
-    if (!target?.closest('dialog[open]')) return false;
+    const dialog = target?.closest('dialog[open]');
+    if (!dialog) return false;
+    if (onlyIfOutside && dialog.contains(document.activeElement)) return false;
     target.focus();
     return true;
 };

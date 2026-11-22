@@ -25,6 +25,7 @@ public static class MauiProgram
 #endif
 		builder.Services.AddMauiBlazorWebView();
         builder.Services.AddSingleton<MusicSession>();
+        builder.Services.AddSingleton(_ => new FeedbackDrafts(Path.Combine(FileSystem.AppDataDirectory, "feedback-drafts")));
         builder.Services.AddSingleton(_ => new FamilyHub.Client.Core.PublicAppReleases(
             new HttpClient(new HttpClientHandler { UseCookies = false })));
         builder.Services.AddSingleton<MusicPlayer>();

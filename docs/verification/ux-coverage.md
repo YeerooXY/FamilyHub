@@ -266,3 +266,36 @@ Statistics on close. API tests covered remaining words, repeated letters,
 spoilers, and foreground time across closed, expired, and replaced views.
 Captures are in `.local/task-tmp/wordle-review-2026-11-22/`. Physical devices,
 screen-reader speech, and enlarged text remain unverified.
+
+## 22 November 2026 — Profile editor layout
+
+The Windows build rendered the Profile editor in desktop Chromium, desktop
+WebKit, Android Chromium and iPhone WebKit down to 320 CSS pixels. Screenshots
+cover the initial form, a duplicate name, and a saved name. Checks measured the
+gap between photo and field, label and feedback alignment, control height, and
+overflow. Tab, Shift+Tab, Enter, and Space verified the rename flow and focus
+retention. Captures are in `.local/task-tmp/profile-editor-review/`. Physical
+devices, native photo selection, screen-reader speech, and enlarged text remain
+unverified for this change.
+
+## 22 November 2026 — Seek bar with decimal-comma settings
+
+The Windows Razor build in a Chromium fixture reproduced `NaN:NaN` with a
+Hungarian locale and a 317.5-second track before the fix. The same fixture passed
+hover, click, drag, keyboard seek, and focus checks after the fix. The player bar
+suite measured the track and tooltip across three desktop widths, desktop
+WebKit, and emulated Android and iPhone profiles. The track remained visible
+when given a malformed maximum and gradient. Physical Windows 10, the native
+audio engine, and screen readers remain unverified for this change.
+
+## 22 November 2026 — Profile feedback
+
+Desktop Chromium, desktop WebKit, emulated Android Chromium, and iPhone WebKit
+at 320 CSS pixels opened Feedback through the profile menu. Checks covered the
+shared description field, category motion and reduced motion, filename and
+thumbnail, full image viewing, keyboard focus, draft restoration after reload,
+and retry after a failed send. Captures are in `.local/task-tmp/feedback-review/`.
+API tests covered private report and image access, diagnostic redaction and
+request correlation, duplicate submissions, developer replies, and closing a
+thread. Physical devices, the native photo picker, screen-reader speech, and
+enlarged text remain unverified.

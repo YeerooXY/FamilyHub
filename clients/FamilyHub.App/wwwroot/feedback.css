@@ -1,0 +1,44 @@
+.feedback-screen { --popup-width:680px; }
+.feedback-screen .feedback-heading { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); padding-inline:16px; }
+.feedback-screen .feedback-heading h2 { grid-column:2; text-align:center; }
+.feedback-screen .feedback-heading > button:last-child { grid-column:3; justify-self:end; }
+.feedback-screen .feedback-heading > .feedback-link { grid-column:1; grid-row:1; width:fit-content; min-height:44px; border-radius:0; text-decoration:underline; }
+.feedback-screen .feedback-form { display:grid; gap:20px; width:100%; max-width:none; margin:0; }
+.feedback-types { position:relative; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); border-radius:24px; background:#242424; isolation:isolate; }
+.feedback-types::before { content:""; position:absolute; inset:3px auto 3px 3px; width:calc(50% - 3px); border-radius:24px; background:#414141; transition:transform .2s var(--popup-ease); z-index:-1; }
+.feedback-types[data-feature=true]::before { transform:translateX(100%); }
+.feedback-screen .feedback-types button { min-height:48px; margin:0; padding:6px 8px; border:0; border-radius:24px; background:transparent; color:var(--muted); box-shadow:none; transform:none; }
+.feedback-screen .feedback-types button[aria-pressed=true] { color:#fff; }
+.feedback-field,.feedback-screenshots,.feedback-review,.feedback-list,.feedback-thread { display:grid; min-width:0; gap:10px; }
+.feedback-field,.feedback-screenshots h3 { margin:0; color:var(--muted); font-size:14px; font-weight:700; }
+.feedback-screen .feedback-field textarea { width:100%; min-height:96px; margin:0; padding:12px 16px; resize:vertical; border:1px solid transparent; border-radius:14px; color:#fff; background:#242424; font-family:inherit; font-size:16px; font-weight:400; line-height:1.5; }
+.feedback-screen .feedback-drop { position:relative; display:grid; min-height:60px; place-items:center; margin:0; padding:8px; border:1px dashed #ffffff4d; border-radius:12px; background:#1c1c1c; color:#fff; cursor:pointer; }
+.feedback-drop input { position:absolute; inset:0; width:100%; height:100%; min-width:0; margin:0; opacity:0; cursor:pointer; }
+.feedback-drop:focus-within { outline:2px solid var(--focus,#91b6ff); outline-offset:2px; }
+.feedback-files,.feedback-rows { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
+.feedback-files:empty,.feedback-rows:empty { display:none; }
+.feedback-files li { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; }
+.feedback-screen .feedback-files button:first-child { display:flex; align-items:center; gap:12px; justify-content:flex-start; min-width:0; padding:4px; border:0; background:transparent; text-align:start; }
+.feedback-files img { width:88px; height:50px; flex:none; object-fit:cover; border:1px solid #ffffff30; border-radius:8px; }
+.feedback-files span { overflow-wrap:anywhere; }
+.feedback-screen .feedback-files li > .quiet { width:44px; height:44px; margin:0; padding:10px; }
+.feedback-screen .feedback-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:4px 0 0; }
+.feedback-screen .feedback-actions button { min-height:48px; margin:0; padding:8px; border-radius:28px; }
+.feedback-screen .feedback-actions .primary { background:#fff; color:#121212; }
+.feedback-note { color:var(--muted); font-size:13px; }
+.feedback-review p,.feedback-description,.feedback-reply p { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.feedback-toolbar { display:flex; flex-wrap:wrap; gap:8px; }
+.feedback-toolbar button[aria-pressed=true] { background:#414141; }
+.feedback-rows button { width:100%; display:grid; gap:5px; text-align:start; white-space:normal; overflow-wrap:anywhere; }
+.feedback-rows small,.feedback-diagnostics time { color:var(--muted); }
+.feedback-reply,.feedback-diagnostics { padding:10px 0; border-top:1px solid #ffffff24; }
+.feedback-diagnostics ol { max-height:260px; overflow:auto; margin:8px 0 0; padding-inline-start:24px; overflow-wrap:anywhere; }
+.feedback-thread .feedback-form button { justify-self:end; }
+.feedback-image-dialog { --popup-width:1000px; }
+.feedback-image-dialog img { display:block; width:100%; max-height:75dvh; object-fit:contain; }
+@media(max-width:720px) {
+    .feedback-screen.popup-panel.popup-centered[open] { inset:0; width:100%; max-width:none; max-height:none; height:100dvh; border-radius:0; padding-bottom:max(16px,env(safe-area-inset-bottom)); }
+    .feedback-screen .feedback-heading { gap:6px; }
+    .feedback-screen .feedback-link,.feedback-screen .feedback-types button { font-size:13px; }
+}
+@media(prefers-reduced-motion:reduce) { .feedback-types::before { transition:none; } }

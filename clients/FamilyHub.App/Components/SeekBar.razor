@@ -1,18 +1,19 @@
 @implements IAsyncDisposable
 @inject MusicPlayer Player
 @inject IJSRuntime JS
+@using System.Globalization
 
 <div class="seek-row">
     <span class="seek-elapsed">@Time(Position)</span>
-    <div class="seek-control" style="@($"--seek-position:{Percent.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}%")">
+    <div class="seek-control" style="@($"--seek-position:{Percent.ToString("0.###", CultureInfo.InvariantCulture)}%")">
         <output class="seek-tooltip" aria-hidden="true"></output>
-        <input @ref="slider" aria-label="Playback position" aria-valuetext="@Time(Position)" disabled="@(!Player.CanSeek || Player.FollowingHost)"
-               aria-disabled="@(!Player.CanSeek || Player.FollowingHost ? "true" : "false")" type="range"
-               min="0" max="@Math.Max(1, Player.Duration)" value="@Position" step="0.1"
+        <input @ref="slider" aria-label="Playback position" aria-valuetext="@Time(Position)" disabled="@(!CanSeek)"
+               aria-disabled="@(CanSeek ? "false" : "true")" type="range"
+               min="0" max="@RangeNumber(RangeMaximum)" value="@RangeNumber(Position)" step="0.1"
                @oninput="Preview" @onchange="Commit"
                @onpointercancel="Cancel" @onblur="Cancel" @onkeydown="KeyDown" />
     </div>
-    <span>@Time(Player.Duration)</span>
+    <span>@Time(Duration)</span>
 </div>
 
 @code {
@@ -28,8 +29,13 @@
     [JSInvokable] public void SeekVisibility(bool visible) => Player.SetSeekBarVisible(visible);
     private double? preview;
     private string? track;
-    private double Position => preview ?? Player.Position;
-    private double Percent => Player.Duration > 0 ? Math.Clamp(Position / Player.Duration * 100, 0, 100) : 0;
+    private double Duration => Seconds(Player.Duration);
+    private double RangeMaximum => Duration is > 0 and var length ? length : 1;
+    private double Position => Math.Min(Seconds(preview ?? Player.Position), Duration);
+    private double Percent => Duration is > 0 and var length ? Math.Min(1, Position / length) * 100 : 0;
+    private bool CanSeek => Duration > 0 && Player.CanSeek && !Player.FollowingHost;
+    private static double Seconds(double value) => double.IsFinite(value) ? Math.Max(0, value) : 0;
+    private static string RangeNumber(double value) => value.ToString(CultureInfo.InvariantCulture);
     private static string Time(double seconds) => $"{(int)Math.Max(0, seconds) / 60}:{(int)Math.Max(0, seconds) % 60:00}";
     protected override void OnInitialized() { track = Player.Current?.Id; Player.Changed += Changed; Player.RemotePositionChanged += Changed; }
     private long lastRender;
@@ -43,14 +49,14 @@
     private void KeyDown(KeyboardEventArgs args) { if (args.Key == "Escape") Cancel(); }
     private void Preview(ChangeEventArgs args)
     {
-        if (!Player.CanSeek || Player.FollowingHost) return;
-        if (double.TryParse(args.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value) && double.IsFinite(value))
-            preview = Math.Clamp(value, 0, Player.Duration);
+        if (!CanSeek) return;
+        if (double.TryParse(args.Value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && double.IsFinite(value))
+            preview = Math.Clamp(value, 0, Duration);
     }
     private async Task Commit(ChangeEventArgs args)
     {
         Preview(args);
-        try { if (preview is { } value && Player.CanSeek && !Player.FollowingHost) await Player.SeekAsync(value); }
+        try { if (preview is { } value && CanSeek) await Player.SeekAsync(value); }
         finally { preview = null; }
     }
     public async ValueTask DisposeAsync()

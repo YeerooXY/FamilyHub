@@ -1,0 +1,375 @@
+@using System.Globalization
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@inject MusicSession Session
+@inject IJSRuntime JS
+@inject FeedbackDrafts Drafts
+
+<dialog id="feedback-dialog" class="popup-panel popup-centered animated-dialog feedback-screen" aria-labelledby="feedback-title" data-return-focus="profile-toggle" @onclose="PersistDraft">
+    <div class="dialog-heading feedback-heading">
+        @if (view == View.Compose) { <button id="feedback-history" class="feedback-link" type="button" @onclick="() => LoadList(false)">My feedback</button> }
+        <h2 id="feedback-title" tabindex="-1">@Heading</h2>
+        <button class="quiet" type="button" aria-label="Close feedback" @onclick="Close"><MusicIcon Name="close" /></button>
+    </div>
+
+    @if (view is View.Compose or View.Review)
+    {
+        <form class="inline-form feedback-form" @key="view" @onsubmit="Continue" @onsubmit:preventDefault>
+            @if (view == View.Compose)
+            {
+                <div class="feedback-types" data-feature="@(kind == "feature" ? "true" : "false")" role="group" aria-label="Feedback type">
+                    <button type="button" aria-pressed="@(kind == "problem" ? "true" : "false")" @onclick='() => ChangeKind("problem")'>Report a problem</button>
+                    <button type="button" aria-pressed="@(kind == "feature" ? "true" : "false")" @onclick='() => ChangeKind("feature")'>Request a feature</button>
+                </div>
+                <label class="feedback-field" for="feedback-description"><span>Description</span>
+                    <textarea id="feedback-description" rows="4" maxlength="4000" @bind="description" @bind:event="oninput" @onblur="PersistDraft"></textarea>
+                </label>
+                <section class="feedback-screenshots" aria-labelledby="feedback-screenshots-title">
+                    <h3 id="feedback-screenshots-title">Screenshots</h3>
+                    <label class="feedback-drop">
+                        <span>Attach pictures here</span>
+                        <InputFile id="feedback-attach" aria-label="Attach pictures here" multiple accept="image/png,image/jpeg,image/webp" OnChange="Attach" />
+                    </label>
+                    @AttachmentRows()
+                </section>
+            }
+            else
+            {
+                <div class="feedback-review">
+                    <strong>@KindLabel(kind)</strong>
+                    <p>@description</p>
+                    @AttachmentRows()
+                    <p class="feedback-note">Recent diagnostics go to the developer with this report.</p>
+                </div>
+            }
+            <Notice Level="error" Message="@error" />
+            <div class="actions feedback-actions">
+                @if (view == View.Compose) { <button type="button" @onclick="Close">Cancel</button> }
+                else { <button type="button" aria-disabled="@Aria(busy)" @onclick="Edit">Back</button> }
+                <button class="primary" type="submit" aria-disabled="@Aria(busy || readingImages || string.IsNullOrWhiteSpace(description))">
+                    @(view == View.Compose ? "Review report" : busy ? "Sending…" : "Send feedback")
+                </button>
+            </div>
+        </form>
+    }
+    else if (view == View.List)
+    {
+        <div class="feedback-list">
+            <div class="feedback-toolbar">
+                <button type="button" @onclick="Edit">Write feedback</button>
+                @if (canManage) { <button type="button" aria-disabled="@Aria(busy)" @onclick="() => LoadList(!inbox)">@(inbox ? "My feedback" : "Developer inbox")</button> }
+                <button type="button" aria-disabled="@Aria(busy)" @onclick="() => LoadList(inbox)">Refresh</button>
+            </div>
+            @if (inbox)
+            {
+                <div class="feedback-toolbar" role="group" aria-label="Report status">
+                    @foreach (var status in Statuses)
+                    { <button type="button" aria-pressed="@Aria(statusFilter == status)" @onclick="() => statusFilter = status">@StatusLabel(status)</button> }
+                </div>
+            }
+            <Notice Level="success" Message="@confirmation" />
+            <Notice Level="error" Message="@error" />
+            @if (busy) { <p role="status">Loading feedback…</p> }
+            else if (error is null && !VisibleReports.Any()) { <p>@(inbox ? "No reports with this status." : "No feedback yet.")</p> }
+            <ul class="feedback-rows">
+                @foreach (var report in VisibleReports)
+                {
+                    <li @key="report.Id"><button type="button" @onclick="() => OpenThread(report.Id)">
+                        <strong>@report.Summary</strong>
+                        <small>@(inbox ? report.Author + " / " : "")@KindLabel(report.Kind) / @StatusLabel(report.Status)</small>
+                    </button></li>
+                }
+            </ul>
+        </div>
+    }
+    else if (thread is { } current)
+    {
+        <div class="feedback-thread">
+            <div class="feedback-toolbar"><button type="button" aria-disabled="@Aria(busy)" @onclick="() => LoadList(inbox)">Back to feedback</button>
+                @if (canManage && inbox)
+                {
+                    <button type="button" aria-disabled="@Aria(busy)" @onclick='() => SetStatus(current.Status == "closed" ? "new" : "closed")'>@(current.Status == "closed" ? "Reopen" : "Close report")</button>
+                    <button type="button" @onclick="OpenIssue">Open GitHub issue draft</button>
+                }
+            </div>
+            <p class="feedback-note">@current.Author / @StatusLabel(current.Status)</p>
+            <p class="feedback-description">@current.Description</p>
+            @if (current.Images.Length > 0)
+            {
+                <ul class="feedback-files">
+                    @foreach (var image in current.Images)
+                    {
+                        <li @key="image.Index"><button id="@($"feedback-thread-image-{image.Index}")" type="button" @onclick="() => LoadPreview(image)"><MusicIcon Name="image" />@image.Name</button></li>
+                    }
+                </ul>
+            }
+            @foreach (var item in current.Replies)
+            {
+                <div class="feedback-reply"><strong>@item.Author</strong><p>@item.Message</p></div>
+            }
+            @if (current.Events is not null && canManage && inbox)
+            {
+                <details class="feedback-diagnostics"><summary>Diagnostics</summary>
+                    <p>@string.Join(" / ", current.Device?.Values ?? Enumerable.Empty<string>())</p>
+                    <ol>@foreach (var item in current.Events.Concat(current.ServerEvents ?? []).OrderBy(item => item.At))
+                        { <li><time>@FormatTime(item.At)</time> @item.Event @item.Screen @item.Control @item.Key @item.Method @item.Endpoint @item.Status @(item.FromDevice ? "(this device)" : "")</li> }</ol>
+                </details>
+            }
+            <Notice Level="success" Message="@confirmation" />
+            <Notice Level="error" Message="@error" />
+            @if (current.Status != "closed")
+            {
+                <form class="inline-form feedback-form" @onsubmit="Reply" @onsubmit:preventDefault>
+                    <label class="feedback-field" for="feedback-reply"><span>Reply</span><textarea id="feedback-reply" maxlength="4000" rows="2" @bind="reply" @bind:event="oninput"></textarea></label>
+                    <button class="primary" type="submit" aria-disabled="@Aria(busy || string.IsNullOrWhiteSpace(reply))">Send reply</button>
+                </form>
+            }
+        </div>
+    }
+</dialog>
+
+<dialog id="feedback-image-dialog" class="popup-panel popup-centered feedback-image-dialog" aria-labelledby="feedback-image-title">
+    <div class="dialog-heading"><h2 id="feedback-image-title">@preview?.Name</h2><button id="feedback-preview-close" class="quiet" type="button" aria-label="Close screenshot" @onclick="ClosePreview"><MusicIcon Name="close" /></button></div>
+    @if (preview is { } imagePreview) { <img src="@imagePreview.Source" alt="@imagePreview.Name" /> }
+</dialog>
+
+@code {
+    private enum View { Compose, Review, List, Thread }
+    private const int MaxImages = 4, MaxImageBytes = 3 * 1024 * 1024;
+    private static readonly string[] Statuses = ["new", "waiting", "closed"];
+    private static readonly HashSet<string> ImageTypes = ["image/png", "image/jpeg", "image/webp"];
+    private sealed record Screenshot(string Name, string Mime, string Data, string Key)
+    {
+        [JsonIgnore] public string Source => $"data:{Mime};base64,{Data}";
+    }
+    private sealed record Draft(string Id, string Kind, string Description, Screenshot[] Images);
+    private sealed record Diagnostic(long At, string Event, string? Screen, string? Control, string? Key,
+        string? Method, string? Endpoint, JsonElement? Status, [property: JsonPropertyName("from_device")] bool FromDevice);
+    private sealed record ReportSummary(string Id, string Author, string Kind, string Summary, string Status);
+    private sealed record Inbox([property: JsonPropertyName("can_manage")] bool CanManage, ReportSummary[] Reports);
+    private sealed record ImageRef(int Index, string Name);
+    private sealed record ImageData(string Mime, string Data);
+    private sealed record ReplyMessage(string Author, string Message);
+    private sealed record Thread(string Id, string Kind, string Author, string Description, string Status, ImageRef[] Images, ReplyMessage[] Replies,
+        Diagnostic[]? Events, [property: JsonPropertyName("server_events")] Diagnostic[]? ServerEvents, Dictionary<string, string>? Device);
+
+    private View view;
+    private string kind = "problem", description = "", reply = "", draftId = Guid.NewGuid().ToString("N"), statusFilter = "new";
+    private string? error, confirmation, pendingFocus, previewFrom, draftProfile, draftScope;
+    private bool busy, readingImages, canManage, inbox, draftLoaded;
+    private readonly List<Screenshot> screenshots = [];
+    private Screenshot? preview;
+    private ReportSummary[] reports = [];
+    private Thread? thread;
+    private string Heading => view switch { View.Review => "Review feedback", View.List => inbox ? "Developer inbox" : "My feedback",
+        View.Thread => KindLabel(thread?.Kind ?? kind), _ => "Feedback" };
+    private IEnumerable<ReportSummary> VisibleReports => inbox ? reports.Where(report => report.Status == statusFilter) : reports;
+
+    public async Task OpenAsync(string opener, string? context = null)
+    {
+        if (!draftLoaded)
+        {
+            draftLoaded = true;
+            draftProfile = Session.Server + "\n" + Session.User;
+            draftScope = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(draftProfile)));
+            var saved = await Drafts.ReadAsync<Draft>(draftScope);
+            if (saved is not null)
+            {
+                draftId = saved.Id;
+                kind = saved.Kind;
+                description = saved.Description;
+                screenshots.AddRange(saved.Images.Where(image => ImageTypes.Contains(image.Mime)).Take(MaxImages));
+            }
+        }
+        view = View.Compose;
+        error = confirmation = null;
+        if (context is not null)
+        {
+            await JS.InvokeVoidAsync("familyhub.feedback.context", context);
+            if (description.Length == 0)
+            {
+                kind = "problem";
+                description = context == "import-failed" ? "Playlist import failed. " : "Playback failed. ";
+            }
+        }
+        StateHasChanged();
+        await JS.InvokeVoidAsync("familyhub.showDialog", "feedback-dialog", "feedback-title", opener);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (pendingFocus is { } target)
+        {
+            pendingFocus = null;
+            await JS.InvokeVoidAsync("familyhub.focusInOpenDialog", target, true);
+        }
+        if (previewFrom is { } opener)
+        {
+            previewFrom = null;
+            await JS.InvokeVoidAsync("familyhub.showDialog", "feedback-image-dialog", "feedback-preview-close", opener);
+        }
+    }
+
+    private async Task Close()
+    {
+        await PersistDraft();
+        await JS.InvokeVoidAsync("familyhub.closeDialog", "feedback-dialog");
+    }
+    private Task ClosePreview() => JS.InvokeVoidAsync("familyhub.closeDialog", "feedback-image-dialog").AsTask();
+    private Task PersistDraft() => draftScope is null ? Task.CompletedTask : Drafts.SaveAsync(draftScope,
+        description.Length > 0 || screenshots.Count > 0 ? new Draft(draftId, kind, description, [.. screenshots]) : null);
+    private async Task ChangeKind(string value) { kind = value; await PersistDraft(); }
+    private void Move(View next) { view = next; pendingFocus = "feedback-title"; }
+    private void Edit() { if (!busy) { error = confirmation = null; Move(View.Compose); } }
+
+    private RenderFragment AttachmentRows() => @<ul class="feedback-files">
+        @foreach (var screenshot in screenshots)
+        {
+            var id = "feedback-thumb-" + screenshot.Key;
+            <li @key="screenshot.Key">
+                <button id="@id" type="button" aria-label="@($"View {screenshot.Name}")" @onclick="() => ShowPreview(screenshot, id)">
+                    <img src="@screenshot.Source" alt="" /> <span>@screenshot.Name</span>
+                </button>
+                @if (view == View.Compose)
+                { <button class="quiet" type="button" aria-label="@($"Remove {screenshot.Name}")" @onclick="() => Remove(screenshot)"><MusicIcon Name="close" /></button> }
+            </li>
+        }
+    </ul>;
+
+    private async Task Attach(InputFileChangeEventArgs args)
+    {
+        error = null;
+        if (readingImages || busy) return;
+        if (args.FileCount > MaxImages - screenshots.Count) { error = "Attach up to four screenshots."; return; }
+        readingImages = true;
+        try
+        {
+            foreach (var file in args.GetMultipleFiles(MaxImages))
+            {
+                var mime = file.ContentType.ToLowerInvariant();
+                if (!ImageTypes.Contains(mime)) { error = "Choose PNG, JPEG, or WebP screenshots."; continue; }
+                if (file.Size > MaxImageBytes) { error = "Each screenshot can be up to 3 MB."; continue; }
+                await using var input = file.OpenReadStream(MaxImageBytes);
+                using var buffer = new MemoryStream();
+                await input.CopyToAsync(buffer);
+                screenshots.Add(new Screenshot(file.Name, mime, Convert.ToBase64String(buffer.ToArray()), Guid.NewGuid().ToString("N")));
+            }
+        }
+        catch (Exception failure) when (failure is IOException or JSException or InvalidOperationException)
+        { error = "A screenshot could not be read. Choose it again."; }
+        finally { readingImages = false; await PersistDraft(); }
+    }
+
+    private async Task Remove(Screenshot screenshot)
+    {
+        screenshots.Remove(screenshot);
+        pendingFocus = "feedback-attach";
+        await PersistDraft();
+    }
+
+    private void ShowPreview(Screenshot image, string opener) { preview = image; previewFrom = opener; }
+
+    private Task LoadPreview(ImageRef image) => Run(async () =>
+    {
+        var data = await Request<ImageData>(HttpMethod.Get, $"/{thread!.Id}/images/{image.Index}");
+        if (!ImageTypes.Contains(data.Mime)) throw new InvalidOperationException();
+        ShowPreview(new Screenshot(image.Name, data.Mime, data.Data, ""), $"feedback-thread-image-{image.Index}");
+    }, "Could not open this screenshot. Try again.");
+
+    private async Task Continue()
+    {
+        if (busy || readingImages || string.IsNullOrWhiteSpace(description)) return;
+        if (view == View.Compose) { await PersistDraft(); error = null; Move(View.Review); return; }
+        var sent = false;
+        await Run(async () =>
+        {
+            var events = await JS.InvokeAsync<Diagnostic[]>("familyhub.feedback.recent");
+            var device = new { version = AppUpdater.CurrentVersion + " (" + AppUpdater.CurrentBuild + ")",
+                platform = AppUpdater.PlatformDisplay + " " + Environment.OSVersion.Version,
+                culture = CultureInfo.CurrentCulture.Name, @decimal = CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator };
+            await Request<JsonElement>(HttpMethod.Post, "", new { id = draftId, kind, description,
+                images = screenshots.Select(image => new { image.Name, image.Data }), events, device,
+                request_ids = Session.Api?.RecentFeedbackRequests(Session.User) });
+            draftId = Guid.NewGuid().ToString("N");
+            description = "";
+            screenshots.Clear();
+            await PersistDraft();
+            inbox = false;
+            confirmation = "Feedback sent.";
+            Move(View.List);
+            sent = true;
+        }, "Could not send feedback. Your draft is ready to retry.");
+        if (sent) await FetchList();
+    }
+
+    private async Task LoadList(bool showInbox)
+    {
+        if (busy) return;
+        inbox = showInbox;
+        confirmation = null;
+        reports = [];
+        if (view != View.List) Move(View.List);
+        await FetchList();
+    }
+
+    private Task FetchList() => Run(async () =>
+    {
+        var list = await Request<Inbox>(HttpMethod.Get, inbox ? "?inbox=1" : "");
+        reports = list.Reports;
+        canManage = list.CanManage;
+    }, "Could not load feedback. Try Refresh.");
+
+    private Task OpenThread(string id) => Run(async () =>
+    {
+        thread = await Request<Thread>(HttpMethod.Get, "/" + id);
+        reply = "";
+        confirmation = null;
+        Move(View.Thread);
+    }, "Could not open this report. Try again.");
+
+    private Task Reply() => string.IsNullOrWhiteSpace(reply) ? Task.CompletedTask : Run(async () =>
+    {
+        var url = "/" + thread!.Id;
+        await Request<JsonElement>(HttpMethod.Post, url + "/replies", new { message = reply });
+        reply = "";
+        thread = await Request<Thread>(HttpMethod.Get, url);
+        confirmation = "Reply sent.";
+    }, "Could not send or refresh the reply. Check the thread and try again.");
+
+    private Task SetStatus(string status) => Run(async () =>
+    {
+        var url = "/" + thread!.Id;
+        await Request<JsonElement>(HttpMethod.Patch, url, new { status });
+        thread = thread with { Status = status };
+    }, "Could not update the report. Try again.");
+
+    private Task OpenIssue() => Run(async () =>
+    {
+        if (!await Launcher.Default.OpenAsync(new Uri("https://github.com/YeerooXY/FamilyHub/issues/new")))
+            throw new InvalidOperationException();
+    }, "Could not open GitHub. Try again.");
+
+    private async Task<T> Request<T>(HttpMethod method, string suffix, object? content = null)
+    {
+        if (!Session.Connected || Session.Api is not { } api || draftProfile != Session.Server + "\n" + Session.User)
+            throw new InvalidOperationException("Connect to your server and try again.");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        return await api.RequestJsonAsync<T>(method, "/api/feedback" + suffix, content, timeout.Token, background: true);
+    }
+
+    private async Task Run(Func<Task> action, string fallback)
+    {
+        if (busy) return;
+        busy = true;
+        error = null;
+        try { await action(); }
+        catch (Exception failure) when (failure is FamilyHubApiException or HttpRequestException or OperationCanceledException or IOException or InvalidOperationException or JsonException or JSException)
+        { error = failure is FamilyHubApiException api ? api.Message : fallback; }
+        finally { busy = false; }
+    }
+
+    private static string Aria(bool value) => value ? "true" : "false";
+    private static string KindLabel(string value) => value == "feature" ? "Feature request" : "Problem report";
+    private static string StatusLabel(string value) => value == "waiting" ? "Waiting for reply" : value == "closed" ? "Closed" : "New";
+    private static string FormatTime(long at) => DateTimeOffset.FromUnixTimeSeconds(at).ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+}

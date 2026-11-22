@@ -10,12 +10,20 @@ public sealed class FamilyHubApi : IDisposable
     private readonly HttpClient http;
     private CookieContainer cookies = new();
     private string? csrf;
+    private readonly Queue<(string Profile, long At, string Id)> feedbackRequests = new();
     public const string ActivityHeader = "X-FamilyHub-Activity";
     public const string BackgroundActivity = "background";
 
     public Uri ServerOrigin { get; }
     public string? UserName { get; private set; }
     public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    public string[] RecentFeedbackRequests(string profile)
+    {
+        lock (feedbackRequests)
+            return feedbackRequests.Where(entry => entry.Profile == profile && entry.At >= DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 900)
+                .Select(entry => entry.Id).ToArray();
+    }
 
     public FamilyHubApi(Uri server) : this(server, DefaultHandler()) { }
 
@@ -348,6 +356,9 @@ public sealed class FamilyHubApi : IDisposable
         for (var redirects = 0; redirects < 6; redirects++)
         {
             using var request = new HttpRequestMessage(method, uri) { Content = content };
+            var profile = UserName;
+            var trace = profile is null ? null : Guid.NewGuid().ToString("N");
+            if (trace is not null) request.Headers.Add("X-FamilyHub-Trace-Id", trace);
             request.Headers.Add("Origin", ServerOrigin.GetLeftPart(UriPartial.Authority));
             if (background) request.Headers.Add(ActivityHeader, BackgroundActivity);
             var cookieHeader = cookies.GetCookieHeader(uri);
@@ -362,6 +373,14 @@ public sealed class FamilyHubApi : IDisposable
             }
             var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             if (response.RequestMessage?.RequestUri is { } actual) ResolveUri(actual.AbsoluteUri);
+            if (profile is not null && trace is not null)
+            {
+                lock (feedbackRequests)
+                {
+                    if (feedbackRequests.Count >= 200) feedbackRequests.Dequeue();
+                    feedbackRequests.Enqueue((profile, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), trace));
+                }
+            }
             if (response.Headers.TryGetValues("Set-Cookie", out var setCookies))
                 foreach (var cookie in setCookies) cookies.SetCookies(uri, cookie);
             if ((int)response.StatusCode is not (301 or 302 or 303 or 307 or 308)) return response;

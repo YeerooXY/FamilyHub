@@ -25,7 +25,7 @@ from .audio_profile import profile
 from . import mobile_audio
 from . import app_updates
 from . import profile_artwork
-from . import wordle
+from . import feedback, wordle
 from .wordle_source import published_answer
 from .listening_versions import ListeningVersions
 from .catalogue_review import CatalogueReview, register as register_catalogue_review
@@ -588,7 +588,9 @@ def create_app(test_config=None):
             raise ApiError("Request body must be a JSON object.")
         return d
 
+    feedback_event = None
     if family_mode:
+        feedback_event = feedback.register(app, ws, body, ApiError, profile_store, lambda: g.user in cfg["ADMIN_USERS"])
         wordle.register(app, ws, require_family, profile_store, body, ApiError,
                         cfg.get("WORDLE_DAILY_ANSWER", published_answer))
 
@@ -1078,6 +1080,8 @@ def create_app(test_config=None):
                 backlog_wake.set()
         if job.get("library_addition") and state in ("done", "error", "cancelled"):
             save_bulk_queue()
+        if feedback_event and state in ("done", "error", "cancelled"):
+            feedback_event("preparation", owner=job.get("owner"), status=state)
 
     def save_bulk_queue():
         nonlocal bulk_revision, bulk_saved_revision

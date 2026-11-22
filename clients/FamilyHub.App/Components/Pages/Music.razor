@@ -91,6 +91,7 @@ else
             <hr class="profile-phone-link" />
             <button @onclick="SwitchProfile"><MusicIcon Name="person" />Switch profile</button>
             <button id="open-settings" @onclick='() => Navigate("Preferences")'><MusicIcon Name="settings" />Settings</button>
+            <button id="open-feedback" aria-haspopup="dialog" @onclick="OpenProfileFeedback"><MusicIcon Name="alert" />Feedback</button>
         </dialog>
     }
     </div>
@@ -111,6 +112,8 @@ else
     <Notice Id="feedback" Level="@(error is not null ? "error" : radioProgress is not null ? "info" : Session.MessageLevel)"
         Message="@(error ?? radioProgress ?? (Session.DownloadingId is null && Session.MessageLevel != "success" ? Session.Message : ""))"
         ActionLabel="@RecoveryLabel" Action="RetryNotice" FocusTarget="@(searchFailed ? "#view-title" : "#play")" />
+    @if (error is not null && playbackRetry is not null)
+    { <button id="report-playback-problem" class="quiet" type="button" aria-haspopup="dialog" @onclick="OpenPlaybackFeedback">Report this problem</button> }
     @if (Session.DownloadingId is not null) { <DeviceDownloadProgress Status="@Session.DownloadStatus" /> }
     @if (LibraryViews.Contains(view) && (view != "Playlists" || Selected is null))
     {
@@ -206,7 +209,10 @@ else
             </div>
             @if (settingsSection == "General")
             {
-                <section class="settings-panel glass-panel" aria-label="Profile"><ProfileImagePicker Profile="CurrentProfile" /></section>
+                <section class="settings-panel glass-panel" aria-labelledby="profile-settings-heading">
+                    <h2 id="profile-settings-heading">Profile</h2>
+                    <ProfileImagePicker Profile="CurrentProfile" />
+                </section>
                 <section class="settings-panel glass-panel" aria-labelledby="appearance-settings-heading">
                     <h2 id="appearance-settings-heading">Appearance</h2>
                     <div class="setting-row"><label for="appearance-theme">Theme</label><select id="appearance-theme" value="@theme" @onchange="SetTheme">@foreach (var option in themes) { <option value="@option.Id">@option.Label</option> }</select></div>
@@ -312,7 +318,7 @@ else
         {
             var playlistPositions = VisiblePlaylistPositions(selected);
             var deviceTracks = PlaylistDeviceTracks(selected);
-            <PlaylistTransfer @ref="playlistTransfer" @key="PlaylistKey(selected)" Playlist="selected" InitialReviewIndex="initialPlaylistReviewIndex">
+            <PlaylistTransfer @ref="playlistTransfer" @key="PlaylistKey(selected)" Playlist="selected" InitialReviewIndex="initialPlaylistReviewIndex" ReportProblem="OpenImportFeedback">
             <Header Context="transfer">
             <div class="playlist-sticky" inert><PlaylistCover Playlist="selected" /><strong>@selected.Name</strong><button class="primary round" tabindex="-1" @onclick="() => PlayVisiblePlaylist(selected, playlistPositions)" aria-label="Play playlist" aria-disabled="@Aria(playlistPositions.Count == 0 || Player.FollowingHost)"><MusicIcon Name="play" /></button></div>
             <section class="playlist-hero glass-panel">
@@ -548,6 +554,7 @@ else
     <div class="actions"><button id="spotify-yes" class="primary" aria-disabled="@Aria(busy)" @onclick="() => AnswerSpotify(true)">Yes</button><button aria-disabled="@Aria(busy)" @onclick="() => AnswerSpotify(false)">No</button></div>
 </dialog>
 <CreatePlaylist Created="PlaylistCreated" />
+<FeedbackDialog @ref="feedbackDialog" @key="(nameof(FeedbackDialog), AppearanceKey)" />
 <AddSongs @key="AppearanceKey" @ref="addSongs" InLibrary='@(view == "Library")' JobsChanged="SetAdditionJobs" />
 <dialog id="preload-dialog" class="popup-panel preload-dialog" aria-labelledby="preload-heading">
     <div class="dialog-heading"><h2 id="preload-heading">Keep on this device</h2><button class="quiet" aria-label="Close keep on this device" data-popup-close><MusicIcon Name="close" /></button></div>
@@ -1223,6 +1230,18 @@ else
     private void ShowAddProfile() { addingProfile = true; pendingFocus = "new-profile-name"; }
     private void CancelAddProfile() { addingProfile = false; pendingFocus = "add-profile"; }
     private void OpenProfileMenu() => profileMenu = true;
+    private FeedbackDialog? feedbackDialog;
+    private string? feedbackProfile;
+
+    private async Task OpenProfileFeedback()
+    {
+        await JS.InvokeVoidAsync("familyhub.closeDialog", "profile-menu", "profile-toggle");
+        profileMenu = false;
+        if (feedbackDialog is not null) await feedbackDialog.OpenAsync("profile-toggle");
+    }
+
+    private Task OpenImportFeedback() => feedbackDialog?.OpenAsync("report-import-problem", "import-failed") ?? Task.CompletedTask;
+    private Task OpenPlaybackFeedback() => feedbackDialog?.OpenAsync("report-playback-problem", "playback-failed") ?? Task.CompletedTask;
     private Task ChooseProfile(string id) => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); ResetProfileView(); await Session.SelectProfileAsync(id); });
     private Task CreateProfile() => Run(async () => { await Session.CreateProfileAsync(profileName); await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); ResetProfileView(); await Session.SelectProfileAsync(Session.Profiles.Last().Id); });
     private Task SwitchProfile() => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); await Session.SwitchProfileAsync(); ResetProfileView(); });
@@ -1302,6 +1321,13 @@ else
     private static string Aria(bool value) => value ? "true" : "false";
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        var identity = string.IsNullOrEmpty(Session.User) || Session.NeedsProfileSelection ? "" : AppearanceKey;
+        if (feedbackProfile != identity)
+        {
+            feedbackProfile = identity;
+            var scope = identity.Length == 0 ? "" : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity)));
+            await JS.InvokeVoidAsync("familyhub.feedback.useProfile", scope);
+        }
         if (!EntryScreen && Session.MessageLevel == "success" && shownConfirmation != Session.MessageRevision)
         {
             shownConfirmation = Session.MessageRevision;
