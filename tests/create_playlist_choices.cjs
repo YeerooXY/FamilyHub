@@ -33,7 +33,10 @@ async function check(name, engine, profile) {
             path: path.join(process.env.CREATE_PLAYLIST_CAPTURE, name + '.png')
         });
 
-        await page.evaluate(value => { window.familyhub.clipboardText = async () => value; }, link);
+        await page.evaluate(value => {
+            window.fixtureClipboardText = value;
+            window.familyhub.clipboardText = async () => window.fixtureClipboardText;
+        }, link);
         const paste = dialog.getByRole('button', {name: 'Paste', exact: true});
         await paste.press('Space');
         const input = dialog.getByRole('textbox', {name: 'Playlist link'});
@@ -51,9 +54,10 @@ async function check(name, engine, profile) {
         assert(await input.evaluate(node => node === document.activeElement));
         if (name === 'desktop-chromium') {
             const longerLink = 'https://www.youtube.com/playlist?list=PL1234567890&ref=' + 'a'.repeat(400);
-            await page.evaluate(value => { window.familyhub.clipboardText = async () => value; }, longerLink);
+            await page.evaluate(value => { window.fixtureClipboardText = value; }, longerLink);
             await paste.press('Enter');
             await preview.waitFor();
+            assert.equal(await preview.textContent(), longerLink);
             assert.equal(await input.inputValue(), longerLink);
             await dialog.getByRole('button', {name: 'Clear link'}).press('Enter');
             await preview.waitFor({state: 'hidden'});
