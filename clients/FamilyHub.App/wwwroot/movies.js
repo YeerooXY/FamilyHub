@@ -1,5 +1,12 @@
 import { buildPlayerUi } from "./movie-player-ui.js";
 
+// AbortSignal.timeout needs Chromium 103; older televisions (webOS) need this form.
+function timeoutSignal(ms) {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), ms);
+    return controller.signal;
+}
+
 function el(tag, text) {
     const node = document.createElement(tag);
     if (text) node.textContent = text;
@@ -56,7 +63,7 @@ export function openMovies(host, session, app, viewer) {
         return target;
     };
     const request = async (path, params, body, signal = life.signal) => {
-        const res = await fetch(url(path, params), { method: body ? "POST" : "GET", signal: signal ?? AbortSignal.timeout(8000),
+        const res = await fetch(url(path, params), { method: body ? "POST" : "GET", signal: signal ?? timeoutSignal(8000),
             headers: { ...headers, "Content-Type": "application/json" }, referrerPolicy: "no-referrer",
             credentials: "omit", redirect: "error", body: body ? JSON.stringify(body) : undefined });
         if (!res.ok) throw Error("Jellyfin request failed");
@@ -667,6 +674,6 @@ export function openMovies(host, session, app, viewer) {
     return { async close() {
         if (!active) return;
         leavePlayer(); active = false; life.abort(); stop(); await reports;
-        try { await request("Sessions/Logout", {}, {}, AbortSignal.timeout(5000)); } catch {}
+        try { await request("Sessions/Logout", {}, {}, timeoutSignal(5000)); } catch {}
     } };
 }

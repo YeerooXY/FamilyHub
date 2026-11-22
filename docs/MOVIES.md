@@ -18,6 +18,16 @@ Resource limits are also not enforced. The priority rules in [New server](NEW_SE
 
 The next release-gating checks are one real feature film on a phone and on the projector, with Direct Play first and Quick Sync second.
 
+## iPhone and television (22 November 2026 review)
+
+**iPhone.** The movie UI is plain web code inside the MAUI web view, so the iOS app will show it once an IPA exists. The player is a page layout and does not use the Fullscreen API, which iPhone Safari does not offer for ordinary elements. The video is inline (`playsinline`), so iOS does not take it into its own player, and the page uses the safe-area insets. WebKit passes the movie tests on an emulated iPhone 13, but that is not iOS. Unverified on a real iPhone: subtitle cues drawn on a video without native controls, HLS from Jellyfin through the web view, and touch scrubbing. No IPA is built yet; see [Private iPhone installation](IOS_PRIVATE_INSTALL.md).
+
+**LG television (webOS).** The MAUI app does not run on webOS. A webOS app is a packaged or hosted web page installed through Developer Mode and the `ares` tools; apps installed this way are removed when the Developer Mode session expires and need renewing in the TV's Developer Mode app (LG's current guide gives 1000 hours; older reports say 50). The movie client is already web code, but it needs a standalone page with a profile picker and the FamilyHub session, which does not exist yet. The Jellyfin address must be HTTPS and reachable from the TV's network.
+
+The TV's browser engine decides what the current code supports: `:is()` and `aspect-ratio` need Chromium 88, and `AbortSignal.timeout` (now replaced) needed 103. By LG's published table webOS 22 ships Chromium 87, webOS 23 ships 94 and webOS 24 ships 108. A webOS 22 or older set needs some CSS rewritten; webOS 23 and newer should work. Check the TV's webOS version in Settings first.
+
+The remote works through the arrow keys: they move between cards, shelves, the billboard and the player controls, Enter selects, and the Back key (key code 461) closes the player. The pointer ("magic") remote also works. Not yet tested on a television.
+
 ## Connect a profile
 
 1. Start the existing Jellyfin service on the Debian guest. Give each viewer a separate ordinary Jellyfin account with access to the movie and TV libraries. The projector should use the same viewer account as the phone.

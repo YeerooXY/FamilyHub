@@ -163,6 +163,17 @@ async function check(browser, options) {
         await page.keyboard.press("Tab");
         await focused(next);
     }
+    // A TV remote has only arrows: they move between controls, and left and right on the seek bar scrub.
+    const press = async (key, next) => { await page.keyboard.press(key); await focused(next); };
+    await playPause.focus();
+    await press("ArrowRight", page.getByRole("button", { name: "Forward 10 seconds" }));
+    await press("ArrowLeft", playPause);
+    await press("ArrowDown", page.getByRole("slider", { name: "Seek" }));
+    await page.keyboard.press("ArrowDown");
+    await page.waitForFunction(() => document.activeElement.closest(".movie-ui-actions"));
+    await press("ArrowUp", page.getByRole("slider", { name: "Seek" }));
+    await press("ArrowUp", playPause);
+    await press("ArrowUp", back);
     // Audio & Subtitles opens a sheet with one named close control and Escape returns focus to its opener.
     const tracks = page.getByRole("button", { name: "Audio and subtitles" });
     await tracks.click();

@@ -273,17 +273,48 @@ export function buildPlayerUi(ctx) {
         fullscreen.setAttribute("aria-label", on ? "Exit full screen" : "Full screen");
     }, { signal });
 
-    // Keyboard and TV remote: arrows seek, Space or Enter toggles play (when no control has focus), Escape closes a sheet.
+    // Keyboard and TV remote. With a control focused, the arrow keys move between controls (a TV remote has no pointer):
+    // left and right inside a row, up and down between rows. The seek bar scrubs with left and right. With nothing
+    // focused, left and right skip 10 seconds. Space, K or Enter toggles play, Escape closes a sheet, Back closes the player.
+    const rows = () => [[back], [rewind, playPause, forward], [seek], [fullscreen, episodesButton, tracksButton, nextButton].filter(b => !b.hidden)];
+    function moveFocus(target, key) {
+        const sheetNode = openSheet && sheets[openSheet].node;
+        if (sheetNode?.contains(target)) {
+            const items = [...sheetNode.querySelectorAll("button, select")];
+            const at = items.indexOf(target) + (key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : 0);
+            if (at !== items.indexOf(target) && items[at]) items[at].focus();
+            return true;
+        }
+        const all = rows(), row = all.findIndex(items => items.includes(target));
+        if (row < 0) return false;
+        if (key === "ArrowLeft" || key === "ArrowRight") {
+            const step = key === "ArrowRight" ? 1 : -1;
+            if (target === seek) skip(step * 10);
+            else all[row][Math.min(all[row].length - 1, Math.max(0, all[row].indexOf(target) + step))].focus();
+            return true;
+        }
+        const next = all[Math.min(all.length - 1, Math.max(0, row + (key === "ArrowDown" ? 1 : -1)))];
+        const middle = node => { const box = node.getBoundingClientRect(); return box.left + box.width / 2; };
+        const x = middle(target);
+        next.reduce((best, node) => Math.abs(middle(node) - x) < Math.abs(middle(best) - x) ? node : best).focus();
+        return true;
+    }
     document.addEventListener("keydown", event => {
         if (event.altKey || event.ctrlKey || event.metaKey) return;
         const target = event.target;
-        const field = target instanceof HTMLSelectElement || (target instanceof HTMLInputElement && target.type !== "button");
         if (event.key === "Escape" && openSheet) { event.preventDefault(); closeSheet(true); return; }
         if (event.keyCode === 461 || event.key === "BrowserBack") { event.preventDefault(); back.click(); return; }
-        if (field || (target instanceof HTMLButtonElement && [" ", "Enter"].includes(event.key))) return;
+        const arrow = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key);
+        if (target instanceof HTMLSelectElement) return;
+        if (arrow && root.contains(target) && target !== document.body) {
+            show();
+            if (moveFocus(target, event.key)) event.preventDefault();
+            return;
+        }
+        if (target instanceof HTMLButtonElement && [" ", "Enter"].includes(event.key)) return;
         if (event.key === "ArrowLeft") { event.preventDefault(); skip(-10); }
         else if (event.key === "ArrowRight") { event.preventDefault(); skip(10); }
-        else if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); show(); }
+        else if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); show(); playPause.focus(); }
         else if (event.key === " " || event.key === "k" || event.key === "Enter") { event.preventDefault(); toggle(); }
         else if (event.key === "f" || event.key === "F") fullscreen.click();
     }, { signal, capture: true });
