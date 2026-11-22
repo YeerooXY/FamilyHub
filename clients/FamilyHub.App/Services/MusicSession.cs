@@ -753,6 +753,21 @@ public sealed class MusicSession
         finally { connectionLock.Release(); }
     }
 
+    public async Task RenameProfileAsync(string name)
+    {
+        await connectionLock.WaitAsync();
+        try
+        {
+            if (!Connected || Api is not { } api) throw new InvalidOperationException("Connect to change your display name.");
+            var version = accountVersion;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var profile = await api.RenameProfileAsync(name, timeout.Token);
+            EnsureCurrent(version);
+            ApplyProfileUpdate(profile);
+        }
+        finally { connectionLock.Release(); }
+    }
+
     public async Task SwitchProfileAsync()
     {
         await connectionLock.WaitAsync();
@@ -1557,15 +1572,29 @@ public sealed class MusicSession
     private sealed record ProfileImageResponse(ListenerProfile Profile);
     public async Task SetProfileImageAsync(string dataUri)
     {
-        var version = accountVersion;
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        var result = await OnlineApi().RequestJsonAsync<ProfileImageResponse>(HttpMethod.Post,
-            "/api/profile/image", new { image = dataUri }, timeout.Token);
-        EnsureCurrent(version);
-        if (result.Profile.Id != User) throw new InvalidDataException("The profile image belongs to another listener.");
+        await connectionLock.WaitAsync();
+        try
+        {
+            var version = accountVersion;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var result = await OnlineApi().RequestJsonAsync<ProfileImageResponse>(HttpMethod.Post,
+                "/api/profile/image", new { image = dataUri }, timeout.Token);
+            EnsureCurrent(version);
+            ApplyProfileUpdate(result.Profile);
+        }
+        finally { connectionLock.Release(); }
+    }
+
+    private void ApplyProfileUpdate(ListenerProfile profile)
+    {
+        if (profile is null || profile.Id != User || string.IsNullOrWhiteSpace(profile.Name))
+            throw new InvalidDataException("The server returned an invalid profile.");
         var index = Profiles.FindIndex(p => p.Id == User);
-        if (index >= 0) Profiles[index] = result.Profile;
+        if (index >= 0) Profiles[index] = profile;
+        else Profiles.Add(profile);
+        ProfileName = profile.Name;
         StoreProfiles(Server, Profiles);
+        PersistConnection();
         Changed?.Invoke();
     }
 

@@ -13,8 +13,8 @@
     <MauiXamlInflator>SourceGen</MauiXamlInflator>
     <ApplicationTitle>FamilyHub Music</ApplicationTitle>
     <ApplicationId>org.familyhub.music</ApplicationId>
-    <ApplicationDisplayVersion>0.1.80</ApplicationDisplayVersion>
-    <ApplicationVersion>81</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1.81</ApplicationDisplayVersion>
+    <ApplicationVersion>82</ApplicationVersion>
     <Version>$(ApplicationDisplayVersion)</Version>
     <WindowsPackageType>None</WindowsPackageType>
     <DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
@@ -25,6 +25,10 @@
     <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../music_web/wordle_data/guesses.txt" LogicalName="FamilyHub.Wordle.Guesses" />
+    <AssemblyMetadata Include="FamilyHubBuild" Value="$(ApplicationVersion)" />
+  </ItemGroup>
   <ItemGroup>
     <MauiIcon Include="Resources\AppIcon\familyhub.svg" ForegroundFile="Resources\AppIcon\familyhub_foreground.svg" ForegroundScale="1" Color="#000000" Resize="true" BaseSize="1024,1024" />
     <MauiSplashScreen Include="Resources\Splash\splash.png" Color="#07101F" Resize="true" BaseSize="128,128" />

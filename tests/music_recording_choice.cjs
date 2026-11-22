@@ -22,6 +22,7 @@ async function audit(engine, options, phone = false) {
         const queue = dialog.getByRole('button', {name: 'Queue replacement', exact: true});
 
         await page.goto(origin);
+        await page.getByRole('button', {name: 'Music', exact: true}).click();
         await page.locator('#discovery-shelf .home-card').nth(7).waitFor();
         if (phone) await target('profile-toggle').tap();
         await page.getByRole('button', {name: 'Server work', exact: true}).first().click();

@@ -1,0 +1,20 @@
+<section class="hub-apps" aria-labelledby="view-title">
+    <h1 id="view-title" tabindex="-1">FamilyHub</h1>
+    <nav class="hub-grid" aria-label="Apps">
+        <button class="hub-card hub-music" @onclick='() => Open.InvokeAsync("Home")'>
+            <span class="hub-record" aria-hidden="true"></span>
+            <span class="hub-label">Music</span>
+        </button>
+        <button class="hub-card hub-word" @onclick='() => Open.InvokeAsync("Wordle")'>
+            <span class="hub-tiles" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+            <span class="hub-label">Daily Wordle</span>
+        </button>
+        <button class="hub-card hub-movies" @onclick='() => Open.InvokeAsync("Movies & TV")'>
+            <span class="hub-film" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="hub-label">Movies &amp; TV</span>
+        </button>
+    </nav>
+</section>
+@code {
+    [Parameter] public EventCallback<string> Open { get; set; }
+}

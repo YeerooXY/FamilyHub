@@ -89,10 +89,14 @@ class ProfileStore:
             raise ProfileError("This profile was not found. Choose a family profile.")
         return profile
 
-    def create(self, name):
+    @staticmethod
+    def _validated_name(name):
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 64 or any(ord(c) < 32 or ord(c) == 127 for c in name):
             raise ProfileError("Enter a profile name of 1 to 64 characters.")
-        name = name.strip()
+        return name.strip()
+
+    def create(self, name):
+        name = self._validated_name(name)
         data = self.read()
         if len(data["profiles"]) >= 12:
             raise ProfileError("You can create up to 12 family profiles.")
@@ -102,6 +106,17 @@ class ProfileStore:
         data["profiles"].append(profile)
         self.write(data)
         return profile
+
+    def set_name(self, profile_id, name):
+        name = self._validated_name(name)
+        data = self.read()
+        profile = self._find(profile_id, data)
+        if any(p["id"] != profile_id and p["name"].casefold() == name.casefold() for p in data["profiles"]):
+            raise ProfileError("A profile with this name already exists.")
+        if profile["name"] != name:
+            profile["name"] = name
+            self.write(data)
+        return self._public_profile(profile)
 
     def preferences(self, profile_id, changes=None):
         data = self._load() if changes is None else self.read()

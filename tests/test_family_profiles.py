@@ -41,6 +41,35 @@ class FamilyProfiles(Base):
         self.assertEqual(response.status_code, 200, response.json)
         return client, response.json['csrf_token']
 
+    def test_display_name_rename_preserves_profile_identity_and_preferences(self):
+        client, token = self.select()
+        path = '/api/profile/name'
+        headers = {'X-CSRFToken': token}
+        self.assertEqual(self.go(client, 'PATCH', '/api/profile/preferences', json={'shuffle': True}, headers=headers).status_code, 200)
+        response = self.go(client, 'PATCH', path, json={'name': '  Mária 🌿  '}, headers=headers)
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json['profile']['id'], 'sample-a')
+        self.assertEqual(response.json['profile']['name'], 'Mária 🌿')
+        self.assertTrue(self.go(client, 'GET', '/api/profile/preferences').json['preferences']['shuffle'])
+        _, connection = self.bootstrap()
+        self.assertEqual({p['id']: p['name'] for p in connection['profiles']},
+                         {'sample-a': 'Mária 🌿', 'sample-b': 'sample-b'})
+        self.assertEqual(ProfileStore(self.ws, []).get('sample-a')['name'], 'Mária 🌿')
+
+    def test_display_name_rename_requires_identity_and_validates_name(self):
+        client, bootstrap = self.bootstrap()
+        path = '/api/profile/name'
+        self.assertEqual(self.go(client, 'PATCH', path, json={'name': 'New'}, headers={'X-CSRFToken': bootstrap['csrf_token']}).status_code, 401)
+        client, token = self.select(client=client)
+        self.assertEqual(self.go(client, 'PATCH', path, json={'name': 'New'}).status_code, 400)
+        headers = {'X-CSRFToken': token}
+        for payload in ({'name': 'New', 'profile_id': 'sample-b'}, {'name': ' SAMPLE-B '}, {'name': ' '}, {'name': 'x' * 65}, {'name': 'A\nB'}):
+            with self.subTest(payload=payload):
+                self.assertEqual(self.go(client, 'PATCH', path, json=payload, headers=headers).status_code, 400)
+        response = self.go(client, 'PATCH', path, json={'name': 'SAMPLE-A'}, headers=headers)
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json['profile']['id'], 'sample-a')
+
     def test_seed_selection_rotates_csrf_without_navidrome_and_remembers_session(self):
         client, bootstrap = self.bootstrap()
         self.assertTrue(bootstrap['family_profiles'])

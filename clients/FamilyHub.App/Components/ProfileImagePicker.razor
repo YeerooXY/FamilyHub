@@ -7,17 +7,58 @@
         <span class="profile-picture-caption">@(working ? "Saving..." : "Change picture")</span>
         <InputFile id="profile-image-file" OnChange="ChooseImage" accept="image/jpeg,image/png" aria-label="Choose profile picture" disabled="@(!Session.Connected)" aria-busy="@(working ? "true" : "false")" />
     </label>
-    <div class="profile-picture-copy"><strong>@Profile?.Name</strong><Notice Level="error" Message="@message" /></div>
+    <div class="profile-picture-copy">
+        <form class="profile-name-form" @onsubmit="SaveName" @onsubmit:preventDefault>
+            <label for="profile-display-name">Display name</label>
+            <div class="profile-name-fields">
+                <input id="profile-display-name" type="text" @bind="draftName" @bind:event="oninput" readonly="@(!Session.Connected || savingName)" autocomplete="off" />
+                <button id="profile-save-name" type="submit" aria-disabled="@(!CanSaveName ? "true" : null)">@(savingName ? "Saving…" : "Save name")</button>
+            </div>
+            <Notice Level="@(nameSaved ? "success" : "error")" Message="@nameMessage" />
+        </form>
+        <Notice Level="error" Message="@imageMessage" />
+    </div>
 </div>
 
 @code {
     [Parameter] public ListenerProfile? Profile { get; set; }
-    private bool working;
-    private string message = "";
+    private bool working, savingName, nameSaved;
+    private string imageMessage = "", nameMessage = "", draftName = "";
+    private string? profileId, savedName;
+    private bool CanSaveName => Session.Connected && Profile is not null && !savingName &&
+        draftName.Trim() is { Length: > 0 } name && name != savedName;
+
+    protected override void OnParametersSet()
+    {
+        if (Profile?.Id != profileId)
+        {
+            profileId = Profile?.Id;
+            draftName = Profile?.Name ?? "";
+            nameMessage = imageMessage = "";
+        }
+        else if (draftName == savedName) draftName = Profile?.Name ?? "";
+        savedName = Profile?.Name;
+    }
+
+    private async Task SaveName()
+    {
+        if (!CanSaveName) return;
+        savingName = true; nameSaved = false; nameMessage = "";
+        try
+        {
+            await Session.RenameProfileAsync(draftName);
+            draftName = Session.ProfileName;
+            nameSaved = true;
+            nameMessage = "Display name saved.";
+        }
+        catch (Exception error) { nameMessage = NoticeText.Error(error, "Could not save your display name. Try again."); }
+        finally { savingName = false; }
+    }
+
     private async Task ChooseImage(InputFileChangeEventArgs args)
     {
         if (working || !Session.Connected) return;
-        working = true; message = "";
+        working = true; imageMessage = "";
         try
         {
             if (args.File.Size > 10 * 1024 * 1024) throw new InvalidOperationException("Choose an image smaller than 10 MB.");
@@ -28,7 +69,7 @@
             await Session.SetProfileImageAsync("data:image/jpeg;base64," + Convert.ToBase64String(output.ToArray()));
             await JS.InvokeVoidAsync("FamilyHubNotices.toast", "Profile picture saved.");
         }
-        catch (Exception error) { message = NoticeText.Error(error); }
+        catch (Exception error) { imageMessage = NoticeText.Error(error); }
         finally
         {
             working = false;

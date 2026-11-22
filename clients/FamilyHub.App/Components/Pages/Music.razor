@@ -1,4 +1,6 @@
 @page "/"
+@page "/hub"
+@page "/wordle"
 @page "/server-work"
 @page "/server-stats"
 @page "/stats"
@@ -23,7 +25,7 @@ else if (EntryScreen)
         @if (Session.NeedsProfileSelection && view != "Settings")
         {
             <section class="profile-picker" aria-labelledby="profile-heading">
-                <h1 id="profile-heading">Who's listening?</h1>
+                <h1 id="profile-heading">Choose a profile</h1>
                 <div class="profile-grid">
                     @foreach (var profile in Session.Profiles)
                     {
@@ -61,7 +63,7 @@ else
 <a class="skip" href="#content">Skip to content</a>
 <header class="app-header">
     <div class="header-start">
-        <button class="brand" @onclick='() => Navigate("Home")' aria-label="FamilyHub Music" title="FamilyHub Music"><img src="familyhub-logo.svg" alt="" /></button>
+        <button id="open-hub" class="brand hub-launcher" @onclick='() => Navigate("Hub")' aria-label="Switch apps" title="Switch apps"><MusicIcon Name="apps" /></button>
         <nav class="view-history" aria-label="View history">
             <button class="header-icon" @onclick="GoBack" aria-label="Go back" title="Go back" aria-disabled="@Aria(backViews.Count == 0)"><MusicIcon Name="back" /></button>
             <button class="header-icon" @onclick="GoForward" aria-label="Go forward" title="Go forward" aria-disabled="@Aria(forwardViews.Count == 0)"><MusicIcon Name="forward" /></button>
@@ -97,17 +99,13 @@ else
     <button class="nav-button phone-nav" aria-label="Search" aria-current='@(view == "Search" ? "page" : null)' @onclick="OpenSearchTab"><MusicIcon Name="search" /><span class="nav-label">Search</span></button>
     <button class="nav-button phone-nav" aria-label="Playlists" aria-current='@(LibraryViews.Contains(view) ? "page" : null)' @onclick='() => Navigate("Playlists")'><MusicIcon Name="playlist" /><span class="nav-label">Playlists</span></button>
     <button id="open-library" class="nav-button desktop-nav" aria-label="Your library" title="Your library" aria-current='@(view == "Library" ? "page" : null)' @onclick='() => Navigate("Library")'><MusicIcon Name="library" /><span class="nav-label">Your library</span></button>
-    @if (Session.Connected && Session.MoviesEnabled)
-    {
-        <button id="open-movies" class="nav-button" aria-label='@("Movies & TV")' title='@("Movies & TV")' aria-current='@(view == "Movies & TV" ? "page" : null)' @onclick='() => Navigate("Movies & TV")'><MusicIcon Name="film" /><span class="nav-label">Movies &amp; TV</span></button>
-    }
     @foreach (var tab in new[] { "Downloads", "Playlists", "Leaderboard", "Stats" })
     { <button class="nav-button desktop-nav" aria-label="@NavLabel(tab)" title="@NavLabel(tab)" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" /><span class="nav-label">@NavLabel(tab)</span></button> }
     </nav>
     <div id="sidebar-resize" role="separator" tabindex="0" aria-label="Resize library sidebar" aria-orientation="vertical" aria-valuemin="72" aria-valuemax="420" aria-valuenow="@(sidebarCollapsed ? 72 : sidebarWidth)"></div>
 </aside>
-<div class="workspace"><main id="content" tabindex="-1">
-    @if (view is not ("Playlists" or "Home" or "Album")) { <h1 id="view-title" tabindex="-1">@(view == "Preferences" ? "Settings" : NavLabel(view))</h1> }
+<div class="workspace" data-app-view="@view"><main id="content" tabindex="-1">
+    @if (view is not ("Playlists" or "Home" or "Album" or "Hub" or "Wordle")) { <h1 id="view-title" tabindex="-1">@(view == "Preferences" ? "Settings" : NavLabel(view))</h1> }
     <Notice Id="feedback" Level="@(error is not null ? "error" : radioProgress is not null ? "info" : Session.MessageLevel)"
         Message="@(error ?? radioProgress ?? (Session.DownloadingId is null && Session.MessageLevel != "success" ? Session.Message : ""))"
         ActionLabel="@RecoveryLabel" Action="RetryNotice" FocusTarget="@(searchFailed ? "#view-title" : "#play")" />
@@ -116,7 +114,15 @@ else
     {
         <div class="library-switch" role="group" aria-label="Library sections">@foreach (var (tab, label) in new[] { ("Playlists", "Playlists"), ("Library", "Songs"), ("Downloads", "Downloaded") }) { <button aria-pressed="@Aria(view == tab)" @onclick="() => Navigate(tab)">@label</button> }</div>
     }
-    @if (view == "Home")
+    @if (view == "Hub")
+    {
+        <HubApps Open="Navigate" />
+    }
+    else if (view == "Wordle")
+    {
+        <DailyWordle @key="AppearanceKey" />
+    }
+    else if (view == "Home")
     {
         <HomeView OpenPlaylist="OpenPlaylist" OpenAlbum="OpenAlbum" PlayTracks="PlayHomeTracks" StartRadio="StartSongRadio" CurrentTrack="Player.Current" RadioBusy="busy" FollowingHost="Player.FollowingHost" />
     }
@@ -144,7 +150,7 @@ else
         <div class="library-list unified-song-list">
             @foreach (var track in album.Tracks.Take(Shown(album.Opener))) { @TrackRow(track, album.Tracks, false) }
         </div>
-        @ShowMore(album.Tracks.Count)
+        @PageEnd(album.Tracks.Count)
     }
     else if (view == "Library" || view == "Downloads")
     {
@@ -182,10 +188,10 @@ else
                     Action="ResetLibraryNotice" FocusTarget="#library-filter" />
         }
         <div class="library-list">
-            @foreach (var track in tracks.Take(Shown($"{view}:{showPlaybackCache}:{filter}:{genre}")))
+            @foreach (var track in tracks.Take(Shown($"{view}:{showPlaybackCache}")))
             { @TrackRow(track, tracks, downloadedView && !showPlaybackCache) }
         </div>
-        @ShowMore(tracks.Count)
+        @PageEnd(tracks.Count)
     }
     else if (view == "Preferences")
     {
@@ -194,6 +200,7 @@ else
                 <button id="settings-general" aria-pressed='@Aria(settingsSection == "General")' @onclick='() => SelectSettingsSection("General")'>General</button>
                 <button id="settings-music" aria-pressed='@Aria(settingsSection == "Music")' @onclick='() => SelectSettingsSection("Music")'>Music</button>
                 <button id="settings-movies" aria-pressed='@Aria(settingsSection == "Movies")' @onclick='() => SelectSettingsSection("Movies")'>Movies</button>
+                <button id="settings-wordle" aria-pressed='@Aria(settingsSection == "Wordle")' @onclick='() => SelectSettingsSection("Wordle")'>Wordle</button>
             </div>
             @if (settingsSection == "General")
             {
@@ -206,7 +213,10 @@ else
                 <section class="settings-panel glass-panel" aria-labelledby="connection-settings-heading">
                     <h2 id="connection-settings-heading">Server and updates</h2>
                     <div class="setting-row"><span>Server <span class="settings-connection-state">@(Session.Connected ? "Connected" : "Offline")</span></span><button @onclick='() => Navigate("Settings")'>Change server</button></div>
-                    <AppUpdate @key="Session.Server" InitialRelease="startupUpdate" Available="ShowAvailableUpdate" />
+                    <div class="setting-row"><span>Installed version</span><span id="installed-app-version">@AppUpdater.CurrentVersion · Build @AppUpdater.CurrentBuild · @AppUpdater.PlatformDisplay</span></div>
+                    <div class="setting-row"><span>Server release</span><span id="settings-update-status" role="status">@UpdateStatus</span></div>
+                    <div class="setting-row"><button id="settings-release-history" type="button" @onclick="OpenReleaseHistory">Release history</button></div>
+                    <AppUpdate Id="settings-app-update" @key="Session.Server" InitialRelease="@(updateCheckOrigin == Session.Server ? startupUpdate : null)" VersionInHeading="true" />
                 </section>
             }
             else if (settingsSection == "Music")
@@ -244,6 +254,10 @@ else
                     @if (!Session.Connected) { <p class="setting-help">Connect to clear shared listening history.</p> }
                 </section>
                 <PlaybackDiagnostics @key="(Session.Server, Session.User)" />
+            }
+            else if (settingsSection == "Wordle")
+            {
+                <WordleSettings @key="AppearanceKey" />
             }
             else
             {
@@ -425,7 +439,7 @@ else
         @foreach (var position in Enumerable.Range(queueStart, Math.Max(0, Math.Min(queuedTracks.Count - queueStart, Shown("queue")))))
         { @TrackRow(queuedTracks[position], queuedTracks, false, position) }
         </div>
-        @ShowMore(queuedTracks.Count - queueStart)
+        @PageEnd(queuedTracks.Count - queueStart)
     }
     else if (view == "Search")
     {
@@ -712,7 +726,7 @@ else
         await JS.InvokeVoidAsync("familyhub.focus", "settings-" + section.ToLowerInvariant());
         settingsSection = section;
     }
-    private string view = "Home", server = "", filter = "", query = "", genre = "", profileName = "";
+    private string view = "Hub", server = "", filter = "", query = "", genre = "", profileName = "";
     private string selectedId = "", recommendationTitle = "";
     private string playlistFilter = "All", playlistSearch = "", playlistSort = "Recent";
     public sealed record PlaylistCollection(List<string> Pinned, List<string> Recent);
@@ -882,27 +896,84 @@ else
         return Task.CompletedTask;
     }
     private AppRelease? startupUpdate;
-    private readonly HashSet<string> updateChecks = [];
+    private AppRelease? serverRelease;
+    private string? updateCheckOrigin, updateStatusError;
     private bool updateNoticeDismissed;
-    private bool updateCheckInFlight, updateChecksStopped;
+    private bool updateCheckInFlight, updateChecksStopped, updateFocusPending;
     private DateTime lastUpdateCheck;
+    private string UpdateStatus => AppUpdater.Platform is null ? "Updates unavailable on this platform"
+        : Session.Api is null ? "Connect to check for updates"
+        : updateCheckOrigin != Session.Server || updateCheckInFlight && serverRelease is null ? "Checking for updates…"
+        : updateStatusError is not null ? updateStatusError
+        : serverRelease is { } release ? AppUpdater.CompareToInstalled(release) switch
+        {
+            > 0 => $"{release.Version} available",
+            < 0 => $"{release.Version} · Installed version is newer",
+            _ => $"{release.Version} · Up to date"
+        }
+        : "No release for this platform";
+
+    private async Task OpenReleaseHistory()
+    {
+        try { if (await Launcher.Default.OpenAsync(AppUpdater.ReleaseHistoryUrl)) return; }
+        catch (Exception error) when (error is InvalidOperationException or NotSupportedException) { }
+        Session.SetMessage("Could not open release history.", "error");
+    }
+
     [JSInvokable] public Task CheckForBackgroundUpdate() => CheckStartupUpdate(Session.Server, true);
     private async Task CheckStartupUpdate(string origin, bool background = false)
     {
-        if (updateChecksStopped || updateCheckInFlight || AppUpdater.Platform is null || Session.Api is null || (background && DateTime.UtcNow - lastUpdateCheck < TimeSpan.FromMinutes(1))) return;
+        if (updateChecksStopped || updateCheckInFlight || AppUpdater.Platform is null || Session.Api is null
+            || (background && updateCheckOrigin == origin && DateTime.UtcNow - lastUpdateCheck < TimeSpan.FromMinutes(1))) return;
         updateCheckInFlight = true; lastUpdateCheck = DateTime.UtcNow;
         try
         {
-            using var api = new FamilyHubApi(new Uri(origin));
-            var release = await AppUpdater.CheckAsync(api);
-            if (!updateChecksStopped && Session.Server == origin && release is not null && release.Version != startupUpdate?.Version)
+            if (updateCheckOrigin != origin)
             {
-                startupUpdate = release; updateNoticeDismissed = background; updateDialogOpened = false;
+                await SetAvailableUpdate(null, background);
+                updateCheckOrigin = origin; serverRelease = null; updateStatusError = null;
                 await InvokeAsync(StateHasChanged);
             }
+            using var api = new FamilyHubApi(new Uri(origin));
+            var release = await AppUpdater.CheckAsync(api);
+            if (!updateChecksStopped && Session.Server == origin)
+            {
+                await SetAvailableUpdate(AppUpdater.CompareToInstalled(release) > 0 ? release : null, background);
+                serverRelease = release; updateStatusError = null;
+            }
         }
-        catch { /* Retry quietly on the next scheduled check. */ }
-        finally { updateCheckInFlight = false; }
+        catch (FamilyHubApiException error) when (error.StatusCode == 404)
+        {
+            if (!updateChecksStopped && Session.Server == origin)
+            {
+                await SetAvailableUpdate(null, background);
+                serverRelease = null; updateStatusError = null;
+            }
+        }
+        catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException or System.IO.InvalidDataException or System.Text.Json.JsonException)
+        {
+            if (!updateChecksStopped && Session.Server == origin)
+                updateStatusError = serverRelease is { } last ? $"Could not refresh · Last seen {last.Version}" : "Could not check for updates";
+        }
+        finally
+        {
+            updateCheckInFlight = false;
+            if (!updateChecksStopped) await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task SetAvailableUpdate(AppRelease? release, bool background)
+    {
+        if (release?.Version != startupUpdate?.Version)
+        {
+            if (startupUpdate is not null && release is null)
+            {
+                if (updateDialogOpened) await JS.InvokeVoidAsync("familyhub.closeDialog", "update-dialog", "profile-toggle");
+                updateFocusPending = true;
+            }
+            updateNoticeDismissed = background; updateDialogOpened = false;
+        }
+        startupUpdate = release;
     }
     private bool updateDialogOpened, createPlaylistOpen;
     private void ShowAvailableUpdate(AppRelease release) { startupUpdate = release; updateNoticeDismissed = false; updateDialogOpened = false; }
@@ -1002,14 +1073,18 @@ else
         if (key != shownKey) { shownKey = key; shown = ListPage; }
         return shown;
     }
-    private RenderFragment ShowMore(int total) => __builder =>
+    private RenderFragment PageEnd(int total) => __builder =>
     {
         if (total > shown)
         {
-            <button id="show-more" class="quiet show-more" @onclick="() => ShowMoreSongs(total)">Show @Math.Min(ListPage, total - shown) more of @(total - shown)</button>
+            var page = (shownKey, shown);
+            <PlaylistPageEnd @key="page" Reached="() => AdvancePage(page, total)" />
         }
     };
-    private void ShowMoreSongs(int total) { shown += ListPage; pendingFocus = total > shown ? "show-more" : "content"; }
+    private void AdvancePage((string Key, int Count) page, int total)
+    {
+        if (page == (shownKey, shown)) shown = Math.Min(total, shown + ListPage);
+    }
     private string? pendingReveal;
     private static readonly HashSet<string> LibraryViews = ["Library", "Playlists", "Downloads"];
     private async Task OpenSearchTab() { await Navigate("Search"); pendingFocus = await JS.InvokeAsync<bool>("familyhub.isPhone") ? "view-title" : "q"; }
@@ -1146,13 +1221,13 @@ else
     private Task SwitchProfile() => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); await Session.SwitchProfileAsync(); ResetProfileView(); });
     private void ResetProfileView()
     {
-        var keepDeepLink = EntryScreen && view == "Stats";
+        var keepDeepLink = EntryScreen && view is ("Stats" or "Wordle");
         CancelSearch();
         recommendationLookup?.Cancel();
         recommendationLookup = null;
         recommendationError = null;
         backViews.Clear(); forwardViews.Clear();
-        view = "Home"; profileMenu = false; addingProfile = false; selectedId = ""; selectedAlbum = null;
+        view = "Hub"; profileMenu = false; addingProfile = false; selectedId = ""; selectedAlbum = null;
         searchResults = []; recommendations = null; filter = ""; genre = ""; showPlaybackCache = false;
         playlistFilter = "All"; playlistSearch = ""; playlistSort = "Recent";
         pendingFocus = "content";
@@ -1200,6 +1275,7 @@ else
         var uri = new Uri(lastRoute);
         var target = uri.Fragment.TrimStart('#');
         if (target.Length == 0) target = RouteView ?? uri.AbsolutePath.Trim('/');
+        if (target is "hub" or "wordle") { view = target == "hub" ? "Hub" : "Wordle"; pendingFocus = "content"; return; }
         var section = Uri.UnescapeDataString(target).ToLowerInvariant().Replace(' ', '-') switch
         {
             "artist-mappings" or "artist-mappings-title" => "artist-mappings-title",
@@ -1237,8 +1313,14 @@ else
             await JS.InvokeVoidAsync("familyhub.restoreFocus", "pause-download", view == "Playlists" && Selected is not null ? "keep-playlist" : "content");
         wasDownloading = Session.DownloadingId is not null;
         if (pendingFocus is { } target && (!EntryScreen || target is not ("artist-mappings-title" or "catalogue-review-title" or "view-title"))) { pendingFocus = null; await JS.InvokeVoidAsync("familyhub.focus", target); }
-        if (AppUpdater.Platform is not null && Session.Api is not null && updateChecks.Add(Session.Server))
-        { startupUpdate = null; _ = CheckStartupUpdate(Session.Server); }
+        if (AppUpdater.Platform is not null && Session.Api is not null && !updateCheckInFlight && updateCheckOrigin != Session.Server)
+            _ = CheckStartupUpdate(Session.Server);
+        if (updateFocusPending)
+        {
+            updateFocusPending = false;
+            await JS.InvokeVoidAsync("familyhub.restoreFocus", "settings-app-update", "settings-release-history");
+            await JS.InvokeVoidAsync("familyhub.restoreFocus", "header-update", "profile-toggle");
+        }
         if (startupUpdate is not null && !updateNoticeDismissed && !updateDialogOpened)
         { updateDialogOpened = true; await JS.InvokeVoidAsync("familyhub.showDialog", "update-dialog", "dialog-update"); }
         if (deletePlaylistOpen) { deletePlaylistOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "delete-playlist-dialog", "cancel-delete-playlist"); }
@@ -1342,7 +1424,7 @@ else
         else if (profileMenu) { profileMenu = false; pendingFocus = "profile-toggle"; }
         else if (view == "Playlists" && Selected is not null) await AllPlaylists();
         else if (backViews.Count > 0) GoBack();
-        else if (view != "Home") await Navigate("Home");
+        else if (view != "Hub") await Navigate("Hub");
         else return false;
         StateHasChanged();
         return true;
@@ -1358,9 +1440,9 @@ else
         if (tab != "Search") CancelSearch();
         initialPlaylistReviewIndex = null;
         if (tab == "Playlists") selectedId = "";
+        if (tab == "Preferences") settingsSection = view switch { "Wordle" => "Wordle", "Movies & TV" => "Movies", _ => "General" };
         RememberView(tab); profileMenu = false; error = null; playbackRetry = null; genre = "";
         if (tab == "Settings") server = Session.Server;
-        if (tab == "Preferences") settingsSection = "General";
         pendingFocus = tab == "Stats" ? "view-title" : "content";
         await Task.CompletedTask;
     }

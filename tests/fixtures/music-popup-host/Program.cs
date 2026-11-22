@@ -29,6 +29,8 @@ builder.Services.AddScoped<PlaybackConnection>();
 builder.Services.AddScoped<PlaybackDevicePoll>();
 typeof(Preferences).GetFields(BindingFlags.Static | BindingFlags.NonPublic)
     .Single(f => f.FieldType == typeof(IPreferences)).SetValue(null, new MemoryPreferences());
+typeof(Launcher).GetFields(BindingFlags.Static | BindingFlags.NonPublic)
+    .Single(f => f.FieldType == typeof(ILauncher)).SetValue(null, new FixtureLauncher());
 var patcher = new Harmony("familyhub.fixture");
 patcher.Patch(AccessTools.PropertyGetter(typeof(MainThread), "PlatformIsMainThread"), prefix: new HarmonyMethod(typeof(PlatformStubs), nameof(PlatformStubs.OnMainThread)));
 patcher.Patch(AccessTools.Method(typeof(MusicPlayer), "PrepareFile"), prefix: new HarmonyMethod(typeof(PlatformStubs), nameof(PlatformStubs.CachedFile)));
@@ -45,9 +47,14 @@ app.MapPost("/fixture/listening-request/{show:bool}", (bool show) => FixtureApi.
 app.MapPost("/fixture/startup/{scenario}", (string scenario) =>
 {
     FixtureApi.SimilarRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    Interlocked.Exchange(ref FixtureApi.UpdateChecks, 0);
+    FixtureLauncher.LastAddress = null;
     FixtureApi.Startup = scenario;
 });
+app.MapGet("/fixture/update-check", () => new { Count = Volatile.Read(ref FixtureApi.UpdateChecks), FixtureLauncher.LastAddress });
 app.MapPost("/fixture/similar-release", () => FixtureApi.SimilarRelease.TrySetResult());
+app.MapPost("/fixture/wordle-reset/{seconds:int}", (int seconds) =>
+    FixtureApi.WordleReset = DateTimeOffset.UtcNow.AddSeconds(Math.Max(1, seconds)));
 
 app.MapStaticAssets();
 app.MapRazorComponents<MusicPopupHost.Review>().AddInteractiveServerRenderMode();
@@ -59,6 +66,7 @@ static MusicSession MakeSession(string repo)
     void Set(string name, object value) => typeof(MusicSession).GetProperty(name)!.SetValue(session, value);
     Set("Ready", true);
     Set("Connected", true);
+    Set("MoviesEnabled", true);
     session.UiActive = true;
     Set("User", "fixture");
     Set("Profiles", new List<ListenerProfile> { new() { Id = "fixture", Name = "Alex" }, new() { Id = "june", Name = "June" } });
@@ -77,6 +85,9 @@ static MusicSession MakeSession(string repo)
         library[0] = library[0] with { Channel = "Fixture Seed", Genre = "Fixture Genre" };
     if (FixtureApi.Startup == "similar-preparing")
         library[1] = library[1] with { Title = "Local Match", Channel = "Fixture Seed", Genre = "Fixture Genre" };
+    if (FixtureApi.Startup == "library-pages")
+        library.AddRange(Enumerable.Range(1, 101).Select(i =>
+            library[0] with { Id = $"extra{i:D6}", Title = $"Library page song {i}" }));
     Set("Library", library);
     var rememberPlayback = typeof(MusicSession).GetMethod("RememberPlaybackAttempt", BindingFlags.Instance | BindingFlags.NonPublic)!;
     rememberPlayback.Invoke(session, ["fedcba98765432100123456789abcdef", library[0], DateTimeOffset.UtcNow.AddMinutes(-2)]);
@@ -168,10 +179,24 @@ sealed class FixtureDeck : IAudioDeck
     public void Stop() { Playing = false; Position = 0; }
 }
 
+sealed class FixtureLauncher : ILauncher
+{
+    public static volatile string? LastAddress;
+    public Task<bool> CanOpenAsync(Uri uri) => Task.FromResult(true);
+    public Task<bool> OpenAsync(Uri uri) { LastAddress = uri.AbsoluteUri; return Task.FromResult(true); }
+    public Task<bool> OpenAsync(OpenFileRequest request) => Task.FromResult(false);
+    public Task<bool> TryOpenAsync(Uri uri) => OpenAsync(uri);
+}
+
 sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
 {
+    internal static DateTimeOffset WordleReset { get; set; } = DateTimeOffset.UtcNow.AddDays(1);
+    private readonly List<(string Word, string[] Marks)> wordleGuesses = [];
+    private string wordleDate = "";
+    private bool hideWordleFamily;
     public static volatile bool ListenRequest;
     public static volatile string Startup = "none";
+    public static int UpdateChecks;
     public static volatile TaskCompletionSource SimilarRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool reportReplacing;
     private bool qualityReplacing;
@@ -180,6 +205,32 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
     {
         var path = request.RequestUri!.AbsolutePath;
+        if (path == "/api/profile/name" && request.Method == HttpMethod.Patch)
+        {
+            using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
+            var name = payload.RootElement.GetProperty("name").GetString()!.Trim();
+            var duplicate = name.Equals("June", StringComparison.OrdinalIgnoreCase);
+            var renameBody = duplicate ? JsonSerializer.Serialize(new { error = "A profile with this name already exists." })
+                : JsonSerializer.Serialize(new { profile = new ListenerProfile { Id = "fixture", Name = name } });
+            return new HttpResponseMessage(duplicate ? HttpStatusCode.BadRequest : HttpStatusCode.OK)
+            { Content = new StringContent(renameBody, Encoding.UTF8, "application/json") };
+        }
+        if (path == "/api/app-updates/windows-x64")
+        {
+            Interlocked.Increment(ref UpdateChecks);
+            if (Startup == "update-failed") return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            var version = Startup switch
+            {
+                "update" => "9.9.9",
+                "update-current" => AppUpdater.CurrentVersion,
+                "update-old" => "0.0.1",
+                _ => null
+            };
+            if (version is null) return new HttpResponseMessage(HttpStatusCode.NotFound);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(
+                new AppRelease(version, ReleaseHash, 32 * 1024 * 1024, "/api/app-updates/windows-x64/" + ReleaseHash)),
+                Encoding.UTF8, "application/json") };
+        }
         if (path == "/api/recommendations" && Startup.StartsWith("similar-"))
         {
             using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
@@ -200,6 +251,72 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
             {
                 Content = new StringContent(response, Encoding.UTF8, "application/json")
             };
+        }
+        if (path is "/api/wordle/today" or "/api/wordle/guess" or "/api/wordle/stats" or "/api/wordle/family" or "/api/wordle/settings")
+        {
+            var nextDay = DateTimeOffset.UtcNow >= WordleReset;
+            var day = nextDay ? "2026-11-22" : "2026-11-21";
+            if (day != wordleDate) { wordleGuesses.Clear(); wordleDate = day; }
+            HttpResponseMessage Json(object value, HttpStatusCode status = HttpStatusCode.OK) => new(status)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(value), Encoding.UTF8, "application/json")
+            };
+            if (path == "/api/wordle/settings")
+            {
+                if (request.Method == HttpMethod.Put)
+                {
+                    using var data = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
+                    hideWordleFamily = data.RootElement.GetProperty("hide_family_until_finished").GetBoolean();
+                }
+                return Json(new { hide_family_until_finished = hideWordleFamily });
+            }
+            if (path == "/api/wordle/stats")
+            {
+                var finished = wordleGuesses.LastOrDefault().Word == "crate";
+                return Json(new
+                {
+                    personal = new { played = 1, won = 1, current_streak = 1, best_streak = 1, distribution = new[] { 0, 0, 1, 0, 0, 0 } },
+                    family = new[] { new { profile_id = "fixture", name = "Alex", played = 1, won = 1, favorite_guesses = Array.Empty<object>() },
+                        new { profile_id = "june", name = "June", played = 3, won = 2,
+                            favorite_guesses = new object[] { new { word = "grape", count = finished ? 3 : 2 } } } },
+                    family_totals = new { played = 4, won = 3, today = !hideWordleFamily || finished ? new { completed = 2, won = 2, members = 2 } : null },
+                    history = new[] { new { date = day, status = "won", guesses = 3 } }
+                });
+            }
+            if (path == "/api/wordle/guess")
+            {
+                if (Startup == "wordle-delayed") await Task.Delay(4000, token);
+                using var data = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
+                var payload = data.RootElement;
+                var word = payload.GetProperty("word").GetString()!;
+                if (payload.GetProperty("date").GetString() != day || payload.GetProperty("guess_count").GetInt32() != wordleGuesses.Count)
+                    return Json(new { error = "The puzzle changed." }, HttpStatusCode.Conflict);
+                if (word == "zzzzz") return Json(new { error = "Not in the word list." }, HttpStatusCode.BadRequest);
+                if (word == "plate")
+                {
+                    wordleGuesses.Add(("brave", ["absent", "correct", "correct", "absent", "correct"]));
+                    return Json(new { error = "The puzzle changed." }, HttpStatusCode.Conflict);
+                }
+                wordleGuesses.Add((word, word == "crate" ? ["correct", "correct", "correct", "correct", "correct"]
+                    : ["absent", "absent", "correct", "correct", "correct"]));
+            }
+            var won = wordleGuesses.LastOrDefault().Word == "crate";
+            string[] juneMarks = ["absent", "correct", "present", "absent", "absent"];
+            var family = new[] { new { id = "fixture", name = "Alex", rows = Array.Empty<string[]>(), guesses = (object?)null },
+                new { id = "june", name = "June", rows = new[] { juneMarks },
+                    guesses = won ? new[] { new { word = "grape", marks = juneMarks } } : (object?)null } };
+            if (hideWordleFamily && !won) family = family[..1];
+            if (path == "/api/wordle/family") return Json(new { date = day, family });
+            return Json(new
+            {
+                date = day,
+                status = won ? "won" : "playing",
+                guesses = wordleGuesses.Select(guess => new { word = guess.Word, marks = guess.Marks }),
+                answer = won ? "crate" : null,
+                family,
+                local_solution = Startup == "wordle-delayed" ? "crate" : null,
+                next_reset = nextDay ? WordleReset.AddDays(1) : WordleReset
+            });
         }
         if (path == "/api/listening/events") {
             using var events = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
@@ -257,8 +374,6 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
             "/api/listening/rooms" => """{"rooms":[]}""",
             "/api/listening/pokes" when ListenRequest => """{"requests":[{"id":"invite-1","sender":"june","name":"June","kind":"invite","room_id":"fixture-room"}]}""",
             "/api/listening/pokes" => """{"requests":[]}""",
-            "/api/app-updates/windows-x64" when Startup == "update" => JsonSerializer.Serialize(
-                new AppRelease("9.9.9", ReleaseHash, 32 * 1024 * 1024, "/api/app-updates/windows-x64/" + ReleaseHash)),
             "/api/discovery/follow" => """{"artists":[]}""",
             "/api/playback/devices" => """{"devices":[{"id":"other","name":"Living room PC","kind":"windows"},{"id":"phone","name":"June’s phone","kind":"android"}]}""",
             "/api/catalogue/reports" when request.Method == HttpMethod.Get =>

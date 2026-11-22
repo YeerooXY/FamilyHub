@@ -1,0 +1,100 @@
+@implements IDisposable
+@inject MusicSession Session
+@using System.Text.Json
+@using System.Text.Json.Serialization
+
+<section class="settings-panel glass-panel" aria-labelledby="wordle-settings-title">
+    <h2 id="wordle-settings-title">Wordle</h2>
+    <label class="setting-toggle">
+        <input type="checkbox" checked="@hideFamily" disabled="@(!loaded)" aria-disabled="@(busy ? "true" : "false")" @ref="choice"
+               aria-describedby="wordle-settings-help" @onchange="SetPreference" />
+        <span>Hide family results until I finish</span>
+    </label>
+    <p id="wordle-settings-help" class="setting-help">This applies to today’s family boards and results.</p>
+    <p class="setting-help" role="status">@status</p>
+    @if (loadFailed)
+    {
+        <button type="button" aria-disabled="@(busy ? "true" : "false")" @onclick="Load">Retry Wordle settings</button>
+    }
+</section>
+
+@code {
+    private sealed record Preference([property: JsonPropertyName("hide_family_until_finished")] bool? HideFamily);
+    private readonly CancellationTokenSource lifetime = new();
+    private bool hideFamily, loaded, loadFailed, busy, disposed, focusChoice;
+    private ElementReference choice;
+    private string status = "";
+
+    protected override Task OnInitializedAsync() => Load();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!focusChoice) return;
+        focusChoice = false;
+        await choice.FocusAsync(preventScroll: true);
+    }
+
+    private async Task Load()
+    {
+        if (busy) return;
+        busy = true;
+        status = "Loading Wordle settings…";
+        try
+        {
+            hideFamily = await Request(HttpMethod.Get);
+            if (disposed) return;
+            loaded = true;
+            focusChoice = loadFailed;
+            loadFailed = false;
+            status = "";
+        }
+        catch (Exception error) when (IsRequestError(error))
+        {
+            if (!disposed)
+            {
+                loadFailed = true;
+                status = "Wordle settings are unavailable.";
+            }
+        }
+        finally { busy = false; }
+    }
+
+    private async Task SetPreference(ChangeEventArgs args)
+    {
+        if (busy || !loaded) return;
+        var previous = hideFamily;
+        hideFamily = args.Value is true;
+        busy = true;
+        status = "Saving…";
+        try
+        {
+            hideFamily = await Request(HttpMethod.Put, new { hide_family_until_finished = hideFamily });
+            if (!disposed) status = "Wordle settings saved.";
+        }
+        catch (Exception error) when (IsRequestError(error))
+        {
+            hideFamily = previous;
+            if (!disposed) status = "Couldn’t save this setting. Try again.";
+        }
+        finally { busy = false; }
+    }
+
+    private async Task<bool> Request(HttpMethod method, object? body = null)
+    {
+        var api = Session.Api ?? throw new InvalidOperationException("Connect to the family server.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(8));
+        var response = await api.RequestJsonAsync<Preference>(method, "/api/wordle/settings", body, timeout.Token, background: true);
+        return response?.HideFamily ?? throw new JsonException("Invalid Wordle setting.");
+    }
+
+    private static bool IsRequestError(Exception error) =>
+        error is FamilyHubApiException or HttpRequestException or OperationCanceledException or JsonException or InvalidOperationException;
+
+    public void Dispose()
+    {
+        disposed = true;
+        lifetime.Cancel();
+        lifetime.Dispose();
+    }
+}

@@ -25,6 +25,8 @@ from .audio_profile import profile
 from . import mobile_audio
 from . import app_updates
 from . import profile_artwork
+from . import wordle
+from .wordle_source import published_answer
 from .listening_versions import ListeningVersions
 from .catalogue_review import CatalogueReview, register as register_catalogue_review
 from .review_confidence import DEFAULT_AUTO_RESOLUTIONS_PER_HOUR, normal, presentation_title, recording_labels
@@ -478,6 +480,16 @@ def create_app(test_config=None):
             profile = profile_store.create(body().get("name"))
         return jsonify(profile=profile), 201
 
+    @app.patch("/api/profile/name")
+    def rename_family_profile():
+        require_family()
+        data = body()
+        if set(data) != {"name"}:
+            raise ApiError("Enter a display name for the selected profile.", 400)
+        with catalogue_lock:
+            profile = profile_store.set_name(g.user, data["name"])
+        return jsonify(profile=profile)
+
     @app.post("/api/profile/select")
     def select_family_profile():
         require_family()
@@ -575,6 +587,10 @@ def create_app(test_config=None):
         if not isinstance(d, dict):
             raise ApiError("Request body must be a JSON object.")
         return d
+
+    if family_mode:
+        wordle.register(app, ws, require_family, profile_store, body, ApiError,
+                        cfg.get("WORDLE_DAILY_ANSWER", published_answer))
 
     def meta(d):
         out = {}

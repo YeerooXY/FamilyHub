@@ -6,8 +6,11 @@
 .profile-picture-input:focus-within { outline:3px solid var(--focus,var(--accent-blue)); outline-offset:4px; }
 .profile-picture-caption { position:absolute; bottom:0; inset-inline:0; padding:8px 4px 13px; background:#000a; color:#fff; text-align:center; font-size:12px; font-weight:650; pointer-events:none; opacity:0; transition:opacity .15s ease-out; }
 .profile-picture-input:hover .profile-picture-caption,.profile-picture-input:focus-within .profile-picture-caption { opacity:1; }
-.profile-picture-copy { min-width:0; }
-.profile-picture-copy>strong { font-size:20px; overflow-wrap:anywhere; }
+.profile-picture-copy { flex:1; min-width:0; }
+.profile-name-form>label { display:block; margin:0 0 6px; }
+.profile-name-fields { display:flex; flex-wrap:wrap; gap:8px; }
+.profile-name-fields>input { flex:1 1 140px; min-width:0; min-height:44px; margin:0; }
+.profile-name-fields>button { min-height:44px; margin:0; }
 .profile-picture-message { margin:8px 0 0; color:var(--muted); font-size:13px; line-height:1.5; }
 .profile-picture-message:empty { display:none; }
 @media(hover:none) { .profile-picture-caption { opacity:1; } }

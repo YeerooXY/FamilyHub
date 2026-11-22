@@ -194,6 +194,9 @@ public sealed class FamilyHubApi : IDisposable
     public async Task<ListenerProfile> CreateProfileAsync(string name, CancellationToken cancellationToken = default) =>
         (await RequestJsonAsync<ProfileResponse>(HttpMethod.Post, "/api/profiles", new { name }, cancellationToken)).Profile;
 
+    public async Task<ListenerProfile> RenameProfileAsync(string name, CancellationToken cancellationToken = default) =>
+        (await RequestJsonAsync<ProfileResponse>(HttpMethod.Patch, "/api/profile/name", new { name }, cancellationToken)).Profile;
+
     public async Task<ListenerPreferences> GetPreferencesAsync(CancellationToken cancellationToken = default) =>
         (await RequestJsonAsync<PreferencesResponse>(HttpMethod.Get, "/api/profile/preferences", cancellationToken: cancellationToken)).Preferences;
 

@@ -1,0 +1,619 @@
+@implements IAsyncDisposable
+@inject MusicSession Session
+@inject IJSRuntime JS
+@using System.Globalization
+@using System.Text.Json
+@using System.Text.Json.Serialization
+
+<section class="daily-wordle" aria-labelledby="daily-wordle-title" @ref="surface" tabindex="-1"
+         data-family-count="@familyBoards.Length" data-playing="@((puzzle?.Status == "playing").ToString().ToLowerInvariant())">
+    <aside class="dw-family-rail" aria-label="Family guesses">
+        @foreach (var board in familyBoards)
+        {
+            var own = board.Id == Session.User;
+            var rows = own && puzzle is not null ? puzzle.Guesses.Select(g => g.Marks).ToArray() : board.Rows;
+            var name = own ? $"{board.Name} (you)" : board.Name;
+            var label = $"{name}, {rows.Length} of 6 guesses";
+            var profile = Session.Profiles.FirstOrDefault(p => p.Id == board.Id) ?? new ListenerProfile { Id = board.Id, Name = board.Name };
+            <div class="dw-family-card" @key="board.Id" title="@label" role="img" aria-label="@BoardDescription(label, rows)">
+                <ProfileAvatar Profile="profile" Size="40" ShowCrown="false" />
+                <span class="dw-mini" aria-hidden="true">
+                    @for (var i = 0; i < 30; i++)
+                    {
+                        <i class="@(i / 5 < rows.Length ? rows[i / 5][i % 5] : "")"></i>
+                    }
+                </span>
+            </div>
+        }
+    </aside>
+    <div class="dw-shell">
+        <header class="dw-header">
+            <button class="dw-icon" type="button" aria-label="How to play" title="How to play" @onclick="OpenHelp">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4.1 1.9c-1 .6-1.6 1.3-1.6 2.6m0 2.5h.01"/></svg>
+            </button>
+            <h1 id="daily-wordle-title">Wordle</h1>
+            <div class="dw-actions">
+                <button class="dw-icon" type="button" aria-label="Statistics" title="Statistics" @ref="statsButton" @onclick="OpenStats">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16M6 20v-6h3v6m3 0V9h3v11m3 0V4h3v16"/></svg>
+                </button>
+                <button class="dw-icon dw-theme" type="button" aria-label="Dark theme" title="Dark theme" aria-pressed="false">
+                    <svg class="dw-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 13.1A9 9 0 0 1 10.9 3 9 9 0 1 0 21 13.1Z"/></svg>
+                    <svg class="dw-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.4 1.4m11.2 11.2L19 19M5 19l1.4-1.4M17.6 6.4 19 5"/></svg>
+                </button>
+            </div>
+        </header>
+        <div class="dw-context">
+            <span>@DayLabel</span>
+            <span>@((puzzle?.Guesses.Length ?? 0))/6 guesses</span>
+        </div>
+        <div class="dw-message" role="status" aria-atomic="true">
+            @if (loading)
+            {
+                <span>Loading today’s word…</span>
+            }
+            else if (message is not null)
+            {
+                <span class="dw-error">@message</span>
+            }
+            else if (syncFailed)
+            {
+                <button type="button" class="dw-text" @onclick="SyncGuesses">Saved on this device · Retry sync</button>
+            }
+            else if (submitting)
+            {
+                <span>Checking guess…</span>
+            }
+            else
+            {
+                <span class="dw-visually-hidden">@announcement</span>
+            }
+        </div>
+        <div class="dw-play-area">
+        <div class="dw-board" role="group" aria-label="Five-letter puzzle">
+            @for (var row = 0; row < 6; row++)
+            {
+                var guess = puzzle?.Guesses.ElementAtOrDefault(row);
+                var activeRow = puzzle?.Status == "playing" && row == puzzle.Guesses.Length;
+                var letters = guess?.Word.ToUpperInvariant() ?? (activeRow ? draft : "");
+                <div class="dw-row @(activeRow && shake ? "dw-shake" : "")" role="group" aria-label="@RowLabel(row, letters, guess)">
+                    @for (var column = 0; column < 5; column++)
+                    {
+                        var letter = column < letters.Length ? letters[column].ToString() : "";
+                        var mark = GuessMark(guess, column);
+                        <div class="dw-tile @mark @(activeRow && letter.Length > 0 ? "dw-filled" : "") @(row == revealRow ? "dw-reveal" : "") @(row == revealRow && puzzle?.Status == "won" ? "dw-win" : "")"
+                             style="--dw-delay:@(column * 85)ms" aria-hidden="true"><span>@letter</span></div>
+                    }
+                </div>
+            }
+        </div>
+        @if (puzzle is null && loadAttempted)
+        {
+            <button class="dw-primary" type="button" aria-disabled="@(loading ? "true" : "false")" @onclick="RetryPuzzle">Retry puzzle</button>
+        }
+        </div>
+        <div class="dw-keyboard" role="group" aria-label="On-screen keyboard">
+            @for (var row = 0; row < KeyboardRows.Length; row++)
+            {
+                <div class="dw-key-row @(row == 1 ? "dw-key-middle" : "")">
+                    @if (row == 2)
+                    {
+                        <button class="dw-key dw-wide dw-enter" type="button" aria-label="Submit guess"
+                                aria-disabled="@KeysDisabled" tabindex="@KeyTabIndex" @onclick='() => Press("Enter")'>Enter</button>
+                    }
+                    @foreach (var letter in KeyboardRows[row])
+                    {
+                        var key = letter.ToString();
+                        var mark = keyboard.GetValueOrDefault(letter) ?? "";
+                        <button class="dw-key @mark" type="button" aria-label="@KeyLabel(key, mark)"
+                                aria-disabled="@KeysDisabled" tabindex="@KeyTabIndex" @onclick="() => Press(key)">@key</button>
+                    }
+                    @if (row == 2)
+                    {
+                        <button class="dw-key dw-wide" type="button" aria-label="Delete last letter"
+                                aria-disabled="@KeysDisabled" tabindex="@KeyTabIndex" @onclick='() => Press("Backspace")'>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 5H9l-6 7 6 7h12V5Zm-5 4-6 6m0-6 6 6"/></svg>
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    <dialog class="dw-dialog" aria-labelledby="dw-help-title" @ref="help">
+        <div class="dw-dialog-content">
+            <header class="dw-dialog-header">
+                <h2 id="dw-help-title">How to play</h2>
+                <form method="dialog"><button class="dw-icon" type="submit" aria-label="Close help"><MusicIcon Name="close" /></button></form>
+            </header>
+            <p>Guess the five-letter word in six tries. Type a word and press Enter.</p>
+            <ul class="dw-help-list">
+                <li><span class="dw-tile correct" aria-hidden="true">W</span> The letter is in the right spot.</li>
+                <li><span class="dw-tile present" aria-hidden="true">O</span> The letter is in a different spot.</li>
+                <li><span class="dw-tile absent" aria-hidden="true">R</span> The letter is absent.</li>
+            </ul>
+        </div>
+    </dialog>
+    <dialog class="dw-dialog" aria-labelledby="dw-stats-title" @ref="statsDialog">
+        <div class="dw-dialog-content">
+            <header class="dw-dialog-header">
+                <h2 id="dw-stats-title">Statistics</h2>
+                <form method="dialog"><button class="dw-icon" type="submit" aria-label="Close statistics" @ref="closeStats"><MusicIcon Name="close" /></button></form>
+            </header>
+            @if (puzzle?.Status == "won")
+            {
+                <p>Solved in @puzzle.Guesses.Length @(puzzle.Guesses.Length == 1 ? "guess" : "guesses")</p>
+            }
+            else if (puzzle?.Status == "lost")
+            {
+                <p>The word was <strong>@puzzle.Answer?.ToUpperInvariant()</strong></p>
+            }
+            <div role="status">
+                @if (loadingStats) { <p>Loading statistics…</p> }
+                @if (statsError) { <p>Statistics are unavailable. <button class="dw-text" type="button" aria-disabled="@(loadingStats ? "true" : "false")" @onclick="RetryStats">Try again</button></p> }
+            </div>
+            @if (stats is { } data)
+            {
+                <dl class="dw-stats">
+                    <div><dt>Played</dt><dd>@data.Personal.Played</dd></div>
+                    <div><dt>Win rate</dt><dd>@WinRate(data.Personal.Won, data.Personal.Played)%</dd></div>
+                    <div><dt>Streak</dt><dd>@data.Personal.CurrentStreak</dd></div>
+                    <div><dt>Best streak</dt><dd>@data.Personal.BestStreak</dd></div>
+                </dl>
+                <h3>Guess distribution</h3>
+                <ol class="dw-distribution">
+                    @for (var i = 0; i < 6; i++)
+                    {
+                        var count = data.Personal.Distribution.ElementAtOrDefault(i);
+                        <li aria-label="@($"{i + 1} guesses, {count} wins")">
+                            <span aria-hidden="true">@(i + 1)</span>
+                            <span class="dw-bar" style="--dw-bar:@BarWidth(count, data.Personal.Distribution)%"
+                                  aria-hidden="true">@count</span>
+                        </li>
+                    }
+                </ol>
+                <h3>Family</h3>
+                @if (data.FamilyTotals is { } totals)
+                {
+                    @if (totals.Today is { } today)
+                    {
+                        <p class="dw-family-totals"><strong>Today</strong> @today.Completed of @today.Members finished · @today.Won solved</p>
+                    }
+                    <p class="dw-family-totals"><strong>All time</strong> @totals.Won wins in @totals.Played puzzles</p>
+                }
+                @if (data.Family.Length == 0)
+                {
+                    <p>No family results yet.</p>
+                }
+                else
+                {
+                    <div class="dw-family-details">
+                        @foreach (var member in data.Family.OrderByDescending(member => member.Won))
+                        {
+                            var board = familyBoards.FirstOrDefault(candidate => candidate.Id == member.Id);
+                            <details @key="member.Id ?? member.Name">
+                                <summary><strong>@member.Name</strong><span>@member.Won / @member.Played won</span></summary>
+                                @if (Finished && board?.Guesses is { Length: > 0 } lines)
+                                {
+                                    <h4>Today’s guesses</h4>
+                                    <ol class="dw-inspect">
+                                        @for (var i = 0; i < lines.Length; i++)
+                                        {
+                                            var guess = lines[i];
+                                            <li aria-label="@RowLabel(i, guess.Word.ToUpperInvariant(), guess)">
+                                                <span aria-hidden="true">@(i + 1)</span>
+                                                @for (var letter = 0; letter < 5; letter++)
+                                                {
+                                                    <span class="@GuessMark(guess, letter)" aria-hidden="true">@char.ToUpperInvariant(guess.Word[letter])</span>
+                                                }
+                                            </li>
+                                        }
+                                    </ol>
+                                }
+                                <h4>Favorite guesses</h4>
+                                @if (member.Favorites is { Length: > 0 } favorites)
+                                {
+                                    <ul class="dw-family">
+                                        @for (var i = 0; i < favorites.Length; i++)
+                                        {
+                                            var favorite = favorites[i];
+                                            <li>
+                                                <span><strong>@favorite.Word.ToUpperInvariant()</strong>@if (i == 0) { <small>Most guessed</small> }</span>
+                                                <span>@favorite.Count @(favorite.Count == 1 ? "guess" : "guesses")</span>
+                                            </li>
+                                        }
+                                    </ul>
+                                }
+                                else
+                                {
+                                    <p>No recorded guesses yet.</p>
+                                }
+                            </details>
+                        }
+                    </div>
+                }
+                @if (data.History.Length > 0)
+                {
+                    <details class="dw-history">
+                        <summary>Recent puzzles</summary>
+                        <ul class="dw-family">
+                            @foreach (var item in data.History)
+                            {
+                                <li><span>@FormatDay(item.Date)</span><strong>@(item.Status == "won" ? $"{item.Guesses}/6" : "Unsolved")</strong></li>
+                            }
+                        </ul>
+                    </details>
+                }
+            }
+        </div>
+    </dialog>
+</section>
+
+@code {
+    private sealed record Guess(string Word, string[] Marks);
+    private sealed record Puzzle(string Date, string Status, Guess[] Guesses, string? Answer,
+        [property: JsonPropertyName("next_reset")] string? NextReset,
+        [property: JsonPropertyName("local_solution")] string? LocalSolution = null, FamilyBoard[]? Family = null);
+    private sealed record FamilyBoard(string Id, string Name, string[][] Rows, Guess[]? Guesses);
+    private sealed record FamilySnapshot(string Date, FamilyBoard[] Family);
+    private FamilyBoard[] familyBoards = [];
+    private bool fetchingFamily;
+    private sealed record PersonalStats(int Played, int Won,
+        [property: JsonPropertyName("current_streak")] int CurrentStreak,
+        [property: JsonPropertyName("best_streak")] int BestStreak, int[] Distribution);
+    private sealed record Favorite(string Word, int Count);
+    private sealed record FamilyStats([property: JsonPropertyName("profile_id")] string? Id, string Name, int Played, int Won,
+        [property: JsonPropertyName("favorite_guesses")] Favorite[]? Favorites);
+    private sealed record History(string Date, string Status, int Guesses);
+    private sealed record TodayTotal(int Completed, int Won, int Members);
+    private sealed record FamilyTotals(int Played, int Won, TodayTotal? Today);
+    private sealed record Statistics(PersonalStats Personal, FamilyStats[] Family, History[] History,
+        [property: JsonPropertyName("family_totals")] FamilyTotals? FamilyTotals);
+    private static readonly string[] KeyboardRows = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
+    private static readonly string[] Marks = ["absent", "present", "correct"];
+    private readonly CancellationTokenSource lifetime = new();
+    private readonly Dictionary<char, string> keyboard = new();
+    private IJSObjectReference? module;
+    private DotNetObjectReference<DailyWordle>? keyboardReference;
+    private ElementReference surface, help, statsDialog, statsButton, closeStats;
+    private Puzzle? puzzle;
+    private Statistics? stats;
+    private bool loading, loadAttempted, submitting, loadingStats, statsError, shake, focusBoard, focusResult, focusStats, refreshAfterSubmit, disposed;
+    private string draft = "", announcement = "";
+    private string? message, scheduledReset;
+    private int revealRow = -1;
+    private bool Finished => puzzle?.Status is "won" or "lost";
+    private string KeysDisabled => puzzle?.Status != "playing" || submitting ? "true" : "false";
+    private int KeyTabIndex => puzzle?.Status == "playing" ? 0 : -1;
+    private string DayLabel => puzzle is { } loaded ? FormatDay(loaded.Date) : "Daily puzzle";
+
+    protected override Task OnInitializedAsync() => Reload();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            keyboardReference = DotNetObjectReference.Create(this);
+            module = await JS.InvokeAsync<IJSObjectReference>("import", "./daily-wordle.js");
+            if (disposed) { await module.DisposeAsync(); return; }
+            await module.InvokeVoidAsync("bind", surface, keyboardReference);
+        }
+        if (focusBoard) { focusBoard = false; await module!.InvokeVoidAsync("restoreBoard", surface); }
+        if (focusResult && Finished && statsButton.Context is not null) { focusResult = false; await statsButton.FocusAsync(preventScroll: true); }
+        if (focusStats) { focusStats = false; await module!.InvokeVoidAsync("restoreInside", statsDialog, closeStats); }
+        if (module is not null && scheduledReset != puzzle?.NextReset)
+        {
+            scheduledReset = puzzle?.NextReset;
+            await module.InvokeVoidAsync("updateReset", surface, scheduledReset);
+        }
+    }
+
+    private async Task RetryPuzzle()
+    {
+        await Reload();
+        focusBoard = puzzle is not null;
+    }
+
+    private async Task Reload()
+    {
+        if (loading) return;
+        loading = true; message = null;
+        try
+        {
+            var loaded = await RequestPuzzle(HttpMethod.Get, "today?local=1");
+            if (disposed) return;
+            RestoreLocalProgress(loaded);
+            _ = SyncGuesses();
+        }
+        catch (Exception error) when (IsRequestError(error))
+        {
+            if (!disposed) message = "Today’s puzzle is unavailable. Try again.";
+        }
+        finally { loading = false; loadAttempted = true; }
+    }
+
+    private Task<T> Request<T>(HttpMethod method, string endpoint, object? body = null)
+    {
+        var api = Session.Api ?? throw new InvalidOperationException("Connect to the family server.");
+        return RequestWithTimeout<T>(api, method, endpoint, body);
+    }
+
+    private async Task<T> RequestWithTimeout<T>(FamilyHubApi api, HttpMethod method, string endpoint, object? body)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        return await api.RequestJsonAsync<T>(method, "/api/wordle/" + endpoint, body, timeout.Token, background: true);
+    }
+
+    private async Task<Puzzle> RequestPuzzle(HttpMethod method, string endpoint, object? body = null)
+    {
+        var value = await Request<Puzzle>(method, endpoint, body);
+        if (value is null || !DateOnly.TryParseExact(value.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _)
+            || value.Status is not ("playing" or "won" or "lost") || value.Guesses is not { Length: <= 6 } guesses
+            || (value.Status == "playing" && guesses.Length == 6) || (value.Status == "won" && guesses.Length == 0)
+            || (value.Status == "lost" && !IsPuzzleWord(value.Answer))
+            || guesses.Any(guess => !ValidGuess(guess)))
+            throw new JsonException("Invalid daily puzzle response.");
+        return value;
+    }
+
+    private static bool IsPuzzleWord(string? word) => word is { Length: 5 } &&
+        word.All(letter => letter is >= 'A' and <= 'Z' or >= 'a' and <= 'z');
+
+    private void LoadPuzzle(Puzzle value)
+    {
+        if (value.Family is { } boards) familyBoards = ValidBoards(boards);
+        else if (puzzle?.Date != value.Date) familyBoards = [];
+        puzzle = value with { Family = null };
+        keyboard.Clear();
+        foreach (var row in value.Guesses)
+        {
+            for (var column = 0; column < row.Word.Length; column++)
+            {
+                var letter = char.ToUpperInvariant(row.Word[column]);
+                var mark = GuessMark(row, column);
+                if (Array.IndexOf(Marks, mark) > Array.IndexOf(Marks, keyboard.GetValueOrDefault(letter) ?? ""))
+                    keyboard[letter] = mark;
+            }
+        }
+    }
+
+    [JSInvokable]
+    public Task TypeKey(string key) => InvokeAsync(async () =>
+    {
+        var action = Press(key);
+        StateHasChanged();
+        await action;
+        if (!disposed) StateHasChanged();
+    });
+
+    [JSInvokable]
+    public Task RefreshToday() => InvokeAsync(async () =>
+    {
+        if (disposed || loading) return;
+        if (syncing) return;
+        if (submitting) { refreshAfterSubmit = true; return; }
+        if (await ReloadAfterConflict(quiet: true)) StateHasChanged();
+    });
+
+    private async Task Press(string key)
+    {
+        if (disposed || puzzle?.Status != "playing" || submitting) return;
+        if (key == "Enter") { await Submit(); return; }
+        if (key == "Backspace")
+        {
+            if (draft.Length > 0) draft = draft[..^1];
+        }
+        else if (key.Length == 1 && key[0] is >= 'A' and <= 'Z' && draft.Length < 5)
+            draft += key;
+        else return;
+        message = null; shake = false;
+        announcement = draft.Length == 0 ? "Guess cleared." : $"Guess letters {string.Join(" ", draft.ToCharArray())}.";
+    }
+
+    private async Task Submit()
+    {
+        if (puzzle is not { Status: "playing" } active) return;
+        if (draft.Length != 5) { message = "Enter five letters."; shake = true; return; }
+        if (active.Guesses.Any(g => string.Equals(g.Word, draft, StringComparison.OrdinalIgnoreCase)))
+        {
+            message = "Already guessed.";
+            shake = true;
+            return;
+        }
+        if (active.LocalSolution is { } solution && IsPuzzleWord(solution))
+        {
+            if (DateTimeOffset.TryParse(active.NextReset, out var reset) && reset <= DateTimeOffset.UtcNow)
+            {
+                await RefreshToday();
+                return;
+            }
+            SubmitLocally(active, solution);
+            return;
+        }
+        submitting = true; message = null; announcement = ""; shake = false; revealRow = -1;
+        try
+        {
+            var updated = await RequestPuzzle(HttpMethod.Post, "guess",
+                new { date = active.Date, word = draft.ToLowerInvariant(), guess_count = active.Guesses.Length });
+            if (disposed) return;
+            LoadPuzzle(updated);
+            revealRow = updated.Guesses.Length - 1;
+            draft = "";
+            if (updated.Guesses.LastOrDefault() is { } last)
+                announcement = RowLabel(revealRow, last.Word.ToUpperInvariant(), last);
+            focusResult = Finished;
+        }
+        catch (FamilyHubApiException error) when (error.StatusCode is 400 or 422)
+        {
+            if (!disposed) { message = "This word isn’t accepted. Try another."; shake = true; }
+        }
+        catch (FamilyHubApiException error) when (error.StatusCode == 409)
+        {
+            if (disposed) return;
+            if (!await ReloadAfterConflict()) return;
+            if (puzzle?.Date != active.Date)
+            {
+                draft = ""; revealRow = -1;
+                message = "A new daily puzzle is ready.";
+            }
+            else
+            {
+                if (puzzle?.Guesses.Any(guess => string.Equals(guess.Word, draft, StringComparison.OrdinalIgnoreCase)) == true)
+                    draft = "";
+                message = Finished ? null : "The puzzle changed. Check your guesses and try again.";
+                focusResult = Finished;
+            }
+        }
+        catch (Exception error) when (IsRequestError(error))
+        {
+            if (!disposed) message = "Couldn’t check that guess. Press Enter to retry.";
+        }
+        finally
+        {
+            if (refreshAfterSubmit) { refreshAfterSubmit = false; await ReloadAfterConflict(quiet: true); }
+            submitting = false;
+        }
+    }
+
+    private async Task<bool> ReloadAfterConflict(bool quiet = false)
+    {
+        try
+        {
+            var before = puzzle;
+            var updated = await RequestPuzzle(HttpMethod.Get, "today?local=1");
+            if (before != puzzle || syncing) return false;
+            if (disposed) return false;
+            if (puzzle?.Date != updated.Date)
+            {
+                focusBoard = Finished || puzzle is null;
+                draft = ""; revealRow = -1; message = null; focusResult = false;
+                announcement = "A new daily puzzle is ready.";
+            }
+            else if (updated.Guesses.Length != puzzle.Guesses.Length)
+            {
+                revealRow = -1;
+                if (updated.Guesses.Any(guess => string.Equals(guess.Word, draft, StringComparison.OrdinalIgnoreCase)))
+                    draft = "";
+            }
+            RestoreLocalProgress(updated);
+            _ = SyncGuesses();
+            if (module is not null && await module.InvokeAsync<bool>("isOpen", statsDialog))
+                await LoadStats();
+            return true;
+        }
+        catch (Exception error) when (IsRequestError(error))
+        {
+            if (!quiet && !disposed) message = "Couldn’t refresh the puzzle. Press Enter to retry.";
+            return false;
+        }
+    }
+
+    private static FamilyBoard[] ValidBoards(FamilyBoard[] boards) => boards.Where(b =>
+        b is not null && !string.IsNullOrWhiteSpace(b.Id) && b.Rows is { Length: <= 6 } &&
+        b.Rows.All(row => row is { Length: 5 } && row.All(mark => Array.IndexOf(Marks, mark) >= 0)))
+        .Select(board => board with { Guesses = board.Guesses?.Where(ValidGuess).Take(6).ToArray() }).ToArray();
+
+    private static bool ValidGuess(Guess? guess) => guess is not null && IsPuzzleWord(guess.Word)
+        && guess.Marks is { Length: 5 } marks && marks.All(mark => Array.IndexOf(Marks, mark) >= 0);
+
+    private static string BoardDescription(string label, string[][] rows) =>
+        string.Join(". ", new[] { label }.Concat(rows.Select((row, i) =>
+            $"Guess {i + 1}: {string.Join(", ", row.Select(MarkLabel))}")));
+
+    [JSInvokable]
+    public async Task RefreshFamily()
+    {
+        if (disposed || fetchingFamily || puzzle is null) return;
+        fetchingFamily = true;
+        try
+        {
+            var data = await Request<FamilySnapshot>(HttpMethod.Get, "family");
+            if (!disposed && data is { Family: { } boards } && data.Date == puzzle?.Date)
+            {
+                familyBoards = ValidBoards(boards);
+                StateHasChanged();
+            }
+        }
+        catch (Exception error) when (IsRequestError(error)) { }
+        finally { fetchingFamily = false; }
+    }
+
+    private async Task OpenHelp()
+    {
+        if (module is not null) await module.InvokeVoidAsync("open", help);
+    }
+
+    private async Task OpenStats()
+    {
+        if (module is null) return;
+        await module.InvokeVoidAsync("open", statsDialog);
+        await Task.WhenAll(RefreshFamily(), LoadStats());
+    }
+
+    private async Task LoadStats()
+    {
+        if (loadingStats) return;
+        loadingStats = true;
+        StateHasChanged();
+        try
+        {
+            var loaded = await Request<Statistics>(HttpMethod.Get, "stats");
+            if (loaded?.Personal?.Distribution is not { Length: 6 } || loaded.Family is null || loaded.History is null
+                || loaded.Family.Any(member => member is null || string.IsNullOrWhiteSpace(member.Name))
+                || loaded.History.Any(item => item is null || string.IsNullOrWhiteSpace(item.Date)))
+                throw new JsonException("Invalid puzzle statistics.");
+            stats = loaded with
+            {
+                Family = loaded.Family.Select(member => member with
+                {
+                    Favorites = member.Favorites?.Where(favorite => favorite is not null && IsPuzzleWord(favorite.Word) && favorite.Count > 0).Take(10).ToArray()
+                }).ToArray()
+            };
+            statsError = false;
+        }
+        catch (Exception error) when (IsRequestError(error)) { statsError = !disposed; }
+        finally { loadingStats = false; }
+    }
+
+    private async Task RetryStats()
+    {
+        await LoadStats();
+        focusStats = !statsError;
+    }
+
+    private static bool IsRequestError(Exception error) => error is FamilyHubApiException or HttpRequestException
+        or OperationCanceledException or JsonException or InvalidOperationException or IOException;
+    private static string GuessMark(Guess? guess, int column)
+    {
+        var mark = guess?.Marks.ElementAtOrDefault(column);
+        return mark is "correct" or "present" or "absent" ? mark : "";
+    }
+    private static string KeyLabel(string key, string mark) => mark.Length == 0 ? key : $"{key}, {MarkLabel(mark)}";
+    private static string MarkLabel(string mark) => mark switch
+    {
+        "correct" => "right spot", "present" => "different spot", "absent" => "absent", _ => ""
+    };
+    private static string RowLabel(int row, string letters, Guess? guess) =>
+        $"Guess {row + 1}: {(letters.Length == 0 ? "empty" : string.Join(", ", letters.Select((letter, column) => KeyLabel(letter.ToString(), GuessMark(guess, column)))))}";
+    private static string FormatDay(string day) =>
+        DateOnly.TryParseExact(day, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+            ? parsed.ToString("dddd, d MMMM", CultureInfo.CurrentCulture) : day;
+    private static int WinRate(int won, int played) => played > 0 ? (int)Math.Round(100d * won / played) : 0;
+    private static int BarWidth(int count, int[] distribution) =>
+        Math.Max(8, 100 * count / Math.Max(1, distribution.DefaultIfEmpty(0).Max()));
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true; lifetime.Cancel(); lifetime.Dispose();
+        try
+        {
+            if (module is not null)
+            {
+                await module.InvokeVoidAsync("unbind", surface);
+                await module.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException) { }
+        finally { keyboardReference?.Dispose(); }
+    }
+}

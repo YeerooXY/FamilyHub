@@ -1,0 +1,9 @@
+FamilyHub uses the English five-letter pools prepared for Our Word on 12 October 2026.
+The answers are Our Word's original curated pool. The allowed guesses derive from
+the SCOWL en_US and en_GB-ise Hunspell dictionaries, version 2020.12.07.
+The complete applicable dictionary notices accompany these files.
+
+The source snapshot is wooorm/dictionaries at 8cfea406b505e4d7df52d5a19bce525df98c54ab.
+Our Word filtered the dictionaries to lowercase alphabetic words, expanded
+permitted affixes, excluded forbidden and compound-only entries, verified
+the answer pool, and sorted and deduplicated the accepted guesses.

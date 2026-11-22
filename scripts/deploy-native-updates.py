@@ -26,7 +26,10 @@ def main():
     incoming = '/tmp/familyhub-update-' + uuid.uuid4().hex
     subprocess.run([*ssh, 'mkdir -m 700 ' + incoming], check=True, cwd=ROOT)
     web_files = ('__init__.py', 'app_updates.py', 'playlist_artwork.py', 'playlists.py', 'finished_audio.py', 'audio_profile.py', 'mobile_audio.py', 'playlist_preparation.py', 'profile_artwork.py', 'profiles.py', 'public_playlists.py', 'listening_rooms.py', 'listening_versions.py', 'listening_history.py', 'listening_stats.py', 'catalogue_review.py', 'source_quality.py', 'analysis.py', 'song_analysis.py', 'worker_activity.py', 'musicbrainz.py', 'catalog_search.py', 'genres.py', 'lyrics.py', '__main__.py', 'link_playlists.py', 'playback_devices.py', 'radio.py', 'http_dispatch.py', 'playback_diagnostics.py', 'review_confidence.py', 'snapshots.py', 'resources.py', 'discovery.py') + (
-        'movies.py', 'static/app.js', 'static/playlists.js', 'static/prefix-cache.js', 'templates/index.html',
+        'movies.py', 'wordle.py', 'wordle_source.py',
+        'wordle_data/answers.txt', 'wordle_data/guesses.txt', 'wordle_data/SOURCES.txt',
+        'wordle_data/SCOWL-en-US.txt', 'wordle_data/SCOWL-en-GB.txt',
+        'static/app.js', 'static/playlists.js', 'static/prefix-cache.js', 'templates/index.html',
     )
     files = []
     if not args.assets_only:
@@ -96,7 +99,9 @@ try:
     os.chmod(intake,intake_stat.st_mode)
     os.chown(intake,intake_stat.st_uid,intake_stat.st_gid)
     for name in originals:
-        shutil.copy2(incoming/pathlib.Path(name).name,base/name)
+        target=base/name
+        target.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copy2(incoming/pathlib.Path(name).name,target)
     subprocess.run(['systemctl','start',service],check=True)
     for attempt in range(30):
         try:

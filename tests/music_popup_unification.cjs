@@ -209,6 +209,7 @@ async function audit(name, engine, options) {
             await page.route(pattern, route => route.fulfill({contentType: 'image/svg+xml', body: artwork(route.request().url())}));
         }
         await page.goto(origin);
+        if (!before) await page.getByRole('button', {name: 'Music', exact: true}).click();
         await page.locator('#discovery-shelf .home-card').nth(7).waitFor();
         if (!before) {
             const icon = await target('home-radio-0').locator('.radio-shortcut-title .icon').boundingBox();

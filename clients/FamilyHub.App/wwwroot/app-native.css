@@ -448,6 +448,7 @@ select option { background:#12141a; color:#f3f4f7; }
 .settings-page .setting-crossfade input[type=range]:focus-visible { outline:2px solid #fff; outline-offset:6px; }
 .settings-page .setting-crossfade input[type=range]:disabled { opacity:.45; cursor:default; }
 .settings-connection-state { display:block; margin-top:4px; color:var(--muted); font-size:12px; }
+@media(min-width:601px) { #settings-release-history { grid-column:2; } }
 .settings-page .app-update { display:flex; align-items:center; flex-wrap:wrap; justify-content:space-between; gap:12px; padding-top:20px; margin-top:20px; border-top:1px solid #ffffff12; }
 .settings-page .app-update .theme-label { padding:0; }
 .settings-page .app-update .quality-help { width:100%; padding:0; margin:0; }

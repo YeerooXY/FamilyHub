@@ -195,3 +195,50 @@ panel was visually inspected. The Windows client built and the component suite
 checked shared refresh and independent failure recovery. Physical device
 behavior, enlarged text, screen-reader speech, and full motion coverage remain
 unverified.
+
+## 21 November 2026 — Hub and version tracker
+
+The Hub opened Daily Wordle and Music and returned to the app switcher on
+1280 px desktop Chromium, Pixel 7 Chromium and iPhone 13 WebKit browser
+profiles. The desktop glass cards and phone game board were visually inspected.
+Settings version checks covered the installed build, release states, keyboard
+navigation and reuse of one server update request across five browser profiles.
+Physical devices, screen-reader speech and enlarged text remain unverified.
+
+## 21 November 2026 — Daily Wordle
+
+The Windows client build passed. The rendered MAUI components ran against the
+local fixture in desktop Chromium at 1280 px, desktop WebKit at 850 px, emulated
+Android Chromium at 390 px and emulated iPhone WebKit at 320 px. The board stays
+within its available width. The fixture covered light and dark themes, physical
+keys, touch keys, rejected and stale-device guesses, win results, family totals,
+the reduced-motion setting, and focus through Tab, Shift+Tab, Enter, Space and
+Escape. A finished game opened the next day's board at its scheduled reset and
+restored focus after removing the result. Screenshot captures are in
+`.local/task-tmp/wordle-native-review/`.
+
+Marked tile and key text contrast is at least 5.55:1 in these palettes. Physical
+devices, screen-reader speech, enlarged text and full-motion timing still need
+verification.
+
+The Wordle keyboard revision passed the same four browser profiles in both
+themes. Tests measured the bottom row within 20 CSS pixels of the viewport
+edge and checked white unused keys. With a four-second delay on every guess
+save, the client rejected an unknown word and scored two consecutive rows,
+including a repeated-letter guess, before the first save completed.
+
+Family progress cards passed the four Wordle viewport checks with a two-profile
+fixture. Checks covered the 30 cells per board, color marks, accessible profile
+labels, keyboard position and guess submission. The API test verifies private
+letters stay out of the family progress response.
+
+The keyboard palette now follows the supplied reference. Current checks assert
+white legends on gray unused keys in both themes and verify bottom alignment.
+
+## 22 November 2026 — Hub navigation and library scrolling
+
+Desktop Chromium checks measured the app switcher and music navigation icon
+centers in expanded and compact layouts. Desktop Chromium and iPhone WebKit
+loaded library rows in 50-song pages, restored 100 visible rows after clearing
+a search, and reached the final partial page. Both opened Movies from the Hub
+and retained the top bar. These checks used browser fixtures.

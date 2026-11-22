@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using FamilyHub.Client.Core;
@@ -9,22 +10,34 @@ namespace FamilyHub.App.Services;
 public static class AppUpdater
 {
     public static string CurrentVersion => typeof(App).Assembly.GetName().Version!.ToString(3);
+    public static string CurrentBuild { get; } = typeof(App).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+        .First(metadata => metadata.Key == "FamilyHubBuild").Value!;
+    public const string ReleaseHistoryUrl = "https://github.com/YeerooXY/FamilyHub/releases";
     public static string? Platform => DeviceInfo.Platform == DevicePlatform.WinUI ? "windows-x64"
         : DeviceInfo.Platform == DevicePlatform.Android ? "android"
         : DeviceInfo.Platform == DevicePlatform.iOS ? "ios" : null;
+    public static string PlatformDisplay => Platform switch
+    {
+        "windows-x64" => "Windows (x64)",
+        "android" => "Android",
+        "ios" => "iOS",
+        _ => DeviceInfo.Platform.ToString()
+    };
     // iPhone builds are installed and re-signed by SideStore; the app only opens it.
     public static bool UpdatesInSideStore => Platform == "ios";
 
-    public static async Task<AppRelease?> CheckAsync(FamilyHubApi api)
+    public static async Task<AppRelease> CheckAsync(FamilyHubApi api)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         var release = await api.GetAppReleaseAsync(Platform ?? throw new InvalidOperationException("Updates are unavailable on this platform."), timeout.Token);
-        if (!Version.TryParse(release.Version, out var version) ||
+        if (!Version.TryParse(release.Version, out _) ||
             !Regex.IsMatch(release.Sha256 ?? "", "^[0-9a-f]{64}$") || release.Size is <= 0 or > 262144000 ||
             release.DownloadUrl != $"/api/app-updates/{Platform}/{release.Sha256}")
             throw new InvalidDataException("The server returned invalid update information.");
-        return version > Version.Parse(CurrentVersion) ? release : null;
+        return release;
     }
+
+    public static int CompareToInstalled(AppRelease release) => Version.Parse(release.Version).CompareTo(Version.Parse(CurrentVersion));
 
     public static async Task InstallAsync(FamilyHubApi api, AppRelease release, Action<int> progress)
     {

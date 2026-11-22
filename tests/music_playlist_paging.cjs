@@ -11,6 +11,7 @@ const origin = process.env.POPUP_URL || 'http://127.0.0.1:38869';
             try {
                 const page = await browser.newPage(options);
                 await page.goto(origin);
+                await page.getByRole('button', {name: 'Music', exact: true}).click();
                 await page.getByRole('button', {name:'Playlists',exact:true}).first().click();
                 await page.locator('.playlist-card[data-playlist-key="fixture:mix0"]').click();
                 const count = n => page.waitForFunction(n => document.querySelectorAll('.playlist-song-list .song-row').length === n, n);

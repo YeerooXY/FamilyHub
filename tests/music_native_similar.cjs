@@ -12,6 +12,7 @@ async function check(browser, options, scenario, mobile) {
     try {
         assert.ok((await page.request.post(origin + '/fixture/startup/similar-' + scenario)).ok());
         await page.goto(origin);
+        await page.getByRole('button', {name: 'Music', exact: true}).click();
         await page.waitForFunction(() => document.body.dataset.view === 'home');
         if (mobile) {
             await page.getByRole('button', {name: 'Playlists', exact: true}).click();
