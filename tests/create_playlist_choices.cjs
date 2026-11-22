@@ -50,6 +50,13 @@ async function check(name, engine, profile) {
         await preview.waitFor({state: 'hidden'});
         assert(await input.evaluate(node => node === document.activeElement));
         if (name === 'desktop-chromium') {
+            const longerLink = 'https://www.youtube.com/playlist?list=PL1234567890&ref=' + 'a'.repeat(400);
+            await page.evaluate(value => { window.familyhub.clipboardText = async () => value; }, longerLink);
+            await paste.press('Enter');
+            await preview.waitFor();
+            assert.equal(await input.inputValue(), longerLink);
+            await dialog.getByRole('button', {name: 'Clear link'}).press('Enter');
+            await preview.waitFor({state: 'hidden'});
             await cards.first().locator('input').setInputFiles(Array.from({length: 501}, (_, index) => ({
                 name: `song-${index}.mp3`, mimeType: 'audio/mpeg', buffer: Buffer.from([1])
             })));

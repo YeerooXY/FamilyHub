@@ -103,7 +103,7 @@
         }
         if (Files > 0 || busy || !await JS.InvokeAsync<bool>("familyhub.focusInOpenDialog", "new-playlist-url")) return;
         value = value?.Trim();
-        if (string.IsNullOrEmpty(value) || value.Length > 300 || value.Any(char.IsControl))
+        if (string.IsNullOrEmpty(value) || value.Length > 2048 || value.Any(char.IsControl))
         {
             error = "Copy one playlist link, then paste it here.";
             return;

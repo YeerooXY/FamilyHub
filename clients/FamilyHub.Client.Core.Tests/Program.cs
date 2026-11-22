@@ -106,6 +106,9 @@ using (var api = new FamilyHubApi(origin, new Handler(async request =>
     }
     Check(request.Method == HttpMethod.Post && request.RequestUri.AbsolutePath == "/api/uploads", "Wrong upload route");
     Check(request.Headers.GetValues("X-CSRFToken").Single() == "token", "Upload missed CSRF");
+    var upload = ((MultipartFormDataContent)request.Content!).First();
+    if (upload.Headers.ContentLength == 134217729)
+        return Json("{\"job\":{\"id\":\"large\",\"state\":\"queued\"}}");
     var body = await request.Content!.ReadAsStringAsync();
     Check(body.Contains("audio fixture") && body.Contains("read_tags") && body.Contains("true"), "Upload omitted audio or metadata mode");
     return Json("{\"job\":{\"id\":\"uploaded\",\"state\":\"done\",\"source_id\":\"local-0123456789abcdef\"}}");
@@ -122,7 +125,9 @@ using (var api = new FamilyHubApi(origin, new Handler(async request =>
         && updated.Tracks[1].AddedAt == "2026-11-17T12:00:00Z", "Upload append lost existing entries or the date added");
     Check(api.CreateMediaRequest("/api/library/local-0123456789abcdef/download").Uri.AbsolutePath.EndsWith("/download"), "Local media path rejected");
     Check(new PlaybackResume { TrackIds = ["local-0123456789abcdef"], Index = 0, Position = 10 }.IsValid, "Local recording resume rejected");
-    await Throws<ArgumentException>(() => api.UploadAudioAsync(new MemoryStream(), 134217729, "large.flac", "", "", ""), "Oversized file accepted");
+    var large = await api.UploadAudioAsync(new MemoryStream(), 134217729, "large.flac", "", "", "");
+    Check(large.GetProperty("job").GetProperty("id").GetString() == "large", "The client rejected a large upload before the server could check it");
+    await Throws<ArgumentException>(() => api.UploadAudioAsync(new MemoryStream(), 0, "empty.flac", "", "", ""), "Empty file accepted");
 }
 
 var relativeNow = DateTimeOffset.Parse("2026-11-15T12:00:00Z");
