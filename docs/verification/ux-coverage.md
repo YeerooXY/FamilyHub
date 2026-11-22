@@ -242,3 +242,15 @@ centers in expanded and compact layouts. Desktop Chromium and iPhone WebKit
 loaded library rows in 50-song pages, restored 100 visible rows after clearing
 a search, and reached the final partial page. Both opened Movies from the Hub
 and retained the top bar. These checks used browser fixtures.
+
+## 22 November 2026 — Wordle family statistics and settings
+
+Desktop Chromium, desktop WebKit, Android Chromium and iPhone WebKit opened the
+family statistics disclosures by keyboard. Before the player finished, the
+disclosure showed historical favorite-guess counts and withheld today's rows.
+After a win, it showed each letter and location in the submitted guess.
+Desktop Chromium saved the spoiler setting with focus on the checkbox and
+reopened Wordle with family boards hidden. API tests checked per-profile
+persistence, CSRF, and exclusion of other players' current-day words and counts.
+Captures are in `.local/task-tmp/wordle-settings-review/`. Physical devices,
+screen-reader speech and enlarged text remain unverified.
