@@ -5,7 +5,7 @@ from collections import deque
 from contextlib import closing
 import json
 import logging
-from logging.handlers import RotatingFileHandler
+from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 from pathlib import Path
 import re
 import sqlite3
@@ -23,7 +23,30 @@ WINDOW = 900
 EVENTS = {"click", "change", "drag", "key", "scroll", "screen", "submit", "error", "context"}
 KEYS = {"Enter", "Escape", "Space", "Tab", "Backspace", "Delete", "Home", "End", "PageUp", "PageDown",
         "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"}
+# Endpoints a client polls while a view is open. The activity log keeps the first request and then one
+# summary per window, so the interesting rows stay readable.
+POLLING = {"playback_activity", "listening_pokes", "playback_devices", "get_job", "job_media", "prepare_playlist",
+           "artwork", "playback_audio", "playback_diagnostic_events", "listening_summary"}
+POLL_WINDOW = 30
+SONG_WINDOW = 60
+ACTIVITY_DAYS = 14
 TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_./#-]{0,119}\Z")
+
+
+def note(**fields):
+    """Attach readable context (a song title, a job, a profile action) to the current request's activity row.
+
+    The activity log is a separate administrator file. Search text and free-form user input are never passed here,
+    and nothing noted reaches the diagnostics attached to feedback reports.
+    """
+    clean = {}
+    for key, value in fields.items():
+        if isinstance(value, bool) or isinstance(value, (int, float)):
+            clean[key] = value
+        elif isinstance(value, str) and value.strip():
+            clean[key] = "".join(c for c in value if c >= " " and c != "").strip()[:120]
+    if clean:
+        g.activity_note = {**getattr(g, "activity_note", {}), **clean}
 
 
 def register(app, workspace, body, api_error, profiles, is_admin):
@@ -32,6 +55,42 @@ def register(app, workspace, body, api_error, profiles, is_admin):
     lock = Lock()
     journal = RotatingFileHandler(Path(workspace) / ".feedback-server.log", maxBytes=2 * 1024 * 1024,
                                   backupCount=3, encoding="utf-8", delay=True)
+
+    # One file per day, kept for two weeks: .activity.log, .activity.log.2026-11-22, ...
+    activity = TimedRotatingFileHandler(Path(workspace) / ".activity.log", when="midnight", backupCount=ACTIVITY_DAYS,
+                                        encoding="utf-8", delay=True)
+    polled = {}
+
+    def write_activity(response, trace, started):
+        endpoint = request.endpoint
+        owner = getattr(g, "user", None)
+        row = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "owner": owner, "endpoint": endpoint,
+               "method": request.method, "status": response.status_code, "trace": trace,
+               "ms": round(1000 * (time.monotonic() - started)) if started is not None else None}
+        try:
+            row["profile"] = profiles.get(owner)["name"] if owner else None
+        except Exception:
+            row["profile"] = None
+        row.update(getattr(g, "activity_note", {}))
+        if response.status_code >= 400 and response.is_json:
+            error = (response.get_json(silent=True) or {}).get("error")
+            if isinstance(error, str):
+                row["error"] = error[:200]
+        if endpoint in POLLING and response.status_code < 400:
+            # A new song always gets its own row; the same song is summarized once a minute.
+            key = (owner, endpoint, row.get("song"))
+            now = time.monotonic()
+            last = polled.get(key)
+            if last and now - last[0] < (SONG_WINDOW if "song" in row else POLL_WINDOW):
+                polled[key] = (last[0], last[1] + 1)
+                return
+            if last and last[1]:
+                row["skipped_since_last"] = last[1]
+            polled[key] = (now, 0)
+        with lock:
+            activity.handle(logging.LogRecord("familyhub.activity", logging.INFO, "", 0,
+                                              json.dumps(row, ensure_ascii=False), (), None))
+            activity.close()
 
     def connect():
         db = sqlite3.connect(database, timeout=5)
@@ -81,6 +140,10 @@ def register(app, workspace, body, api_error, profiles, is_admin):
             record("request", owner=getattr(g, "user", None), endpoint=endpoint,
                    method=request.method, status=response.status_code, trace=trace,
                    elapsed_ms=round(1000 * (time.monotonic() - started)) if started is not None else None)
+            try:
+                write_activity(response, trace, started)
+            except Exception:
+                logging.getLogger("music_web").warning("activity log write failed")
         return response
 
     def text(value, label, capacity):

@@ -833,6 +833,7 @@ def create_app(test_config=None):
             if not isinstance(track, dict) or any(not isinstance(track.get(key), str) or len(track[key]) > limit or any(ord(c) < 32 for c in track[key]) for key, limit in (("id", 128), ("title", 500), ("channel", 300))):
                 raise ApiError("Invalid current song.")
             track = {key: track[key] for key in ("id", "title", "channel")}
+            feedback.note(song=track["title"], channel=track["channel"], video=track["id"], playing=data["playing"])
         device_info = data.get("device_info")
         playback_fields = {key: data[key] for key in ("status", "duration", "queue", "queue_rev", "epoch", "local_play", "acks") if key in data}
         if playback_fields:
@@ -1687,6 +1688,7 @@ def create_app(test_config=None):
     @app.post("/api/playlists")
     def create_playlist():
         name = playlist_name(body().get("name"))
+        feedback.note(playlist_name=name)
         with catalogue_lock:
             if len(playlist_store.list(g.user)) >= 100:
                 raise ApiError("You can save up to 100 playlists.")
@@ -2201,6 +2203,7 @@ def create_app(test_config=None):
             raise ApiError("Paste a public Spotify, YouTube, SoundCloud or Deezer playlist link.")
         if link_playlists.detect(url) != provider:
             raise ApiError("This link does not match the chosen site.")
+        feedback.note(provider=provider, playlist=pid, append=bool(data.get("append")))
         if data.get("download") not in (None, True, False):
             raise ApiError("Download must be true or false.")
         name = data.get("name")
@@ -2575,6 +2578,7 @@ def create_app(test_config=None):
         except app.intake.IntakeError:
             raise ApiError("Enter one YouTube video link.")
         m = fetch_metadata(d, vid)
+        feedback.note(song=m.get("title"), artist=m.get("artist"), video=vid, prefetch=prefetch)
         if d.get("allow_new") is False and not saved_source(vid):
             raise ApiError("Enable Allow new music downloads and discovery to listen to this recording.", 403)
         if not prefetch and not background_activity():

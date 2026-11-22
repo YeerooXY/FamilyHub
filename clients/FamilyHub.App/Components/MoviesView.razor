@@ -56,6 +56,19 @@
         }
     }
 
+    // Playback problems are reported with fixed labels only; the server writes them to its log.
+    [JSInvokable]
+    public async Task MovieEvent(string kind, string method, string title, int? minutes)
+    {
+        try
+        {
+            if (Session.Api is { } api && !closed.IsCancellationRequested)
+                await api.RequestJsonAsync<System.Text.Json.JsonElement?>(HttpMethod.Post, "/api/movies/report",
+                    new { kind, method, title, minutes }, cancellationToken: closed.Token);
+        }
+        catch (Exception) { }
+    }
+
     [JSInvokable]
     public async Task MovieStarted()
     {

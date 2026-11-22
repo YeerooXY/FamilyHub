@@ -1,4 +1,5 @@
 import base64
+import json
 import time
 from pathlib import Path
 
@@ -64,6 +65,25 @@ class FeedbackTests(Base):
         self.assertEqual(self.go(owner, "GET", thread).json["status"], "new")
         self.assertEqual(self.go(developer, "PATCH", thread, headers={"X-CSRFToken": dev_token}, json={"status": "closed"}).status_code, 200)
         self.assertEqual(self.post(owner, token, thread + "/replies", json={"message": "A late reply"}).status_code, 409)
+
+    def test_activity_log_names_songs_and_errors_but_not_search_text(self):
+        owner, token = self.selected("sample-a")
+        beat = {"device_id": "d" * 32, "playing": True, "position": 3,
+                "track": {"id": "abcdefghijk", "title": "Midnight Bakery", "channel": "Quiet Orchard"}}
+        for _ in range(3):
+            self.post(owner, token, "/api/playback/activity", json=beat)
+        bad = self.post(owner, token, "/api/search", json={"query": "PRIVATE-SEARCH"})
+        self.assertEqual(bad.status_code, 400)
+        rows = [json.loads(line) for line in (Path(self.ws) / ".activity.log").read_text(encoding="utf-8").splitlines()]
+        songs = [row for row in rows if row.get("song") == "Midnight Bakery"]
+        self.assertEqual(len(songs), 1)
+        self.assertEqual(songs[0]["channel"], "Quiet Orchard")
+        self.assertEqual((songs[0]["owner"], songs[0]["profile"]), ("sample-a", "sample-a"))
+        failed = [row for row in rows if row["status"] == 400]
+        self.assertTrue(failed and failed[0].get("error"))
+        self.assertNotIn("PRIVATE-SEARCH", json.dumps(rows))
+        # Song names stay out of the diagnostics that accompany feedback reports.
+        self.assertNotIn("Midnight Bakery", (Path(self.ws) / ".feedback-server.log").read_text())
 
     def test_rejects_non_images_and_requires_description(self):
         owner, token = self.selected("sample-a")

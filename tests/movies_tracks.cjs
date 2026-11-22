@@ -100,6 +100,9 @@ async function check(browser, options) {
             { invokeMethodAsync: () => Promise.resolve() }, { server: location.origin, profile });
     }, { profile, jellyfin });
     const focused = async node => page.waitForFunction(el => el === document.activeElement, await node.elementHandle());
+    // "Recently added" repeats titles from the library shelves, so look cards up outside it.
+    const moviesShelf = page.locator(".movie-shelf").filter({ hasNot: page.getByRole("heading", { name: "Recently added" }) });
+    const openTracks = () => page.getByRole("button", { name: "Audio and subtitles" }).click();
     const select = name => page.getByRole("combobox", { name, exact: true });
     const preferences = (profile, values) => page.evaluate(async ({ profile, values }) => {
         const { readMoviePreferences, saveMoviePreferences } = await import("/movies.js");
@@ -107,7 +110,7 @@ async function check(browser, options) {
         return values ? saveMoviePreferences(viewer, values) : readMoviePreferences(viewer);
     }, { profile, values });
     const image = async (name, expectedSource, ratio) => {
-        const card = page.getByRole("button", { name, exact: true });
+        const card = moviesShelf.getByRole("button", { name, exact: true });
         await card.scrollIntoViewIfNeeded();
         await page.waitForFunction(({ selector, expectedSource }) =>
             Array.from(document.querySelectorAll(selector)).some(img => img.currentSrc.includes(expectedSource)
@@ -120,8 +123,8 @@ async function check(browser, options) {
     };
     const audio = select("Audio track"), subtitle = select("Subtitle track");
     const back = page.getByRole("button", { name: "Back to movies" });
-    const two = page.getByRole("button", { name: "Two languages" });
-    const one = page.getByRole("button", { name: "One language" });
+    const two = moviesShelf.getByRole("button", { name: "Two languages" });
+    const one = moviesShelf.getByRole("button", { name: "One language" });
 
     await open("viewer-a");
     const search = page.getByRole("searchbox");
@@ -145,11 +148,35 @@ async function check(browser, options) {
     await image("Show · Finale", "/movie-art/episode.jpg", 16 / 9);
     await two.press("Enter");
     await back.waitFor();
-    await focused(back);
-    await page.keyboard.press("Tab");
-    await focused(audio);
-    await page.keyboard.press("Shift+Tab");
-    await focused(back);
+    // The player fills the window; controls follow the Netflix-style layout and start on Play.
+    const box = () => page.locator(".movie-player").evaluate(node => [getComputedStyle(node).position, node.getBoundingClientRect().width === innerWidth]);
+    assert.deepEqual(await box(), ["fixed", true]);
+    const playPause = page.getByRole("button", { name: /^(Play|Pause)$/ });
+    await focused(playPause);
+    for (const name of ["Back 10 seconds", "Forward 10 seconds", "Audio and subtitles"]) await page.getByRole("button", { name }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Episodes" }).count(), 0, "a film has no Episodes button");
+    assert.equal(await page.getByRole("button", { name: /^Next episode/ }).count(), 0, "a film has no Next Episode button");
+    await page.getByRole("slider", { name: "Seek" }).waitFor();
+    // Tab order: close, 10 s back, play, 10 s forward, seek bar.
+    await back.focus();
+    for (const next of [page.getByRole("button", { name: "Back 10 seconds" }), playPause, page.getByRole("button", { name: "Forward 10 seconds" }), page.getByRole("slider", { name: "Seek" })]) {
+        await page.keyboard.press("Tab");
+        await focused(next);
+    }
+    // Audio & Subtitles opens a sheet with one named close control and Escape returns focus to its opener.
+    const tracks = page.getByRole("button", { name: "Audio and subtitles" });
+    await tracks.click();
+    await page.getByRole("button", { name: "Close audio and subtitles" }).waitFor();
+    await audio.waitFor();
+    // A browser in fullscreen spends the first Escape on leaving fullscreen, so allow a second press.
+    const closer = page.getByRole("button", { name: "Close audio and subtitles" });
+    for (let press = 0; press < 2 && await closer.isVisible(); press++) {
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(300);
+    }
+    await closer.waitFor({ state: "hidden" });
+    await focused(tracks);
+    await tracks.click();
     assert.equal(await audio.inputValue(), "2");
     assert.equal(await subtitle.inputValue(), "3");
     assert.equal(await page.locator("video").evaluate(video => {
@@ -162,6 +189,7 @@ async function check(browser, options) {
     await audio.focus();
     await audio.selectOption("1");
     await back.waitFor();
+    await audio.waitFor();
     await focused(audio);
     assert.equal(await subtitle.inputValue(), "-1");
     assert.deepEqual(await preferences("viewer-a"), { audio: "hu", subtitles: "hu" });
@@ -178,12 +206,14 @@ async function check(browser, options) {
     assert.deepEqual(await preferences("viewer-b"), { audio: "default", subtitles: "default" });
     await two.press("Enter");
     await back.waitFor();
+    await openTracks();
     assert.equal(await subtitle.inputValue(), "4");
     await back.press("Space");
     await focused(two);
     assert.equal(await preferences("viewer-b", { audio: "default", subtitles: "off" }), true);
     await two.press("Enter");
     await back.waitFor();
+    await openTracks();
     assert.equal(await subtitle.inputValue(), "-1");
     await page.reload();
     await open("viewer-a");
@@ -203,6 +233,7 @@ async function check(browser, options) {
     assert.equal(await setMedia({ duration: 1200, currentTime: 0, paused: false }, ["loadedmetadata", "playing"]), 180);
     await setMedia({ currentTime: 210 }, ["seeked"]);
     await setMedia({ currentTime: 215, paused: true }, ["pause"]);
+    await openTracks();
     await audio.selectOption("1");
     await focused(audio);
     assert.equal(await setMedia({ duration: 1200, currentTime: 0, paused: true }, ["loadedmetadata"]), 215);
@@ -252,8 +283,11 @@ async function check(browser, options) {
     ]) {
         const browser = await engine.launch();
         try {
-            await check(browser, { viewport: desktop });
-            await check(browser, devices[phone]);
+            for (const [label, options] of [["desktop", { viewport: desktop }], [phone, devices[phone]]])
+                await check(browser, options).catch(error => {
+                    console.error("FAILED in", engine.name(), label);
+                    throw error;
+                });
         } finally {
             await browser.close();
         }

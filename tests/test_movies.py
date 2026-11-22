@@ -53,3 +53,34 @@ class MovieSessions(Base):
                 self.assertEqual(reply.json['user'], 'viewer-id')
                 self.assertEqual(reply.headers['Cache-Control'], 'no-store')
                 self.assertNotIn('password', reply.json)
+
+    def test_client_reports_are_logged_with_fixed_labels_only(self):
+        client, selection = self.select('sample-a')
+        send = lambda **data: self.post(client, selection['csrf_token'], '/api/movies/report', json=data)
+        with self.assertLogs('music_web.movies', 'WARNING') as logs:
+            self.assertEqual(send(kind='playback-error', method='Transcode').status_code, 204)
+        self.assertIn('playback-error profile=sample-a method=Transcode', logs.output[0])
+        # Free text, titles or URLs are rejected, so they cannot reach the log.
+        self.assertEqual(send(kind='Two Languages https://x?token=abc').status_code, 400)
+        self.assertEqual(send(kind='open-failed', method='file:///secret').status_code, 400)
+        other, other_selection = self.select('sample-b')
+        reply = self.post(other, other_selection['csrf_token'], '/api/movies/report', json={'kind': 'open-failed'})
+        self.assertEqual(reply.status_code, 404)
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_failed_session_logs_the_cause_without_credentials(self, opener):
+        client, selection = self.select('sample-a')
+        opener.return_value.open.side_effect = TimeoutError()
+        with self.assertLogs('music_web.movies', 'WARNING') as logs:
+            self.assertEqual(self.launch(client, selection).status_code, 503)
+        text = '\n'.join(logs.output)
+        self.assertIn('TimeoutError', text)
+        for secret in ('fixture', 'viewer', 'movies.test'):
+            self.assertNotIn(secret, text)
+
+    def test_start_and_stop_reports_name_the_title_in_the_activity_log(self):
+        client, selection = self.select('sample-a')
+        send = lambda **data: self.post(client, selection['csrf_token'], '/api/movies/report', json=data)
+        self.assertEqual(send(kind='started', method='DirectPlay', title='Harbour Lights', minutes=12).status_code, 204)
+        self.assertEqual(send(kind='started', title='x' * 201).status_code, 400)
+        self.assertEqual(send(kind='stopped', minutes=-3).status_code, 400)

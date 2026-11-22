@@ -26,7 +26,9 @@ Open `http://127.0.0.1:9696` from the guest, or through an SSH tunnel. Complete 
 
 Open qBittorrent at `http://127.0.0.1:8080`. Its upstream image prints the temporary first-use WebUI password to its container log. Read it locally with `docker compose -f compose.acquisition.yaml --env-file .env logs qbittorrent`, sign in as `admin`, and immediately set a unique password in **Tools > Options > WebUI > Authentication**. Do not copy the temporary password into environment files or publish logs. qBittorrent keeps its native authentication enabled.
 
-In qBittorrent settings, set the default save path to `/data/downloads/complete` and the incomplete path to `/data/downloads/incomplete` before adding torrents. Configure **Settings > Download Clients** in Prowlarr using host `qbittorrent` and internal port `8080`. Verify downloaded files appear under the host downloads directory. Use public sources and content you are authorized to acquire; this setup does not involve purchases or existing tracker accounts.
+In qBittorrent settings, set the default save path to `/data/downloads/complete` and the incomplete path to `/data/downloads/incomplete` before adding torrents. Configure **Settings > Download Clients** in Prowlarr using host `qbittorrent` and internal port `8080`. Verify downloaded files appear under the host downloads directory. This setup does not involve purchases or existing tracker accounts.
+
+**Owner decision, 22 November 2026:** movie and TV acquisition will use public torrent sources, and the owner accepts the legal and ISP risk of downloading content the household may not hold rights to. The sourcing method is scheduled after the Movies interface work. Before any movie or TV download starts, qBittorrent's traffic must go through a paid, P2P-permitting VPN (for example Gluetun with `network_mode: service:gluetun`), with the kill switch confirmed by a test in which the VPN is stopped and qBittorrent has no connectivity. The music intake tool is unaffected.
 
 ## Scope and limits
 

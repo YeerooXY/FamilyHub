@@ -299,3 +299,46 @@ API tests covered private report and image access, diagnostic redaction and
 request correlation, duplicate submissions, developer replies, and closing a
 thread. Physical devices, the native photo picker, screen-reader speech, and
 enlarged text remain unverified.
+
+## 22 November 2026 · Movies & TV billboard and shelves
+
+The library now opens with a billboard for the title in progress (else the newest
+movie with a backdrop), followed by horizontal shelves with pointer-only circular
+chevrons, progress bars, Recently added and lazily loaded genre rows. Arrow keys
+move between the billboard, rows and cards. `tests/movies_tracks.cjs` still
+passes. `tests/movies_visual.cjs` rendered a dense mocked library in emulated
+Windows Chromium (1280 and 2560 px), a 1920 × 1080 television profile, Pixel 7
+Chromium, WebKit at 1280 px and iPhone 13 WebKit, with no page overflow and
+working keyboard and chevron checks. Screenshots are in
+`docs/verification/movies-ui-2026-11-22/`. The mock uses placeholder artwork. Real
+posters from the Debian Jellyfin library, real macOS and iOS font rendering, the
+LG television itself and a remote's directional pad remain unverified.
+
+## 22 November 2026 · Movies full-screen mode
+
+The Android app's WebView has no HTML fullscreen support, so the player's native
+fullscreen button did nothing. The player now has a **Full screen** button that makes the
+player cover the whole window (the browser's own fullscreen is tried first). The title
+bar, track menus and Exit button hide after 3.5 seconds of inactivity while the film
+plays and return on touch, pointer or key input; they stay while a keyboard-focused control is
+inside them. Escape exits. Leaving the player, an audio change and a failed open all reset it.
+`tests/movies_tracks.cjs` covers entering, Escape, focus return and tab order in desktop and
+mobile Chromium and WebKit. The real 1080p film was checked on an emulated Pixel 7 in portrait
+(412 × 839) and landscape (915 × 412), through the Debian Jellyfin server. A real Android phone,
+automatic landscape locking in the WebView, and the Android Back button remain unverified.
+
+## 22 November 2026 · Movies & TV player (supersedes the Full screen button above)
+
+The player is now a custom, always full-window layout: centred title and a close control
+at the top, a large play/pause between 10-second skips, a seek bar with the remaining
+time, and Episodes, Audio & Subtitles and Next Episode below. Episodes and Next
+Episode exist only for a title that belongs to a series; a film shows neither. Audio &
+Subtitles and Episodes open as sheets with one named close control and return focus to
+their button. Controls hide while the film plays; tap toggles them on touch and play on a
+mouse; arrow keys seek, Space and Enter toggle play, and the TV remote's Back key closes.
+`tests/movies_tracks.cjs` and `tests/movies_episodes.cjs` pass in desktop and mobile
+Chromium and WebKit. The real 1080p film was driven on an emulated Pixel 7 (portrait and
+landscape) and at 1920 × 1080 through the Debian Jellyfin server: play, pause, a 10-second
+skip, the remaining-time label and the Audio & Subtitles sheet. Open items: subtitles
+overlap the seek bar while the controls are visible; the Android Back button, a real
+phone, an LG remote and a real series with several seasons remain unverified.

@@ -2,6 +2,22 @@
 
 FamilyHub provides the profile picker, catalogue and player controls. Jellyfin owns the media library, playback negotiation, watched state and resume position. The phone and desktop contact Jellyfin directly for movie bytes. A Jellyfin outage can affect Movies independently of music.
 
+## Release scope (22 November 2026)
+
+This release ships **playback only**: browsing, playback, resume, audio and subtitle switching, and a separate Jellyfin account per profile. Titles come from files the administrator places in the movie and TV libraries. Requests, automatic acquisition, scheduling, subtitle downloads, recommendations, statistics and comments are not part of it.
+
+| Verified (development VM, Chromium) | Not yet verified |
+| --- | --- |
+| 1080p sample plays and advances. Audio switches with the position kept. Two Hungarian WebVTT cues load. | Phone and projector playback on physical devices. |
+| A 90-minute fixture resumes at 20:00 from two sessions, and a second profile starts at the beginning. | Real 4K and HDR material. The 4K fixture runs at 5 fps. |
+| Regular accounts connect. Admin accounts and unlinked profiles are rejected. | Hungarian and English audio and subtitles on real files. |
+| Library search finds a film and an episode. Keyboard focus returns to the selected title. | Hardware transcoding. The Jellyfin container has no GPU device mapping. |
+| | Network recovery, screen-reader output, enlarged text and the installed app's visuals. |
+
+Resource limits are also not enforced. The priority rules in [New server](NEW_SERVER.md) are a proposal, so a large upload or import can compete with a movie for the disk. Run that document's acceptance run before opening Movies to simultaneous viewers.
+
+The next release-gating checks are one real feature film on a phone and on the projector, with Direct Play first and Quick Sync second.
+
 ## Connect a profile
 
 1. Start the existing Jellyfin service on the Debian guest. Give each viewer a separate ordinary Jellyfin account with access to the movie and TV libraries. The projector should use the same viewer account as the phone.
