@@ -14,6 +14,7 @@
 @inject ListenTogether Together
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
+@inject PublicAppReleases PublicReleases
 
 @if (!Session.Ready || !chromeReady)
 {
@@ -44,6 +45,7 @@ else if (EntryScreen)
                 }
                 <Notice Level="@(error is null ? Session.MessageLevel : "error")" Message="@(error ?? EntryMessage)" />
                 <button class="quiet change-server" @onclick='() => Navigate("Settings")'>Change server</button>
+                <AppUpdate InitialRelease="startupUpdate" />
             </section>
         }
         else
@@ -214,7 +216,7 @@ else
                     <h2 id="connection-settings-heading">Server and updates</h2>
                     <div class="setting-row"><span>Server <span class="settings-connection-state">@(Session.Connected ? "Connected" : "Offline")</span></span><button @onclick='() => Navigate("Settings")'>Change server</button></div>
                     <div class="setting-row"><span>Installed version</span><span id="installed-app-version">@AppUpdater.CurrentVersion · Build @AppUpdater.CurrentBuild · @AppUpdater.PlatformDisplay</span></div>
-                    <div class="setting-row"><span>Server release</span><span id="settings-update-status" role="status">@UpdateStatus</span></div>
+                    <div class="setting-row"><span>Latest release</span><span id="settings-update-status" role="status">@UpdateStatus</span></div>
                     <div class="setting-row"><button id="settings-release-history" type="button" @onclick="OpenReleaseHistory">Release history</button></div>
                     <AppUpdate Id="settings-app-update" @key="Session.Server" InitialRelease="@(updateCheckOrigin == Session.Server ? startupUpdate : null)" VersionInHeading="true" />
                 </section>
@@ -531,7 +533,14 @@ else
 
 @if (startupUpdate is not null)
 {
-    <dialog id="update-dialog" class="popup-panel update-dialog" aria-labelledby="update-heading"><div class="dialog-heading"><h2 id="update-heading">FamilyHub @startupUpdate.Version is available</h2><button class="quiet" aria-label="Close update" @onclick="LaterUpdate"><MusicIcon Name="close" /></button></div><AppUpdate Id="dialog-update" InitialRelease="startupUpdate" VersionInHeading="true" /><button class="quiet" @onclick="LaterUpdate">Later</button></dialog>
+    <dialog id="update-dialog" class="popup-panel update-dialog" aria-labelledby="update-heading">
+        <div class="dialog-heading">
+            <h2 id="update-heading">FamilyHub @startupUpdate.Version is available</h2>
+            <button class="quiet" aria-label="Close update" @onclick="LaterUpdate"><MusicIcon Name="close" /></button>
+        </div>
+        <AppUpdate Id="dialog-update" InitialRelease="startupUpdate" VersionInHeading="true" />
+        <button id="update-later" class="quiet" @onclick="LaterUpdate">Later</button>
+    </dialog>
 }
 <dialog id="spotify-question-dialog" class="popup-panel" aria-labelledby="spotify-question-title">
     <div class="dialog-heading"><h2 id="spotify-question-title">Do you have Spotify Premium?</h2><button class="quiet" aria-label="Close Spotify question" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "spotify-question-dialog", "profile-toggle")'><MusicIcon Name="close" /></button></div>
@@ -902,7 +911,6 @@ else
     private bool updateCheckInFlight, updateChecksStopped, updateFocusPending;
     private DateTime lastUpdateCheck;
     private string UpdateStatus => AppUpdater.Platform is null ? "Updates unavailable on this platform"
-        : Session.Api is null ? "Connect to check for updates"
         : updateCheckOrigin != Session.Server || updateCheckInFlight && serverRelease is null ? "Checking for updates…"
         : updateStatusError is not null ? updateStatusError
         : serverRelease is { } release ? AppUpdater.CompareToInstalled(release) switch
@@ -920,25 +928,25 @@ else
         Session.SetMessage("Could not open release history.", "error");
     }
 
-    [JSInvokable] public Task CheckForBackgroundUpdate() => CheckStartupUpdate(Session.Server, true);
+    [JSInvokable] public Task CheckForBackgroundUpdate(bool connectionRestored) => CheckStartupUpdate(Session.Server, !connectionRestored);
     private async Task CheckStartupUpdate(string origin, bool background = false)
     {
-        if (updateChecksStopped || updateCheckInFlight || AppUpdater.Platform is null || Session.Api is null
+        if (updateChecksStopped || updateCheckInFlight || AppUpdater.Platform is null
             || (background && updateCheckOrigin == origin && DateTime.UtcNow - lastUpdateCheck < TimeSpan.FromMinutes(1))) return;
         updateCheckInFlight = true; lastUpdateCheck = DateTime.UtcNow;
         try
         {
             if (updateCheckOrigin != origin)
             {
-                await SetAvailableUpdate(null, background);
+                await SetAvailableUpdate(null);
                 updateCheckOrigin = origin; serverRelease = null; updateStatusError = null;
                 await InvokeAsync(StateHasChanged);
             }
-            using var api = new FamilyHubApi(new Uri(origin));
-            var release = await AppUpdater.CheckAsync(api);
+            using var api = Session.Api is not null ? new FamilyHubApi(Session.Api.ServerOrigin) : null;
+            var release = await AppUpdater.CheckAsync(api, PublicReleases);
             if (!updateChecksStopped && Session.Server == origin)
             {
-                await SetAvailableUpdate(AppUpdater.CompareToInstalled(release) > 0 ? release : null, background);
+                await SetAvailableUpdate(release is not null && AppUpdater.CompareToInstalled(release) > 0 ? release : null);
                 serverRelease = release; updateStatusError = null;
             }
         }
@@ -946,7 +954,7 @@ else
         {
             if (!updateChecksStopped && Session.Server == origin)
             {
-                await SetAvailableUpdate(null, background);
+                await SetAvailableUpdate(null);
                 serverRelease = null; updateStatusError = null;
             }
         }
@@ -962,22 +970,22 @@ else
         }
     }
 
-    private async Task SetAvailableUpdate(AppRelease? release, bool background)
+    private async Task SetAvailableUpdate(AppRelease? release)
     {
         if (release?.Version != startupUpdate?.Version)
         {
             if (startupUpdate is not null && release is null)
             {
-                if (updateDialogOpened) await JS.InvokeVoidAsync("familyhub.closeDialog", "update-dialog", "profile-toggle");
+                if (updateDialogOpened) await JS.InvokeVoidAsync("familyhub.closeDialog", "update-dialog");
                 updateFocusPending = true;
             }
-            updateNoticeDismissed = background; updateDialogOpened = false;
+            updateNoticeDismissed = false; updateDialogOpened = false;
         }
         startupUpdate = release;
     }
     private bool updateDialogOpened, createPlaylistOpen;
     private void ShowAvailableUpdate(AppRelease release) { startupUpdate = release; updateNoticeDismissed = false; updateDialogOpened = false; }
-    private async Task LaterUpdate() { updateNoticeDismissed = true; await JS.InvokeVoidAsync("familyhub.closeDialog", "update-dialog", "profile-toggle"); }
+    private async Task LaterUpdate() { updateNoticeDismissed = true; await JS.InvokeVoidAsync("familyhub.closeDialog", "update-dialog"); }
     private async Task AllPlaylists()
     {
         var previous = selectedId;
@@ -1006,7 +1014,6 @@ else
         var message = position <= 1 ? $"{track.Title} queued next." : $"{track.Title} queued after {position - 1} songs.";
         await JS.InvokeVoidAsync("FamilyHubNotices.toast", message);
     }
-    private async Task DismissUpdateNotice() { await JS.InvokeVoidAsync("familyhub.focus", "profile-toggle"); updateNoticeDismissed = true; }
     private async Task NewPlaylist() { await Navigate("Playlists"); pendingFocus = "create-playlist"; createPlaylistOpen = true; }
     private (string Name, string Artist, List<MusicTrack> Tracks, string Opener)? selectedAlbum;
     private async Task OpenAlbum((string Name, string Artist, List<MusicTrack> Tracks, string Opener) album)
@@ -1313,7 +1320,7 @@ else
             await JS.InvokeVoidAsync("familyhub.restoreFocus", "pause-download", view == "Playlists" && Selected is not null ? "keep-playlist" : "content");
         wasDownloading = Session.DownloadingId is not null;
         if (pendingFocus is { } target && (!EntryScreen || target is not ("artist-mappings-title" or "catalogue-review-title" or "view-title"))) { pendingFocus = null; await JS.InvokeVoidAsync("familyhub.focus", target); }
-        if (AppUpdater.Platform is not null && Session.Api is not null && !updateCheckInFlight && updateCheckOrigin != Session.Server)
+        if (AppUpdater.Platform is not null && !updateCheckInFlight && updateCheckOrigin != Session.Server)
             _ = CheckStartupUpdate(Session.Server);
         if (updateFocusPending)
         {
@@ -1322,7 +1329,7 @@ else
             await JS.InvokeVoidAsync("familyhub.restoreFocus", "header-update", "profile-toggle");
         }
         if (startupUpdate is not null && !updateNoticeDismissed && !updateDialogOpened)
-        { updateDialogOpened = true; await JS.InvokeVoidAsync("familyhub.showDialog", "update-dialog", "dialog-update"); }
+        { updateDialogOpened = true; await JS.InvokeVoidAsync("familyhub.showDialog", "update-dialog", "update-later"); }
         if (deletePlaylistOpen) { deletePlaylistOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "delete-playlist-dialog", "cancel-delete-playlist"); }
         if (createPlaylistOpen) { createPlaylistOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "create-playlist-dialog", "create-playlist-heading", "create-playlist"); }
         if (preloadOpen) { preloadOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "preload-dialog", "preload-" + preloadQuality, "keep-playlist"); }

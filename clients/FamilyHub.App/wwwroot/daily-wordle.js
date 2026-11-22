@@ -15,10 +15,12 @@ export function bind(surface, receiver) {
     window.addEventListener('focus', handle.refresh, {signal: abort.signal});
     window.addEventListener('online', handle.refresh, {signal: abort.signal});
     document.addEventListener('visibilitychange', handle.refresh, {signal: abort.signal});
+    const updateLiveFamily = () => receiver.invokeMethodAsync('UpdateLiveFamily', !document.hidden).catch(() => {});
     const familyTimer = setInterval(() => {
-        if (!document.hidden && Number(surface.dataset.familyCount) > 1)
-            receiver.invokeMethodAsync('RefreshFamily').catch(() => {});
-    }, 20000);
+        if (!document.hidden) updateLiveFamily();
+    }, 350);
+    document.addEventListener('visibilitychange', updateLiveFamily, {signal: abort.signal});
+    updateLiveFamily();
     abort.signal.addEventListener('abort', () => clearInterval(familyTimer), {once: true});
     const themeButton = surface.querySelector('.dw-theme');
     const systemTheme = matchMedia('(prefers-color-scheme: dark)');
@@ -30,10 +32,11 @@ export function bind(surface, receiver) {
         themeButton.setAttribute('aria-pressed', String(dark));
     };
     updateTheme();
-    themeButton.addEventListener('click', () => {
+    themeButton.addEventListener('click', event => {
         preference = surface.dataset.theme === 'dark' ? 'light' : 'dark';
         try { localStorage.setItem(themeKey, preference); } catch {}
         updateTheme();
+        if (event.detail > 0 && surface.dataset.playing === 'true') surface.focus({preventScroll: true});
     }, {signal: abort.signal});
     systemTheme.addEventListener('change', updateTheme, {signal: abort.signal});
     if (!surface.contains(document.activeElement)) surface.focus({preventScroll: true});
@@ -45,6 +48,7 @@ export function bind(surface, receiver) {
         if (key === 'Enter' && event.target.closest('button,a')) return;
         if (!(key === 'Enter' || key === 'Backspace' || /^[a-z]$/i.test(key))) return;
         event.preventDefault();
+        if (key !== 'Enter' && event.target.closest('button,a')) surface.focus({preventScroll: true});
         receiver.invokeMethodAsync('TypeKey', key.length === 1 ? key.toUpperCase() : key).catch(() => {});
     }, {signal: abort.signal});
 }

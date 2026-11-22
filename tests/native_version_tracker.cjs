@@ -43,8 +43,49 @@ async function audit(browserType, viewport, scenario, expected, historyKey) {
         assert.equal(checked.count, 1, 'Settings and startup issued separate update checks');
         assert.deepEqual(errors, []);
     } finally {
+        await pageReset(browser);
         await browser.close();
     }
+}
+
+async function publicPopup(browserType, viewport, background) {
+    const browser = await browserType.launch();
+    try {
+        const page = await browser.newPage(viewport);
+        await page.request.post(origin + '/fixture/startup/' + (background ? 'update-current' : 'update-offline'));
+        await page.goto(origin);
+        const profile = page.locator('#profile-toggle');
+        await profile.waitFor();
+        if (background) {
+            await page.waitForFunction(async () => (await (await fetch('/fixture/update-check')).json()).count === 1);
+            await profile.focus();
+            await page.request.post(origin + '/fixture/startup/update-background');
+            await page.evaluate(() => window.dispatchEvent(new Event('online')));
+        }
+        const dialog = page.getByRole('dialog', {name: 'FamilyHub 9.9.9 is available'});
+        const later = dialog.getByRole('button', {name: 'Later'});
+        await dialog.waitFor();
+        assert.equal(await later.evaluate(node => node === document.activeElement), true);
+        await page.keyboard.press('Shift+Tab');
+        assert.equal(await dialog.getByRole('button', {name: 'Download and restart'}).evaluate(node => node === document.activeElement), true);
+        await page.keyboard.press('Tab');
+        await page.keyboard.press('Space');
+        await dialog.waitFor({state: 'hidden'});
+        const update = page.getByRole('button', {name: 'Update available', exact: true});
+        await update.press('Enter');
+        await dialog.waitFor();
+        await page.keyboard.press('Escape');
+        await dialog.waitFor({state: 'hidden'});
+        assert.equal(await update.evaluate(node => node === document.activeElement), true);
+    } finally {
+        await pageReset(browser);
+        await browser.close();
+    }
+}
+
+async function pageReset(browser) {
+    const page = browser.contexts()[0]?.pages()[0];
+    if (page) await page.request.post(origin + '/fixture/startup/none');
 }
 
 (async () => {
@@ -53,5 +94,7 @@ async function audit(browserType, viewport, scenario, expected, historyKey) {
     await audit(chromium, devices['Pixel 7'], 'update', '9.9.9 available', 'Enter');
     await audit(webkit, devices['iPhone 13'], 'update-failed', 'Could not check for updates', 'Space');
     await audit(webkit, devices['Desktop Safari'], 'none', 'No release for this platform', 'Enter');
+    await publicPopup(chromium, {viewport: {width: 1280, height: 900}}, true);
+    await publicPopup(webkit, devices['iPhone 13'], false);
     console.log('PASS: installed and server versions, update states, canonical release history, keyboard focus, and one update check.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

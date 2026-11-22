@@ -98,6 +98,45 @@ class DailyWordTests(Base):
         after = self.go(b, "GET", family).json["family"]
         self.assertEqual(next(row for row in after if row["id"] == "sample-a")["guesses"], [first, last])
 
+    def test_family_activity_tracks_edits_and_honors_spoiler_setting(self):
+        a, token = self.selected("sample-a")
+        b, other_token = self.selected("sample-b")
+        activity = "/api/wordle/activity"
+        view = "a" * 32
+
+        def publish(count, row=0, view_id=view):
+            return self.go(a, "PUT", activity, headers={"X-CSRFToken": token},
+                           json={"date": DAY.isoformat(), "view": view_id, "row": row, "draft_count": count})
+
+        def remote():
+            boards = self.go(b, "GET", "/api/wordle/family").json["family"]
+            return next((board for board in boards if board["id"] == "sample-a"), None)
+
+        self.assertEqual(self.go(a, "PUT", activity, json={}).status_code, 400)
+        self.assertEqual(publish(True).status_code, 400)
+        with patch.object(wordle, "monotonic", return_value=10) as clock:
+            for count in (0, 1, 2, 1, 0, 5):
+                self.assertEqual(publish(count).status_code, 200)
+                self.assertEqual(remote()["rows"], [])
+                self.assertTrue(remote()["playing"])
+                self.assertEqual(remote()["draft_count"], count)
+                self.assertNotIn("guesses", remote())
+            marks = self.guess(a, token, "alley").json["guesses"][0]["marks"]
+            self.assertEqual(remote()["rows"], [marks])
+            self.assertEqual(remote()["draft_count"], 0)
+            self.assertEqual(publish(3, row=1, view_id="b" * 32).status_code, 200)
+            self.assertEqual(publish(0, row=None).status_code, 200)
+            self.assertEqual(remote()["draft_count"], 3)
+            clock.return_value = 22
+            self.assertNotIn("playing", remote())
+            self.assertEqual(publish(1, row=1).status_code, 200)
+            self.assertEqual(publish(0, row=None).status_code, 200)
+            self.assertNotIn("playing", remote())
+            self.assertEqual(publish(1, row=1).status_code, 200)
+            self.assertEqual(self.go(b, "PUT", "/api/wordle/settings", headers={"X-CSRFToken": other_token},
+                                     json={"hide_family_until_finished": True}).status_code, 200)
+            self.assertIsNone(remote())
+
     def test_settings_profile_scope_and_favorite_guess_spoilers(self):
         settings = "/api/wordle/settings"
         family = "/api/wordle/family"

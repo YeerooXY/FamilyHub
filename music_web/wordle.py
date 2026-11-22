@@ -7,6 +7,8 @@ import hashlib
 import json
 from pathlib import Path
 import re
+from threading import Lock
+from time import monotonic
 import sqlite3
 from zoneinfo import ZoneInfo
 
@@ -94,6 +96,8 @@ class WordPuzzles:
         self.database = Path(workspace) / ".word-puzzles.sqlite3"
         self.answer_for = answer_for
         self.error = error
+        self.activity = {}
+        self.activity_lock = Lock()
         with closing(self.connect()) as db, db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS puzzle (
@@ -198,22 +202,36 @@ class WordPuzzles:
             reveal = self.finished(db, profile, key)
             hide = not reveal and self.hides_family(db, profile)
             records = db.execute("""
-                SELECT profile, guesses, answer FROM progress
+                SELECT profile, guesses, answer, status FROM progress
                 JOIN puzzle USING(day) WHERE day = ?
                 """, (key,))
-            boards = {owner: [dict(word=word, marks=marks_for(word, answer)) for word in json.loads(guesses)]
-                      for owner, guesses, answer in records if not hide or owner == profile}
+            boards = {owner: ([dict(word=word, marks=marks_for(word, answer)) for word in json.loads(guesses)], status)
+                      for owner, guesses, answer, status in records if not hide or owner == profile}
+        with self.activity_lock:
+            now = monotonic()
+            active = {owner: (row, count) for owner, (_, activity_day, row, count, until) in self.activity.items()
+                      if activity_day == key and now < until}
         family = []
         for person in profiles:
             owner = person["id"]
             if hide and owner != profile:
                 continue
-            guesses = boards.get(owner, [])
+            guesses, status = boards.get(owner, ([], "playing"))
             entry = dict(id=owner, name=person["name"], rows=[guess["marks"] for guess in guesses])
+            if status == "playing" and owner in active:
+                row, count = active[owner]
+                entry.update(playing=True, draft_count=count if row == len(guesses) else 0)
             if reveal or owner == profile:
                 entry["guesses"] = guesses
             family.append(entry)
         return family
+
+    def set_activity(self, profile, view, day, row, count):
+        with self.activity_lock:
+            if row is not None:
+                self.activity[profile] = (view, day, row, count, monotonic() + 12)
+            elif self.activity.get(profile, (None,))[0] == view:
+                del self.activity[profile]
 
     def stats(self, profile, day, profiles):
         key = day.isoformat()
@@ -275,6 +293,21 @@ def register(app, workspace, require_family, profiles, body, api_error, daily_an
         response = jsonify(date=day.isoformat(), family=puzzles.family_boards(g.user, day, profiles.list()))
         response.cache_control.no_store = True
         return response
+
+    @app.put("/api/wordle/activity")
+    def wordle_activity():
+        require_family()
+        data = body(limit=256)
+        view, day, row, count = (data.get(key) for key in ("view", "date", "row", "draft_count"))
+        if not isinstance(view, str) or not re.fullmatch("[a-f0-9]{32}", view):
+            raise api_error("Invalid Wordle view.")
+        if day != current_day().isoformat():
+            raise api_error("The puzzle day changed. Open today's puzzle and try again.", 409)
+        if (row is not None and (type(row) is not int or not 0 <= row < MAX_GUESSES)
+                or type(count) is not int or not 0 <= count <= WORD_LENGTH):
+            raise api_error("Invalid Wordle activity.")
+        puzzles.set_activity(g.user, view, day, row, count)
+        return jsonify(ok=True)
 
     @app.post("/api/wordle/guess")
     def wordle_guess():

@@ -82,11 +82,16 @@ async function dailyPlay(name, engine, options) {
             for (const letter of 'SLATE') await keyboard.getByRole('button', {name: letter, exact: true}).tap();
             await keyboard.getByRole('button', {name: 'Submit guess'}).tap();
         } else {
-            await typed('slate');
+            await theme.press('Space');
+            const selectedTheme = await theme.getAttribute('aria-pressed');
+            assert(await theme.evaluate(node => node === document.activeElement));
+            await page.keyboard.type('slate');
             await page.keyboard.press('Enter');
+            assert.equal(await theme.getAttribute('aria-pressed'), selectedTheme);
         }
         await row(1).getByText('S').waitFor();
-        await page.waitForFunction(() => document.querySelector('.dw-context').textContent.includes('1/6'));
+        await row(1).locator('.dw-reveal').first().waitFor();
+        assert.doesNotMatch(await panel.locator('.dw-context').innerText(), /\/6 guesses/);
         assert.match(await row(1).getAttribute('aria-label'), /S, absent.*A, right spot/);
         assert.deepEqual(await row(1).locator('.dw-tile span').evaluateAll(letters =>
             letters.map(letter => getComputedStyle(letter).color)), Array(5).fill('rgb(255, 255, 255)'));
@@ -100,7 +105,6 @@ async function dailyPlay(name, engine, options) {
         await typed('plate');
         await page.keyboard.press('Enter');
         await status.getByText('The puzzle changed. Check your guesses and try again.').waitFor();
-        await page.waitForFunction(() => document.querySelector('.dw-context').textContent.includes('2/6'));
         assert.match(await row(2).getAttribute('aria-label'), /B, absent/);
         await erase();
         await typed('crate');
@@ -163,7 +167,7 @@ async function rollover() {
             const wordle = document.querySelector('.daily-wordle');
             return wordle?.dataset.playing === 'true' && wordle.querySelector('.dw-context span')?.textContent !== previous;
         }, before, {timeout: 10000});
-        assert.equal(await panel.locator('.dw-context span').last().textContent(), '0/6 guesses');
+        assert.equal(await panel.locator('.dw-row .dw-tile span').allTextContents().then(letters => letters.join('')), '');
         await page.waitForFunction(() => document.querySelector('.daily-wordle')?.contains(document.activeElement));
         console.log('Open finished puzzle advanced automatically at reset');
     } finally { await browser.close(); }
@@ -186,11 +190,11 @@ async function localScoring() {
         for (let i = 0; i < 5; i++) await page.keyboard.press('Backspace');
         await submit('eerie');
         const started = Date.now();
-        await page.waitForFunction(() => document.querySelector('.dw-context').textContent.includes('1/6'), null, {timeout: 1000});
+        await panel.locator('.dw-row').first().locator('.dw-reveal').first().waitFor({timeout: 1000});
         assert.match(await panel.locator('.dw-row').first().getAttribute('aria-label'), /E, absent, E, absent, R, different spot, I, absent, E, right spot/);
         await submit('eerie');
         await panel.getByText('Already guessed.', {exact: true}).waitFor({timeout: 1000});
-        assert.match(await panel.locator('.dw-context').innerText(), /1\/6/);
+        assert.equal(await panel.locator('.dw-row').nth(1).locator('.dw-filled').count(), 5);
         for (let i = 0; i < 5; i++) await page.keyboard.press('Backspace');
         await submit('crate');
         await panel.locator('.dw-row').nth(1).locator('.dw-win').first().waitFor({timeout: 1000});
@@ -198,6 +202,59 @@ async function localScoring() {
         console.log('Local scoring accepted two rows before the delayed server save.');
     } finally {
         await page.request.post(origin + '/fixture/startup/default');
+        await browser.close();
+    }
+}
+
+async function liveFamily() {
+    const browser = await chromium.launch();
+    const page = await browser.newPage({reducedMotion: 'no-preference'});
+    const member = (count, submitted = false) => page.request.post(`${origin}/fixture/wordle-member/${count}/${submitted}`);
+    try {
+        await page.request.post(origin + '/fixture/wordle-reset/86400');
+        await member(-1);
+        const panel = await openWordle(page);
+        const june = panel.getByRole('img', {name: /^June,/});
+        const theme = panel.getByRole('button', {name: 'Dark theme'});
+        await theme.focus();
+        await member(0);
+        await june.locator('.dw-playing-dot').waitFor({timeout: 1000});
+        for (const count of [1, 3, 2, 0]) {
+            await member(count);
+            await page.waitForFunction(expected =>
+                document.querySelectorAll('.dw-family-card[aria-label^="June,"] .dw-draft').length === expected,
+                count, {timeout: 1000});
+        }
+        await member(0, true);
+        await page.waitForFunction(() => document.querySelector('.dw-family-card[aria-label^="June, 2 of 6"]'), null, {timeout: 1000});
+        assert.equal(await june.locator('.dw-mini .correct').count(), 2);
+        assert(await theme.evaluate(node => node === document.activeElement));
+        await member(-1, true);
+        await june.locator('.dw-playing-dot').waitFor({state: 'hidden', timeout: 1000});
+
+        await panel.focus();
+        const outgoing = count => page.waitForFunction(async ({ origin, count }) => {
+            const state = await fetch(origin + '/fixture/wordle-activity').then(response => response.json());
+            return state.row === 0 && state.draft_count === count && !Object.hasOwn(state, 'word');
+        }, {origin, count}, {timeout: 1000, polling: 50});
+        await page.keyboard.type('sl');
+        await outgoing(2);
+        await page.keyboard.press('Backspace');
+        await outgoing(1);
+        await page.keyboard.press('Backspace');
+        await outgoing(0);
+        await page.keyboard.type('slate');
+        await page.keyboard.press('Enter');
+        const flip = panel.locator('.dw-row').first().locator('.dw-reveal');
+        await flip.last().waitFor();
+        assert.deepEqual(await flip.evaluateAll(nodes => nodes.map(node => {
+            const style = getComputedStyle(node);
+            return [style.animationDuration, style.animationDelay];
+        })), [['0.25s, 0.25s', '0s, 0.25s'], ['0.25s, 0.25s', '0.3s, 0.55s'],
+            ['0.25s, 0.25s', '0.6s, 0.85s'], ['0.25s, 0.25s', '0.9s, 1.15s'], ['0.25s, 0.25s', '1.2s, 1.45s']]);
+        console.log('Live family presence, draft deletion, committed tiles, focus and flip timing passed');
+    } finally {
+        await member(-1);
         await browser.close();
     }
 }
@@ -211,5 +268,6 @@ async function localScoring() {
     ]) await dailyPlay(name, engine, profile);
     await rollover();
     await localScoring();
+    await liveFamily();
     await preferences();
 })().catch(error => { console.error(error); process.exitCode = 1; });

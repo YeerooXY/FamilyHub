@@ -18,6 +18,7 @@ while (checkout is not null && !Directory.Exists(Path.Combine(checkout.FullName,
 var repo = checkout?.FullName ?? throw new InvalidOperationException("Run the fixture inside the FamilyHub checkout.");
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddScoped<MusicSession>(_ => MakeSession(repo));
+builder.Services.AddSingleton(_ => new PublicAppReleases(new HttpClient(new FixtureApi([]))));
 builder.Services.AddScoped(service => {
     var player = new MusicPlayer(service.GetRequiredService<MusicSession>());
     typeof(MusicPlayer).GetMethod("AttachDecks", BindingFlags.Instance | BindingFlags.NonPublic)!
@@ -55,6 +56,11 @@ app.MapGet("/fixture/update-check", () => new { Count = Volatile.Read(ref Fixtur
 app.MapPost("/fixture/similar-release", () => FixtureApi.SimilarRelease.TrySetResult());
 app.MapPost("/fixture/wordle-reset/{seconds:int}", (int seconds) =>
     FixtureApi.WordleReset = DateTimeOffset.UtcNow.AddSeconds(Math.Max(1, seconds)));
+app.MapPost("/fixture/wordle-member/{count:int}/{submitted:bool}", (int count, bool submitted) =>
+{
+    FixtureApi.WordleMember = (count, submitted);
+});
+app.MapGet("/fixture/wordle-activity", () => Results.Text(FixtureApi.WordleActivity, "application/json"));
 
 app.MapStaticAssets();
 app.MapRazorComponents<MusicPopupHost.Review>().AddInteractiveServerRenderMode();
@@ -65,7 +71,7 @@ static MusicSession MakeSession(string repo)
     var session = new MusicSession();
     void Set(string name, object value) => typeof(MusicSession).GetProperty(name)!.SetValue(session, value);
     Set("Ready", true);
-    Set("Connected", true);
+    Set("Connected", FixtureApi.Startup != "update-offline");
     Set("MoviesEnabled", true);
     session.UiActive = true;
     Set("User", "fixture");
@@ -108,7 +114,7 @@ static MusicSession MakeSession(string repo)
     typeof(MusicSession).GetField("cachedBytes", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(session, 1024L * 1024);
     var api = new FamilyHubApi(new Uri(session.Server), new FixtureApi(library));
     typeof(FamilyHubApi).GetField("csrf", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(api, "fixture-csrf");
-    Set("Api", api);
+    if (FixtureApi.Startup != "update-offline") Set("Api", api);
     string[] mixes = ["Late Night Mix", "Quiet Mornings", "Weekend Drive", "After Hours", "On the Road", "House Mix", "November Picks", "First Listen"];
     Set("Playlists", mixes.Select((name, i) => new MusicPlaylist { Id = "mix" + i, Name = name, OwnerId = "fixture", OwnerName = "Alex", CanEdit = true, CanDelete = true, CanManageAuthors = true, Shared = true, CoverUrl = "/test/mix" + (20 + i),
         Tracks = library.Skip(i * 2).Take(4).Select(t => new PlaylistTrack {
@@ -191,6 +197,8 @@ sealed class FixtureLauncher : ILauncher
 sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
 {
     internal static DateTimeOffset WordleReset { get; set; } = DateTimeOffset.UtcNow.AddDays(1);
+    internal static (int Count, bool Submitted) WordleMember { get; set; } = (-1, false);
+    internal static string WordleActivity { get; private set; } = "{}";
     private readonly List<(string Word, string[] Marks)> wordleGuesses = [];
     private string wordleDate = "";
     private bool hideWordleFamily;
@@ -214,6 +222,19 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
                 : JsonSerializer.Serialize(new { profile = new ListenerProfile { Id = "fixture", Name = name } });
             return new HttpResponseMessage(duplicate ? HttpStatusCode.BadRequest : HttpStatusCode.OK)
             { Content = new StringContent(renameBody, Encoding.UTF8, "application/json") };
+        }
+        if (request.RequestUri!.Host == "api.github.com" && path.EndsWith("/releases/latest", StringComparison.Ordinal))
+        {
+            if (Startup == "update-failed") return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            if (Startup is not ("update-offline" or "update-background")) return new HttpResponseMessage(HttpStatusCode.NotFound);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new {
+                    tag_name = "v9.9.9",
+                    assets = new[] { new { name = "FamilyHub-Music-Windows-9.9.9.zip", state = "uploaded",
+                        size = 32 * 1024 * 1024, digest = "sha256:" + ReleaseHash } }
+                }), Encoding.UTF8, "application/json")
+            };
         }
         if (path == "/api/app-updates/windows-x64")
         {
@@ -251,6 +272,11 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
             {
                 Content = new StringContent(response, Encoding.UTF8, "application/json")
             };
+        }
+        if (path == "/api/wordle/activity")
+        {
+            WordleActivity = await request.Content!.ReadAsStringAsync(token);
+            return new(HttpStatusCode.OK) { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
         }
         if (path is "/api/wordle/today" or "/api/wordle/guess" or "/api/wordle/stats" or "/api/wordle/family" or "/api/wordle/settings")
         {
@@ -302,8 +328,10 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
             }
             var won = wordleGuesses.LastOrDefault().Word == "crate";
             string[] juneMarks = ["absent", "correct", "present", "absent", "absent"];
-            var family = new[] { new { id = "fixture", name = "Alex", rows = Array.Empty<string[]>(), guesses = (object?)null },
-                new { id = "june", name = "June", rows = new[] { juneMarks },
+            var member = WordleMember;
+            var family = new[] { new { id = "fixture", name = "Alex", rows = Array.Empty<string[]>(), playing = false, draft_count = 0, guesses = (object?)null },
+                new { id = "june", name = "June", rows = member.Submitted ? new[] { juneMarks, juneMarks } : new[] { juneMarks },
+                    playing = member.Count >= 0, draft_count = Math.Max(0, member.Count),
                     guesses = won ? new[] { new { word = "grape", marks = juneMarks } } : (object?)null } };
             if (hideWordleFamily && !won) family = family[..1];
             if (path == "/api/wordle/family") return Json(new { date = day, family });

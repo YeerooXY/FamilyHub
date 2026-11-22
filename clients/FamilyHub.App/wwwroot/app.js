@@ -488,11 +488,12 @@ window.familyhub.restoreStatsFocus = () => {
 };
 window.familyhub.bindUpdatePolling = reference => {
     familyhub.stopUpdatePolling?.();
-    const check = () => { if (!document.hidden) reference.invokeMethodAsync('CheckForBackgroundUpdate').catch(() => {}); };
+    const check = event => { if (!document.hidden) reference.invokeMethodAsync('CheckForBackgroundUpdate', event?.type === 'online').catch(() => {}); };
     const timer = setInterval(check, 5 * 60 * 1000);
     document.addEventListener('visibilitychange', check);
     window.addEventListener('focus', check);
-    familyhub.stopUpdatePolling = () => { clearInterval(timer); document.removeEventListener('visibilitychange', check); window.removeEventListener('focus', check); };
+    window.addEventListener('online', check);
+    familyhub.stopUpdatePolling = () => { clearInterval(timer); document.removeEventListener('visibilitychange', check); window.removeEventListener('focus', check); window.removeEventListener('online', check); };
 };
 window.familyhub.tintPlaylistHeader = () => {
  const panel=document.querySelector('.playlist-hero');

@@ -18,6 +18,54 @@ public partial class DailyWordle
     private int confirmed;
     private bool syncing, syncFailed;
 
+    private sealed record Activity(string Date, int? Row, int DraftCount);
+    private readonly string activityView = Guid.NewGuid().ToString("N");
+    private Activity? lastActivity, pendingActivity;
+    private Task activityTask = Task.CompletedTask;
+    private long nextHeartbeat;
+    private bool liveVisible = true;
+
+    private void PublishActivity()
+    {
+        if (disposed || puzzle is null) return;
+        var playing = liveVisible && puzzle.Status == "playing";
+        if (!playing && lastActivity?.Row is null) return;
+        var activity = new Activity(puzzle.Date, playing ? puzzle.Guesses.Length : null, playing ? draft.Length : 0);
+        var now = Environment.TickCount64;
+        if (activity == lastActivity && now < nextHeartbeat) return;
+        lastActivity = pendingActivity = activity;
+        nextHeartbeat = now + 4000;
+        if (activityTask.IsCompleted) activityTask = SendActivity();
+    }
+
+    private object ActivityPayload(Activity activity) => new
+    {
+        view = activityView, date = activity.Date, row = activity.Row, draft_count = activity.DraftCount
+    };
+
+    private async Task SendActivity()
+    {
+        while (!disposed && pendingActivity is { } activity)
+        {
+            pendingActivity = null;
+            try { await Request<JsonElement>(HttpMethod.Put, "activity", ActivityPayload(activity)); }
+            catch (Exception error) when (IsRequestError(error)) { }
+        }
+    }
+
+    private async Task ClearActivity(FamilyHubApi? api)
+    {
+        if (api is null || lastActivity is not { } activity) return;
+        await activityTask;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        try
+        {
+            await api.RequestJsonAsync<JsonElement>(HttpMethod.Put, "/api/wordle/activity",
+                ActivityPayload(new Activity(activity.Date, null, 0)), timeout.Token, background: true);
+        }
+        catch (Exception error) when (IsRequestError(error)) { }
+    }
+
     private static Puzzle AddGuess(Puzzle active, string word, string solution)
     {
         var remaining = solution.ToCharArray();
@@ -57,6 +105,7 @@ public partial class DailyWordle
         revealRow = updated.Guesses.Length - 1;
         announcement = RowLabel(revealRow, draft, updated.Guesses[^1]);
         draft = "";
+        PublishActivity();
         message = null;
         shake = false;
         focusResult = Finished;
@@ -139,6 +188,7 @@ public partial class DailyWordle
         LoadPuzzle(updated);
         revealRow = -1;
         draft = "";
+        PublishActivity();
         message = "The server’s board has changed. Your saved guesses are shown.";
         focusResult = Finished;
         focusBoard = !Finished;

@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.IO.Compression;
 using System.Reflection;
 using System.Security.Cryptography;
-using System.Text.RegularExpressions;
 using FamilyHub.Client.Core;
 
 namespace FamilyHub.App.Services;
@@ -12,7 +11,7 @@ public static class AppUpdater
     public static string CurrentVersion => typeof(App).Assembly.GetName().Version!.ToString(3);
     public static string CurrentBuild { get; } = typeof(App).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
         .First(metadata => metadata.Key == "FamilyHubBuild").Value!;
-    public const string ReleaseHistoryUrl = "https://github.com/YeerooXY/FamilyHub/releases";
+    public const string ReleaseHistoryUrl = PublicAppReleases.HistoryUrl;
     public static string? Platform => DeviceInfo.Platform == DevicePlatform.WinUI ? "windows-x64"
         : DeviceInfo.Platform == DevicePlatform.Android ? "android"
         : DeviceInfo.Platform == DevicePlatform.iOS ? "ios" : null;
@@ -26,21 +25,34 @@ public static class AppUpdater
     // iPhone builds are installed and re-signed by SideStore; the app only opens it.
     public static bool UpdatesInSideStore => Platform == "ios";
 
-    public static async Task<AppRelease> CheckAsync(FamilyHubApi api)
+    public static async Task<AppRelease?> CheckAsync(FamilyHubApi? api, PublicAppReleases publicReleases)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-        var release = await api.GetAppReleaseAsync(Platform ?? throw new InvalidOperationException("Updates are unavailable on this platform."), timeout.Token);
+        var platform = Platform ?? throw new InvalidOperationException("Updates are unavailable on this platform.");
+        using var publicTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        try
+        {
+            var published = await publicReleases.CheckAsync(platform, publicTimeout.Token);
+            if (published is not null || api is null) return published;
+        }
+        catch (Exception error) when (api is not null && error is (HttpRequestException or OperationCanceledException or InvalidDataException or System.Text.Json.JsonException))
+        {
+            // The configured server mirrors release packages.
+        }
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var release = await api.GetAppReleaseAsync(platform, timeout.Token);
         if (!Version.TryParse(release.Version, out _) ||
-            !Regex.IsMatch(release.Sha256 ?? "", "^[0-9a-f]{64}$") || release.Size is <= 0 or > 262144000 ||
-            release.DownloadUrl != $"/api/app-updates/{Platform}/{release.Sha256}")
+            !PublicAppReleases.ValidPackage(release.Sha256, release.Size) ||
+            release.DownloadUrl != $"/api/app-updates/{platform}/{release.Sha256}")
             throw new InvalidDataException("The server returned invalid update information.");
         return release;
     }
 
     public static int CompareToInstalled(AppRelease release) => Version.Parse(release.Version).CompareTo(Version.Parse(CurrentVersion));
 
-    public static async Task InstallAsync(FamilyHubApi api, AppRelease release, Action<int> progress)
+    public static async Task InstallAsync(FamilyHubApi? api, PublicAppReleases publicReleases, AppRelease release, Action<int> progress)
     {
+        var platform = Platform ?? throw new InvalidOperationException("Updates are unavailable on this platform.");
+        var fromGitHub = PublicAppReleases.IsPublic(release, platform);
 #if WINDOWS
         var install = AppContext.BaseDirectory;
         var probe = Path.Combine(install, ".update-write-test-" + Guid.NewGuid().ToString("N"));
@@ -53,7 +65,11 @@ public static class AppUpdater
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(15));
-            using var response = await api.OpenAppUpdateAsync(release, timeout.Token);
+            using var response = fromGitHub
+                ? await publicReleases.OpenDownloadAsync(release, platform, timeout.Token)
+                : await (api ?? throw new InvalidOperationException("Connect to your FamilyHub server or open Release history."))
+                    .OpenAppUpdateAsync(release, timeout.Token);
+            response.EnsureSuccessStatusCode();
             if (response.Content.Headers.ContentLength is long size && size != release.Size)
                 throw new InvalidDataException("The update download has an unexpected size. Check for updates again.");
             var archive = Path.Combine(stage, "update.zip");
@@ -115,8 +131,10 @@ public static class AppUpdater
             return;
         }
         // Android keeps installation under the operating system's package installer.
-        if (!await Launcher.Default.OpenAsync(api.ResolveUri(release.DownloadUrl)))
-            throw new InvalidOperationException("Open your FamilyHub server in a browser to download the update.");
+        var download = fromGitHub ? new Uri(release.DownloadUrl)
+            : (api ?? throw new InvalidOperationException("Connect to your FamilyHub server or open Release history.")).ResolveUri(release.DownloadUrl);
+        if (!await Launcher.Default.OpenAsync(download))
+            throw new InvalidOperationException("Open Release history in a browser to download the update.");
 #endif
     }
 }

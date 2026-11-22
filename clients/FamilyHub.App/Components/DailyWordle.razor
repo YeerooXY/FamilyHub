@@ -6,7 +6,7 @@
 @using System.Text.Json.Serialization
 
 <section class="daily-wordle" aria-labelledby="daily-wordle-title" @ref="surface" tabindex="-1"
-         data-family-count="@familyBoards.Length" data-playing="@((puzzle?.Status == "playing").ToString().ToLowerInvariant())">
+         data-playing="@((puzzle?.Status == "playing").ToString().ToLowerInvariant())">
     <aside class="dw-family-rail" aria-label="Family guesses">
         @foreach (var board in familyBoards)
         {
@@ -14,18 +14,23 @@
             var rows = own && puzzle is not null ? puzzle.Guesses.Select(g => g.Marks).ToArray() : board.Rows;
             var name = own ? $"{board.Name} (you)" : board.Name;
             var label = $"{name}, {rows.Length} of 6 guesses";
+            var playing = !own && board.Playing;
+            var count = own ? draft.Length : playing ? board.DraftCount : 0;
+            if (playing) label += count == 0 ? ", playing" : $", typing, {count} tiles filled";
             var profile = Session.Profiles.FirstOrDefault(p => p.Id == board.Id) ?? new ListenerProfile { Id = board.Id, Name = board.Name };
             <div class="dw-family-card" @key="board.Id" title="@label" role="img" aria-label="@BoardDescription(label, rows)">
                 <ProfileAvatar Profile="profile" Size="40" ShowCrown="false" />
+                @if (playing) { <span class="dw-playing-dot" aria-hidden="true"></span> }
                 <span class="dw-mini" aria-hidden="true">
                     @for (var i = 0; i < 30; i++)
                     {
-                        <i class="@(i / 5 < rows.Length ? rows[i / 5][i % 5] : "")"></i>
+                        <i class="@(i / 5 < rows.Length ? rows[i / 5][i % 5] : i / 5 == rows.Length && i % 5 < count ? "dw-draft" : "")"></i>
                     }
                 </span>
             </div>
         }
     </aside>
+    <span class="dw-visually-hidden" role="status">@FamilyActivityLabel</span>
     <div class="dw-shell">
         <header class="dw-header">
             <button class="dw-icon" type="button" aria-label="How to play" title="How to play" @onclick="OpenHelp">
@@ -44,7 +49,6 @@
         </header>
         <div class="dw-context">
             <span>@DayLabel</span>
-            <span>@((puzzle?.Guesses.Length ?? 0))/6 guesses</span>
         </div>
         <div class="dw-message" role="status" aria-atomic="true">
             @if (loading)
@@ -81,7 +85,7 @@
                         var letter = column < letters.Length ? letters[column].ToString() : "";
                         var mark = GuessMark(guess, column);
                         <div class="dw-tile @mark @(activeRow && letter.Length > 0 ? "dw-filled" : "") @(row == revealRow ? "dw-reveal" : "") @(row == revealRow && puzzle?.Status == "won" ? "dw-win" : "")"
-                             style="--dw-delay:@(column * 85)ms" aria-hidden="true"><span>@letter</span></div>
+                             style="--dw-delay:@(column * 300)ms;--dw-win-delay:@(1700 + column * 100)ms" aria-hidden="true"><span>@letter</span></div>
                     }
                 </div>
             }
@@ -253,10 +257,16 @@
     private sealed record Puzzle(string Date, string Status, Guess[] Guesses, string? Answer,
         [property: JsonPropertyName("next_reset")] string? NextReset,
         [property: JsonPropertyName("local_solution")] string? LocalSolution = null, FamilyBoard[]? Family = null);
-    private sealed record FamilyBoard(string Id, string Name, string[][] Rows, Guess[]? Guesses);
+    private sealed record FamilyBoard(string Id, string Name, string[][] Rows, Guess[]? Guesses, bool Playing,
+        [property: JsonPropertyName("draft_count")] int DraftCount);
     private sealed record FamilySnapshot(string Date, FamilyBoard[] Family);
     private FamilyBoard[] familyBoards = [];
     private bool fetchingFamily;
+    private string? lastFamilySnapshot;
+    private string FamilyActivityLabel => string.Join(". ", familyBoards.Where(board => board.Id != Session.User)
+        .Select(board => $"{board.Name}, {board.Rows.Length} of 6 guesses" + (board.Playing
+            ? board.DraftCount > 0 ? $", typing, {board.DraftCount} tiles filled" : ", playing"
+            : "")));
     private sealed record PersonalStats(int Played, int Won,
         [property: JsonPropertyName("current_streak")] int CurrentStreak,
         [property: JsonPropertyName("best_streak")] int BestStreak, int[] Distribution);
@@ -361,8 +371,8 @@
 
     private void LoadPuzzle(Puzzle value)
     {
-        if (value.Family is { } boards) familyBoards = ValidBoards(boards);
-        else if (puzzle?.Date != value.Date) familyBoards = [];
+        if (value.Family is { } boards) { familyBoards = ValidBoards(boards); lastFamilySnapshot = null; }
+        else if (puzzle?.Date != value.Date) { familyBoards = []; lastFamilySnapshot = null; }
         puzzle = value with { Family = null };
         keyboard.Clear();
         foreach (var row in value.Guesses)
@@ -408,6 +418,7 @@
         else return;
         message = null; shake = false;
         announcement = draft.Length == 0 ? "Guess cleared." : $"Guess letters {string.Join(" ", draft.ToCharArray())}.";
+        PublishActivity();
     }
 
     private async Task Submit()
@@ -472,6 +483,7 @@
         {
             if (refreshAfterSubmit) { refreshAfterSubmit = false; await ReloadAfterConflict(quiet: true); }
             submitting = false;
+            PublishActivity();
         }
     }
 
@@ -511,7 +523,8 @@
     private static FamilyBoard[] ValidBoards(FamilyBoard[] boards) => boards.Where(b =>
         b is not null && !string.IsNullOrWhiteSpace(b.Id) && b.Rows is { Length: <= 6 } &&
         b.Rows.All(row => row is { Length: 5 } && row.All(mark => Array.IndexOf(Marks, mark) >= 0)))
-        .Select(board => board with { Guesses = board.Guesses?.Where(ValidGuess).Take(6).ToArray() }).ToArray();
+        .Select(board => board with { Guesses = board.Guesses?.Where(ValidGuess).Take(6).ToArray(),
+            DraftCount = Math.Clamp(board.DraftCount, 0, 5) }).ToArray();
 
     private static bool ValidGuess(Guess? guess) => guess is not null && IsPuzzleWord(guess.Word)
         && guess.Marks is { Length: 5 } marks && marks.All(mark => Array.IndexOf(Marks, mark) >= 0);
@@ -521,16 +534,29 @@
             $"Guess {i + 1}: {string.Join(", ", row.Select(MarkLabel))}")));
 
     [JSInvokable]
-    public async Task RefreshFamily()
+    public Task UpdateLiveFamily(bool visible) => InvokeAsync(async () =>
+    {
+        if (disposed) return;
+        liveVisible = visible;
+        PublishActivity();
+        if (visible && (Finished || familyBoards.Any(board => board.Id != Session.User))) await RefreshFamily();
+    });
+
+    private async Task RefreshFamily()
     {
         if (disposed || fetchingFamily || puzzle is null) return;
         fetchingFamily = true;
         try
         {
-            var data = await Request<FamilySnapshot>(HttpMethod.Get, "family");
-            if (!disposed && data is { Family: { } boards } && data.Date == puzzle?.Date)
+            var response = await Request<JsonElement>(HttpMethod.Get, "family");
+            if (disposed) return;
+            var snapshot = response.GetRawText();
+            if (snapshot == lastFamilySnapshot) return;
+            var data = response.Deserialize<FamilySnapshot>(JsonSerializerOptions.Web);
+            if (data is { Family: { } boards } && data.Date == puzzle?.Date)
             {
                 familyBoards = ValidBoards(boards);
+                lastFamilySnapshot = snapshot;
                 StateHasChanged();
             }
         }
@@ -604,7 +630,9 @@
 
     public async ValueTask DisposeAsync()
     {
-        disposed = true; lifetime.Cancel(); lifetime.Dispose();
+        disposed = true;
+        var api = Session.Api;
+        lifetime.Cancel(); lifetime.Dispose();
         try
         {
             if (module is not null)
@@ -615,5 +643,6 @@
         }
         catch (JSDisconnectedException) { }
         finally { keyboardReference?.Dispose(); }
+        await ClearActivity(api);
     }
 }

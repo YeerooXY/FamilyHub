@@ -1,4 +1,5 @@
 @inject MusicSession Session
+@inject PublicAppReleases PublicReleases
 
 @if (AppUpdater.Platform is not null && available is not null)
 {
@@ -28,17 +29,22 @@
             ? "In SideStore, tap Update next to FamilyHub Music."
             : $"Download size is {release.Size / (1024d * 1024):0} MB. "
                 + (AppUpdater.Platform == "windows-x64" ? "Playback stops when the app restarts." : "Open the downloaded APK to install it."));
-    private string Label => AppUpdater.UpdatesInSideStore ? "Open SideStore" : working ? "Downloading..." : AppUpdater.Platform == "windows-x64" ? "Download and restart" : "Download update";
+    private string Label => Compact && Available.HasDelegate ? "Update available"
+        : AppUpdater.UpdatesInSideStore ? "Open SideStore" : working ? "Downloading..." : AppUpdater.Platform == "windows-x64" ? "Download and restart" : "Download update";
 
     private async Task Update()
     {
         if (working || available is null) return;
+        if (Compact && Available.HasDelegate)
+        {
+            await Available.InvokeAsync(available);
+            return;
+        }
         working = true; failed = false;
         try
         {
-            var api = Session.Api ?? throw new InvalidOperationException("Connect to your FamilyHub server to check for updates.");
             if (!AppUpdater.UpdatesInSideStore) message = "Downloading update...";
-            await AppUpdater.InstallAsync(api, available, percent =>
+            await AppUpdater.InstallAsync(Session.Api, PublicReleases, available, percent =>
             {
                 message = $"Downloading update... {percent}%";
                 _ = InvokeAsync(StateHasChanged);
