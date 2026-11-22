@@ -329,22 +329,36 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
                     : ["absent", "absent", "correct", "correct", "correct"]));
             }
             var won = wordleGuesses.LastOrDefault().Word == "crate";
+            var lost = Startup == "wordle-unlucky" && wordleGuesses.Count == 6 && !won;
+            var finishedBoard = won || lost;
+            var fastFamilyWin = Startup == "wordle-lucky";
             string[] juneMarks = ["absent", "correct", "present", "absent", "absent"];
+            string[] winningMarks = ["correct", "correct", "correct", "correct", "correct"];
             var member = WordleMember;
-            var family = new[] { new { id = "fixture", name = "Alex", rows = Array.Empty<string[]>(), playing = false, draft_count = 0, guesses = (object?)null },
-                new { id = "june", name = "June", rows = member.Submitted ? new[] { juneMarks, Enumerable.Repeat("correct", 5).ToArray() } : new[] { juneMarks },
+            var juneGuesses = new[] { new { word = "grape", marks = juneMarks } };
+            if (fastFamilyWin) juneGuesses = [new { word = "crate", marks = winningMarks }];
+            else if (member.Submitted) juneGuesses = [.. juneGuesses, new { word = "crate", marks = winningMarks }];
+            var family = new[] { new { id = "fixture", name = "Alex", rows = Array.Empty<string[]>(), playing = false, draft_count = 0, guesses = (object?)null, active_ms = finishedBoard ? 23000 : (int?)null, review = (object?)null },
+                new { id = "june", name = "June", rows = juneGuesses.Select(guess => guess.marks).ToArray(),
                     playing = member.Count >= 0, draft_count = Math.Max(0, member.Count),
-                    guesses = won ? new[] { new { word = "grape", marks = juneMarks } } : (object?)null } };
+                    guesses = finishedBoard ? juneGuesses : (object?)null,
+                    active_ms = fastFamilyWin || member.Submitted ? 11000 : (int?)null,
+                    review = finishedBoard && (fastFamilyWin || member.Submitted)
+                        ? new { remaining = fastFamilyWin ? new[] { 0 } : new[] { 12, 0 } } : (object?)null } };
             if (hideWordleFamily && !won) family = family[..1];
             if (path == "/api/wordle/family") return Json(new { date = day, family });
             return Json(new
             {
                 date = day,
-                status = won ? "won" : "playing",
+                status = won ? "won" : lost ? "lost" : "playing",
                 guesses = wordleGuesses.Select(guess => new { word = guess.Word, marks = guess.Marks }),
-                answer = won ? "crate" : null,
+                answer = finishedBoard ? "crate" : null,
+                active_ms = finishedBoard ? 23000 : (int?)null,
+                review = finishedBoard ? new { remaining = wordleGuesses.Select((_, i) => won && i == wordleGuesses.Count - 1 ? 0 : 6 - i),
+                    outcome = lost ? "unlucky" : fastFamilyWin ? "lucky" : null,
+                    final_options = lost ? 2 : fastFamilyWin ? 5193 : (int?)null } : null,
                 family,
-                local_solution = Startup == "wordle-delayed" ? "crate" : null,
+                local_solution = Startup is "wordle-delayed" or "wordle-lucky" or "wordle-unlucky" ? "crate" : null,
                 next_reset = nextDay ? WordleReset.AddDays(1) : WordleReset
             });
         }

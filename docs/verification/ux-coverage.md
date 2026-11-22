@@ -254,3 +254,15 @@ reopened Wordle with family boards hidden. API tests checked per-profile
 persistence, CSRF, and exclusion of other players' current-day words and counts.
 Captures are in `.local/task-tmp/wordle-settings-review/`. Physical devices,
 screen-reader speech and enlarged text remain unverified.
+
+## 22 November 2026 — Wordle board review and timing
+
+The larger board dialog reflowed at 320 CSS pixels and up in Windows Chromium
+and emulated desktop WebKit, Android Chromium, and iPhone WebKit. Clicking or
+tapping outside restored the card's focus. Escape, Enter, Space, Tab, and
+Shift+Tab were checked in the Wordle flow. Chromium opened a lucky result after
+the reveal and an unlucky result with reduced motion, then returned focus to
+Statistics on close. API tests covered remaining words, repeated letters,
+spoilers, and foreground time across closed, expired, and replaced views.
+Captures are in `.local/task-tmp/wordle-review-2026-11-22/`. Physical devices,
+screen-reader speech, and enlarged text remain unverified.

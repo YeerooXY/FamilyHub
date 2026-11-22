@@ -93,10 +93,54 @@ class DailyWordTests(Base):
         first = self.guess(a, token, "alley").json["guesses"][0]
         last = self.guess(a, token, "apple").json["guesses"][-1]
         before = self.go(b, "GET", family).json["family"]
-        self.assertNotIn("guesses", next(row for row in before if row["id"] == "sample-a"))
+        opponent = next(row for row in before if row["id"] == "sample-a")
+        self.assertNotIn("guesses", opponent)
+        self.assertNotIn("review", opponent)
         self.guess(b, other_token, "apple")
         after = self.go(b, "GET", family).json["family"]
-        self.assertEqual(next(row for row in after if row["id"] == "sample-a")["guesses"], [first, last])
+        opponent = next(row for row in after if row["id"] == "sample-a")
+        self.assertEqual(opponent["guesses"], [first, last])
+        self.assertEqual(opponent["review"]["remaining"], list(wordle.review(("alley", "apple"), "apple")["remaining"]))
+        self.assertEqual(opponent["review"]["remaining"][-1], 0)
+        self.assertIsNone(opponent["active_ms"])
+
+    def test_active_time_excludes_closed_views_and_stale_heartbeats(self):
+        puzzles = wordle.WordPuzzles(self.ws, lambda day: "apple", ApiError)
+        key = DAY.isoformat()
+        profile = "sample-a"
+        puzzles.play(profile, DAY)
+        with patch.object(wordle, "monotonic", return_value=10) as clock:
+            puzzles.set_activity(profile, "one", key, 0, 0)
+            clock.return_value = 14
+            puzzles.set_activity(profile, "one", key, 0, 1)
+            clock.return_value = 16
+            puzzles.set_activity(profile, "two", key, 0, 0)
+            puzzles.set_activity(profile, "one", key, None, 0)
+            clock.return_value = 17
+            puzzles.set_activity(profile, "two", key, None, 0)
+            clock.return_value = 70
+            puzzles.set_activity(profile, "two", key, 0, 0)
+            clock.return_value = 72
+            puzzles.set_activity(profile, "two", key, 0, 1)
+            clock.return_value = 90
+            puzzles.set_activity(profile, "two", key, 0, 2)
+            clock.return_value = 93
+            result = puzzles.play(profile, DAY, "apple", 0)
+            self.assertEqual(result["active_ms"], 12000)
+            self.assertEqual(puzzles.play(profile, DAY, "apple", 0), result)
+            self.assertEqual(puzzles.family_boards(profile, DAY, [{"id": profile, "name": "Alex"}])[0]["active_ms"], 12000)
+
+    def test_remaining_words_and_luck_use_cumulative_duplicate_letter_marks(self):
+        with patch.object(wordle, "accepted_guesses", return_value=frozenset({"alley", "ample", "angle", "apply"})):
+            self.assertEqual(wordle.review(("alley", "angle", "apple"), "apple"), {"remaining": (3, 2, 0)})
+        lucky = wordle.review(("apple",), "apple")
+        self.assertEqual(lucky, {"remaining": (0,), "outcome": "lucky",
+                                 "final_options": len(wordle.accepted_guesses() | {"apple"})})
+        words = ("frost", "shine", "chord", "whisk", "sight", "ample")
+        with patch.object(wordle, "accepted_guesses", return_value=frozenset(words)):
+            unlucky = wordle.review(words, "apple")
+            self.assertEqual((unlucky["outcome"], unlucky["final_options"], unlucky["remaining"][-1]),
+                             ("unlucky", 2, 1))
 
     def test_family_activity_tracks_edits_and_honors_spoiler_setting(self):
         a, token = self.selected("sample-a")

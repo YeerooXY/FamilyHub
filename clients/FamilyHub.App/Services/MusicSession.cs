@@ -22,7 +22,18 @@ public sealed class MusicSession
     public ListenerPreferences PlaybackPreferences { get; private set; } = new();
     public bool MoviesEnabled { get; private set; }
     public bool Connected { get; private set; }
-    public bool UiActive { get; set; } = true;
+    private bool uiActive = true;
+    public event Action? UiActiveChanged;
+    public bool UiActive
+    {
+        get => uiActive;
+        set
+        {
+            if (uiActive == value) return;
+            uiActive = value;
+            UiActiveChanged?.Invoke();
+        }
+    }
     public int IdleHeartbeatSeconds { get; set; } = 5;
     public bool HandoffPending { get; set; }
     public bool Ready { get; private set; }

@@ -74,7 +74,22 @@ export function updateReset(surface, nextReset) {
 export function open(dialog, openerId) {
     if (!dialog || dialog.open) return;
     const opener = document.getElementById(openerId) ?? document.activeElement;
+    const backdrop = new AbortController();
+    if (dialog.hasAttribute('data-dismiss-backdrop')) {
+        const outside = event => {
+            const rect = dialog.getBoundingClientRect();
+            return event.target === dialog && (event.clientX < rect.left || event.clientX >= rect.right ||
+                event.clientY < rect.top || event.clientY >= rect.bottom);
+        };
+        let startedOutside = false;
+        dialog.addEventListener('pointerdown', event => { startedOutside = outside(event); }, {signal: backdrop.signal});
+        dialog.addEventListener('click', event => {
+            if (startedOutside && outside(event)) dialog.close();
+            startedOutside = false;
+        }, {signal: backdrop.signal});
+    }
     dialog.addEventListener('close', () => {
+        backdrop.abort();
         if (document.activeElement === document.body || dialog.contains(document.activeElement)) {
             const destination = opener?.isConnected && opener !== document.body ? opener : dialog.closest('.daily-wordle');
             destination?.focus({preventScroll: true});
@@ -82,6 +97,12 @@ export function open(dialog, openerId) {
     }, {once: true});
     dialog.showModal();
     dialog.querySelector('button')?.focus({preventScroll: true});
+}
+
+export async function afterReveal(remaining) {
+    if (remaining > 0 && !matchMedia('(prefers-reduced-motion: reduce)').matches)
+        await new Promise(resolve => setTimeout(resolve, remaining));
+    return !document.hidden && !document.querySelector('dialog[open]');
 }
 
 export function restoreInside(dialog, successor) {

@@ -9,7 +9,8 @@
          data-playing="@((puzzle?.Status == "playing").ToString().ToLowerInvariant())">
     <aside class="dw-family-rail" aria-label="Family boards">
         @foreach (var (board, rows) in familyBoards.Select(board => (Board: board, Rows: BoardRows(board)))
-            .OrderBy(entry => IsSolved(entry.Rows) ? entry.Rows.Length : 7))
+            .OrderBy(entry => IsSolved(entry.Rows) ? entry.Rows.Length : 7)
+            .ThenBy(entry => IsSolved(entry.Rows) ? BoardTime(entry.Board) ?? long.MaxValue : long.MaxValue))
         {
             var own = board.Id == Session.User;
             var name = own ? $"{board.Name} (you)" : board.Name;
@@ -86,7 +87,7 @@
                         var letter = column < letters.Length ? letters[column].ToString() : "";
                         var mark = GuessMark(guess, column);
                         <div class="dw-tile @mark @(activeRow && letter.Length > 0 ? "dw-filled" : "") @(row == revealRow ? "dw-reveal" : "") @(row == revealRow && puzzle?.Status == "won" ? "dw-win" : "")"
-                             style="--dw-delay:@(column * 300)ms;--dw-win-delay:@(1700 + column * 100)ms" aria-hidden="true"><span>@letter</span></div>
+                             style="--dw-delay:@(column * 300)ms;--dw-win-delay:@(RevealMilliseconds + column * 100)ms" aria-hidden="true"><span>@letter</span></div>
                     }
                 </div>
             }
@@ -170,7 +171,7 @@
             </ul>
         </div>
     </dialog>
-    <dialog class="dw-dialog" aria-labelledby="dw-member-title" @ref="memberDialog">
+    <dialog class="dw-dialog dw-member-dialog" aria-labelledby="dw-member-title" @ref="memberDialog" data-dismiss-backdrop>
         <div class="dw-dialog-content">
             <header class="dw-dialog-header">
                 <h2 id="dw-member-title">@(InspectedBoard?.Name ?? "Family board")</h2>
@@ -181,10 +182,24 @@
                 {
                     var rows = BoardRows(inspected);
                     var words = inspected.Id == Session.User ? puzzle?.Guesses : Finished ? inspected.Guesses : null;
-                    @if (IsSolved(rows)) { <p>Solved in @rows.Length @(rows.Length == 1 ? "guess" : "guesses")</p> }
-                    else if (rows.Length == 6) { <p>Unsolved</p> }
+                    var review = Finished ? inspected.Id == Session.User ? puzzle?.Review : inspected.Review : null;
+                    var activeTime = BoardTime(inspected);
+                    @if (IsSolved(rows) || rows.Length == 6)
+                    {
+                        <div class="dw-member-summary">
+                            <p>@(IsSolved(rows) ? $"Solved in {rows.Length} {(rows.Length == 1 ? "guess" : "guesses")}" : "Unsolved")</p>
+                            @if (activeTime is { } duration) { <p><strong>@FormatActiveTime(duration)</strong> active time</p> }
+                        </div>
+                    }
                     else if (rows.Length == 0) { <p>No guesses yet.</p> }
-                    @if (rows.Length > 0) { @InspectRows(rows, words) }
+                    @if (review is { Outcome: "lucky" or "unlucky", FinalOptions: > 1 } verdict)
+                    {
+                        <div class="dw-outcome" data-outcome="@verdict.Outcome">
+                            <h3>@(verdict.Outcome == "lucky" ? "Lucky guess" : "Unlucky finish")</h3>
+                            <p>@verdict.FinalOptions.GetValueOrDefault().ToString("N0") words fit the clues before the final guess.</p>
+                        </div>
+                    }
+                    @if (rows.Length > 0) { @InspectRows(rows, words, review) }
                     @if (!Finished && inspected.Id != Session.User && rows.Length > 0) { <p>Finish your puzzle to see the letters.</p> }
                 }
                 else { <p>This board is unavailable.</p> }
@@ -253,7 +268,7 @@
                                 @if (Finished && board?.Guesses is { Length: > 0 } lines)
                                 {
                                     <h4>Today’s guesses</h4>
-                                    @InspectRows(board.Rows, lines)
+                                    @InspectRows(board.Rows, lines, board.Review)
                                 }
                                 <h4>Favorite guesses</h4>
                                 @if (member.Favorites is { Length: > 0 } favorites)
@@ -296,11 +311,15 @@
 
 @code {
     private sealed record Guess(string Word, string[] Marks);
+    private sealed record GuessReview(int[] Remaining, string? Outcome,
+        [property: JsonPropertyName("final_options")] int? FinalOptions);
     private sealed record Puzzle(string Date, string Status, Guess[] Guesses, string? Answer,
         [property: JsonPropertyName("next_reset")] string? NextReset,
-        [property: JsonPropertyName("local_solution")] string? LocalSolution = null, FamilyBoard[]? Family = null);
+        [property: JsonPropertyName("local_solution")] string? LocalSolution = null, FamilyBoard[]? Family = null,
+        [property: JsonPropertyName("active_ms")] long? ActiveMs = null, GuessReview? Review = null);
     private sealed record FamilyBoard(string Id, string Name, string[][] Rows, Guess[]? Guesses, bool Playing,
-        [property: JsonPropertyName("draft_count")] int DraftCount);
+        [property: JsonPropertyName("draft_count")] int DraftCount,
+        [property: JsonPropertyName("active_ms")] long? ActiveMs = null, GuessReview? Review = null);
     private sealed record FamilySnapshot(string Date, FamilyBoard[] Family);
     private FamilyBoard[] familyBoards = [];
     private bool fetchingFamily;
@@ -331,7 +350,7 @@
     private Statistics? stats;
     private bool loading, loadAttempted, submitting, loadingStats, statsError, shake, focusBoard, focusResult, focusStats, refreshAfterSubmit, disposed;
     private string draft = "", announcement = "";
-    private string? message, scheduledReset, inspectedBoardId, familyFocus, statsRequestedDate;
+    private string? message, scheduledReset, inspectedBoardId, memberOpenerId, familyFocus, statsRequestedDate;
     private bool showMemberBoard;
     private FamilyBoard? InspectedBoard => familyBoards.FirstOrDefault(board => board.Id == inspectedBoardId);
     private int revealRow = -1;
@@ -340,7 +359,11 @@
     private int KeyTabIndex => puzzle?.Status == "playing" ? 0 : -1;
     private string DayLabel => puzzle is { } loaded ? FormatDay(loaded.Date) : "Daily puzzle";
 
-    protected override Task OnInitializedAsync() => Reload();
+    protected override Task OnInitializedAsync()
+    {
+        Session.UiActiveChanged += WordleVisibilityChanged;
+        return Reload();
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -350,6 +373,12 @@
             module = await JS.InvokeAsync<IJSObjectReference>("import", "./daily-wordle.js");
             if (disposed) { await module.DisposeAsync(); return; }
             await module.InvokeVoidAsync("bind", surface, keyboardReference);
+        }
+        if (Finished && puzzle?.Review is not null && resultRevealUntil != 0)
+        {
+            var remaining = Math.Max(0, resultRevealUntil - Environment.TickCount64);
+            resultRevealUntil = 0;
+            if (puzzle.Review.Outcome is "lucky" or "unlucky") _ = ShowOutcomeAfterReveal(puzzle.Date, remaining);
         }
         if (focusBoard) { focusBoard = false; await module!.InvokeVoidAsync("restoreBoard", surface); }
         if (focusResult && Finished && statsButton.Context is not null) { focusResult = false; await statsButton.FocusAsync(preventScroll: true); }
@@ -362,7 +391,7 @@
         if (showMemberBoard)
         {
             showMemberBoard = false;
-            await module!.InvokeVoidAsync("open", memberDialog, "dw-board-" + inspectedBoardId);
+            await module!.InvokeVoidAsync("open", memberDialog, memberOpenerId);
         }
         if (module is not null && scheduledReset != puzzle?.NextReset)
         {
@@ -431,7 +460,7 @@
 
     private void LoadPuzzle(Puzzle value)
     {
-        if (puzzle?.Date != value.Date) { stats = null; statsError = false; }
+        if (puzzle?.Date != value.Date) { stats = null; statsError = false; resultRevealUntil = 0; }
         if (value.Family is { } boards) { familyBoards = ValidBoards(boards); lastFamilySnapshot = null; }
         else if (puzzle?.Date != value.Date) { familyBoards = []; lastFamilySnapshot = null; }
         puzzle = value with { Family = null };
@@ -509,6 +538,7 @@
                 new { date = active.Date, word = draft.ToLowerInvariant(), guess_count = active.Guesses.Length });
             if (disposed) return;
             LoadPuzzle(updated);
+            if (Finished) resultRevealUntil = Environment.TickCount64 + RevealMilliseconds;
             revealRow = updated.Guesses.Length - 1;
             draft = "";
             if (updated.Guesses.LastOrDefault() is { } last)
@@ -596,24 +626,35 @@
     private static bool IsSolved(string[][] rows) => rows.LastOrDefault()?.All(mark => mark == "correct") == true;
     private static bool IsComplete(FamilyBoard board) => board.Rows.Length == 6 || IsSolved(board.Rows);
 
-    private RenderFragment InspectRows(string[][] rows, Guess[]? guesses) => @<ol class="dw-inspect">
+    private long? BoardTime(FamilyBoard board) => board.Id == Session.User ? puzzle?.ActiveMs ?? board.ActiveMs : board.ActiveMs;
+    private static string FormatActiveTime(long duration)
+    {
+        var seconds = Math.Max(0, duration) / 1000;
+        return $"{seconds / 60}:{seconds % 60:00}";
+    }
+
+    private RenderFragment InspectRows(string[][] rows, Guess[]? guesses, GuessReview? review) => @<ol class="dw-inspect">
         @for (var i = 0; i < rows.Length; i++)
         {
             var row = rows[i];
             var guess = guesses?.ElementAtOrDefault(i);
-            <li aria-label="@(guess is null ? $"Guess {i + 1}: {string.Join(", ", row.Select(MarkLabel))}" : RowLabel(i, guess.Word.ToUpperInvariant(), guess))">
-                <span aria-hidden="true">@(i + 1)</span>
+            int? remaining = review?.Remaining is { } counts && i < counts.Length ? counts[i] : null;
+            var label = guess is null ? $"Guess {i + 1}: {string.Join(", ", row.Select(MarkLabel))}" : RowLabel(i, guess.Word.ToUpperInvariant(), guess);
+            <li aria-label="@(remaining is { } left ? $"{label}. {left:N0} {(left == 1 ? "word" : "words")} left." : label)">
+                <span class="dw-inspect-number" aria-hidden="true">@(i + 1)</span>
                 @for (var column = 0; column < row.Length; column++)
                 {
-                    <span class="@row[column]" aria-hidden="true">@(guess is null ? "" : char.ToUpperInvariant(guess.Word[column]).ToString())</span>
+                    <span class="dw-inspect-tile @row[column]" aria-hidden="true">@(guess is null ? "" : char.ToUpperInvariant(guess.Word[column]).ToString())</span>
                 }
+                @if (remaining is { } count) { <span class="dw-inspect-count" aria-hidden="true">(@count.ToString("N0") left)</span> }
             </li>
         }
     </ol>;
 
-    private void OpenFamilyBoard(string id)
+    private void OpenFamilyBoard(string id, bool automatic = false)
     {
         inspectedBoardId = id;
+        memberOpenerId = automatic ? null : "dw-board-" + id;
         showMemberBoard = true;
     }
 
@@ -627,7 +668,7 @@
         if (disposed) return;
         liveVisible = visible;
         PublishActivity();
-        if (visible && (Finished || familyBoards.Any(board => board.Id != Session.User))) await RefreshFamily();
+        if (visible && Session.UiActive && (Finished || familyBoards.Any(board => board.Id != Session.User))) await RefreshFamily();
     });
 
     private async Task RefreshFamily()
@@ -727,6 +768,7 @@
     public async ValueTask DisposeAsync()
     {
         disposed = true;
+        Session.UiActiveChanged -= WordleVisibilityChanged;
         var api = Session.Api;
         lifetime.Cancel(); lifetime.Dispose();
         try

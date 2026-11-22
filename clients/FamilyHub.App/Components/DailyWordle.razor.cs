@@ -24,11 +24,15 @@ public partial class DailyWordle
     private Task activityTask = Task.CompletedTask;
     private long nextHeartbeat;
     private bool liveVisible = true;
+    private const int RevealMilliseconds = 1700;
+    private long resultRevealUntil;
+
+    private void WordleVisibilityChanged() => _ = InvokeAsync(PublishActivity);
 
     private void PublishActivity()
     {
         if (disposed || puzzle is null) return;
-        var playing = liveVisible && puzzle.Status == "playing";
+        var playing = liveVisible && Session.UiActive && puzzle.Status == "playing";
         if (!playing && lastActivity?.Row is null) return;
         var activity = new Activity(puzzle.Date, playing ? puzzle.Guesses.Length : null, playing ? draft.Length : 0);
         var now = Environment.TickCount64;
@@ -64,6 +68,20 @@ public partial class DailyWordle
                 ActivityPayload(new Activity(activity.Date, null, 0)), timeout.Token, background: true);
         }
         catch (Exception error) when (IsRequestError(error)) { }
+    }
+
+    private async Task ShowOutcomeAfterReveal(string date, long remaining)
+    {
+        try
+        {
+            if (module is null || !await module.InvokeAsync<bool>("afterReveal", lifetime.Token, remaining) ||
+                disposed || showMemberBoard || !Session.UiActive || puzzle?.Date != date || !Finished ||
+                !familyBoards.Any(board => board.Id == Session.User)) return;
+
+            OpenFamilyBoard(Session.User, automatic: true);
+            StateHasChanged();
+        }
+        catch (Exception error) when (error is JSDisconnectedException or OperationCanceledException or ObjectDisposedException) { }
     }
 
     private static Puzzle AddGuess(Puzzle active, string word, string solution)
@@ -102,6 +120,7 @@ public partial class DailyWordle
         var saved = new SavedGuesses(active.Date, updated.Guesses.Select(g => g.Word).ToArray());
         Preferences.Default.Set(SaveKey, JsonSerializer.Serialize(saved));
         LoadPuzzle(updated);
+        if (Finished) resultRevealUntil = Environment.TickCount64 + RevealMilliseconds;
         revealRow = updated.Guesses.Length - 1;
         announcement = RowLabel(revealRow, draft, updated.Guesses[^1]);
         draft = "";
@@ -158,6 +177,8 @@ public partial class DailyWordle
                     return;
                 }
                 confirmed = updated.Guesses.Length;
+                if (updated.Status != "playing")
+                    LoadPuzzle(updated with { LocalSolution = active.LocalSolution, Family = null });
             }
             if (!disposed)
             {

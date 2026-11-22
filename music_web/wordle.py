@@ -1,6 +1,7 @@
 """Daily Our Word puzzles and profile-scoped results."""
 from collections import defaultdict
-from contextlib import closing
+from contextlib import closing, nullcontext
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from functools import lru_cache
 import hashlib
@@ -17,6 +18,8 @@ from flask import g, jsonify, request
 
 WORD_LENGTH = 5
 MAX_GUESSES = 6
+ACTIVITY_TIMEOUT = 12
+TIME_CHECKPOINT = 4
 DATA = Path(__file__).with_name("wordle_data")
 ONE_DAY = timedelta(days=1)
 BUDAPEST = "Europe/Budapest"
@@ -65,6 +68,44 @@ def marks_for(word, answer):
             marks[index] = "present"
             remaining[remaining.index(letter)] = None
     return marks
+
+
+@lru_cache(maxsize=128)
+def analyze_guesses(guesses, answer):
+    candidates = accepted_guesses() | {answer}
+    remaining = []
+    verdict = None
+    for index, guess in enumerate(guesses):
+        before = len(candidates)
+        if guess == answer:
+            if before >= 10:
+                verdict = ("lucky", before)
+            remaining.append(0)
+            break
+        if index == MAX_GUESSES - 1 and before > 1 and guess in candidates:
+            verdict = ("unlucky", before)
+        marks = marks_for(guess, answer)
+        candidates = {candidate for candidate in candidates if marks_for(guess, candidate) == marks}
+        remaining.append(len(candidates))
+    return tuple(remaining), verdict
+
+
+def review(guesses, answer):
+    remaining, verdict = analyze_guesses(tuple(guesses), answer)
+    result = dict(remaining=remaining)
+    if verdict:
+        result.update(outcome=verdict[0], final_options=verdict[1])
+    return result
+
+
+@dataclass(frozen=True)
+class ActiveView:
+    view: str
+    day: str
+    row: int
+    count: int
+    checkpoint: float
+    seen: float
 
 
 def summarize(results, today):
@@ -119,6 +160,8 @@ class WordPuzzles:
             """)
 
             db.execute("BEGIN IMMEDIATE")
+            if not any(column[1] == "active_ms" for column in db.execute("PRAGMA table_info(progress)")):
+                db.execute("ALTER TABLE progress ADD COLUMN active_ms INTEGER")
             active = db.execute("SELECT profile, day, guesses FROM progress WHERE day = ? AND status = 'playing'",
                                 (current_day().isoformat(),)).fetchall()
             for profile, day, raw in active:
@@ -148,12 +191,12 @@ class WordPuzzles:
         answer = self.answer(day, key)
         if word is not None and word != answer and word not in accepted_guesses():
             raise self.error("That word is outside the guess list.")
-        with closing(self.connect()) as db, db:
+        with (self.activity_lock if word is not None else nullcontext()), closing(self.connect()) as db, db:
             if word is not None:
                 db.execute("BEGIN IMMEDIATE")
-            record = db.execute("SELECT guesses, status FROM progress WHERE profile = ? AND day = ?",
+            record = db.execute("SELECT guesses, status, active_ms FROM progress WHERE profile = ? AND day = ?",
                                 (profile, key)).fetchone()
-            guesses, status = (json.loads(record[0]), record[1]) if record else ([], "playing")
+            guesses, status, active_ms = (json.loads(record[0]), record[1], record[2]) if record else ([], "playing", None)
             if word is not None and expected_guesses != len(guesses):
                 if type(expected_guesses) is not int or not 0 <= expected_guesses < len(guesses) or guesses[expected_guesses] != word:
                     raise self.error("This puzzle changed on another device. Refresh and try again.", 409)
@@ -164,16 +207,27 @@ class WordPuzzles:
                     raise self.error("Already guessed.")
                 guesses.append(word)
                 status = "won" if word == answer else "lost" if len(guesses) == MAX_GUESSES else "playing"
+                activity = self.activity.get(profile)
+                if status != "playing" and activity and activity.day == key:
+                    elapsed = self.elapsed(activity, monotonic())
+                    if elapsed:
+                        active_ms = (active_ms or 0) + elapsed
                 db.execute("""
-                    INSERT INTO progress VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO progress (profile, day, guesses, guess_count, status, active_ms) VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT(profile, day) DO UPDATE SET
-                        guesses=excluded.guesses, guess_count=excluded.guess_count, status=excluded.status
-                    """, (profile, key, json.dumps(guesses), len(guesses), status))
+                        guesses=excluded.guesses, guess_count=excluded.guess_count, status=excluded.status,
+                        active_ms=excluded.active_ms
+                    """, (profile, key, json.dumps(guesses), len(guesses), status, active_ms))
+                if status != "playing" and activity and activity.day == key:
+                    db.commit()
+                    del self.activity[profile]
         result = dict(date=key, next_reset=next_reset(day), status=status,
                       max_guesses=MAX_GUESSES, word_length=WORD_LENGTH,
                       guesses=[dict(word=guess, marks=marks_for(guess, answer)) for guess in guesses])
         if status != "playing":
             result["answer"] = answer
+            result["active_ms"] = active_ms
+            result["review"] = review(guesses, answer)
         return result
 
     def settings(self, profile, hide=None):
@@ -202,36 +256,72 @@ class WordPuzzles:
             reveal = self.finished(db, profile, key)
             hide = not reveal and self.hides_family(db, profile)
             records = db.execute("""
-                SELECT profile, guesses, answer, status FROM progress
+                SELECT profile, guesses, answer, status, active_ms FROM progress
                 JOIN puzzle USING(day) WHERE day = ?
                 """, (key,))
-            boards = {owner: ([dict(word=word, marks=marks_for(word, answer)) for word in json.loads(guesses)], status)
-                      for owner, guesses, answer, status in records if not hide or owner == profile}
+            boards = {owner: (json.loads(guesses), answer, status, active_ms)
+                      for owner, guesses, answer, status, active_ms in records if not hide or owner == profile}
         with self.activity_lock:
             now = monotonic()
-            active = {owner: (row, count) for owner, (_, activity_day, row, count, until) in self.activity.items()
-                      if activity_day == key and now < until}
+            active = {owner: view for owner, view in self.activity.items()
+                      if view.day == key and now - view.seen < ACTIVITY_TIMEOUT}
         family = []
         for person in profiles:
             owner = person["id"]
             if hide and owner != profile:
                 continue
-            guesses, status = boards.get(owner, ([], "playing"))
-            entry = dict(id=owner, name=person["name"], rows=[guess["marks"] for guess in guesses])
+            guesses, answer, status, active_ms = boards.get(owner, ([], None, "playing", None))
+            rows = [marks_for(word, answer) for word in guesses]
+            entry = dict(id=owner, name=person["name"], rows=rows)
             if status == "playing" and owner in active:
-                row, count = active[owner]
-                entry.update(playing=True, draft_count=count if row == len(guesses) else 0)
+                view = active[owner]
+                entry.update(playing=True, draft_count=view.count if view.row == len(guesses) else 0)
             if reveal or owner == profile:
-                entry["guesses"] = guesses
+                entry["guesses"] = [dict(word=word, marks=marks) for word, marks in zip(guesses, rows)]
+            if status != "playing":
+                entry["active_ms"] = active_ms
+                if reveal:
+                    entry["review"] = review(guesses, answer)
             family.append(entry)
         return family
 
     def set_activity(self, profile, view, day, row, count):
         with self.activity_lock:
+            before = self.activity.get(profile)
+            same_day = before is not None and before.day == day
+            if row is None and (not same_day or before.view != view):
+                return
+            if not same_day:
+                with closing(self.connect()) as db:
+                    if self.finished(db, profile, day):
+                        return
+            now = monotonic()
+            checkpoint = now
+            if same_day:
+                expired = now - before.seen >= ACTIVITY_TIMEOUT
+                if row is None or expired or now - before.checkpoint >= TIME_CHECKPOINT:
+                    elapsed = self.elapsed(before, now)
+                    if elapsed:
+                        with closing(self.connect()) as db, db:
+                            db.execute("""
+                                INSERT INTO progress (profile, day, guesses, guess_count, status, active_ms)
+                                SELECT ?, day, '[]', 0, 'playing', ? FROM puzzle WHERE day = ?
+                                ON CONFLICT(profile, day) DO UPDATE SET
+                                    active_ms=COALESCE(progress.active_ms, 0) + excluded.active_ms
+                                WHERE progress.status = 'playing'
+                                """, (profile, elapsed, day))
+                else:
+                    checkpoint = before.checkpoint
             if row is not None:
-                self.activity[profile] = (view, day, row, count, monotonic() + 12)
-            elif self.activity.get(profile, (None,))[0] == view:
+                self.activity[profile] = ActiveView(view, day, row, count, checkpoint, now)
+            else:
                 del self.activity[profile]
+
+    @staticmethod
+    def elapsed(view, now):
+        # A stale view stopped sending evidence of play at its last heartbeat.
+        through = now if now - view.seen < ACTIVITY_TIMEOUT else view.seen
+        return max(0, round((through - view.checkpoint) * 1000))
 
     def stats(self, profile, day, profiles):
         key = day.isoformat()

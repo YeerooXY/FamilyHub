@@ -22,6 +22,7 @@ async function dailyPlay(name, engine, options) {
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
         await page.request.post(origin + '/fixture/wordle-reset/86400');
+        await page.request.post(origin + '/fixture/wordle-member/-1/false');
         const panel = await openWordle(page);
         const june = panel.getByRole('button', {name: /^June, 1 of 6 guesses/});
         assert.equal(await june.locator('.dw-mini i').count(), 30);
@@ -61,6 +62,7 @@ async function dailyPlay(name, engine, options) {
         const member = panel.getByRole('dialog', {name: 'June'});
         await member.getByText('Finish your puzzle to see the letters.').waitFor();
         assert.equal(await member.locator('.dw-inspect li > span:nth-child(2)').first().textContent(), '');
+        assert.equal(await member.locator('.dw-inspect-count').count(), 0);
         await page.keyboard.press('Escape');
         await member.waitFor({state: 'hidden'});
         await page.waitForFunction(() => document.activeElement?.id === 'dw-board-june');
@@ -124,10 +126,22 @@ async function dailyPlay(name, engine, options) {
         assert.equal(await panel.getByText('Solved in 3 guesses', {exact: true}).isVisible(), false);
         assert.equal(await panel.getByRole('button', {name: 'View results'}).count(), 0);
         if (!options.isMobile) await panel.getByRole('complementary', {name: 'Family statistics'}).getByText('4 puzzles', {exact: false}).waitFor();
-        await june.press('Enter');
+        await page.request.post(origin + '/fixture/wordle-member/-1/true');
+        await panel.getByRole('button', {name: /^June, 2 of 6 guesses/}).press('Enter');
         await member.locator('.dw-inspect li[aria-label*="G, absent"]').waitFor();
-        await page.keyboard.press('Escape');
+        await member.getByText('(12 left)', {exact: true}).waitFor();
+        await member.getByText('0:11 active time').waitFor();
+        const bounds = await member.boundingBox();
+        const viewport = page.viewportSize();
+        assert(bounds.width >= Math.min(610, viewport.width - 30), `${name} member dialog is ${bounds.width}px wide`);
+        assert(await member.evaluate(node => node.scrollWidth === node.clientWidth));
+        await member.getByRole('heading', {name: 'June'}).click();
+        assert(await member.isVisible());
+        if (capture) await member.screenshot({path: path.join(capture, name + '-member.png')});
+        if (options.isMobile) await page.touchscreen.tap(4, 4);
+        else await page.mouse.click(4, 4);
         await member.waitFor({state: 'hidden'});
+        await page.waitForFunction(() => document.activeElement?.id === 'dw-board-june');
         await theme.press('Enter');
         await statsButton.press('Enter');
         await stats.getByText('Solved in 3 guesses', {exact: true}).waitFor();
@@ -135,7 +149,7 @@ async function dailyPlay(name, engine, options) {
         await stats.getByText('2 of 2 finished · 2 solved').waitFor();
         assert(await stats.getByRole('button', {name: 'Close statistics'}).evaluate(node => node === document.activeElement));
         await juneDetails.getByRole('heading', {name: 'Today’s guesses'}).waitFor();
-        assert.match(await juneDetails.locator('.dw-inspect li').getAttribute('aria-label'), /G, absent.*R, right spot/);
+        assert.match(await juneDetails.locator('.dw-inspect li').first().getAttribute('aria-label'), /G, absent.*R, right spot/);
         await juneDetails.getByText('3 guesses', {exact: true}).waitFor();
         if (capture) await stats.screenshot({path: path.join(capture, name + '-stats.png')});
         await page.keyboard.press('Escape');
@@ -287,6 +301,39 @@ async function liveFamily() {
     }
 }
 
+async function resultsPopup(scenario, reducedMotion) {
+    const browser = await chromium.launch();
+    try {
+        const page = await browser.newPage({viewport: {width: 1280, height: 900}, reducedMotion});
+        await page.request.post(origin + '/fixture/startup/' + scenario);
+        await page.request.post(origin + '/fixture/wordle-reset/86400');
+        const panel = await openWordle(page);
+        const lucky = scenario === 'wordle-lucky';
+        const guesses = lucky ? ['crate'] : ['slate', 'brave', 'audio', 'whisk', 'frost', 'roast'];
+        for (const [index, word] of guesses.entries()) {
+            await panel.focus();
+            await page.keyboard.type(word);
+            await page.keyboard.press('Enter');
+            await panel.locator('.dw-row').nth(index).locator('.dw-reveal').first().waitFor();
+        }
+        const result = panel.getByRole('dialog', {name: 'Alex'});
+        if (reducedMotion !== 'reduce') assert.equal(await result.isVisible(), false);
+        await result.getByRole('heading', {name: lucky ? 'Lucky guess' : 'Unlucky finish'}).waitFor();
+        await result.getByText('0:23 active time').waitFor();
+        await result.getByText(lucky ? '(0 left)' : '(1 left)', {exact: true}).waitFor();
+        if (capture) await result.screenshot({path: path.join(capture, scenario + '.png')});
+        await result.getByRole('button', {name: 'Close family board'}).press('Space');
+        await result.waitFor({state: 'hidden'});
+        await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Statistics');
+        if (lucky) {
+            assert.equal(await panel.locator('.dw-family-card').first().getAttribute('id'), 'dw-board-june');
+            await panel.locator('#dw-board-june').press('Enter');
+            await panel.getByRole('dialog', {name: 'June'}).getByText('0:11 active time').waitFor();
+        }
+        console.log(scenario + ' result, active time, guess counts and focus passed');
+    } finally { await browser.close(); }
+}
+
 (async () => {
     for (const [name, engine, profile] of [
         ['windows-chromium', chromium, {viewport: {width: 1280, height: 900}}],
@@ -298,4 +345,6 @@ async function liveFamily() {
     await localScoring();
     await liveFamily();
     await preferences();
+    await resultsPopup('wordle-lucky', 'no-preference');
+    await resultsPopup('wordle-unlucky', 'reduce');
 })().catch(error => { console.error(error); process.exitCode = 1; });
