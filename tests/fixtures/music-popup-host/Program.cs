@@ -16,7 +16,8 @@ var checkout = new DirectoryInfo(builder.Environment.ContentRootPath);
 while (checkout is not null && !Directory.Exists(Path.Combine(checkout.FullName, "music_web")))
     checkout = checkout.Parent;
 var repo = checkout?.FullName ?? throw new InvalidOperationException("Run the fixture inside the FamilyHub checkout.");
-builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+builder.Services.AddRazorComponents().AddInteractiveServerComponents()
+    .AddHubOptions(options => options.MaximumReceiveMessageSize = 256 * 1024);
 builder.Services.AddScoped<MusicSession>(_ => MakeSession(repo));
 builder.Services.AddSingleton(_ => new PublicAppReleases(new HttpClient(new FixtureApi([]))));
 builder.Services.AddScoped(service => {
@@ -305,7 +306,8 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
                     family = new[] { new { profile_id = "fixture", name = "Alex", played = 1, won = 1, favorite_guesses = Array.Empty<object>() },
                         new { profile_id = "june", name = "June", played = 3, won = 2,
                             favorite_guesses = new object[] { new { word = "grape", count = finished ? 3 : 2 } } } },
-                    family_totals = new { played = 4, won = 3, today = !hideWordleFamily || finished ? new { completed = 2, won = 2, members = 2 } : null },
+                    family_totals = new { played = 4, won = 3, distribution = new[] { 0, 1, 2, 0, 0, 0 },
+                        today = !hideWordleFamily || finished ? new { completed = 2, won = 2, members = 2 } : null },
                     history = new[] { new { date = day, status = "won", guesses = 3 } }
                 });
             }
@@ -330,7 +332,7 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
             string[] juneMarks = ["absent", "correct", "present", "absent", "absent"];
             var member = WordleMember;
             var family = new[] { new { id = "fixture", name = "Alex", rows = Array.Empty<string[]>(), playing = false, draft_count = 0, guesses = (object?)null },
-                new { id = "june", name = "June", rows = member.Submitted ? new[] { juneMarks, juneMarks } : new[] { juneMarks },
+                new { id = "june", name = "June", rows = member.Submitted ? new[] { juneMarks, Enumerable.Repeat("correct", 5).ToArray() } : new[] { juneMarks },
                     playing = member.Count >= 0, draft_count = Math.Max(0, member.Count),
                     guesses = won ? new[] { new { word = "grape", marks = juneMarks } } : (object?)null } };
             if (hideWordleFamily && !won) family = family[..1];

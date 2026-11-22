@@ -258,7 +258,7 @@ public sealed class FamilyHubApi : IDisposable
 
     public async Task<JsonElement> UploadAudioAsync(Stream file, long size, string filename, string title, string artist, string album, IProgress<DownloadProgress>? progress = null, CancellationToken cancellationToken = default, MusicPlaylist? playlist = null, bool showInAdditions = false)
     {
-        if (size is <= 0 or > 134217728) throw new ArgumentException("Choose an audio file smaller than 128 MB.");
+        if (size <= 0) throw new ArgumentException("Choose a nonempty audio file.");
         using var form = new MultipartFormDataContent();
         form.Add(new AudioUploadContent(file, size, progress), "file", Path.GetFileName(filename));
         form.Add(new StringContent("true"), "read_tags");

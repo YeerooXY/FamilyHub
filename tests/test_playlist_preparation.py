@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 from music_web.playlist_preparation import PlaylistPreparation, _PlaylistOperation
-from music_web.playlists import PlaylistStore
+from music_web.playlists import PlaylistError, PlaylistStore
 from music_web.resources import ResourceGovernor, background_request
 from tests.test_music_web import Base
 
@@ -30,6 +30,54 @@ class CoordinatorTests(unittest.TestCase):
         coordinator.thread.join(3)
         self.assertFalse(coordinator.thread.is_alive())
         return coordinator.status("alex", PID)
+
+    def test_spotify_import_saves_early_songs_and_retries_without_repeating_them(self):
+        url = "https://open.spotify.com/playlist/" + PID
+        allow_second_page = threading.Event()
+        first_saved = threading.Event()
+        attempts = []
+        prepared = []
+
+        def changed(user, pid):
+            with self.lock:
+                rows = self.store.read(user, pid)["tracks"]
+                if rows and rows[0]["state"] == "saved":
+                    first_saved.set()
+
+        def read(_provider, _url, progress):
+            attempts.append(1)
+            progress.publish_page("French Cafe Lounge", "original", [entry("One")])
+            progress(1, 2)
+            if len(attempts) == 1:
+                if not allow_second_page.wait(3):
+                    raise RuntimeError("The first song never became available")
+                raise PlaylistError("Second page temporarily unavailable")
+            progress.publish_page("French Cafe Lounge", "original", [entry("Two")])
+            progress(2, 2)
+            return {"source": {"complete": True}}
+
+        def prepare(_user, track, _progress):
+            prepared.append(track["title"])
+            return dict(candidate("abcdefghijk" if track["title"] == "One" else "lmnopqrstuv"), saved=True)
+
+        operation = _PlaylistOperation(self.store, self.lock, prepare, read=read)
+        self.store.changed = changed
+        operation.begin_import("alex", PID, 1, "spotify", url)
+        try:
+            self.assertTrue(first_saved.wait(2))
+            self.assertTrue(operation.thread.is_alive())
+        finally:
+            allow_second_page.set()
+        self.assertEqual(self.finish(operation)["state"], "error")
+        partial = self.store.read("alex", PID)
+        self.assertTrue(partial["preparation"]["partial_import"])
+        self.assertEqual([(track["title"], track["state"]) for track in partial["tracks"]], [("One", "saved")])
+        operation.begin_import("alex", PID, partial["revision"], "spotify", url)
+        self.assertEqual(self.finish(operation)["state"], "done")
+        result = self.store.read("alex", PID)
+        self.assertEqual(prepared, ["One", "Two"])
+        self.assertEqual([(track["title"], track["state"]) for track in result["tracks"]], [("One", "saved"), ("Two", "saved")])
+        self.assertFalse(result["preparation"]["partial_import"])
 
     def backlog(self, match, resources=None):
         prepare = lambda *_: dict(candidate(), saved=True)

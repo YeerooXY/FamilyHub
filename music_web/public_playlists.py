@@ -174,7 +174,10 @@ def read_pages(pid, fetch_page, progress=None):
         if len(rows) > total - offset or (not rows and offset < total):
             raise PlaylistError("Spotify returned an incomplete playlist page. Try again.")
         pages.append({"offset": offset, "count": len(rows)})
-        tracks.extend(_track(row, offset + i) for i, row in enumerate(rows))
+        batch = [_track(row, offset + i) for i, row in enumerate(rows)]
+        tracks.extend(batch)
+        if batch and (publish := getattr(progress, "publish_page", None)):
+            publish(first["name"][:200], revision, batch)
         if progress: progress(len(tracks), total)
         if len(tracks) == total:
             break
@@ -193,6 +196,8 @@ def read_pages(pid, fetch_page, progress=None):
 def fetch_public_playlist(url, *, page_size=100, progress=None):
     """Use a fresh signed-out web player session; no owner login or stored cookies."""
     pid = playlist_id(url)
+    if getattr(progress, "publish_page", None):
+        page_size = min(page_size, 25)
     if type(page_size) is not int or not 1 <= page_size <= 100:
         raise ValueError("Page size must be between 1 and 100.")
     try:

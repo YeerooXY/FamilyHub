@@ -4,8 +4,8 @@
 
 @using System.Text.Json
 
-<div class="create-files">
-    <label class="create-file-choice" aria-disabled="@Aria(Disabled || Busy)">
+<div class="create-files @(Illustrated ? "illustrated-file-choices" : "")">
+    <label class="create-file-choice choose-songs" aria-disabled="@Aria(Disabled || Busy)">
         <MusicIcon Name="music" /><span class="create-file-text"><strong>Choose songs</strong></span>
         <InputFile @key="fileInputGeneration" id="@(Prefix + "-audio-file")" OnChange="Choose"
                    accept="audio/*,.mp3,.flac,.m4a,.opus,.ogg,.oga,.wav,.aac,.webm,.mka,.wv,.aiff,.aif"
@@ -13,7 +13,7 @@
     </label>
     @if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid())
     {
-        <button id="@(Prefix + "-folder")" type="button" class="create-file-choice" @onclick="ChooseFolder"
+        <button id="@(Prefix + "-folder")" type="button" class="create-file-choice choose-folder" @onclick="ChooseFolder"
                 aria-disabled="@Aria(Disabled || Busy)">
             <MusicIcon Name="folder" />
             <span class="create-file-text"><strong>Choose a folder</strong><small>Includes subfolders</small></span>
@@ -21,7 +21,7 @@
     }
     else
     {
-        <label class="create-file-choice" aria-disabled="@Aria(Disabled || Busy)">
+        <label class="create-file-choice choose-folder" aria-disabled="@Aria(Disabled || Busy)">
             <MusicIcon Name="folder" />
             <span class="create-file-text"><strong>Choose a folder</strong><small>Includes subfolders</small></span>
             <InputFile @key="fileInputGeneration" id="@(Prefix + "-folder")" OnChange="Choose"
@@ -29,7 +29,6 @@
         </label>
     }
 </div>
-    <p class="upload-limits">Up to 500 songs at a time. 128 MB per song.</p>
     @if (picking) { <Notice Message="Reading folder…" /> }
     @if (files.Count > 0) {
         <section class="upload-selection" aria-labelledby="@(Prefix + "-selection-title")"><div><strong id="@(Prefix + "-selection-title")">@files.Count @(files.Count == 1 ? "song" : "songs")</strong><span>@((files.Sum(f => f.Size) / 1048576d).ToString("0.0")) MB</span></div>
@@ -59,6 +58,7 @@
     [Parameter, EditorRequired] public string Prefix { get; set; } = "";
     [Parameter, EditorRequired] public string SubmitId { get; set; } = "";
     [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool Illustrated { get; set; }
     [Parameter] public EventCallback Changed { get; set; }
     [Parameter] public EventCallback<LibraryAddition> JobChanged { get; set; }
     public int SelectedCount => files.Count;
@@ -84,7 +84,6 @@
     private readonly List<(string Name, string Reason)> problems = [];
     private int otherFiles;
     private List<string> otherTypes = [];
-    private static string SkipText(string reason) => reason switch { "empty" => "The file is empty.", "too-large" => "Larger than 128 MB, the limit for one song.", _ => "Not an audio format the app can upload." };
     private void AddSkips(IEnumerable<LocalAudioSkip> skips)
     {
         var list = skips.ToList();
@@ -92,7 +91,7 @@
         var other = list.Where(s => s.Reason == "not-audio").ToList();
         otherFiles = other.Count;
         otherTypes = other.Select(s => Path.GetExtension(s.Name).ToLowerInvariant()).Where(e => e.Length > 0).Distinct().Take(5).ToList();
-        foreach (var skip in list.Where(s => s.Reason != "not-audio")) problems.Add((skip.Name, SkipText(skip.Reason)));
+        foreach (var skip in list.Where(s => s.Reason == "empty")) problems.Add((skip.Name, "The file is empty."));
     }
     private bool working, uploading, picking, stopping, disposed;
     private int percent;
@@ -118,15 +117,15 @@
     private void Choose(InputFileChangeEventArgs args)
     {
         if (Disabled || Busy) return; ResetSelection(); CreatedPlaylistKey = null;
-        if (args.FileCount > 500) { error = "Choose up to 500 songs at a time."; _ = Changed.InvokeAsync(); return; }
-        var skipped = 0; var skips = new List<LocalAudioSkip>();
-        foreach (var file in args.GetMultipleFiles(500)) {
-            if (!LocalAudioFolderPicker.IsSupported(file.Name) || file.Size is <= 0 or > 134217728) { skipped++; skips.Add(new(file.Name, !LocalAudioFolderPicker.IsSupported(file.Name) ? "not-audio" : file.Size <= 0 ? "empty" : "too-large")); continue; }
-            files.Add(new(file.Name, file.Size, token => Task.FromResult(file.OpenReadStream(134217728, token))));
+        var skips = new List<LocalAudioSkip>();
+        foreach (var file in args.GetMultipleFiles(args.FileCount)) {
+            if (!LocalAudioFolderPicker.IsSupported(file.Name)) { skips.Add(new(file.Name, "not-audio")); continue; }
+            if (file.Size <= 0) { skips.Add(new(file.Name, "empty")); continue; }
+            files.Add(new(file.Name, file.Size, token => Task.FromResult(file.OpenReadStream(file.Size, token))));
         }
-        AddSkips(skips); SelectionReady(skipped, false); _ = Changed.InvokeAsync();
+        AddSkips(skips); SelectionReady(false); _ = Changed.InvokeAsync();
     }
-    private void SelectionReady(int skipped, bool limited)
+    private void SelectionReady(bool limited)
     {
         selectionNote = null;
         if (limited) selectionNote = $"The folder is large. Selected {files.Count} songs; choose a smaller folder for the rest.";
@@ -136,7 +135,7 @@
     private async Task ChooseFolder()
     {
         if (Disabled || Busy) return; picking = true; error = null;
-        try { var selected = await LocalAudioFolderPicker.PickAsync(lifetime.Token); if (selected is not null && !selectionInvalidated) { ResetSelection(); CreatedPlaylistKey = null; files = selected.Files.ToList(); AddSkips(selected.SkippedFiles ?? []); FolderName = selected.Name.Trim().Length <= 200 ? selected.Name.Trim() : ""; SelectionReady(selected.Skipped, selected.LimitReached); } }
+        try { var selected = await LocalAudioFolderPicker.PickAsync(lifetime.Token); if (selected is not null && !selectionInvalidated) { ResetSelection(); CreatedPlaylistKey = null; files = selected.Files.ToList(); AddSkips(selected.SkippedFiles ?? []); FolderName = selected.Name.Trim().Length <= 200 ? selected.Name.Trim() : ""; SelectionReady(selected.LimitReached); } }
         catch (OperationCanceledException) { }
         catch (Exception exception) { error = NoticeText.Error(exception); }
         finally { picking = false; if (selectionInvalidated) ClearChangedIdentity(); pendingFocus ??= Prefix + "-folder"; await Changed.InvokeAsync(); }

@@ -42,7 +42,7 @@ from .resources import (ResourceGovernor, TransferResources, PROVIDERS, backgrou
 from . import link_playlists
 from . import radio
 
-MAX_UPLOAD = 128 << 20
+MAX_UPLOAD = 512 << 20
 SESSION_HOURS = 12
 REMEMBER_HOURS = 30 * 24
 MAX_JOBS = 50

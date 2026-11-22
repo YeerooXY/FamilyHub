@@ -1,5 +1,7 @@
 @inject MusicSession Session
 @inject IJSRuntime JS
+@using Microsoft.Maui.ApplicationModel
+@using Microsoft.Maui.ApplicationModel.DataTransfer
 
 @* Create playlist: one screen for an empty playlist, a pasted link from a supported site (detected
    from the link itself), or songs and folders from this device through the upload dialog. *@
@@ -13,12 +15,13 @@
 
         <section class="create-section" aria-labelledby="create-link-title">
             <h3 id="create-link-title">Import from a link</h3>
-            <div class="create-link @(Source is { } linkSite ? "is-" + linkSite : "") @(link.Length > 0 && Source is null ? "is-unknown" : "")">
-                <span class="create-link-icon" aria-hidden="true">@if (Source is { } detected) { <MusicProviders IconOnly="@detected" /> } else { <MusicIcon Name="link" /> }</span>
+            <div class="create-link create-link-with-paste @(Source is { } linkSite ? "is-" + linkSite : "") @(link.Length > 0 && Source is null ? "is-unknown" : "")">
+                <button class="create-link-paste" type="button" disabled="@(Files > 0 || busy)" @onclick="PasteLink">Paste</button>
                 <label class="sr" for="new-playlist-url">Playlist link</label>
-                <input id="new-playlist-url" type="url" @bind="link" @bind:event="oninput" @bind:after="LinkChanged" placeholder="Paste a playlist link" autocomplete="off" spellcheck="false" disabled="@(Files > 0)" />
+                <input id="new-playlist-url" type="url" @bind="link" @bind:event="oninput" @bind:after="LinkEdited" placeholder="Playlist URL" autocomplete="off" spellcheck="false" disabled="@(Files > 0 || busy)" />
                 @if (link.Length > 0) { <button type="button" class="create-link-clear" aria-label="Clear link" @onclick="ClearLink"><MusicIcon Name="close" /></button> }
             </div>
+            <output class="create-clipboard-preview" aria-label="Clipboard preview" for="new-playlist-url">@clipboardPreview</output>
             <Notice Level="@(Source is null ? "warning" : "info")" Message="@LinkStatus" />
             <MusicProviders Sites="Sites" Detected="@Source" />
         </section>
@@ -26,14 +29,14 @@
         @* A pasted link replaces the device choices; they fold away and come back when the link is cleared. *@
         <section class="create-section create-collapse @(Source is not null ? "is-collapsed" : "")" aria-labelledby="create-files-title" inert="@(Source is not null)"><div>
             <h3 id="create-files-title">Add songs from this device</h3>
-            <UploadSongs @ref="uploader" Prefix="create-upload" SubmitId="create-playlist-submit" Disabled="DeviceLocked" Changed="StateHasChanged" />
+            <UploadSongs @ref="uploader" Prefix="create-upload" SubmitId="create-playlist-submit" Illustrated="true" Disabled="DeviceLocked" Changed="StateHasChanged" />
         </div></section>
 
         <section class="create-section create-options" aria-label="Playlist options">
             <label class="create-toggle"><span><strong>Share with the family</strong><small>Everyone on this server can see and play it.</small></span><input type="checkbox" role="switch" @bind="shared" /></label>
             @if (Source is not null)
             {
-                <label class="create-toggle"><span><strong>Download songs to the server</strong><small>Downloads start after matching. You can pause them from the playlist.</small></span><input type="checkbox" role="switch" @bind="download" /></label>
+                <label class="create-toggle"><span><strong>Download songs to the server</strong><small>You can pause downloads from the playlist.</small></span><input type="checkbox" role="switch" @bind="download" /></label>
             }
         </section>
 
@@ -54,7 +57,7 @@
     private bool findingName;
     private CancellationTokenSource? nameLookup;
     private bool shared = true, download = true, busy;
-    private string? error;
+    private string? error, clipboardPreview;
 
     private static string Aria(bool value) => value ? "true" : "false";
     // Same rule as the server (music_web/link_playlists.detect); the server checks again.
@@ -80,8 +83,35 @@
         : uploader?.FolderName is { Length: > 0 } folder ? folder : "My playlist";
 
     // The clear button disappears with the link, so focus moves back to the link field.
-    private async Task ClearLink() { link = ""; error = null; var changed = LinkChanged(); await JS.InvokeVoidAsync("familyhub.focus", "new-playlist-url"); await changed; }
-    private void Reset() { nameLookup?.Cancel(); name = link = autoName = ""; findingName = false; shared = download = true; error = null; busy = false; uploader?.Clear(); }
+    private async Task ClearLink() { link = ""; error = null; var changed = LinkEdited(); await JS.InvokeVoidAsync("familyhub.focus", "new-playlist-url"); await changed; }
+    private void Reset() { nameLookup?.Cancel(); name = link = autoName = ""; findingName = false; shared = download = true; error = clipboardPreview = null; busy = false; uploader?.Clear(); }
+
+    private Task LinkEdited()
+    {
+        error = clipboardPreview = null;
+        return LinkChanged();
+    }
+
+    private async Task PasteLink()
+    {
+        if (Files > 0 || busy) return;
+        var value = await JS.InvokeAsync<string?>("familyhub.clipboardText");
+        if (value is null)
+        {
+            try { value = await MainThread.InvokeOnMainThreadAsync(Clipboard.Default.GetTextAsync); }
+            catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException or PermissionException) { }
+        }
+        if (Files > 0 || busy || !await JS.InvokeAsync<bool>("familyhub.focusInOpenDialog", "new-playlist-url")) return;
+        value = value?.Trim();
+        if (string.IsNullOrEmpty(value) || value.Length > 300 || value.Any(char.IsControl))
+        {
+            error = "Copy one playlist link, then paste it here.";
+            return;
+        }
+        error = null;
+        clipboardPreview = link = value;
+        await LinkChanged();
+    }
 
     // A pasted link fills the name field from the site; a name the owner typed is kept.
     private async Task LinkChanged()

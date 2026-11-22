@@ -37,7 +37,10 @@ class _PlaylistOperation:
             data = self.store.read(user, pid)
             status = data.get("preparation", {"state": "idle", "mode": "match"})
             if status["state"] in ("running", "pausing") and self.active != (user, pid):
-                status = {**status, "state": "paused", "message": "Server restarted. Import the playlist again." if status.get("phase") == "reading" else "Server restarted. Resume to continue."}
+                needs_read = status.get("phase") == "reading" or status.get("partial_import")
+                status = {**status, "state": "paused", "message": "Server restarted. Import the playlist again." if needs_read else "Server restarted. Resume to continue."}
+                if needs_read:
+                    status.update(mode="import", phase="reading")
                 data["preparation"] = status
                 self.store.save(user, data)
             if status["state"] == "done" and self.active != (user, pid):
@@ -70,12 +73,13 @@ class _PlaylistOperation:
     def begin_import(self, user, pid, revision, provider, url, download=True, name=None, append=False, actor=None):
         with self.lock:
             data = self.store.read(user, pid)
-            if (data["tracks"] and not append) or type(revision) is not int or revision != data["revision"]:
-                raise ValueError("Refresh this playlist before adding songs." if append else "Import into an empty, unchanged playlist.")
             previous = data.get("preparation", {})
+            same = previous.get("import_url") == url and previous.get("provider") == provider
+            partial = same and previous.get("partial_import") and previous.get("state") in ("paused", "error")
+            if (data["tracks"] and not append and not partial) or type(revision) is not int or revision != data["revision"]:
+                raise ValueError("Refresh this playlist before adding songs." if append else "Import into an empty, unchanged playlist.")
             # A new import downloads its matched songs straight away; re-importing keeps a
             # download the owner paused or cancelled.
-            same = previous.get("import_url") == url and previous.get("provider") == provider
             queued_download = download is not False and (append or (same and previous.get("download_after_matching") is True) or (
                 not data.get("auto_download_paused") and (not same or previous.get("state") not in ("paused", "error"))))
             if download is False: data["auto_download_paused"] = True
@@ -83,8 +87,12 @@ class _PlaylistOperation:
             self._claim(user, pid)
             data["preparation"] = {**self._status("import"), "provider": provider, "import_url": url,
                                    "download_after_matching": queued_download, "append": append, "actor": actor or user}
+            if partial:
+                data["preparation"].update(partial_import=True, start_index=previous.get("start_index", 0),
+                                           source_revision=previous.get("source_revision"))
             # A name typed in Create playlist wins over the source's name.
-            if name: data["preparation"]["name"] = name
+            imported_name = name or (previous.get("name") if same else None) or (data["name"] if partial else None)
+            if imported_name: data["preparation"]["name"] = imported_name
             try:
                 self.store.save(user, data)
                 self.thread = threading.Thread(target=self._import, args=(user, pid, provider, url), daemon=True)
@@ -156,12 +164,63 @@ class _PlaylistOperation:
 
     def _import(self, user, pid, provider, url):
         delegated = False
+        reader_done = threading.Event()
+        reader_problem = []
+        processing = None
         try:
+            def publish_page(name, revision, batch):
+                nonlocal processing, delegated
+                with self.lock:
+                    if self.stop.is_set() or reader_done.is_set():
+                        raise InterruptedError()
+                    data = self.store.read(user, pid)
+                    status = data["preparation"]
+                    if status.get("source_revision") not in (None, revision):
+                        raise PlaylistError("Spotify changed this playlist while reading it. Import the new version separately.")
+                    append = status["append"]
+                    first_index = status.get("start_index", len(data["tracks"]) if append else 0)
+                    direct_download = status["download_after_matching"] if processing is None else status["mode"] == "download"
+                    mode = "download" if direct_download else "import"
+                    status.update(partial_import=True, source_revision=revision, start_index=first_index,
+                                  mode=mode, phase="download" if direct_download else "matching")
+                    if append:
+                        data = self.store.import_playlist(user, {"id": pid, "tracks": batch, "preparation": status},
+                                                          append=True, actor=status["actor"])
+                        status = data["preparation"]
+                    else:
+                        data.update(name=status.get("name") or name, url=url)
+                        seen = {track["spotify_uri"] for track in data["tracks"]}
+                        for track in batch:
+                            if track["spotify_uri"] in seen: continue
+                            seen.add(track["spotify_uri"])
+                            data["tracks"].append({**track, "added_by": status["actor"]})
+                        data["revision"] += 1
+                    status.update(playlist_revision=data["revision"], total=len(data["tracks"]) - first_index)
+                    self.store.save(user, data)
+                    if processing is None:
+                        worker = threading.Thread(target=self._run, args=(user, pid, mode, first_index),
+                                                  kwargs={"reader_done": reader_done, "reader_problem": reader_problem},
+                                                  daemon=True)
+                        worker.start()
+                        processing, delegated = worker, True
+
             def progress(loaded, total):
-                self.update(user, pid, loaded=loaded, total=total, message=f"Read {loaded} of {total} {'releases' if provider == 'spotify' and '/artist/' in url else 'songs'}")
                 if self.stop.is_set(): raise InterruptedError()
+                if processing is None:
+                    self.update(user, pid, loaded=loaded, total=total, message=f"Read {loaded} of {total} {'releases' if provider == 'spotify' and '/artist/' in url else 'songs'}")
+            if provider == "spotify" and "/playlist/" in url:
+                progress.publish_page = publish_page
             imported = self.read(provider, url, progress)
             if self.stop.is_set(): raise InterruptedError()
+            if processing is not None:
+                with self.lock:
+                    if reader_done.is_set(): return
+                    data = self.store.read(user, pid)
+                    if not data["preparation"]["append"]:
+                        data["source"] = imported.get("source")
+                    data["preparation"]["partial_import"] = False
+                    self.store.save(user, data)
+                return
             with self.lock:
                 original = self.store.read(user, pid)
                 append = original["preparation"].get("append", False)
@@ -175,21 +234,27 @@ class _PlaylistOperation:
             delegated = True
             self._run(user, pid, "import")
         except InterruptedError:
-            self.update(user, pid, state="paused", message="Reading paused. Import the playlist again to continue.")
+            if processing is None:
+                self.update(user, pid, state="paused", message="Reading paused. Import the playlist again to continue.")
         except PlaylistError as error:
-            self.update(user, pid, state="error", message=str(error))
+            if processing is None: self.update(user, pid, state="error", message=str(error))
+            else: reader_problem.append(str(error))
         except Exception:
             message = ("Radio is unavailable right now. Try another artist or choose songs from your library."
                        if provider == 'radio' else "Could not read the public playlist. Check its link and try again.")
-            self.update(user, pid, state="error", message=message)
+            if processing is None: self.update(user, pid, state="error", message=message)
+            else: reader_problem.append(message)
         finally:
+            if processing is not None:
+                reader_done.set()
+                processing.join()
             if not delegated:
                 with self.lock:
                     if self.active == (user, pid):
                         self.active = None
                         self.finished()
 
-    def _run(self, user, pid, mode, start_index=0):
+    def _run(self, user, pid, mode, start_index=0, *, reader_done=None, reader_problem=None):
         phase_succeeded = False
         try:
             with self.lock:
@@ -222,11 +287,13 @@ class _PlaylistOperation:
                         for index in rescued: data["tracks"][index] = tracks[index]
                         data["preparation"].update(found=found, review=review, recent=recent)
                         self.store.save(user, data)
-            remaining = iter((i, track) for i, track in enumerate(tracks) if i >= cursor and i not in completed_after)
+            next_index = cursor
             workers = self.download_workers if mode == "download" else 3
             file_progress = {}
 
             def process(index, track):
+                if reader_done is not None and track.get("state") == "saved":
+                    return track
                 if prior.get("automatic") and ((mode == "download" and track.get("state") not in ("ready","saved")) or (mode != "download" and track.get("state") in ("review","error"))):
                     return track
                 def progress(message, **fields):
@@ -271,16 +338,25 @@ class _PlaylistOperation:
                 exhausted = False
                 while pending or not exhausted:
                     while len(pending) < workers and not self.stop.is_set() and not exhausted:
-                        item = next(remaining, None)
-                        if item is None:
+                        if reader_done is not None and next_index == len(tracks):
+                            with self.lock:
+                                tracks.extend(deepcopy(self.store.read(user, pid)["tracks"][next_index:]))
+                                if next_index == len(tracks) and not reader_done.is_set():
+                                    break
+                        if next_index >= len(tracks):
                             exhausted = True
                             break
-                        index, track = item
+                        index = next_index
+                        next_index += 1
+                        if index in completed_after: continue
                         with self.lock:
                             if self.stop.is_set(): break
-                            pending[pool.submit(process, index, track)] = index
+                            pending[pool.submit(process, index, tracks[index])] = index
                     self.update(user, pid, active_searches=len(pending) if mode != "download" else 0)
                     if not pending:
+                        if reader_done is not None and not exhausted and not self.stop.is_set():
+                            reader_done.wait(.25)
+                            continue
                         break
                     finished, _ = wait(pending, return_when=FIRST_COMPLETED)
                     for future in sorted(finished, key=lambda item: pending[item]):
@@ -305,12 +381,19 @@ class _PlaylistOperation:
                                 completed_after=sorted(completed_after), found=found, saved=saved, review=review,
                                 failed=failed, recent=recent, active_searches=len(pending) if mode != "download" else 0)
                             self.store.save(user, data)
-            phase_succeeded = not self.stop.is_set()
-            self.update(user, pid, state="paused" if self.stop.is_set() else "done", active_searches=0,
-                        message="Paused" if self.stop.is_set() else "Downloads finished" if mode == "download" else "Matching finished")
+            phase_succeeded = not self.stop.is_set() and not reader_problem
+            with self.lock:
+                incomplete = reader_done is not None and self.store.read(user, pid)["preparation"].get("partial_import")
+            if reader_problem or (incomplete and self.stop.is_set()):
+                self.update(user, pid, state="paused" if self.stop.is_set() else "error", active_searches=0,
+                            mode="import", phase="reading", message="Import the same link to continue. Songs already added stay in the playlist.")
+            else:
+                self.update(user, pid, state="paused" if self.stop.is_set() else "done", active_searches=0,
+                            message="Paused" if self.stop.is_set() else "Downloads finished" if mode == "download" else "Matching finished")
         except Exception:
             self.update(user, pid, state="paused", active_searches=0, message="Operation stopped. Resume to retry.")
         finally:
+            if reader_done is not None: reader_done.set()
             download_next = False
             with self.lock:
                 if self.active == (user, pid):
@@ -460,7 +543,8 @@ class PlaylistPreparation:
             self._admit(user,pid)
             operation=self._operation(user,pid)
             data=self.store.read(user,pid)
-            if data.get("preparation", {}).get("append") and data["preparation"].get("phase") == "reading" and operation.active is None:
+            previous = data.get("preparation", {})
+            if (previous.get("append") or previous.get("partial_import")) and previous.get("phase") == "reading" and operation.active is None:
                 raise ValueError("Import the playlist link again to continue adding songs.")
             if mode == "download":
                 data["auto_download_paused"] = False

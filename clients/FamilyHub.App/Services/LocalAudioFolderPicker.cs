@@ -7,13 +7,11 @@ public sealed record LocalAudioFile(string Name, long Size, Func<CancellationTok
 /// <param name="Name">The chosen folder's own name, offered as a playlist name.</param>
 public sealed record LocalAudioFolderSelection(IReadOnlyList<LocalAudioFile> Files, int Skipped, bool LimitReached, string Name = "", IReadOnlyList<LocalAudioSkip>? SkippedFiles = null);
 
-/// <summary>A file left out of an upload and why: "empty", "too-large" or "not-audio".</summary>
+/// <summary>A file left out of an upload and why: "empty" or "not-audio".</summary>
 public sealed record LocalAudioSkip(string Name, string Reason);
 
 public static class LocalAudioFolderPicker
 {
-    public const int MaxFiles = 500;
-    public const long MaxFileBytes = 128L * 1024 * 1024;
     private const int MaxDepth = 32;
     private const int MaxVisitedItems = 5000;
     private static readonly SemaphoreSlim PickerLock = new(1, 1);
@@ -144,16 +142,10 @@ public static class LocalAudioFolderPicker
                     }
 
                     var size = (long)(await file.GetBasicPropertiesAsync()).Size;
-                    if (size < 1 || size > MaxFileBytes)
+                    if (size < 1)
                     {
-                        skipped++; Skip(skips, file.Name, size < 1 ? "empty" : "too-large");
+                        skipped++; Skip(skips, file.Name, "empty");
                         continue;
-                    }
-
-                    if (files.Count == MaxFiles)
-                    {
-                        limitReached = true;
-                        return;
                     }
 
                     files.Add(new LocalAudioFile(file.Name, size, async token =>
@@ -246,16 +238,10 @@ public static class LocalAudioFolderPicker
                 }
 
                 var size = cursor.IsNull(sizeColumn) ? -1 : cursor.GetLong(sizeColumn);
-                if (size < 1 || size > MaxFileBytes)
+                if (size < 1)
                 {
-                    skipped++; Skip(skips, name, size < 1 ? "empty" : "too-large");
+                    skipped++; Skip(skips, name, "empty");
                     continue;
-                }
-
-                if (files.Count == MaxFiles)
-                {
-                    limitReached = true;
-                    return;
                 }
 
                 var fileUri = Android.Provider.DocumentsContract.BuildDocumentUriUsingTree(treeUri, childId);

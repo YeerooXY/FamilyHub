@@ -7,18 +7,19 @@
 
 <section class="daily-wordle" aria-labelledby="daily-wordle-title" @ref="surface" tabindex="-1"
          data-playing="@((puzzle?.Status == "playing").ToString().ToLowerInvariant())">
-    <aside class="dw-family-rail" aria-label="Family guesses">
-        @foreach (var board in familyBoards)
+    <aside class="dw-family-rail" aria-label="Family boards">
+        @foreach (var (board, rows) in familyBoards.Select(board => (Board: board, Rows: BoardRows(board)))
+            .OrderBy(entry => IsSolved(entry.Rows) ? entry.Rows.Length : 7))
         {
             var own = board.Id == Session.User;
-            var rows = own && puzzle is not null ? puzzle.Guesses.Select(g => g.Marks).ToArray() : board.Rows;
             var name = own ? $"{board.Name} (you)" : board.Name;
             var label = $"{name}, {rows.Length} of 6 guesses";
             var playing = !own && board.Playing;
             var count = own ? draft.Length : playing ? board.DraftCount : 0;
             if (playing) label += count == 0 ? ", playing" : $", typing, {count} tiles filled";
             var profile = Session.Profiles.FirstOrDefault(p => p.Id == board.Id) ?? new ListenerProfile { Id = board.Id, Name = board.Name };
-            <div class="dw-family-card" @key="board.Id" title="@label" role="img" aria-label="@BoardDescription(label, rows)">
+            <button id="@("dw-board-" + board.Id)" class="dw-family-card" @key="board.Id" type="button" title="@label"
+                    aria-haspopup="dialog" aria-label="@BoardDescription(label, rows)" @onclick="() => OpenFamilyBoard(board.Id)">
                 <ProfileAvatar Profile="profile" Size="40" ShowCrown="false" />
                 @if (playing) { <span class="dw-playing-dot" aria-hidden="true"></span> }
                 <span class="dw-mini" aria-hidden="true">
@@ -27,7 +28,7 @@
                         <i class="@(i / 5 < rows.Length ? rows[i / 5][i % 5] : i / 5 == rows.Length && i % 5 < count ? "dw-draft" : "")"></i>
                     }
                 </span>
-            </div>
+            </button>
         }
     </aside>
     <span class="dw-visually-hidden" role="status">@FamilyActivityLabel</span>
@@ -123,6 +124,38 @@
         </div>
     </div>
 
+    @if (Finished)
+    {
+        <aside class="dw-server-stats" aria-labelledby="dw-server-stats-title">
+            <h2 id="dw-server-stats-title">Family statistics</h2>
+            <div role="status">
+                @if (stats?.FamilyTotals is { } totals)
+                {
+                    @if (totals.Today is { } today)
+                    {
+                        <p><strong>Today</strong> @today.Won solved, @today.Completed of @today.Members finished</p>
+                    }
+                    <p><strong>All time</strong> @totals.Won wins in @totals.Played puzzles</p>
+                    @if (totals.Distribution is { Length: 6 } distribution)
+                    {
+                        <h3>Winning guesses</h3>
+                        <ol class="dw-distribution">
+                            @for (var i = 0; i < distribution.Length; i++)
+                            {
+                                <li aria-label="@($"{i + 1} guesses, {distribution[i]} wins")">
+                                    <span aria-hidden="true">@(i + 1)</span>
+                                    <span class="dw-bar" style="--dw-bar:@BarWidth(distribution[i], distribution)%" aria-hidden="true">@distribution[i]</span>
+                                </li>
+                            }
+                        </ol>
+                    }
+                }
+                else if (statsError) { <p>Statistics are unavailable.</p> }
+                else { <p>@(syncFailed ? "Sync your result to see family totals." : "Loading statistics…")</p> }
+            </div>
+        </aside>
+    }
+
     <dialog class="dw-dialog" aria-labelledby="dw-help-title" @ref="help">
         <div class="dw-dialog-content">
             <header class="dw-dialog-header">
@@ -135,6 +168,27 @@
                 <li><span class="dw-tile present" aria-hidden="true">O</span> The letter is in a different spot.</li>
                 <li><span class="dw-tile absent" aria-hidden="true">R</span> The letter is absent.</li>
             </ul>
+        </div>
+    </dialog>
+    <dialog class="dw-dialog" aria-labelledby="dw-member-title" @ref="memberDialog">
+        <div class="dw-dialog-content">
+            <header class="dw-dialog-header">
+                <h2 id="dw-member-title">@(InspectedBoard?.Name ?? "Family board")</h2>
+                <form method="dialog"><button class="dw-icon" type="submit" aria-label="Close family board"><MusicIcon Name="close" /></button></form>
+            </header>
+            <div role="status">
+                @if (InspectedBoard is { } inspected)
+                {
+                    var rows = BoardRows(inspected);
+                    var words = inspected.Id == Session.User ? puzzle?.Guesses : Finished ? inspected.Guesses : null;
+                    @if (IsSolved(rows)) { <p>Solved in @rows.Length @(rows.Length == 1 ? "guess" : "guesses")</p> }
+                    else if (rows.Length == 6) { <p>Unsolved</p> }
+                    else if (rows.Length == 0) { <p>No guesses yet.</p> }
+                    @if (rows.Length > 0) { @InspectRows(rows, words) }
+                    @if (!Finished && inspected.Id != Session.User && rows.Length > 0) { <p>Finish your puzzle to see the letters.</p> }
+                }
+                else { <p>This board is unavailable.</p> }
+            </div>
         </div>
     </dialog>
     <dialog class="dw-dialog" aria-labelledby="dw-stats-title" @ref="statsDialog">
@@ -199,19 +253,7 @@
                                 @if (Finished && board?.Guesses is { Length: > 0 } lines)
                                 {
                                     <h4>Today’s guesses</h4>
-                                    <ol class="dw-inspect">
-                                        @for (var i = 0; i < lines.Length; i++)
-                                        {
-                                            var guess = lines[i];
-                                            <li aria-label="@RowLabel(i, guess.Word.ToUpperInvariant(), guess)">
-                                                <span aria-hidden="true">@(i + 1)</span>
-                                                @for (var letter = 0; letter < 5; letter++)
-                                                {
-                                                    <span class="@GuessMark(guess, letter)" aria-hidden="true">@char.ToUpperInvariant(guess.Word[letter])</span>
-                                                }
-                                            </li>
-                                        }
-                                    </ol>
+                                    @InspectRows(board.Rows, lines)
                                 }
                                 <h4>Favorite guesses</h4>
                                 @if (member.Favorites is { Length: > 0 } favorites)
@@ -275,7 +317,7 @@
         [property: JsonPropertyName("favorite_guesses")] Favorite[]? Favorites);
     private sealed record History(string Date, string Status, int Guesses);
     private sealed record TodayTotal(int Completed, int Won, int Members);
-    private sealed record FamilyTotals(int Played, int Won, TodayTotal? Today);
+    private sealed record FamilyTotals(int Played, int Won, TodayTotal? Today, int[]? Distribution);
     private sealed record Statistics(PersonalStats Personal, FamilyStats[] Family, History[] History,
         [property: JsonPropertyName("family_totals")] FamilyTotals? FamilyTotals);
     private static readonly string[] KeyboardRows = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
@@ -284,12 +326,14 @@
     private readonly Dictionary<char, string> keyboard = new();
     private IJSObjectReference? module;
     private DotNetObjectReference<DailyWordle>? keyboardReference;
-    private ElementReference surface, help, statsDialog, statsButton, closeStats;
+    private ElementReference surface, help, statsDialog, statsButton, closeStats, memberDialog;
     private Puzzle? puzzle;
     private Statistics? stats;
     private bool loading, loadAttempted, submitting, loadingStats, statsError, shake, focusBoard, focusResult, focusStats, refreshAfterSubmit, disposed;
     private string draft = "", announcement = "";
-    private string? message, scheduledReset;
+    private string? message, scheduledReset, inspectedBoardId, familyFocus, statsRequestedDate;
+    private bool showMemberBoard;
+    private FamilyBoard? InspectedBoard => familyBoards.FirstOrDefault(board => board.Id == inspectedBoardId);
     private int revealRow = -1;
     private bool Finished => puzzle?.Status is "won" or "lost";
     private string KeysDisabled => puzzle?.Status != "playing" || submitting ? "true" : "false";
@@ -310,10 +354,26 @@
         if (focusBoard) { focusBoard = false; await module!.InvokeVoidAsync("restoreBoard", surface); }
         if (focusResult && Finished && statsButton.Context is not null) { focusResult = false; await statsButton.FocusAsync(preventScroll: true); }
         if (focusStats) { focusStats = false; await module!.InvokeVoidAsync("restoreInside", statsDialog, closeStats); }
+        if (familyFocus is { } target)
+        {
+            familyFocus = null;
+            await module!.InvokeVoidAsync("restoreFamilyFocus", surface, target);
+        }
+        if (showMemberBoard)
+        {
+            showMemberBoard = false;
+            await module!.InvokeVoidAsync("open", memberDialog, "dw-board-" + inspectedBoardId);
+        }
         if (module is not null && scheduledReset != puzzle?.NextReset)
         {
             scheduledReset = puzzle?.NextReset;
             await module.InvokeVoidAsync("updateReset", surface, scheduledReset);
+        }
+        if (Finished && puzzle is { } completed && !loadingStats && statsRequestedDate != completed.Date &&
+            (completed.LocalSolution is null || confirmed >= completed.Guesses.Length))
+        {
+            statsRequestedDate = completed.Date;
+            await LoadStats();
         }
     }
 
@@ -371,6 +431,7 @@
 
     private void LoadPuzzle(Puzzle value)
     {
+        if (puzzle?.Date != value.Date) { stats = null; statsError = false; }
         if (value.Family is { } boards) { familyBoards = ValidBoards(boards); lastFamilySnapshot = null; }
         else if (puzzle?.Date != value.Date) { familyBoards = []; lastFamilySnapshot = null; }
         puzzle = value with { Family = null };
@@ -529,6 +590,33 @@
     private static bool ValidGuess(Guess? guess) => guess is not null && IsPuzzleWord(guess.Word)
         && guess.Marks is { Length: 5 } marks && marks.All(mark => Array.IndexOf(Marks, mark) >= 0);
 
+    private string[][] BoardRows(FamilyBoard board) => board.Id == Session.User && puzzle is not null
+        ? puzzle.Guesses.Select(guess => guess.Marks).ToArray() : board.Rows;
+
+    private static bool IsSolved(string[][] rows) => rows.LastOrDefault()?.All(mark => mark == "correct") == true;
+    private static bool IsComplete(FamilyBoard board) => board.Rows.Length == 6 || IsSolved(board.Rows);
+
+    private RenderFragment InspectRows(string[][] rows, Guess[]? guesses) => @<ol class="dw-inspect">
+        @for (var i = 0; i < rows.Length; i++)
+        {
+            var row = rows[i];
+            var guess = guesses?.ElementAtOrDefault(i);
+            <li aria-label="@(guess is null ? $"Guess {i + 1}: {string.Join(", ", row.Select(MarkLabel))}" : RowLabel(i, guess.Word.ToUpperInvariant(), guess))">
+                <span aria-hidden="true">@(i + 1)</span>
+                @for (var column = 0; column < row.Length; column++)
+                {
+                    <span class="@row[column]" aria-hidden="true">@(guess is null ? "" : char.ToUpperInvariant(guess.Word[column]).ToString())</span>
+                }
+            </li>
+        }
+    </ol>;
+
+    private void OpenFamilyBoard(string id)
+    {
+        inspectedBoardId = id;
+        showMemberBoard = true;
+    }
+
     private static string BoardDescription(string label, string[][] rows) =>
         string.Join(". ", new[] { label }.Concat(rows.Select((row, i) =>
             $"Guess {i + 1}: {string.Join(", ", row.Select(MarkLabel))}")));
@@ -555,9 +643,15 @@
             var data = response.Deserialize<FamilySnapshot>(JsonSerializerOptions.Web);
             if (data is { Family: { } boards } && data.Date == puzzle?.Date)
             {
-                familyBoards = ValidBoards(boards);
+                var updated = ValidBoards(boards);
+                if (module is not null) familyFocus = await module.InvokeAsync<string?>("familyFocus", surface);
+                if (disposed || data.Date != puzzle?.Date) { familyFocus = null; return; }
+                var newlyFinished = Finished && updated.Any(board => board.Id != Session.User && IsComplete(board) &&
+                    !familyBoards.Any(previous => previous.Id == board.Id && IsComplete(previous)));
+                familyBoards = updated;
                 lastFamilySnapshot = snapshot;
                 StateHasChanged();
+                if (newlyFinished) await LoadStats();
             }
         }
         catch (Exception error) when (IsRequestError(error)) { }
@@ -579,11 +673,13 @@
     private async Task LoadStats()
     {
         if (loadingStats) return;
+        var date = puzzle?.Date;
         loadingStats = true;
         StateHasChanged();
         try
         {
             var loaded = await Request<Statistics>(HttpMethod.Get, "stats");
+            if (disposed || date != puzzle?.Date) return;
             if (loaded?.Personal?.Distribution is not { Length: 6 } || loaded.Family is null || loaded.History is null
                 || loaded.Family.Any(member => member is null || string.IsNullOrWhiteSpace(member.Name))
                 || loaded.History.Any(item => item is null || string.IsNullOrWhiteSpace(item.Date)))
@@ -598,7 +694,7 @@
             statsError = false;
         }
         catch (Exception error) when (IsRequestError(error)) { statsError = !disposed; }
-        finally { loadingStats = false; }
+        finally { loadingStats = false; if (!disposed) StateHasChanged(); }
     }
 
     private async Task RetryStats()

@@ -208,6 +208,10 @@ window.familyhub.clipboardImage = async () => {
     } catch { }
     return null;
 };
+window.familyhub.clipboardText = async () => {
+    try { return await navigator.clipboard.readText(); }
+    catch { return null; }
+};
 window.familyhub.bindImagePaste = (id, reference) => {
     const dialog = document.getElementById(id);
     if (!dialog) return;
@@ -585,7 +589,9 @@ window.familyhub.revealGenreOption = id => {
 };
 window.familyhub.focusInOpenDialog = id => {
     const target = document.getElementById(id);
-    if (target?.closest('dialog[open]')) target.focus();
+    if (!target?.closest('dialog[open]')) return false;
+    target.focus();
+    return true;
 };
 window.familyhub.restoreUploadFocus = (removed, successor) => requestAnimationFrame(() => {
     const target = document.getElementById(successor);

@@ -28,7 +28,7 @@
                     else if (DownloadFailed) { <span role="status">Some songs could not be downloaded to the server.</span> }
                     else if (state.State == "paused") { <span role="status">Server download paused.</span> }
                     <button id="transfer-progress-action" class="quiet" @onclick="ProgressAction" aria-disabled="@Aria(requesting || watchError is null && state.State == "pausing")">
-                        @(watchError is not null ? "Reconnect to progress" : Working ? state.State == "pausing" ? "Pausing..." : state.Mode == "download" ? "Pause server download" : "Pause matching" : "Close")
+                        @(watchError is not null ? "Reconnect to progress" : Working ? state.State == "pausing" ? "Pausing..." : state.Mode == "download" ? "Pause server download" : "Pause matching" : RetryableImport ? "Retry import" : "Close")
                     </button>
                 </div>
                 @if (state.Mode != "download" && state.Recent.Any(RecentNeedsAttention))
@@ -190,7 +190,7 @@
     private string key = "", provider = "spotify", url = "";
     private string? error, watchError;
     private bool requesting, dismissed, openDialog, closeDialog, polling, disposed, wasConnected;
-    private (string Phase, string State, int Processed, int Saved, int Found, int Review, int Failed)? published;
+    private (string Phase, string State, int Revision, int Processed, int Saved, int Found, int Review, int Failed)? published;
     private CancellationToken pollingToken;
     private bool Working => Status?.State is "running" or "pausing" || Status is { State: "done", DownloadAfterMatching: true };
     public bool DownloadUnavailable => !Playlist.CanEdit || Playlist.Tracks.Count == 0 || AllOnServer ||
@@ -236,6 +236,7 @@
     private string OwnerQuery => "owner_id=" + Uri.EscapeDataString(Playlist.OwnerId);
     private string PreparePath => Path + "/prepare?" + OwnerQuery;
     private bool appendImport;
+    private bool RetryableImport => Status is { Phase: "reading", State: "error" or "paused", ImportUrl.Length: > 0 };
 
     protected override async Task OnParametersSetAsync()
     {
@@ -298,7 +299,8 @@
         requesting = true; error = null;
         try
         {
-            Status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Post, Path + "/import", new { provider, url, revision = Playlist.Revision, append = appendImport, owner_id = Playlist.OwnerId }, lifetime!.Token);
+            bool? download = RetryableImport && url == Status?.ImportUrl ? Status.DownloadAfterMatching : null;
+            Status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Post, Path + "/import", new { provider, url, revision = Playlist.Revision, append = appendImport, download, owner_id = Playlist.OwnerId }, lifetime!.Token);
             dismissed = false; published = null; watchError = null; closeDialog = true;
             _ = Poll(lifetime.Token);
         }
@@ -324,6 +326,14 @@
     {
         if (requesting) return;
         if (watchError is not null) { await ReconnectProgress(); return; }
+        if (RetryableImport && Status is { } failedImport)
+        {
+            provider = failedImport.Provider;
+            url = failedImport.ImportUrl!;
+            appendImport = failedImport.Append;
+            await Import();
+            return;
+        }
         if (!Working)
         {
             await JS.InvokeVoidAsync("familyhub.focus", Playlist.Tracks.Count > 0 ? "keep-playlist" : "add-playlist-song");
@@ -383,7 +393,7 @@
         var status = await Api.RequestJsonAsync<TransferStatus>(HttpMethod.Get, PreparePath, cancellationToken: timeout.Token, background: true);
         token.ThrowIfCancellationRequested();
         Status = status;
-        var snapshot = (status.Phase, status.State, status.Processed, status.Saved, status.Found, status.Review, status.Failed);
+        var snapshot = (status.Phase, status.State, status.PlaylistRevision, status.Processed, status.Saved, status.Found, status.Review, status.Failed);
         if (status.State == "idle" || status.Phase == "reading" && Working || snapshot == published) return;
         await Session.RefreshCatalogueAsync(timeout.Token);
         token.ThrowIfCancellationRequested();
@@ -407,6 +417,9 @@
         [JsonPropertyName("state")] public string State { get; init; } = "idle";
         [JsonPropertyName("mode")] public string Mode { get; init; } = "match";
         [JsonPropertyName("download_after_matching")] public bool DownloadAfterMatching { get; init; }
+        [JsonPropertyName("import_url")] public string? ImportUrl { get; init; }
+        [JsonPropertyName("provider")] public string Provider { get; init; } = "auto";
+        [JsonPropertyName("append")] public bool Append { get; init; }
         [JsonPropertyName("phase")] public string Phase { get; init; } = "matching";
         [JsonPropertyName("file_phase")] public string FilePhase { get; init; } = "";
         [JsonPropertyName("download_bytes")] public long DownloadBytes { get; init; }

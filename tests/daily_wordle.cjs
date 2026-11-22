@@ -23,7 +23,7 @@ async function dailyPlay(name, engine, options) {
         page.on('pageerror', error => errors.push(error.message));
         await page.request.post(origin + '/fixture/wordle-reset/86400');
         const panel = await openWordle(page);
-        const june = panel.getByRole('img', {name: /^June, 1 of 6 guesses/});
+        const june = panel.getByRole('button', {name: /^June, 1 of 6 guesses/});
         assert.equal(await june.locator('.dw-mini i').count(), 30);
         assert.equal(await june.locator('.dw-mini .correct').count(), 1);
         const keyboard = panel.getByRole('group', {name: 'On-screen keyboard'});
@@ -53,6 +53,17 @@ async function dailyPlay(name, engine, options) {
         };
         await checkKeyboard();
         await panel.focus();
+        await page.keyboard.press('Tab');
+        assert(await panel.getByRole('button', {name: /^Alex \(you\),/}).evaluate(node => node === document.activeElement));
+        await page.keyboard.press('Tab');
+        assert(await june.evaluate(node => node === document.activeElement));
+        await page.keyboard.press('Space');
+        const member = panel.getByRole('dialog', {name: 'June'});
+        await member.getByText('Finish your puzzle to see the letters.').waitFor();
+        assert.equal(await member.locator('.dw-inspect li > span:nth-child(2)').first().textContent(), '');
+        await page.keyboard.press('Escape');
+        await member.waitFor({state: 'hidden'});
+        await page.waitForFunction(() => document.activeElement?.id === 'dw-board-june');
         await page.keyboard.press('Tab');
         const helpButton = panel.getByRole('button', {name: 'How to play'});
         assert(await helpButton.evaluate(node => node === document.activeElement));
@@ -112,6 +123,11 @@ async function dailyPlay(name, engine, options) {
         await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Statistics');
         assert.equal(await panel.getByText('Solved in 3 guesses', {exact: true}).isVisible(), false);
         assert.equal(await panel.getByRole('button', {name: 'View results'}).count(), 0);
+        if (!options.isMobile) await panel.getByRole('complementary', {name: 'Family statistics'}).getByText('4 puzzles', {exact: false}).waitFor();
+        await june.press('Enter');
+        await member.locator('.dw-inspect li[aria-label*="G, absent"]').waitFor();
+        await page.keyboard.press('Escape');
+        await member.waitFor({state: 'hidden'});
         await theme.press('Enter');
         await statsButton.press('Enter');
         await stats.getByText('Solved in 3 guesses', {exact: true}).waitFor();
@@ -146,7 +162,7 @@ async function preferences() {
         await page.locator('#open-hub').click();
         await page.getByRole('button', {name: 'Daily Wordle', exact: true}).click();
         await page.waitForFunction(() => document.querySelector('.daily-wordle')?.dataset.playing === 'true');
-        assert.equal(await page.getByRole('img', {name: /^June,/}).count(), 0);
+        assert.equal(await page.getByRole('button', {name: /^June,/}).count(), 0);
         console.log('Wordle spoiler setting saved and hid family boards');
     } finally { await browser.close(); }
 }
@@ -214,7 +230,7 @@ async function liveFamily() {
         await page.request.post(origin + '/fixture/wordle-reset/86400');
         await member(-1);
         const panel = await openWordle(page);
-        const june = panel.getByRole('img', {name: /^June,/});
+        const june = panel.getByRole('button', {name: /^June,/});
         const theme = panel.getByRole('button', {name: 'Dark theme'});
         await theme.focus();
         await member(0);
@@ -225,10 +241,12 @@ async function liveFamily() {
                 document.querySelectorAll('.dw-family-card[aria-label^="June,"] .dw-draft').length === expected,
                 count, {timeout: 1000});
         }
+        await june.focus();
         await member(0, true);
         await page.waitForFunction(() => document.querySelector('.dw-family-card[aria-label^="June, 2 of 6"]'), null, {timeout: 1000});
-        assert.equal(await june.locator('.dw-mini .correct').count(), 2);
-        assert(await theme.evaluate(node => node === document.activeElement));
+        assert.equal(await june.locator('.dw-mini .correct').count(), 6);
+        assert.equal(await panel.locator('.dw-family-card').first().getAttribute('id'), 'dw-board-june');
+        await page.waitForFunction(() => document.activeElement?.id === 'dw-board-june');
         await member(-1, true);
         await june.locator('.dw-playing-dot').waitFor({state: 'hidden', timeout: 1000});
 
@@ -252,6 +270,16 @@ async function liveFamily() {
             return [style.animationDuration, style.animationDelay];
         })), [['0.25s, 0.25s', '0s, 0.25s'], ['0.25s, 0.25s', '0.3s, 0.55s'],
             ['0.25s, 0.25s', '0.6s, 0.85s'], ['0.25s, 0.25s', '0.9s, 1.15s'], ['0.25s, 0.25s', '1.2s, 1.45s']]);
+        await page.keyboard.type('audio');
+        await page.keyboard.press('Enter');
+        await panel.locator('.dw-row').nth(1).locator('.dw-reveal').last().waitFor();
+        await page.keyboard.type('crate');
+        await page.keyboard.press('Enter');
+        await panel.locator('.dw-row').nth(2).locator('.dw-win').last().waitFor();
+        assert.equal(await panel.locator('.dw-family-card').first().getAttribute('id'), 'dw-board-june');
+        await panel.getByRole('complementary', {name: 'Family statistics'}).getByRole('heading', {name: 'Winning guesses'}).waitFor();
+        const [center, aside] = await Promise.all([panel.locator('.dw-shell').boundingBox(), panel.locator('.dw-server-stats').boundingBox()]);
+        assert(aside.x >= center.x + center.width);
         console.log('Live family presence, draft deletion, committed tiles, focus and flip timing passed');
     } finally {
         await member(-1);

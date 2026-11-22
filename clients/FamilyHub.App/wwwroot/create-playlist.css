@@ -17,6 +17,10 @@
 .create-playlist-screen .entry-error:empty { display:none; }
 .create-link-icon { position:absolute; left:16px; display:grid; place-items:center; width:28px; height:28px; color:var(--muted); pointer-events:none; }
 .create-link-icon .icon,.create-link-icon .site-icon { width:26px; height:26px; }
+.create-playlist-screen .create-link-with-paste input { padding-inline-start:84px; }
+.create-playlist-screen .create-link-paste { position:absolute; inset-inline-start:7px; min-height:42px; padding:0 13px; border-radius:22px; font-size:13px; }
+.create-clipboard-preview { display:block; padding-inline:10px; color:var(--muted); font-size:13px; overflow-wrap:anywhere; white-space:pre-wrap; }
+.create-clipboard-preview:empty { display:none; }
 .create-link-clear { position:absolute; right:8px; display:grid; place-items:center; width:40px; height:40px; min-height:40px; padding:0; border:0; border-radius:50%; background:transparent; }
 .create-link-clear .icon { width:18px; height:18px; }
 .create-link.is-unknown input { border-color:#e36a6a88; }
@@ -50,11 +54,23 @@
 .create-link:has(textarea) .create-link-icon { top:13px; }
 .create-field select { width:100%; color:var(--ink); }
 .upload-stop { justify-self:start; }
-.create-playlist-form .upload-limits { margin:0; }
 .create-file-text { display:grid; gap:4px; }
 .create-file-choice strong { font-size:16px; font-weight:700; line-height:20px; }
 .create-file-choice small { font-size:13px; font-weight:400; line-height:16px; color:var(--muted); }
-.create-files>.create-file-choice:hover:not([aria-disabled=true]) { background:#ffffff12; border-color:#ffffff29; }
+.create-files>.create-file-choice:hover:not([aria-disabled=true]) { background-color:#ffffff12; border-color:#ffffff29; }
+.illustrated-file-choices > .create-file-choice {
+    min-height:132px;
+    align-content:center;
+    color:#fff;
+    background-color:#15191e;
+    background-image:linear-gradient(90deg,#0d1016e8,#0d10168c 47%,#0d101610 82%),var(--choice-art);
+    background-size:cover;
+    background-position:center;
+}
+.illustrated-file-choices > .choose-songs { --choice-art:url("playlist-choose-songs.webp"); }
+.illustrated-file-choices > .choose-folder { --choice-art:url("playlist-choose-folder.webp"); }
+.illustrated-file-choices .create-file-choice .icon { color:#fff; }
+.illustrated-file-choices .create-file-choice small { color:#e2e7ee; }
 .create-files>.create-file-choice:active { transform:none; }
 
 /* Switches */
@@ -72,6 +88,8 @@
 
 .create-playlist-form .actions { display:flex; justify-content:space-between; gap:12px; margin:0; }
 .create-playlist-form .actions .primary { min-height:48px; margin-inline-start:auto; padding:0 28px; border-radius:24px; font-size:15px; }
+#create-playlist-dialog .actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:stretch; }
+#create-playlist-dialog .actions > button { justify-content:center; min-height:48px; margin:0; padding:8px 12px; border-radius:24px; font-size:15px; line-height:1.2; }
 
 @media(max-width:720px) {
  .create-files { gap:8px; }

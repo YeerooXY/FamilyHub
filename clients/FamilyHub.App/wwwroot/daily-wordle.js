@@ -71,12 +71,14 @@ export function updateReset(surface, nextReset) {
         handle.timer = setTimeout(handle.refresh, reset - Date.now() + 250);
 }
 
-export function open(dialog) {
+export function open(dialog, openerId) {
     if (!dialog || dialog.open) return;
-    const opener = document.activeElement;
+    const opener = document.getElementById(openerId) ?? document.activeElement;
     dialog.addEventListener('close', () => {
-        if (opener?.isConnected && (document.activeElement === document.body || dialog.contains(document.activeElement)))
-            opener.focus({preventScroll: true});
+        if (document.activeElement === document.body || dialog.contains(document.activeElement)) {
+            const destination = opener?.isConnected && opener !== document.body ? opener : dialog.closest('.daily-wordle');
+            destination?.focus({preventScroll: true});
+        }
     }, {once: true});
     dialog.showModal();
     dialog.querySelector('button')?.focus({preventScroll: true});
@@ -89,6 +91,16 @@ export function restoreInside(dialog, successor) {
 export function restoreBoard(surface) {
     if (document.activeElement === document.body)
         surface?.focus({preventScroll: true});
+}
+
+export function familyFocus(surface) {
+    const active = document.activeElement;
+    return surface.contains(active) && active?.matches('.dw-family-card') ? active.id : null;
+}
+
+export function restoreFamilyFocus(surface, id) {
+    if (document.activeElement === document.body)
+        (document.getElementById(id) ?? surface).focus({preventScroll: true});
 }
 
 export function isOpen(dialog) {
