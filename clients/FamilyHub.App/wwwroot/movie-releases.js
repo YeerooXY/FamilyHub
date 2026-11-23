@@ -1,4 +1,7 @@
 const gib = 1024 ** 3;
+// Download times assume this connection; the real speed depends on the server's line and on how many people share the file.
+export const ASSUMED_MBPS = 100;
+const FIRST_PAGE = 12;
 
 function number(value) {
     return Number.isFinite(value) && value >= 0 ? value : null;
@@ -11,6 +14,41 @@ function resolution(title) {
     return /\b(?:4K|UHD)\b/i.test(title) ? 2160 : 0;
 }
 
+/** What the release holds when it is a series: one episode, a whole season, or several seasons. */
+export function releaseKind(title) {
+    if (/\bS\d{1,2}\s*[-–]\s*S?\d{1,2}\b/i.test(title) || /\b(?:complete|full)[ ._-]*(?:series|collection)\b/i.test(title)
+        || /\bseasons?[ ._-]*\d+[ ._-]*(?:-|to|&)[ ._-]*\d+\b/i.test(title)) return "Complete series";
+    const episode = title.match(/\bS(\d{1,2})[ ._-]*E(\d{1,3})\b/i) || title.match(/\b(\d{1,2})x(\d{2,3})\b/);
+    if (episode) return `One episode · S${String(Number(episode[1])).padStart(2, "0")}E${String(Number(episode[2])).padStart(2, "0")}`;
+    const season = title.match(/\bS(\d{1,2})\b/i) || title.match(/\bseason[ ._-]*(\d{1,2})\b/i);
+    return season ? `Full season ${Number(season[1])}` : "";
+}
+
+/** A short quality label (4K, 1080p, ...) and the source it was made from, read from the release name. */
+export function releaseQuality(title) {
+    const height = resolution(title);
+    const picture = height >= 2160 ? "4K" : height ? `${height}p` : "";
+    const hdr = /\b(?:HDR10\+?|HDR|DV|Dolby[ ._-]?Vision)\b/i.test(title) ? "HDR" : "";
+    let source = "";
+    if (/\b(?:CAM|HDCAM|TS|HDTS|TELESYNC|TELECINE)\b/i.test(title)) source = "Camera copy";
+    else if (/\bremux\b/i.test(title)) source = "Remux";
+    else if (/\b(?:blu-?ray|bdrip|brrip)\b/i.test(title)) source = "Blu-ray";
+    else if (/\b(?:web-?dl|webrip|web)\b/i.test(title)) source = "Web";
+    else if (/\b(?:hdtv|pdtv|dvdrip)\b/i.test(title)) source = "TV or DVD";
+    return { label: [picture, hdr].filter(Boolean).join(" · ") || "Quality unknown", source, poor: source === "Camera copy" || (height > 0 && height < 720) };
+}
+
+export function downloadTime(bytes, mbps = ASSUMED_MBPS) {
+    if (!(bytes > 0) || !(mbps > 0)) return "";
+    const minutes = Math.max(1, Math.round(bytes * 8 / (mbps * 1e6) / 60));
+    return minutes < 60 ? `about ${minutes} min` : `about ${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")} min`;
+}
+
+function health(seeders) {
+    if (!seeders) return ["none", seeders === 0 ? "No seeders" : "Seeders unknown"];
+    return [seeders >= 5 ? "good" : "low", `${seeders} ${seeders === 1 ? "seeder" : "seeders"}`];
+}
+
 export function buildReleaseSearch(search, signal, requestsEnabled) {
     const panel = document.createElement("section");
     panel.className = "movie-releases";
@@ -19,72 +57,75 @@ export function buildReleaseSearch(search, signal, requestsEnabled) {
         <p class="movie-source-note" role="status"></p>
         <button type="button" hidden>Retry release lookup</button>
         <details class="movie-source-details" hidden>
-            <summary>Release details</summary>
-            <p class="movie-web-meta" data-release-availability hidden>Download requests are unavailable for this profile.</p>
-            <div class="movie-release-settings">
-                <label>Upload speed (Mbps) <input name="speed" type="number" min="0.1" step="0.1" value="10"></label>
-                <label>Time budget (hours) <input name="budget" type="number" min="0.1" step="0.1" value="24"></label>
-            </div>
-            <p class="movie-web-meta">2.0× upload estimates assume peers are downloading from you at the entered speed.</p>
+            <summary>Releases</summary>
+            <p class="movie-web-meta" data-release-availability hidden>Your profile cannot request downloads, so this list is for reference.</p>
+            <p class="movie-web-meta">Times assume a ${ASSUMED_MBPS} Mbps connection.</p>
             <ul class="movie-source-list" aria-label="Release results"></ul>
+            <button type="button" class="movie-release-more" hidden>Show all releases</button>
         </details>`;
     const retry = panel.querySelector("button");
     const options = panel.querySelector("details");
     const summary = options.querySelector("summary");
+    const more = panel.querySelector(".movie-release-more");
     options.querySelector("[data-release-availability]").hidden = !!requestsEnabled;
-    const speed = panel.querySelector('[name="speed"]');
-    const budget = panel.querySelector('[name="budget"]');
     const status = panel.querySelector('[role="status"]');
     const list = panel.querySelector("ul");
-    let rows = [], unavailable = 0, busy = false, complete = false;
+    let rows = [], unavailable = 0, busy = false, complete = false, showAll = false;
+
+    function chip(className, text, level) {
+        const node = document.createElement("span");
+        node.className = className;
+        node.textContent = text;
+        if (level) node.dataset.level = level;
+        return node;
+    }
 
     function render() {
         if (busy || !complete) return;
-        const mbps = speed.valueAsNumber;
-        const limit = budget.valueAsNumber;
-        const rating = row => {
-            if (!row.seeders) return 4;
-            if (row.hours === null || !Number.isFinite(limit) || row.hours > limit) return 3;
-            if (!row.leechers) return 2;
-            return row.height >= 1080 ? 0 : 1;
-        };
-        const sorted = rows.map(row => ({ ...row, hours: row.size && mbps > 0 ? row.size * 16 / (mbps * 1e6 * 3600) : null }));
-        sorted.sort((a, b) => rating(a) - rating(b) || b.height - a.height || b.seeders - a.seeders || a.hours - b.hours);
-        list.replaceChildren(...sorted.map((row, index) => {
+        // Healthy 1080p and better first, then smaller pictures, then files nobody is sharing.
+        const group = row => !row.seeders ? 2 : row.height >= 1080 && !row.quality.poor ? 0 : 1;
+        const sorted = rows.slice().sort((a, b) => group(a) - group(b) || b.height - a.height || b.seeders - a.seeders || (a.size ?? 1e18) - (b.size ?? 1e18));
+        const shown = showAll ? sorted : sorted.slice(0, FIRST_PAGE);
+        list.replaceChildren(...shown.map((row, index) => {
             const item = document.createElement("li");
-            const title = document.createElement("strong");
-            title.textContent = row.title;
-            item.append(title);
-            const stats = document.createElement("p");
-            stats.className = "movie-web-meta";
-            stats.textContent = [row.height ? `${row.height}p` : "Quality unknown", row.size ? `${(row.size / gib).toFixed(2)} GiB` : "Size unknown",
-                `${row.seeders ?? "Unknown"} ${row.seeders === 1 ? "seeder" : "seeders"}`,
-                `${row.leechers ?? "unknown"} ${row.leechers === 1 ? "leecher" : "leechers"}`, [...row.sources].join(", ")].filter(Boolean).join(" · ");
-            const upload = document.createElement("p");
-            upload.className = "movie-web-meta";
-            const minutes = Math.max(1, Math.round(row.hours * 60));
-            const duration = minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
-            const time = row.hours === null ? "" : ` · ${duration} at ${mbps} Mbps${limit > 0 && row.hours > limit ? " · Over time budget" : ""}`;
-            upload.textContent = row.size ? `Upload ${(row.size * 2 / gib).toFixed(2)} GiB for 2.0×${time}` : "Upload target unavailable";
-            if (index === 0 && rating(row) <= 1) {
-                const recommended = document.createElement("p");
-                recommended.className = "movie-web-meta";
-                recommended.textContent = "Best fit for your upload budget";
-                item.append(recommended);
-            }
-            item.append(stats, upload);
+            item.className = "movie-release";
+            const top = document.createElement("div");
+            top.className = "movie-release-top";
+            if (index === 0 && group(row) === 0 && row.seeders >= 5) top.append(chip("movie-release-pick", "Recommended"));
+            top.append(chip("movie-release-quality", row.quality.label, row.quality.poor ? "poor" : ""));
+            if (row.kind) top.append(chip("movie-release-kind", row.kind));
+            const [level, seeding] = health(row.seeders);
+            top.append(chip("movie-release-health", seeding, level));
+            const name = document.createElement("strong");
+            name.className = "movie-release-name";
+            name.textContent = row.title;
+            const facts = document.createElement("p");
+            facts.className = "movie-release-facts";
+            const parts = [row.size ? `${(row.size / gib).toFixed(1)} GB` : "Size unknown"];
+            if (row.size && row.seeders) parts.push(`${downloadTime(row.size)} to download`);
+            if (row.quality.source) parts.push(row.quality.source);
+            facts.textContent = parts.join(" · ");
+            item.append(top, name, facts);
             return item;
         }));
-        summary.textContent = sorted.length === 1 ? "1 torrent release" : `${sorted.length} torrent releases`;
+        more.hidden = showAll || sorted.length <= FIRST_PAGE;
+        more.textContent = `Show all ${sorted.length} releases`;
+        summary.textContent = sorted.length === 1 ? "1 release" : `${sorted.length} releases`;
     }
 
-    speed.addEventListener("input", render);
-    budget.addEventListener("input", render);
+    more.addEventListener("click", () => {
+        showAll = true;
+        render();
+        // Focus moves to the first newly shown release, so the button's removal never drops it to the page.
+        const next = list.querySelector(`li:nth-child(${FIRST_PAGE + 1}) strong`);
+        if (next) { next.tabIndex = -1; next.focus(); } else summary.focus();
+    });
     async function load() {
         if (busy) return true;
         busy = true;
         retry.setAttribute("aria-disabled", "true");
         complete = false;
+        showAll = false;
         if (!retry.hidden) status.textContent = "Checking releases…";
         let reply;
         try { reply = await search(); }
@@ -100,19 +141,17 @@ export function buildReleaseSearch(search, signal, requestsEnabled) {
         const matches = new Map();
         for (const item of reply.results) {
             const row = { title: item.title, height: resolution(item.title), size: number(item.size),
-                seeders: number(item.seeders), leechers: number(item.leechers) };
+                seeders: number(item.seeders), kind: releaseKind(item.title), quality: releaseQuality(item.title) };
             const key = `${row.title.toLowerCase()}\n${row.size}`;
             const previous = matches.get(key);
-            const sources = previous?.sources ?? new Set();
-            if (item.source) sources.add(item.source);
-            if (!previous || (row.seeders ?? -1) > (previous.seeders ?? -1)) matches.set(key, { ...row, sources });
+            if (!previous || (row.seeders ?? -1) > (previous.seeders ?? -1)) matches.set(key, row);
         }
         rows = [...matches.values()];
         unavailable = reply.unavailable;
         complete = true;
         const focused = document.activeElement === retry;
-        status.textContent = unavailable ? `${unavailable} ${unavailable === 1 ? "indexer" : "indexers"} unavailable.`
-            : !rows.length && focused ? "No torrent releases found." : "";
+        status.textContent = unavailable ? `${unavailable} ${unavailable === 1 ? "source" : "sources"} did not answer.`
+            : !rows.length && focused ? "No releases found." : "";
         options.hidden = !rows.length;
         panel.hidden = !rows.length && !unavailable && !focused;
         if (focused) {

@@ -407,15 +407,25 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
     .movie-library .movie-search button { flex-basis: 60px; }
     .movie-library .movie-search :is(input,button):focus-visible { outline-width: 4px; }
 }
-.movie-release-settings { display: flex; flex-wrap: wrap; gap: .65rem; align-items: end; }
-.movie-releases label { display: grid; gap: .2rem; }
 .movie-releases :is(input, button) { min-height: 44px; }
-.movie-release-settings { margin-top: .8rem; }
-.movie-release-settings label { flex: 1 1 10rem; }
-.movie-release-settings input { min-width: 0; width: 100%; }
-.movie-releases input:focus-visible { outline: 2px solid var(--focus, #98abed); outline-offset: 3px; }
 .movie-releases li p { margin: 0; overflow-wrap: anywhere; }
-.movie-releases li strong { overflow-wrap: anywhere; }
+
+/* Releases: one card each. The facts a viewer weighs (quality, what it holds, size, time, health) come first;
+   the raw release name is small and muted underneath. */
+.movie-source-list li.movie-release { display: grid; gap: .4rem; padding: .85rem 1rem; margin-bottom: .6rem; border: 1px solid var(--border, #ffffff24); border-radius: .8rem; background: var(--panel-bg, #17191f); }
+.movie-release-top { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.movie-release-top > span { padding: .15rem .6rem; border-radius: 999px; font-size: .85rem; font-weight: 650; line-height: 1.5; background: #ffffff1a; color: #fff; }
+.movie-release-quality { background: #3b5bdb33; box-shadow: inset 0 0 0 1px #89b4ff66; }
+.movie-release-quality[data-level="poor"] { background: #f0883e26; box-shadow: inset 0 0 0 1px #f0883e88; }
+.movie-release-kind { background: #a371f726; box-shadow: inset 0 0 0 1px #c9a3ff66; }
+.movie-release-pick { background: #3fb95033; box-shadow: inset 0 0 0 1px #3fb95099; }
+.movie-release-health[data-level="good"] { color: #7ee2a0; }
+.movie-release-health[data-level="low"] { color: #f2c46d; }
+.movie-release-health[data-level="none"] { color: #ff9b9b; }
+.movie-releases .movie-release-name { font-size: .8rem; font-weight: 400; color: #ffffff8c; overflow-wrap: anywhere; line-height: 1.35; }
+.movie-releases .movie-release-facts { font-size: 1.02rem; font-weight: 600; color: #fff; }
+.movie-releases .movie-release-more { justify-self: start; margin-top: .4rem; padding: 0 1.1rem; border: 1px solid #ffffff36; border-radius: 999px; background: transparent; color: inherit; font: inherit; }
+.movie-releases .movie-release-more:focus-visible, .movie-releases .movie-release-name:focus-visible { outline: 2px solid var(--focus, #98abed); outline-offset: 3px; }
 
 /* Titles without artwork: a colour per title and its initial, drawn by CSS (live text, no baked-in lettering). */
 .movie-art[data-initial] { --art-hue: 215; background: linear-gradient(155deg, hsl(var(--art-hue) 45% 30%), hsl(calc(var(--art-hue) + 40) 50% 14%)); }
