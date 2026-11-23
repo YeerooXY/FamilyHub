@@ -134,7 +134,7 @@ async function check(browser, options) {
     await page.getByText("1 matching title.").waitFor();
     await search.fill("Éjfél");
     await search.press("Enter");
-    await page.getByText("No matching titles.").waitFor();
+    await page.getByText("No matches in your library.").waitFor();
     await page.getByRole("button", { name: "Clear", exact: true }).press("Space");
     await focused(search);
     await two.waitFor();

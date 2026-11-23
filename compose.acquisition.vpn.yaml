@@ -1,0 +1,38 @@
+# Apply alongside compose.acquisition.yaml on the Debian server.
+services:
+  gluetun:
+    image: ghcr.io/qdm12/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
+    restart: unless-stopped
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    mem_limit: 256m
+    cpus: 1.0
+    environment:
+      VPN_SERVICE_PROVIDER: custom
+      VPN_TYPE: wireguard
+      FIREWALL: "on"
+      FIREWALL_INPUT_PORTS: "8080"
+    volumes:
+      - type: bind
+        source: ${FAMILYHUB_APPDATA:-/srv/familyhub/appdata}/gluetun/wg0.conf
+        target: /gluetun/wireguard/wg0.conf
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "127.0.0.1:8080:8080/tcp"
+    networks:
+      default:
+        aliases: [qbittorrent]
+
+  qbittorrent:
+    network_mode: service:gluetun
+    ports: !reset []
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true

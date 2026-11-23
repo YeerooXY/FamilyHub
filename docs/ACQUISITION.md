@@ -30,9 +30,44 @@ In qBittorrent settings, set the default save path to `/data/downloads/complete`
 
 **Owner decision, 22 November 2026:** movie and TV acquisition will use public torrent sources, and the owner accepts the legal and ISP risk of downloading content the household may not hold rights to. The sourcing method is scheduled after the Movies interface work. Before any movie or TV download starts, qBittorrent's traffic must go through a paid, P2P-permitting VPN (for example Gluetun with `network_mode: service:gluetun`), with the kill switch confirmed by a test in which the VPN is stopped and qBittorrent has no connectivity. The music intake tool is unaffected.
 
+### Connect the download VPN
+
+Use a WireGuard profile from a P2P-permitting endpoint. On the Debian server, store the profile as `/srv/familyhub/appdata/gluetun/wg0.conf` with root ownership and mode `0600`. Gluetun's custom provider requires an endpoint IP address. Keep the profile and its private key outside Git and environment files. Adjust the path if `FAMILYHUB_APPDATA` differs from the default. [Gluetun custom WireGuard setup](https://github.com/qdm12/gluetun-wiki/blob/main/setup/providers/custom.md#wireguard)
+
+With existing transfers paused, apply `compose.acquisition.vpn.yaml` alongside `compose.acquisition.yaml`. Start `gluetun` and `qbittorrent` explicitly. The override gives qBittorrent Gluetun's network namespace and keeps its WebUI on guest loopback port 8080. Prowlarr can still reach qBittorrent at `qbittorrent:8080`. In qBittorrent's advanced settings, bind the network interface to Gluetun's VPN interface before resuming any transfers.
+
+Verify a harmless HTTPS request succeeds inside the qBittorrent network namespace while the VPN is healthy and fails while the tunnel is down. Verify that restoring the tunnel restores connectivity, and run Prowlarr's existing qBittorrent connection test. Keep both Compose files in later acquisition start commands so Compose keeps qBittorrent on the VPN network.
+
+## Enable movie and TV requests
+
+1. Configure the P2P VPN and verify the kill switch described above before connecting a movie or TV downloader. Keep the download client's administration local to the server or private container network.
+2. Run [Radarr](https://docs.linuxserver.io/images/docker-radarr/), [Sonarr](https://docs.linuxserver.io/images/docker-sonarr/) and [Seerr](https://docs.seerr.dev/getting-started/) as private services. For both importers, mount the host data directory as `/data` and run imports as the existing writer UID/GID. Use `/data/media/movies` as the Radarr root and `/data/media/tv` as the Sonarr root. qBittorrent and the importers must see completed downloads at the same `/data/downloads` path. Jellyfin already mounts these libraries read-only under `/data/movies` and `/data/tv`.
+3. Link Prowlarr to Radarr and Sonarr with indexers for the media you are authorized to download. In each importer, configure the qBittorrent connection, distinct categories such as `movies` and `tv`, completed download handling and the quality profile you want. Confirm Jellyfin's library scans detect new imports.
+4. Connect Seerr to Jellyfin and add the default Radarr and Sonarr servers, roots and quality profiles in Seerr. Enable automatic search in both Seerr service settings. Import the household's Jellyfin users into Seerr and grant request permissions to the users allowed to use this feature. Grant auto-approval to users whose requests should start searching immediately. Set movie and series request limits in Seerr if needed.
+5. After the VPN check, add this block to FamilyHub's private JSON server configuration and restart it. Use a Seerr release supporting `X-API-User`. Each number is a regular Seerr user ID linked to a FamilyHub profile with Movies access. Keep the key in the server configuration. Update the FamilyHub client and reopen Movies & TV.
+
+   ```json
+   "MOVIE_REQUESTS": {
+     "enabled": true,
+     "url": "http://127.0.0.1:5055",
+     "api_key": "<Seerr API key>",
+     "profiles": {"family-profile-id": 2}
+   }
+   ```
+
+   Omit the block or set `enabled` to `false` to disable new requests in FamilyHub. Existing Seerr requests and downloads follow Seerr and the importers' settings.
+
+6. Before giving the family access, use one authorized movie and one authorized series to verify search, approval, transfer, import and playback. Confirm the movie and series appear in the expected Jellyfin libraries and a repeat request does not create a duplicate. Check actual audio and subtitle tracks against the household's preferred languages.
+
 ## Scope and limits
 
-This foundation provides manual public-source search and download. Prowlarr manages and searches indexers; the indexers determine catalogue coverage and availability. Lidarr is connected for music, with interactive search enabled and automatic search and RSS disabled. Its complete matched-album import flow still needs a real-album test. Downloads outside that workflow need a separate import step. Radarr, Bazarr, movie/TV import automation and a family request interface remain unimplemented. Inbound peer connectivity is unavailable until a separately reviewed network change.
+Prowlarr manages and searches indexers. The indexers determine catalogue coverage and availability. The Compose project provides the existing download services. The optional FamilyHub request feature connects to operator-configured Seerr, Radarr and Sonarr services. Bazarr and subtitle downloads are outside this workflow. Inbound peer connectivity requires a separate network change.
+
+### Release search
+
+To enable the read-only **Release search** panel in Movies & TV, add `MOVIE_RELEASE_SEARCH` to FamilyHub's private server configuration. Set `api_key` to the Prowlarr API key, `indexer_ids` to the configured indexer IDs (up to four), and `profiles` to the FamilyHub profile IDs allowed to search. Each profile also needs a Movies connection. `url` defaults to `http://127.0.0.1:9696`.
+
+The panel ranks seeded 1080p and higher releases first when the upload fits the selected time budget, with seeded lower resolutions next. Enter an assumed sustained upload speed to compare the time needed to upload twice each release's size. Peer demand can make actual seeding time longer. This search does not queue transfers or set qBittorrent's share limits. For live acquisition, configure a 2.0 share ratio in the download workflow after the VPN check.
 
 For YouTube audio, local files and trimming, use the administrator [music intake tool](MUSIC_INTAKE.md). Its tagged imports go into `Local Imports`, alongside Lidarr's `Managed` directory, and Navidrome scans both.
 

@@ -1,4 +1,5 @@
 import { buildPlayerUi } from "./movie-player-ui.js";
+import { buildReleaseSearch } from "./movie-releases.js";
 
 // AbortSignal.timeout needs Chromium 103; older televisions (webOS) need this form.
 function timeoutSignal(ms) {
@@ -508,8 +509,13 @@ export function openMovies(host, session, app, viewer) {
                 extra.afterPage?.();
                 if (term && reset) {
                     const count = page.TotalRecordCount ?? offset;
-                    status.textContent = count ? `${count} matching ${count === 1 ? "title" : "titles"}.` : "No matching titles.";
-                    if (!count) extra.noMatch?.();
+                    status.textContent = count ? `${count} matching ${count === 1 ? "title" : "titles"}.` : "No matches in your library.";
+                    if (!count && extra.noMatch) {
+                        const webSearch = extra.noMatch();
+                        if (wasFocused || focusedCard) (webSearch || submit).focus();
+                        section.hidden = true;
+                        return;
+                    }
                 }
                 if (wasFocused || focusedCard) (successor || first || heading).focus();
             } catch {
@@ -534,17 +540,17 @@ export function openMovies(host, session, app, viewer) {
     }
     // A title that is not in the library: offer a web search. The server ranks real YouTube results; nothing downloads.
     function webOffer(term) {
-        if (!active || results.querySelector(".movie-web")) return;
-        const box = el("section"), lead = el("p"), find = button("Search the web", () => run()), list = el("ul"), line = el("p");
-        box.className = "movie-web";
-        lead.textContent = `“${term}” is not in the library.`;
+        if (!active || results.querySelector(".movie-web-results")) return;
+        const box = el("section"), find = button("Search the web", () => run()), list = el("ul"), line = el("p");
+        box.className = "movie-web movie-web-results";
         line.setAttribute("role", "status");
         list.className = "movie-web-list";
-        box.append(lead, find, line, list);
+        box.append(find, line, list);
         results.append(box);
         const kinds = { "full film": "Full film", trailer: "Trailer", clip: "Clip", other: "Other" };
         async function run() {
             if (find.getAttribute("aria-disabled") === "true") return;
+            if (document.activeElement === document.body) find.focus();
             find.setAttribute("aria-disabled", "true"); line.textContent = "Searching the web…"; list.replaceChildren();
             let answer;
             try { answer = JSON.parse(await app.invokeMethodAsync("MovieFind", term)); }
@@ -553,7 +559,7 @@ export function openMovies(host, session, app, viewer) {
             if (!active || !box.isConnected) return;
             if (answer.error !== undefined) { line.textContent = answer.error; find.textContent = "Try again"; return; }
             if (!answer.results.length) { line.textContent = "Nothing found on the web either."; return; }
-            line.textContent = `${answer.results.length} ${answer.results.length === 1 ? "result" : "results"}${answer.ranking === "model" ? ", ranked with AI help" : ""}. Links open in your browser; nothing is downloaded.`;
+            line.textContent = `${answer.results.length} ${answer.results.length === 1 ? "web result" : "web results"}. Links open in your browser.`;
             find.textContent = "Search again";
             let first;
             for (const item of answer.results) {
@@ -563,7 +569,89 @@ export function openMovies(host, session, app, viewer) {
                 meta.className = "movie-web-meta";
                 row.append(link, meta); list.append(row); first ??= link;
             }
-            first?.focus();
+            if (document.activeElement === find) first?.focus();
+        }
+        return find;
+    }
+    function requestOffer(term) {
+        const box = el("section"), line = el("p"), list = el("ul");
+        const find = button("Find titles to request", findTitles);
+        box.className = "movie-web movie-requests";
+        box.setAttribute("aria-label", "Movie and TV requests");
+        line.setAttribute("role", "status");
+        list.className = "movie-web-list";
+        box.append(find, line, list);
+        results.append(box);
+
+        let pendingRequests = 0;
+        const messages = {
+            pending: "Waiting for approval",
+            approved: "Request approved",
+            failed: "Request needs attention from the server owner",
+            available: "Available in the library",
+            existing: "Already requested or available",
+            no_seasons: "No seasons available to request",
+            requested: "Request received"
+        };
+
+        async function findTitles() {
+            if (find.getAttribute("aria-disabled") === "true") return;
+            if (document.activeElement === document.body) find.focus();
+            find.setAttribute("aria-disabled", "true");
+            const actions = list.querySelectorAll("button");
+            actions.forEach(action => action.setAttribute("aria-disabled", "true"));
+            line.textContent = "Looking up titles…";
+            let reply;
+            try { reply = JSON.parse(await app.invokeMethodAsync("MovieRequestSearch", term)); }
+            catch { reply = { error: "Title search is unavailable. Try again." }; }
+            if (!active || !box.isConnected) return;
+            find.removeAttribute("aria-disabled");
+            actions.forEach(action => action.removeAttribute("aria-disabled"));
+            if (reply.error) { line.textContent = reply.error; return; }
+            line.textContent = reply.results.length ? `${reply.results.length} ${reply.results.length === 1 ? "title" : "titles"} found.` : "No titles found. Try another spelling.";
+            if (reply.results.length) find.textContent = "Refresh request status";
+            if (list.contains(document.activeElement)) find.focus();
+            list.replaceChildren(...reply.results.map(titleRow));
+        }
+
+        function titleRow(item) {
+            const row = el("li"), details = el("div"), title = el("strong", item.title);
+            const kind = item.kind === "tv" ? "Series" : "Movie";
+            const scope = item.kind === "tv" ? "Request all seasons" : "Request movie";
+            const meta = el("p", [kind, item.year].filter(Boolean).join(" · "));
+            const note = el("p");
+            note.className = meta.className = "movie-web-meta";
+            note.setAttribute("role", "status");
+            details.append(title, meta, note);
+            row.append(details);
+            if (item.status === 5 || item.status === 6 || (item.kind === "movie" && [2, 3].includes(item.status))) {
+                note.textContent = { 2: messages.pending, 3: "Requested", 5: messages.available, 6: "Requests disabled for this title" }[item.status];
+                return row;
+            }
+            const action = button(scope, async () => {
+                if (action.getAttribute("aria-disabled") === "true") return;
+                if (document.activeElement === document.body) action.focus();
+                pendingRequests++;
+                find.setAttribute("aria-disabled", "true");
+                action.setAttribute("aria-disabled", "true");
+                note.textContent = "Sending request…";
+                let reply;
+                try { reply = JSON.parse(await app.invokeMethodAsync("MovieRequest", item.kind, item.id)); }
+                catch { reply = { error: "Could not confirm the request. Try again." }; }
+                if (!active || !row.isConnected) return;
+                if (--pendingRequests === 0) find.removeAttribute("aria-disabled");
+                if (reply.error || !messages[reply.state]) {
+                    action.removeAttribute("aria-disabled");
+                    note.textContent = reply.error || "Could not confirm the request. Try again.";
+                    return;
+                }
+                note.textContent = messages[reply.state];
+                if (document.activeElement === action) { note.tabIndex = -1; note.focus(); }
+                action.remove();
+            });
+            action.setAttribute("aria-label", `${scope}: ${item.title}${item.year ? ` (${item.year})` : ""}`);
+            row.append(action);
+            return row;
         }
     }
     const form = el("form"), query = el("input"), submit = el("button", "Search");
@@ -589,16 +677,22 @@ export function openMovies(host, session, app, viewer) {
         resetSearch();
         const term = query.value.trim();
         if (!term) return;
+        if (document.activeElement === query || document.activeElement === document.body) submit.focus();
         clear.hidden = false;
         browse.hidden = true;
         searchRequest = new AbortController();
         status.textContent = "Searching…";
+        if (session.requests_enabled) requestOffer(term);
         shelf("Search results", "Movie,Episode", false, results, term, searchRequest.signal, { noMatch: () => webOffer(term) });
     };
     query.oninput = () => { if (!query.value.trim()) resetSearch(); };
     life.signal.addEventListener("abort", () => searchRequest?.abort(), {once:true});
     form.append(query, submit, clear);
     library.append(form, browse, results);
+    if (session.release_search_enabled) {
+        const releaseSearch = buildReleaseSearch(async term => JSON.parse(await app.invokeMethodAsync("MovieReleaseSearch", term)));
+        form.after(releaseSearch);
+    }
     // Featured billboard: the title in progress, otherwise the newest movie that has a backdrop.
     async function billboard() {
         const section = el("section"), art = el("img"), body = el("div");

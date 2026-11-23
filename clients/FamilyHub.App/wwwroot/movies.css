@@ -301,4 +301,25 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-web-list a { color: inherit; font-weight: 600; overflow-wrap: anywhere; }
 .movie-web-list a:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .movie-web-meta { color: #ffffffb3; font-size: .9rem; }
+.movie-requests .movie-web-list li { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .75rem; }
+.movie-requests .movie-web-list strong { overflow-wrap: anywhere; }
+.movie-requests button { min-height: 44px; }
+@media (max-width: 480px) {
+    .movie-requests .movie-web-list li { grid-template-columns: minmax(0, 1fr); justify-items: start; }
+}
 @media (min-width: 1600px) { .movie-web { max-width: 64rem; font-size: 1.3rem; } }
+.movie-releases { max-width: 46rem; margin: 0 0 1.5rem; }
+.movie-releases summary { display: list-item; width: fit-content; cursor: pointer; padding: .7rem .95rem; border: 1px solid #ffffff36; border-radius: 1.4rem; font-weight: 600; }
+.movie-releases[open] summary { margin-bottom: .85rem; }
+.movie-releases form, .movie-release-settings { display: flex; flex-wrap: wrap; gap: .65rem; align-items: end; }
+.movie-releases label { display: grid; gap: .2rem; }
+.movie-releases :is(input, button) { min-height: 44px; }
+.movie-release-query { flex: 1 1 14rem; }
+.movie-release-settings { align-items: end; margin-top: .8rem; }
+.movie-release-settings label { flex: 1 1 10rem; }
+.movie-release-settings input { min-width: 0; width: 100%; }
+.movie-release-settings > span { padding: .65rem .8rem; border-radius: .65rem; background: #ffffff0d; }
+.movie-releases :is(summary, input):focus-visible { outline: 2px solid var(--focus, #98abed); outline-offset: 3px; }
+.movie-releases p { margin-block: .6rem; }
+.movie-releases li p { margin: 0; overflow-wrap: anywhere; }
+.movie-releases li strong { overflow-wrap: anywhere; }

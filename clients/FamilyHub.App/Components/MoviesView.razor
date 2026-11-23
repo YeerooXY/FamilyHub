@@ -86,6 +86,29 @@
         catch (Exception) { return Error(""); }
     }
 
+    [JSInvokable]
+    public Task<string> MovieRequestSearch(string query) => SendMovieRequest("/api/movies/request-search", new { query });
+
+    [JSInvokable]
+    public Task<string> MovieReleaseSearch(string query) => SendMovieRequest("/api/movies/releases", new { query });
+
+    [JSInvokable]
+    public Task<string> MovieRequest(string kind, int id) => SendMovieRequest("/api/movies/request", new { kind, id });
+
+    private async Task<string> SendMovieRequest(string path, object payload)
+    {
+        string Error(string text) => System.Text.Json.JsonSerializer.Serialize(new { error = text });
+        try
+        {
+            if (Session.Api is not { } api) return Error("Sign in again and try again.");
+            var reply = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, path, payload, cancellationToken: closed.Token);
+            return reply.GetRawText();
+        }
+        catch (FamilyHubApiException error) { return Error(error.Message); }
+        catch (OperationCanceledException) when (closed.IsCancellationRequested) { return Error(""); }
+        catch (Exception) { return Error("The server did not respond. Try again."); }
+    }
+
     // Web results open in the browser app; only a YouTube watch link is accepted.
     [JSInvokable]
     public async Task MovieOpenLink(string url)

@@ -1,6 +1,8 @@
 """Movie sessions use the selected FamilyHub profile and ordinary Jellyfin accounts."""
 import io
 import json
+import urllib.error
+import urllib.parse
 from unittest.mock import patch
 from test_music_web import Base
 
@@ -84,6 +86,100 @@ class MovieSessions(Base):
         self.assertEqual(send(kind='started', method='DirectPlay', title='Harbour Lights', minutes=12).status_code, 204)
         self.assertEqual(send(kind='started', title='x' * 201).status_code, 400)
         self.assertEqual(send(kind='stopped', minutes=-3).status_code, 400)
+
+
+class MovieRequests(Base):
+    extra = {**MovieSessions.extra, 'MOVIE_REQUESTS': {
+        'enabled': True, 'url': 'http://127.0.0.1:5055', 'api_key': 'fixture-key', 'profiles': {'sample-a': 7}}}
+    select = MovieSessions.select
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_hungarian_trinity_title_and_sequel_keep_distinct_movie_ids(self, opener):
+        title = 'Az ördög jobb és bal keze'
+        search = io.BytesIO(json.dumps({'results': [
+            dict(mediaType='movie', id=9394, title='They Call Me Trinity', releaseDate='1970-12-22'),
+            dict(mediaType='movie', id=11829, title='Trinity Is Still My Name', releaseDate='1971-10-21'),
+        ]}).encode())
+        search.status = 200
+        accepted = io.BytesIO(b'{"id":1,"status":2}')
+        accepted.status = 201
+        opener.return_value.open.side_effect = [search, accepted]
+        client, selection = self.select('sample-a')
+        token = selection['csrf_token']
+
+        reply = self.post(client, token, '/api/movies/request-search', json={'query': title})
+        self.assertEqual(reply.status_code, 200)
+        query = urllib.parse.urlsplit(opener.return_value.open.call_args.args[0].full_url).query
+        self.assertEqual(urllib.parse.parse_qs(query)['query'], [title])
+        self.assertEqual([(item['id'], item['year']) for item in reply.json['results']], [(9394, '1970'), (11829, '1971')])
+
+        reply = self.post(client, token, '/api/movies/request', json={'kind': 'movie', 'id': 9394})
+        self.assertEqual(reply.json, {'state': 'approved'})
+        self.assertEqual(json.loads(opener.return_value.open.call_args.args[0].data),
+                         {'mediaType': 'movie', 'mediaId': 9394, 'is4k': False})
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_search_and_series_request_use_the_mapped_user(self, opener):
+        client, selection = self.select('sample-a')
+        send = lambda route, **data: self.post(client, selection['csrf_token'], '/api/movies/' + route, json=data)
+        search = io.BytesIO(json.dumps({'results': [
+            {'mediaType': 'tv', 'id': 12, 'name': 'The Gentlemen', 'firstAirDate': '2024-03-07', 'mediaInfo': {'status': 4}},
+            {'mediaType': 'person', 'id': 32, 'name': 'A person'},
+            {'mediaType': 'movie', 'id': 11, 'title': 'The Gentlemen', 'releaseDate': '2019-12-03'},
+        ]}).encode())
+        search.status = 200
+        created = io.BytesIO(b'{"id":8,"status":2}')
+        created.status = 201
+        opener.return_value.open.side_effect = [search, created, urllib.error.HTTPError('', 409, '', None, None)]
+        reply = send('request-search', query=' The Gentlemen ', userId=1)
+        self.assertEqual(reply.json, {'results': [
+            dict(kind='tv', id=12, title='The Gentlemen', year='2024', status=4),
+            dict(kind='movie', id=11, title='The Gentlemen', year='2019', status=None),
+        ]})
+        request = opener.return_value.open.call_args.args[0]
+        self.assertTrue(request.full_url.endswith('/api/v1/search?query=The+Gentlemen&page=1'))
+        self.assertEqual(request.get_header('X-api-user'), '7')
+        self.assertEqual(send('request', kind='tv', id=True).status_code, 400)
+        self.assertEqual(send('request', kind='tv', id=12, seasons=[0], userId=1).json, {'state': 'approved'})
+        request = opener.return_value.open.call_args.args[0]
+        self.assertEqual(json.loads(request.data), {'mediaType': 'tv', 'mediaId': 12, 'is4k': False, 'seasons': 'all'})
+        self.assertEqual(send('request', kind='movie', id=11).json, {'state': 'existing'})
+        self.assertEqual(json.loads(opener.return_value.open.call_args.args[0].data), {'mediaType': 'movie', 'mediaId': 11, 'is4k': False})
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_unmapped_profile_cannot_submit_a_request(self, opener):
+        client, selection = self.select('sample-b')
+        reply = self.post(client, selection['csrf_token'], '/api/movies/request', json={'kind': 'movie', 'id': 12})
+        self.assertEqual(reply.status_code, 404)
+        opener.assert_not_called()
+
+
+class MovieReleaseSearch(Base):
+    extra = {**MovieSessions.extra, 'MOVIE_RELEASE_SEARCH': {
+        'api_key': 'fixture-key', 'profiles': ['sample-a'], 'indexer_ids': [1, 3]}}
+    select = MovieSessions.select
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_profiles_partial_results_and_private_download_links(self, opener):
+        def lookup(req, timeout):
+            self.assertEqual(req.get_method(), 'GET')
+            self.assertEqual(req.get_header('X-api-key'), 'fixture-key')
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(req.full_url).query)
+            self.assertEqual(query['query'], ['Regular Show Season 1'])
+            if query['indexerIds'] == ['1']:
+                raise TimeoutError()
+            self.assertEqual(query['indexerIds'], ['3'])
+            return io.BytesIO(json.dumps([dict(title='Regular Show S01', indexer='The Pirate Bay', size=123,
+                seeders=82, leechers=14, magnetUrl='magnet:fixture', downloadUrl='https://private.test')]).encode())
+
+        opener.return_value.open.side_effect = lookup
+        for profile, status in [('sample-b', 404), ('sample-a', 200)]:
+            client, selected = self.select(profile)
+            reply = self.post(client, selected['csrf_token'], '/api/movies/releases',
+                              json={'query': 'Regular Show Season 1', 'indexerIds': [99]})
+            self.assertEqual(reply.status_code, status)
+        self.assertEqual(reply.json, {'unavailable': 1, 'results': [dict(
+            title='Regular Show S01', source='The Pirate Bay', size=123, seeders=82, leechers=14)]})
 
 
 class MovieWebSearch(MovieSessions):
