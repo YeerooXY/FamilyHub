@@ -67,6 +67,7 @@
     overflow-y: auto;
     align-content: safe center;
     padding-block: 4px;
+    container-type: size;
 }
 
 .daily-wordle .dw-header {
@@ -114,14 +115,18 @@
 }
 .daily-wordle .dw-error { color: var(--dw-error); }
 .daily-wordle .dw-board {
-    --dw-tile: clamp(40px, calc((100dvh - 345px) / 6), 61px);
+    --dw-gap: 5px;
+    --dw-board-pad: 12px;
+    /* Width and height of the play area (container units) decide the tile, so six rows always fit. */
+    --dw-tile: clamp(24px, min(calc((100cqw - 4 * var(--dw-gap)) / 5),
+        calc((100cqh - 5 * var(--dw-gap) - var(--dw-board-pad)) / 6)), 61px);
     display: grid;
-    width: min(100%, calc(5 * var(--dw-tile) + 20px));
+    width: min(100%, calc(5 * var(--dw-tile) + 4 * var(--dw-gap)));
     margin-inline: auto;
-    gap: 5px;
-    padding-bottom: 12px;
+    gap: var(--dw-gap);
+    padding-bottom: var(--dw-board-pad);
 }
-.daily-wordle .dw-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
+.daily-wordle .dw-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--dw-gap, 5px); }
 .daily-wordle .dw-tile {
     display: grid;
     place-items: center;
@@ -134,7 +139,7 @@
     line-height: 1;
     user-select: none;
 }
-.daily-wordle .dw-board .dw-tile { width: 100%; height: auto; aspect-ratio: 1; }
+.daily-wordle .dw-board .dw-tile { width: 100%; height: auto; aspect-ratio: 1; font-size: clamp(16px, calc(var(--dw-tile) * .55), 32px); }
 .daily-wordle .dw-tile.dw-filled { border-color: var(--dw-filled); animation: dw-pop 110ms ease-out; }
 .daily-wordle .dw-tile.dw-reveal {
     --dw-flip: dw-flip-in 250ms var(--dw-delay) ease-in backwards,
@@ -371,7 +376,15 @@
     .daily-wordle .dw-server-stats { display: none; }
 }
 @media (max-width: 720px) {
-    .daily-wordle { display: flex; flex-direction: column; }
+    .daily-wordle { display: flex; flex-direction: column; padding-bottom: max(6px, env(safe-area-inset-bottom)); }
+    .daily-wordle .dw-header { min-height: 44px; grid-template-columns: 96px 1fr 96px; }
+    .daily-wordle .dw-header h1 { font-size: 28px; }
+    .daily-wordle .dw-context { padding-top: 2px; min-height: 20px; }
+    .daily-wordle .dw-message { min-height: 22px; }
+    .daily-wordle .dw-play-area { padding-block: 2px; }
+    .daily-wordle .dw-board { --dw-gap: 4px; --dw-board-pad: 6px; }
+    .daily-wordle .dw-keyboard { gap: 5px; }
+    .daily-wordle button.dw-key { height: clamp(42px, 6dvh, 52px); }
     .daily-wordle .dw-family-rail {
         position: static;
         flex-direction: row;

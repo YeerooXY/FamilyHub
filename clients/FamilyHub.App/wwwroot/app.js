@@ -847,6 +847,8 @@ document.addEventListener('click', event => {
 });
 
 window.familyhub.closeTopLayer = () => {
+    const movie = document.querySelector(".movie-player.movie-expanded .movie-ui");
+    if (movie) { movie.dispatchEvent(new CustomEvent("movie-back")); return true; }
     const dialog = openDialogs.filter(node => node.isConnected && node.open).pop();
     if (!dialog) return false;
     if (dialog.requestClose) dialog.requestClose();

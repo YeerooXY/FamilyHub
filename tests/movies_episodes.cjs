@@ -65,11 +65,16 @@ async function check(browser) {
     const rows = page.locator(".movie-episode");
     assert.equal(await rows.count(), 3);
     assert.equal(await page.locator(".movie-episode[aria-current='true']").innerText(), "2. The Move");
-    await page.getByRole("button", { name: "Close episodes" }).click();
+    // Android Back (familyhub.closeTopLayer) sends movie-back: it closes the sheet first, then the player.
+    await page.locator(".movie-ui").dispatchEvent("movie-back");
     await page.getByRole("button", { name: "Close episodes" }).waitFor({ state: "hidden" });
+    assert.equal(await back.isVisible(), true, "Back closes the sheet before the player");
     await next.click();
     await page.getByRole("heading", { name: "S1:E3 “Visitors”" }).waitFor();
     assert.equal(await page.getByRole("button", { name: /^Next episode/ }).isVisible(), false, "the last episode has no Next Episode");
+    await page.locator(".movie-ui").dispatchEvent("movie-back");
+    await back.waitFor({ state: "hidden" });
+    assert.equal(await page.locator(".movie-player.movie-expanded").count(), 0, "Back closes the player");
     await page.evaluate(() => window.movies.close());
     await page.close();
 }

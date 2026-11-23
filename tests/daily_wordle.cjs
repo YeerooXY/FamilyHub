@@ -334,13 +334,61 @@ async function resultsPopup(scenario, reducedMotion) {
     } finally { await browser.close(); }
 }
 
+async function boardFit() {
+    const shots = path.resolve(root, 'docs/verification/wordle-fit-2026-11-23');
+    require('node:fs').mkdirSync(shots, {recursive: true});
+    const profiles = [
+        ['pixel7-412x915', chromium, {...devices['Pixel 7'], viewport: {width: 412, height: 915}}],
+        ['iphone-390x844', webkit, {...devices['iPhone 13'], viewport: {width: 390, height: 844}}],
+        ['iphone-se-375x667', webkit, {...devices['iPhone 13'], viewport: {width: 375, height: 667}}],
+        ['desktop-1280x800', chromium, {viewport: {width: 1280, height: 800}}]
+    ];
+    for (const [name, engine, options] of profiles) {
+        const browser = await engine.launch();
+        try {
+            const page = await browser.newPage({...options, colorScheme: 'light', reducedMotion: 'reduce'});
+            await page.request.post(origin + '/fixture/wordle-reset/86400');
+            await page.request.post(origin + '/fixture/wordle-member/-1/false');
+            const panel = await openWordle(page);
+            await page.waitForTimeout(300);
+            const m = await page.evaluate(() => {
+                const rect = selector => document.querySelector(selector).getBoundingClientRect();
+                const area = document.querySelector('.dw-play-area');
+                const wordle = document.querySelector('.daily-wordle');
+                const rows = document.querySelectorAll('.dw-row');
+                const tile = rect('.dw-tile');
+                return {
+                    row6Bottom: rows[5].getBoundingClientRect().bottom, keyboardTop: rect('.dw-keyboard').top,
+                    keyboardBottom: rect('.dw-keyboard').bottom, innerHeight,
+                    docScroll: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+                    areaScroll: area.scrollHeight - area.clientHeight,
+                    overflowX: wordle.scrollWidth - wordle.clientWidth, docOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+                    tile: Math.round(tile.width * 10) / 10, tileSquare: Math.abs(tile.width - tile.height) < 0.6,
+                    keyHeight: rect('.dw-key').height, boardTop: rect('.dw-board').top
+                };
+            });
+            console.log(name, JSON.stringify(m));
+            assert(m.row6Bottom <= m.keyboardTop, `${name} row 6 bottom ${m.row6Bottom} is below keyboard top ${m.keyboardTop}`);
+            assert(m.docScroll <= 0, `${name} document scrolls by ${m.docScroll}px`);
+            assert(m.areaScroll <= 0, `${name} play area scrolls by ${m.areaScroll}px`);
+            assert(m.overflowX <= 0 && m.docOverflowX <= 0, `${name} has horizontal overflow`);
+            assert(m.tileSquare && m.tile >= 36, `${name} tile ${m.tile}px`);
+            assert(m.keyboardBottom <= m.innerHeight, `${name} keyboard is cut off`);
+            await page.screenshot({path: path.join(shots, name + '.png')});
+        } finally { await browser.close(); }
+    }
+    console.log('Wordle six rows fit above the keyboard without scrolling on four viewports');
+}
+
 (async () => {
+    if (process.env.WORDLE_ONLY === 'fit') { await boardFit(); return; }
     for (const [name, engine, profile] of [
         ['windows-chromium', chromium, {viewport: {width: 1280, height: 900}}],
         ['mac-webkit', webkit, {...devices['Desktop Safari'], viewport: {width: 850, height: 900}}],
         ['android-chromium', chromium, {...devices['Pixel 7'], viewport: {width: 390, height: 844}}],
         ['iphone-webkit', webkit, {...devices['iPhone 13'], viewport: {width: 320, height: 750}}]
     ]) await dailyPlay(name, engine, profile);
+    await boardFit();
     await rollover();
     await localScoring();
     await liveFamily();

@@ -28,23 +28,30 @@ public static class AppUpdater
     public static async Task<AppRelease?> CheckAsync(FamilyHubApi? api, PublicAppReleases publicReleases)
     {
         var platform = Platform ?? throw new InvalidOperationException("Updates are unavailable on this platform.");
+        // GitHub and the configured server can each hold a different latest build; offer the newer one.
+        AppRelease? published = null;
         using var publicTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-        try
-        {
-            var published = await publicReleases.CheckAsync(platform, publicTimeout.Token);
-            if (published is not null || api is null) return published;
-        }
+        try { published = await publicReleases.CheckAsync(platform, publicTimeout.Token); }
         catch (Exception error) when (api is not null && error is (HttpRequestException or OperationCanceledException or InvalidDataException or System.Text.Json.JsonException))
         {
             // The configured server mirrors release packages.
         }
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-        var release = await api.GetAppReleaseAsync(platform, timeout.Token);
-        if (!Version.TryParse(release.Version, out _) ||
-            !PublicAppReleases.ValidPackage(release.Sha256, release.Size) ||
-            release.DownloadUrl != $"/api/app-updates/{platform}/{release.Sha256}")
-            throw new InvalidDataException("The server returned invalid update information.");
-        return release;
+        if (api is null) return published;
+        AppRelease? mirrored = null;
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            var release = await api.GetAppReleaseAsync(platform, timeout.Token);
+            if (!Version.TryParse(release.Version, out _) ||
+                !PublicAppReleases.ValidPackage(release.Sha256, release.Size) ||
+                release.DownloadUrl != $"/api/app-updates/{platform}/{release.Sha256}")
+                throw new InvalidDataException("The server returned invalid update information.");
+            mirrored = release;
+        }
+        catch (FamilyHubApiException error) when (error.StatusCode == 404 && published is not null) { }
+        catch (Exception error) when (published is not null && error is (HttpRequestException or OperationCanceledException or InvalidDataException or System.Text.Json.JsonException)) { }
+        if (published is null || mirrored is null) return published ?? mirrored;
+        return Version.Parse(mirrored.Version) > Version.Parse(published.Version) ? mirrored : published;
     }
 
     public static int CompareToInstalled(AppRelease release) => Version.Parse(release.Version).CompareTo(Version.Parse(CurrentVersion));

@@ -342,3 +342,7 @@ landscape) and at 1920 × 1080 through the Debian Jellyfin server: play, pause, 
 skip, the remaining-time label and the Audio & Subtitles sheet. Open items: subtitles
 overlap the seek bar while the controls are visible; the Android Back button, a real
 phone, an LG remote and a real series with several seasons remain unverified.
+
+## 23 November 2026 — Wordle phone fit
+
+Daily Wordle sizes its board from the play-area height (container units), so all six rows sit above the keyboard with no scrolling at 412x915, 390x844, 375x667 and 1280x800; Chromium and WebKit emulation, screenshots in `docs/verification/wordle-fit-2026-11-23/`. Real Samsung/iPhone check remains open.

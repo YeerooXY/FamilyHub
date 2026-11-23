@@ -299,6 +299,8 @@ export function buildPlayerUi(ctx) {
         next.reduce((best, node) => Math.abs(middle(node) - x) < Math.abs(middle(best) - x) ? node : best).focus();
         return true;
     }
+    // The Android Back button arrives here (familyhub.closeTopLayer): close a sheet first, then the player.
+    root.addEventListener("movie-back", () => { if (openSheet) closeSheet(true); else back.click(); });
     document.addEventListener("keydown", event => {
         if (event.altKey || event.ctrlKey || event.metaKey) return;
         const target = event.target;
