@@ -5,8 +5,8 @@ import threading
 import unicodedata
 from collections import Counter, defaultdict
 from datetime import timedelta
-from pathlib import Path
 
+from .state import state_path
 from .link_playlists import _deezer
 from .genres import genre_key, genre_label, most_common_genre
 from .listening_stats import longest_streak
@@ -151,7 +151,7 @@ def first_artists(years, through_year):
 
 class DeezerChart:
     def __init__(self, workspace, utc, read=None):
-        self.path = Path(workspace) / '.deezer-chart.json'
+        self.path = state_path(workspace, '.deezer-chart.json')
         self.utc, self.read = utc, read or (lambda path: _deezer(path, timeout=4, max_wait=1))
         self.lock = threading.Lock()
         self.data = json.loads(self.path.read_text(encoding='utf-8')) if self.path.exists() else {}

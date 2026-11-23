@@ -1,18 +1,47 @@
 """Keep streaming watches and background requests out of listener/control HTTP slots."""
+import logging
+from threading import Lock
+from time import monotonic
 from urllib.parse import parse_qs
 
 from waitress.task import ThreadedTaskDispatcher
+
+
+class QueueWarnings:
+    def __init__(self):
+        self.lock = Lock()
+        self.last = float('-inf')
+
+    def warning(self, message, *args):
+        with self.lock:
+            now = monotonic()
+            if now - self.last >= 60:
+                self.last = now
+                logging.getLogger('music_web.http_dispatch').warning(message, *args)
 
 
 class RequestDispatcher:
     LIMITS = {"ordinary": 4, "listener": 2, "control": 4, "media": 4,
               "download": 2, "watch": 4, "snapshot": 2, "artwork": 2, "movie-media": 4}
 
-    def __init__(self):
+    def __init__(self, threads=4):
         self.pools = {}
-        for name, threads in self.LIMITS.items():
+        warnings = QueueWarnings()
+        for name, count in self.LIMITS.items():
             pool = self.pools[name] = ThreadedTaskDispatcher()
-            pool.set_thread_count(threads)
+            pool.queue_logger = warnings
+            pool.set_thread_count(threads if name == 'ordinary' else count)
+
+    def interactive_queued(self):
+        for name, pool in self.pools.items():
+            if name in ('watch', 'download'):
+                continue
+            with pool.lock:
+                for channel in pool.queue:
+                    request = next(iter(channel.requests), None)
+                    if request is not None and request.headers.get('X_FAMILYHUB_ACTIVITY') != 'background':
+                        return True
+        return False
 
     def add_task(self, channel):
         request = channel.requests[0]

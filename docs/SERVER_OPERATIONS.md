@@ -1,9 +1,8 @@
 # Server operations and priority
 
-Decision: 19 November 2026. Scope: one `python -m music_web` process, based on
-0.1.70 plus documentation. Paths below are relative to `music_web/` unless
-otherwise indicated. Client download concurrency and polling are inputs to this
-policy, not substitutes for server admission limits.
+Scope covers one `python -m music_web` process. Paths below are relative to
+`music_web/` unless otherwise indicated. Server admission limits account for
+client download concurrency and polling.
 
 ## Decided order
 
@@ -30,15 +29,96 @@ unrelated bulk render. Two callers needing the **same unfinished output** share
 its completion. Streaming can use the verified original while an optional phone
 copy is absent.
 
-HTTP isolation guarantees capacity, not a real-time guarantee against a stalled
-filesystem, exhausted host memory, a proxy connection limit or an unavailable
-provider. The measured acceptance target is p95 below 300 ms for Connect and
-snapshots during the load described below.
+HTTP isolation reserves request threads. Filesystem stalls, memory pressure,
+proxy connection limits and provider availability can still affect response
+times. The acceptance target is p95 below 300 ms for Connect and snapshots
+during the load described below.
+
+## Small state on the system disk
+
+Set these keys in the JSON file named by `FAMILYHUB_MUSIC_CONFIG` on the Debian
+server. Keep the existing `WORKSPACE` and `LIBRARY` settings.
+
+```json
+{
+  "STATE_DIR": "/var/lib/familyhub-music/state",
+  "STATE_BACKUP_DIR": "/srv/familyhub/backups/music-state",
+  "WAITRESS_THREADS": 16
+}
+```
+
+`STATE_DIR` defaults to the workspace. The files share database defaults to
+`FILES_ROOT` as before. `STATE_BACKUP_DIR` defaults to disabled. Provision both
+directories for the service user. Add both writable paths to the service's
+systemd override alongside the existing entries.
+
+```ini
+[Service]
+ReadWritePaths=/var/lib/familyhub-music/state /srv/familyhub/backups/music-state
+```
+
+Stop the service and any maintenance scripts that write the workspace before
+changing the config. Reload the systemd unit and start the service. Startup
+copies and verifies each legacy entry whose destination is missing, then
+archives its original under the same name with a `.moved-to-state` suffix.
+The service journal records the copy, verification, archive and publication.
+SQLite copies use the backup API and `PRAGMA integrity_check`. Other copies
+check byte counts and parse JSON or complete JSONL records. Keep the archives
+for rollback. To roll back after serving traffic on the new layout, stop the
+service and restore the latest state to the original locations before removing
+`STATE_DIR`.
+
+| State | Entries |
+|---|---|
+| Profiles and Wordle | `.family-profiles.json`, `.playback-state/`, `.word-puzzles.sqlite3` |
+| Listening | `.listening-statistics.json`, `.listening-statistics.jsonl`, `.listening-history/`, `.deezer-chart.json`, `.listening-versions.json` |
+| Catalogue | `.catalogue-review.json`, `.artist-genres.json`, `.source-quality.json`, `.song-analysis.json`, `.replacements.json`, `.metadata-votes.json`, `.library-additions.json` |
+| Playlists and discovery | `.playlists/`, `.discovery/` including `discovery.sqlite3`, `.lyrics/` |
+| Verification, files and feedback | `.verified-audio.sqlite3`, `.familyhub-files.db`, `.feedback.sqlite3`, `.feedback-server.log`, `.activity.log` and rotated logs |
+
+Audio, staged item manifests, `.finished-audio/`, `.listening-versions/`, Deno
+and compiler caches, image assets and app update packages stay with their
+workspace or library. Shared file contents stay under `FILES_ROOT`.
+
+The backup worker checks once a minute for a new local date and catches up at
+startup. It publishes `state-YYYY-MM-DD` directories after validation and keeps
+the latest 14. Each database has a consistent SQLite snapshot. JSON files use
+the published file at copy time, and listening statistics copy the journal
+before the checkpoint for safe replay. The backup is assembled over time across
+stores. Restore a dated copy while the service is stopped.
+
+Wordle, profile preferences, saved playback queues and listening totals serve
+warm reads from memory. A worker commits queued changes in order and retries
+storage failures. Write requests wait up to two seconds, then return the current
+in-memory result while persistence continues. JSON cache refreshes detect
+external file replacements in the background. Run one service instance per
+state directory and stop it before changing state files during maintenance.
+Graceful shutdown flushes queued writes. A forced stop or power loss can discard
+writes that are still in memory.
+
+## Audio verification across disk moves
+
+Verified audio rows use the path, byte size, nanosecond modification time and a
+SHA-256 fingerprint of the first, middle and last 64 KiB. Preserve paths and
+modification times when copying the library, and carry the verification database
+with the other state. When a legacy row is accessed, matching path, size and
+modification time let it keep its digest and record the new fingerprint.
+Legacy rows have no fingerprint to compare before that conversion. After
+conversion, same-size edits with a restored modification time are detected when
+they change a sampled region. Edits entirely between samples can evade the
+cache check. To force full verification, archive the verification database
+while the service is stopped and restart.
+
+Linux background verification and analysis threads use idle I/O priority and
+a higher nice value. Workers yield between files when interactive requests
+are queued.
 
 ## HTTP lanes
 
-`http_dispatch.RequestDispatcher.LIMITS` owns **24 request threads**. No lane
-borrows a reserved control, playback or media thread for bulk work.
+The dispatcher defaults to **24 request threads** across dedicated lanes.
+`WAITRESS_THREADS` controls the ordinary lane and defaults to 4. A value of 16
+gives 36 total threads. Waitress logs queue depth at most once per minute across
+all lanes.
 
 | Lane | Threads | Admission |
 |---|---:|---|
@@ -46,7 +126,7 @@ borrows a reserved control, playback or media thread for bulk work.
 | listener | 2 | Immediate foreground `/api/jobs` requests, job status/cancel, `transition`, immediate foreground `playback-info` |
 | media | 4 | Foreground signed library audio and job HLS media |
 | snapshot | 2 | GET `/api/server/stats` and `/api/catalogue/*` |
-| ordinary | 4 | Interactive reads and remaining short mutations; provider search waits stay here |
+| ordinary | 4 by default | Interactive reads, provider search and remaining short mutations |
 | download | 2 | Background/lead-time `playback-info`, unsigned downloads, background audio delivery; POST uploads, library additions and playlist download/prepare/import admission |
 | watch | 4 | `watch=1` streams; never the control endpoints |
 | artwork | 2 | YouTube images, discovery covers, playlist artwork and profile-image reads |
@@ -71,7 +151,7 @@ is trigger/cadence, not a promise about provider response time.
 | Saved playback; `library_record`, `saved_source`, `playback_info`, `/api/library/*/playback/*`, `/download` | listener/media or download; 1/3 | Cached: M file stats; cold: H checksums; optional encode | Saved-cache lock covers lookup/publication only; checksums outside it. Reviewed overrides are whole-entry snapshots; observation skips a busy review lock | Every start/range. Cold verification costs belong to that recording; unrelated cache entries remain usable |
 | Finished listening audio; `finished_audio.prepare_record`, `FinishedAudio.prepare`; `audio_profile` | One listener render and one bulk render; 1/3/4 | H FFmpeg loudness, trim, encode, verify and hashing | Separate priority lanes; per-digest completion event; atomic audio/metadata publication. No DB/catalogue transaction during render | Once per source digest/edition. Same-output callers coalesce; cached output bypasses render lanes |
 | Device handoff / Connect; `playback_devices.py`, `/api/playback/{devices,transfer,takeover,handoff,control}` | control; 1 | L, no provider or audio IO | Device lock; room lock only for membership checks; source pauses after destination confirmation | On control action and device polls; only bounded device/room state work |
-| Heartbeat/presence; `__init__.playback_activity`, `resources`, `PlaybackDevices.report` | control; 1 | L for control; durable statistics work described separately | Device/governor locks. Connect is updated before statistics; optional statistics wait capped at 50 ms | Native check-ins approximately every 5 seconds; online expiry 15 seconds. Bulk jobs/history locks cannot stop Connect updates |
+| Heartbeat/presence, `__init__.playback_activity`, `resources`, `PlaybackDevices.report` | control, priority 1 | Device state and listening counter updates | Device/governor locks. Connect updates before statistics. Queued statistics writes have a two-second wait limit | Native check-ins approximately every 5 seconds. Online expiry 15 seconds |
 | Queue sync/resume; `profiles.ProfileStore.playback`, `/api/profile/playback` | control; 1 | M, at most 1,000 IDs | Dedicated playback-state lock and per-profile `.playback-state/*.json`; atomic replace. Reads migrate lazily from legacy profile JSON | Queue/position updates. Playback saves no longer rewrite or contend with the shared profile/preferences file |
 | Listen Together/pokes; `listening_rooms.py` | rooms: control; pokes: ordinary; 1/2 | L bounded in-memory queues | Room RLock then governor condition; no network under room lock | Room actions/check-ins, 30-second room expiry. Room operations serialize with each other |
 | Operational snapshots; `snapshots.py`, server stats, catalogue review/source quality/reports | snapshot; 1/2 | L cached, M/H refresh depending on library | Per-view cache lock; at most two refreshes per view; no request waits more than 200 ms for an initial snapshot | Reuse for 1 second; retain snapshots while refreshing, expose age. Slow refreshes consume refresh slots, not Connect threads |
@@ -92,7 +172,7 @@ is trigger/cadence, not a promise about provider response time.
 | Source quality / replacement / trimming; `source_quality.py`, `listening_versions.py`, external review import | One scanner and one serialized replacement worker; 5 | H bounded spectral decode; optional YouTube replacement; archive/rollback IO | Scan/FFmpeg locks, replacement lock; catalogue/review/stats transaction for archive and repoint; processing outside DB transactions | Idle scans and explicit review requests. Interrupted scans retry; replacement transactions remain atomic and block catalogue writers only |
 | BPM/key and beat analysis; `song_analysis.py`, `analysis.py`, `analyze_job` | One library scanner plus lowest-priority acquisition analysis; 5 | H FFmpeg decode and NumPy/librosa CPU | Scan/decoder locks and CPU permits; file write outside metadata read lock; short publication | Once per digest; idle gate, cancellable scan windows. CPU slots are reserved before subprocess start |
 | Lyrics; `lyrics.py`, `/api/library/*/lyrics` | ordinary; 2 | LRCLIB network, small cache files | Per-recording single-flight lock and provider pacing lock; no jobs/device mutex during lookup | On lyrics open; persisted results/absence. Same-song lookup coalesces; rate-limit retries can delay only lyrics/read capacity |
-| Statistics/history/wrapped; `listening_stats.py`, `listening_history.py`, `wrapped.py` | One bounded activity writer; ordinary history requests; snapshot reads; 2/5 | Append counters, JSON checkpoint; bounded event batches; yearly aggregates; chart network | Stats/history locks and catalogue privacy/clear transaction; one activity writer, **no pending writer queue**; history pruning on a separate bounded worker | Heartbeats: 5 s; statistics checkpoint 300 s; legacy flush 30 s; history prune daily. `counters_accepted=false` when writer busy/slow; cumulative retry is idempotent |
+| Statistics/history/wrapped, `listening_stats.py`, `listening_history.py`, `wrapped.py` | State writer, ordinary history requests and snapshot reads | Append counters, JSON checkpoints, event batches, yearly aggregates, chart lookup | Stats/history locks and catalogue privacy/clear transaction. The state writer persists accepted counters in order | Heartbeats every 5 s, statistics checkpoints every 300 s, legacy checkpoints every 30 s, daily history pruning |
 | Artwork; `__init__.artwork`, `discovery.cover_jpeg`, `playlist_artwork.py`, `profile_artwork.py` | artwork reads; ordinary edit; 2/5 | Image network <=5 s, byte/dimension caps; FFmpeg <=10 s | Cache locks only around publication. Playlist/profile image encoding outside catalogue transaction; revision rechecked before metadata save | On image miss/edit; YouTube cache 64 entries; provider pacing wait bounded. Image conversion has nonblocking CPU admission |
 | Housekeeping / quotas / updates; `retire`, `budget`, `app_updates.py` | One retired-file worker; acquisition quota checks; ordinary package requests; 5 | Directory scan/delete, disk usage, package reads | Budget lock before jobs lock for progress; retired temp directory atomically detached after reference recheck, then deleted outside jobs lock | Eviction on job TTL/count; quota scan cached 0.5 s; app updates on client check. Cleanup no longer runs inside listener admission |
 
@@ -124,9 +204,11 @@ is trigger/cadence, not a promise about provider response time.
   RLocks. Catalogue code may briefly acquire jobs state; acquisition progress
   releases jobs state before invoking playlist callbacks. Authentication uses a
   third session lock. Queue resume files have their own lock and file namespace.
-* Stats processing can finish after the heartbeat response. Only a successfully
-  completed write is acknowledged. No counter is acknowledged merely because a
-  worker was started. Retry supplies cumulative counters and cannot double count.
+* Accepted counters update memory before the heartbeat response. Disk
+  persistence can finish after that response. Resending the same cumulative
+  counters preserves the recorded total. If a catalogue transaction holds the
+  privacy lock for more than 50 ms, the client can retry the counters on its
+  next check-in.
 * JSON writes still serialize mutations of their own store; SQLite still has one
   writer. Neither contains audio encodes or external catalogue calls. Atomic
   rename/file syscalls are nonpreemptible. These

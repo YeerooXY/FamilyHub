@@ -3,11 +3,32 @@ import http.client
 import json
 import threading
 import time
+import unittest
 from unittest import mock
 
 from waitress import create_server
-from music_web.http_dispatch import RequestDispatcher
+from music_web.http_dispatch import RequestDispatcher, ThreadedTaskDispatcher
 from tests.test_music_web import Base, URL
+
+
+class QueueWarningsTests(unittest.TestCase):
+    def test_thread_override_queue_detection_and_shared_warning_limit(self):
+        with mock.patch.object(ThreadedTaskDispatcher, 'set_thread_count') as sizing:
+            dispatcher = RequestDispatcher(16)
+        self.assertEqual(sizing.call_args_list, [
+            mock.call(16 if lane == 'ordinary' else count)
+            for lane, count in RequestDispatcher.LIMITS.items()
+        ])
+        background = mock.Mock(requests=[mock.Mock(headers={'X_FAMILYHUB_ACTIVITY': 'background'})])
+        interactive = mock.Mock(requests=[mock.Mock(headers={})])
+        with mock.patch('music_web.http_dispatch.monotonic', side_effect=[100, 101, 160]), \
+                self.assertLogs('music_web.http_dispatch', level='WARNING') as messages:
+            dispatcher.pools['ordinary'].add_task(background)
+            self.assertFalse(dispatcher.interactive_queued())
+            dispatcher.pools['control'].add_task(interactive)
+            self.assertTrue(dispatcher.interactive_queued())
+            dispatcher.pools['ordinary'].add_task(interactive)
+        self.assertEqual([line.rsplit(' ', 1)[-1] for line in messages.output], ['1', '2'])
 
 
 class HttpCapacityTests(Base):

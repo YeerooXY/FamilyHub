@@ -6,15 +6,17 @@ import os
 import re
 import secrets
 
+from .state import state_path
+
 SCHEMA = 1
 MANIFEST = ".listening-versions.json"
 FILE_RE = re.compile(r"\.listening-versions/[a-f0-9]{64}\.(opus|m4a|mp3|flac|ogg|wav)")
 
 
 class ListeningVersions:
-    def __init__(self, workspace, intake):
+    def __init__(self, workspace, intake, *, state=None):
         self.workspace, self.intake, self.checked = workspace, intake, {}
-        path = os.path.join(workspace, MANIFEST)
+        path = state_path(state or workspace, MANIFEST)
         self.versions = {}
         if not os.path.exists(path):
             return

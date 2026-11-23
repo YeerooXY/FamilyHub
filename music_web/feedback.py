@@ -1,4 +1,5 @@
 """Private feedback threads and bounded, structured diagnostics."""
+from .state import state_path
 import base64
 import binascii
 from collections import deque
@@ -6,7 +7,6 @@ from contextlib import closing
 import json
 import logging
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
-from pathlib import Path
 import re
 import sqlite3
 from threading import Lock
@@ -58,14 +58,14 @@ def note(**fields):
 
 
 def register(app, workspace, body, api_error, profiles, is_admin):
-    database = Path(workspace) / ".feedback.sqlite3"
+    database = state_path(workspace, ".feedback.sqlite3")
     recent = deque(maxlen=12000)
     lock = Lock()
-    journal = RotatingFileHandler(Path(workspace) / ".feedback-server.log", maxBytes=2 * 1024 * 1024,
+    journal = RotatingFileHandler(state_path(workspace, ".feedback-server.log"), maxBytes=2 * 1024 * 1024,
                                   backupCount=3, encoding="utf-8", delay=True)
 
     # One file per day, kept for two weeks: .activity.log, .activity.log.2026-11-22, ...
-    activity = TimedRotatingFileHandler(Path(workspace) / ".activity.log", when="midnight", backupCount=ACTIVITY_DAYS,
+    activity = TimedRotatingFileHandler(state_path(workspace, ".activity.log"), when="midnight", backupCount=ACTIVITY_DAYS,
                                         encoding="utf-8", delay=True)
     polled = {}
 

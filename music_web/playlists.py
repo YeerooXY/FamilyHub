@@ -6,12 +6,12 @@ import json
 import re
 import urllib.request
 from html.parser import HTMLParser
-from pathlib import Path
 from urllib.parse import urlsplit
 from difflib import SequenceMatcher
 import unicodedata
 from types import SimpleNamespace
 from collections import defaultdict, deque
+from .state import state_path
 from .resources import background_request
 from .review_confidence import close_duration, normal, presentation_title, recording_labels
 
@@ -196,7 +196,8 @@ def entry_identity(track):
 
 class PlaylistStore:
     def __init__(self, workspace):
-        self.root = Path(workspace) / ".playlists"
+        self.root = state_path(workspace, ".playlists")
+        self.replacement_journal = state_path(workspace, ".replacements.json")
         self.changed = lambda owner, pid: None
     def directory(self,user):
         return self.root/hashlib.sha256(user.encode()).hexdigest()
@@ -218,7 +219,7 @@ class PlaylistStore:
         return stamp is not None
     def save(self,user,data):
         self._backfill_added_at(data)
-        journal = self.root.parent / '.replacements.json'
+        journal = self.replacement_journal
         replacements = json.loads(journal.read_text(encoding='utf-8')) if journal.exists() else {}
         for track in data['tracks']:
             for _ in range(len(replacements)):

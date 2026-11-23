@@ -14,15 +14,18 @@ const profiles = [
     ['iphone13', devices['iPhone 13']],
 ];
 
-async function openServer(page, admin = true) {
-    const name = admin ? 'Server' : 'Server work';
+async function openMusicSection(page, name) {
     await page.getByRole('button', {name: /^Music\b/}).click();
     if (await page.evaluate(() => innerWidth < 700)) {
         await page.getByRole('button', {name: 'Profile menu'}).press('Enter');
     }
+    if (name === 'Leaderboard') {
+        assert.equal(await page.getByRole('button', {name: 'Server', exact: true}).count(), 0);
+    }
     await page.getByRole('button', {name, exact: true}).press('Enter');
     await page.getByRole('heading', {name, level: 1, exact: true}).waitFor();
-    await page.waitForFunction(() => document.activeElement?.id === 'view-title');
+    await page.waitForFunction(id => document.activeElement?.id === id,
+        name === 'Server' ? 'view-title' : 'content');
 }
 
 async function state(page, value) {
@@ -40,7 +43,7 @@ async function check(browser, profileName, profile, engineName) {
         await page.request.post(origin + '/fixture/startup/health-admin');
         await state(page, 'ready');
         await page.goto(origin);
-        await openServer(page);
+        await openMusicSection(page, 'Server');
         const current = page.getByRole('region', {name: 'Current readings'});
         const history = page.getByRole('region', {name: 'History', exact: true});
         const radios = history.getByRole('radiogroup', {name: 'History range'});
@@ -160,7 +163,8 @@ async function check(browser, profileName, profile, engineName) {
             assert(await historyRefresh.evaluate(el => el === document.activeElement));
             await page.request.post(origin + '/fixture/startup/none');
             await page.reload();
-            await openServer(page, false);
+            await openMusicSection(page, 'Leaderboard');
+            await page.getByRole('group', {name: 'Listening period'}).waitFor();
             assert.equal(await page.getByRole('heading', {name: 'Current readings'}).count(), 0);
         }
         console.log('PASS', name);

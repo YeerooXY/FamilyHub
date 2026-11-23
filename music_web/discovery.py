@@ -13,7 +13,7 @@ from email.utils import parsedate_to_datetime
 from collections import Counter
 from contextlib import contextmanager
 from datetime import date, timedelta
-from pathlib import Path
+from .state import state_path
 from . import catalog_search
 from .radio import _key
 from .resources import PROVIDERS, background_request
@@ -98,12 +98,12 @@ def recent_release(row, today):
 class Discovery:
     def __init__(self, workspace, get=None):
         # Durable store, kept out of the acquisition scratch quota (see scratch_size).
-        (Path(workspace) / '.discovery').mkdir(mode=0o700, exist_ok=True)
-        self.path = str(Path(workspace) / '.discovery' / 'discovery.sqlite3')
+        (state_path(workspace, '.discovery')).mkdir(mode=0o700, exist_ok=True)
+        self.path = str(state_path(workspace, '.discovery') / 'discovery.sqlite3')
         self.lock = threading.RLock()
         self.refresh_lock = threading.Lock()
         try:
-            self.mbids = json.loads((Path(workspace) / '.artist-genres.json').read_text(encoding='utf-8'))
+            self.mbids = json.loads((state_path(workspace, '.artist-genres.json')).read_text(encoding='utf-8'))
         except (OSError, ValueError): self.mbids = {}
         if not isinstance(self.mbids, dict): self.mbids = {}
         self.get = get or (lambda path: catalog_search._get('deezer', 'https://api.deezer.com/' + path))

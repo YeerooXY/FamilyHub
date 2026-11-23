@@ -4,6 +4,7 @@ Library titles often come from video uploads ("Artist feat. X - Song (Official V
 fan channel), so the lookup tries a few cleaned name pairs and accepts a match only when its
 length is within a few seconds of the recording.
 """
+from .state import state_path
 import json
 import os
 import re
@@ -105,7 +106,7 @@ class LyricsCache:
     RETRY_MISS = 7 * 24 * 3600
 
     def __init__(self, workspace, lookup=None):
-        self.root = os.path.join(workspace, '.lyrics')
+        self.root = state_path(workspace, '.lyrics')
         self.lookup = lookup or find
         self.locks, self.guard = {}, threading.Lock()
 

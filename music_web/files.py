@@ -1,7 +1,7 @@
 """Family file sharing: a shared folder, a private folder per profile, and one-off share links.
 
-Files live on disk under FILES_ROOT (`family/` and `profiles/<id>/`). Share links keep only a hash of the secret in a small
-SQLite database next to the files. A link serves one file as a forced download; the landing page does not count a download,
+Files live on disk under FILES_ROOT (`family/` and `profiles/<id>/`). Share secrets are hashed in a SQLite database
+under STATE_DIR, or under FILES_ROOT when STATE_DIR is unset. The landing page preserves the download allowance,
 so a chat app's link preview cannot use up a one-off link. File and folder names are never written to the activity log.
 """
 from dataclasses import dataclass
@@ -18,6 +18,8 @@ import time
 
 from flask import Response, g, jsonify, request, send_file
 from werkzeug.security import check_password_hash, generate_password_hash
+
+from .state import files_database_path
 
 SPACES = ('family', 'mine')
 BAD_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
@@ -106,9 +108,7 @@ class Store:
             os.makedirs(folder, exist_ok=True)
         self.lock = threading.RLock()
         self.uploads: dict[str, Upload] = {}
-        database = os.path.join(self.root, '.familyhub-files.db')
-        if os.path.normcase(os.path.realpath(database)) != os.path.normcase(database):
-            raise RuntimeError('The files database path is linked.')
+        database = files_database_path(dict(cfg, FILES_ROOT=self.root, WORKSPACE=self.root))
         self.db = sqlite3.connect(database, check_same_thread=False, isolation_level=None)
         self.db.executescript('''
             CREATE TABLE IF NOT EXISTS owners (space TEXT NOT NULL, path TEXT NOT NULL, owner TEXT NOT NULL, PRIMARY KEY (space, path));

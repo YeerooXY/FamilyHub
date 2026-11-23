@@ -1,4 +1,5 @@
 """Connected listening time, offline listening counters, royalties and subscription savings for the family server."""
+from copy import deepcopy
 import json
 import logging
 import math
@@ -6,8 +7,9 @@ import re
 import threading
 import time
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from .state import StateWriter, read_version, state_path, wait_for_write, write_json
 
 # Reported industry average of $3.41 per 1000 qualified plays (Duetti 2024, https://report.duetti.co/).
 ROYALTY_RATE_USD = 0.00341
@@ -81,77 +83,118 @@ class ListeningStats:
     MAX_ENTRIES = 400
     MAX_DEVICES = 32  # Durable counter devices per profile; never evict counters that could be replayed.
 
-    def __init__(self, workspace, clock=time.monotonic, utc=lambda: datetime.now(timezone.utc)):
-        self.path = Path(workspace) / '.listening-statistics.json'
-        self.journal = self.path.with_suffix('.jsonl')
+    def __init__(self, workspace, clock=time.monotonic, utc=lambda: datetime.now(timezone.utc), *, writer=None):
+        self.path = state_path(workspace, '.listening-statistics.json')
+        self.journal = state_path(workspace, '.listening-statistics.jsonl')
         self.clock, self.utc = clock, utc
         self.lock = threading.RLock()
         self.devices, self.counted = {}, {}
-        self.data = json.loads(self.path.read_text(encoding='utf-8')) if self.path.exists() else {
-            'since': utc().isoformat(), 'profiles': {}}
-        # daily: user -> day -> seconds, plays: user -> qualified plays, savings: user -> month -> HUF credited,
-        # counters: user -> device -> {at, days: day -> [seconds, plays]}. Old files simply gain empty sections.
-        # shortcut: counters and daily seconds are bounded by the calendar since 2020, not pruned.
-        for key in ('daily', 'plays', 'savings', 'counters'):
-            self.data.setdefault(key, {})
+        self.writer = writer or StateWriter()
+        self.defer_snapshot_write = writer is not None
         self.last_write = None
         self.legacy_dirty = False
-        self.revision = self.data.pop('journal_revision', 0)
-        self.journal_end = 0
-        if self.journal.exists():
+        self.pending = None
+        self.versions = self._versions()
+        self.data, self.revision, self.journal_end = self._load()
+        if writer is not None:
+            writer.watch(self._refresh)
+
+    def _versions(self):
+        return read_version(self.path), read_version(self.journal)
+
+    def _load(self):
+        try:
+            data = json.loads(self.path.read_text(encoding='utf-8'))
+        except FileNotFoundError:
+            data = {'since': self.utc().isoformat(), 'profiles': {}}
+        for key in ('daily', 'plays', 'savings', 'counters'):
+            data.setdefault(key, {})
+        revision = data.pop('journal_revision', 0)
+        journal_end = 0
+        try:
             with self.journal.open('rb') as journal:
                 for line in journal:
                     if not line.endswith(b'\n'):
                         break  # An interrupted append leaves an incomplete final record.
-                    revision, since, user, device_id, at, days = json.loads(line)
-                    self.journal_end += len(line)
-                    if revision > self.revision:
-                        self.data['since'] = since
-                        self._credit(user, device_id, at, days)
-                        self.revision = revision
+                    entry, since, user, device_id, at, days = json.loads(line)
+                    journal_end += len(line)
+                    if entry > revision:
+                        data['since'] = since
+                        self._credit(data, user, device_id, at, days)
+                        revision = entry
+        except FileNotFoundError:
+            pass
+        return data, revision, journal_end
+
+    def _refresh(self):
+        with self.lock:
+            pending = self.pending
+            if self.legacy_dirty or (pending is not None and not pending.done()):
+                return
+        versions = self._versions()
+        if versions == self.versions:
+            return
+        loaded = self._load()
+        with self.lock:
+            if self.pending is pending and not self.legacy_dirty:
+                self.data, self.revision, self.journal_end = loaded
+                self.versions = versions
 
     def _write(self, now):
-        temporary = self.path.with_suffix('.tmp')
-        temporary.write_text(json.dumps(dict(self.data, journal_revision=self.revision)), encoding='utf-8')
-        temporary.replace(self.path)
+        snapshot = deepcopy(dict(self.data, journal_revision=self.revision))
         self.last_write = now
         self.legacy_dirty = False
-        if self.journal_end:
-            try:
-                self.journal.unlink(missing_ok=True)
-            except OSError:
-                # The checkpoint revision also handles replay if cleanup is interrupted.
-                logging.getLogger(__name__).exception('Could not remove compacted listening statistics journal')
-            else:
-                self.journal_end = 0
+
+        def checkpoint():
+            version = write_json(self.path, snapshot)
+            if self.journal_end:
+                try:
+                    self.journal.unlink(missing_ok=True)
+                except OSError:
+                    # The checkpoint revision also handles replay if cleanup is interrupted.
+                    logging.getLogger(__name__).exception('Could not remove compacted listening statistics journal')
+                else:
+                    self.journal_end = 0
+            self.versions = version, read_version(self.journal)
+
+        self.pending = self.writer.submit(self.path.name, checkpoint)
+        return self.pending
 
     def _append(self, user, device_id, at, days):
-        revision = self.revision + 1
-        record = json.dumps((revision, self.data['since'], user, device_id, at, days), separators=(',', ':')).encode() + b'\n'
-        with self.journal.open('ab', buffering=0) as journal:
-            if journal.tell() != self.journal_end:
-                journal.truncate(self.journal_end)
-            try:
-                if journal.write(record) != len(record):
-                    raise OSError('Incomplete listening statistics journal write')
-            except OSError:
-                journal.truncate(self.journal_end)
-                raise
-        self.journal_end += len(record)
-        self.revision = revision
+        self.revision += 1
+        record = json.dumps((self.revision, self.data['since'], user, device_id, at, days),
+                            separators=(',', ':')).encode() + b'\n'
 
-    def _credit(self, user, device_id, at, days):
-        device = self.data['counters'].setdefault(user, {}).setdefault(device_id, {'at': 0, 'days': {}})
+        def append():
+            with self.journal.open('ab', buffering=0) as journal:
+                if journal.tell() != self.journal_end:
+                    journal.truncate(self.journal_end)
+                try:
+                    if journal.write(record) != len(record):
+                        raise OSError('Incomplete listening statistics journal write')
+                except OSError:
+                    journal.truncate(self.journal_end)
+                    raise
+                version = read_version(self.journal)
+            self.journal_end += len(record)
+            self.versions = self.versions[0], version
+
+        self.pending = self.writer.submit(self.journal.name, append)
+        return self.pending
+
+    @staticmethod
+    def _credit(data, user, device_id, at, days):
+        device = data['counters'].setdefault(user, {}).setdefault(device_id, {'at': 0, 'days': {}})
         gained_seconds, gained_plays = 0, 0
         for day, new in days.items():
             old = device['days'].get(day, [0, 0])
             device['days'][day] = new
             seconds, plays = new[0] - old[0], new[1] - old[1]
             if seconds:
-                self._add_seconds(user, day, seconds)
+                ListeningStats._add_seconds(data, user, day, seconds)
                 gained_seconds += seconds
             if plays:
-                self.data['plays'][user] = self.data['plays'].get(user, 0) + plays
+                data['plays'][user] = data['plays'].get(user, 0) + plays
                 gained_plays += plays
         device['at'] = at
         return dict(seconds=gained_seconds, plays=gained_plays)
@@ -161,14 +204,16 @@ class ListeningStats:
             if now - device['at'] >= self.LEASE:
                 self.devices.pop(key)
 
-    def _add_seconds(self, user, day, seconds):
-        months = self.data['profiles'].setdefault(user, {})
+    @staticmethod
+    def _add_seconds(data, user, day, seconds):
+        months = data['profiles'].setdefault(user, {})
         months[day[:7]] = months.get(day[:7], 0) + seconds
-        daily = self.data['daily'].setdefault(user, {})
+        daily = data['daily'].setdefault(user, {})
         daily[day] = daily.get(day, 0) + seconds
 
-    def heartbeat(self, user, device_id, playing, count_time=True, track=None):
+    def heartbeat(self, user, device_id, playing, count_time=True, track=None, *, writes=None):
         """count_time=False keeps presence only, for clients that report their time through sync()."""
+        done = None
         with self.lock:
             now = self.clock()
             self._expire(now)
@@ -179,16 +224,20 @@ class ListeningStats:
                 # Count elapsed playback, merging overlapping devices of one profile.
                 elapsed = max(0, now - max(previous['at'], self.counted.get(user, previous['at'])))
                 if elapsed:
-                    self._add_seconds(user, self.utc().strftime('%Y-%m-%d'), elapsed)
+                    self._add_seconds(self.data, user, self.utc().strftime('%Y-%m-%d'), elapsed)
                     self.counted[user] = now
                     self.legacy_dirty = True
             if key not in self.devices and len(self.devices) >= 512:
                 raise ValueError('Too many active players.')
             self.devices[key] = {'at': now, 'playing': playing, 'track': track if playing else None}
             if self.legacy_dirty and was_counting and (self.last_write is None or now - self.last_write >= 30 or not playing):
-                self._write(now)
+                done = self._write(now)
+        if writes is None:
+            wait_for_write(done)
+        elif done is not None:
+            writes.append(done)
 
-    def sync(self, user, device_id, entries, *, after_day=''):
+    def sync(self, user, device_id, entries, *, after_day='', writes=None):
         """Credit the growth of a device's cumulative daily counters; returns the credited seconds and plays."""
         if not isinstance(user, str) or not user:
             raise ValueError('Choose a family profile.')
@@ -233,15 +282,16 @@ class ListeningStats:
                 self.data['counters'].setdefault(user, {}).setdefault(device_id, {'at': 0, 'days': {}})
                 return dict(seconds=0, plays=0)
             at = int(self.utc().timestamp())
-            self._append(user, device_id, at, changed)
-            result = self._credit(user, device_id, at, changed)
+            done = self._append(user, device_id, at, changed)
+            result = self._credit(self.data, user, device_id, at, changed)
             now = self.clock()
             if self.last_write is None or now - self.last_write >= self.CHECKPOINT_SECONDS:
-                try:
-                    self._write(now)
-                except OSError:
-                    logging.getLogger(__name__).exception('Could not compact listening statistics journal')
-            return result
+                done = self._write(now)
+        if writes is None:
+            wait_for_write(done)
+        else:
+            writes.append(done)
+        return result
 
     def playing(self):
         with self.lock:
@@ -258,7 +308,14 @@ class ListeningStats:
             self.reset_presence(user)
             for key in ('profiles', 'daily', 'plays', 'counters'):
                 self.data[key].pop(user, None)
-            self._write(self.clock())
+            done = self._write(self.clock())
+        wait_for_write(done)
+
+    def flush(self):
+        with self.lock:
+            if self.legacy_dirty:
+                self._write(self.clock())
+        self.writer.flush()
 
     def _reconcile(self, user, history, now):
         """Credit the first no-subscription month and subsequent eligible month boundaries once."""
@@ -294,6 +351,7 @@ class ListeningStats:
                     if day.startswith(prefix) and day <= today and seconds > 0}
 
     def snapshot(self, profiles, subscription_history=None, *, hidden=()):
+        done = None
         with self.lock:
             self._expire(self.clock())
             now = self.utc()
@@ -318,10 +376,7 @@ class ListeningStats:
                                  saved_huf=sum(self.data['savings'].get(user, {}).values()),
                                  monthly_saved_huf=SPOTIFY_PRICE_HUF if status is False else 0))
             if changed:
-                try:
-                    self._write(self.clock())
-                except OSError:
-                    pass  # Kept in memory and included in the next checkpoint.
+                done = self._write(self.clock())
             today = now.date()
             daily = []
             visible = [p for p in profiles if p['id'] not in hidden]
@@ -332,9 +387,12 @@ class ListeningStats:
                 day = (today - timedelta(days=back)).isoformat()
                 daily.append(dict(day=day, seconds=sum(self.data['daily'].get(p['id'], {}).get(day, 0) for p in visible)))
             plays = sum(row['qualified_plays'] for row in rows)
-            return dict(since=self.data['since'], profiles=rows,
+            result = dict(since=self.data['since'], profiles=rows,
                         total_seconds=sum(row['seconds'] for row in rows), total_qualified_plays=plays,
                         royalty_usd=round(plays * ROYALTY_RATE_USD, 5), royalty_rate_usd=ROYALTY_RATE_USD,
                         royalty_source=ROYALTY_SOURCE, saved_huf=sum(row['saved_huf'] for row in rows),
                         monthly_saved_huf=sum(row['monthly_saved_huf'] for row in rows), daily=daily,
                         records=listening_records(self.data['daily'], visible, today))
+        if done is not None and not self.defer_snapshot_write:
+            wait_for_write(done)
+        return result

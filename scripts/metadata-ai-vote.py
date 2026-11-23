@@ -28,7 +28,7 @@ LABEL = 'AI vote (Claude Haiku, 3 runs)'
 EXPORT = r'''
 import collections,json,pathlib
 c=json.loads(pathlib.Path('/etc/familyhub-music-web/config.json').read_text())
-d=json.loads((pathlib.Path(c['WORKSPACE'])/'.catalogue-review.json').read_text())
+d=json.loads((pathlib.Path(c.get('STATE_DIR') or c['WORKSPACE'])/'.catalogue-review.json').read_text())
 rows=d['metadata'].values()
 genres=collections.Counter(r['current'].get('genre','') for r in rows if r['state']=='done')
 genres.update(v['values']['genre'] for v in d['overrides'].values() if v.get('values',{}).get('genre'))
@@ -41,7 +41,7 @@ print(json.dumps(dict(
 INSTALL = r'''
 import json,os,pathlib
 c=json.loads(pathlib.Path('/etc/familyhub-music-web/config.json').read_text())
-target=pathlib.Path(c['WORKSPACE'])/'.metadata-votes.json'
+target=pathlib.Path(c.get('STATE_DIR') or c['WORKSPACE'])/'.metadata-votes.json'
 json.loads(data)
 temporary=target.with_suffix('.incoming');temporary.write_text(data,encoding='utf-8')
 review=target.with_name('.catalogue-review.json');st=review.stat()

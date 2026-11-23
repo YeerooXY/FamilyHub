@@ -5,7 +5,7 @@ import threading
 import time
 from .audio_profile import measure_loudness
 from .worker_activity import WorkerActivity
-from .resources import observe, PriorityLane, ResourceGovernor
+from .resources import observe, PriorityLane, ResourceGovernor, lower_background_priority
 
 _encoding = threading.Lock()
 background_activity = WorkerActivity('opus-background', 'Opus background copy')
@@ -176,15 +176,21 @@ class Warmer:
             return False
 
     def work(self):
+        lower_background_priority()
         pending, made_any = [], True
         # Let the server finish starting before the first library pass.
         self.stop.wait(self.start_delay)
         # Background copies run niced; a listener's own encode never does.
         control = getattr(self.intake, "CONTROL", None)
+        governor = getattr(self.intake, "RESOURCES", None)
         if control is not None:
             control.background = True
             control.priority = lambda: 3
         while not self.stop.is_set():
+            if governor is not None:
+                governor.yield_to_requests(self.stop.is_set)
+            if self.stop.is_set():
+                return
             if not self.idle():
                 with self.cv:
                     self.cv.wait(30)
