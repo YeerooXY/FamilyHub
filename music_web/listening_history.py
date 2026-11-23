@@ -8,9 +8,9 @@ import re
 import threading
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from uuid import UUID
 
+from .state import state_path
 from .wrapped import add_event, compare, write_json, yearly_summary, first_artists
 from .genres import genre_key, genre_label, most_common_genre
 
@@ -19,7 +19,7 @@ class ListeningHistory:
 
     def __init__(self, workspace, utc=lambda: datetime.now(timezone.utc), track_metadata=lambda ids: {},
                  yearly_daily=lambda profile, year: {}):
-        self.root = Path(workspace) / '.listening-history'
+        self.root = state_path(workspace, '.listening-history')
         self.utc = utc
         self.track_metadata = track_metadata
         self.yearly_daily = yearly_daily

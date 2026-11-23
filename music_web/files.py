@@ -4,6 +4,7 @@ Files live on disk under FILES_ROOT (`family/` and `profiles/<id>/`). Share link
 SQLite database next to the files. A link serves one file as a forced download; the landing page does not count a download,
 so a chat app's link preview cannot use up a one-off link. File and folder names are never written to the activity log.
 """
+from .state import state_path
 from dataclasses import dataclass
 import hashlib
 import hmac
@@ -107,7 +108,7 @@ class Store:
             os.makedirs(os.path.join(self.root, sub), exist_ok=True)
         self.lock = threading.Lock()
         self.uploads: dict[str, Upload] = {}
-        self.db = sqlite3.connect(os.path.join(self.root, '.familyhub-files.db'), check_same_thread=False, isolation_level=None)
+        self.db = sqlite3.connect(state_path(dict(cfg, FILES_ROOT=self.root, WORKSPACE=self.root), '.familyhub-files.db'), check_same_thread=False, isolation_level=None)
         self.db.executescript('''
             CREATE TABLE IF NOT EXISTS owners (space TEXT NOT NULL, path TEXT NOT NULL, owner TEXT NOT NULL, PRIMARY KEY (space, path));
             CREATE TABLE IF NOT EXISTS links (

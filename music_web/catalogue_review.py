@@ -2,10 +2,10 @@
 import copy
 from datetime import datetime, timezone
 import json
-from pathlib import Path
 import re
 import threading
 import time
+from .state import state_path
 from .musicbrainz import read as musicbrainz, Throttled
 from .genres import group as genre_group
 from . import catalog_search
@@ -138,7 +138,7 @@ def musicbrainz_lookup(row):
 class CatalogueReview:
     MAX_ROWS=10000
     def __init__(self,workspace,automatic_limit=DEFAULT_AUTO_RESOLUTIONS_PER_HOUR,clock=time.time):
-        self.path=Path(workspace)/'.catalogue-review.json';self.lock=threading.RLock();self.dirty=False
+        self.path=state_path(workspace, '.catalogue-review.json');self.lock=threading.RLock();self.dirty=False
         self.automatic_limit, self.clock = max(0, int(automatic_limit)), clock
         self.source_automation = False
         self.data=json.loads(self.path.read_text(encoding='utf-8')) if self.path.exists() else dict(trimming={},metadata={},overrides={})

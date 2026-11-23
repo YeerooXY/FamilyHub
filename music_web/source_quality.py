@@ -17,11 +17,12 @@ import time
 from contextlib import nullcontext
 from types import SimpleNamespace
 
+from .state import state_path
 from .catalogue_review import ReviewError, normal, seed
 from .playlists import preferred_match, rank_matches, repoint_recording, source_tier
 from .review_confidence import MATCH_DURATION_SECONDS, close_duration, presentation_title
 from .worker_activity import WorkerActivity
-from .resources import audio_command, background_command, background_request, observe
+from .resources import audio_command, background_command, background_request, lower_background_priority, observe
 
 FFMPEG_LOCK = threading.Lock()
 SIZE = 4096
@@ -180,9 +181,9 @@ def analyze(path, duration, idle=lambda: True, ffmpeg='ffmpeg', governor=None):
 
 
 class SourceQuality:
-    def __init__(self, workspace, intake, idle=lambda: True, review=None, limit_search=False, candidate_ready=lambda: None):
+    def __init__(self, workspace, intake, idle=lambda: True, review=None, limit_search=False, candidate_ready=lambda: None, *, state=None):
         self.workspace = Path(workspace)
-        self.path = self.workspace / '.source-quality.json'
+        self.path = state_path(state or workspace, '.source-quality.json')
         self.intake, self.idle, self.review = intake, idle, review
         self.limit_search = limit_search
         self.candidate_ready = candidate_ready
@@ -213,7 +214,7 @@ class SourceQuality:
                 row.update(proposed_replacement=None, replacement_checked=False)
 
     def replacements(self):
-        journal = self.workspace / '.replacements.json'
+        journal = state_path(self.path.parent, '.replacements.json')
         # Windows may block journal replacement while another thread has its file open.
         with self.review.lock if self.review else nullcontext():
             try:
@@ -235,7 +236,10 @@ class SourceQuality:
             active_keys = set()
             deferred = False
             work = 0
+            governor = getattr(self.intake, "RESOURCES", None)
             for item in sorted(self.workspace.iterdir()):
+                if governor is not None:
+                    governor.yield_to_requests(self.stop.is_set)
                 if not self.idle() or self.stop.is_set():
                     return
                 if not self.intake.ID_RE.fullmatch(item.name) or not item.name.startswith(('yt-', 'local-')):
@@ -423,7 +427,7 @@ def replace_saved(workspace, library, old_id, candidate, saved_source, playlists
             or target.resolve() == new_target.resolve()):
         raise SourceCheckError('The original recording cannot be safely archived.')
     archive = workspace / '.replaced' / old_id
-    journal = workspace / '.replacements.json'
+    journal = playlists.replacement_journal
     records = json.loads(journal.read_text(encoding='utf-8')) if journal.exists() else {}
     if records.get(candidate['id'], {}).get('state') in ('done', 'pending', 'undoing') or any(
             event['new_id'] == old_id and event['state'] in ('done', 'undoing') for event in records.values()):
@@ -471,7 +475,7 @@ def replace_saved(workspace, library, old_id, candidate, saved_source, playlists
             changes.append((path, data))
     review.flush()
     backup(review.path)
-    lyrics = workspace / '.lyrics' / (old_id + '.json')
+    lyrics = state_path(playlists.root.parent, '.lyrics') / (old_id + '.json')
     new_lyrics = lyrics.with_name(candidate['id'] + '.json')
     backup(new_lyrics)
     entry['lyrics_created'] = str(new_lyrics) if not explicit and lyrics.exists() and not new_lyrics.exists() else None
@@ -531,7 +535,7 @@ def undo_saved(workspace, library, old_id, records, playlists, review):
         if os.path.lexists(source) == os.path.lexists(destination) or entry['state'] == 'done' and not source.exists():
             raise ValueError('The original file cannot be restored safely. Check the replacement archive.')
     entry['state'] = 'undoing'
-    journal = root / '.replacements.json'
+    journal = playlists.replacement_journal
     write_json(journal, records)
     for source, destination in moves:
         if source.exists():
@@ -571,12 +575,12 @@ def undo_saved(workspace, library, old_id, records, playlists, review):
 
 
 def register(app, workspace, intake, idle, admin, review, enabled=True, replace=None, busy=lambda identifier: False,
-             automatic_user=None, undo=None, *, body, report_source):
+             automatic_user=None, undo=None, *, body, report_source, state=None):
     from flask import jsonify, request, g
     automatic_user = automatic_user if enabled and review.automatic_limit > 0 else None
     review.source_automation = bool(automatic_user)
     pending = queue.Queue()
-    scanner = SourceQuality(workspace, intake, idle, review, limit_search=enabled,
+    scanner = SourceQuality(workspace, intake, idle, review, limit_search=enabled, state=state,
                             candidate_ready=lambda: pending.put(None) if automatic_user else None)
     app.extensions['music'].source_quality = scanner
 
@@ -772,6 +776,7 @@ def register(app, workspace, intake, idle, admin, review, enabled=True, replace=
         return jsonify(scanner.snapshot())
 
     def scan():
+        lower_background_priority()
         background_request.set(True)
         while not scanner.stop.wait(30):
             deferred = False

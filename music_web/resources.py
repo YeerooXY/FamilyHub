@@ -1,7 +1,10 @@
 """Presence leases, resource admission and stage observations."""
 import logging
+import ctypes
 import os
+import platform
 import shutil
+import sys
 import threading
 import time
 from collections import Counter
@@ -89,6 +92,11 @@ class ResourceGovernor:
         self.cpu_capacity = compute_capacity()
         self.cpu_active = 0
         self.cpu_waiters = []
+        self.interactive_queued = lambda: False
+
+    def yield_to_requests(self, cancelled=lambda: False):
+        while not cancelled() and self.interactive_queued():
+            time.sleep(0.05)
 
     def _changed(self):
         self.condition.notify_all()
@@ -338,6 +346,27 @@ def compute_capacity():
     except (OSError, ValueError, ZeroDivisionError):
         pass
     return max(0, cores - 1)
+
+
+def lower_background_priority():
+    if not sys.platform.startswith('linux'):
+        return
+    try:
+        os.nice(10)
+    except OSError:
+        logging.getLogger(__name__).debug('Could not lower background CPU priority', exc_info=True)
+    libc = ctypes.CDLL(None, use_errno=True)
+    ioprio_set = getattr(libc, 'ioprio_set', None)
+    if ioprio_set is not None:
+        result = ioprio_set(1, 0, 3 << 13)  # IOPRIO_WHO_PROCESS, current thread, IOPRIO_CLASS_IDLE
+    else:
+        syscall_number = {'x86_64': 251, 'aarch64': 30, 'i686': 289, 'armv7l': 314,
+                          'riscv64': 30}.get(platform.machine())
+        if syscall_number is None:
+            return
+        result = libc.syscall(ctypes.c_long(syscall_number), 1, 0, 3 << 13)
+    if result != 0:
+        logging.getLogger(__name__).debug('Could not set idle background I/O priority (errno %d)', ctypes.get_errno())
 
 
 def background_command(command, nice=10):

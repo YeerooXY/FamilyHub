@@ -1,13 +1,13 @@
 """Profiles for an explicitly enabled private family server."""
 from copy import deepcopy
-import json
 import hashlib
 import re
 import secrets
 import math
 import time
-from pathlib import Path
 from datetime import datetime, timezone
+
+from .state import CachedJSON, StateWriter, state_path, wait_for_write
 
 
 class ProfileError(ValueError):
@@ -22,38 +22,32 @@ def file_version(path):
 class ProfileStore:
     COLORS = ("#bba8ff", "#7fc8f8", "#96d6ab", "#f5b98d", "#eea9ca", "#e6d279")
 
-    def __init__(self, workspace, seeds, clock=time.time):
+    def __init__(self, workspace, seeds, clock=time.time, *, writer=None):
         self.clock = clock
-        self.path = Path(workspace) / ".family-profiles.json"
-        self._cache = None
-        if not self.path.exists():
+        self.path = state_path(workspace, ".family-profiles.json")
+        self.playback_dir = state_path(workspace, ".playback-state")
+        self.files = CachedJSON(writer or StateWriter())
+        if self.files.read(self.path) is None:
             profiles = []
             for name in sorted(set(seeds)):
                 if len(profiles) >= 12:
                     raise ProfileError("Family mode supports up to 12 profiles.")
                 profiles.append(self.profile(name, name, len(profiles)))
             self.write({"profiles": profiles, "preferences": {}})
+        if writer is not None:
+            writer.watch(self.files.refresh)
 
     def profile(self, profile_id, name, index):
         return {"id": profile_id, "name": name, "color": self.COLORS[index % len(self.COLORS)]}
 
     def _load(self):
-        version = file_version(self.path)
-        cached = self._cache
-        if cached is None or cached[0] != version:
-            cached = version, json.loads(self.path.read_text(encoding="utf-8"))
-            self._cache = cached
-        return cached[1]
+        return self.files.read(self.path)
 
     def read(self):
         return deepcopy(self._load())
 
     def write(self, data):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        temporary.replace(self.path)
-        self._cache = None
+        wait_for_write(self.files.write(self.path, deepcopy(data)))
 
     def list(self):
         return [self._public_profile(profile) for profile in self._load()["profiles"]]
@@ -160,8 +154,7 @@ class ProfileStore:
 
     def playback(self, profile_id, value=None):
         self.get(profile_id)
-        directory = self.path.parent / '.playback-state'
-        path = directory / (hashlib.sha256(profile_id.encode()).hexdigest() + '.json')
+        path = self.playback_dir / (hashlib.sha256(profile_id.encode()).hexdigest() + '.json')
         if value is not None:
             ids = value.get("track_ids") if isinstance(value, dict) else None
             index = value.get("index") if isinstance(value, dict) else None
@@ -172,11 +165,7 @@ class ProfileStore:
                     or type(position) not in (int, float) or not math.isfinite(position) or not 0 <= position <= 86400):
                 raise ProfileError("Invalid saved playback position.")
             value = {"track_ids": ids, "index": index, "position": position, "updated_at": int(time.time() * 1000)}
-            directory.mkdir(exist_ok=True)
-            temporary = path.with_suffix('.tmp')
-            temporary.write_text(json.dumps(value), encoding='utf-8')
-            temporary.replace(path)
+            wait_for_write(self.files.write(path, deepcopy(value)))
             return value
-        if path.exists():
-            return json.loads(path.read_text(encoding='utf-8'))
-        return self._load().get('playback', {}).get(profile_id)
+        saved = self.files.read(path)
+        return deepcopy(saved if saved is not None else self._load().get('playback', {}).get(profile_id))

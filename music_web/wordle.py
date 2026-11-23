@@ -1,6 +1,6 @@
 """Daily Our Word puzzles and profile-scoped results."""
 from collections import defaultdict
-from contextlib import closing, nullcontext
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from functools import lru_cache
@@ -8,12 +8,14 @@ import hashlib
 import json
 from pathlib import Path
 import re
-from threading import Lock
+from threading import Lock, RLock
 from time import monotonic
 import sqlite3
 from zoneinfo import ZoneInfo
 
 from flask import g, jsonify, request
+
+from .state import StateWriter, state_path, wait_for_write
 
 
 WORD_LENGTH = 5
@@ -133,12 +135,15 @@ def summarize(results, today):
 
 
 class WordPuzzles:
-    def __init__(self, workspace, answer_for, error):
-        self.database = Path(workspace) / ".word-puzzles.sqlite3"
+    def __init__(self, workspace, answer_for, error, writer=None):
+        self.database = state_path(workspace, ".word-puzzles.sqlite3")
+        self.writer = writer or StateWriter()
+        self.memory = sqlite3.connect(":memory:", check_same_thread=False)
+        self.answer_lock = Lock()
         self.answer_for = answer_for
         self.error = error
         self.activity = {}
-        self.activity_lock = Lock()
+        self.activity_lock = RLock()
         with closing(self.connect()) as db, db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS puzzle (
@@ -171,30 +176,50 @@ class WordPuzzles:
                     db.execute("UPDATE progress SET guesses = ?, guess_count = ? WHERE profile = ? AND day = ?",
                                (json.dumps(unique), len(unique), profile, day))
 
+            db.commit()
+            db.backup(self.memory)
+
     def connect(self):
         return sqlite3.connect(self.database, timeout=5)
 
-    def answer(self, day, key):
-        with closing(self.connect()) as db:
-            known = db.execute("SELECT answer FROM puzzle WHERE day = ?", (key,)).fetchone()
+    def _write(self, statement, values):
+        with self.memory:
+            self.memory.execute(statement, values)
+
+        def persist():
+            with closing(self.connect()) as db, db:
+                db.execute(statement, values)
+
+        return self.writer.submit(self.database.name, persist)
+
+    def answer(self, day, key, *, wait=True):
+        statement = "SELECT answer FROM puzzle WHERE day = ?"
+        with self.activity_lock:
+            known = self.memory.execute(statement, (key,)).fetchone()
+        if known:
+            return known[0]
+        with self.answer_lock:
+            with self.activity_lock:
+                known = self.memory.execute(statement, (key,)).fetchone()
             if known:
                 return known[0]
             candidate = self.answer_for(day)
             if not isinstance(candidate, str) or not re.fullmatch("[a-z]{5}", candidate):
                 raise self.error("Today's puzzle is unavailable. Try again later.", 503)
-            with db:
-                db.execute("INSERT OR IGNORE INTO puzzle VALUES (?, ?)", (key, candidate))
-                return db.execute("SELECT answer FROM puzzle WHERE day = ?", (key,)).fetchone()[0]
+            with self.activity_lock:
+                done = self._write("INSERT OR IGNORE INTO puzzle VALUES (?, ?)", (key, candidate))
+        if wait:
+            wait_for_write(done)
+        return candidate
 
     def play(self, profile, day, word=None, expected_guesses=None):
         key = day.isoformat()
-        answer = self.answer(day, key)
+        answer = self.answer(day, key, wait=word is None)
         if word is not None and word != answer and word not in accepted_guesses():
             raise self.error("That word is outside the guess list.")
-        with (self.activity_lock if word is not None else nullcontext()), closing(self.connect()) as db, db:
-            if word is not None:
-                db.execute("BEGIN IMMEDIATE")
-            record = db.execute("SELECT guesses, status, active_ms FROM progress WHERE profile = ? AND day = ?",
+        done = None
+        with self.activity_lock:
+            record = self.memory.execute("SELECT guesses, status, active_ms FROM progress WHERE profile = ? AND day = ?",
                                 (profile, key)).fetchone()
             guesses, status, active_ms = (json.loads(record[0]), record[1], record[2]) if record else ([], "playing", None)
             if word is not None and expected_guesses != len(guesses):
@@ -212,15 +237,15 @@ class WordPuzzles:
                     elapsed = self.elapsed(activity, monotonic())
                     if elapsed:
                         active_ms = (active_ms or 0) + elapsed
-                db.execute("""
+                done = self._write("""
                     INSERT INTO progress (profile, day, guesses, guess_count, status, active_ms) VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT(profile, day) DO UPDATE SET
                         guesses=excluded.guesses, guess_count=excluded.guess_count, status=excluded.status,
                         active_ms=excluded.active_ms
                     """, (profile, key, json.dumps(guesses), len(guesses), status, active_ms))
                 if status != "playing" and activity and activity.day == key:
-                    db.commit()
                     del self.activity[profile]
+        wait_for_write(done)
         result = dict(date=key, next_reset=next_reset(day), status=status,
                       max_guesses=MAX_GUESSES, word_length=WORD_LENGTH,
                       guesses=[dict(word=guess, marks=marks_for(guess, answer)) for guess in guesses])
@@ -231,14 +256,17 @@ class WordPuzzles:
         return result
 
     def settings(self, profile, hide=None):
-        with closing(self.connect()) as db, db:
+        done = None
+        with self.activity_lock:
             if hide is not None:
-                db.execute("""
+                done = self._write("""
                     INSERT INTO wordle_settings VALUES (?, ?)
                     ON CONFLICT(profile) DO UPDATE SET hide_family_until_finished=excluded.hide_family_until_finished
                 """, (profile, hide))
-                return dict(hide_family_until_finished=hide)
-            return dict(hide_family_until_finished=self.hides_family(db, profile))
+            else:
+                hide = self.hides_family(self.memory, profile)
+        wait_for_write(done)
+        return dict(hide_family_until_finished=hide)
 
     @staticmethod
     def hides_family(db, profile):
@@ -252,7 +280,8 @@ class WordPuzzles:
 
     def family_boards(self, profile, day, profiles):
         key = day.isoformat()
-        with closing(self.connect()) as db:
+        with self.activity_lock:
+            db = self.memory
             reveal = self.finished(db, profile, key)
             hide = not reveal and self.hides_family(db, profile)
             records = db.execute("""
@@ -261,7 +290,6 @@ class WordPuzzles:
                 """, (key,))
             boards = {owner: (json.loads(guesses), answer, status, active_ms)
                       for owner, guesses, answer, status, active_ms in records if not hide or owner == profile}
-        with self.activity_lock:
             now = monotonic()
             active = {owner: view for owner, view in self.activity.items()
                       if view.day == key and now - view.seen < ACTIVITY_TIMEOUT}
@@ -286,15 +314,14 @@ class WordPuzzles:
         return family
 
     def set_activity(self, profile, view, day, row, count):
+        done = None
         with self.activity_lock:
             before = self.activity.get(profile)
             same_day = before is not None and before.day == day
             if row is None and (not same_day or before.view != view):
                 return
-            if not same_day:
-                with closing(self.connect()) as db:
-                    if self.finished(db, profile, day):
-                        return
+            if not same_day and self.finished(self.memory, profile, day):
+                return
             now = monotonic()
             checkpoint = now
             if same_day:
@@ -302,20 +329,20 @@ class WordPuzzles:
                 if row is None or expired or now - before.checkpoint >= TIME_CHECKPOINT:
                     elapsed = self.elapsed(before, now)
                     if elapsed:
-                        with closing(self.connect()) as db, db:
-                            db.execute("""
-                                INSERT INTO progress (profile, day, guesses, guess_count, status, active_ms)
-                                SELECT ?, day, '[]', 0, 'playing', ? FROM puzzle WHERE day = ?
-                                ON CONFLICT(profile, day) DO UPDATE SET
-                                    active_ms=COALESCE(progress.active_ms, 0) + excluded.active_ms
-                                WHERE progress.status = 'playing'
-                                """, (profile, elapsed, day))
+                        done = self._write("""
+                            INSERT INTO progress (profile, day, guesses, guess_count, status, active_ms)
+                            SELECT ?, day, '[]', 0, 'playing', ? FROM puzzle WHERE day = ?
+                            ON CONFLICT(profile, day) DO UPDATE SET
+                                active_ms=COALESCE(progress.active_ms, 0) + excluded.active_ms
+                            WHERE progress.status = 'playing'
+                            """, (profile, elapsed, day))
                 else:
                     checkpoint = before.checkpoint
             if row is not None:
                 self.activity[profile] = ActiveView(view, day, row, count, checkpoint, now)
             else:
                 del self.activity[profile]
+        wait_for_write(done)
 
     @staticmethod
     def elapsed(view, now):
@@ -327,7 +354,8 @@ class WordPuzzles:
         key = day.isoformat()
         results = defaultdict(list)
         favorites = defaultdict(list)
-        with closing(self.connect()) as db:
+        with self.activity_lock:
+            db = self.memory
             reveal = self.finished(db, profile, key)
             hide = not reveal and self.hides_family(db, profile)
             for owner, result_day, status, guesses in db.execute("""
@@ -360,9 +388,9 @@ class WordPuzzles:
                     family_totals=family_totals, history=history)
 
 
-def register(app, workspace, require_family, profiles, body, api_error, daily_answer=None):
+def register(app, workspace, require_family, profiles, body, api_error, daily_answer=None, *, writer=None):
     answer_for = daily_answer if daily_answer is not None else lambda day: choose_answer(day, app.secret_key)
-    puzzles = WordPuzzles(workspace, answer_for, api_error)
+    puzzles = WordPuzzles(workspace, answer_for, api_error, writer)
 
     @app.get("/api/wordle/today")
     def wordle_today():

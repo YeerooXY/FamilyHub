@@ -37,6 +37,7 @@ class Base(unittest.TestCase):
             "REQUIRE_FINISHED_AUDIO": False, **self.extra}
         self.app = music_web.create_app(self.settings)
         self.state = self.app.extensions["music"]
+        self.addCleanup(self.state.close_state)
         self.intake = self.app.intake
         if not self.check_presence:
             # These route fixtures test their own work without waiting for lease handback.

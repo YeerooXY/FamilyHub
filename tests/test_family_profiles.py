@@ -182,14 +182,15 @@ class FamilyProfiles(Base):
 
     def test_profile_cache_reuses_parse_and_detects_replacement(self):
         user = 'sample-a'
-        store = ProfileStore(self.ws, [])
-        with mock.patch('music_web.profiles.json.loads', wraps=json.loads) as loads:
+        with mock.patch('music_web.state.json.loads', wraps=json.loads) as loads:
+            store = ProfileStore(self.ws, [])
             self.assertEqual(store.get(user)['name'], user)
             self.assertFalse(store.preferences(user)['listening_history_paused'])
             store.read()['profiles'][0]['name'] = 'Unsaved'
             self.assertEqual(store.get(user)['name'], user)
             loads.assert_called_once()
         ProfileStore(self.ws, []).preferences(user, {'listening_history_paused': True})
+        store.files.refresh()
         self.assertTrue(store.preferences(user)['listening_history_paused'])
         store.preferences(user, {'listening_history_paused': False})
         self.assertFalse(store.preferences(user)['listening_history_paused'])

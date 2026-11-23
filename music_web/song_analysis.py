@@ -10,9 +10,10 @@ import sys
 import threading
 from contextlib import nullcontext, suppress
 
+from .state import state_path
 from .source_quality import FFMPEG_LOCK, ScanPaused
 from .worker_activity import WorkerActivity
-from .resources import observe, audio_command, background_command
+from .resources import observe, audio_command, background_command, lower_background_priority
 
 
 def measure(path, duration, idle, ffmpeg, governor=None):
@@ -69,9 +70,9 @@ def measure(path, duration, idle, ffmpeg, governor=None):
 
 
 class SongAnalysis:
-    def __init__(self, workspace, library, intake, idle=lambda: True):
+    def __init__(self, workspace, library, intake, idle=lambda: True, *, state=None):
         self.workspace, self.library = Path(workspace), Path(library)
-        self.path = self.workspace / '.song-analysis.json'
+        self.path = state_path(state or workspace, '.song-analysis.json')
         self.intake, self.idle = intake, idle
         self.stop = threading.Event()
         self.lock, self.scan_lock = threading.RLock(), threading.Lock()
@@ -102,7 +103,10 @@ class SongAnalysis:
         if not self.scan_lock.acquire(blocking=False):
             return
         try:
+            governor = getattr(self.intake, "RESOURCES", None)
             for item in sorted(self.workspace.iterdir()):
+                if governor is not None:
+                    governor.yield_to_requests(self.stop.is_set)
                 if not self.idle() or self.stop.is_set():
                     return
                 if not self.intake.ID_RE.fullmatch(item.name) or not item.name.startswith(('yt-', 'local-')):
@@ -146,11 +150,12 @@ class SongAnalysis:
             self.scan_lock.release()
 
 
-def register(app, workspace, library, intake, idle, enabled=True):
-    scanner = SongAnalysis(workspace, library, intake, idle)
+def register(app, workspace, library, intake, idle, enabled=True, *, state=None):
+    scanner = SongAnalysis(workspace, library, intake, idle, state=state)
     app.extensions['music'].song_analysis = scanner
 
     def scan():
+        lower_background_priority()
         while not scanner.stop.wait(30):
             try:
                 complete = scanner.scan_once()

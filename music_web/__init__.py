@@ -20,6 +20,7 @@ from .listening_stats import ListeningStats
 from .wrapped import DeezerChart
 from .playlists import PlaylistError, PlaylistStore, fetch_playlist, fetch_youtube_playlist, rank_matches, preferred_match, library_match_key, reuse_library_match
 from .profiles import ProfileError, ProfileStore
+from .state import StateWriter, migrate_state, state_path, start_backups, wait_for_write
 from .mixing import transition
 from .audio_profile import profile
 from . import mobile_audio
@@ -38,7 +39,7 @@ from .playback_diagnostics import PlaybackDiagnostics, CLIENT_STAGES, NATIVE_STA
 from .lyrics import LyricsCache
 from .worker_activity import WorkerActivity, stage_summary
 from .resources import (ResourceGovernor, TransferResources, PROVIDERS, background_activity, background_request,
-                        enabled, transfer_limit, waiting, runtime_capacity, background_command, audio_command)
+                        enabled, transfer_limit, waiting, runtime_capacity, background_command, audio_command, lower_background_priority)
 from . import link_playlists
 from . import radio
 
@@ -99,6 +100,9 @@ def preview_victims(jobs, exclude=None):
 DEFAULTS = {
     "CLI_PATH": "/usr/local/lib/familyhub/music-intake.py",
     "WORKSPACE": "/srv/familyhub/data/quarantine/music/intake",
+    "STATE_DIR": None,
+    "STATE_BACKUP_DIR": None,
+    "WAITRESS_THREADS": 4,
     "LIBRARY": "/srv/familyhub/data/media/music",
     "NAVIDROME_URL": "http://127.0.0.1:4533",
     "PLAYER_URL": "https://familyhub.example.ts.net:8443/",
@@ -182,9 +186,15 @@ def create_app(test_config=None):
     origin = cfg["PUBLIC_ORIGIN"].rstrip("/")
     host = urllib.parse.urlsplit(origin).netloc
     ws, lib = os.path.abspath(cfg["WORKSPACE"]), os.path.abspath(cfg["LIBRARY"])
+    cfg["WORKSPACE"] = ws
+    threads = cfg["WAITRESS_THREADS"]
+    if type(threads) is not int or threads < 1:
+        raise ValueError("WAITRESS_THREADS must be a positive integer")
+    migrate_state(cfg)
+    state_writer = StateWriter()
     allowed = set(cfg["ALLOWED_USERS"])
     family_mode = cfg.get("FAMILY_PROFILES") is True
-    profile_store = ProfileStore(ws, allowed) if family_mode else None
+    profile_store = ProfileStore(cfg, allowed, writer=state_writer) if family_mode else None
     max_upload = cfg["MAX_UPLOAD"]
 
     app = Flask(__name__)
@@ -192,17 +202,17 @@ def create_app(test_config=None):
         SECRET_KEY=cfg["SECRET_KEY"], SESSION_COOKIE_NAME="familyhub_music", SESSION_COOKIE_SECURE=True,
         SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
         PERMANENT_SESSION_LIFETIME=timedelta(days=3650) if family_mode else timedelta(hours=REMEMBER_HOURS), SESSION_REFRESH_EACH_REQUEST=False,
-        MAX_CONTENT_LENGTH=max_upload + (1 << 20),
+        MAX_CONTENT_LENGTH=max_upload + (1 << 20), WAITRESS_THREADS=threads,
         WTF_CSRF_TIME_LIMIT=None, WTF_CSRF_SSL_STRICT=False)  # origin is checked in guard()
     app.intake = load_intake(cfg["CLI_PATH"])
     from . import verified_hashes
-    verified_hashes.install(app.intake, ws, lib)
-    catalogue_review = CatalogueReview(ws, cfg['AUTO_RESOLUTIONS_PER_HOUR'])
+    verified_hashes.install(app.intake, ws, lib, state=cfg)
+    catalogue_review = CatalogueReview(cfg, cfg['AUTO_RESOLUTIONS_PER_HOUR'])
     metadata_lookup = bool(cfg.get("METADATA_LOOKUP", cfg["PUBLIC_ORIGIN"] != "https://music.test") and catalogue_review.automatic_limit)
     from .playback_devices import PlaybackDevices
-    listening_versions = ListeningVersions(ws, app.intake)
+    listening_versions = ListeningVersions(ws, app.intake, state=cfg)
     finished_audio = FinishedAudio(ws, app.intake)
-    genre_labels = GenreLabels(ws, enabled=cfg.get("GENRE_LOOKUP", cfg["PUBLIC_ORIGIN"] != "https://music.test"))
+    genre_labels = GenreLabels(cfg, enabled=cfg.get("GENRE_LOOKUP", cfg["PUBLIC_ORIGIN"] != "https://music.test"))
     sessions, jobs, hits, lock = {}, OrderedDict(), {}, threading.RLock()
     session_lock = threading.RLock()
     playback_state_lock = threading.RLock()
@@ -220,7 +230,7 @@ def create_app(test_config=None):
     searches = {}
     search_cache = OrderedDict()
     radio_sources = OrderedDict()
-    bulk_path = os.path.join(ws, ".library-additions.json")
+    bulk_path = state_path(cfg, ".library-additions.json")
     bulk_file_lock = threading.Lock()
     bulk_revision = bulk_saved_revision = 0
     app.extensions["music"] = SimpleNamespace(sessions=sessions, jobs=jobs)
@@ -484,8 +494,7 @@ def create_app(test_config=None):
     @app.get("/api/connect")
     def family_connect():
         require_family()
-        with catalogue_lock:
-            profiles = profile_store.list()
+        profiles = profile_store.list()
         return jsonify(family_profiles=True, server_name="FamilyHub", profiles=profiles, csrf_token=generate_csrf())
 
     @app.post("/api/profiles")
@@ -509,10 +518,9 @@ def create_app(test_config=None):
     def select_family_profile():
         require_family()
         background = background_activity()
-        with catalogue_lock:
-            profile = profile_store.get(body().get("profile_id"))
-            preferences = profile_store.preferences(profile["id"])
-            establish_session(profile["id"], True, activity_header=background)
+        profile = profile_store.get(body().get("profile_id"))
+        preferences = profile_store.preferences(profile["id"])
+        establish_session(profile["id"], True, activity_header=background)
         g.pop("csrf_token", None)
         if background:
             resources.remember_profile(profile["id"])
@@ -524,8 +532,8 @@ def create_app(test_config=None):
     @app.route("/api/profile/playback", methods=["GET", "PUT", "PATCH"])
     def family_playback():
         require_family()
-        with playback_state_lock:
-            if request.method in ("PUT", "PATCH"):
+        if request.method in ("PUT", "PATCH"):
+            with playback_state_lock:
                 data = body(65536)
                 if data.get("profile_id") != g.user:
                     raise ApiError("The selected profile changed.", 409)
@@ -538,15 +546,15 @@ def create_app(test_config=None):
                         raise ApiError("The playback queue changed.", 409)
                     playback = dict(previous, index=index, position=playback.get("position"))
                 value = profile_store.playback(g.user, playback)
-            else:
-                value = profile_store.playback(g.user)
+        else:
+            value = profile_store.playback(g.user)
         return jsonify(profile_id=g.user, playback=value)
 
     @app.route("/api/profile/preferences", methods=["GET", "PATCH"])
     def family_preferences():
         require_family()
-        with catalogue_lock:
-            changes = body() if request.method == "PATCH" else None
+        changes = body() if request.method == "PATCH" else None
+        with catalogue_lock if changes is not None else nullcontext():
             preferences = profile_store.preferences(g.user, changes)
             if changes and changes.get('listening_history_paused') is True:
                 listening_stats.reset_presence(g.user)
@@ -605,9 +613,9 @@ def create_app(test_config=None):
 
     feedback_event = None
     if family_mode:
-        feedback_event = feedback.register(app, ws, body, ApiError, profile_store, lambda: g.user in cfg["ADMIN_USERS"])
-        wordle.register(app, ws, require_family, profile_store, body, ApiError,
-                        cfg.get("WORDLE_DAILY_ANSWER", published_answer))
+        feedback_event = feedback.register(app, cfg, body, ApiError, profile_store, lambda: g.user in cfg["ADMIN_USERS"])
+        wordle.register(app, cfg, require_family, profile_store, body, ApiError,
+                        cfg.get("WORDLE_DAILY_ANSWER", published_answer), writer=state_writer)
 
     def meta(d):
         out = {}
@@ -830,12 +838,11 @@ def create_app(test_config=None):
             except (app.intake.IntakeError, OSError):
                 continue
 
-    listening_stats = ListeningStats(ws)
-    deezer_chart = DeezerChart(ws, listening_stats.utc)
+    listening_stats = ListeningStats(cfg, writer=state_writer)
+    deezer_chart = DeezerChart(cfg, listening_stats.utc)
     from .profiles import file_version
 
     history_markers = {}
-    statistics_slot = threading.BoundedSemaphore(1)
 
     @app.post("/api/playback/activity")
     def playback_activity():
@@ -868,16 +875,12 @@ def create_app(test_config=None):
                                                           track, data.get("position"), identity,
                                                           background=background, room_heartbeat=room_heartbeat)
         owner = g.user
-        completed, errors = threading.Event(), []
-
-        def persist_activity():
+        writes = []
+        accepted = False
+        if catalogue_lock.acquire(timeout=.05):
             try:
-                # Keep history clear/resume and cumulative-counter writes serialized,
-                # without making Connect wait for that lock or a slow checkpoint.
-                with catalogue_lock:
-                    preferences = profile_store.preferences(owner) if family_mode else {}
-                    if preferences.get('listening_history_paused', False):
-                        return
+                preferences = profile_store.preferences(owner) if family_mode else {}
+                if not preferences.get('listening_history_paused', False):
                     if counters is not None:
                         try:
                             version = file_version(listening_history.path(owner).with_suffix('.cleared'))
@@ -888,26 +891,21 @@ def create_app(test_config=None):
                             cleared = listening_history.cleared_at(owner) if version is not None else None
                             history_markers[owner] = version, cleared
                         after_day = max(cleared or '', preferences.get('listening_history_resumed_at', ''))[:10]
-                        try: listening_stats.sync(owner, data.get("counter_device_id") or device, counters, after_day=after_day)
-                        except ValueError as error: raise ApiError(str(error), 400)
-                    try: listening_stats.heartbeat(owner, device, data["playing"], count_time=counters is None, track=track)
-                    except ValueError as error: raise ApiError(str(error), 429)
-            except Exception as error:
-                errors.append(error)
-                log.warning('Listening statistics write failed: %s', type(error).__name__)
+                        try:
+                            listening_stats.sync(owner, data.get("counter_device_id") or device, counters,
+                                                 after_day=after_day, writes=writes)
+                        except ValueError as error:
+                            raise ApiError(str(error), 400)
+                        accepted = True
+                    try:
+                        listening_stats.heartbeat(owner, device, data["playing"], count_time=counters is None,
+                                                  track=track, writes=writes)
+                    except ValueError as error:
+                        raise ApiError(str(error), 429)
             finally:
-                statistics_slot.release()
-                completed.set()
-
-        accepted = False
-        if statistics_slot.acquire(blocking=False):
-            threading.Thread(target=persist_activity, name='listening-statistics', daemon=True).start()
-            if completed.wait(.05):
-                if errors:
-                    if isinstance(errors[0], ApiError):
-                        raise errors[0]
-                else:
-                    accepted = counters is not None
+                catalogue_lock.release()
+        if writes:
+            wait_for_write(writes[-1])
         return jsonify(ok=True, counters_accepted=accepted, command=command, controls=controls, epoch=epoch)
 
     @app.get("/api/server/stats")
@@ -1110,7 +1108,7 @@ def create_app(test_config=None):
         with bulk_file_lock:
             if revision <= bulk_saved_revision:
                 return True
-            temporary = bulk_path + ".tmp"
+            temporary = bulk_path.with_suffix(".json.tmp")
             try:
                 with open(temporary, "w", encoding="utf-8") as stream:
                     json.dump(rows, stream)
@@ -1485,11 +1483,14 @@ def create_app(test_config=None):
                                                 runtime_capacity(), workers, background_workers, transfers.capacity)
 
     def run_analysis(job):
+        resources.yield_to_requests(job["cancel"].is_set)
         with resources.track("analysis"):
             analyze_job(job)
 
     def drain():
-        with ThreadPoolExecutor(max_workers=len(acquisition_slots), thread_name_prefix="music-acquire") as pool:
+        with ThreadPoolExecutor(max_workers=len(acquisition_slots), thread_name_prefix="music-acquire") as pool, \
+                ThreadPoolExecutor(max_workers=len(acquisition_slots), thread_name_prefix="music-analysis",
+                                   initializer=lower_background_priority) as analysis_pool:
             active, last_served = {}, {}
             dispatch_number = 0
             while True:
@@ -1558,7 +1559,7 @@ def create_app(test_config=None):
                         last_served[(job["priority"] + (20 if analyzing else 0), job["owner"], job.get("playlist_id"))] = dispatch_number
                         if analyzing:
                             job["analyzing"] = True
-                            future = pool.submit(run_analysis, job)
+                            future = analysis_pool.submit(run_analysis, job)
                         else:
                             job["state"] = "running"
                             job_changed.notify_all()
@@ -1594,7 +1595,7 @@ def create_app(test_config=None):
         enqueue_acquisition(job, url, tmp)
         return jsonify(job=public(job)), 202
 
-    playlist_store = PlaylistStore(ws)
+    playlist_store = PlaylistStore(cfg)
     playlist_artwork = PlaylistArtwork(ws, resources)
 
     @app.errorhandler(ArtworkError)
@@ -2092,7 +2093,7 @@ def create_app(test_config=None):
     register_source_quality(app, ws, app.intake, background_idle, lambda: g.user in cfg['ADMIN_USERS'], catalogue_review,
                             source_scan,
                             replace=replace_source, busy=replacement_busy, undo=undo_source, body=body, report_source=report_source,
-                            automatic_user=next(iter(cfg['ADMIN_USERS']), None) if cfg.get('SOURCE_AUTO_REPLACE', True) else None)
+                            automatic_user=next(iter(cfg['ADMIN_USERS']), None) if cfg.get('SOURCE_AUTO_REPLACE', True) else None, state=cfg)
     def song_analysis_idle():
         with lock:
             return background_idle() and (idle_analysis or not any(
@@ -2105,12 +2106,12 @@ def create_app(test_config=None):
             return item["item"], original, track["download_sha256"], track["title"]
     def warm_library():
         with app.app_context():
-            return [row["id"] for row in library_tracks()]
+            return [row["id"] for row in library_tracks(keep_going=background_idle)]
     # Phone copies of the song playing anywhere, then the whole library while nobody waits.
     opus_warmer = (mobile_audio.Warmer(app.intake, warm_source, warm_library, background_idle)
                    if cfg.get("OPUS_WARMING", cfg["PUBLIC_ORIGIN"] != "https://music.test") else None)
     song_analysis = register_song_analysis(app, ws, lib, app.intake, song_analysis_idle,
-        cfg.get('SONG_ANALYSIS_SCAN', cfg['PUBLIC_ORIGIN'] != 'https://music.test'))
+        cfg.get('SONG_ANALYSIS_SCAN', cfg['PUBLIC_ORIGIN'] != 'https://music.test'), state=cfg)
 
     automatic_activity = WorkerActivity('playlist-queue', 'Playlist queue')
     if automatic_downloads or metadata_lookup:
@@ -2137,6 +2138,7 @@ def create_app(test_config=None):
             return library_record(saved)[0] if saved else None
 
         def automatic_playlists():
+            lower_background_priority()
             next_scan = 0
             next_metadata = time.monotonic() + 30
             handback = float("inf")
@@ -2178,7 +2180,7 @@ def create_app(test_config=None):
                 woke = backlog_wake.wait(max(0, deadline - time.monotonic()))
         def apply_metadata_votes():
             # scripts/metadata-ai-vote.py drops model votes here; they are applied once and removed.
-            inbox = os.path.join(ws, ".metadata-votes.json")
+            inbox = state_path(cfg, ".metadata-votes.json")
             if not os.path.exists(inbox): return
             try:
                 with open(inbox, encoding="utf-8") as handle: data = json.loads(handle.read(4 << 20))
@@ -2994,7 +2996,7 @@ def create_app(test_config=None):
         playback_diagnostics.record(g.user, action, "playback_info_ready")
         return jsonify(track)
 
-    lyrics_cache = LyricsCache(ws, cfg.get("LYRICS_LOOKUP"))
+    lyrics_cache = LyricsCache(cfg, cfg.get("LYRICS_LOOKUP"))
     lyrics_enabled = cfg.get("LYRICS_LOOKUP") is not None or cfg["PUBLIC_ORIGIN"] != "https://music.test"
     @app.get("/api/library/<source_id>/lyrics")
     def song_lyrics(source_id):
@@ -3057,7 +3059,7 @@ def create_app(test_config=None):
     def library_tracks(keep_going=None):
         nonlocal pending_scan
         if keep_going is not None:
-            return scan_library(keep_going)
+            return scan_library(keep_going, background=True)
         with scan_lock:
             leader = pending_scan is None
             if leader:
@@ -3073,7 +3075,7 @@ def create_app(test_config=None):
                     pending_scan = None
         return [track.copy() for track in scan.result()]
 
-    def scan_library(keep_going):
+    def scan_library(keep_going, *, background=False):
         rows = []
         sources = defaultdict(list)
         for name in os.listdir(ws):
@@ -3082,6 +3084,8 @@ def create_app(test_config=None):
             identifier = name if name.startswith("local-") else name[3:14]
             sources[identifier].append(name)
         for identifier, candidates in sources.items():
+            if background:
+                resources.yield_to_requests(lambda: not keep_going())
             if not keep_going():
                 break
             try:
@@ -3354,12 +3358,12 @@ def create_app(test_config=None):
         return response
 
     from .listening_history import register as register_listening_history
-    listening_history = register_listening_history(app, ws, body, profile_store, cfg["ADMIN_USERS"],
+    listening_history = register_listening_history(app, cfg, body, profile_store, cfg["ADMIN_USERS"],
         lambda: {t["id"]: t for t in library_tracks()}, catalogue_lock, track_metadata=history_metadata,
         chart=deezer_chart, songs_added=songs_added, clear_totals=listening_stats.clear,
         yearly_daily=listening_stats.yearly_daily)
     from .discovery import register as register_discovery
-    register_discovery(app, ws, body, cfg["ADMIN_USERS"], library_tracks,
+    register_discovery(app, cfg, body, cfg["ADMIN_USERS"], library_tracks,
                        cfg.get("DISCOVERY_WORKER", cfg["PUBLIC_ORIGIN"] != "https://music.test"), background_idle)
     from .listening_rooms import register_listening_rooms
     from .movies import register_movies
@@ -3398,4 +3402,11 @@ def create_app(test_config=None):
         for rule in app.url_map.iter_rules():
             if 'GET' in rule.methods and rule.rule in ('/api/server/stats', '/api/catalogue/review', '/api/catalogue/source-quality', '/api/catalogue/reports'):
                 app.view_functions[rule.endpoint] = bounded_snapshot(app.view_functions[rule.endpoint])
+
+    def close_state():
+        listening_stats.flush()
+        state_writer.close()
+
+    app.extensions["music"].close_state = close_state
+    start_backups(cfg)
     return app

@@ -1,13 +1,13 @@
 """Cached artist genre labels; metadata requests never block library or audio playback."""
 import json
 from collections import Counter
-from pathlib import Path
 import re
 import threading
 import time
 import urllib.parse
 import urllib.request
 import unicodedata
+from .state import state_path
 from .musicbrainz import Throttled, read as musicbrainz
 
 GROUPS = {
@@ -51,7 +51,7 @@ def artist_name(source, record):
 
 class GenreLabels:
     def __init__(self, workspace, enabled=True):
-        self.path = Path(workspace) / '.artist-genres.json'
+        self.path = state_path(workspace, '.artist-genres.json')
         self.enabled = enabled
         self.lock = threading.Lock()
         self.pending = []

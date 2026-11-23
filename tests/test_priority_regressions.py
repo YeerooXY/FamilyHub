@@ -3,6 +3,7 @@ import threading
 import time
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -46,35 +47,39 @@ class PriorityRoutes(Base):
         finally:
             release.set()
             thread.join(3)
-            # Drain the single statistics writer before removing the fixture directory.
-            time.sleep(.1)
 
-    def test_slow_durable_counter_write_does_not_delay_or_ack_connect(self):
+    def test_slow_counter_write_keeps_connect_available_and_persists_once(self):
         client, token = self.signed_in()
-        entered, release, done = threading.Event(), threading.Event(), threading.Event()
-        original = ListeningStats._append
-        def append(store, *args):
-            entered.set()
-            release.wait(3)
-            try:
-                return original(store, *args)
-            finally:
-                done.set()
+        observer, _ = self.signed_in()
+        entered, release = threading.Event(), threading.Event()
+        original = Path.open
+
+        def open_file(path, mode='r', *args, **kwargs):
+            if path.name == '.listening-statistics.jsonl' and mode == 'ab':
+                entered.set()
+                release.wait(5)
+            return original(path, mode, *args, **kwargs)
+
         data = dict(device_id='a' * 32, playing=True, device_info=dict(name='Phone'),
                     counters=[dict(day=datetime.now(timezone.utc).date().isoformat(), seconds=12, plays=1)])
-        with mock.patch.object(ListeningStats, '_append', append):
+        responses = []
+        request_thread = threading.Thread(target=lambda: responses.append(
+            self.post(client, token, '/api/playback/activity', json=data)))
+        with mock.patch.object(Path, 'open', open_file):
+            request_thread.start()
             try:
-                start = time.monotonic()
-                result = self.post(client, token, '/api/playback/activity', json=data)
-                self.assertLess(time.monotonic() - start, .3)
                 self.assertTrue(entered.wait(1))
-                self.assertFalse(result.json['counters_accepted'])
-                self.assertEqual(len(self.go(client, 'GET', '/api/playback/devices').json['devices']), 1)
+                start = time.monotonic()
+                self.assertEqual(len(self.go(observer, 'GET', '/api/playback/devices').json['devices']), 1)
+                self.assertLess(time.monotonic() - start, .3)
+                request_thread.join(3.5)
+                self.assertFalse(request_thread.is_alive())
+                self.assertTrue(responses[0].json['counters_accepted'])
             finally:
                 release.set()
-                self.assertTrue(done.wait(2))
-        time.sleep(.02)
+                request_thread.join(2)
         self.assertTrue(self.post(client, token, '/api/playback/activity', json=data).json['counters_accepted'])
+        self.state.close_state()
         persisted = ListeningStats(self.ws)
         self.assertEqual(persisted.data['plays']['sample-a'], 1, 'A retried cumulative counter was counted twice')
 

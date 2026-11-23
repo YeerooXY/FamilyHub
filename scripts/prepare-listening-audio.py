@@ -20,7 +20,8 @@ def main():
     config = json.loads(args.config.read_text())
     workspace, library = config["WORKSPACE"], config["LIBRARY"]
     intake = load_intake(config["CLI_PATH"])
-    store, editions = FinishedAudio(workspace, intake), ListeningVersions(workspace, intake)
+    store = FinishedAudio(workspace, intake)
+    editions = ListeningVersions(workspace, intake, state=config)
     results = []
     for item in sorted(Path(workspace).glob("yt-*")):
         source_id = item.name[3:14]
