@@ -347,30 +347,49 @@ internal sealed class PlaybackService : Service
     {
         var pending = new Publication(notification, playing, report);
         latest = pending;
-        if (running is { } service) service.Refresh(pending);
+        pendingStop?.Cancel();
+        pendingStop = null;
+        // Android only lets a service enter the foreground right after a StartForegroundService call made while the
+        // app is in use. Calling StartForeground again inside a service that already left the foreground is refused
+        // ("mAllowStartForeground false"), so a service that is not in the foreground is started again instead.
+        if (running is { } service && (service.InForeground || !playing)) service.Refresh(pending);
         else if (!starting)
         {
             try
             {
-                context.StartForegroundService(new Intent(context, typeof(PlaybackService)));
                 starting = true;
+                context.StartForegroundService(new Intent(context, typeof(PlaybackService)));
             }
             catch (Java.Lang.RuntimeException error)
             {
+                starting = false;
                 Android.Util.Log.Warn("FamilyHub", $"Playback service could not start: {Describe(error)}");
                 report(false);
             }
         }
     }
 
+    private static CancellationTokenSource? pendingStop;
+    internal bool InForeground => foreground;
+
+    // Between songs the queue is empty for a moment. Stopping and starting the service for every gap is what Android
+    // punishes, so the service stays for a short grace period and only stops if nothing plays again.
     internal static void Clear(Context context)
     {
         if (latest is null && !IsStarted) return;
         latest = null;
-        starting = false;
-        running = null;
-        context.StopService(new Intent(context, typeof(PlaybackService)));
-        (context.GetSystemService(NotificationService) as NotificationManager)?.Cancel(PlaybackControls.NotificationId);
+        pendingStop?.Cancel();
+        var stop = pendingStop = new CancellationTokenSource();
+        _ = Task.Delay(TimeSpan.FromSeconds(20)).ContinueWith(_ =>
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                if (stop.IsCancellationRequested || latest is not null) return;
+                pendingStop = null;
+                starting = false;
+                running = null;
+                context.StopService(new Intent(context, typeof(PlaybackService)));
+                (context.GetSystemService(NotificationService) as NotificationManager)?.Cancel(PlaybackControls.NotificationId);
+            }));
     }
 
     public override IBinder? OnBind(Intent? intent) => null;
@@ -389,7 +408,7 @@ internal sealed class PlaybackService : Service
         return StartCommandResult.NotSticky;
     }
 
-    // Paused: the notification stays but can be swiped away; playing: it stays in the foreground.
+    // The service stays in the foreground while paused, so resuming never has to start it again.
     private bool Refresh(Publication pending, bool enterForeground = false)
     {
         if (!enterForeground && ReferenceEquals(pending, published)) return true;
@@ -408,11 +427,6 @@ internal sealed class PlaybackService : Service
             }
             var notifications = (NotificationManager?)GetSystemService(NotificationService);
             if (notifications is null) { pending.Report(false); return false; }
-            if (!pending.Playing && foreground)
-            {
-                StopForeground(StopForegroundFlags.Detach);
-                foreground = false;
-            }
             notifications.Notify(PlaybackControls.NotificationId, pending.Notification);
             published = pending;
             pending.Report(true);
@@ -421,6 +435,12 @@ internal sealed class PlaybackService : Service
         catch (Java.Lang.RuntimeException error)
         {
             Android.Util.Log.Warn("FamilyHub", $"Playback notification could not be published: {Describe(error)}");
+            if (error is Android.App.ForegroundServiceStartNotAllowedException)
+            {
+                foreground = false;
+                try { (GetSystemService(NotificationService) as NotificationManager)?.Notify(PlaybackControls.NotificationId, pending.Notification); }
+                catch (Java.Lang.RuntimeException) { }
+            }
             pending.Report(false);
             return false;
         }
