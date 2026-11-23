@@ -51,7 +51,7 @@ else if (EntryScreen)
         else
         {
             <form class="connect-form" @onsubmit="Connect" @onsubmit:preventDefault>
-                <img class="connect-mark" src="familyhub-mark.png" alt="FamilyHub Music" />
+                <img class="connect-mark" src="familyhub-mark.png" alt="FamilyHub" />
                 <div class="connect-fields"><label class="sr" for="server">Server address</label><input id="server" type="url" @bind="server" placeholder="Server address" autocomplete="url" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url" required /><button class="primary" type="submit" aria-disabled="@Aria(busy)">@(busy ? "Connecting..." : "Connect")</button></div>
                 <Notice Level="@(error is null ? Session.MessageLevel : "error")" Message="@(error ?? EntryMessage)" />
                 @if (!string.IsNullOrEmpty(Session.User)) { <button class="quiet change-server" type="button" @onclick='() => Navigate("Library")'>Back</button> }

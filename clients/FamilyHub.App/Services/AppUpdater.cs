@@ -134,7 +134,7 @@ public static class AppUpdater
         if (UpdatesInSideStore)
         {
             if (!await Launcher.Default.TryOpenAsync(new Uri("sidestore://")))
-                throw new InvalidOperationException("Open SideStore, then tap Update next to FamilyHub Music in My Apps.");
+                throw new InvalidOperationException("Open SideStore, then tap Update next to FamilyHub in My Apps.");
             return;
         }
         // Android keeps installation under the operating system's package installer.

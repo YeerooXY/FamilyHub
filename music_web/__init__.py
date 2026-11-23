@@ -320,7 +320,7 @@ def create_app(test_config=None):
             app.logger.warning("Rejected %s %s: host %r", request.method, request.path, request.host[:80])
             abort(400)
         if not cfg["BROWSER_PLAYER"] and not request.path.startswith("/api/"):
-            return app.response_class("Open the FamilyHub Music app.\n", status=410, mimetype="text/plain")
+            return app.response_class("Open the FamilyHub app.\n", status=410, mimetype="text/plain")
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             sent, ref = request.headers.get("Origin"), request.headers.get("Referer", "")
             if not (sent == origin if sent is not None else ref == origin or ref.startswith(origin + "/")):
@@ -471,7 +471,7 @@ def create_app(test_config=None):
         require_family()
         with catalogue_lock:
             profiles = profile_store.list()
-        return jsonify(family_profiles=True, server_name="FamilyHub Music", profiles=profiles, csrf_token=generate_csrf())
+        return jsonify(family_profiles=True, server_name="FamilyHub", profiles=profiles, csrf_token=generate_csrf())
 
     @app.post("/api/profiles")
     def create_family_profile():

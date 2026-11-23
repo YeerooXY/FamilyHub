@@ -11,7 +11,7 @@ public partial class App : Application
 
 	protected override Window CreateWindow(IActivationState? activationState)
 	{
-        var window = new Window(mainPage) { Title = "FamilyHub Music" };
+        var window = new Window(mainPage) { Title = "FamilyHub" };
         window.Activated += (_, _) => mainPage.SetActive(true);
         window.Deactivated += (_, _) => mainPage.SetActive(false);
         window.Stopped += (_, _) => mainPage.SetActive(false);

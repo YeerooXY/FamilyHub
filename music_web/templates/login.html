@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Sign in - FamilyHub Music</title>
+<title>Sign in - FamilyHub</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
 {% if family_profiles is not none %}<link rel="stylesheet" href="{{ url_for('static', filename='profiles.css') }}">{% endif %}
 <link rel="stylesheet" href="{{ url_for('static', filename='notices.css') }}">
@@ -45,7 +45,7 @@
 {% if error %}<div class="fh-notice" data-level="error"><span class="fh-notice-copy"><span class="fh-notice-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/></svg></span><span class="fh-notice-text" role="alert">{{ error }}</span></span></div>{% endif %}
 <button type="submit" class="primary">Sign in</button>
 </form>
-<details><summary>Sign-in help</summary><p class="note">On your PC, open Account → Sign-in details in FamilyHub Music to view your username and passphrase. A server restart ends browser sessions.</p></details>
+<details><summary>Sign-in help</summary><p class="note">On your PC, open Account → Sign-in details in FamilyHub to view your username and passphrase. A server restart ends browser sessions.</p></details>
 {% endif %}
 </main>
 </body>

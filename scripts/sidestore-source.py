@@ -28,9 +28,9 @@ def main():
     site = f'https://github.com/{REPOSITORY}'
     download = f'{site}/releases/download/v{args.version}/{ipa.name}'
     today = datetime.date.today().isoformat()
-    notes = f'FamilyHub Music {args.version}. Release notes: {site}/releases/tag/v{args.version}'
+    notes = f'FamilyHub {args.version}. Release notes: {site}/releases/tag/v{args.version}'
     app = {
-        'name': 'FamilyHub Music',
+        'name': 'FamilyHub',
         'bundleIdentifier': BUNDLE,
         'developerName': 'FamilyHub',
         'subtitle': 'Music from your family server',
@@ -43,7 +43,7 @@ def main():
         'version': args.version, 'versionDate': today, 'versionDescription': notes, 'downloadURL': download, 'size': len(data),
         'appPermissions': {'entitlements': [], 'privacy': {}},
     }
-    source = {'name': 'FamilyHub Music', 'identifier': BUNDLE + '.source', 'website': site, 'apps': [app], 'news': []}
+    source = {'name': 'FamilyHub', 'identifier': BUNDLE + '.source', 'website': site, 'apps': [app], 'news': []}
     (args.release / 'sidestore.json').write_text(json.dumps(source, indent=2) + '\n', encoding='utf-8')
     print(args.release / 'sidestore.json')
 

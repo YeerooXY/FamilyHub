@@ -11,10 +11,10 @@
     <EnableDefaultCssItems>false</EnableDefaultCssItems>
     <Nullable>enable</Nullable>
     <MauiXamlInflator>SourceGen</MauiXamlInflator>
-    <ApplicationTitle>FamilyHub Music</ApplicationTitle>
+    <ApplicationTitle>FamilyHub</ApplicationTitle>
     <ApplicationId>org.familyhub.music</ApplicationId>
-    <ApplicationDisplayVersion>0.1.87</ApplicationDisplayVersion>
-    <ApplicationVersion>88</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1.88</ApplicationDisplayVersion>
+    <ApplicationVersion>89</ApplicationVersion>
     <Version>$(ApplicationDisplayVersion)</Version>
     <WindowsPackageType>None</WindowsPackageType>
     <DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>

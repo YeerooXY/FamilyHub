@@ -4,15 +4,34 @@
 @if (AppUpdater.Platform is not null && available is not null)
 {
     <div class="app-update @(Compact ? "compact-update" : "")">
-        <button id="@Id" type="button" aria-label="@Label" title="@Label" @onclick="Update" aria-disabled="@(working ? "true" : "false")"><MusicIcon Name="download" />@if (!Compact) { @Label }</button>
-        @if (!Compact) { <Notice Level="@(failed ? "error" : "info")" Message="@message" /> }
+        <button @ref="buttonRef" id="@Id" type="button" aria-label="@Label" title="@Label" @onclick="Update" aria-disabled="@(working ? "true" : "false")"><MusicIcon Name="download" />@if (!Compact) { @Label }</button>
+        @if (!Compact) { <Notice Level="@(failed ? "error" : "info")" Message="@(working ? "" : message)" /> }
     </div>
+    @if (working && !Compact && !AppUpdater.UpdatesInSideStore)
+    {
+        <div class="update-screen night-backdrop" role="dialog" aria-modal="true" aria-labelledby="update-screen-title">
+            <div class="update-card">
+                <div class="startup-disc update-disc"><img src="familyhub-logo.svg" alt="" /></div>
+                <h2 @ref="titleRef" id="update-screen-title" tabindex="-1">Updating FamilyHub</h2>
+                <p class="update-versions">@AppUpdater.CurrentVersion → @available.Version</p>
+                <div class="update-line" role="progressbar" aria-labelledby="update-screen-title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@percent" aria-valuetext="@percent percent downloaded">
+                    <span class="update-line-fill" style="width:@(percent)%"></span>
+                    <span class="update-line-thumb" style="left:@(percent)%"></span>
+                </div>
+                <p class="update-percent">@percent%</p>
+                <p class="update-status" role="status">@announcement</p>
+            </div>
+        </div>
+    }
 }
 
 @code {
     [Parameter] public bool Compact { get; set; }
     [Parameter] public bool VersionInHeading { get; set; }
-    private bool working, failed;
+    private bool working, failed, focusTitle, focusButton;
+    private int percent;
+    private string announcement = "";
+    private ElementReference buttonRef, titleRef;
     [Parameter] public string Id { get; set; } = "app-update";
     [Parameter] public EventCallback<AppRelease> Available { get; set; }
     [Parameter] public AppRelease? InitialRelease { get; set; }
@@ -26,11 +45,17 @@
     private string message = "";
     private string DescribeRelease(AppRelease release) => (VersionInHeading ? "" : $"Version {release.Version} is available. ")
         + (AppUpdater.UpdatesInSideStore
-            ? "In SideStore, tap Update next to FamilyHub Music."
+            ? "In SideStore, tap Update next to FamilyHub."
             : $"Download size is {release.Size / (1024d * 1024):0} MB. "
                 + (AppUpdater.Platform == "windows-x64" ? "Playback stops when the app restarts." : "Open the downloaded APK to install it."));
     private string Label => Compact && Available.HasDelegate ? "Update available"
         : AppUpdater.UpdatesInSideStore ? "Open SideStore" : working ? "Downloading..." : AppUpdater.Platform == "windows-x64" ? "Download and restart" : "Download update";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusTitle && working) { focusTitle = false; await titleRef.FocusAsync(); }
+        else if (focusButton && !working) { focusButton = false; try { await buttonRef.FocusAsync(); } catch (InvalidOperationException) { } }
+    }
 
     private async Task Update()
     {
@@ -40,15 +65,19 @@
             await Available.InvokeAsync(available);
             return;
         }
-        working = true; failed = false;
+        working = true; failed = false; percent = 0; focusTitle = !Compact && !AppUpdater.UpdatesInSideStore;
+        announcement = "Downloading the update.";
+        var lastAnnounced = 0;
         try
         {
             if (!AppUpdater.UpdatesInSideStore) message = "Downloading update...";
-            await AppUpdater.InstallAsync(Session.Api, PublicReleases, available, percent =>
+            await AppUpdater.InstallAsync(Session.Api, PublicReleases, available, value =>
             {
-                message = $"Downloading update... {percent}%";
+                percent = Math.Clamp(value, 0, 100); message = $"Downloading update... {percent}%";
+                if (percent >= lastAnnounced + 25) { lastAnnounced = percent / 25 * 25; announcement = $"{lastAnnounced} percent downloaded."; }
                 _ = InvokeAsync(StateHasChanged);
             });
+            announcement = AppUpdater.Platform == "windows-x64" ? "Restarting FamilyHub." : "Download finished.";
             if (AppUpdater.Platform == "android") message = "Open the downloaded APK to install the update.";
         }
         catch (FamilyHubApiException error) when (error.StatusCode == 404)
@@ -58,7 +87,7 @@
         catch (Exception error) { failed = true; message = NoticeText.Error(error, "The update could not finish. Try again."); }
         finally
         {
-            working = false;
+            working = false; focusButton = !Compact;
             if (Compact && (failed || AppUpdater.Platform == "android")) Session.SetMessage(message, failed ? "error" : "info");
         }
     }

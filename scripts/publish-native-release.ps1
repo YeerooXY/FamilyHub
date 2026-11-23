@@ -25,7 +25,7 @@ try {
         if ($existing.Count -ne 1 -or -not $existing[0].draft) { throw 'This version is already published. Increase the application version before publishing again.' }
         & gh release upload $tag @assets --repo $repository --clobber
     } else {
-        & gh release create $tag @assets --repo $repository --draft --target main --title "FamilyHub Music $version" --notes-file $NotesFile
+        & gh release create $tag @assets --repo $repository --draft --target main --title "FamilyHub $version" --notes-file $NotesFile
     }
     if ($LASTEXITCODE) { throw 'GitHub draft release upload failed. Inspect the release before retrying.' }
     $published = (& gh api "repos/$repository/releases" | ConvertFrom-Json) | Where-Object tag_name -eq $tag

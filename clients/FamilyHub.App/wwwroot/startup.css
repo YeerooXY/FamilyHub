@@ -1,9 +1,37 @@
-.startup-screen { position:fixed; inset:0; z-index:100; display:grid; place-items:center; margin:0; background:radial-gradient(ellipse at 50% 48%,#151c2e 0,#090b10 58%); }
-.startup-disc { position:relative; width:80px; height:80px; animation:startup-breathe 1.6s ease-in-out infinite; }
-.startup-disc img { display:block; width:100%; height:100%; }
-.startup-disc::before { content:""; position:absolute; inset:-16px; border:1px solid #adbcff24; border-radius:50%; animation:startup-ring 1.6s ease-out infinite; }
-@keyframes startup-breathe { 0%,100% { opacity:.7; transform:scale(.96); } 50% { opacity:1; transform:scale(1); } }
-@keyframes startup-ring { from { opacity:.7; transform:scale(.8); } to { opacity:0; transform:scale(1.3); } }
-.workspace { animation:startup-content .24s ease-out both; }
+/* One night backdrop for startup and updating. It never changes between the two, so opening the app and installing an update look like one scene. */
+.startup-screen, .night-backdrop {
+    background:
+        radial-gradient(3px 3px at 12% 18%, #ffffffb0 45%, #0000 70%),
+        radial-gradient(2px 2px at 28% 72%, #ffffff80 45%, #0000 70%),
+        radial-gradient(3px 3px at 44% 30%, #d9e2ff90 45%, #0000 70%),
+        radial-gradient(2px 2px at 63% 84%, #ffffff70 45%, #0000 70%),
+        radial-gradient(4px 4px at 78% 22%, #f6d4ffa0 45%, #0000 70%),
+        radial-gradient(2px 2px at 90% 58%, #ffffff80 45%, #0000 70%),
+        radial-gradient(2px 2px at 8% 56%, #ffffff60 45%, #0000 70%),
+        radial-gradient(ellipse at 50% 46%, #1a2340 0, #0b0e18 52%, #06070c 100%);
+}
+.startup-screen { position:fixed; inset:0; z-index:100; display:grid; place-items:center; margin:0; }
+.startup-disc { position:relative; width:84px; height:84px; animation:startup-rise 1.1s cubic-bezier(.2,.7,.2,1) both; }
+.startup-disc img { display:block; width:100%; height:100%; border-radius:50%; box-shadow:0 0 0 0 #89b4ff00; animation:startup-glow 2.8s ease-in-out 1.1s infinite; }
+.startup-disc::before { content:""; position:absolute; inset:-18px; border:1px solid #adbcff2e; border-radius:50%; animation:startup-ring 2.8s ease-out 1.1s infinite; }
+@keyframes startup-rise { from { opacity:0; transform:translateY(14px) scale(.9); } to { opacity:1; transform:none; } }
+@keyframes startup-glow { 0%,100% { box-shadow:0 0 22px 2px #89b4ff30; } 50% { box-shadow:0 0 38px 8px #f19cda40; } }
+@keyframes startup-ring { from { opacity:.6; transform:scale(.85); } to { opacity:0; transform:scale(1.5); } }
+.workspace { animation:startup-content .35s ease-out both; }
 @keyframes startup-content { from { opacity:0; } to { opacity:1; } }
-@media(prefers-reduced-motion:reduce) { .startup-disc,.startup-disc::before,.workspace { animation:none; } }
+
+/* Updating screen: same backdrop, the logo, and a progress line drawn like the movie seek bar. */
+.update-screen { position:fixed; inset:0; z-index:2000; display:grid; place-items:center; padding:max(1.5rem, env(safe-area-inset-top)) 1.5rem max(1.5rem, env(safe-area-inset-bottom)); color:#fff; text-align:center; animation:startup-content .3s ease-out both; }
+.update-card { display:grid; justify-items:center; gap:.5rem; width:min(26rem, 100%); }
+.update-disc { margin-bottom:1.25rem; animation:none; }
+.update-card h2 { margin:0; font-size:1.5rem; font-weight:650; outline:none; }
+.update-versions { margin:0; color:#ffffffb3; font-variant-numeric:tabular-nums; }
+.update-line { position:relative; width:100%; height:4px; margin:1.5rem 0 .5rem; border-radius:2px; background:#ffffff40; }
+.update-line-fill { position:absolute; inset:0 auto 0 0; border-radius:2px; background:linear-gradient(90deg, #89b4ff, #f19cda); transition:width .25s ease; }
+.update-line-thumb { position:absolute; top:50%; width:1.1rem; height:1.1rem; margin:-.55rem 0 0 -.55rem; border-radius:50%; background:#f19cda; box-shadow:0 0 14px #f19cda80; transition:left .25s ease; }
+.update-percent { margin:0; font-size:1.1rem; font-variant-numeric:tabular-nums; }
+.update-status { margin:0; min-height:1.4em; color:#ffffffb3; font-size:.9rem; }
+@media(prefers-reduced-motion:reduce) {
+    .startup-disc, .startup-disc img, .startup-disc::before, .workspace, .update-screen { animation:none; }
+    .update-line-fill, .update-line-thumb { transition:none; }
+}
