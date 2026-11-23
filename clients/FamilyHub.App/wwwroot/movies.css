@@ -546,3 +546,14 @@ li.movie-release[data-tier="4k-bluray"] { border-color: #ba7bcb66; }
    (that reserve made the page jump about 49 px on every typed letter). */
 .workspace > main:has(.movie-library) { scroll-padding-top: 0; }
 .movie-library .movie-toolbar { scroll-margin-top: 0; }
+
+/* Subtitles: plain white text with a soft shadow and no black box, set in a clean Helvetica-style sans like the big streaming apps.
+   (Netflix's own typeface is licensed, so the stack names it first and falls back to the nearest system fonts.) */
+.movie-library video::cue {
+    background: transparent;
+    background-color: rgba(0, 0, 0, 0);
+    color: #fff;
+    font-family: "Netflix Sans", "Helvetica Neue", Helvetica, Arial, "Segoe UI", Roboto, sans-serif;
+    font-weight: 500;
+    text-shadow: 0 0 .12em rgba(0, 0, 0, .95), 0 .04em .14em rgba(0, 0, 0, .95), 0 .08em .3em rgba(0, 0, 0, .8);
+}

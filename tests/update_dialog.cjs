@@ -13,7 +13,7 @@ const page$ = (morphing, percent) => `<!doctype html><meta name="viewport" conte
 <span class="update-btn-label">Download and restart</span><span class="update-line-fill" style="width:${percent}%"></span></button>${morphing ? stage : ""}</div>
 <button class="quiet" id="update-later">Later</button></dialog>`;
 (async () => {
-    for (const [engine, name, viewport] of [[chromium, "pc", { width: 1280, height: 800 }], [webkit, "iphone", { width: 390, height: 844 }]]) {
+    for (const [engine, name, viewport] of [[chromium, "pc", { width: 1280, height: 800 }], [webkit, "iphone", { width: 390, height: 844 }], [chromium, "narrow-window", { width: 442, height: 1010 }]]) {
         const browser = await engine.launch(), page = await browser.newPage({ viewport });
         let morphing = false;
         await page.route("http://t.test/**", route => {

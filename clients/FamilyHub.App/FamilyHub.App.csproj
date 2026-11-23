@@ -14,7 +14,7 @@
     <ApplicationTitle>FamilyHub</ApplicationTitle>
     <ApplicationId>org.familyhub.music</ApplicationId>
     <ApplicationDisplayVersion>1.1.0</ApplicationDisplayVersion>
-    <ApplicationVersion>101</ApplicationVersion>
+    <ApplicationVersion>102</ApplicationVersion>
     <Version>$(ApplicationDisplayVersion)</Version>
     <WindowsPackageType>None</WindowsPackageType>
     <DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
