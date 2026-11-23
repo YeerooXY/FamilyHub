@@ -30,6 +30,8 @@ The TV's browser engine decides what the current code supports: `:is()` and `asp
 
 **Decision (23 November 2026).** The owner's television is an LG UM7610PLB (2018, webOS 4.x, an old Chromium), which cannot run the current movie client. The television plan is an Android TV or Fire TV stick running the Android app. Unverified until the stick is on hand: remote navigation, Back, and the player at 1920 px. Android Back closes an open sheet first, then the player. On Android the player turns the screen to landscape (both directions, following the sensor) and hides the system bars; this is unverified on a real phone until 0.1.89 is installed.
 
+Subtitles are drawn by the player, not the browser: just above the picture's bottom edge (so upright phones show them under the picture, not at the screen bottom), lifted above the seek bar while the controls show, with YouTube's ">>" speaker marks removed. The player has a back arrow at the top left next to the close button. On iPhone the status bar hides while a film plays (unverified on a device).
+
 The remote works through the arrow keys: they move between cards, shelves, the billboard and the player controls, Enter selects, and the Back key (key code 461) closes the player. The pointer ("magic") remote also works. Not yet tested on a television.
 
 ## Connect a profile

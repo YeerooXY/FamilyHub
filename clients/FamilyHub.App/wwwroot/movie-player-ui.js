@@ -4,6 +4,7 @@
 
 const SVG = "http://www.w3.org/2000/svg";
 const paths = {
+    back: "M15 5l-7 7 7 7",
     close: "M6 6l12 12M18 6L6 18",
     play: "M7 4.5v15l12-7.5z",
     pause: "M7 4h4v16H7zM13 4h4v16h-4z",
@@ -55,6 +56,21 @@ function clock(seconds) {
     return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
 }
 
+// Subtitles are drawn here, not by the browser: the browser puts them at the bottom of the whole video box, which is far
+// below the picture on a phone held upright and under the seek bar while the controls show. YouTube's ">>" speaker marks go.
+export function cleanCue(text) {
+    return String(text ?? "").replace(/<[^>]+>/g, "").split("\n").map(line => line.replace(/^\s*(?:&gt;|>){2,}\s*/, "").trim()).filter(Boolean).join("\n");
+}
+// Distance from the bottom of the window to the bottom edge of the subtitle block, in pixels.
+export function subtitleBottom({ width, height, videoWidth, videoHeight, barTop = null }) {
+    const scale = videoWidth && videoHeight ? Math.min(width / videoWidth, height / videoHeight) : 1;
+    const picture = videoWidth && videoHeight ? videoHeight * scale : height;
+    const pictureBottom = (height + picture) / 2;
+    let edge = pictureBottom - Math.max(12, picture * 0.05);
+    if (barTop !== null) edge = Math.min(edge, barTop - 8);
+    return Math.max(8, Math.round(height - edge));
+}
+
 /**
  * @param {object} ctx
  * @param {HTMLVideoElement} ctx.media
@@ -87,7 +103,8 @@ export function buildPlayerUi(ctx) {
     back.classList.add("movie-ui-close");
     back.setAttribute("aria-label", "Back to movies");
     back.replaceChildren(icon(paths.close));
-    top.append(heading, back);
+    const leave = button("movie-ui-back", "Back", paths.back, {}, () => back.click());
+    top.append(leave, heading, back);
 
     // Middle: skip back, play or pause, skip forward.
     const skip = (seconds) => {
@@ -210,7 +227,9 @@ export function buildPlayerUi(ctx) {
     message.append(notice, failure);
     const spinnerRoot = make("div", "movie-ui-center");
     spinnerRoot.append(spinner);
-    root.append(surfaceLayer, spinnerRoot, message, top, mid, bottom, tracksSheet, episodesSheet);
+    const subs = make("div", "movie-ui-subs");
+    subs.setAttribute("aria-hidden", "true");
+    root.append(surfaceLayer, subs, spinnerRoot, message, top, mid, bottom, tracksSheet, episodesSheet);
 
     // Controls hide a few seconds after the last touch, playing or paused. Reduced motion only removes the fade, not the hiding.
     // A keyboard or remote focus ring keeps them up so the focused control stays visible.
@@ -224,6 +243,36 @@ export function buildPlayerUi(ctx) {
             if (!dragging && !openSheet && !(keyboardMode && root.querySelector(":focus-visible"))) root.classList.add("movie-idle");
         }, 3500);
     }
+    // Subtitles: draw the active cues just above the bottom of the picture, and above the seek row while the controls show.
+    const entities = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&nbsp;": " " };
+    let watched = [];
+    function placeSubs() {
+        const area = root.getBoundingClientRect();
+        const hidden = root.classList.contains("movie-idle");
+        const barTop = hidden ? null : seekRow.getBoundingClientRect().top - area.top;
+        subs.style.bottom = subtitleBottom({ width: area.width, height: area.height, videoWidth: media.videoWidth, videoHeight: media.videoHeight, barTop }) + "px";
+    }
+    function drawCues() {
+        const text = watched.flatMap(track => [...(track.activeCues || [])].map(cue => cue.text)).join("\n");
+        const lines = cleanCue(text).replace(/&(?:amp|lt|gt|quot|#39|nbsp);/g, entity => entities[entity]).split("\n").filter(Boolean);
+        subs.replaceChildren(...lines.map(line => make("span", "movie-ui-sub", line)));
+        placeSubs();
+    }
+    function watchTracks() {
+        for (const track of watched) track.removeEventListener("cuechange", drawCues);
+        watched = [...media.textTracks].filter(track => track.mode === "hidden");
+        for (const track of watched) track.addEventListener("cuechange", drawCues);
+        drawCues();
+    }
+    media.textTracks.addEventListener("change", watchTracks, { signal });
+    media.textTracks.addEventListener("addtrack", watchTracks, { signal });
+    for (const type of ["loadedmetadata", "resize"]) media.addEventListener(type, placeSubs, { signal });
+    window.addEventListener("resize", placeSubs, { signal });
+    document.addEventListener("fullscreenchange", placeSubs, { signal });
+    const classWatcher = new MutationObserver(placeSubs);
+    classWatcher.observe(root, { attributes: true, attributeFilter: ["class"] });
+    signal.addEventListener("abort", () => { classWatcher.disconnect(); for (const track of watched) track.removeEventListener("cuechange", drawCues); });
+
     for (const type of ["pointermove", "pointerdown", "touchstart", "focusin"])
         root.addEventListener(type, event => { if (!root.classList.contains("movie-idle") || type !== "pointermove" || event.pointerType === "mouse") show(); }, { passive: true, signal });
     signal.addEventListener("abort", () => { clearTimeout(idleTimer); clearTimeout(tapTimer); });
@@ -280,7 +329,7 @@ export function buildPlayerUi(ctx) {
     // Keyboard and TV remote. With a control focused, the arrow keys move between controls (a TV remote has no pointer):
     // left and right inside a row, up and down between rows. The seek bar scrubs with left and right. With nothing
     // focused, left and right skip 10 seconds. Space, K or Enter toggles play, Escape closes a sheet, Back closes the player.
-    const rows = () => [[back], [rewind, playPause, forward], [seek], [fullscreen, episodesButton, tracksButton, nextButton].filter(b => !b.hidden)];
+    const rows = () => [[leave, back], [rewind, playPause, forward], [seek], [fullscreen, episodesButton, tracksButton, nextButton].filter(b => !b.hidden)];
     function moveFocus(target, key) {
         const sheetNode = openSheet && sheets[openSheet].node;
         if (sheetNode?.contains(target)) {
@@ -327,6 +376,7 @@ export function buildPlayerUi(ctx) {
 
     sync();
     paint();
+    watchTracks();
     show();
     return {
         root,

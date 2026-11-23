@@ -2,7 +2,7 @@
 """Turn YouTube rolling auto-captions into one line at a time.
 
 YouTube's SRT keeps each line on screen until the line after next starts, so two lines overlap and the older one
-lingers (bottom, then top, alternating). Each cue here ends when the next begins, or after a reading time.
+lingers (bottom, then top, alternating), and ">>" marks a change of speaker. Each cue here ends when the next begins, or after a reading time.
 Usage: clean-rolling-captions.py input.srt output.srt
 """
 import pathlib, re, sys
@@ -20,7 +20,9 @@ def clean(text):
     for block in re.split(r'\n\s*\n', text.strip()):
         lines = block.split('\n')
         match = re.match(r'(\S+) --> (\S+)', lines[1])
-        cues.append([seconds(match.group(1)), seconds(match.group(2)), ' '.join(l.strip() for l in lines[2:]).strip()])
+        line = ' '.join(l.strip() for l in lines[2:]).strip()
+        line = re.sub(r'^(?:>>|&gt;&gt;)\s*', '', line)  # YouTube's speaker-change mark
+        cues.append([seconds(match.group(1)), seconds(match.group(2)), line])
     cues.sort(key=lambda cue: cue[0])
     out = []
     for i, (start, end, line) in enumerate(cues):

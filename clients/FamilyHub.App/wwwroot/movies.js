@@ -285,7 +285,7 @@ export function openMovies(host, session, app, viewer) {
                 const selected = index ?? (language === "default" ? defaultSubtitle : preferred?.Index);
                 const activeSubtitle = textTracks.has(selected) ? selected : -1;
                 for (const [trackIndex, track] of textTracks)
-                    track.mode = trackIndex === activeSubtitle ? "showing" : "disabled";
+                    track.mode = trackIndex === activeSubtitle ? "hidden" : "disabled"; // hidden: the player draws the cues itself
                 if (subtitlePick) subtitlePick.value = String(activeSubtitle);
                 const audioFallback = audioIndex == null && audioLanguage !== "default" && (!preferredAudio || preferredAudio.Index !== selectedAudio);
                 notice.textContent = [

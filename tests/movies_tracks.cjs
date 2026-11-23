@@ -173,7 +173,11 @@ async function check(browser, options) {
     await page.waitForFunction(() => document.activeElement.closest(".movie-ui-actions"));
     await press("ArrowUp", page.getByRole("slider", { name: "Seek" }));
     await press("ArrowUp", playPause);
-    await press("ArrowUp", back);
+    // Up from play lands on whichever top control is nearer (the left arrow or the close button); left and right reach the other.
+    await page.keyboard.press("ArrowUp");
+    await page.waitForFunction(() => document.activeElement.closest(".movie-ui-top"));
+    await press("ArrowLeft", page.getByRole("button", { name: "Back", exact: true }));
+    await press("ArrowRight", back);
     // Audio & Subtitles opens a sheet with one named close control and Escape returns focus to its opener.
     const tracks = page.getByRole("button", { name: "Audio and subtitles" });
     await tracks.click();
@@ -193,7 +197,14 @@ async function check(browser, options) {
     assert.equal(await page.locator("video").evaluate(video => {
         video.dispatchEvent(new Event("loadedmetadata"));
         return video.textTracks[0].mode;
-    }), "showing");
+    }), "hidden", "the player draws subtitles itself, so the browser keeps the track hidden");
+    // The player's own subtitle layer shows the active cue without YouTube's ">>" mark.
+    await page.locator("video").evaluate(video => {
+        const track = video.textTracks[0];
+        Object.defineProperty(track, "activeCues", { configurable: true, get: () => [{ text: ">> Hello &amp; welcome\n<i>Second line</i>" }] });
+        track.dispatchEvent(new Event("cuechange"));
+    });
+    assert.deepEqual(await page.locator(".movie-ui-sub").allInnerTexts(), ["Hello & welcome", "Second line"]);
     if (browser.browserType() === chromium)
         await page.waitForFunction(() => document.querySelector("video").textTracks[0].cues?.length === 1);
     await subtitle.selectOption("-1");
