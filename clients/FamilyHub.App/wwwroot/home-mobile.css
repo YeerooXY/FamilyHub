@@ -328,3 +328,13 @@ body.native-hidden *,body.native-hidden *::before,body.native-hidden *::after { 
 
 .song-row.has-library-add .row-actions { grid-template-columns:repeat(3,44px); }
 .song-row.has-library-add .row-more { grid-column:3; }
+
+/* A song that is not in the library shows one cloud: the add button. The status cloud beside it repeated the same glyph. */
+article.song-row.has-library-add .storage-state { display:none; }
+/* Phones: the title needs the room, so Add to library moves into the more-options menu (it is already listed there). */
+@media(max-width:720px) {
+    article.song-row.has-library-add { grid-template-columns:minmax(0,1fr) auto; }
+    article.song-row.has-library-add .row-actions { grid-template-columns:repeat(2,44px); }
+    article.song-row.has-library-add .row-actions > .row-reveal:not(.row-more) { display:none; }
+    article.song-row.has-library-add .row-actions > .row-more { grid-column:2; }
+}

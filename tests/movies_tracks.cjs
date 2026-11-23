@@ -103,7 +103,10 @@ async function check(browser, options) {
     // "Recently added" repeats titles from the library shelves, so look cards up outside it.
     const moviesShelf = page.locator(".movie-shelf").filter({ hasNot: page.getByRole("heading", { name: "Recently added" }) });
     const openTracks = () => page.getByRole("button", { name: "Audio and subtitles" }).click();
-    const select = name => page.getByRole("combobox", { name, exact: true });
+    const select = name => page.locator("label", { hasText: name }).locator("select");
+    // Audio & Subtitles is one popover with a radio list per kind; the hidden selects keep the values.
+    const group = name => page.getByRole("radiogroup", { name, exact: true });
+    const checkedIn = name => group(name).getByRole("radio", { checked: true });
     const preferences = (profile, values) => page.evaluate(async ({ profile, values }) => {
         const { readMoviePreferences, saveMoviePreferences } = await import("/movies.js");
         const viewer = { server: location.origin, profile };
@@ -141,11 +144,19 @@ async function check(browser, options) {
     assert.equal(await page.getByRole("combobox").count(), 0);
     assert.equal(await preferences("viewer-a", { audio: "hu", subtitles: "hu" }), true);
     await image("Two languages", "/Items/full/Images/Primary", 2 / 3);
-    await image("One language", "/movie-art/movie-alt.jpg", 2 / 3);
-    await image("FamilyHub Sample 1080p", "/movie-art/movie.jpg", 2 / 3);
-    await image("FamilyHub Sample 4K HEVC", "/movie-art/movie-alt.jpg", 2 / 3);
+    // A title without artwork gets its own colour and initial, never a shared stock image.
+    const bare = async (name, initial) => {
+        const art = moviesShelf.getByRole("button", { name, exact: true }).locator(".movie-art");
+        await art.waitFor();
+        await page.waitForFunction(node => !node.querySelector("img[src]"), await art.elementHandle());
+        assert.equal(await art.getAttribute("data-initial"), initial);
+        assert.ok(await art.evaluate(node => node.style.getPropertyValue("--art-hue") !== ""));
+    };
+    await bare("One language", "O");
+    await bare("FamilyHub Sample 1080p", "F");
+    await bare("FamilyHub Sample 4K HEVC", "F");
     await image("Show · Pilot", "/Items/series/Images/Thumb", 16 / 9);
-    await image("Show · Finale", "/movie-art/episode.jpg", 16 / 9);
+    await bare("Show · Finale", "S");
     await two.press("Enter");
     await back.waitFor();
     // The player fills the window; controls follow the Netflix-style layout and start on Play.
@@ -173,16 +184,14 @@ async function check(browser, options) {
     await page.waitForFunction(() => document.activeElement.closest(".movie-ui-actions"));
     await press("ArrowUp", page.getByRole("slider", { name: "Seek" }));
     await press("ArrowUp", playPause);
-    // Up from play lands on whichever top control is nearer (the left arrow or the close button); left and right reach the other.
+    // Up from play lands on the single Back control.
     await page.keyboard.press("ArrowUp");
     await page.waitForFunction(() => document.activeElement.closest(".movie-ui-top"));
-    await press("ArrowLeft", page.getByRole("button", { name: "Back", exact: true }));
-    await press("ArrowRight", back);
     // Audio & Subtitles opens a sheet with one named close control and Escape returns focus to its opener.
     const tracks = page.getByRole("button", { name: "Audio and subtitles" });
     await tracks.click();
     await page.getByRole("button", { name: "Close audio and subtitles" }).waitFor();
-    await audio.waitFor();
+    await group("Audio track").waitFor();
     // A browser in fullscreen spends the first Escape on leaving fullscreen, so allow a second press.
     const closer = page.getByRole("button", { name: "Close audio and subtitles" });
     for (let press = 0; press < 2 && await closer.isVisible(); press++) {
@@ -207,12 +216,11 @@ async function check(browser, options) {
     assert.deepEqual(await page.locator(".movie-ui-sub").allInnerTexts(), ["Hello & welcome", "Second line"]);
     if (browser.browserType() === chromium)
         await page.waitForFunction(() => document.querySelector("video").textTracks[0].cues?.length === 1);
-    await subtitle.selectOption("-1");
-    await audio.focus();
-    await audio.selectOption("1");
+    await group("Subtitle track").getByRole("radio", { name: "Off", exact: true }).click();
+    await group("Audio track").getByRole("radio", { name: "English stereo", exact: true }).click();
     await back.waitFor();
-    await audio.waitFor();
-    await focused(audio);
+    await group("Audio track").waitFor();
+    await focused(checkedIn("Audio track"));
     assert.equal(await subtitle.inputValue(), "-1");
     assert.deepEqual(await preferences("viewer-a"), { audio: "hu", subtitles: "hu" });
     await back.press("Space");
@@ -256,8 +264,8 @@ async function check(browser, options) {
     await setMedia({ currentTime: 210 }, ["seeked"]);
     await setMedia({ currentTime: 215, paused: true }, ["pause"]);
     await openTracks();
-    await audio.selectOption("1");
-    await focused(audio);
+    await group("Audio track").getByRole("radio", { name: "English stereo", exact: true }).click();
+    await focused(checkedIn("Audio track"));
     assert.equal(await setMedia({ duration: 1200, currentTime: 0, paused: true }, ["loadedmetadata"]), 215);
     await setMedia({ paused: false }, ["playing"]);
     await setMedia({ currentTime: 1200, paused: true, ended: true }, ["pause", "ended"]);

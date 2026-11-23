@@ -16,7 +16,7 @@ const titles = ["Harbour Lights", "The Long Way Home", "Paper Moons", "Northern 
 const movies = titles.map((Name, i) => ({ Id: "m" + i, Name, Type: "Movie", ProductionYear: 2008 + i, OfficialRating: i % 3 ? "PG-13" : "PG",
     RunTimeTicks: (80 + i * 4) * 6e8, Genres: [["Drama", "Comedy", "Thriller"][i % 3]],
     Overview: "A quiet town gets a visitor with a map nobody has seen, and one evening decides what everyone does next.",
-    BackdropImageTags: i < 2 ? ["b"] : undefined, ImageTags: { Primary: "p" },
+    BackdropImageTags: i < 2 ? ["b"] : undefined, ImageTags: i < 6 ? { Primary: "p" } : undefined,
     UserData: i === 1 ? { PlaybackPositionTicks: 40 * 6e8, PlayedPercentage: 42 } : {} }));
 const episodes = ["Pilot", "The Move", "Visitors", "Snow Day", "Finale", "Reunion"].map((Name, i) => ({
     Id: "e" + i, Name, Type: "Episode", SeriesName: "Harbour Town", SeriesId: "s", ImageTags: { Thumb: "t" } }));

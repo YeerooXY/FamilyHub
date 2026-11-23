@@ -95,16 +95,15 @@ export function buildPlayerUi(ctx) {
         return b;
     };
 
-    // Top: centred title, close at the right.
+    // Top: one Back control at the left, centred title.
     const top = make("div", "movie-ui-top");
     const heading = make("div", "movie-ui-heading");
     if (ctx.kicker) heading.append(make("p", "movie-ui-kicker", ctx.kicker));
     heading.append(make("h2", "movie-ui-title", ctx.title));
-    back.classList.add("movie-ui-close");
+    back.classList.add("movie-ui-back");
     back.setAttribute("aria-label", "Back to movies");
-    back.replaceChildren(icon(paths.close));
-    const leave = button("movie-ui-back", "Back", paths.back, {}, () => back.click());
-    top.append(leave, heading, back);
+    back.replaceChildren(icon(paths.back));
+    top.append(back, heading);
 
     // Middle: skip back, play or pause, skip forward.
     const skip = (seconds) => {
@@ -177,12 +176,46 @@ export function buildPlayerUi(ctx) {
     }
     const tracksSheet = makeSheet("tracks", "Audio & Subtitles", "Close audio and subtitles", tracksButton);
     const episodesSheet = makeSheet("episodes", "Episodes", "Close episodes", episodesButton);
-    sheets.tracks.body.append(...ctx.trackControls);
+    // Audio & Subtitles is one popover with a list per kind, like Netflix. The labelled selects stay in the document,
+    // hidden, as the single source of truth: choosing a row sets its select and fires the select's change event.
+    tracksSheet.classList.add("movie-sheet-tracks");
+    const syncTracks = [];
+    for (const control of ctx.trackControls) {
+        for (const label of control.querySelectorAll("label")) {
+            const pick = label.querySelector("select");
+            if (!pick) continue;
+            label.hidden = true;
+            const name = (label.firstChild?.textContent ?? "").trim();
+            const column = make("div", "movie-track-col");
+            const list = make("div", "movie-track-list");
+            list.setAttribute("role", "radiogroup");
+            list.setAttribute("aria-label", name);
+            column.append(make("h4", "", /^audio/i.test(name) ? "Audio" : "Subtitles"), list);
+            const rowsFor = [...pick.options].map(option => {
+                const row = make("button", "movie-track-option", option.text);
+                row.type = "button";
+                row.setAttribute("role", "radio");
+                row.addEventListener("click", () => {
+                    pick.value = option.value;
+                    pick.dispatchEvent(new Event("change"));
+                    sync();
+                }, { signal });
+                list.append(row);
+                return [row, option];
+            });
+            const sync = () => { for (const [row, option] of rowsFor) row.setAttribute("aria-checked", String(pick.value === option.value)); };
+            sync();
+            syncTracks.push(sync);
+            control.append(column);
+        }
+        sheets.tracks.body.append(control);
+    }
     function toggleSheet(name, focusTarget) {
         if (openSheet === name) return closeSheet(true);
         closeSheet(false);
         openSheet = name;
         sheets[name].node.hidden = false;
+        if (name === "tracks") for (const sync of syncTracks) sync();
         sheets[name].opener.setAttribute("aria-expanded", "true");
         show();
         // Focus starts on the close control (or the current episode), so Escape and Enter work the same everywhere.
@@ -329,7 +362,7 @@ export function buildPlayerUi(ctx) {
     // Keyboard and TV remote. With a control focused, the arrow keys move between controls (a TV remote has no pointer):
     // left and right inside a row, up and down between rows. The seek bar scrubs with left and right. With nothing
     // focused, left and right skip 10 seconds. Space, K or Enter toggles play, Escape closes a sheet, Back closes the player.
-    const rows = () => [[leave, back], [rewind, playPause, forward], [seek], [fullscreen, episodesButton, tracksButton, nextButton].filter(b => !b.hidden)];
+    const rows = () => [[back], [rewind, playPause, forward], [seek], [fullscreen, episodesButton, tracksButton, nextButton].filter(b => !b.hidden)];
     function moveFocus(target, key) {
         const sheetNode = openSheet && sheets[openSheet].node;
         if (sheetNode?.contains(target)) {
@@ -413,7 +446,7 @@ export function buildPlayerUi(ctx) {
         /** A short line over the picture, for example "This device could not play this version." */
         say(text) { failure.textContent = text; busy(false); show(); },
         /** Reopens Audio & Subtitles with the audio list focused, after an audio change rebuilt the player. */
-        openTracksAt: () => toggleSheet("tracks", sheets.tracks.body.querySelector("select")),
+        openTracksAt: () => toggleSheet("tracks", sheets.tracks.body.querySelector("[aria-checked='true']")),
         dispose() { root.remove(); }
     };
 }

@@ -323,3 +323,28 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-releases p { margin-block: .6rem; }
 .movie-releases li p { margin: 0; overflow-wrap: anywhere; }
 .movie-releases li strong { overflow-wrap: anywhere; }
+
+/* Titles without artwork: a colour per title and its initial, drawn by CSS (live text, no baked-in lettering). */
+.movie-art[data-initial] { --art-hue: 215; background: linear-gradient(155deg, hsl(var(--art-hue) 45% 30%), hsl(calc(var(--art-hue) + 40) 50% 14%)); }
+.movie-art[data-initial]::before { content: attr(data-initial); content: attr(data-initial) / ""; position: absolute; inset: 0; display: grid; place-items: center; font: 700 clamp(2.4rem, 5vw, 4rem)/1 system-ui, sans-serif; color: #ffffffd9; text-shadow: 0 .15rem .8rem #0008; }
+.movie-art img { position: relative; }
+.movie-hero { --art-hue: 215; background: linear-gradient(135deg, hsl(var(--art-hue) 45% 26%), hsl(calc(var(--art-hue) + 40) 50% 10%)); }
+/* Search and Release search share one row. An open Release search takes the full width. */
+.movie-toolbar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .75rem 1rem; margin-bottom: 1rem; }
+.movie-toolbar .movie-search { flex: 1 1 22rem; margin: 0; }
+.movie-toolbar .movie-releases { flex: 0 1 auto; margin: 0; }
+.movie-toolbar .movie-releases[open] { flex: 1 1 100%; }
+/* Headings line up with the first card. */
+.movie-library .movie-shelf > h2 { padding-inline: .35rem; }
+
+/* Audio & Subtitles: one popover, a list per kind, the current choice marked. */
+.movie-sheet.movie-sheet-tracks { width: min(36rem, calc(100% - 2rem)); }
+.movie-sheet-tracks .movie-track-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr)); gap: 1rem 1.25rem; }
+.movie-track-col h4 { margin: 0 0 .4rem; font-size: .95rem; color: #ffffffb3; font-weight: 600; }
+.movie-track-list { display: grid; gap: .1rem; max-height: 14rem; overflow: auto; }
+.movie-library .movie-track-option { position: relative; display: block; width: 100%; min-height: 44px; padding: .5rem .6rem .5rem 2.1rem; border: 0; border-radius: .5rem; background: transparent; color: #ffffffcc; font: inherit; text-align: start; overflow-wrap: anywhere; }
+.movie-track-option::before { content: ""; position: absolute; left: .75rem; top: 50%; width: .5rem; height: .85rem; margin-top: -.55rem; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg); opacity: 0; }
+.movie-track-option[aria-checked="true"] { color: #fff; font-weight: 700; }
+.movie-track-option[aria-checked="true"]::before { opacity: 1; }
+.movie-track-option:hover { background: #ffffff1a; }
+.movie-ui .movie-track-option:focus-visible { outline-offset: -3px; }

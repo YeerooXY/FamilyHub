@@ -385,6 +385,12 @@ export function openMovies(host, session, app, viewer) {
         return item.RunTimeTicks > 0 && data?.PlaybackPositionTicks > 0
             ? Math.round(data.PlaybackPositionTicks / item.RunTimeTicks * 100) : 0;
     }
+    // A title without artwork gets its own colour from its name, so a row of unposted titles stays tellable apart.
+    function titleHue(text) {
+        let h = 7;
+        for (const ch of text) h = (h * 31 + ch.codePointAt(0)) % 360;
+        return String(h);
+    }
     function card(item, wide) {
         const seriesPrefix = item.SeriesName?.trim().toLowerCase();
         const needsSeries = seriesPrefix && !item.Name.trim().toLowerCase().startsWith(seriesPrefix);
@@ -412,12 +418,11 @@ export function openMovies(host, session, app, viewer) {
         const candidates = wide ? [...landscape, primary, ...series] : [primary, ...landscape, ...series];
         const images = new Set(candidates.filter(([id, , tag]) => id && tag).map(([id, type, tag]) =>
             url(`Items/${encodeURIComponent(id)}/Images/${type}`, { tag, maxWidth: wide ? 720 : 480 }).href));
-        const fallback = item.Type === "Episode" || item.SeriesName ? "episode"
-            : Math.floor(item.Name.length / 2) % 2 ? "movie" : "movie-alt";
-        images.add(new URL(`./movie-art/${fallback}.jpg`, import.meta.url).href);
         chainImages(poster, [...images]);
         const artwork = el("span");
         artwork.className = "movie-art";
+        artwork.style.setProperty("--art-hue", titleHue(item.SeriesName || item.Name));
+        artwork.dataset.initial = [...(item.SeriesName || item.Name).trim()][0]?.toUpperCase() ?? "";
         artwork.append(poster);
         const watched = progressOf(item);
         if (watched > 0 && watched < 100) {
@@ -507,6 +512,7 @@ export function openMovies(host, session, app, viewer) {
                     else rows.textContent = resume ? "No videos in progress." : "No titles yet.";
                 }
                 extra.afterPage?.();
+                if (extra.hideWhenAtMost && !term && page.TotalRecordCount <= extra.hideWhenAtMost) section.hidden = true;
                 if (term && reset) {
                     const count = page.TotalRecordCount ?? offset;
                     status.textContent = count ? `${count} matching ${count === 1 ? "title" : "titles"}.` : "No matches in your library.";
@@ -688,7 +694,10 @@ export function openMovies(host, session, app, viewer) {
     query.oninput = () => { if (!query.value.trim()) resetSearch(); };
     life.signal.addEventListener("abort", () => searchRequest?.abort(), {once:true});
     form.append(query, submit, clear);
-    library.append(form, browse, results);
+    const toolbar = el("div");
+    toolbar.className = "movie-toolbar";
+    toolbar.append(form);
+    library.append(toolbar, browse, results);
     if (session.release_search_enabled) {
         const releaseSearch = buildReleaseSearch(async term => JSON.parse(await app.invokeMethodAsync("MovieReleaseSearch", term)));
         form.after(releaseSearch);
@@ -723,7 +732,7 @@ export function openMovies(host, session, app, viewer) {
             const width = innerWidth > 1700 ? 2560 : 1600;
             const urls = backdrops(pick).map(([id, type, tag]) =>
                 url(`Items/${encodeURIComponent(id)}/Images/${type}`, { tag, maxWidth: width }).href);
-            urls.push(new URL("./movie-art/" + (pick.Type === "Episode" ? "episode" : "movie") + ".jpg", import.meta.url).href);
+            section.style.setProperty("--art-hue", titleHue(pick.SeriesName || pick.Name));
             chainImages(art, urls);
             const seriesPrefix = pick.SeriesName?.trim().toLowerCase();
             const name = seriesPrefix && !pick.Name.trim().toLowerCase().startsWith(seriesPrefix)
@@ -771,7 +780,7 @@ export function openMovies(host, session, app, viewer) {
     billboard();
     const reloadResume = shelf("Continue watching", "Movie,Episode", true);
     shelf("Recently added", "Movie", false, browse, "", life.signal,
-        { params: { sortBy: "DateCreated", sortOrder: "Descending", limit: 20 }, hideEmpty: true });
+        { params: { sortBy: "DateCreated", sortOrder: "Descending", limit: 20 }, hideEmpty: true, hideWhenAtMost: 8 });
     request("Genres", { userId: session.user, includeItemTypes: "Movie", sortBy: "SortName" }).then(genres => {
         if (!active) return;
         for (const genre of (genres.Items ?? []).slice(0, 6))
