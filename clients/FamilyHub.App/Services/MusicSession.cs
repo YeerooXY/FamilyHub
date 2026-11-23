@@ -314,8 +314,11 @@ public sealed class MusicSession
         catch { SetMessage("Could not read the saved connection. Enter your server again.", "error"); }
         Ready = true;
         Changed?.Invoke();
-        if (Api is not null) _ = ReconnectAsync(background: true);
+        // The startup screen waits for this first attempt to settle, so a failed reconnect cannot flash a notice over the app.
+        if (Api is not null) FirstConnection = ReconnectAsync(background: true).ContinueWith(_ => { }, TaskScheduler.Default);
     }
+
+    public Task FirstConnection { get; private set; } = Task.CompletedTask;
 
     private void Configure(string server, string user, FamilyHubApi? authenticatedApi = null, OfflineLibrary? offline = null)
     {

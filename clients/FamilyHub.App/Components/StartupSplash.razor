@@ -1,3 +1,11 @@
-<main class="startup-screen" aria-label="Opening FamilyHub" aria-busy="true">
-    <div class="startup-disc"><img src="familyhub-logo.svg" alt="" /></div>
+<main class="startup-screen @(Leaving ? "is-leaving" : "")" role="status" aria-label="Opening FamilyHub" aria-busy="@(Leaving ? "false" : "true")">
+    <div class="startup-twinkle" aria-hidden="true"></div>
+    <div class="startup-stage">
+        <div class="startup-disc"><span class="startup-orbit" aria-hidden="true"></span><img src="familyhub-logo.svg" alt="" /></div>
+        <p class="startup-word" aria-hidden="true">FamilyHub</p>
+    </div>
+    <div class="startup-line" aria-hidden="true"><span></span></div>
 </main>
+@code {
+    [Parameter] public bool Leaving { get; set; }
+}

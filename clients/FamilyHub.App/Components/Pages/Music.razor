@@ -16,9 +16,12 @@
 @inject NavigationManager Navigation
 @inject PublicAppReleases PublicReleases
 
-@if (!Session.Ready || !chromeReady)
+@if (splash != SplashState.Gone)
 {
-    <StartupSplash />
+    <StartupSplash Leaving="@(splash == SplashState.Leaving)" />
+}
+@if (splash == SplashState.Showing || !Session.Ready || !chromeReady)
+{
 }
 else if (EntryScreen)
 {
@@ -1323,8 +1326,29 @@ else
     private ListenerPreferences? appliedPreferences;
     private bool wasDownloading, renderedSearching;
     private static string Aria(bool value) => value ? "true" : "false";
+    // The opening screen plays once per launch. It stays for at least MinimumSplash and until the app is ready: the saved
+    // profile is read, the first server check has settled (or 6 seconds passed) and the layout is prepared. It then
+    // fades out over the app, so no half-loaded screen, empty list or connection notice shows first.
+    private enum SplashState { Showing, Leaving, Gone }
+    private static bool splashPlayed;
+    private SplashState splash = splashPlayed ? SplashState.Gone : SplashState.Showing;
+    private const int MinimumSplash = 2800;
+    private async Task RunSplash()
+    {
+        splashPlayed = true;
+        var minimum = Task.Delay(MinimumSplash);
+        while (!(Session.Ready && chromeReady)) await Task.Delay(40);
+        await Task.WhenAll(minimum, Task.WhenAny(Session.FirstConnection, Task.Delay(6000)));
+        splash = SplashState.Leaving;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(560);
+        splash = SplashState.Gone;
+        await InvokeAsync(StateHasChanged);
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && splash == SplashState.Showing) _ = RunSplash();
         var identity = string.IsNullOrEmpty(Session.User) || Session.NeedsProfileSelection ? "" : AppearanceKey;
         if (feedbackProfile != identity)
         {
