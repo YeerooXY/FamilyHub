@@ -17,6 +17,7 @@ function resolution(title) {
 /** What the release holds when it is a series: one episode, a whole season, or several seasons. */
 export function releaseKind(title) {
     if (/\bS\d{1,2}\s*[-–]\s*S?\d{1,2}\b/i.test(title) || /\b(?:complete|full)[ ._-]*(?:series|collection)\b/i.test(title)
+        || /\b(?:full[ ._-]+hun|teljes[ ._-]+sorozat)\b/i.test(title)
         || /\bseasons?[ ._-]*\d+[ ._-]*(?:-|to|&)[ ._-]*\d+\b/i.test(title)) return "Complete series";
     const episode = title.match(/\bS(\d{1,2})[ ._-]*E(\d{1,3})\b/i) || title.match(/\b(\d{1,2})x(\d{2,3})\b/);
     if (episode) return `One episode · S${String(Number(episode[1])).padStart(2, "0")}E${String(Number(episode[2])).padStart(2, "0")}`;
@@ -24,47 +25,75 @@ export function releaseKind(title) {
     return season ? `Full season ${Number(season[1])}` : "";
 }
 
-const TIERS = {
-    uhd: { rank: 6 },
-    remux: { rank: 5, note: "A remux keeps the original Blu-ray video." },
-    bluray: { rank: 4 },
-    web: { rank: 3 },
-    hd: { rank: 2 },
-    tv: { rank: 1 },
-    poor: { rank: 0 }
-};
+const TIERS = [
+    ["4k-remux", "4K Remux", "Original 4K disc video"],
+    ["4k-bluray", "4K Blu-ray", "Compressed 4K disc video"],
+    ["4k-web", "4K Web", "4K streaming copy"],
+    ["remux", "1080p Remux", "Original HD disc video"],
+    ["bluray", "1080p Blu-ray", "Compressed HD disc video"],
+    ["web", "1080p Web", "HD streaming copy"],
+    ["hd", "720p", "Smaller HD picture"],
+    ["tv", "TV or DVD", "TV recording or DVD copy"],
+    ["poor", "Camera copy", "Filmed in a cinema"]
+];
 
-/** The quality tier (drives the colour), a short label such as "1080p Blu-ray", and a plain-words note. */
-export function releaseQuality(title, height = resolution(title)) {
-    const hdr = /\b(?:HDR10\+?|HDR|DV|Dolby[ ._-]?Vision)\b/i.test(title);
-    const camera = /\b(?:CAM|HDCAM|TS|HDTS|TELESYNC|TELECINE)\b/i.test(title);
-    const remux = /\bremux\b/i.test(title);
-    const bluray = /\b(?:blu-?ray|bdrip|brrip)\b/i.test(title);
-    const web = /\b(?:web-?dl|webrip|web)\b/i.test(title);
-    const tv = /\b(?:hdtv|pdtv|dvdrip)\b/i.test(title);
-    const source = camera ? "Camera copy" : remux ? "Remux" : bluray ? "Blu-ray" : web ? "Web" : tv ? "TV or DVD" : "";
-    const picture = height >= 2160 ? "4K" : height ? `${height}p` : "";
-    let tier = "web";
-    if (camera || (height > 0 && height < 576)) tier = "poor";
-    else if (height >= 2160) tier = "uhd";
-    else if (remux) tier = "remux";
-    else if (bluray) tier = "bluray";
-    else if (web) tier = "web";
-    else if (tv) tier = "tv";
-    else if (height >= 1080) tier = "bluray";
-    else if (height >= 720) tier = "hd";
-    else tier = "tv";
-    if (tier === "web" && height > 0 && height < 1080 && height >= 720) tier = "hd";
-    const label = height >= 2160
-        ? ["4K", hdr ? "HDR" : "", remux ? "Remux" : bluray ? "Blu-ray" : web ? "Web" : ""].filter(Boolean).join(" ")
-        : [picture, source].filter(Boolean).join(" ") || "Quality unknown";
-    return { tier, label, source, poor: tier === "poor", rank: TIERS[tier].rank, note: TIERS[tier].note };
+export function cleanResultTitle(value) {
+    // Parse only the entity token, so the parser never sees markup from a result.
+    const decoded = value.replace(/&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]*);/gi,
+        entity => new DOMParser().parseFromString("<body>" + entity + "</body>", "text/html").body.textContent);
+    return decoded.replace(/<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?=[\s/>])(?:[^"'<>]|"[^"]*"|'[^']*')*>/gi, "")
+        .replace(/\s+/g, " ").trim();
 }
 
-export function downloadTime(bytes, mbps = ASSUMED_MBPS) {
-    if (!(bytes > 0) || !(mbps > 0)) return "";
-    const minutes = Math.max(1, Math.round(bytes * 8 / (mbps * 1e6) / 60));
-    return minutes < 60 ? `about ${minutes} min` : `about ${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")} min`;
+function pictureTier(height) {
+    if (height >= 2160) return "4k-web";
+    if (height >= 1080) return "web";
+    if (height >= 720) return "hd";
+    return height ? "tv" : "unknown";
+}
+
+function releaseQuality(title, height, size, length) {
+    const camera = /\b(?:CAM|HDCAM|TS|HDTS|TELESYNC|TELECINE)\b/i.test(title);
+    const remux = /\bremux\b/i.test(title);
+    const bluray = /\b(?:blu[ ._-]?ray|bdrip|brrip)\b/i.test(title);
+    const web = /\b(?:web[ ._-]?dl|web[ ._-]?rip|web)\b/i.test(title);
+    const tv = /\b(?:[hp]dtv|dvd[ ._-]?(?:rip)?|dvd[59])\b/i.test(title);
+    const source = remux ? "Remux" : bluray ? "Blu-ray" : web ? "Web" : "";
+    let tier = pictureTier(height);
+    if (camera) tier = "poor";
+    else if (tv) tier = "tv";
+    else if (source && (!height || height >= 1080)) {
+        tier = (height >= 2160 ? "4k-" : "") + (remux ? "remux" : bluray ? "bluray" : "web");
+    }
+    if (tier === "unknown" && length > 0 && size > 0) {
+        const mbps = size * 8 / (length * 60 * 1e6);
+        const steps = [[1.5, "about 480p or lower"], [3.5, "about 720p"], [12, "about 1080p"]];
+        const estimate = steps.find(([limit]) => mbps < limit)?.[1]
+            ?? (mbps <= 30 ? "high-quality 1080p" : "4K or untouched disc");
+        return {tier: "estimated", label: `Estimated: ${estimate} (from size and length)`, rank: -1};
+    }
+    const picture = height >= 2160 ? "4K" : height ? `${height}p` : "";
+    const label = camera ? "Camera copy" : tv ? "TV or DVD" : [picture, tier === "hd" ? "" : source].filter(Boolean).join(" ")
+        || (length > 0 ? "Size needed to estimate quality" : "Quality unknown");
+    const rank = TIERS.findIndex(([id]) => id === tier);
+    return {tier, label, rank: rank < 0 ? -2 : TIERS.length - rank - 1};
+}
+
+export function videoQualityTier(height) {
+    return pictureTier(height);
+}
+
+export function formatMinutes(value) {
+    if (!(value > 0)) return "";
+    const minutes = Math.max(1, Math.round(value));
+    const hours = Math.floor(minutes / 60), remainder = minutes % 60;
+    return [hours ? `${hours} h` : "", remainder ? `${remainder} min` : ""].filter(Boolean).join(" ");
+}
+
+export function downloadTime(bytes, seeders) {
+    if (!(bytes > 0) || !(seeders > 0)) return "";
+    const mbps = Math.min(ASSUMED_MBPS, Math.max(1, seeders * 2));
+    return `about ${formatMinutes(bytes * 8 / (mbps * 1e6 * 60))}`;
 }
 
 /** How easy the file is to get, in words. The number of people sharing it stays in the tooltip. */
@@ -93,7 +122,7 @@ const SORTS = [
     ["speed", "Easiest to get"]
 ];
 
-export function buildReleaseSearch(search, signal, download = null) {
+export function buildReleaseSearch(search, signal, download = null, showDetails = () => {}) {
     const panel = document.createElement("section");
     panel.className = "movie-releases";
     panel.hidden = true;
@@ -104,7 +133,11 @@ export function buildReleaseSearch(search, signal, download = null) {
             <h2 tabindex="-1">Releases</h2>
             <div class="movie-release-tools" role="group" aria-label="Sort releases"></div>
             <p class="movie-web-meta" data-release-availability hidden>Downloading is not switched on for your profile. Ask the server owner to turn it on.</p>
-            <p class="movie-web-meta">Times assume a ${ASSUMED_MBPS} Mbps connection.</p>
+            <section class="movie-quality-guide" aria-label="Quality guide">
+                <h3>Quality guide</h3>
+                <ul class="movie-quality-chips"></ul>
+                <p class="movie-web-meta">Times assume a ${ASSUMED_MBPS} Mbps connection.</p>
+            </section>
             <ul class="movie-source-list" aria-label="Release results"></ul>
             <button type="button" class="movie-release-more" hidden>Show all releases</button>
         </section>`;
@@ -116,7 +149,7 @@ export function buildReleaseSearch(search, signal, download = null) {
     const canDownload = typeof download === "function";
     options.querySelector("[data-release-availability]").hidden = canDownload;
     const status = panel.querySelector('[role="status"]');
-    const list = panel.querySelector("ul");
+    const list = panel.querySelector(".movie-source-list");
     let rows = [], unavailable = 0, busy = false, complete = false, showAll = false, sortBy = "best";
 
     const sortButtons = SORTS.map(([id, label]) => {
@@ -135,6 +168,20 @@ export function buildReleaseSearch(search, signal, download = null) {
         node.textContent = text;
         if (level) node.dataset.level = level;
         return node;
+    }
+
+    const guide = panel.querySelector(".movie-quality-chips");
+    for (const [id, label, meaning] of TIERS) {
+        const item = document.createElement("li");
+        item.append(chip("movie-release-quality", label, id), document.createTextNode(meaning));
+        guide.append(item);
+    }
+    for (const [seeders, meaning] of [[100, "100 or more sharing"], [20, "20 to 99 sharing"],
+        [5, "5 to 19 sharing"], [1, "1 to 4 sharing"], [0, "Nobody sharing"], [null, "No share count"]]) {
+        const [level, label] = availability(seeders);
+        const item = document.createElement("li");
+        item.append(chip("movie-release-availability", label, level), document.createTextNode(meaning));
+        guide.append(item);
     }
 
     function compare(a, b) {
@@ -184,14 +231,19 @@ export function buildReleaseSearch(search, signal, download = null) {
                 return detail;
             };
             stat("Size", row.size ? `${(row.size / gib).toFixed(1)} GB` : "Unknown");
-            stat("Download time", row.size && row.seeders ? downloadTime(row.size) : "Not known");
+            const length = formatMinutes(row.length);
+            stat("Length", length ? (row.lengthEstimated ? "About " + length : length) : "Unknown");
+            stat("Download time", row.seeders === 0 ? "May never finish" : downloadTime(row.size, row.seeders) || "Unknown",
+                row.seeders === 0 ? "none" : undefined);
             const detail = stat("Availability", words, level);
             if (row.seeders !== null) detail.title = `${row.seeders} ${row.seeders === 1 ? "person shares" : "people share"} this file`;
 
             const note = document.createElement("p");
             note.className = "movie-release-note";
-            note.textContent = [row.quality.note, row.size > 40 * gib ? "This file uses over 40 GB of server space." : ""]
-                .filter(Boolean).join(" ");
+            note.textContent = ["Estimate based on how many people share it",
+                row.mismatch ? "This file is unusually small for a 1080p video of this length" : "",
+                row.size > 40 * gib ? "This file uses over 40 GB of server space" : ""]
+                .filter(Boolean).join(". ") + ".";
 
             const name = document.createElement("strong");
             name.className = "movie-release-name";
@@ -276,10 +328,25 @@ export function buildReleaseSearch(search, signal, download = null) {
             panel.hidden = retry.hidden = false;
             return true;
         }
+        const details = reply.title_details || {};
+        showDetails(details);
         const matches = new Map();
         for (const item of reply.results) {
-            const row = { title: item.title, height: resolution(item.title), size: number(item.size),
-                seeders: number(item.seeders), kind: releaseKind(item.title), quality: releaseQuality(item.title),
+            if (typeof item.title !== "string") continue;
+            const title = cleanResultTitle(item.title);
+            if (!title) continue;
+            const height = resolution(title), size = number(item.size);
+            const kind = details.kind === "movie" ? "" : releaseKind(title);
+            const isSeriesPack = details.kind === "tv" && kind === "Complete series";
+            const length = isSeriesPack ? details.series_minutes || (details.season == null ? details.runtime_minutes : null)
+                : details.runtime_minutes;
+            const lengthEstimated = isSeriesPack ? details.series_estimated ?? details.runtime_estimated : details.runtime_estimated;
+            const oneEpisode = kind.startsWith("One episode");
+            const comparisonLength = oneEpisode && details.episode_count > 0 ? length / details.episode_count : length;
+            const mismatch = !lengthEstimated && !oneEpisode && height === 1080 && comparisonLength > 0
+                && size > 0 && size / comparisonLength < 3e6;
+            const row = { title, height, size, length, lengthEstimated, mismatch, kind,
+                seeders: number(item.seeders), quality: releaseQuality(title, height, size, comparisonLength),
                 guid: item.guid, indexerId: item.indexerId };
             const key = `${row.title.toLowerCase()}\n${row.size}`;
             const previous = matches.get(key);

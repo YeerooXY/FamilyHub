@@ -9,7 +9,7 @@ import shutil
 import urllib.error
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from threading import Lock
 from time import monotonic
 
@@ -109,6 +109,9 @@ def register_movies(app, cfg, body, allow):
     queue_cache, queue_expires = None, 0
     seerr = requests.get('url', '').rstrip('/')
     seerr_key = requests.get('api_key', '')
+    tmdb_token = requests.get('tmdb_read_token')
+    search_cache, search_pending = {}, {}
+    search_lock = Lock()
     try:
         seerr_origin = urllib.parse.urlsplit(seerr)
     except ValueError:
@@ -129,6 +132,34 @@ def register_movies(app, cfg, body, allow):
 
     def download_access():
         return g.user in downloads.get('profiles', []) and g.user in cfg.get('JELLYFIN_PROFILES', {})
+
+    def cached_search(key, ttl, fetch):
+        with search_lock:
+            stored = search_cache.get(key)
+            if stored and stored[0] > monotonic():
+                return stored[1]
+            pending = search_pending.get(key)
+            if pending is None:
+                pending = search_pending[key] = Future()
+                owner = True
+            else:
+                owner = False
+        if not owner:
+            return pending.result()
+        try:
+            value = fetch()
+            with search_lock:
+                search_cache[key] = (monotonic() + (ttl if value is not None else 15), value)
+                while len(search_cache) > 256:
+                    del search_cache[next(iter(search_cache))]
+            pending.set_result(value)
+            return value
+        except Exception as error:
+            pending.set_exception(error)
+            raise
+        finally:
+            with search_lock:
+                del search_pending[key]
 
     @app.get('/api/movies/downloads')
     def movie_downloads():
@@ -221,40 +252,63 @@ def register_movies(app, cfg, body, allow):
         season = int(season_query[2]) if season_query else None
         wanted_words = movie_search.words(title)
 
-        def search_indexer(indexer, term):
-            params = urllib.parse.urlencode({'query': term, 'type': 'search', 'indexerIds': indexer, 'limit': 50})
+        def search_indexer(ids, term):
+            params = urllib.parse.urlencode({'query': term, 'type': 'search', 'indexerIds': ids, 'limit': 50}, doseq=True)
             req = urllib.request.Request(prowlarr + '/api/v1/search?' + params,
                 headers={'X-Api-Key': releases['api_key'], 'Accept': 'application/json'})
             try:
                 with urllib.request.build_opener(NoRedirect).open(req, timeout=4 if season is not None else 8) as reply:
                     rows = json.loads(reply.read(1024 * 1024))
-                return [dict(title=row['title'][:250], source=row.get('indexer', '')[:80], size=row.get('size'),
+                return [dict(title=cleaned[:250], source=row.get('indexer', '')[:80], size=row.get('size'),
                              seeders=row.get('seeders'), leechers=row.get('leechers'),
-                             guid=row.get('guid'), indexerId=row.get('indexerId', indexer)) for row in rows
-                        if isinstance(row.get('title'), str) and row['title'].strip()]
+                             guid=row.get('guid'), indexerId=row.get('indexerId', ids[0] if len(ids) == 1 else None)) for row in rows
+                        if isinstance(row.get('title'), str) and (cleaned := movie_search.plain_title(row['title']))]
             except (OSError, ValueError, KeyError, TypeError, AttributeError):
                 return None
 
         def lookup(indexer):
             if season is None:
-                return search_indexer(indexer, query)
-            rows = search_indexer(indexer, f'{title} S{season:02d}')
+                return search_indexer((indexer,), query)
+            rows = search_indexer((indexer,), f'{title} S{season:02d}')
             if rows is None:
                 return None
             matches = [row for row in rows if season_pack(row['title'], wanted_words, season)]
             if matches:
                 return matches
-            rows = search_indexer(indexer, title)
+            rows = search_indexer((indexer,), title)
             if rows is None:
                 return None
             return [row for row in rows if season_pack(row['title'], wanted_words, season)]
 
-        with ThreadPoolExecutor(max_workers=len(indexers)) as pool:
+        def lookup_hungarian(user):
+            metadata = source_details(query, user)
+            alias = metadata.get('hungarian_title')
+            if not alias:
+                return metadata, []
+            term = alias if season is None else f'{alias} S{season:02d}'
+            page = cached_search(('releases', term), 60, lambda: search_indexer(indexers, term))
+            if page is not None and season is not None:
+                words = movie_search.words(alias)
+                page = [row for row in page if season_pack(row['title'], words, season)]
+            return metadata, page
+
+        with ThreadPoolExecutor(max_workers=len(indexers) + 1) as pool:
+            alternate = pool.submit(lookup_hungarian, user) if (user := request_user()) is not None else None
             pages = list(pool.map(lookup, indexers))
+            metadata, extra = alternate.result() if alternate else ({}, [])
         unavailable = pages.count(None)
-        if unavailable == len(indexers):
+        if unavailable == len(indexers) and not extra:
             return jsonify(error='The sources did not respond. Try again.'), 503
-        rows = [row for page in pages if page is not None for row in page]
+        unavailable += extra is None
+        rows, seen = [], set()
+        for page in [*pages, extra]:
+            for stored in page or ():
+                guid = stored['guid']
+                if isinstance(guid, str) and guid:
+                    if guid in seen:
+                        continue
+                    seen.add(guid)
+                rows.append(stored.copy())
         with grab_lock:
             now = monotonic()
             for ref in list(grab_refs):
@@ -268,7 +322,7 @@ def register_movies(app, cfg, body, allow):
                     row.update(guid=ref, indexerId=indexer)
             while len(grab_refs) > 10000:
                 del grab_refs[next(iter(grab_refs))]
-        return jsonify(results=rows, unavailable=unavailable)
+        return jsonify(results=rows, unavailable=unavailable, **({'title_details': metadata} if metadata else {}))
 
     def seerr_call(path, user, payload=None):
         req = urllib.request.Request(seerr + '/api/v1/' + path,
@@ -277,16 +331,7 @@ def register_movies(app, cfg, body, allow):
         with urllib.request.build_opener(NoRedirect).open(req, timeout=6) as reply:
             return reply.status, json.loads(reply.read(1024 * 1024))
 
-    @app.post('/api/movies/request-search')
-    def movie_request_search():
-        user = request_user()
-        if user is None:
-            return jsonify(error='Movie and TV requests are disabled for this profile.'), 404
-        query = movie_search.clean_query(body().get('query'))
-        if query is None:
-            return jsonify(error='Enter a title of 2 to 120 characters.'), 400
-        if not allow('movie-request-search:' + g.user, 12, 60):
-            return jsonify(error='Wait a minute before searching again.'), 429
+    def lookup_titles(query, user):
         season_query = SEASON_QUERY.fullmatch(query)
         title_query = season_query[1] if season_query else query
         try:
@@ -302,11 +347,129 @@ def register_movies(app, cfg, body, allow):
                 if not isinstance(title, str) or not title:
                     continue
                 status = (item.get('mediaInfo') or {}).get('status')
-                results.append(dict(kind=kind, id=ident, title=title[:250], year=date[:4] if isinstance(date, str) else '', status=status))
-            return jsonify(results=results, **({'season': int(season_query[2])} if season_query else {}))
+                original = item.get('originalTitle') if kind == 'movie' else item.get('originalName')
+                results.append(dict(kind=kind, id=ident, title=title[:250], year=date[:4] if isinstance(date, str) else '',
+                                    status=status, original=original))
+            return results
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             log.warning('Seerr title search failed')
+            return None
+
+    def seerr_details(path, user):
+        try:
+            _, result = seerr_call(path, user)
+            return result if isinstance(result, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def tmdb_season(path):
+        if not tmdb_token:
+            return {}
+        try:
+            req = urllib.request.Request('https://api.themoviedb.org/3/' + path,
+                headers={'Authorization': 'Bearer ' + tmdb_token, 'Accept': 'application/json'})
+            with urllib.request.build_opener(NoRedirect).open(req, timeout=4) as reply:
+                result = json.loads(reply.read(1024 * 1024))
+            return result if isinstance(result, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def title_details(item, season, user):
+        path = f"{item['kind']}/{item['id']}"
+        localized = seerr_details(path + '?language=hu', user)
+        if not localized:
+            return None
+        kind = item['kind']
+        hungarian = movie_search.clean_query(localized.get('title' if kind == 'movie' else 'name'))
+        details = dict(runtime_minutes=None, episode_count=None, hungarian_title=hungarian)
+        positive = lambda value: value if type(value) is int and value > 0 else None
+        if kind == 'movie':
+            details['runtime_minutes'] = positive(localized.get('runtime'))
+            return details
+
+        seasons = {entry['seasonNumber']: positive(entry.get('episodeCount')) for entry in localized.get('seasons') or []
+                   if isinstance(entry, dict) and type(entry.get('seasonNumber')) is int}
+        count = sum(n for number, n in seasons.items() if number > 0 and n)
+        count = count or positive(localized.get('numberOfEpisodes'))
+        typical = next((n for n in localized.get('episodeRunTime') or [] if positive(n)), None)
+        details.update(series_minutes=count * typical if count and typical else None, series_episode_count=count,
+                       series_estimated=bool(count and typical))
+        numbered = [n for n in seasons if n > 0]
+
+        def season_runtime(number):
+            season_path = path + f'/season/{number}'
+            episodes = (tmdb_season(season_path).get('episodes') or seerr_details(season_path, user).get('episodes') or [])
+            times = [positive(episode.get('runtime')) for episode in episodes if isinstance(episode, dict)]
+            count = max(len(times), seasons.get(number) or 0) or None
+            return (sum(times) if times and len(times) == count and all(times) else None), count
+
+        if season is None and len(numbered) == 1:
+            season = numbered[0]
+        if season is None:
+            if tmdb_token and 1 < len(numbered) <= 12:
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    totals = list(pool.map(season_runtime, numbered))
+                if all(minutes for minutes, _ in totals):
+                    count = sum(count for _, count in totals)
+                    details.update(series_minutes=sum(minutes for minutes, _ in totals),
+                                   series_episode_count=count, series_estimated=False)
+            details.update(runtime_minutes=details['series_minutes'], episode_count=count,
+                           runtime_estimated=details['series_estimated'])
+            return details
+
+        minutes, count = season_runtime(season)
+        details.update(runtime_minutes=minutes or (count * typical if count and typical else None),
+                       episode_count=count, runtime_estimated=not minutes and bool(count and typical))
+        if minutes and details['series_episode_count'] == count:
+            details.update(series_minutes=minutes, series_estimated=False)
+        return details
+
+    def search_details(query, user):
+        results = cached_search(('titles', user, query), 45, lambda: lookup_titles(query, user))
+        if not results:
+            return results, {}
+        parsed = SEASON_QUERY.fullmatch(query)
+        title = parsed[1] if parsed else query
+        season = int(parsed[2]) if parsed else None
+        term = re.sub(r'[\W_]+', ' ', movie_search.plain(title)).strip()
+
+        def matches(name, year):
+            if not name:
+                return False
+            name = re.sub(r'[\W_]+', ' ', movie_search.plain(name)).strip()
+            return term == name or bool(year and term == f'{name} {year}')
+
+        item = next((item for item in results if matches(item['title'], item['year']) or matches(item['original'], item['year'])), results[0])
+        catalog = cached_search(('details', item['kind'], item['id'], season), 6 * 3600,
+                                lambda: title_details(item, season, user)) or {}
+        alias = catalog.get('hungarian_title')
+        if not any(matches(name, item['year']) for name in (item['title'], item['original'], alias)):
+            return results, {}
+        metadata = {**catalog, 'title': item['title'], 'kind': item['kind'], 'season': season}
+        if alias and (matches(alias, item['year']) or alias.casefold() == item['title'].casefold()):
+            metadata.pop('hungarian_title')
+        return results, metadata
+
+    def source_details(query, user):
+        return search_details(query, user)[1] if user is not None else {}
+
+    @app.post('/api/movies/request-search')
+    def movie_request_search():
+        user = request_user()
+        if user is None:
+            return jsonify(error='Movie and TV requests are disabled for this profile.'), 404
+        query = movie_search.clean_query(body().get('query'))
+        if query is None:
+            return jsonify(error='Enter a title of 2 to 120 characters.'), 400
+        if not allow('movie-request-search:' + g.user, 12, 60):
+            return jsonify(error='Wait a minute before searching again.'), 429
+        results, metadata = search_details(query, user)
+        if results is None:
             return jsonify(error='Title search is unavailable. Try again.'), 503
+        season = SEASON_QUERY.fullmatch(query)
+        return jsonify(results=[{key: value for key, value in item.items() if key != 'original'} for item in results],
+                       runtime_minutes=metadata.get('runtime_minutes'), episode_count=metadata.get('episode_count'),
+                       title_details=metadata, **({'season': int(season[2])} if season else {}))
 
     @app.post('/api/movies/request')
     def movie_request():
@@ -325,6 +488,9 @@ def register_movies(app, cfg, body, allow):
             payload['seasons'] = 'all' if season is None else [season]
         try:
             status, reply = seerr_call('request', user, payload)
+            with search_lock:
+                for key in [key for key in search_cache if key[:2] == ('titles', user)]:
+                    del search_cache[key]
             if status == 202 and kind == 'tv':
                 return jsonify(state='no_seasons')
             if status == 201 and reply.get('id'):
@@ -381,7 +547,26 @@ def register_movies(app, cfg, body, allow):
         if not allow('movie-find:' + g.user, 6, 60) or not allow('movie-find-hour:' + g.user, 40, 3600):
             return jsonify(error='Wait a minute before searching the web again.'), 429
         try:
-            found = movie_search.find(query, cfg)
+            metadata, extra = {}, []
+            user = request_user()
+            if user is None:
+                found = movie_search.find(query, cfg)
+            else:
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    primary = pool.submit(movie_search.find, query, cfg)
+                    metadata = source_details(query, user)
+                    alias = metadata.get('hungarian_title')
+                    if alias:
+                        season = metadata['season']
+                        term = alias if season is None else f'{alias} S{season:02d}'
+                        extra = cached_search(('youtube', term), 300,
+                                              lambda: movie_search.youtube_candidates(term, single=True))
+                    found = primary.result()
+            seen = {item['id'] for item in found['results']}
+            found['results'].extend(dict(item, label=movie_search.basic_label(item), reason='')
+                                    for item in extra if item['id'] not in seen)
+            if metadata:
+                found['title_details'] = metadata
         except LookupError:
             return jsonify(error='Searching the web is not set up on this server.'), 503
         feedback.note(movie_event='web-search', results=len(found['results']), ranking=found['ranking'])
@@ -393,7 +578,7 @@ def register_movies(app, cfg, body, allow):
         if g.user not in cfg.get('JELLYFIN_PROFILES', {}):
             return jsonify(error='Movies are not set up for this profile.'), 404
         ids = body().get('ids')
-        if (not isinstance(ids, list) or not 0 < len(ids) <= movie_search.MAX_RESULTS
+        if (not isinstance(ids, list) or not 0 < len(ids) <= movie_search.MAX_SEARCH_VIDEOS
                 or any(not isinstance(ident, str) or not movie_search.VIDEO_ID.fullmatch(ident) for ident in ids)):
             return jsonify(error='Search again to refresh video details.'), 400
         if not allow('movie-youtube-metadata:' + g.user, 8, 60):

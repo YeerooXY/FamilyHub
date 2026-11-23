@@ -13,7 +13,13 @@ const fixture = [
     { title: pack, source: "The Pirate Bay", size: 17244393718, seeders: 390, leechers: 157, guid: "reference-a", indexerId: 1 },
     { title: pack, source: "Knaben", size: 17244393718, seeders: 378, leechers: 145, guid: "reference-b", indexerId: 2 },
     { title: "The Gentlemen S02 720p WEB-DL", source: "The Pirate Bay", size: 2000000000, seeders: 22, leechers: 5 },
-    { title: "The Gentlemen S02 2160p", source: "Knaben", size: 30500000000, seeders: 0, leechers: 1 }
+    { title: "The Gentlemen S02 2160p Remux", size: 30500000000, seeders: 0 },
+    { title: "The Gentlemen S02 2160p BDRip x265", size: 18000000000, seeders: 0 },
+    { title: "The Gentlemen S02 2160p WEB-DL", size: 15000000000, seeders: 0 },
+    { title: "The Gentlemen S02 1080p Remux", size: 29000000000, seeders: 0 },
+    { title: "The Gentlemen S02 1080p BluRay", size: 16000000000, seeders: 0 },
+    { title: "The Gentlemen S02 DVDRip", size: 5000000000, seeders: 0 },
+    { title: "The Gentlemen S02 HDCAM", size: 3000000000, seeders: 0 }
 ];
 
 async function verify(browser, name, options) {
@@ -45,6 +51,8 @@ async function verify(browser, name, options) {
         await page.goto(app);
         await page.evaluate(async ({jellyfin, fixture}) => {
             const {openMovies} = await import("/movies.js");
+            const title_details = {title:"The Gentlemen", kind:"tv", season:2, runtime_minutes:440,
+                episode_count:8, hungarian_title:"Úriemberek"};
             window.calls = [];
             window.movieSession = {url:jellyfin, user:"fixture", token:"fixture", device:"fixture", release_search_enabled:true, requests_enabled:true};
             openMovies(document.querySelector("main"), window.movieSession, {
@@ -59,9 +67,9 @@ async function verify(browser, name, options) {
                         return new Promise(resolve => window.confirmGrab = () => resolve(JSON.stringify({state:"sent"})));
                     }
                     if (method === "MovieFind") return JSON.stringify({results: term === "The Gentlemen S2" ? [
-                        {title:"The Gentlemen trailer", url:"https://www.youtube.com/watch?v=fixture0000", label:"trailer"}
+                        {title:"The Gentlemen trailer", url:"https://www.youtube.com/watch?v=fixture0000", label:"trailer", seconds:120}
                     ] : []});
-                    if (method === "MovieRequestSearch") return JSON.stringify(term === "The Gentlemen S2" ? {season:2, results:[
+                    if (method === "MovieRequestSearch") return JSON.stringify(term === "The Gentlemen S2" ? {season:2, title_details, results:[
                         {kind:"tv", id:12, title:"The Gentlemen", year:"2024"}
                     ]} : {results:[]});
                     if (method === "MovieRequest") return JSON.stringify({state:"approved"});
@@ -74,7 +82,14 @@ async function verify(browser, name, options) {
                         return JSON.stringify({error:"The sources did not respond. Try again."});
                     }
                     if (term === "Unavailable") return JSON.stringify({results:fixture});
-                    return JSON.stringify(term === "The Gentlemen S2" ? {results:fixture, unavailable:0} : {results:[], unavailable:0});
+                    if (term === "Game of Thrones") return JSON.stringify({
+                        title_details:{title:"Game of Thrones", kind:"tv", runtime_minutes:3600, episode_count:73,
+                            series_minutes:3600, hungarian_title:"Trónok harca"},
+                        results:[
+                            {title:"<b>Tr&oacute;nok Harca Full HUN</b>", size:11.1 * 1024 ** 3, seeders:10},
+                            {title:"R&amp;D&#39;s &lt;b&gt;copy&lt;/b&gt; 1080p", size:2e9, seeders:1}
+                        ]});
+                    return JSON.stringify(term === "The Gentlemen S2" ? {results:fixture, title_details, unavailable:0} : {results:[], unavailable:0});
                 }
             });
         }, {jellyfin, fixture});
@@ -96,9 +111,14 @@ async function verify(browser, name, options) {
         await page.screenshot({path:path.join(output, name + ".png"), fullPage:true});
         const heading = page.getByRole("heading", {name:"Releases", exact:true});
         await heading.waitFor();
-        await page.getByRole("status").filter({hasText:"3 releases found."}).waitFor();
+        await page.getByRole("status").filter({hasText:"9 releases found."}).waitFor();
+        await page.getByText("The Gentlemen, season 2: 8 episodes, 7 h 20 min in total", {exact:true}).waitFor();
+        await page.getByText("Also searched: Úriemberek", {exact:true}).waitFor();
+        const guide = page.getByRole("region", {name:"Quality guide"});
+        await guide.getByText("Original 4K disc video", {exact:false}).waitFor();
+        assert.equal(await guide.locator("details").count(), 0);
         const first = result.getByRole("listitem").first();
-        assert.equal(await result.getByRole("listitem").count(), 3);
+        assert.equal(await result.getByRole("listitem").count(), 8);
         // Facts first, in plain words: what it is, what it holds, how big, how long, how easy to get. No seeders, leechers or upload settings.
         const text = await first.innerText();
         assert.match(text, /Recommended/);
@@ -106,18 +126,20 @@ async function verify(browser, name, options) {
         assert.match(text, /Full season 2/);
         assert.match(text, /^The Gentlemen\n/);
         assert.match(text, /Size\s+16\.1 GB/);
+        assert.match(text, /Length\s+7 h 20 min/);
         assert.match(text, /Download time\s+about 23 min/);
+        assert.match(text, /Estimate based on how many people share it/);
         assert.match(text, /Availability\s+Very easy to get/);
         assert.doesNotMatch(text, /seeder|leecher|Upload|The Pirate Bay|Knaben/);
         assert.equal(await first.locator(".movie-release-quality").getAttribute("data-level"), "web");
         assert.equal(await page.getByText("Times assume a 100 Mbps connection.").isVisible(), true);
         assert.equal(await page.getByRole("spinbutton").count(), 0);
         const second = result.getByRole("listitem").nth(1);
-        assert.match(await second.innerText(), /720p.*Full season 2.*1\.9 GB.*Easy to get/s);
+        assert.match(await second.innerText(), /720p.*Full season 2.*1\.9 GB.*about 6 min.*Easy to get/s);
         assert.equal(await second.locator(".movie-release-quality").getAttribute("data-level"), "hd");
         const none = result.getByRole("listitem").nth(2);
-        assert.match(await none.innerText(), /4K.*Hard to get/s);
-        assert.equal(await none.locator(".movie-release-quality").getAttribute("data-level"), "uhd");
+        assert.match(await none.innerText(), /4K Remux.*May never finish.*Hard to get/s);
+        assert.equal(await none.locator(".movie-release-quality").getAttribute("data-level"), "4k-remux");
         assert.doesNotMatch(await none.innerText(), /about \d+ (?:min|h)/);
         // The action is present on every tile and explains itself while downloads are off for the profile.
         const action = first.getByRole("button", {name: /^Download The Gentlemen/});
@@ -126,13 +148,17 @@ async function verify(browser, name, options) {
         await page.getByRole("button", {name: "Smallest file", exact: true}).click();
         assert.match(await result.getByRole("listitem").first().innerText(), /720p/);
         await page.getByRole("button", {name: "Quality", exact: true}).click();
-        assert.match(await result.getByRole("listitem").first().innerText(), /4K/);
+        await page.getByRole("button", {name:"Show all releases"}).click();
+        assert.deepEqual(await result.locator(".movie-release-quality").allTextContents(),
+            ["4K Remux", "4K Blu-ray", "4K Web", "1080p Remux", "1080p Blu-ray", "1080p Web", "720p", "TV or DVD", "Camera copy"]);
         await page.getByRole("button", {name: "Best match", exact: true}).click();
         assert.equal(await first.locator("strong").textContent(), pack);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
         await page.screenshot({path:path.join(output, name + "-releases.png"), fullPage:true});
         await page.getByRole("heading", {name:"YouTube", exact:true}).waitFor();
         await page.getByRole("heading", {name:"The Gentlemen trailer"}).waitFor();
+        await page.getByText("Shorter than the season", {exact:true}).waitFor();
+        await page.screenshot({path:path.join(verification, name + "-release.png"), fullPage:true, scale:"css"});
         assert.deepEqual((await page.evaluate(() => calls)).filter(([method]) => method === "MovieFind"), [["MovieFind", title]]);
         assert.equal(await first.locator("strong").textContent(), pack);
         await download.press("Space");
@@ -140,6 +166,16 @@ async function verify(browser, name, options) {
         await approved.waitFor();
         assert.equal(await focus(approved), true);
         assert.deepEqual(await page.evaluate(() => calls.at(-1)), ["MovieRequest", "tv", 12, 2]);
+        await search("Game of Thrones");
+        const legacy = result.getByText("Trónok Harca Full HUN", {exact:true}).first();
+        await legacy.waitFor();
+        const estimated = result.getByText("Estimated: about 480p or lower (from size and length)", {exact:true});
+        assert.equal(await estimated.evaluate(node => getComputedStyle(node).borderTopStyle), "dashed");
+        await result.getByText("R&D's copy 1080p", {exact:true}).waitFor();
+        await result.getByText(/unusually small for a 1080p video/).waitFor();
+        if (name === "chromium-1280" || name === "webkit-iphone13") {
+            await page.screenshot({path:path.join(verification, name + "-estimated.png"), fullPage:true, scale:"css"});
+        }
         await search("Nothing matching");
         await page.getByRole("status").filter({hasText:"No watch or download options found"}).waitFor();
         assert.equal(await result.isVisible(), false);
@@ -200,7 +236,6 @@ async function verify(browser, name, options) {
         await page.clock.fastForward(3200);
         await page.getByRole("region", {name:"On the server"}).getByText("The Gentlemen Season 2", {exact:true}).waitFor();
         assert.equal(await focus(sent), true);
-        await page.screenshot({path:path.join(verification, name + "-release.png"), fullPage:true});
         await page.getByRole("button", {name:"Smallest file", exact:true}).click();
         await page.getByRole("button", {name:"Best match", exact:true}).click();
         assert.equal(await sent.isVisible(), true);

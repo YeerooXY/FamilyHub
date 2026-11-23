@@ -144,6 +144,8 @@ class YouTubeEndpoints(Base):
         self.assertEqual(self.post(denied, selection['csrf_token'], endpoint, json={'ids': [ID]}).status_code, 404)
         allowed, selection = self.select('sample-a')
         self.assertEqual(self.post(allowed, selection['csrf_token'], endpoint, json={'ids': [URL]}).status_code, 400)
-        reply = self.post(allowed, selection['csrf_token'], endpoint, json={'ids': [ID]})
+        ids = [ID, *(f'video{i:06}' for i in range(10))]
+        reply = self.post(allowed, selection['csrf_token'], endpoint, json={'ids': ids})
         self.assertEqual(reply.json, {'results': {ID: {'height': 1080}}})
-        enrich.assert_called_once()
+        self.assertEqual(self.post(allowed, selection['csrf_token'], endpoint, json={'ids': [*ids, 'another0001']}).status_code, 400)
+        enrich.assert_called_once_with(dict.fromkeys(ids))

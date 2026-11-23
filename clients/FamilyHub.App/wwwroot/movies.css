@@ -409,8 +409,6 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-source-list li.movie-release { display: grid; gap: .4rem; padding: .85rem 1rem; margin-bottom: .6rem; border: 1px solid var(--border, #ffffff24); border-radius: .8rem; background: var(--panel-bg, #17191f); }
 .movie-release-top { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
 .movie-release-top > span { padding: .15rem .6rem; border-radius: 999px; font-size: .85rem; font-weight: 650; line-height: 1.5; background: #ffffff1a; color: #fff; }
-.movie-release-quality { background: #3b5bdb33; box-shadow: inset 0 0 0 1px #89b4ff66; }
-.movie-release-quality[data-level="poor"] { background: #f0883e26; box-shadow: inset 0 0 0 1px #f0883e88; }
 .movie-release-kind { background: #a371f726; box-shadow: inset 0 0 0 1px #c9a3ff66; }
 .movie-release-pick { background: #3fb95033; box-shadow: inset 0 0 0 1px #3fb95099; }
 .movie-release-health[data-level="good"] { color: #7ee2a0; }
@@ -484,10 +482,11 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-release-stats > div { display: grid; gap: .1rem; }
 .movie-release-stats dt { font-size: .78rem; color: #ffffff99; }
 .movie-release-stats dd { margin: 0; font-size: 1.12rem; font-weight: 700; color: #fff; }
-.movie-release-stats dd[data-level="great"], .movie-release-stats dd[data-level="good"] { color: #7ee2a0; }
-.movie-release-stats dd[data-level="ok"] { color: #7fd3e8; }
-.movie-release-stats dd[data-level="slow"] { color: #f2c46d; }
-.movie-release-stats dd[data-level="none"] { color: #ff9b9b; }
+.movie-release-stats dd:is([data-level="great"], [data-level="good"]),
+.movie-release-availability:is([data-level="great"], [data-level="good"]) { color: #7ee2a0; }
+.movie-release-stats dd[data-level="ok"], .movie-release-availability[data-level="ok"] { color: #7fd3e8; }
+.movie-release-stats dd[data-level="slow"], .movie-release-availability[data-level="slow"] { color: #f2c46d; }
+.movie-release-stats dd[data-level="none"], .movie-release-availability[data-level="none"] { color: #ff9b9b; }
 .movie-release .movie-release-note { color: #ffffffb8; font-size: .9rem; }
 .movie-library .movie-release .movie-release-action { justify-self: start; min-height: 46px; padding: 0 1.5rem; border: 0; border-radius: .75rem; background: linear-gradient(135deg, #89b4ff, #f19cda); color: #0b0d12; font: inherit; font-weight: 700; cursor: pointer; }
 .movie-library .movie-release .movie-release-action[aria-disabled="true"] { background: #ffffff1f; color: #ffffffcc; cursor: not-allowed; }
@@ -510,19 +509,34 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
     .movie-source-list li.movie-youtube-card { grid-template-columns: minmax(0, 1fr); padding: .85rem; }
 }
 
-/* One colour per quality tier. 4K is the showpiece; Remux is the best 1080p; the rest step down in colour and shine. */
-.movie-release-top > .movie-release-quality { border: 0; box-shadow: none; color: #fff; }
-.movie-release-quality[data-level="uhd"] { background: linear-gradient(110deg, #ffd76a, #ff9e5e 45%, #ff6fb5, #ffd76a); background-size: 220% 100%; color: #2a1400; box-shadow: 0 0 16px #ffb45e66; animation: movie-shine 5s linear infinite; }
-.movie-release-quality[data-level="remux"] { background: linear-gradient(120deg, #9a78ff, #4f8cff); box-shadow: 0 0 12px #7a8cff55; }
-.movie-release-quality[data-level="bluray"] { background: #2f6fe4; }
-.movie-release-quality[data-level="web"] { background: #14998d; }
-.movie-release-quality[data-level="hd"] { background: #5b6b82; }
-.movie-release-quality[data-level="tv"] { background: #4a4f5c; }
-.movie-release-quality[data-level="poor"] { background: #c2410c; }
-li.movie-release[data-tier="uhd"] { border-color: #ffb45e66; box-shadow: inset 0 0 0 1px #ffb45e26, 0 0 24px #ffb45e14; }
-li.movie-release[data-tier="remux"] { border-color: #8f8cff66; }
+.movie-quality-guide { margin: 0 0 1rem; padding: .7rem .8rem; background: #ffffff08; border-radius: .75rem; }
+.movie-quality-guide h3 { margin: 0 0 .55rem; font-size: .95rem; }
+.movie-quality-guide .movie-quality-chips { display: flex; flex-wrap: wrap; gap: .35rem .75rem; list-style: none; padding: 0; margin: 0; }
+.movie-quality-chips li { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .35rem; font-size: .79rem; color: #d2d7e2; }
+.movie-quality-chips span { padding: .1rem .45rem; border-radius: 999px; font-weight: 650; }
+.movie-quality-chips .movie-release-availability { background: #ffffff14; }
+.movie-quality-guide .movie-web-meta { margin: .45rem 0 0; }
+.movie-release-quality { color: #fff; }
+.movie-release-quality[data-level="4k-remux"] { --quality-bg: linear-gradient(110deg, #ffd76a, #ff9e5e 45%, #ff9cca, #ffd76a); }
+.movie-release-quality[data-level="4k-bluray"] { --quality-bg: linear-gradient(120deg, #8a3b79, #693b93); }
+.movie-release-quality[data-level="4k-web"] { --quality-bg: #5550a5; }
+.movie-release-quality[data-level="remux"] { --quality-bg: #304ba0; }
+.movie-release-quality[data-level="bluray"] { --quality-bg: #205d91; }
+.movie-release-quality[data-level="web"] { --quality-bg: #176c64; }
+.movie-release-quality[data-level="hd"] { --quality-bg: #50617b; }
+.movie-release-quality[data-level="tv"] { --quality-bg: #494c58; }
+.movie-release-quality[data-level="poor"] { --quality-bg: #9a4323; }
+.movie-release-top > .movie-release-quality, .movie-quality-chips .movie-release-quality { background: var(--quality-bg, #ffffff1a); }
+.movie-release-top > .movie-release-quality[data-level="4k-remux"], .movie-quality-chips .movie-release-quality[data-level="4k-remux"] { color: #2a1400; }
+.movie-release-top > .movie-release-quality[data-level="4k-remux"] { background-size: 220% 100%; animation: movie-shine 5s linear infinite; box-shadow: 0 0 16px #ffb45e66; }
+.movie-release-top > .movie-release-quality[data-level="4k-bluray"] { box-shadow: 0 0 8px #c17ce833; }
+.movie-release-top > .movie-release-quality[data-level="estimated"] { background: transparent; border: 1px dashed #bac3d4; }
+li.movie-release[data-tier="4k-remux"] { border-color: #ffb45e88; box-shadow: inset 0 0 0 1px #ffb45e26, 0 0 24px #ffb45e14; }
+li.movie-release[data-tier="4k-bluray"] { border-color: #ba7bcb66; }
+.movie-release-top > .movie-youtube-match[data-level="same"] { color: #9debb6; background: #234b38; }
+.movie-release-top > .movie-youtube-match[data-level="different"] { color: #ffda90; background: #50391e; }
 @keyframes movie-shine { to { background-position: -220% 0; } }
-@media (prefers-reduced-motion: reduce) { .movie-release-quality[data-level="uhd"] { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .movie-release-top > .movie-release-quality[data-level="4k-remux"] { animation: none; } }
 
 /* The search pill fills the toolbar, and the sticky band behind it runs the full width of the screen (no floating dark block). */
 .movie-library .movie-toolbar .movie-search { flex: 1 1 100%; width: 100%; max-width: none; }

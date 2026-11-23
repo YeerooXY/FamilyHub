@@ -1,5 +1,5 @@
 import { buildPlayerUi } from "./movie-player-ui.js";
-import { buildReleaseSearch, releaseQuality } from "./movie-releases.js";
+import { buildReleaseSearch, cleanResultTitle, formatMinutes, videoQualityTier } from "./movie-releases.js";
 
 // AbortSignal.timeout needs Chromium 103; older televisions (webOS) need this form.
 function timeoutSignal(ms) {
@@ -631,6 +631,28 @@ export function openMovies(host, session, app, viewer) {
         panel.className = "movie-external";
         results.append(panel);
 
+        const heading = el("h2", "Search results"), runtime = el("p"), alternate = el("p");
+        runtime.className = alternate.className = "movie-web-meta";
+        runtime.hidden = alternate.hidden = true;
+        panel.append(heading, runtime, alternate);
+        let titleDetails = {}, videoCards = [];
+        function showDetails(details) {
+            if (!details?.title) return;
+            titleDetails = details;
+            const length = formatMinutes(details.runtime_minutes);
+            if (length && details.title) {
+                const name = details.season == null ? details.title : `${details.title}, season ${details.season}`;
+                const count = details.episode_count, estimate = details.runtime_estimated ? "about " : "";
+                runtime.textContent = `${name}: ${count ? `${count} ${count === 1 ? "episode" : "episodes"}, ` : ""}${estimate}${length}${count ? " in total" : ""}`;
+                runtime.hidden = false;
+            }
+            if (details.hungarian_title) {
+                alternate.textContent = `Also searched: ${details.hungarian_title}`;
+                alternate.hidden = false;
+            }
+            for (const card of videoCards) card.updateMatch();
+        }
+
         // Each source publishes independently. Clearing or replacing the search detaches this panel.
         const web = el("section"), downloads = el("section");
         web.className = "movie-source movie-youtube";
@@ -643,23 +665,15 @@ export function openMovies(host, session, app, viewer) {
                     const reply = await call("MovieDownload", row.guid, row.indexerId, row.title);
                     if (reply?.state === "sent") refreshDownloadsAfterGrab();
                     return reply;
-                } : null) : null;
+                } : null, showDetails) : null;
         if (release) panel.append(release.element);
         panel.append(web);
 
         const alive = () => active && !signal.aborted && panel.isConnected;
-        const wanted = searchTitle(term);
-        const matchesTitle = value => {
-            const title = searchTitle(value);
-            if (!wanted) return false;
-            if (title === wanted) return true;
-            if (!title.startsWith(wanted + " ")) return false;
-            return /^(?:(?:19|20)\d\d\s+)?(?:full|teljes|movie|film|magyarul|hd|4k|1080p)\b/.test(title.slice(wanted.length + 1));
-        };
         const message = el("p", "Checking other sources…");
         message.className = "movie-source-note";
         message.setAttribute("role", "status");
-        panel.prepend(message);
+        alternate.after(message);
 
         function retry(section, reason, label, run) {
             const line = el("p", reason), action = button(label, run);
@@ -678,11 +692,12 @@ export function openMovies(host, session, app, viewer) {
             image.onerror = () => { image.hidden = true; };
             art.append(image);
             content.className = "movie-youtube-content";
-            const title = el("h3", video.title), badges = el("div"), quality = el("span"), meta = el("p");
+            const title = el("h3", video.title), badges = el("div"), quality = el("span"), match = el("span"), meta = el("p");
             title.className = "movie-release-title";
             badges.className = "movie-release-top";
             quality.className = "movie-release-quality";
-            badges.append(quality);
+            match.className = "movie-youtube-match";
+            badges.append(quality, match);
             const actions = el("div"), link = el("a", "Watch on YouTube");
             actions.className = "movie-youtube-actions";
             link.className = "movie-source-action";
@@ -736,15 +751,23 @@ export function openMovies(host, session, app, viewer) {
             content.append(title, badges, meta, actions, notice);
             row.append(art, content);
 
+            let seconds;
+            function updateMatch() {
+                const ratio = seconds / (titleDetails.runtime_minutes * 60);
+                const same = ratio >= .9 && ratio <= 1.1;
+                const comparison = titleDetails.kind === "tv" ? (titleDetails.season == null ? "series" : "season") : "film";
+                match.hidden = !(ratio > 0 && Number.isFinite(ratio)) || Boolean(titleDetails.runtime_estimated);
+                match.dataset.level = same ? "same" : "different";
+                match.textContent = same ? "Same length" : `${ratio < .9 ? "Shorter" : "Longer"} than the ${comparison}`;
+            }
             function update(details) {
                 const height = details.height ?? video.height;
-                const {tier} = releaseQuality("", height || 0);
+                const tier = videoQualityTier(height || 0);
                 quality.dataset.level = row.dataset.tier = tier;
                 quality.textContent = height >= 2160 && height < 4320 ? "4K" : height ? `${height}p` : "Quality unknown";
-                const seconds = details.duration ?? video.duration ?? video.seconds;
-                const minutes = Math.max(1, Math.round(seconds / 60));
-                const duration = seconds > 0 ? minutes >= 60
-                    ? `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")} min` : `${minutes} min` : "";
+                seconds = details.duration ?? video.duration ?? video.seconds;
+                const duration = formatMinutes(seconds / 60);
+                updateMatch();
                 const count = details.view_count ?? video.view_count;
                 const views = Number.isFinite(count) ? `${count.toLocaleString("en")} ${count === 1 ? "view" : "views"}` : "";
                 meta.textContent = [details.uploader || video.uploader || video.channel, duration, views].filter(Boolean).join(" · ");
@@ -755,7 +778,7 @@ export function openMovies(host, session, app, viewer) {
                 }
             }
             update(video);
-            return {row, update, id: video.url.slice(-11)};
+            return {row, update, updateMatch, id: video.url.slice(-11)};
         }
         async function findVideos(event) {
             const trigger = event?.currentTarget;
@@ -775,26 +798,31 @@ export function openMovies(host, session, app, viewer) {
                 if (focused) web.querySelector("button").focus();
                 return true;
             }
+            showDetails(reply.title_details);
             const videos = reply.results.filter(item => typeof item.title === "string"
-                && /^https:\/\/www\.youtube\.com\/watch\?v=[\w-]{11}$/.test(item.url));
-            const full = videos.find(item => item.label === "full film" && item.seconds >= 70 * 60 && matchesTitle(item.title));
-            const ordered = full ? [full, ...videos.filter(item => item !== full)] : videos;
+                && /^https:\/\/www\.youtube\.com\/watch\?v=[\w-]{11}$/.test(item.url))
+                .map(item => ({...item, title: cleanResultTitle(item.title)})).filter(item => item.title);
             const focused = trigger === document.activeElement;
             web.replaceChildren();
-            if (ordered.length) {
+            videoCards = [];
+            if (videos.length) {
                 const list = el("ul"), heading = el("h2", "YouTube"), status = el("p");
                 status.setAttribute("role", "status");
                 status.className = "movie-source-note";
                 list.className = "movie-source-list";
                 list.setAttribute("aria-label", "YouTube videos");
-                const cards = ordered.map(videoCard);
+                const cards = videos.map(videoCard);
+                videoCards = cards;
                 list.append(...cards.map(card => card.row));
                 web.append(heading, status);
                 if (!session.downloads_enabled) web.append(el("p", "Downloading is not switched on for your profile."));
                 web.append(list);
                 web.hidden = false;
-                status.textContent = ordered.length === 1 ? "1 video found." : `${ordered.length} videos found.`;
-                const ids = cards.filter((_, index) => !ordered[index].height).map(card => card.id);
+                status.textContent = videos.length === 1 ? "1 video found." : `${videos.length} videos found.`;
+                const ids = cards.filter((_, index) => {
+                    const video = videos[index];
+                    return !video.height || !(video.duration ?? video.seconds);
+                }).map(card => card.id);
                 if (ids.length) {
                     call("MovieYouTubeMetadata", ids).then(details => {
                         if (!alive()) return;
@@ -865,6 +893,7 @@ export function openMovies(host, session, app, viewer) {
                 return true;
             }
             const found = reply.results.slice(0, 12);
+            showDetails(reply.title_details);
             const focused = trigger === document.activeElement;
             downloads.replaceChildren();
             downloads.hidden = !found.length;

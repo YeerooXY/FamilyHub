@@ -14,6 +14,7 @@ import unicodedata
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, wait
+from html import unescape
 from threading import RLock
 from time import monotonic
 from urllib.parse import parse_qs, urlsplit
@@ -22,6 +23,8 @@ log = logging.getLogger('music_web.movie_search')
 
 MAX_QUERY = 120
 MAX_RESULTS = 5
+YOUTUBE_PAGE_SIZE = 6
+MAX_SEARCH_VIDEOS = MAX_RESULTS + YOUTUBE_PAGE_SIZE
 CANDIDATE_TIMEOUT = 8
 LABELS = ('full film', 'trailer', 'clip', 'other')
 FILM_WORDS = {'teljes', 'film', 'movie', 'full'}
@@ -32,7 +35,7 @@ VIDEO_ID = re.compile(r'[A-Za-z0-9_-]{11}')
 URL_IN_TEXT = re.compile(r'https?://\S+|www\.\S+', re.I)
 METADATA_TIMEOUT = 4
 METADATA_TTL = 6 * 3600
-metadata_pool = ThreadPoolExecutor(max_workers=10)
+metadata_pool = ThreadPoolExecutor(max_workers=MAX_SEARCH_VIDEOS)
 metadata_lock = RLock()
 metadata_cache = {}
 metadata_pending = {}
@@ -130,7 +133,7 @@ def enrich(ids, run=None, which=None):
             if cached_metadata(ident):
                 continue
             future = metadata_pending.get(ident)
-            if future is None and len(metadata_pending) < 10:
+            if future is None and len(metadata_pending) < MAX_SEARCH_VIDEOS:
                 future = metadata_pool.submit(fetch, ident)
                 metadata_pending[ident] = future
                 future.add_done_callback(lambda _, ident=ident: forget(ident))
@@ -156,22 +159,33 @@ def clean_query(value):
     return value if 2 <= len(value) <= MAX_QUERY else None
 
 
-def youtube_candidates(query, run=subprocess.run, which=shutil.which):
+MARKUP = re.compile(r"""<!--[\s\S]*?-->|</?[a-z][\w:-]*(?=[\s/>])(?:[^"'<>]|"[^"]*"|'[^']*')*>""", re.I)
+
+
+def plain_title(value):
+    return ' '.join(MARKUP.sub('', unescape(value)).split())
+
+
+def youtube_candidates(query, run=None, which=None, *, single=False):
     """Up to a dozen YouTube results for the query and a "full film" variant. Raises LookupError without yt-dlp."""
-    tool = which('yt-dlp')
+    tool = (which or shutil.which)('yt-dlp')
     if not tool:
         raise LookupError('yt-dlp is not installed')
 
     def search(term):
         try:
-            done = run([tool, '--ignore-config', '--flat-playlist', '--dump-single-json', '--no-warnings', f'ytsearch6:{term}'],
+            done = (run or subprocess.run)([tool, '--ignore-config', '--flat-playlist', '--dump-single-json', '--no-warnings',
+                                           f'ytsearch{YOUTUBE_PAGE_SIZE}:{term}'],
                        capture_output=True, timeout=CANDIDATE_TIMEOUT, text=True, encoding='utf-8', errors='replace')
             return [] if done.returncode else json.loads(done.stdout).get('entries') or []
         except (subprocess.TimeoutExpired, OSError, ValueError, AttributeError):
             return []
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        pages = list(pool.map(search, (query, query + ' teljes film full movie')))
+    if single:
+        pages = [search(query)]
+    else:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            pages = list(pool.map(search, (query, query + ' teljes film full movie')))
     found = {}
     for entries in pages:
         for entry in entries:
@@ -187,7 +201,7 @@ def youtube_candidates(query, run=subprocess.run, which=shutil.which):
             found[ident] = {
                 **details,
                 'id': ident,
-                'title': str(entry.get('title') or '')[:160],
+                'title': plain_title(str(entry.get('title') or ''))[:160],
                 'channel': str(entry.get('channel') or entry.get('uploader') or '')[:80],
                 'seconds': int(details['duration']) if details['duration'] and details['duration'] < 86400 else 0,
                 'views': int(details['view_count'] or 0),

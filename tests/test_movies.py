@@ -7,6 +7,12 @@ from unittest.mock import patch
 from test_music_web import Base
 
 
+def upstream_json(payload, status=200):
+    response = io.BytesIO(json.dumps(payload).encode())
+    response.status = status
+    return response
+
+
 class MovieSessions(Base):
     extra = {'FAMILY_PROFILES': True, 'JELLYFIN_PUBLIC_URL': 'https://movies.test',
              'JELLYFIN_PROFILES': {'sample-a': {'username': 'viewer', 'password': 'fixture'}}}
@@ -103,15 +109,17 @@ class MovieRequests(Base):
         search.status = 200
         accepted = io.BytesIO(b'{"id":1,"status":2}')
         accepted.status = 201
-        opener.return_value.open.side_effect = [search, accepted]
+        opener.return_value.open.side_effect = [search, upstream_json({'title': title, 'runtime': 115}), accepted]
         client, selection = self.select('sample-a')
         token = selection['csrf_token']
 
         reply = self.post(client, token, '/api/movies/request-search', json={'query': title})
         self.assertEqual(reply.status_code, 200)
-        query = urllib.parse.urlsplit(opener.return_value.open.call_args.args[0].full_url).query
+        query = urllib.parse.urlsplit(opener.return_value.open.call_args_list[0].args[0].full_url).query
         self.assertEqual(urllib.parse.parse_qs(query)['query'], [title])
         self.assertEqual([(item['id'], item['year']) for item in reply.json['results']], [(9394, '1970'), (11829, '1971')])
+        self.assertEqual(reply.json['runtime_minutes'], 115)
+        self.assertNotIn('hungarian_title', reply.json['title_details'])
 
         reply = self.post(client, token, '/api/movies/request', json={'kind': 'movie', 'id': 9394})
         self.assertEqual(reply.json, {'state': 'approved'})
@@ -130,13 +138,13 @@ class MovieRequests(Base):
         search.status = 200
         created = io.BytesIO(b'{"id":8,"status":2}')
         created.status = 201
-        opener.return_value.open.side_effect = [search, created, urllib.error.HTTPError('', 409, '', None, None)]
+        opener.return_value.open.side_effect = [search, upstream_json({}), created, urllib.error.HTTPError('', 409, '', None, None)]
         reply = send('request-search', query=' The Gentlemen ', userId=1)
-        self.assertEqual(reply.json, {'results': [
+        self.assertEqual(reply.json['results'], [
             dict(kind='tv', id=12, title='The Gentlemen', year='2024', status=4),
             dict(kind='movie', id=11, title='The Gentlemen', year='2019', status=None),
-        ]})
-        request = opener.return_value.open.call_args.args[0]
+        ])
+        request = opener.return_value.open.call_args_list[0].args[0]
         self.assertTrue(request.full_url.endswith('/api/v1/search?query=The+Gentlemen&page=1'))
         self.assertEqual(request.get_header('X-api-user'), '7')
         self.assertEqual(send('request', kind='tv', id=True).status_code, 400)
@@ -162,14 +170,21 @@ class MovieRequests(Base):
         search.status = 200
         accepted = io.BytesIO(b'{"id":8,"status":2}')
         accepted.status = 201
-        opener.return_value.open.side_effect = [search, accepted]
+        localized = upstream_json({'name': '\u00dariemberek', 'seasons': [{'seasonNumber': 2, 'episodeCount': 8}]})
+        episodes = upstream_json({'episodes': [{'runtime': duration} for duration in [47, 63, 50, 55, 53, 57, 58, 57]]})
+        opener.return_value.open.side_effect = [search, localized, episodes, accepted]
         client, selection = self.select('sample-a')
         token = selection['csrf_token']
         reply = self.post(client, token, '/api/movies/request-search', json={'query': 'The Gentlemen S2'})
         self.assertEqual(reply.json['season'], 2)
         self.assertEqual([item['id'] for item in reply.json['results']], [12])
-        request = opener.return_value.open.call_args.args[0]
+        self.assertEqual((reply.json['episode_count'], reply.json['runtime_minutes']), (8, 440))
+        self.assertFalse(reply.json['title_details']['runtime_estimated'])
+        self.assertEqual(reply.json['title_details']['hungarian_title'], '\u00dariemberek')
+        request = opener.return_value.open.call_args_list[0].args[0]
         self.assertIn('query=The+Gentlemen&', request.full_url)
+        self.assertTrue(opener.return_value.open.call_args_list[1].args[0].full_url.endswith('/tv/12?language=hu'))
+        self.assertTrue(opener.return_value.open.call_args_list[2].args[0].full_url.endswith('/tv/12/season/2'))
 
         reply = self.post(client, token, '/api/movies/request', json={'kind': 'tv', 'id': 12, 'season': 2})
         self.assertEqual(reply.json, {'state': 'approved'})
@@ -224,6 +239,77 @@ class MovieReleaseSearch(Base):
         self.assertEqual(reply.status_code, 200)
         self.assertEqual({row['title'] for row in reply.json['results']}, {wanted})
         self.assertEqual(opener.return_value.open.call_count, 4)
+
+
+class MovieLocalizedSearch(Base):
+    extra = {**MovieReleaseSearch.extra, **MovieRequests.extra, 'MOVIE_REQUESTS': {
+        **MovieRequests.extra['MOVIE_REQUESTS'], 'tmdb_read_token': 'tmdb-fixture'}}
+    select = MovieSessions.select
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_tmdb_supplies_episode_runtimes_for_seerr(self, opener):
+        opener.return_value.open.side_effect = [
+            upstream_json({'results': [dict(mediaType='tv', id=12, name='Sample Series')]}),
+            upstream_json({'name': 'Sample Series', 'episodeRunTime': [50],
+                           'seasons': [{'seasonNumber': 2, 'episodeCount': 2}]}),
+            upstream_json({'episodes': [{'runtime': 41}, {'runtime': 56}]}),
+        ]
+        client, selected = self.select('sample-a')
+        reply = self.post(client, selected['csrf_token'], '/api/movies/request-search', json={'query': 'Sample Series S2'})
+        self.assertEqual((reply.json['runtime_minutes'], reply.json['episode_count']), (97, 2))
+        self.assertFalse(reply.json['title_details']['runtime_estimated'])
+        request = opener.return_value.open.call_args.args[0]
+        self.assertEqual(request.full_url, 'https://api.themoviedb.org/3/tv/12/season/2')
+        self.assertEqual(request.get_header('Authorization'), 'Bearer tmdb-fixture')
+
+    @patch('music_web.movie_search.subprocess.run')
+    @patch('music_web.movie_search.shutil.which', return_value='yt-dlp')
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_hungarian_search_shares_metadata_keeps_order_and_bounds_extra_queries(self, opener, which, run):
+        from subprocess import CompletedProcess
+
+        english, hungarian = 'The Hangover', 'M\u00e1snaposok'
+        primary = dict(title="The Hangover &amp; Friends&#39; Cut", guid='primary', indexerId=1)
+        local = dict(title='<b>M&aacute;snaposok</b> HUN', guid='local', indexerId=3)
+
+        def lookup(req, timeout):
+            url = urllib.parse.urlsplit(req.full_url)
+            params = urllib.parse.parse_qs(url.query)
+            if url.path == '/api/v1/movie/18785':
+                self.assertEqual(params, {'language': ['hu']})
+                return upstream_json(dict(title=hungarian, runtime=100))
+            if 'indexerIds' not in params:
+                self.assertEqual(params['query'], [english])
+                return upstream_json({'results': [dict(mediaType='movie', id=18785, title=english)]})
+            if params['query'] == [hungarian]:
+                self.assertEqual(params['indexerIds'], ['1', '3'])
+                return upstream_json([primary, local])
+            return upstream_json([primary] if params['indexerIds'] == ['1'] else [])
+
+        def yt_search(args, **kwargs):
+            main = dict(id='film0000001', title=english, duration=6000)
+            local_video = dict(id='film0000002', title='<b>M&aacute;snaposok</b> &amp; Extra&#39;s', duration=7200)
+            return CompletedProcess(args, 0, json.dumps({'entries': [main, local_video] if args[-1].endswith(hungarian) else [main]}))
+
+        opener.return_value.open.side_effect = lookup
+        run.side_effect = yt_search
+        client, selected = self.select('sample-a')
+        send = lambda route: self.post(client, selected['csrf_token'], '/api/movies/' + route, json={'query': english})
+        releases = send('releases').json
+        self.assertEqual(releases['title_details']['hungarian_title'], hungarian)
+        self.assertEqual([row['title'] for row in releases['results']], ["The Hangover & Friends' Cut", hungarian + ' HUN'])
+        self.assertTrue(all(row.get('guid') for row in releases['results']))
+        results = send('find').json['results']
+        self.assertEqual([row['id'] for row in results], ['film0000001', 'film0000002'])
+        self.assertEqual(results[1]['title'], hungarian + " & Extra's")
+        self.assertEqual(send('request-search').json['runtime_minutes'], 100)
+        self.assertEqual(send('releases').status_code, 200)
+        self.assertEqual(send('find').status_code, 200)
+        upstream = [call.args[0].full_url for call in opener.return_value.open.call_args_list]
+        self.assertEqual(sum('/movie/18785?' in url for url in upstream), 1)
+        self.assertEqual(sum('/search?query=The+Hangover&page=' in url for url in upstream), 1)
+        self.assertEqual(sum('M%C3%A1snaposok' in url for url in upstream), 1)
+        self.assertEqual(sum(call.args[0][-1] == f'ytsearch6:{hungarian}' for call in run.call_args_list), 1)
 
 
 class MovieDownloads(Base):
