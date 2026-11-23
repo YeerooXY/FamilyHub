@@ -45,4 +45,6 @@ try {
     & gh release edit $tag --repo $repository --draft=false --latest
     if ($LASTEXITCODE) { throw 'The update mirror is ready, but GitHub release publication failed.' }
     & gh release view $tag --repo $repository --json url,tagName,isDraft,assets
+    # SideStore reads its source from the latest release, so a release without the iPhone build hides every iPhone update.
+    Write-Warning ('This release has no iPhone build yet. Run the Build private iPhone app workflow (native-ios.yml), then scripts/publish-ios-release.ps1 -RunId <run> for ' + $tag + '.')
 } finally { Pop-Location }
