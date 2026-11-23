@@ -321,10 +321,14 @@ button.device-option:hover:not([aria-disabled=true]),button.device-option:focus-
  .remote-mini-main .cover { width:56px; height:56px; border-radius:4px; }
  .remote-mini-copy strong { font-size:14px; }
  .remote-mini-copy small { font-size:12px; }
- .remote-mini-toggle { align-self:start; justify-self:center; width:32px; height:32px; min-height:32px; margin-top:12px; }
+ /* Play button, then elapsed time, seek line and total time under it, like the player bar. The stack never overlaps. */
+ .remote-mini-center { grid-area:toggle; display:grid; justify-items:center; align-content:center; row-gap:6px; min-width:0; }
+ .remote-mini-toggle { grid-area:auto; width:32px; height:32px; min-height:32px; }
  .remote-mini-toggle .icon { width:16px; height:16px; }
- /* Under the play button, like the player bar's seek line. */
- .remote-mini-progress { grid-area:toggle; inset:auto 0 16px 0; width:94%; max-width:840px; height:4px; margin:0 auto; border-radius:2px; }
+ .remote-mini-seek { display:grid; grid-template-columns:40px minmax(0,1fr) 40px; align-items:center; column-gap:8px; width:94%; max-width:840px; }
+ .remote-clock { font-size:11px; line-height:16px; color:#b3b3b3; font-variant-numeric:tabular-nums; }
+ .remote-clock:first-child { text-align:right; }
+ .remote-mini-progress { position:relative; inset:auto; height:4px; border-radius:2px; }
 }
 @media(max-width:720px) {
  /* One card above the tabs: 72 px mini player row plus a 28-32 px device row. */
@@ -342,6 +346,8 @@ button.device-option:hover:not([aria-disabled=true]),button.device-option:focus-
  .remote-mini-copy small { font-size:12px; }
  .remote-mini-toggle { align-self:center; justify-self:start; width:44px; height:44px; min-height:44px; }
  .remote-mini-toggle .icon { width:22px; height:22px; }
+ .remote-mini-center, .remote-mini-seek { display:contents; }
+ .remote-clock { display:none; }
  .remote-mini-progress { height:2px; }
 }
 @media (prefers-reduced-motion:reduce) { .remote-mini-progress span.is-running { animation:none; } .remote-mini-toggle:hover:not([aria-disabled=true]) { transform:none; } }

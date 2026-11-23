@@ -931,3 +931,22 @@ window.familyhub.setNativeActive = active => {
  document.body.classList.toggle('native-hidden',!active||document.hidden);
  familyhub.fitTitle();
 };
+
+// Time labels on the "Playing on another device" bar: counted here once a second while that device plays, with no
+// component re-render. A fresh position from the server changes data-clock-from and restarts the count.
+(() => {
+    const started = new WeakMap();
+    const text = seconds => { const t = Math.max(0, Math.floor(seconds)); return t >= 3600 ? `${Math.floor(t / 3600)}:${String(Math.floor(t % 3600 / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}` : `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+    setInterval(() => {
+        if (document.hidden) return;
+        for (const node of document.querySelectorAll('[data-clock="at"]')) {
+            const key = node.dataset.clockFrom + '|' + node.dataset.clockRunning;
+            let mark = started.get(node);
+            if (!mark || mark.key !== key) { mark = { key, at: performance.now() }; started.set(node, mark); }
+            const base = Number(node.dataset.clockFrom), duration = Number(node.dataset.clockDuration);
+            const now = Math.min(duration, base + (node.dataset.clockRunning === 'true' ? (performance.now() - mark.at) / 1000 : 0));
+            const label = text(now);
+            if (node.textContent !== label) node.textContent = label;
+        }
+    }, 1000);
+})();

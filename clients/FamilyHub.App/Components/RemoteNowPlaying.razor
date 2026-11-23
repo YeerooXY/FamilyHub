@@ -25,15 +25,22 @@
                 }
             </span>
         </button>
-        <button id="remote-toggle" class="remote-mini-toggle" aria-disabled="@(connectingDevice is not null || toggling ? "true" : "false")" aria-label="@((device.IsPlaying ? "Pause on " : "Play on ") + device.Name)" @onclick="() => ToggleAsync(device)"><MusicIcon Name="@(device.IsPlaying ? "pause" : "play")" /></button>
-        <span class="remote-mini-line" role="status"><MusicIcon Name="volume" /><span>@(device.IsPlaying ? "Playing on" : "Paused on") <strong>@device.Name</strong></span></span>
         @{ var duration = device.Duration ?? known?.Duration ?? 0;
-           var position = Math.Clamp(device.PositionAt(Elapsed) ?? 0, 0, Math.Max(0, duration)); }
-        @if (duration > 0 && Fresh && connectingDevice is null)
-        {
-            <span class="remote-mini-progress" aria-hidden="true"><span @key="checkedAt" class="@(device.IsPlaying && device.Position is not null && position < duration ? "is-running" : "")"
-                  style="--from:@Number(position / duration * 100);--seconds:@Number(duration - position)s;width:@Number(position / duration * 100)%"></span></span>
-        }
+           var position = Math.Clamp(device.PositionAt(Elapsed) ?? 0, 0, Math.Max(0, duration));
+           var running = device.IsPlaying && device.Position is not null && position < duration; }
+        <div class="remote-mini-center">
+            <button id="remote-toggle" class="remote-mini-toggle" aria-disabled="@(connectingDevice is not null || toggling ? "true" : "false")" aria-label="@((device.IsPlaying ? "Pause on " : "Play on ") + device.Name)" @onclick="() => ToggleAsync(device)"><MusicIcon Name="@(device.IsPlaying ? "pause" : "play")" /></button>
+            @if (duration > 0 && Fresh && connectingDevice is null)
+            {
+                <span class="remote-mini-seek">
+                    <span class="remote-clock" data-clock="at" data-clock-from="@Number(position)" data-clock-duration="@Number(duration)" data-clock-running="@(running ? "true" : "false")" aria-hidden="true">@Clock(position)</span>
+                    <span class="remote-mini-progress" aria-hidden="true"><span @key="checkedAt" class="@(running ? "is-running" : "")"
+                          style="--from:@Number(position / duration * 100);--seconds:@Number(duration - position)s;width:@Number(position / duration * 100)%"></span></span>
+                    <span class="remote-clock" aria-hidden="true">@Clock(duration)</span>
+                </span>
+            }
+        </div>
+        <span class="remote-mini-line" role="status"><MusicIcon Name="volume" /><span>@(device.IsPlaying ? "Playing on" : "Paused on") <strong>@device.Name</strong></span></span>
     </div>
 }
 
@@ -46,6 +53,7 @@
     private bool Fresh => device is not null && device.Age + Elapsed < PlaybackDevice.OnlineSeconds;
     private double Elapsed => Stopwatch.GetElapsedTime(checkedAt).TotalSeconds;
     private PlaybackDevice? Device => connectingDevice ?? (Player.RemoteActive || Player.FollowingHost || Player.PlaybackRequested ? null : device);
+    private static string Clock(double seconds) { var t = (int)Math.Max(0, seconds); return t >= 3600 ? $"{t / 3600}:{t % 3600 / 60:00}:{t % 60:00}" : $"{t / 60}:{t % 60:00}"; }
     private static string Number(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 
     private async Task ConnectAsync(PlaybackDevice source)
