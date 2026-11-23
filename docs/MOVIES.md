@@ -26,7 +26,7 @@ The next release-gating checks are one real feature film on a phone and on the p
 
 The TV's browser engine decides what the current code supports: `:is()` and `aspect-ratio` need Chromium 88, and `AbortSignal.timeout` (now replaced) needed 103. By LG's published table webOS 22 ships Chromium 87, webOS 23 ships 94 and webOS 24 ships 108. A webOS 22 or older set needs some CSS rewritten; webOS 23 and newer should work. Check the TV's webOS version in Settings first.
 
-**Decision (23 November 2026).** The owner's television is an LG UM7610PLB (2018, webOS 4.x, an old Chromium), which cannot run the current movie client. The television plan is an Android TV or Fire TV stick running the Android app. Unverified until the stick is on hand: remote navigation, Back, and the player at 1920 px. Android Back closes an open sheet first, then the player.
+**Decision (23 November 2026).** The owner's television is an LG UM7610PLB (2018, webOS 4.x, an old Chromium), which cannot run the current movie client. The television plan is an Android TV or Fire TV stick running the Android app. Unverified until the stick is on hand: remote navigation, Back, and the player at 1920 px. Android Back closes an open sheet first, then the player. On Android the player turns the screen to landscape (both directions, following the sensor) and hides the system bars; this is unverified on a real phone until 0.1.89 is installed.
 
 The remote works through the arrow keys: they move between cards, shelves, the billboard and the player controls, Enter selects, and the Back key (key code 461) closes the player. The pointer ("magic") remote also works. Not yet tested on a television.
 

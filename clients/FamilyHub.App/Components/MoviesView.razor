@@ -69,6 +69,10 @@
         catch (Exception) { }
     }
 
+    // The player asks for landscape and hidden system bars while it covers the window.
+    [JSInvokable]
+    public void MovieScreen(bool playing) => PlayerScreen.Set(playing);
+
     [JSInvokable]
     public async Task MovieStarted()
     {
@@ -79,6 +83,7 @@
     public async ValueTask DisposeAsync()
     {
         closed.Cancel();
+        PlayerScreen.Set(false);
         try
         {
             if (shelf is not null) { await shelf.InvokeVoidAsync("close"); await shelf.DisposeAsync(); }

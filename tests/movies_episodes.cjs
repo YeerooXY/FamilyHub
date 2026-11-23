@@ -11,7 +11,7 @@ const episodes = ["Pilot", "The Move", "Visitors"].map((Name, i) => ({
 const film = { Id: "f", Name: "Harbour Lights", Type: "Movie", ImageTags: {} };
 
 async function check(browser) {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
     page.setDefaultTimeout(6000);
     await page.addInitScript(() => {
         HTMLMediaElement.prototype.play = () => Promise.resolve();
@@ -51,6 +51,10 @@ async function check(browser) {
     await back.waitFor();
     assert.equal(await page.getByRole("button", { name: "Episodes" }).isVisible(), false);
     assert.equal(await page.getByRole("button", { name: /^Next episode/ }).isVisible(), false);
+    // Controls hide a few seconds after the last touch, also when paused and also with reduced motion (many phones set it).
+    await page.waitForFunction(() => document.querySelector(".movie-ui")?.classList.contains("movie-idle"), null, { timeout: 6000 });
+    await page.mouse.move(300, 300);
+    await page.waitForFunction(() => !document.querySelector(".movie-ui").classList.contains("movie-idle"));
     await back.click();
     await back.waitFor({ state: "hidden" });
 

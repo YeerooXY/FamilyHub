@@ -67,7 +67,6 @@ function clock(seconds) {
  */
 export function buildPlayerUi(ctx) {
     const { media, surface, back, signal } = ctx;
-    const quiet = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
     const root = make("div", "movie-ui");
     let idleTimer, dragging = false, openSheet = null, nextEpisode = null;
 
@@ -190,9 +189,8 @@ export function buildPlayerUi(ctx) {
         if (openSheet) { closeSheet(false); return; }
         const pointer = matchMedia("(hover: hover) and (pointer: fine)").matches;
         if (!pointer) {
-            if (root.classList.contains("movie-idle") || !media.paused) root.classList.toggle("movie-idle");
-            else show();
-            if (!root.classList.contains("movie-idle")) show();
+            if (root.classList.contains("movie-idle")) show();
+            else { clearTimeout(idleTimer); root.classList.add("movie-idle"); }
             return;
         }
         if (event.detail > 1) { clearTimeout(tapTimer); fullscreen.click(); return; }
@@ -211,17 +209,20 @@ export function buildPlayerUi(ctx) {
     spinnerRoot.append(spinner);
     root.append(surfaceLayer, spinnerRoot, message, top, mid, bottom, tracksSheet, episodesSheet);
 
-    // Controls hide while the film plays and nobody touches anything.
+    // Controls hide a few seconds after the last touch, playing or paused. Reduced motion only removes the fade, not the hiding.
+    // A keyboard or remote focus ring keeps them up so the focused control stays visible.
+    let keyboardMode = false;
+    document.addEventListener("keydown", () => { keyboardMode = true; }, { capture: true, signal });
+    root.addEventListener("pointerdown", () => { keyboardMode = false; }, { signal });
     function show() {
         root.classList.remove("movie-idle");
         clearTimeout(idleTimer);
-        if (quiet()) return;
         idleTimer = setTimeout(() => {
-            if (!media.paused && !dragging && !openSheet && !root.querySelector(":focus-visible")) root.classList.add("movie-idle");
+            if (!dragging && !openSheet && !(keyboardMode && root.querySelector(":focus-visible"))) root.classList.add("movie-idle");
         }, 3500);
     }
     for (const type of ["pointermove", "pointerdown", "touchstart", "focusin"])
-        root.addEventListener(type, () => { if (!root.classList.contains("movie-idle") || type !== "pointermove") show(); }, { passive: true, signal });
+        root.addEventListener(type, event => { if (!root.classList.contains("movie-idle") || type !== "pointermove" || event.pointerType === "mouse") show(); }, { passive: true, signal });
     signal.addEventListener("abort", () => { clearTimeout(idleTimer); clearTimeout(tapTimer); });
 
     // Seek bar.
@@ -323,6 +324,7 @@ export function buildPlayerUi(ctx) {
 
     sync();
     paint();
+    show();
     return {
         root,
         playButton: playPause,

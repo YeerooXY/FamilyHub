@@ -146,12 +146,15 @@ export function openMovies(host, session, app, viewer) {
         if (document.fullscreenElement !== player && !fullscreenRequest)
             fullscreenRequest = Promise.resolve(player.requestFullscreen?.({ navigationUI: "hide" })).catch(() => {});
         screen.orientation?.lock?.("landscape").catch(() => {});
+        // The Android app turns the screen to landscape and hides the system bars; a browser ignores the call.
+        Promise.resolve(app.invokeMethodAsync("MovieScreen", true)).catch(() => {});
     }
     // Resolves once the browser has left fullscreen: elements outside the fullscreen player cannot take focus before.
     async function leavePlayer() {
         player.classList.remove("movie-expanded");
         document.documentElement.classList.remove("movie-expanded-page");
         screen.orientation?.unlock?.();
+        Promise.resolve(app.invokeMethodAsync("MovieScreen", false)).catch(() => {});
         await fullscreenRequest;
         fullscreenRequest = null;
         if (document.fullscreenElement === player) await document.exitFullscreen?.().catch(() => {});
