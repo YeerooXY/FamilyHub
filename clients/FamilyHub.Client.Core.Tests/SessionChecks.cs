@@ -389,10 +389,19 @@ internal static class SessionChecks
             session.SetStreamingQualityWifi("max");
             Check(session.LocalPath(recording) is not null, "Streaming quality overrode a kept download");
             session.SetStreamingQualityWifi("normal");
+            Check(ConnectionKind.FromProfiles([]) == "unknown", "Unknown connection should use the browser fallback");
+            Check(ConnectionKind.FromProfiles([Microsoft.Maui.Networking.ConnectionProfile.Ethernet]) == "wifi", "Ethernet should use the Wi-Fi policy");
+            Check(ConnectionKind.FromProfiles([Microsoft.Maui.Networking.ConnectionProfile.Cellular, Microsoft.Maui.Networking.ConnectionProfile.WiFi]) == "wifi", "Wi-Fi should take precedence over a cellular profile");
             Microsoft.Maui.Networking.Connectivity.Current.ConnectionProfiles = [Microsoft.Maui.Networking.ConnectionProfile.Cellular];
+            session.SetStreamingQualityMobile("high");
+            session.CanWarmPlayback = true;
+            Check(ConnectionKind.Current == "cellular" && !session.DataSaver && session.ActiveStreamingQuality == "high", "Cellular should use the configured quality with Data saver off");
+            session.SetDataSaver(true);
+            Check(session.ActiveStreamingQuality == "low" && !session.CanWarmPlayback, "Data saver should force Low and stop network preloading on cellular");
             try { await session.DownloadAsync([recording]); throw new Exception("Wi-Fi-only download used mobile data"); }
             catch (InvalidOperationException) { checks++; }
             Microsoft.Maui.Networking.Connectivity.Current.ConnectionProfiles = [Microsoft.Maui.Networking.ConnectionProfile.WiFi];
+            Check(session.ActiveStreamingQuality == "normal" && session.CanWarmPlayback, "Data saver changed Wi-Fi quality or preloading");
             await session.RemoveDownloadAsync(recording);
             await session.Offline.SaveLibraryAsync([new() { Id = "abcdefghijk", Title = "Cached recording" }]);
             reachable = false;
@@ -429,9 +438,11 @@ internal static class SessionChecks
             Check(!restarted.PlaybackPreferences.AutoDj, "Restart lost Auto DJ preference");
             Check(restarted.CacheLimitGb == 5, "Restart lost cache preference");
             Check(restarted.StreamingQualityWifi == "normal" && restarted.StreamingQualityMobile == "low" && restarted.DownloadQuality == "high", "Restart lost quality settings");
+            Check(restarted.DataSaver, "Restart lost Data saver");
             Check(restarted.PlaybackPreferences.VolumeLevel == "quiet", "Restart lost volume level");
             await restarted.SelectProfileAsync("sam");
             Check(restarted.StreamingQualityWifi == "high" && restarted.StreamingQualityMobile == "high" && restarted.DownloadQuality == "max", "Quality setting leaked into another profile");
+            Check(!restarted.DataSaver, "Data saver leaked into another profile");
             Check(restarted.PlaybackPreferences.VolumeLevel == "normal", "Volume level leaked into another profile");
             Check(restarted.User == "sam" && restarted.Library.Count == 0 && restarted.PlaybackPreferences.Volume == 1, "Profile data leaked to another listener");
             try { await restarted.SelectProfileAsync("unknown"); throw new Exception("Unknown offline profile accepted"); }

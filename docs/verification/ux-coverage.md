@@ -1,5 +1,15 @@
 # Interface verification
 
+## 24 November 2026 · Data saver
+
+| Screen | Layout and visual | Motion | Focus and keyboard | Accessibility | Wording and states |
+| --- | --- | --- | --- | --- | --- |
+| Movie player settings | Chromium and WebKit at 1280 px, Pixel 7 and iPhone 13 | Reduced motion during reopen, normal motion pending | Enter, Escape and focus during a delayed rebuild and after quality selection | Dialog and radio names and selection state checked. Screen-reader speech pending. | Four levels, estimates, current resolution, loading and the one-time cellular hint checked. Stream failure still uses the existing recovery. |
+| Movies settings | Same browser profiles in the Razor shell fixture | Reduced motion, normal motion pending | Focus visible on the select and saved choice verified after reload | Label and help association checked. Screen-reader speech pending. | Default and saved choice checked. Save errors pending. |
+| Music settings | Same browser profiles in the Razor shell fixture | Reduced motion, normal motion pending | Space toggles the switch | Name and help association checked. Screen-reader speech pending. | Both switch states checked. C# tests cover cellular streaming and preloading policy. |
+
+[Screenshots, emulation details and HEVC findings](data-saver-2026-11-23/README.md)
+
 ## 23 November 2026 · Server health dashboard
 
 Reviewed in the Server work and release tile style on the `codex-downloads` working tree based on `efe74ef`.

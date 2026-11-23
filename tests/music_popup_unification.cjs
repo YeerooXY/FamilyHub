@@ -643,7 +643,8 @@ async function audit(name, engine, options) {
             await page.keyboard.press('Space');
             const audio = target('movie-preferred-audio');
             await audio.selectOption('hu');
-            await page.getByText('Movie preferences saved.', {exact: true}).waitFor();
+            await page.waitForFunction(() => JSON.parse(localStorage.getItem(
+                'familyhub:movie-tracks:' + JSON.stringify({server: 'https://music.fixture.test/', profile: 'fixture'})))?.audio === 'hu');
             const subtitles = target('movie-preferred-subtitles');
             await subtitles.selectOption('off');
             await page.waitForFunction(() => JSON.parse(localStorage.getItem(

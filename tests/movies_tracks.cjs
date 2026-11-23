@@ -230,7 +230,7 @@ async function check(browser, options) {
     await group("Audio track").waitFor();
     await focused(checkedIn("Audio track"));
     assert.equal(await subtitle.inputValue(), "-1");
-    assert.deepEqual(await preferences("viewer-a"), { audio: "hu", subtitles: "hu" });
+    assert.deepEqual(await preferences("viewer-a"), { audio: "hu", subtitles: "hu", dataSaver: "auto" });
     await back.press("Space");
     await focused(two);
     await one.press("Enter");
@@ -241,7 +241,7 @@ async function check(browser, options) {
     assert.equal(await page.locator("main").evaluate(node => node.scrollWidth <= node.clientWidth), true);
 
     await open("viewer-b");
-    assert.deepEqual(await preferences("viewer-b"), { audio: "default", subtitles: "default" });
+    assert.deepEqual(await preferences("viewer-b"), { audio: "default", subtitles: "default", dataSaver: "auto" });
     await two.press("Enter");
     await back.waitFor();
     await openTracks();
@@ -255,7 +255,7 @@ async function check(browser, options) {
     assert.equal(await subtitle.inputValue(), "-1");
     await page.reload();
     await open("viewer-a");
-    assert.deepEqual(await preferences("viewer-a"), { audio: "hu", subtitles: "hu" });
+    assert.deepEqual(await preferences("viewer-a"), { audio: "hu", subtitles: "hu", dataSaver: "auto" });
 
     // The library card predates the position saved on another device.
     savedPosition = 180;

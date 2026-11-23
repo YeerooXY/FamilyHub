@@ -74,10 +74,17 @@ public sealed class MusicSession
     public string StreamingQualityWifi { get; private set; } = "high";
     public string StreamingQualityMobile { get; private set; } = "high";
     public string DownloadQuality { get; private set; } = "max";
-    public string ActiveStreamingQuality => HomeConnection ? StreamingQualityWifi : StreamingQualityMobile;
+    public bool DataSaver { get; private set; }
+    private bool SavingMobileData => DataSaver && ConnectionKind.Current == "cellular";
+    public string ActiveStreamingQuality => SavingMobileData ? "low" : HomeConnection ? StreamingQualityWifi : StreamingQualityMobile;
     public int CacheLimitGb { get; private set; } = 3;
     public bool DownloadsWifiOnly { get; private set; } = true;
-    internal bool CanWarmPlayback { get; set; }
+    private bool canWarmPlayback;
+    internal bool CanWarmPlayback
+    {
+        get => canWarmPlayback && !SavingMobileData;
+        set => canWarmPlayback = value;
+    }
     private static bool HomeConnection => Microsoft.Maui.Networking.Connectivity.Current.ConnectionProfiles.Any(
         p => p is Microsoft.Maui.Networking.ConnectionProfile.WiFi or Microsoft.Maui.Networking.ConnectionProfile.Ethernet)
         && !Microsoft.Maui.Networking.Connectivity.Current.ConnectionProfiles.Contains(Microsoft.Maui.Networking.ConnectionProfile.Cellular);
@@ -353,6 +360,7 @@ public sealed class MusicSession
         }
         Connected = false;
         var prefPrefix = PreferenceKey(Server, User);
+        DataSaver = Preferences.Default.Get(prefPrefix + ":data-saver", "false") == "true";
         if (Preferences.Default.ContainsKey(prefPrefix + ":quality-wifi"))
         {
             var wifi = Preferences.Default.Get(prefPrefix + ":quality-wifi", "high");
@@ -413,6 +421,13 @@ public sealed class MusicSession
         Volatile.Read(ref cachedHashes).TryGetValue(track.Id, out var editions) && (!Connected || editions.Contains(CurrentRecording(track).DownloadSha256));
 
     private static bool IsValidQuality(string quality) => quality is "low" or "normal" or "high" or "max";
+
+    public void SetDataSaver(bool enabled)
+    {
+        DataSaver = enabled;
+        Preferences.Default.Set(PreferenceKey(Server, User) + ":data-saver", enabled ? "true" : "false");
+        Changed?.Invoke();
+    }
 
     public void SetStreamingQualityWifi(string quality)
     {

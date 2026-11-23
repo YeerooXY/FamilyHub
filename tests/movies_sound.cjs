@@ -27,7 +27,8 @@ const app = "http://t.test";
             const { buildPlayerUi } = await import("/movie-player-ui.js");
             const media = document.querySelector("video"), surface = document.querySelector(".movie-player");
             const back = document.createElement("button");
-            const ui = buildPlayerUi({ media, surface, back, signal: new AbortController().signal, title: "Test", trackControls: [], notice: document.createElement("p") });
+            const ui = buildPlayerUi({ media, surface, back, signal: new AbortController().signal, title: "Test", trackControls: [],
+                notice: document.createElement("p"), dataSaver: { quality: "Full quality", choices: [] } });
             surface.append(ui.root);
             return { hasButton: !![...ui.root.querySelectorAll(".movie-ui-action")].find(b => b.getAttribute("aria-label") === "Sound" && !b.hidden) };
         });
