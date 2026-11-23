@@ -22,8 +22,7 @@ Releases are on the [GitHub releases page](https://github.com/YeerooXY/FamilyHub
 ## Planned
 
 - **Movies and TV for the whole family.** Jellyfin (`compose.playback.yaml`) is the watching platform and already runs. The download source and method are still open; qBittorrent and Prowlarr (`compose.acquisition.yaml`) are configured as candidates, and a VPN would be needed for torrenting. Setup: [playback](docs/PLAYBACK.md) and [acquisition](docs/ACQUISITION.md).
-- **File sharing between family members.**
-- **One-off share links for people outside the family**, for example a 160 MB file a colleague downloads through a link.
+- **File storage and sharing** (the family's own Nextcloud-style drive): the server side exists and is tested; the app screen comes next. See [Files](docs/FILES.md).
 
 ## Server foundation
 

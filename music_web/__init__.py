@@ -326,7 +326,7 @@ def create_app(test_config=None):
             if not (sent == origin if sent is not None else ref == origin or ref.startswith(origin + "/")):
                 app.logger.warning("Rejected %s %s: origin %r", request.method, request.path, (sent or "")[:80])
                 abort(403)
-        if request.endpoint in ("login", "static", "family_connect", "create_family_profile", "select_family_profile", "app_update_manifest", "app_update_package", "profile_image"):
+        if request.endpoint in ("login", "static", "family_connect", "create_family_profile", "select_family_profile", "app_update_manifest", "app_update_package", "profile_image", "share_landing", "share_download"):
             return
         # Audio players cannot send the sign-in cookie, so a stream link carries a signed ticket.
         if request.endpoint in ("playback_audio", "download_library_recording", "job_media") and "ticket" in request.args:
@@ -357,7 +357,7 @@ def create_app(test_config=None):
             return None
         return user if hmac.compare_digest(stream_signature(user, request.path, expires), ticket) else None
 
-    CSRFProtect(app)  # registered after guard(), so host, origin and sign-in are checked first
+    csrf = CSRFProtect(app)  # registered after guard(), so host, origin and sign-in are checked first
 
     def listener_identity():
         return (g.user, session.get("sid") if "ticket" not in request.args else None)
@@ -3330,6 +3330,8 @@ def create_app(test_config=None):
     from .listening_rooms import register_listening_rooms
     from .movies import register_movies
     register_movies(app, cfg, body, allow)
+    from .files import register_files
+    register_files(app, cfg, allow, lambda: g.user in cfg['ADMIN_USERS'], csrf.exempt)
     register_listening_rooms(app, body, profile_store, resources)
     from .playback_devices import register_playback_devices
     register_playback_devices(app, body, playback_devices)
