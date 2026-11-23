@@ -883,7 +883,9 @@ def create_app(test_config=None):
         if catalogue_lock.acquire(timeout=.05):
             try:
                 preferences = profile_store.preferences(owner) if family_mode else {}
-                if not preferences.get('listening_history_paused', False):
+                if preferences.get('listening_history_paused', False):
+                    accepted = counters is not None  # Acknowledged so the app stops resending; nothing is recorded.
+                else:
                     if counters is not None:
                         try:
                             version = file_version(listening_history.path(owner).with_suffix('.cleared'))

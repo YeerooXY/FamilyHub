@@ -267,7 +267,7 @@ class StateWriter:
                 if self.thread is not None:
                     self.queue.put(None)
             thread = self.thread
-        if thread is not None:
+        if thread is not None and thread.is_alive():
             thread.join()
 
 
@@ -312,12 +312,21 @@ class CachedJSON:
     def read(self, path):
         with self.lock:
             entry = self.entries.get(path)
-            if entry is not None:
-                return entry[0]
+            if entry is not None and entry[2] is not None:
+                return entry[0]  # A queued write is newer than anything on disk.
+        # One stat call (inode metadata, kept in the kernel cache) notices a change made by another process at once.
         version = read_version(path)
+        with self.lock:
+            entry = self.entries.get(path)
+            if entry is not None and (entry[2] is not None or entry[1] == version):
+                return entry[0]
         value = json.loads(path.read_bytes()) if version else None
         with self.lock:
-            return self.entries.setdefault(path, (value, version, None))[0]
+            entry = self.entries.get(path)
+            if entry is not None and entry[2] is not None:
+                return entry[0]
+            self.entries[path] = (value, version, None)
+            return value
 
     def write(self, path, value):
         with self.lock:
