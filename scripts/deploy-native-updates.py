@@ -29,7 +29,7 @@ def main():
         'movies.py', 'movie_search.py', 'files.py', 'wordle.py', 'wordle_source.py', 'feedback.py',
         'wordle_data/answers.txt', 'wordle_data/guesses.txt', 'wordle_data/SOURCES.txt',
         'wordle_data/SCOWL-en-US.txt', 'wordle_data/SCOWL-en-GB.txt',
-        'static/app.js', 'static/playlists.js', 'static/prefix-cache.js', 'templates/index.html',
+        'static/app.js', 'static/playlists.js', 'static/prefix-cache.js', 'static/share.css', 'templates/index.html',
     )
     files = []
     if not args.assets_only:
