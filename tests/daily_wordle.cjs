@@ -356,7 +356,7 @@ async function ordinaryWinReview(name, engine, options) {
         const result = panel.getByRole('dialog', {name: 'Alex'});
         assert.equal(await result.isVisible(), false);
         await result.getByText('Solved in 2 guesses').waitFor();
-        await result.getByText('Hard rules', {exact: true}).waitFor();
+        await result.getByText('Played with hard-mode rules', {exact: true}).waitFor();
         await result.locator('.dw-guess-time').filter({hasText: '0:04'}).waitFor();
         await result.locator('.dw-guess-time').filter({hasText: '0:18'}).waitFor();
         const book = result.getByRole('button', {name: 'Guess 1: Book'});
@@ -364,7 +364,7 @@ async function ordinaryWinReview(name, engine, options) {
         await page.keyboard.press('Tab');
         assert(await book.evaluate(node => node === document.activeElement));
         await page.keyboard.press('Enter');
-        await result.getByText('This opener tests a strong set of letters.').waitFor();
+        await result.getByText('A strong opening word. It tests common letters in useful places.').waitFor();
         assert(await book.evaluate(node => node === document.activeElement));
         await page.keyboard.press('Tab');
         assert(await best.evaluate(node => node === document.activeElement));
@@ -374,7 +374,7 @@ async function ordinaryWinReview(name, engine, options) {
         await result.locator('.dw-grade-detail').waitFor({state: 'hidden'});
         if (options.hasTouch) {
             await best.tap();
-            await result.getByText('This was one of the solver’s top choices.').waitFor();
+            await result.getByText('No other word does better from here.').waitFor();
             await best.tap();
         }
         assert(await result.evaluate(node => node.scrollWidth <= node.clientWidth));
