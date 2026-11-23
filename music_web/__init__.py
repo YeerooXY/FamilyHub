@@ -49,6 +49,8 @@ MAX_JOBS = 50
 MAX_VERIFIED_SOURCES = 4096  # Keep a full family library warm while bounding manifest memory.
 PREVIEW_TTL = 2 * 60 * 60
 MAX_PREVIEWS = 24
+PLAYBACK_PROBLEMS = frozenset({"interrupted", "early_end", "unexpected_pause", "native_paused", "native_suppressed",
+                               "native_error", "player_error", "stream_failed", "failed", "resume_failed"})
 MAX_CACHE_BYTES = 16 << 30
 MIN_FREE_BYTES = 256 << 20
 
@@ -256,6 +258,12 @@ def create_app(test_config=None):
                 observation["reason"] = reason
         playback_diagnostics.record(g.user, action, "client_" + stage, client_ms=elapsed, begin=True,
                                     observation=observation)
+        # Interruptions reach the server journal with their position and reason, so a stop can be explained after the
+        # in-memory timings expire (they last 30 minutes).
+        if stage in PLAYBACK_PROBLEMS and (observation or {}).get("reason") not in ("user_request", "end_of_item", "remote_control"):
+            seconds = (observation or {}).get("position_ms", 0) // 1000
+            log.warning("playback %s at %d:%02d%s", stage, seconds // 60, seconds % 60,
+                        " reason=" + observation["reason"] if observation and "reason" in observation else "")
         return jsonify(ok=True)
     transfers = TransferResources(transfer_limit(), lambda: min(
         MAX_CACHE_BYTES - scratch_size(ws, lib, app.intake), shutil.disk_usage(ws).free - MIN_FREE_BYTES),

@@ -184,9 +184,22 @@ internal sealed class PlaybackControls
             player.TraceNotification(published ? "notification_published" : "notification_failed", track, position,
                 published ? reason : "Android could not post the notification");
             if (!published && retry) _ = RetryNotificationAsync(metadata, track, state, position, reason, version);
+            if (!published) WarnIfNotificationsBlocked();
         }
         try { ShowNotification(metadata, state, Report); }
         catch (Java.Lang.RuntimeException) { Report(false); }
+    }
+
+    private static bool warnedAboutNotifications;
+
+    // The phone only keeps music alive with the screen off when it can show the media notification.
+    private void WarnIfNotificationsBlocked()
+    {
+        if (warnedAboutNotifications) return;
+        var manager = (NotificationManager?)context.GetSystemService(Context.NotificationService);
+        if (manager is null || manager.AreNotificationsEnabled()) return;
+        warnedAboutNotifications = true;
+        session.SetMessage("Allow notifications for FamilyHub in the phone's app settings. Without them the music can stop when the screen turns off.", "error", playback: true);
     }
 
     private async Task RetryNotificationAsync(PublishedMetadata metadata, MusicTrack track, PlaybackStateCode state,

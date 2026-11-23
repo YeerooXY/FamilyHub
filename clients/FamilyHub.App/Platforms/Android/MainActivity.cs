@@ -71,6 +71,28 @@ public class MainActivity : MauiAppCompatActivity
             bars.AppearanceLightStatusBars = false;
             bars.AppearanceLightNavigationBars = false;
         }
+        // A fresh start is never in the film player: follow the sensor again and show the bars.
+        RequestedOrientation = ScreenOrientation.Unspecified;
+        AskForNotifications();
+    }
+
+    private const int NotificationPermissionRequestCode = 60135;
+
+    // Android 13 and later hide every notification until the user allows them. Without the media notification
+    // the phone does not treat the app as playing music: with the screen off it cuts the network about a minute
+    // in, and the song stops ("the network connection failed").
+    private void AskForNotifications()
+    {
+        if (Build.VERSION.SdkInt < BuildVersionCodes.Tiramisu) return;
+        if (CheckSelfPermission(Android.Manifest.Permission.PostNotifications) == Permission.Granted) return;
+        RequestPermissions(new[] { Android.Manifest.Permission.PostNotifications }, NotificationPermissionRequestCode);
+    }
+
+    protected override void OnResume()
+    {
+        base.OnResume();
+        // Coming back to the app with no film playing: undo a landscape lock the player may have left behind.
+        Services.PlayerScreen.ResetIfIdle();
     }
 
     protected override void OnActivityResult(int requestCode, Result resultCode, Intent? data)
