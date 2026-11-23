@@ -113,3 +113,10 @@
     .app-update .update-stage { animation:none; }
 }
 .popup-panel.update-dialog .dialog-heading { background:transparent; }
+
+/* While the update downloads the popup becomes the whole screen: no Later, no close, no scrollbars from the sliding scenes. */
+.update-stage, .app-update .update-stage { overflow:clip; }
+.popup-panel.update-dialog:has(.is-morphing):is([open],.is-open) { inset:0; width:100%; max-width:none; height:100dvh; max-height:none; border-radius:0; padding:max(1.5rem, env(safe-area-inset-top)) 1.5rem max(1.5rem, env(safe-area-inset-bottom)); overflow:hidden; display:grid; place-content:center; justify-items:center; text-align:center; }
+.popup-panel.update-dialog:has(.is-morphing) .dialog-heading { position:static; justify-content:center; }
+.popup-panel.update-dialog:has(.is-morphing) .dialog-heading > button, .popup-panel.update-dialog:has(.is-morphing) #update-later { display:none; }
+.popup-panel.update-dialog:has(.is-morphing) .app-update { width:min(26rem, 100%); }

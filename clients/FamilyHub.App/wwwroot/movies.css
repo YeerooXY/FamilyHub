@@ -536,3 +536,12 @@ li.movie-release[data-tier="uhd"] { border-color: #ffb45e66; box-shadow: inset 0
 li.movie-release[data-tier="remux"] { border-color: #8f8cff66; }
 @keyframes movie-shine { to { background-position: -220% 0; } }
 @media (prefers-reduced-motion: reduce) { .movie-release-quality[data-level="uhd"] { animation: none; } }
+
+/* The search pill fills the toolbar, and the sticky band behind it runs the full width of the screen (no floating dark block). */
+.movie-library .movie-toolbar .movie-search { flex: 1 1 100%; width: 100%; max-width: none; }
+.movie-library .movie-toolbar { background: none; box-shadow: 0 0 0 100vmax #0b0d12eb; clip-path: inset(0 -100vmax); }
+
+/* The Movies page keeps its search bar pinned at the very top, so the content area must not reserve space above focused fields
+   (that reserve made the page jump about 49 px on every typed letter). */
+.workspace > main:has(.movie-library) { scroll-padding-top: 0; }
+.movie-library .movie-toolbar { scroll-margin-top: 0; }
