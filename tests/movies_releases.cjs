@@ -1,3 +1,4 @@
+const { useMovieBridge } = require("./movies_fixture.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -48,6 +49,7 @@ async function verify(browser, name, options) {
             }
             return route.fulfill({headers, json:{Items:[], TotalRecordCount:0}});
         });
+        await useMovieBridge(page);
         await page.goto(app);
         await page.evaluate(async ({jellyfin, fixture}) => {
             const {openMovies} = await import("/movies.js");
@@ -55,7 +57,7 @@ async function verify(browser, name, options) {
                 episode_count:8, hungarian_title:"Úriemberek"};
             window.calls = [];
             window.movieSession = {url:jellyfin, user:"fixture", token:"fixture", device:"fixture", release_search_enabled:true, requests_enabled:true};
-            openMovies(document.querySelector("main"), window.movieSession, {
+            window.startMovieFixture = () => window.openMovieFixture(openMovies, document.querySelector("main"), window.movieSession, {
                 invokeMethodAsync: async (method, term, ...args) => {
                     if (method === "MovieDownloads") return JSON.stringify({available:true, items:window.queueItems || []});
                     window.calls.push([method, term, ...args]);
@@ -92,6 +94,7 @@ async function verify(browser, name, options) {
                     return JSON.stringify(term === "The Gentlemen S2" ? {results:fixture, title_details, unavailable:0} : {results:[], unavailable:0});
                 }
             });
+            window.movieScreen = window.startMovieFixture();
         }, {jellyfin, fixture});
         const query = page.getByRole("searchbox");
         const focus = locator => locator.evaluate(node => node === document.activeElement);
@@ -207,7 +210,11 @@ async function verify(browser, name, options) {
         assert.equal(await page.evaluate(() => calls.length), count);
         await page.screenshot({path:path.join(output, name + "-library.png"), fullPage:true});
 
-        await page.evaluate(() => movieSession.downloads_enabled = true);
+        await page.evaluate(async () => {
+            await movieScreen.close();
+            movieSession.downloads_enabled = true;
+            window.movieScreen = startMovieFixture();
+        });
         await search(title);
         const grab = first.getByRole("button", {name: /^Download The Gentlemen/});
         await grab.waitFor();

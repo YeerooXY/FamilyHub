@@ -82,7 +82,7 @@ public sealed class FamilyHubApi : IDisposable
     }
 
     public Task<ServerStatistics> GetServerStatsAsync(CancellationToken cancellationToken = default, bool leaderboard = false, bool background = false) =>
-        RequestJsonAsync<ServerStatistics>(HttpMethod.Get, leaderboard ? "/api/server/stats?leaderboard=1" : "/api/server/stats", cancellationToken: cancellationToken, background: background);
+        RequestJsonAsync<ServerStatistics>(HttpMethod.Get, leaderboard ? "/api/activity/stats" : "/api/server/stats", cancellationToken: cancellationToken, background: background);
 
     public Task<ServerHealthNow> GetServerHealthNowAsync(CancellationToken cancellationToken) =>
         RequestJsonAsync<ServerHealthNow>(HttpMethod.Get, "/api/server/stats/now", cancellationToken: cancellationToken, background: true);
@@ -195,10 +195,10 @@ public sealed class FamilyHubApi : IDisposable
         return result;
     }
 
-    public async Task<ProfileSelection> SelectProfileAsync(string id, CancellationToken cancellationToken = default, bool background = false)
+    public async Task<ProfileSelection> SelectProfileAsync(string id, CancellationToken cancellationToken = default, bool background = false, string? password = null)
     {
         if (string.IsNullOrWhiteSpace(id) || id.Length > 64) throw new ArgumentException("Choose a profile.");
-        var result = await RequestJsonAsync<ProfileSelection>(HttpMethod.Post, "/api/profile/select", new { profile_id = id }, cancellationToken, background);
+        var result = await RequestJsonAsync<ProfileSelection>(HttpMethod.Post, "/api/profile/select", new { profile_id = id, password }, cancellationToken, background);
         if (result.Profile.Id != id || string.IsNullOrWhiteSpace(result.CsrfToken))
             throw new InvalidDataException("The server returned an invalid profile selection.");
         csrf = result.CsrfToken;

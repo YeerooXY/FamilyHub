@@ -18,6 +18,7 @@ from flask import g, jsonify, request
 
 MAX_IMAGE = 3 * 1024 * 1024
 MAX_IMAGES = 4
+FEEDBACK_BODY_LIMIT = MAX_IMAGES * (MAX_IMAGE + 2) // 3 * 4 + 128 * 1024
 MAX_EVENTS = 200
 WINDOW = 900
 EVENTS = {"click", "change", "drag", "key", "scroll", "screen", "submit", "error", "context"}
@@ -31,6 +32,13 @@ POLL_WINDOW = 30
 SONG_WINDOW = 60
 ACTIVITY_DAYS = 14
 TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_./#-]{0,119}\Z")
+URL_TEXT = re.compile(r"(?i)\b(?:https?|wss?)://\S+")
+CREDENTIAL_TEXT = re.compile(r"(?i)\b(?:api[_ -]?key|access[_ -]?token|token|password|authorization)\s*[:=]\s*\S+")
+
+
+def log_text(value, limit):
+    clean = "".join(c for c in value if c >= " " and c != "\x7f").strip()
+    return CREDENTIAL_TEXT.sub('[credential]', URL_TEXT.sub('[url]', clean))[:limit]
 
 
 def note(**fields):
@@ -44,7 +52,7 @@ def note(**fields):
         if isinstance(value, bool) or isinstance(value, (int, float)):
             clean[key] = value
         elif isinstance(value, str) and value.strip():
-            clean[key] = "".join(c for c in value if c >= " " and c != "").strip()[:120]
+            clean[key] = log_text(value, 120)
     if clean:
         g.activity_note = {**getattr(g, "activity_note", {}), **clean}
 
@@ -68,14 +76,14 @@ def register(app, workspace, body, api_error, profiles, is_admin):
                "method": request.method, "status": response.status_code, "trace": trace,
                "ms": round(1000 * (time.monotonic() - started)) if started is not None else None}
         try:
-            row["profile"] = profiles.get(owner)["name"] if owner else None
+            row["profile"] = log_text(profiles.get(owner)["name"], 64) if owner else None
         except Exception:
             row["profile"] = None
         row.update(getattr(g, "activity_note", {}))
         if response.status_code >= 400 and response.is_json:
             error = (response.get_json(silent=True) or {}).get("error")
             if isinstance(error, str):
-                row["error"] = error[:200]
+                row["error"] = log_text(error, 200)
         if endpoint in POLLING and response.status_code < 400:
             # A new song always gets its own row; the same song is summarized once a minute.
             key = (owner, endpoint, row.get("song"))
@@ -227,7 +235,7 @@ def register(app, workspace, body, api_error, profiles, is_admin):
 
     @app.post("/api/feedback")
     def feedback_create():
-        payload = body(limit=MAX_IMAGES * (MAX_IMAGE + 2) // 3 * 4 + 128 * 1024)
+        payload = body(limit=FEEDBACK_BODY_LIMIT)
         report, kind = payload.get("id"), payload.get("kind")
         if not isinstance(report, str) or not re.fullmatch(r"[a-f0-9]{32}", report) or kind not in ("problem", "feature"):
             raise api_error("Choose a feedback type and try again.")

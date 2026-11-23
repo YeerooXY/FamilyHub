@@ -1,3 +1,4 @@
+const { useMovieBridge } = require("./movies_fixture.cjs");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { chromium, webkit, devices } = require(require.resolve("playwright", {
@@ -98,14 +99,15 @@ async function check(browser, options) {
         if (url.pathname === "/Sessions/Logout") logoutAfter.push(reports.length);
         return route.fulfill({ headers, status: 204 });
     });
+    await useMovieBridge(page);
     await page.goto(app);
     const open = profile => page.evaluate(async ({ profile, jellyfin }) => {
         await window.movies?.close();
         const { openMovies } = await import("/movies.js");
-        window.movies = openMovies(document.querySelector("main"),
+        window.movies = window.openMovieFixture(openMovies, document.querySelector("main"),
             { url: jellyfin, user: profile, device: "device", token: "fixture" },
             { invokeMethodAsync: method => Promise.resolve(method === "MovieFind" ? '{"results":[]}' : undefined) },
-            { server: location.origin, profile });
+            { server: jellyfin + "/", profile });
     }, { profile, jellyfin });
     const focused = async node => page.waitForFunction(el => el === document.activeElement, await node.elementHandle());
     // "Recently added" repeats titles from the library shelves, so look cards up outside it.
@@ -115,11 +117,11 @@ async function check(browser, options) {
     // Audio & Subtitles is one popover with a radio list per kind; the hidden selects keep the values.
     const group = name => page.getByRole("radiogroup", { name, exact: true });
     const checkedIn = name => group(name).getByRole("radio", { checked: true });
-    const preferences = (profile, values) => page.evaluate(async ({ profile, values }) => {
+    const preferences = (profile, values) => page.evaluate(async ({ profile, values, jellyfin }) => {
         const { readMoviePreferences, saveMoviePreferences } = await import("/movies.js");
-        const viewer = { server: location.origin, profile };
+        const viewer = { server: jellyfin + "/", profile };
         return values ? saveMoviePreferences(viewer, values) : readMoviePreferences(viewer);
-    }, { profile, values });
+    }, { profile, values, jellyfin });
     const image = async (name, expectedSource, ratio) => {
         const card = moviesShelf.getByRole("button", { name, exact: true });
         await card.scrollIntoViewIfNeeded();

@@ -287,7 +287,7 @@ class ServerSnapshotTests(Base):
     def test_leaderboard_keeps_snapshot_through_delayed_refresh_failure(self):
         first, _ = self.signed_in()
         second, _ = self.signed_in('sample-b')
-        path = '/api/server/stats?leaderboard=1'
+        path = '/api/activity/stats'
         refreshing, release = threading.Event(), threading.Event()
         workers = []
         responses = iter([10, 503, 20, 403])

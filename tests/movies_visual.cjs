@@ -1,3 +1,4 @@
+const { useMovieBridge } = require("./movies_fixture.cjs");
 // Renders the Movies & TV library from a dense mocked Jellyfin and saves screenshots for review.
 // Usage: node tests/movies_visual.cjs [output-dir]   (emulated engines and device profiles, not real devices)
 const assert = require("node:assert/strict");
@@ -48,10 +49,11 @@ async function render(browser, label, options) {
         }
         return route.fulfill({ headers, status: 404 });
     });
+    await useMovieBridge(page);
     await page.goto(app + "/");
     await page.evaluate(async jellyfin => {
         const { openMovies } = await import("/movies.js");
-        window.movies = openMovies(document.querySelector("main"),
+        window.movies = window.openMovieFixture(openMovies, document.querySelector("main"),
             { url: jellyfin, user: "u", token: "t", device: "0123456789abcdef0123456789abcdef" },
             { invokeMethodAsync: () => Promise.resolve() }, { server: location.origin, profile: "viewer" });
     }, jellyfin);

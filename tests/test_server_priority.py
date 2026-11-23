@@ -23,7 +23,7 @@ import test_native_music_api as native
 
 
 class ServerPriority(Base):
-    extra = {'STATUS_SNAPSHOTS': True}
+    extra = {'STATUS_SNAPSHOTS': True, 'ADMIN_USERS': ['sample-a']}
 
     def test_phone_playlist_load_keeps_connect_and_snapshots_responsive(self):
         ids = [f'{i:011d}' for i in range(48)]

@@ -58,8 +58,8 @@ export function saveMoviePreferences(viewer, prefs) {
 
 export function openMovies(host, session, app, viewer) {
     const base = new URL(session.url.replace(/\/?$/, "/"));
-    const headers = { Authorization:
-        `MediaBrowser Client="FamilyHub", Device="FamilyHub Movies", DeviceId="${session.device}", Version="1", Token="${session.token}"` };
+    const mediaBase = new URL(session.media_url);
+    if (mediaBase.protocol !== "https:" || mediaBase.origin !== new URL(viewer.server).origin) throw Error("Invalid movie media origin");
     const life = new AbortController();
     let video, current, selection = 0, active = true, reports = Promise.resolve();
     const pendingReportsByItem = new Map();
@@ -70,11 +70,33 @@ export function openMovies(host, session, app, viewer) {
         return target;
     };
     const request = async (path, params, body, signal = life.signal) => {
-        const res = await fetch(url(path, params), { method: body ? "POST" : "GET", signal: signal ?? timeoutSignal(8000),
-            headers: { ...headers, "Content-Type": "application/json" }, referrerPolicy: "no-referrer",
-            credentials: "omit", redirect: "error", body: body ? JSON.stringify(body) : undefined });
-        if (!res.ok) throw Error("Jellyfin request failed");
-        return res.status === 204 ? null : JSON.parse(await res.text() || "null");
+        const activeSignal = signal ?? timeoutSignal(8000);
+        if (activeSignal.aborted) throw new DOMException("Movie request cancelled", "AbortError");
+        const query = new URLSearchParams(params).toString();
+        let abort;
+        const cancelled = new Promise((_resolve, reject) => {
+            abort = () => reject(new DOMException("Movie request cancelled", "AbortError"));
+            activeSignal.addEventListener("abort", abort, {once: true});
+        });
+        try {
+            const json = await Promise.race([app.invokeMethodAsync("MovieLibrary", path, query, body ?? null), cancelled]);
+            const reply = JSON.parse(json);
+            if (!Object.prototype.hasOwnProperty.call(reply, "result")) throw Error("Jellyfin request failed");
+            return reply.result;
+        } finally {
+            activeSignal.removeEventListener("abort", abort);
+        }
+    };
+    const mediaUrl = (path, params) => {
+        const original = url(path.startsWith(base.pathname) ? path.slice(base.pathname.length) : path, params);
+        if (!original.pathname.startsWith(base.pathname)) throw Error("Invalid movie media path");
+        for (const key of Array.from(original.searchParams.keys())) {
+            if (/^(?:api[_-]?key|token|access[_-]?token|x-emby-token|x-mediabrowser-token)$/i.test(key)) original.searchParams.delete(key);
+        }
+        const target = new URL(original.pathname.slice(base.pathname.length), mediaBase);
+        if (!target.href.startsWith(mediaBase.href)) throw Error("Invalid movie media path");
+        target.search = original.search;
+        return target;
     };
     async function searchLibrary(path, params, body, signal) {
         const bounded = new AbortController();
@@ -263,7 +285,7 @@ export function openMovies(host, session, app, viewer) {
             }
             const path = direct ? "Videos/" + item.Id + "/stream" : source.TranscodingUrl;
             if (!path) throw Error();
-            const stream = url(path.startsWith(base.pathname) ? path.slice(base.pathname.length) : path, {api_key: session.token, mediaSourceId: source.Id, playSessionId: result.PlaySessionId});
+            const stream = mediaUrl(path, {mediaSourceId: source.Id, playSessionId: result.PlaySessionId});
             if (direct) stream.searchParams.set("static", "true");
             if (!direct && !hls && resume > 0) {
                 status.textContent = "This device cannot resume this video. Continue on another device.";
@@ -301,12 +323,13 @@ export function openMovies(host, session, app, viewer) {
             media.controls = false; media.playsInline = true; media.preload = "metadata";
             media.className = "movie-video";
             media.crossOrigin = "anonymous";
+            media.referrerPolicy = "no-referrer";
             media.setAttribute("aria-label", item.Name);
             const textTracks = new Map();
             function addSubtitleTrack(s) {
                 const track = el("track"); track.kind = "subtitles"; track.label = s.DisplayTitle || s.Language || "Subtitles";
                 track.srclang = s.Language || "und";
-                track.src = url(`Videos/${item.Id}/${source.Id}/Subtitles/${s.Index}/Stream.vtt`, {api_key:session.token});
+                track.src = mediaUrl(`Videos/${item.Id}/${source.Id}/Subtitles/${s.Index}/Stream.vtt`);
                 media.append(track);
                 textTracks.set(s.Index, track.track);
             }
@@ -702,14 +725,15 @@ export function openMovies(host, session, app, viewer) {
             actions.className = "movie-youtube-actions";
             link.className = "movie-source-action";
             link.append(icon("M13 5h6v6m0-6-9 9m6-1v5H6V8h5"));
-            link.href = video.url;
+            const watchUrl = typeof video.url === "string" && /^https:\/\/www\.youtube\.com\/watch\?v=[A-Za-z0-9_-]{11}$/.test(video.url) ? video.url : null;
+            if (watchUrl) link.href = watchUrl;
             link.rel = "noopener noreferrer";
             link.target = "_blank";
             link.onclick = event => {
                 event.preventDefault();
                 link.focus();
-                Promise.resolve(app.invokeMethodAsync("MovieOpenLink", video.url))
-                    .catch(() => window.open(video.url, "_blank", "noopener,noreferrer"));
+                if (watchUrl) Promise.resolve(app.invokeMethodAsync("MovieOpenLink", watchUrl))
+                    .catch(() => window.open(watchUrl, "_blank", "noopener,noreferrer"));
             };
             const notice = el("p");
             notice.setAttribute("role", "status");
@@ -990,14 +1014,17 @@ export function openMovies(host, session, app, viewer) {
     downloadsPanel.className = "movie-downloads";
     downloadsPanel.setAttribute("aria-label", "On the server");
     const queue = el("div");
-    queue.append(el("p", "Checking server downloads…"));
-    downloadsPanel.append(el("h2", "On the server"), queue);
     catalogue.append(browse, results);
-    columns.append(downloadsPanel, catalogue);
+    if (session.downloads_enabled) {
+        queue.append(el("p", "Checking server downloads…"));
+        downloadsPanel.append(el("h2", "On the server"), queue);
+        columns.append(downloadsPanel);
+    } else columns.classList.add("movie-library-columns-full");
+    columns.append(catalogue);
     library.append(toolbar, columns);
 
     let queueTimer, checkingQueue = false, refreshAfterGrabAt = 0;
-    const queueVisible = () => active && !document.hidden && !library.hidden && host.isConnected;
+    const queueVisible = () => session.downloads_enabled && active && !document.hidden && !library.hidden && host.isConnected;
     function scheduleDownloads(delay) {
         clearTimeout(queueTimer);
         if (queueVisible()) queueTimer = setTimeout(updateDownloads, delay);
@@ -1162,6 +1189,6 @@ export function openMovies(host, session, app, viewer) {
     return { async close() {
         if (!active) return;
         leavePlayer(); active = false; life.abort(); stop(); await reports;
-        try { await request("Sessions/Logout", {}, {}, timeoutSignal(5000)); } catch {}
+        try { await app.invokeMethodAsync("MovieCloseMedia", session.media_ticket); } catch {}
     } };
 }

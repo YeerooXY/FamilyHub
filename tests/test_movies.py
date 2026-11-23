@@ -20,7 +20,7 @@ class MovieSessions(Base):
     def select(self, name):
         client = self.app.test_client()
         bootstrap = self.go(client, 'GET', '/api/connect').json
-        response = self.post(client, bootstrap['csrf_token'], '/api/profile/select', json={'profile_id': name})
+        response = self.post(client, bootstrap['csrf_token'], '/api/profile/select', json=self.profile_credentials(name))
         return client, response.json
 
     def launch(self, client, selection, **extra):
@@ -313,7 +313,7 @@ class MovieLocalizedSearch(Base):
 
 
 class MovieDownloads(Base):
-    extra = {**MovieReleaseSearch.extra, 'MOVIE_DOWNLOADS': {
+    extra = {**MovieReleaseSearch.extra, 'ADMIN_USERS': ['sample-a'], 'MOVIE_DOWNLOADS': {
         'profiles': ['sample-a'],
         'qbittorrent': {'url': 'http://downloads.test', 'user': 'fixture-user', 'password': 'fixture-password'}}}
     select = MovieSessions.select
@@ -395,9 +395,11 @@ class MovieDownloads(Base):
         self.assertEqual(anon.status_code, 401)
         first, _ = self.select('sample-b')
         other, _ = self.select('sample-a')
+        self.assertEqual(self.go(first, 'GET', '/api/movies/downloads').status_code, 403)
+        opener.assert_not_called()
         with patch('music_web.movies.monotonic', side_effect=[10, 10, 12.99, 13, 13]):
             with self.assertNoLogs('music_web.movies', 'WARNING'):
-                reply = self.go(first, 'GET', '/api/movies/downloads')
+                reply = self.go(other, 'GET', '/api/movies/downloads')
                 self.assertEqual(reply.headers['Cache-Control'], 'no-store')
                 self.assertEqual(reply.json, dict(available=True, items=[
                     dict(name=state, progress=min(1, progress), size=200, state=label,

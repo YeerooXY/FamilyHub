@@ -1,3 +1,4 @@
+const { useMovieBridge } = require("./movies_fixture.cjs");
 // Episodes and Next Episode exist only for a title that belongs to a series. A film shows neither.
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -38,10 +39,11 @@ async function check(browser, touch) {
         if (url.pathname.includes("/Sessions/Playing")) return route.fulfill({ headers, status: 204 });
         return route.fulfill({ headers, status: 404 });
     });
+    await useMovieBridge(page);
     await page.goto(app + "/");
     await page.evaluate(async jellyfin => {
         const { openMovies } = await import("/movies.js");
-        window.movies = openMovies(document.querySelector("main"), { url: jellyfin, user: "u", token: "t", device: "0123456789abcdef0123456789abcdef" },
+        window.movies = window.openMovieFixture(openMovies, document.querySelector("main"), { url: jellyfin, user: "u", token: "t", device: "0123456789abcdef0123456789abcdef" },
             { invokeMethodAsync: () => Promise.resolve() }, { server: location.origin, profile: "viewer" });
     }, jellyfin);
     const shelf = page.locator(".movie-shelf").filter({ has: page.getByRole("heading", { name: "TV episodes" }) });

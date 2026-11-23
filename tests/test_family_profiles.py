@@ -37,7 +37,7 @@ class FamilyProfiles(Base):
 
     def select(self, profile_id='sample-a', client=None):
         client, bootstrap = self.bootstrap(client)
-        response = self.post(client, bootstrap['csrf_token'], '/api/profile/select', json={'profile_id': profile_id})
+        response = self.post(client, bootstrap['csrf_token'], '/api/profile/select', json=self.profile_credentials(profile_id))
         self.assertEqual(response.status_code, 200, response.json)
         return client, response.json['csrf_token']
 

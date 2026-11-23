@@ -152,6 +152,17 @@ class Manifests(Base):
                 mi.dispatch(["trim", str(item), "--keep", keep])
         self.assertEqual([p.name for p in self.ws.iterdir()], [item.name])
 
+    def test_trim_restricts_input_protocols_and_formats(self):
+        from unittest.mock import patch
+        item = fake_item(self.ws)
+        with patch.object(mi, 'tool', return_value='ffmpeg'), patch.object(mi, 'run', return_value=(1, b'', 'fixture')) as run:
+            with self.assertRaisesRegex(mi.IntakeError, 'ffmpeg trim failed'):
+                mi.dispatch(['trim', str(item), '--keep', '1:4'])
+        command = run.call_args.args[0]
+        self.assertIsInstance(command, list)
+        self.assertEqual(command[command.index('-protocol_whitelist') + 1], 'file,pipe')
+        self.assertLess(command.index('-format_whitelist'), command.index('-i'))
+
 
 class Staging(Base):
     def test_stage_rejects_unsafe_sources_before_running_ffmpeg(self):

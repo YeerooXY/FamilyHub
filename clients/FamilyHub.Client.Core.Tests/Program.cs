@@ -552,7 +552,75 @@ using (var updates = new FamilyHubApi(origin, new Handler(request => Task.FromRe
     Check(release.Version == "0.1.2" && release.DownloadUrl == "/api/app-updates/windows-x64/abc", "App update metadata did not deserialize");
     await Throws<ArgumentException>(() => updates.OpenAppUpdateAsync(release with { DownloadUrl = "https://other.test/package.zip" }), "App updates escaped server origin");
 }
-Console.WriteLine($"PASS: {checks} checks for sessions, CSRF, origin boundaries, verified resume, offline restart, playlists and account isolation.");
+var package = Encoding.UTF8.GetBytes("local verified update package");
+var packageHash = Convert.ToHexStringLower(SHA256.HashData(package));
+var publishedUpdate = new AppRelease("1.2.3", packageHash, package.Length,
+    PublicAppReleases.HistoryUrl + "/download/v1.2.3/FamilyHub-Music-Windows-1.2.3.zip");
+var mirrorUpdate = publishedUpdate with { DownloadUrl = $"/api/app-updates/windows-x64/{packageHash}" };
+var releaseJson = JsonSerializer.Serialize(new
+{
+    tag_name = "v1.2.3", assets = new[] { new { name = "FamilyHub-Music-Windows-1.2.3.zip", state = "uploaded",
+        digest = "sha256:" + packageHash, size = package.Length } }
+});
+using (var http = new HttpClient(new Handler(_ => Task.FromResult(Json(releaseJson)))))
+{
+    var releases = new PublicAppReleases(http);
+    await releases.RequireInstallableAsync(mirrorUpdate, "windows-x64", new Version(1, 2, 2), default);
+    await Throws<InvalidDataException>(() => releases.RequireInstallableAsync(mirrorUpdate with { Version = "9.9.9" },
+        "windows-x64", new Version(1, 2, 2), default), "A mirror cannot invent a newer release");
+    await Throws<InvalidDataException>(() => releases.RequireInstallableAsync(publishedUpdate,
+        "windows-x64", new Version(1, 2, 4), default), "An installed app cannot downgrade");
+}
+Check(!PublicAppReleases.MatchesMirror(publishedUpdate, mirrorUpdate with { Size = 1 }, "windows-x64"), "Mirror size must match GitHub");
+Check(!PublicAppReleases.MatchesMirror(publishedUpdate, mirrorUpdate with { Sha256 = new string('a', 64) }, "windows-x64"), "Mirror digest must match GitHub");
+foreach (var redirect in new[] { "http://release-assets.githubusercontent.com/package", "https://untrusted.test/package" })
+{
+    var requests = 0;
+    using var http = new HttpClient(new Handler(_ =>
+    {
+        requests++;
+        var response = new HttpResponseMessage(HttpStatusCode.Redirect);
+        response.Headers.Location = new Uri(redirect);
+        return Task.FromResult(response);
+    }));
+    await Throws<InvalidDataException>(() => new PublicAppReleases(http).OpenDownloadAsync(publishedUpdate, "windows-x64", default), "Update redirect escaped trusted HTTPS hosts");
+    Check(requests == 1, "Untrusted update redirect was followed");
+}
+using (var http = new HttpClient(new Handler(request =>
+{
+    if (request.RequestUri!.Host != "github.com") return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(package) });
+    var response = new HttpResponseMessage(HttpStatusCode.Redirect);
+    response.Headers.Location = new Uri("https://release-assets.githubusercontent.com/package");
+    return Task.FromResult(response);
+})))
+using (var response = await new PublicAppReleases(http).OpenDownloadAsync(publishedUpdate, "windows-x64", default))
+using (var saved = new MemoryStream())
+{
+    await PublicAppReleases.WriteVerifiedPackageAsync(response, saved, publishedUpdate, _ => { }, default);
+    Check(saved.ToArray().SequenceEqual(package), "Official package did not pass digest and length verification");
+}
+using (var altered = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[package.Length]) })
+    await Throws<InvalidDataException>(() => PublicAppReleases.WriteVerifiedPackageAsync(altered, Stream.Null, publishedUpdate, _ => { }, default),
+        "A replaced package of the same size failed to trigger an integrity error");
+
+var downloadDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(downloadDirectory);
+try
+{
+    File.WriteAllText(Path.Combine(downloadDirectory, "report.txt"), "original");
+    using var first = new StringContent("first");
+    using var second = new StringContent("second");
+    var paths = await Task.WhenAll(FileDownload.SaveNewAsync(downloadDirectory, "report.txt", first, default),
+        FileDownload.SaveNewAsync(downloadDirectory, "report.txt", second, default));
+    Check(paths[0] != paths[1] && paths.All(File.Exists) && File.ReadAllText(Path.Combine(downloadDirectory, "report.txt")) == "original",
+        "Concurrent file downloads must save separate copies and preserve existing files");
+    using var invalid = new StringContent("unused");
+    foreach (var item in new[] { "../report.txt", "CON.txt", "-name" })
+        await Throws<IOException>(() => FileDownload.SaveNewAsync(downloadDirectory, item, invalid, default), "Unsafe file download name was accepted");
+}
+finally { Directory.Delete(downloadDirectory, true); }
+
+Console.WriteLine($"PASS: {checks} checks for sessions, CSRF, origin boundaries, verified resume, offline restart, playlists, account isolation and update trust.");
 
 sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> send) : HttpMessageHandler
 {

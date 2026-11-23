@@ -1,18 +1,18 @@
 # Files: storage and sharing
 
-FamilyHub's own take on a family cloud drive, in the spirit of Nextcloud: every profile has a private folder, the family has a shared folder, and any file can be sent to someone outside the family through a link that expires. It runs inside the existing server, with the existing family profiles, so there is no second login and no extra service.
+Files provides a shared family folder and a private folder for password-protected profiles. Share a file with an expiring link.
 
 ## What exists (23 November 2026)
 
 | Piece | Behaviour |
 | --- | --- |
-| Spaces | `family` (everyone) and `mine` (the signed-in profile only). On disk: `FILES_ROOT/family/` and `FILES_ROOT/profiles/<profile>/`. |
+| Spaces | `family` is available to signed-in profiles. `mine` requires a [profile password](SECURITY_REVIEW.md#profile-password-setup) in family mode. On disk, use `FILES_ROOT/family/` and `FILES_ROOT/profiles/<profile>/`. |
 | Browse, folders | Listing sorted folders first, then names. Hidden dot-files and symbolic links never show. |
 | Upload | A streamed `PUT` with a known length, written to a temporary file and moved into place only when complete. A taken name becomes `name (2).ext`. |
 | Download | Forced download (`application/octet-stream`, `nosniff`), with range requests so a download can resume. |
-| Rename and delete | Private files: their owner. Shared folder: the uploader or an administrator. A folder is deleted only when empty, or with `recursive=true`. |
+| Rename and delete | The owner manages private files. The uploader or an administrator manages shared entries. Recursive deletion also checks ownership of the folder's contents. |
 | Share links | One file per link. Expiry of 1 hour, 1 day, 7 days or 30 days; optional password; optional download limit (1 makes it one-off). The list of a profile's links never includes the address. |
-| Limits | Per upload `FILES_MAX_UPLOAD` (500 GB), per folder `FILES_QUOTA` (0, no limit; set bytes to cap the family folder and each profile) and `FILES_FREE_RESERVE` (20 GB) that the disk must keep free. The family server has a 10 TB data drive and a 4 TB backup drive, so the defaults leave space unrestricted; the development VM has about 14 GB free, so set the reserve lower and a quota there when testing. |
+| Limits | `FILES_MAX_UPLOAD` sets the application cap. Waitress and the reverse proxy can impose lower limits. `FILES_QUOTA` caps the family folder and each private folder in bytes when set above zero. `FILES_FREE_RESERVE` keeps a minimum amount of disk space available. |
 
 The app has a **Files** screen (apps menu): Family and My files tabs, breadcrumbs, folders, upload with a progress line, download (Windows saves to Downloads, phones open the share sheet), rename, delete with a confirmation, a share-link sheet (expiry, optional password, one-off) with copy and share buttons, and a list of your links with revoke. The screen is `wwwroot/files.js`; the .NET side (`FilesView.razor`) owns the network, the file picker and the clipboard. Unverified on a real phone or iPhone.
 
@@ -23,12 +23,12 @@ Set `FILES_ROOT` in the server configuration to switch the feature on. Without i
 - The secret in a link is 256 random bits. The server stores only its SHA-256 hash, so a copy of the database cannot reveal a working link.
 - The page behind a link shows the file name and size and a download button. A chat app that previews the link therefore cannot use up a one-off link; only the download address counts.
 - A password link asks for the password on that page. Wrong guesses are limited to 8 per 5 minutes per link.
-- Expired, revoked, used-up and unknown links all answer the same "not available" page. Deleting a file withdraws its links.
+- Expired, revoked, used-up and unknown links show the same unavailable page. Renaming or deleting a file or its parent folder withdraws its links.
 - Files are always sent as downloads, never displayed, so an uploaded web page cannot run on the server's address.
 - The activity log records counts and sizes, never file or folder names.
 - A one-off link is counted when the download starts. If it fails, make a new link.
 
-**Reachability.** A link only works for someone who can reach the server's address. The server is on a private Tailscale network today, so a colleague outside it cannot open a link. Reaching the outside needs a deliberate step, such as Tailscale Funnel or a reverse proxy, with `PUBLIC_ORIGIN` set to that address. Do this only for the share paths if possible.
+**Reachability.** Recipients need access to the server address. For recipients outside the tailnet, publish only `/api/share/` through a dedicated proxy configuration and exclude share paths and query strings from access logs. Keep the trusted family profile chooser and signed-in API routes private.
 
 ## Toward the Nextcloud copy
 

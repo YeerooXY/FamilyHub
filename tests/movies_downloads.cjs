@@ -18,8 +18,8 @@ async function verify(browser, profile, options) {
                 {name: "Trinity — restored edition", progress: .64, size: 12345, state: "Downloading", eta: 125, speed: 9143},
                 {name: "The General", progress: 1, size: 54321, state: "Finished", eta: null, speed: 0}
             ]};
-            window.movies = openMovies(document.querySelector("main"),
-                {url: jellyfin, user: "fixture", token: "fixture", device: "fixture", downloads_enabled: false},
+            window.movies = window.openMovieFixture(openMovies, document.querySelector("main"),
+                {url: jellyfin, user: "fixture", token: "fixture", device: "fixture", downloads_enabled: true},
                 {invokeMethodAsync: async method => {
                     if (method === "MovieDownloads") {
                         window.queueReads++;

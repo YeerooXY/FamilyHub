@@ -13,9 +13,9 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from threading import Lock
 from time import monotonic
 
-from flask import g, jsonify
+from flask import g, jsonify, session
 
-from . import feedback, movie_search
+from . import feedback, movie_media, movie_search
 from .movie_youtube_downloads import DEFAULT_DIR, YouTubeDownloads
 
 
@@ -41,6 +41,19 @@ def season_pack(title, wanted_words, season):
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args):
         return None
+
+
+def service_url(value, schemes=('http', 'https')):
+    if not isinstance(value, str) or any(c.isspace() for c in value):
+        return ''
+    try:
+        url = urllib.parse.urlsplit(value)
+        if (url.scheme in schemes and url.hostname and url.username is None and url.password is None
+                and not url.query and not url.fragment and (url.port is None or 0 < url.port <= 65535)):
+            return value.rstrip('/')
+    except ValueError:
+        pass
+    return ''
 
 
 def download_item(row):
@@ -69,14 +82,10 @@ def download_item(row):
 
 
 def read_downloads(qb):
-    url = (qb.get('url') or '').rstrip('/')
+    url = service_url(qb.get('url'))
     if not all((url, qb.get('user'), qb.get('password'))):
         return dict(available=False, reason='Server downloads are not set up.')
     try:
-        origin = urllib.parse.urlsplit(url)
-        if (origin.scheme not in ('http', 'https') or not origin.hostname
-                or origin.username is not None or origin.query or origin.fragment):
-            raise ValueError()
         opener = urllib.request.build_opener(NoRedirect, urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         login = urllib.request.Request(url + '/api/v2/auth/login',
             data=urllib.parse.urlencode({'username': qb['user'], 'password': qb['password']}).encode(),
@@ -96,42 +105,39 @@ def read_downloads(qb):
     return dict(available=False, reason='The download server is unavailable.')
 
 
-def register_movies(app, cfg, body, allow):
-    base = cfg.get('JELLYFIN_INTERNAL_URL', 'http://127.0.0.1:8096').rstrip('/')
+def register_movies(app, cfg, body, allow, session_is_live):
+    base = service_url(cfg.get('JELLYFIN_INTERNAL_URL', 'http://127.0.0.1:8096'))
+    public = service_url(cfg.get('JELLYFIN_PUBLIC_URL'), ('https',))
+    issue_media = movie_media.register(app, base, body, allow, session_is_live)
     releases = cfg.get('MOVIE_RELEASE_SEARCH') or {}
-    prowlarr = releases.get('url', 'http://127.0.0.1:9696').rstrip('/')
+    prowlarr = service_url(releases.get('url', 'http://127.0.0.1:9696'))
     indexers = tuple(dict.fromkeys(i for i in releases.get('indexer_ids', []) if type(i) is int and i > 0))[:4]
     requests = cfg.get('MOVIE_REQUESTS') or {}
     downloads = cfg.get('MOVIE_DOWNLOADS') or {}
-    youtube = YouTubeDownloads(downloads.get('youtube_dir') or DEFAULT_DIR)
+    youtube = YouTubeDownloads(downloads.get('youtube_dir') or DEFAULT_DIR, app.intake.spawn, app.intake.stop_process)
     grab_refs = {}
     grab_lock, queue_lock = Lock(), Lock()
     queue_cache, queue_expires = None, 0
-    seerr = requests.get('url', '').rstrip('/')
+    seerr = service_url(requests.get('url'))
     seerr_key = requests.get('api_key', '')
     tmdb_token = requests.get('tmdb_read_token')
     search_cache, search_pending = {}, {}
     search_lock = Lock()
-    try:
-        seerr_origin = urllib.parse.urlsplit(seerr)
-    except ValueError:
-        seerr_origin = urllib.parse.urlsplit('')
-
     def request_user():
-        if (requests.get('enabled') is not True or not seerr_key
-                or seerr_origin.scheme not in ('http', 'https') or not seerr_origin.hostname
-                or seerr_origin.username is not None or seerr_origin.query or seerr_origin.fragment
+        if (requests.get('enabled') is not True or not seerr_key or not seerr
                 or g.user not in cfg.get('JELLYFIN_PROFILES', {})):
             return None
-        user = requests.get('profiles', {}).get(g.user)
-        return user if type(user) is int and user > 1 else None
+        profiles = requests.get('profiles', {})
+        user = profiles.get(g.user)
+        return user if type(user) is int and user > 1 and list(profiles.values()).count(user) == 1 else None
 
     def release_access():
-        return bool(releases.get('api_key') and indexers and g.user in releases.get('profiles', [])
+        return bool(prowlarr and releases.get('api_key') and indexers and g.user in releases.get('profiles', [])
                     and g.user in cfg.get('JELLYFIN_PROFILES', {}))
 
     def download_access():
-        return g.user in downloads.get('profiles', []) and g.user in cfg.get('JELLYFIN_PROFILES', {})
+        return (g.user in cfg['ADMIN_USERS'] and g.user in downloads.get('profiles', [])
+                and g.user in cfg.get('JELLYFIN_PROFILES', {}))
 
     def cached_search(key, ttl, fetch):
         with search_lock:
@@ -164,6 +170,8 @@ def register_movies(app, cfg, body, allow):
     @app.get('/api/movies/downloads')
     def movie_downloads():
         nonlocal queue_cache, queue_expires
+        if not download_access():
+            return jsonify(error='Downloading is not switched on for your profile.'), 403
         with queue_lock:
             if monotonic() >= queue_expires:
                 queue_cache = read_downloads(downloads.get('qbittorrent') or {})
@@ -183,7 +191,7 @@ def register_movies(app, cfg, body, allow):
         data = body()
         ident = movie_search.video_id(data.get('url'))
         title = data.get('title')
-        if not ident or not isinstance(title, str) or not 0 < len(title.strip()) <= 250:
+        if not ident or not isinstance(title, str) or not 0 < len(title.strip()) <= 250 or title.lstrip().startswith('-'):
             return jsonify(error='Select a YouTube video with a title.'), 400
         if not allow('movie-download:' + g.user, 8, 60):
             return jsonify(error='Wait a minute before starting another download.'), 429
@@ -508,7 +516,7 @@ def register_movies(app, cfg, body, allow):
 
     @app.get('/api/movies/health')
     def movie_health():
-        if not cfg.get('JELLYFIN_PUBLIC_URL') or g.user not in cfg.get('JELLYFIN_PROFILES', {}):
+        if not base or not public or g.user not in cfg.get('JELLYFIN_PROFILES', {}):
             return jsonify(error='Movies are not set up for this profile.'), 404
         try:
             with urllib.request.build_opener(NoRedirect).open(base + '/health', timeout=2) as reply:
@@ -589,11 +597,9 @@ def register_movies(app, cfg, body, allow):
     def movie_session():
         accounts = cfg.get('JELLYFIN_PROFILES', {})
         account = accounts.get(g.user)
-        public = cfg.get('JELLYFIN_PUBLIC_URL', '').rstrip('/')
-        origin = urllib.parse.urlsplit(public)
         if not account:
             log.warning('movie session refused: profile=%s has no Jellyfin account', g.user)
-        if not account or origin.scheme != 'https' or not origin.hostname or origin.username or origin.password or origin.query or origin.fragment:
+        if not account or not base or not public:
             return jsonify(error='Movies are not set up for this profile.'), 503
         device = body().get('device', '')
         if not isinstance(device, str) or not re.fullmatch('[a-f0-9]{32}', device):
@@ -611,17 +617,26 @@ def register_movies(app, cfg, body, allow):
             headers={'Authorization': auth, 'Content-Type': 'application/json'})
         try:
             with opener.open(req, timeout=6) as reply:
-                data = json.load(reply)
+                raw = reply.read((1 << 20) + 1)
+                if len(raw) > 1 << 20:
+                    raise ValueError('Invalid movie session response')
+                data = json.loads(raw)
             user = data['User']
+            token = data['AccessToken']
+            if not isinstance(token, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,256}', token):
+                return jsonify(error='Could not connect this profile to Jellyfin.'), 503
             if user['Policy']['IsAdministrator'] is not False or user['Name'].casefold() != username.casefold():
                 logout = urllib.request.Request(base + '/Sessions/Logout', data=b'',
-                    headers={'Authorization': auth + ', Token="' + data['AccessToken'] + '"'})
+                    headers={'Authorization': auth + ', Token="' + token + '"'})
                 with opener.open(logout, timeout=6):
                     pass
                 log.warning('movie session refused: profile=%s is linked to an administrator or mismatched account', g.user)
                 return jsonify(error='Link a regular Jellyfin account to this profile.'), 403
             log.info('movie session opened: profile=%s device=%s', g.user, device[:8])
-            connection = dict(url=public, user=user['Id'], token=data['AccessToken'], device=device)
+            connection = dict(url=public, user=user['Id'])
+            ticket = issue_media(g.user, session['sid'], device, user['Id'], auth + ', Token="' + token + '"')
+            connection['media_url'] = cfg['PUBLIC_ORIGIN'].rstrip('/') + '/api/movies/media/' + ticket + '/'
+            connection['media_ticket'] = ticket
             if request_user() is not None:
                 connection['requests_enabled'] = True
             if release_access():

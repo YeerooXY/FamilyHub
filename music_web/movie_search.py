@@ -18,6 +18,7 @@ from html import unescape
 from threading import RLock
 from time import monotonic
 from urllib.parse import parse_qs, urlsplit
+from .catalog_search import NoRedirect
 
 log = logging.getLogger('music_web.movie_search')
 
@@ -43,6 +44,19 @@ metadata_pending = {}
 
 def video_url(ident):
     return 'https://www.youtube.com/watch?v=' + ident
+
+
+def thumbnail_url(url):
+    if not isinstance(url, str) or len(url) > 2048 or any(c.isspace() for c in url):
+        return None
+    try:
+        parsed = urlsplit(url)
+        if (parsed.scheme == 'https' and parsed.hostname in ('i.ytimg.com', 'i9.ytimg.com', 'img.youtube.com')
+                and parsed.username is None and parsed.password is None and parsed.port in (None, 443)):
+            return url
+    except ValueError:
+        pass
+    return None
 
 
 def video_id(url):
@@ -80,8 +94,7 @@ def metadata(entry, ident):
     langs = sorted({lang for field in ('subtitles', 'automatic_captions')
                     for lang, tracks in (entry.get(field) or {}).items() if tracks and lang != 'live_chat'})
     thumbnails = [thumb.get('url') for thumb in reversed(entry.get('thumbnails') or [])]
-    thumbnail = next((url for url in [entry.get('thumbnail'), *thumbnails]
-                      if isinstance(url, str) and url.startswith('https://')), None)
+    thumbnail = next((safe for url in [entry.get('thumbnail'), *thumbnails] if (safe := thumbnail_url(url))), None)
     return dict(duration=positive(entry.get('duration')), height=positive(source.get('height')),
                 fps=positive(source.get('fps')), thumbnail=thumbnail,
                 uploader=entry.get('uploader') or entry.get('channel'),
@@ -283,7 +296,7 @@ def rank_with_model(query, candidates, key, model, post=None):
     url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
     request = urllib.request.Request(url, json.dumps(payload).encode(), {'Content-Type': 'application/json', 'x-goog-api-key': key})
     try:
-        with (post or urllib.request.urlopen)(request, timeout=10) as reply:
+        with (post or urllib.request.build_opener(NoRedirect).open)(request, timeout=10) as reply:
             data = json.loads(reply.read(65536))
         text = data['candidates'][0]['content']['parts'][0]['text']
         return validate_model(json.loads(text), candidates)

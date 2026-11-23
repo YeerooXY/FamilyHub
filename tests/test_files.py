@@ -10,7 +10,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_music_web import Base
+from test_music_web import Base, PROFILE_HASH
 
 
 class PausedUpload(io.RawIOBase):
@@ -34,7 +34,8 @@ class FileBase(Base):
         self.addCleanup(tmp.cleanup)
         self.files_root = os.path.join(tmp.name, 'files')
         self.extra = {'FAMILY_PROFILES': True, 'FILES_ROOT': self.files_root, 'FILES_FREE_RESERVE': 0,
-                      'ADMIN_USERS': ['sample-b'], **self.files_extra}
+                      'ADMIN_USERS': ['sample-b'], 'PROFILE_PASSWORD_HASHES': dict.fromkeys(('sample-a', 'sample-b'), PROFILE_HASH),
+                      **self.files_extra}
         super().setUp()
         store = self.app.extensions.get('files')
         if store:
@@ -45,7 +46,7 @@ class FileBase(Base):
     def select(self, name):
         client = self.app.test_client()
         bootstrap = self.go(client, 'GET', '/api/connect').json
-        reply = self.post(client, bootstrap['csrf_token'], '/api/profile/select', json={'profile_id': name})
+        reply = self.post(client, bootstrap['csrf_token'], '/api/profile/select', json=self.profile_credentials(name))
         return client, reply.json['csrf_token']
 
     def call(self, client, token, method, path, **kw):
@@ -72,6 +73,28 @@ class FileBase(Base):
 
 
 class FileSharing(FileBase):
+    def test_shared_folder_rename_keeps_ownership_and_retires_old_links(self):
+        self.call(self.a, self.ta, 'POST', '/api/files/folder', json={'space': 'family', 'name': 'Shared'})
+        self.assertEqual(self.upload('b', 'family', 'owned.txt', folder='Shared').status_code, 201)
+        link = self.call(self.a, self.ta, 'POST', '/api/files/links', json={
+            'space': 'family', 'path': 'Shared/owned.txt', 'expires_hours': 1}).json
+        delete = '/api/files?space=family&path=Shared&recursive=true'
+        self.assertEqual(self.call(self.a, self.ta, 'DELETE', delete).status_code, 403)
+        rename = self.call(self.a, self.ta, 'POST', '/api/files/rename', json={
+            'space': 'family', 'path': 'Shared', 'name': 'Moved'})
+        self.assertEqual(rename.status_code, 200)
+        self.assertEqual(self.call(self.a, self.ta, 'DELETE', '/api/files?space=family&path=Moved/owned.txt').status_code, 403)
+        self.assertEqual(self.go(self.app.test_client(), 'GET', link['url']).status_code, 404)
+
+    def test_private_space_rejects_linked_profile_root(self):
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        try:
+            os.symlink(outside.name, os.path.join(self.files_root, 'profiles', 'sample-a'), target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest('Symlinks are unavailable')
+        self.assertEqual(self.go(self.a, 'GET', '/api/files/list?space=mine').status_code, 404)
+
     def test_folders_upload_download_and_name_clashes(self):
         reply = self.call(self.a, self.ta, 'POST', '/api/files/folder', json={'space': 'mine', 'path': '', 'name': 'Trips'})
         self.assertEqual(reply.status_code, 201)
@@ -178,6 +201,8 @@ class FileSharing(FileBase):
         page = self.go(stranger, 'GET', url)
         self.assertEqual(page.status_code, 200)
         self.assertIn('report.pdf', page.get_data(as_text=True))
+        self.assertEqual(page.headers['Referrer-Policy'], 'strict-origin')
+        self.assertEqual(self.go(stranger, 'HEAD', url + '/download').status_code, 200)
         self.assertEqual(self.go(stranger, 'GET', url).status_code, 200)  # previews and reloads do not use the link
         first = self.go(stranger, 'GET', url + '/download')
         self.assertEqual((first.status_code, first.data), (200, b'PDFDATA'))

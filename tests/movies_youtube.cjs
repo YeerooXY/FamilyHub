@@ -40,7 +40,7 @@ async function verify(browser, profile, options) {
             window.calls = [];
             window.queue = [];
             window.session = {url: jellyfin, user: "fixture", token: "fixture", device: "fixture", downloads_enabled: true};
-            window.movies = openMovies(document.querySelector("main"), window.session, {invokeMethodAsync: async (method, ...args) => {
+            window.movies = window.openMovieFixture(openMovies, document.querySelector("main"), window.session, {invokeMethodAsync: async (method, ...args) => {
                 if (method === "MovieDownloads") return JSON.stringify({available: true, items: window.queue});
                 window.calls.push([method, ...args]);
                 if (method === "MovieFind") return JSON.stringify({results: candidates,

@@ -26,7 +26,7 @@ class ListTransfer(Base):
 
     def test_other_responses_are_not_compressed(self):
         c, _ = self.signed_in()
-        r = self.go(c, "GET", "/api/server/stats", headers={"Accept-Encoding": "gzip"})
+        r = self.go(c, "GET", "/api/activity/stats", headers={"Accept-Encoding": "gzip"})
         self.assertNotIn("Content-Encoding", r.headers)
 
 

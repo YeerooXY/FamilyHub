@@ -19,6 +19,7 @@
 <form method="post" action="/login">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <input type="hidden" name="profile_id" value="{{ profile.id }}">
+{% if profile.requires_password %}<label for="profile-password-{{ loop.index }}">Password for {{ profile.name }}</label><input id="profile-password-{{ loop.index }}" name="password" type="password" maxlength="256" autocomplete="current-password" required>{% endif %}
 <button class="family-profile profile-{{ loop.index0 % 6 }}" type="submit"><span class="profile-avatar" aria-hidden="true">{% if profile.image_url %}<img src="{{ profile.image_url }}" alt="" width="72" height="72">{% else %}{{ profile.name[:1]|upper }}{% endif %}</span><span>{{ profile.name }}</span></button>
 </form>
 {% endfor %}

@@ -14,6 +14,8 @@ from types import SimpleNamespace
 from flask import Flask, Response, abort, g, jsonify, redirect, render_template, request, session, send_file
 from flask_wtf.csrf import CSRFError, CSRFProtect, generate_csrf
 from werkzeug.exceptions import HTTPException
+from werkzeug.security import check_password_hash
+from .catalog_search import NoRedirect
 from .genres import GenreLabels, artist_name, genre_key, genre_label, most_common_genre
 from .playlist_preparation import PlaylistPreparation
 from .listening_stats import ListeningStats
@@ -41,6 +43,7 @@ from .resources import (ResourceGovernor, TransferResources, PROVIDERS, backgrou
                         enabled, transfer_limit, waiting, runtime_capacity, background_command, audio_command)
 from . import link_playlists
 from . import radio
+from .http_limits import body_limit
 
 MAX_UPLOAD = 512 << 20
 SESSION_HOURS = 12
@@ -107,6 +110,7 @@ DEFAULTS = {
     "FAMILY_PROFILES": False,
     "BROWSER_PLAYER": True,
     "ADMIN_USERS": [],
+    "PROFILE_PASSWORD_HASHES": {},
     "AUTO_RESOLUTIONS_PER_HOUR": DEFAULT_AUTO_RESOLUTIONS_PER_HOUR,
     "SECRET_FILE": "/etc/familyhub/music-web.secret",
     "MAX_UPLOAD": MAX_UPLOAD,
@@ -160,7 +164,7 @@ def ping(base, user, password):
     query = urllib.parse.urlencode({"u": user, "t": hashlib.md5((password + salt).encode(), usedforsecurity=False).hexdigest(),
                                     "s": salt, "v": "1.16.1", "c": "familyhub-music", "f": "json"})
     try:
-        with urllib.request.urlopen(f"{base.rstrip('/')}/rest/ping.view?{query}", timeout=10) as r:
+        with urllib.request.build_opener(NoRedirect).open(f"{base.rstrip('/')}/rest/ping.view?{query}", timeout=10) as r:
             reply = json.loads(r.read(65536))["subsonic-response"]
     except (OSError, ValueError, KeyError, TypeError):
         raise AuthUnavailable()
@@ -185,6 +189,8 @@ def create_app(test_config=None):
     allowed = set(cfg["ALLOWED_USERS"])
     family_mode = cfg.get("FAMILY_PROFILES") is True
     profile_store = ProfileStore(ws, allowed) if family_mode else None
+    password_hashes = cfg["PROFILE_PASSWORD_HASHES"]
+    protected_profiles = set(password_hashes) | set(cfg["ADMIN_USERS"]) | set(cfg.get("JELLYFIN_PROFILES", {}))
     max_upload = cfg["MAX_UPLOAD"]
 
     app = Flask(__name__)
@@ -316,7 +322,7 @@ def create_app(test_config=None):
             if s and s["expiry"] > time.time():
                 return s["user"]
             sessions.pop(sid, None)
-            if family_mode and session.get("family_profile"):
+            if family_mode and session.get("family_profile") and session["family_profile"] not in protected_profiles:
                 try:
                     profile = profile_store.get(session["family_profile"])
                 except ProfileError:
@@ -334,16 +340,21 @@ def create_app(test_config=None):
     @app.before_request
     def guard():
         if request.host != host:
-            app.logger.warning("Rejected %s %s: host %r", request.method, request.path, request.host[:80])
+            app.logger.warning("Rejected request: invalid host")
             abort(400)
         if not cfg["BROWSER_PLAYER"] and not request.path.startswith("/api/"):
             return app.response_class("Open the FamilyHub app.\n", status=410, mimetype="text/plain")
         if request.method not in ("GET", "HEAD", "OPTIONS"):
+            limit = body_limit(request.method, request.path)
+            if limit is not None:
+                request.max_content_length = min(app.config["MAX_CONTENT_LENGTH"], limit)
+                if (request.content_length or 0) > request.max_content_length:
+                    abort(413)
             sent, ref = request.headers.get("Origin"), request.headers.get("Referer", "")
             if not (sent == origin if sent is not None else ref == origin or ref.startswith(origin + "/")):
-                app.logger.warning("Rejected %s %s: origin %r", request.method, request.path, (sent or "")[:80])
+                app.logger.warning("Rejected request: invalid origin")
                 abort(403)
-        if request.endpoint in ("login", "static", "family_connect", "create_family_profile", "select_family_profile", "app_update_manifest", "app_update_package", "profile_image", "share_landing", "share_download"):
+        if request.endpoint in ("login", "static", "family_connect", "create_family_profile", "select_family_profile", "app_update_manifest", "app_update_package", "profile_image", "share_landing", "share_download", "movie_media"):
             return
         # Audio players cannot send the sign-in cookie, so a stream link carries a signed ticket.
         if request.endpoint in ("playback_audio", "download_library_recording", "job_media") and "ticket" in request.args:
@@ -370,7 +381,8 @@ def create_app(test_config=None):
 
     def stream_ticket_user():
         user, expires, ticket = (request.args.get(k, "") for k in ("user", "expires", "ticket"))
-        if not user or not expires.isdigit() or int(expires) < time.time() or int(expires) > time.time() + STREAM_SECONDS + 60:
+        if (not user or not re.fullmatch(r'[0-9]{1,12}', expires) or not re.fullmatch(r'[a-f0-9]{64}', ticket)
+                or int(expires) < time.time() or int(expires) > time.time() + STREAM_SECONDS + 60):
             return None
         return user if hmac.compare_digest(stream_signature(user, request.path, expires), ticket) else None
 
@@ -418,9 +430,10 @@ def create_app(test_config=None):
             "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
                                        "connect-src 'self'; form-action 'self'; frame-ancestors 'none'; "
             "base-uri 'none'; object-src 'none'; media-src 'self' blob:; worker-src 'none'",
-            "X-Content-Type-Options": "nosniff", "Referrer-Policy": "same-origin",
+            "X-Content-Type-Options": "nosniff",
             "Permissions-Policy": "camera=(), microphone=(), geolocation=()", "Cache-Control": "no-store",
             "Strict-Transport-Security": "max-age=31536000"})
+        resp.headers.setdefault("Referrer-Policy", "no-referrer" if request.endpoint == "movie_media" else "same-origin")
         # The apps refresh these lists every few minutes. An unchanged list answers 304 with
         # no body, and a changed one is gzip-compressed (about a fifth of the size).
         if (request.method == "GET" and request.path in ("/api/library", "/api/playlists")
@@ -442,16 +455,23 @@ def create_app(test_config=None):
     def http_error(e):
         if e.code == 400:
             # Names the failed check (for example a missing CSRF session token); never logs token values.
-            app.logger.warning("Rejected %s %s: %s", request.method, request.path, (e.description or "")[:120])
+            app.logger.warning("Rejected request at %s", request.endpoint)
         text = HTTP_TEXT.get(e.code, "Request failed.")
         return (jsonify(error=text) if request.path.startswith("/api/") else text), e.code
+
+    @app.errorhandler(Exception)
+    def unexpected_error(error):
+        app.logger.error("Request failed at %s: %s", request.endpoint, type(error).__name__)
+        if request.path.startswith("/api/"):
+            return jsonify(error="Request failed."), 500
+        return "Request failed.", 500
 
     @app.errorhandler(CSRFError)
     def csrf_error(error):
         if request.endpoint in ("login", "logout") and request.method == "POST":
             return render_template("account_retry.html"), 400
         if request.path.startswith("/api/"):
-            app.logger.warning("Rejected %s %s: %s", request.method, request.path, error.description)
+            app.logger.warning("Rejected CSRF check at %s", request.endpoint)
             return jsonify(error="Your session changed. Reload FamilyHub and try again.", code="csrf"), 400
         return http_error(error)
 
@@ -480,19 +500,39 @@ def create_app(test_config=None):
             sessions[sid] = {"user": user, "expiry": now + hours * 3600, "activity_header": activity_header}
         session.permanent = remember
         session["sid"] = sid
-        if family_mode:
+        if family_mode and user not in protected_profiles:
             session["family_profile"] = user
+
+    def family_profile_list():
+        profiles = profile_store.list()
+        for profile in profiles:
+            if profile["id"] in protected_profiles:
+                profile["requires_password"] = True
+        return profiles
+
+    def verify_profile_password(user, password):
+        if user not in protected_profiles:
+            return
+        if not (allow("profile-login", 30, 300) and allow("profile-login:" + user, 8, 300)):
+            raise ApiError("Too many attempts. Wait a few minutes.", 429)
+        digest = password_hashes.get(user)
+        if not digest:
+            raise ApiError("Ask the server owner to set a password for this profile.", 403)
+        if not isinstance(password, str) or not 1 <= len(password) <= 256 or not check_password_hash(digest, password):
+            raise ApiError("Enter the password for this profile.", 403)
 
     @app.get("/api/connect")
     def family_connect():
         require_family()
         with catalogue_lock:
-            profiles = profile_store.list()
+            profiles = family_profile_list()
         return jsonify(family_profiles=True, server_name="FamilyHub", profiles=profiles, csrf_token=generate_csrf())
 
     @app.post("/api/profiles")
     def create_family_profile():
         require_family()
+        if not allow("profile-create", 30, 3600):
+            raise ApiError("Too many profiles created. Try again later.", 429)
         with catalogue_lock:
             profile = profile_store.create(body().get("name"))
         return jsonify(profile=profile), 201
@@ -511,8 +551,11 @@ def create_app(test_config=None):
     def select_family_profile():
         require_family()
         background = background_activity()
+        data = body()
         with catalogue_lock:
-            profile = profile_store.get(body().get("profile_id"))
+            profile = profile_store.get(data.get("profile_id"))
+        verify_profile_password(profile["id"], data.get("password"))
+        with catalogue_lock:
             preferences = profile_store.preferences(profile["id"])
             establish_session(profile["id"], True, activity_header=background)
         g.pop("csrf_token", None)
@@ -559,17 +602,23 @@ def create_app(test_config=None):
     def login():
         def page(error=None, code=200):
             return render_template("login.html", error=error,
-                                   family_profiles=profile_store.list() if family_mode else None,
+                                   family_profiles=family_profile_list() if family_mode else None,
                                    username=request.form.get("username", "")[:64]), code
         if request.method == "GET":
             return redirect("/") if current() else page()
         if family_mode:
             try:
+                creating = request.form.get("action") == "create"
+                if creating and not allow("profile-create", 30, 3600):
+                    raise ApiError("Too many profiles created. Try again later.", 429)
                 with catalogue_lock:
-                    profile = profile_store.create(request.form.get("name")) if request.form.get("action") == "create" else profile_store.get(request.form.get("profile_id"))
-                    establish_session(profile["id"], True)
+                    profile = profile_store.create(request.form.get("name")) if creating else profile_store.get(request.form.get("profile_id"))
+                verify_profile_password(profile["id"], request.form.get("password"))
+                establish_session(profile["id"], True)
             except ProfileError as error:
                 return page(str(error), 400)
+            except ApiError as error:
+                return page(error.message, error.code)
             return redirect("/")
         user, pw = request.form.get("username", "").strip()[:64], request.form.get("password", "")
         if not (allow("login", 30, 300) and allow("login:" + user.lower(), 8, 300)):
@@ -599,9 +648,18 @@ def create_app(test_config=None):
 
     # ---- validation ----
     def body(limit=8192):
+        request.max_content_length = min(request.max_content_length or limit + 1, limit + 1)
         if (request.content_length or 0) > limit:
             raise ApiError("Request is too large.", 413)
-        d = request.get_json(silent=True)
+        d = None
+        if request.is_json:
+            raw = request.get_data()
+            if len(raw) > limit:
+                raise ApiError("Request is too large.", 413)
+            try:
+                d = app.json.loads(raw)
+            except (ValueError, RecursionError):
+                pass
         if not isinstance(d, dict):
             raise ApiError("Request body must be a JSON object.")
         return d
@@ -915,9 +973,15 @@ def create_app(test_config=None):
 
     @app.get("/api/server/stats")
     def server_stats():
+        if g.user not in cfg["ADMIN_USERS"]:
+            raise ApiError("Only an admin can view server statistics.", 403)
         if "range" in request.args:
             return server_health(request.args["range"])
-        return server_work()
+        return server_work(leaderboard=request.args.get('leaderboard') == '1')
+
+    @app.get("/api/activity/stats")
+    def activity_stats():
+        return server_work(leaderboard=True)
 
     @app.get("/api/server/stats/now")
     def server_health_now():
@@ -934,10 +998,9 @@ def create_app(test_config=None):
             raise ApiError("Server measurements are unavailable. Retry shortly.", 503)
         return app.response_class(snapshot, mimetype="application/json")
 
-    def server_work():
+    def server_work(leaderboard=False):
         profiles = profile_store.list() if family_mode else [dict(id=u, name=u) for u in cfg["ALLOWED_USERS"]]
         names = {p["id"]: p["name"] for p in profiles}
-        leaderboard = request.args.get('leaderboard') == '1'
         chart = deezer_chart.snapshot() if leaderboard and family_mode else {}
         wrapped_year = listening_history.utc().year if leaderboard and family_mode else None
         additions = songs_added(wrapped_year) if wrapped_year is not None else {}
@@ -2867,7 +2930,7 @@ def create_app(test_config=None):
         if data is None:
             try:
                 url = f"https://i.ytimg.com/vi/{source_id}/hqdefault.jpg"
-                with PROVIDERS["youtube-images"].request(max_wait=2), urllib.request.urlopen(url, timeout=5) as response:
+                with PROVIDERS["youtube-images"].request(max_wait=2), urllib.request.build_opener(NoRedirect).open(url, timeout=5) as response:
                     if response.geturl() != url or response.headers.get_content_type() != "image/jpeg":
                         abort(404)
                     data = response.read(262145)
@@ -3247,8 +3310,10 @@ def create_app(test_config=None):
 
     @app.post("/api/uploads")
     def create_upload():
+        if not allow("audio-upload:" + g.user, 30, 3600):
+            raise ApiError("Too many uploads. Try again later.", 429)
         f = request.files.get("file")
-        if not f or not f.filename:
+        if not f or not f.filename or f.filename.lstrip().startswith("-"):
             raise ApiError("Choose an audio file.")
         try:
             ext = app.intake.extension(f.filename)
@@ -3386,9 +3451,16 @@ def create_app(test_config=None):
                        cfg.get("DISCOVERY_WORKER", cfg["PUBLIC_ORIGIN"] != "https://music.test"), background_idle)
     from .listening_rooms import register_listening_rooms
     from .movies import register_movies
-    register_movies(app, cfg, body, allow)
+
+    def session_is_live(sid, user):
+        with session_lock:
+            active = sessions.get(sid)
+            return bool(active and active['user'] == user and active['expiry'] > time.time())
+
+    register_movies(app, cfg, body, allow, session_is_live)
     from .files import register_files
-    register_files(app, cfg, allow, lambda: g.user in cfg['ADMIN_USERS'], csrf.exempt)
+    register_files(app, cfg, body, allow, lambda: g.user in cfg['ADMIN_USERS'],
+                   lambda: not family_mode or g.user in password_hashes, csrf.exempt)
     register_listening_rooms(app, body, profile_store, resources)
     from .playback_devices import register_playback_devices
     register_playback_devices(app, body, playback_devices)

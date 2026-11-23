@@ -125,15 +125,6 @@
         return System.Text.Json.JsonSerializer.Serialize(new { uploaded, errors });
     }
 
-    private static string FreeName(string folder, string name)
-    {
-        name = Path.GetFileName(name);
-        var target = Path.Combine(folder, name);
-        for (var number = 2; File.Exists(target) && number < 1000; number++)
-            target = Path.Combine(folder, $"{Path.GetFileNameWithoutExtension(name)} ({number}){Path.GetExtension(name)}");
-        return target;
-    }
-
     // Windows saves to the Downloads folder. Phones save to the app's cache and open the share sheet, where the person
     // chooses Files, Drive or another app to keep it.
     [JSInvokable]
@@ -146,15 +137,14 @@
             if (!response.IsSuccessStatusCode) return $"Could not download {name}. It may have been removed.";
 #if WINDOWS
             var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-            Directory.CreateDirectory(folder);
-            var target = FreeName(folder, name);
-            await using (var file = File.Create(target)) await response.Content.CopyToAsync(file, closed.Token);
-            return $"Saved {Path.GetFileName(target)} to your Downloads folder.";
 #else
             var folder = Path.Combine(Microsoft.Maui.Storage.FileSystem.CacheDirectory, "files-download");
+#endif
             Directory.CreateDirectory(folder);
-            var target = FreeName(folder, name);
-            await using (var file = File.Create(target)) await response.Content.CopyToAsync(file, closed.Token);
+            var target = await FileDownload.SaveNewAsync(folder, name, response.Content, closed.Token);
+#if WINDOWS
+            return $"Saved {Path.GetFileName(target)} to your Downloads folder.";
+#else
             await Microsoft.Maui.ApplicationModel.DataTransfer.Share.Default.RequestAsync(new Microsoft.Maui.ApplicationModel.DataTransfer.ShareFileRequest
             { Title = name, File = new Microsoft.Maui.ApplicationModel.DataTransfer.ShareFile(target) });
             return $"{name} is ready. Choose where to keep it.";

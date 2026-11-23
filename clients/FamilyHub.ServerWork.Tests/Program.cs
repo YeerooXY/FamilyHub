@@ -16,6 +16,7 @@ await session.ConnectServerAsync("https://ui-check.test");
 await session.SelectProfileAsync("alex");
 var activator = new CaptureActivator();
 var services = new ServiceCollection().AddLogging().AddSingleton(session).AddSingleton(new MusicPlayer())
+    .AddSingleton(new PublicAppReleases(new HttpClient(new FixtureHandler())))
     .AddSingleton<IJSRuntime, NoJs>().AddSingleton<IComponentActivator>(activator).BuildServiceProvider();
 await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 await renderer.Dispatcher.InvokeAsync(async () => {
@@ -125,7 +126,7 @@ await renderer.Dispatcher.InvokeAsync(async () => {
     foreach (var (platform, action, help) in new[]
     {
         ("windows-x64", "Download and restart", "Playback stops"),
-        ("android", "Download update", "downloaded APK"),
+        ("android", "Download update", "Android installer"),
         ("ios", "Open SideStore", "In SideStore, tap Update"),
     })
     {
@@ -228,7 +229,7 @@ sealed class FixtureHandler : HttpMessageHandler {
             }
             AlbumSongs.Add(body.RootElement.GetProperty("add_source_id").GetString()!);
         }
-        if(Block && (path=="/api/server/stats" || path.StartsWith("/api/catalogue/"))) return new TaskCompletionSource<HttpResponseMessage>().Task;
+        if(Block && (path is "/api/server/stats" or "/api/activity/stats" || path.StartsWith("/api/catalogue/"))) return new TaskCompletionSource<HttpResponseMessage>().Task;
         if (request.Method == HttpMethod.Patch && path == "/api/playlists/" + PlaylistId)
         {
             Removals++;
@@ -260,7 +261,7 @@ sealed class FixtureHandler : HttpMessageHandler {
                 @fixed = new[] { new { id = "lmnopqrstuv", title = "Official source", replaced_by = "vwxyz012345", fixed_at = 1795100001L } }
             },
             "/api/catalogue/reports" => new { reports = Array.Empty<object>() },
-            "/api/server/stats" when request.RequestUri.Query == "?leaderboard=1" => new {wrapped_year=2026,daily=new[]{new{day="2026-11-19",seconds=0}},profiles=new[]{new{id="alex",name="Alex",online=true,wrapped=new{total_minutes=0,songs_added=0}}}},
+            "/api/activity/stats" => new {wrapped_year=2026,daily=new[]{new{day="2026-11-19",seconds=0}},profiles=new[]{new{id="alex",name="Alex",online=true,wrapped=new{total_minutes=0,songs_added=0}}}},
             "/api/server/stats" => new {workers=new[]{new{id="acquisition-0",title="Listener",state="working",current_title="Veridis Quo"}},jobs=Array.Empty<object>(),worker_stages=new[]{new{stage="fetch",queued=24,backing_off=0,running=1}},catalogue_workers=new{metadata=true,source_scan=true,source_auto_replace=false,playlist_matching=true,automatic_attempts_per_hour=30},storage_total_bytes=1000000000000L,storage_free_bytes=600000000000L},
             _ => new {} };
         return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK){Content=new StringContent(JsonSerializer.Serialize(data),Encoding.UTF8,"application/json")});
@@ -272,9 +273,10 @@ namespace FamilyHub.App.Services
 {
     public static class AppUpdater
     {
+        public static string CurrentVersion => "1.1.0";
         public static string? Platform { get; set; }
         public static bool UpdatesInSideStore => Platform == "ios";
-        public static Task InstallAsync(FamilyHubApi api, AppRelease release, Action<int> progress) => Task.CompletedTask;
+        public static Task InstallAsync(FamilyHubApi? api, PublicAppReleases releases, AppRelease release, Action<int> progress) => Task.CompletedTask;
     }
 }
 

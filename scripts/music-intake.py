@@ -356,7 +356,7 @@ def video_id(url):
     try:
         u = urllib.parse.urlsplit(url)
         host = (u.hostname or "").lower()
-        if u.scheme == "https" and not u.username and u.port is None:
+        if u.scheme == "https" and u.username is None and u.password is None and u.port is None:
             if host == "youtu.be":
                 vid = u.path[1:]
             elif host in YT_HOSTS and u.path == "/watch":
@@ -1233,7 +1233,7 @@ def cmd_trim(args):
         out = os.path.join(tmp, "audio.flac")
         # FLAC output: the edit adds no second lossy encode. Float decoder output is still converted to integer
         # samples, and quality lost before staging stays lost.
-        rc, _, err = run([ffmpeg, "-nostdin", "-v", "error", "-i", audio, "-filter_complex", graph, "-map", "[out]",
+        rc, _, err = run([ffmpeg, "-nostdin", "-v", "error", *SAFE_INPUT, "-i", audio, "-filter_complex", graph, "-map", "[out]",
                           "-map_metadata", "-1", "-map_chapters", "-1", "-c:a", "flac", "-f", "flac", out],
                          1800, "ffmpeg trim")
         if rc:
@@ -1244,7 +1244,7 @@ def cmd_trim(args):
 
 def safe_name(text, what):
     name = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f]', "_", text).strip().rstrip(". ")
-    if not name or len(name) > 120 or name.startswith(".") or name.split(".")[0].upper() in RESERVED:
+    if not name or len(name) > 120 or name.startswith((".", "-")) or name.split(".")[0].upper() in RESERVED:
         raise IntakeError(f"--{what} {text!r} cannot be used as a file or directory name")
     return name
 

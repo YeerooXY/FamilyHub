@@ -1,6 +1,6 @@
 # New server: first steps
 
-The family server machine runs **Debian 13 (trixie)**, the same system as the development VM. These steps prepare it so the FamilyHub lead agent can finish the setup remotely over SSH. Do only these steps; do not install FamilyHub, Docker or Tailscale, and do not format, partition or mount any drive.
+The family server runs **Debian 13 (trixie)**. These steps prepare temporary SSH access for the FamilyHub lead. Leave software installation and storage changes for the migration.
 
 ## 1. Check the system
 
@@ -19,19 +19,21 @@ systemctl enable --now ssh
 
 ## 3. Let the lead agent in
 
-Replace `USER` with the normal user created during installation. Run as root:
+Use the normal account created during installation. Verify the lead's SSH public key fingerprint with the owner and save that public key as `/root/familyhub-lead.pub`. Run these commands as root:
 
 ```sh
-USER=youruser
-install -d -m 700 -o "$USER" -g "$USER" /home/$USER/.ssh
-echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMDw/J8uyblf9VHguDo235jN2WgAu5APZo8mQyJo+T3+ familyhub-lead' >> /home/$USER/.ssh/authorized_keys
-chown "$USER:$USER" /home/$USER/.ssh/authorized_keys && chmod 600 /home/$USER/.ssh/authorized_keys
-usermod -aG sudo "$USER"
-echo "$USER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/familyhub && chmod 440 /etc/sudoers.d/familyhub
-visudo -c
+login_user=youruser
+login_group=$(id -gn "$login_user")
+login_home=$(getent passwd "$login_user" | cut -d: -f6)
+ssh-keygen -lf /root/familyhub-lead.pub
+install -d -m 700 -o "$login_user" -g "$login_group" "$login_home/.ssh"
+umask 077
+printf 'restrict %s\n' "$(cat /root/familyhub-lead.pub)" >> "$login_home/.ssh/authorized_keys"
+chown "$login_user:$login_group" "$login_home/.ssh/authorized_keys"
+chmod 600 "$login_home/.ssh/authorized_keys"
 ```
 
-The key above is a public key; it gives access only to the computer that holds the matching private key.
+The lead can run unprivileged checks over SSH. The owner runs privileged setup commands at the console or through their existing password-protected sudo access. Remove the temporary key from `authorized_keys` when setup ends. If an older setup added `/etc/sudoers.d/familyhub`, review and remove that passwordless grant from the console, then run `visudo -c`.
 
 ## 4. Report back
 

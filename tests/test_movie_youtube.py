@@ -62,7 +62,8 @@ class YouTubeMetadata(unittest.TestCase):
             self.assertIsNone(movie_search.cached_metadata(ID))
 
     def test_progress_states_and_path(self):
-        with tempfile.TemporaryDirectory() as root, patch('music_web.movie_youtube_downloads.subprocess.Popen') as popen:
+        with (tempfile.TemporaryDirectory() as root, patch('music_web.movie_youtube_downloads.subprocess.Popen') as popen,
+              patch('music_web.movie_youtube_downloads.FREE_RESERVE', 0)):
             queue = YouTubeDownloads(root)
             done, extracting, release = Event(), Event(), Event()
             snapshots = []
@@ -104,15 +105,27 @@ class YouTubeMetadata(unittest.TestCase):
             self.assertEqual(directory.parent, Path(root).resolve())
             self.assertNotIn('$', directory.name)
             self.assertIn('bv*[height<=1080]+ba/b[height<=1080]', args)
+            self.assertIn('--max-filesize', args)
+            self.assertFalse(directory.exists())
             self.assertEqual(args[-2:], ['--', URL])
             self.assertEqual(snapshots, [dict(name='../A $TITLE', progress=.47, state='Downloading'),
                                          dict(name='../A $TITLE', progress=.99, state='Almost done')])
             self.assertEqual(queue.items(), [dict(name='Next video', progress=0, state='Problem'),
                                              dict(name='../A $TITLE', progress=1, state='Finished')])
 
+    def test_transfer_monitor_stops_a_job_when_disk_reserve_is_exhausted(self):
+        stop = Mock()
+        process, finished, interrupted = Mock(), Mock(), Event()
+        finished.wait.return_value = False
+        with tempfile.TemporaryDirectory() as root, patch('music_web.movie_youtube_downloads.FREE_RESERVE', 1 << 80):
+            YouTubeDownloads(root, stop=stop)._watch_transfer(process, Path(root), finished, interrupted)
+        self.assertTrue(interrupted.is_set())
+        stop.assert_called_once_with(process)
+
 
 class YouTubeEndpoints(Base):
-    extra = {**test_movies.MovieSessions.extra, 'MOVIE_DOWNLOADS': {'profiles': ['sample-a'], 'youtube_dir': 'fixture-youtube'}}
+    extra = {**test_movies.MovieSessions.extra, 'ADMIN_USERS': ['sample-a'],
+             'MOVIE_DOWNLOADS': {'profiles': ['sample-a'], 'youtube_dir': 'fixture-youtube'}}
     select = test_movies.MovieSessions.select
 
     @patch('music_web.movies.shutil.which', return_value='yt-dlp')

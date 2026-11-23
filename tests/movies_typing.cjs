@@ -1,3 +1,4 @@
+const { useMovieBridge } = require("./movies_fixture.cjs");
 // Typing in the Movies search must never move the page (the app content area used to reserve 76 px above focused fields).
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -15,8 +16,9 @@ const root = path.resolve(__dirname, ".."), assets = path.join(root, "clients/Fa
                 return route.fulfill({ contentType: "text/html", body: '<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/app-native.css"><link rel="stylesheet" href="/movies.css"><div class="workspace" style="height:100dvh"><main id="content"><h1>Movies &amp; TV</h1><div class="movie-library"></div><div style="height:1500px"></div></main></div>' });
             });
             await page.route("https://j.test/**", route => route.fulfill({ headers: { "Access-Control-Allow-Origin": "*" }, json: { Items: [], TotalRecordCount: 0 } }));
+            await useMovieBridge(page);
             await page.goto("http://f.test");
-            await page.evaluate(async () => { const { openMovies } = await import("/movies.js"); openMovies(document.querySelector(".movie-library"), { url: "https://j.test", user: "u", token: "t", device: "d" }, { invokeMethodAsync: async () => "{}" }); });
+            await page.evaluate(async () => { const { openMovies } = await import("/movies.js"); window.openMovieFixture(openMovies, document.querySelector(".movie-library"), { url: "https://j.test", user: "u", token: "t", device: "d" }, { invokeMethodAsync: async () => "{}" }); });
             await page.waitForTimeout(500);
             const pos = () => page.evaluate(() => ({ scroll: document.getElementById("content").scrollTop, bar: Math.round(document.querySelector(".movie-toolbar").getBoundingClientRect().top) }));
             await page.evaluate(() => { document.getElementById("content").scrollTop = 300; });

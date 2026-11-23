@@ -59,6 +59,7 @@ public class MainActivity : MauiAppCompatActivity
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
+        if (OperatingSystem.IsAndroidVersionAtLeast(33)) SetRecentsScreenshotEnabled(false);
         // Status and navigation bars use the page background with light icons, not the template purple.
         var background = Android.Graphics.Color.ParseColor("#05070C");
 #pragma warning disable CA1422 // Ignored from Android 15 edge-to-edge, where the page draws behind the bars.

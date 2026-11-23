@@ -11,6 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 try:
     import music_web
+    from werkzeug.security import generate_password_hash
 except ImportError as e:
     raise unittest.SkipTest(f"music_web dependencies missing: {e}")
 
@@ -18,6 +19,7 @@ ORIGIN = "https://music.test"
 PASSWORD = "correct-horse"
 URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 META = {"artist": "Artist", "album": "Album", "title": "Title"}
+PROFILE_HASH = generate_password_hash(PASSWORD, method="pbkdf2:sha256:1000")
 
 
 class Base(unittest.TestCase):
@@ -35,6 +37,8 @@ class Base(unittest.TestCase):
             "ALLOWED_USERS": ["sample-a", "sample-b"],
             # Legacy file fixtures isolate transport/coordinator behavior from FFmpeg.
             "REQUIRE_FINISHED_AUDIO": False, **self.extra}
+        protected = set(self.settings.get('ADMIN_USERS', ())) | set(self.settings.get('JELLYFIN_PROFILES', {}))
+        self.settings.setdefault('PROFILE_PASSWORD_HASHES', dict.fromkeys(protected, PROFILE_HASH))
         self.app = music_web.create_app(self.settings)
         self.state = self.app.extensions["music"]
         self.intake = self.app.intake
@@ -85,6 +89,9 @@ class Base(unittest.TestCase):
     def post(self, c, tok, path, **kw):
         kw.setdefault("headers", {})["X-CSRFToken"] = tok
         return self.go(c, "POST", path, **kw)
+
+    def profile_credentials(self, name):
+        return {"profile_id": name, "password": PASSWORD}
 
     def wait(self, c, job_id):
         for _ in range(250):
@@ -282,7 +289,8 @@ class AuthTests(Base):
         path = "/api/artwork/dQw4w9WgXcQ"
         self.assertEqual(self.go(self.app.test_client(), "GET", path).status_code, 401)
         c, _ = self.signed_in()
-        with mock.patch("music_web.urllib.request.urlopen") as fetch:
+        with mock.patch("music_web.urllib.request.build_opener") as opener:
+            fetch = opener.return_value.open
             self.assertEqual(self.go(c, "GET", "/api/artwork/invalid").status_code, 404)
             fetch.assert_not_called()
             response = fetch.return_value.__enter__.return_value

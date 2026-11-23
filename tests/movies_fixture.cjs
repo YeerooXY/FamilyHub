@@ -9,7 +9,36 @@ const output = path.resolve(process.argv[2] || path.join(root, ".local/downloads
 const app = "http://familyhub.test", jellyfin = "https://jellyfin.test";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization,content-type" };
 
+async function useMovieBridge(page) {
+    await page.addInitScript(() => {
+        window.openMovieFixture = (openMovies, host, session, app, viewer = {}) => {
+            const base = session.url.replace(/\/$/, "") + "/";
+            const headers = {Authorization: `MediaBrowser Token="${session.token}"`, "Content-Type": "application/json"};
+            const send = (resource, query, payload) => {
+                const url = new URL(resource, base);
+                url.search = query;
+                return fetch(url, {method: payload === null ? "GET" : "POST", headers,
+                    body: payload === null ? undefined : JSON.stringify(payload)});
+            };
+            const movie = openMovies(host, {...session, media_url: base}, {
+                async invokeMethodAsync(method, ...args) {
+                    if (method !== "MovieLibrary") return app.invokeMethodAsync(method, ...args);
+                    const response = await send(...args);
+                    if (!response.ok) return "{}";
+                    const body = await response.text();
+                    return JSON.stringify({result: body ? JSON.parse(body) : null});
+                }
+            }, {...viewer, server: base});
+            return {async close() {
+                await movie.close();
+                try { await send("Sessions/Logout", "", {}); } catch {}
+            }};
+        };
+    });
+}
+
 async function moviePage(page) {
+    await useMovieBridge(page);
     await page.route(app + "/**", route => {
         const name = new URL(route.request().url()).pathname.slice(1);
         if (name === "shell.css") return route.fulfill({path: path.join(root, "music_web/static/shell.css")});
@@ -43,4 +72,4 @@ async function verifyMovieProfiles(verify) {
     }
 }
 
-module.exports = { app, jellyfin, cors, output, moviePage, verifyMovieProfiles };
+module.exports = { app, jellyfin, cors, output, moviePage, useMovieBridge, verifyMovieProfiles };

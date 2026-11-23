@@ -321,7 +321,7 @@ class PlaylistGapApi(Base):
         def review(owner):
             client = self.app.test_client()
             token = self.go(client, 'GET', '/api/connect').json['csrf_token']
-            self.post(client, token, '/api/profile/select', json={'profile_id': owner})
+            self.post(client, token, '/api/profile/select', json=self.profile_credentials(owner))
             return self.go(client, 'GET', '/api/catalogue/review?limit=10').json
         data = review('sample-a')
         self.assertEqual(data['playlist_gaps_total'], 2)

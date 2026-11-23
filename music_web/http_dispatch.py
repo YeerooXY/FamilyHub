@@ -6,7 +6,7 @@ from waitress.task import ThreadedTaskDispatcher
 
 class RequestDispatcher:
     LIMITS = {"ordinary": 4, "listener": 2, "control": 4, "media": 4,
-              "download": 2, "watch": 4, "snapshot": 2, "artwork": 2}
+              "download": 2, "watch": 4, "snapshot": 2, "artwork": 2, "movie-media": 4}
 
     def __init__(self):
         self.pools = {}
@@ -27,10 +27,14 @@ class RequestDispatcher:
             lane = 'control'
         elif watch:
             lane = "watch"
-        elif request.command == "GET" and (path in ("/api/server/stats", "/api/server/stats/now") or path.startswith("/api/catalogue/")):
+        elif request.command == "GET" and (path in ("/api/activity/stats", "/api/server/stats", "/api/server/stats/now") or path.startswith("/api/catalogue/")):
             lane = "snapshot"
         elif path.startswith(('/api/artwork/', '/api/discovery/covers/', '/api/profile-images/')) or '/artwork/' in path:
             lane = 'artwork'
+        elif path.startswith('/api/movies/media/') and request.command in ('GET', 'HEAD', 'OPTIONS'):
+            lane = 'movie-media'
+        elif path == '/api/files/upload' and request.command == 'PUT':
+            lane = 'download'
         elif request.command == 'POST' and (path in ('/api/uploads', '/api/library/additions')
                 or path.startswith('/api/playlists/') and path.endswith(('/download', '/prepare', '/import'))):
             lane = 'download'

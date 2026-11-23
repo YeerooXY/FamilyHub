@@ -27,7 +27,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<MusicSession>();
         builder.Services.AddSingleton(_ => new FeedbackDrafts(Path.Combine(FileSystem.AppDataDirectory, "feedback-drafts")));
         builder.Services.AddSingleton(_ => new FamilyHub.Client.Core.PublicAppReleases(
-            new HttpClient(new HttpClientHandler { UseCookies = false })));
+            new HttpClient(new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false }) { MaxResponseContentBufferSize = 2 << 20 }));
         builder.Services.AddSingleton<MusicPlayer>();
         builder.Services.AddSingleton<PlaybackConnection>();
         builder.Services.AddSingleton<PlaybackDevicePoll>();

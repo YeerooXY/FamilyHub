@@ -25,7 +25,7 @@ class WorkerActivityTests(unittest.TestCase):
         self.assertEqual([r['state'] for r in activity.snapshot(True, 'Playback')], ['paused', 'paused'])
 
 class WorkerCapacityTests(Base):
-    extra = {'BACKGROUND_WORKERS': 6}
+    extra = {'BACKGROUND_WORKERS': 6, 'ADMIN_USERS': ['sample-a']}
 
     def test_acquisition_capacity_uses_the_configured_pool_limit(self):
         client, _ = self.signed_in()
@@ -38,7 +38,7 @@ class WorkerCapacityTests(Base):
 
 
 class EnabledWorkerTests(Base):
-    extra = dict(SOURCE_QUALITY_SCAN=True, SOURCE_AUTO_REPLACE=False, SONG_ANALYSIS_SCAN=True, METADATA_LOOKUP=True,
+    extra = dict(ADMIN_USERS=['sample-a'], SOURCE_QUALITY_SCAN=True, SOURCE_AUTO_REPLACE=False, SONG_ANALYSIS_SCAN=True, METADATA_LOOKUP=True,
                  GENRE_LOOKUP=True, AUTO_PLAYLIST_DOWNLOADS=True)
 
     def setUp(self):
@@ -81,11 +81,11 @@ class EnabledWorkerTests(Base):
 
 
 class ServerWorkTests(Base):
-    extra={'FAMILY_PROFILES':True}
+    extra={'FAMILY_PROFILES':True, 'ADMIN_USERS': ['sample-a']}
 
     def test_worker_api_keeps_real_idle_slots_and_reports_encoder_occupancy(self):
         client=self.app.test_client();token=self.go(client,'GET','/api/connect').json['csrf_token']
-        self.post(client,token,'/api/profile/select',json={'profile_id':'sample-a'})
+        self.post(client,token,'/api/profile/select',json=self.profile_credentials('sample-a'))
         get=lambda:self.go(client,'GET','/api/server/stats').json
         first=get()
         self.assertEqual(first['playlist_backlog'],
@@ -108,7 +108,7 @@ class ServerWorkTests(Base):
 
     def test_playlist_operation_is_one_entry_with_requester_counts_and_file_action(self):
         client=self.app.test_client();token=self.go(client,'GET','/api/connect').json['csrf_token']
-        token=self.post(client,token,'/api/profile/select',json={'profile_id':'sample-a'}).json['csrf_token']
+        token=self.post(client,token,'/api/profile/select',json=self.profile_credentials('sample-a')).json['csrf_token']
         pid='p'*22;status=_PlaylistOperation._status('download',4)
         status.update(processed=1,title='Current song',message='Downloading',active_downloads=[dict(index=2,title='Current song',message='Purifying audio',download_bytes=20,download_total_bytes=40)])
         PlaylistStore(self.ws).save('sample-a',dict(id=pid,name='Requested playlist',revision=1,shared=True,tracks=[],preparation=status))
@@ -130,7 +130,7 @@ class ServerWorkTests(Base):
 
     def test_single_listening_request_has_requester_and_distinct_kind(self):
         client=self.app.test_client();token=self.go(client,'GET','/api/connect').json['csrf_token']
-        self.post(client,token,'/api/profile/select',json={'profile_id':'sample-a'})
+        self.post(client,token,'/api/profile/select',json=self.profile_credentials('sample-a'))
         self.state.jobs['single']=dict(owner='sample-a',title='Single',state='queued',phase='fetch',
                                       message='Preparing song',current=True,priority=0,created=time.time(),
                                       queued_at=time.monotonic(),cancel=threading.Event())
@@ -140,7 +140,7 @@ class ServerWorkTests(Base):
     def test_stage_counts_distinguish_queued_backing_off_and_running(self):
         client = self.app.test_client()
         token = self.go(client, 'GET', '/api/connect').json['csrf_token']
-        self.post(client, token, '/api/profile/select', json={'profile_id': 'sample-a'})
+        self.post(client, token, '/api/profile/select', json=self.profile_credentials('sample-a'))
         governor = self.state.resources
         self.state.jobs['waiting'] = dict(owner='sample-a', title='Waiting song', state='queued', priority=20,
                                           url=self.intake.WATCH + 'abcdefghijk', created=time.time(),
@@ -159,7 +159,7 @@ class ServerWorkTests(Base):
     def test_playlist_slot_only_reports_progress_for_current_download_phase(self):
         client = self.app.test_client()
         token = self.go(client, 'GET', '/api/connect').json['csrf_token']
-        self.post(client, token, '/api/profile/select', json={'profile_id': 'sample-a'})
+        self.post(client, token, '/api/profile/select', json=self.profile_credentials('sample-a'))
         pid = 'p' * 22
         status = _PlaylistOperation._status('download', 1)
         status.update(title='Song', message='Downloading', active_downloads=[dict(
@@ -186,7 +186,7 @@ class ServerWorkTests(Base):
 
     def test_existing_playback_holds_background_admission_until_handback(self):
         client=self.app.test_client();token=self.go(client,'GET','/api/connect').json['csrf_token']
-        token=self.post(client,token,'/api/profile/select',json={'profile_id':'sample-a'}).json['csrf_token']
+        token=self.post(client,token,'/api/profile/select',json=self.profile_credentials('sample-a')).json['csrf_token']
         governor = self.state.resources
         clock = time.monotonic()
         governor.clock = lambda: clock

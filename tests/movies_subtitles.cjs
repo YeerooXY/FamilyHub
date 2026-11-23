@@ -73,9 +73,9 @@ async function verify(browser, profile, options) {
         await moviePage(page);
         await page.evaluate(async jellyfin => {
             const { openMovies, saveMoviePreferences } = await import("/movies.js");
-            const viewer = {server: location.origin, profile: "fixture"};
+            const viewer = {server: jellyfin + "/", profile: "fixture"};
             saveMoviePreferences(viewer, {subtitles: "hu"});
-            openMovies(document.querySelector("main"), {url: jellyfin, user: "fixture", token: "fixture", device: "fixture"},
+            window.openMovieFixture(openMovies, document.querySelector("main"), {url: jellyfin, user: "fixture", token: "fixture", device: "fixture"},
                 {invokeMethodAsync: async () => "{}"}, viewer);
         }, jellyfin);
         const movie = page.getByRole("button", {name: "They Call Me Trinity", exact: true}).first();

@@ -79,7 +79,7 @@
         + (AppUpdater.UpdatesInSideStore
             ? "In SideStore, tap Update next to FamilyHub."
             : $"Download size is {release.Size / (1024d * 1024):0} MB. "
-                + (AppUpdater.Platform == "windows-x64" ? "Playback stops when the app restarts." : "Open the downloaded APK to install it."));
+                + (AppUpdater.Platform == "windows-x64" ? "Playback stops when the app restarts." : "Confirm the update in the Android installer."));
     private string Label => Compact && Available.HasDelegate ? "Update available"
         : AppUpdater.UpdatesInSideStore ? "Open SideStore" : working ? "Downloading..." : AppUpdater.Platform == "windows-x64" ? "Download and restart" : "Download update";
 
@@ -110,7 +110,7 @@
                 _ = InvokeAsync(StateHasChanged);
             });
             announcement = AppUpdater.Platform == "windows-x64" ? "Restarting FamilyHub." : "Download finished.";
-            if (AppUpdater.Platform == "android") message = "Open the downloaded APK to install the update.";
+            if (AppUpdater.Platform == "android") message = "Confirm the update in the Android installer.";
         }
         catch (FamilyHubApiException error) when (error.StatusCode == 404)
         { failed = true; message = "This update is unavailable. Try again later."; }

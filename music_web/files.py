@@ -21,6 +21,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 SPACES = ('family', 'mine')
 BAD_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
+RESERVED = re.compile(r'(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\..*)?', re.I)
 MAX_NAME, MAX_DEPTH, CHUNK = 120, 12, 1 << 20
 EXPIRY_HOURS = (1, 24, 24 * 7, 24 * 30)
 GIB = 1 << 30
@@ -45,8 +46,8 @@ def clean_name(value):
     if not isinstance(value, str):
         raise FileError('Give the item a name.')
     name = value.strip().rstrip('. ')
-    if not name or len(name) > MAX_NAME or name.startswith('.') or BAD_NAME.search(name):
-        raise FileError('Names need 1 to %d characters and cannot contain / \\ : * ? " < > | or start with a dot.' % MAX_NAME)
+    if not name or len(name) > MAX_NAME or name.startswith(('.', '-')) or BAD_NAME.search(name) or RESERVED.fullmatch(name):
+        raise FileError('Use 1 to %d characters and avoid reserved names, / \\ : * ? " < > |, and leading dots or hyphens.' % MAX_NAME)
     return name
 
 
@@ -74,11 +75,6 @@ def unique_name(folder, name):
     raise FileError('Too many files share that name.', 409)
 
 
-def like_escape(text):
-    """Escape for a LIKE pattern that declares ESCAPE '!'."""
-    return text.replace('!', '!!').replace('%', '!%').replace('_', '!_')
-
-
 def tree_size(folder, budget=5.0):
     """Bytes under a folder, with a time limit for quota checks."""
     total, stop = 0, time.monotonic() + budget
@@ -104,10 +100,16 @@ class Store:
         self.max_link_days = int(cfg.get('FILES_LINK_MAX_DAYS', 30))
         self.public_url = (cfg.get('FILES_PUBLIC_URL') or '').rstrip('/')
         for sub in ('family', 'profiles', '.uploading'):
-            os.makedirs(os.path.join(self.root, sub), exist_ok=True)
-        self.lock = threading.Lock()
+            folder = os.path.join(self.root, sub)
+            if os.path.normcase(os.path.realpath(folder)) != os.path.normcase(folder):
+                raise RuntimeError('The files workspace contains a linked directory.')
+            os.makedirs(folder, exist_ok=True)
+        self.lock = threading.RLock()
         self.uploads: dict[str, Upload] = {}
-        self.db = sqlite3.connect(os.path.join(self.root, '.familyhub-files.db'), check_same_thread=False, isolation_level=None)
+        database = os.path.join(self.root, '.familyhub-files.db')
+        if os.path.normcase(os.path.realpath(database)) != os.path.normcase(database):
+            raise RuntimeError('The files database path is linked.')
+        self.db = sqlite3.connect(database, check_same_thread=False, isolation_level=None)
         self.db.executescript('''
             CREATE TABLE IF NOT EXISTS owners (space TEXT NOT NULL, path TEXT NOT NULL, owner TEXT NOT NULL, PRIMARY KEY (space, path));
             CREATE TABLE IF NOT EXISTS links (
@@ -122,7 +124,7 @@ class Store:
         if space == 'family':
             return os.path.join(self.root, 'family')
         if space == 'mine':
-            if not re.fullmatch(r'[A-Za-z0-9_.@-]{1,80}', user or ''):
+            if user in ('.', '..') or not re.fullmatch(r'[A-Za-z0-9_.@-]{1,80}', user or ''):
                 raise FileError('Sign in again to use your files.', 401)
             return os.path.join(self.root, 'profiles', user)
         raise FileError('Unknown space.')
@@ -130,17 +132,22 @@ class Store:
     def resolve(self, space, user, parts, must_exist=True):
         """Absolute path for a validated list of names. Symbolic links anywhere inside are refused."""
         base = self.base(space, user)
+        if os.path.normcase(os.path.realpath(base)) != os.path.normcase(base):
+            raise FileError('That space is not available.', 404)
         os.makedirs(base, exist_ok=True)
         path = base
         for part in parts:
             path = os.path.join(path, part)
-            if os.path.islink(path):
+            if os.path.islink(path) or getattr(os.path, 'isjunction', lambda _: False)(path):
                 raise FileError('That item is not available.', 404)
         if must_exist and not os.path.lexists(path):
             raise FileError('That item no longer exists.', 404)
         real = os.path.realpath(path)
         if os.path.commonpath([real, os.path.realpath(base)]) != os.path.realpath(base):
             raise FileError('That item is not available.', 404)
+        if os.name == 'nt' and parts and os.path.lexists(path):
+            # Resolve case and short-name aliases before looking up an item's owner in SQLite.
+            parts[:] = os.path.relpath(real, base).split(os.sep)
         return path
 
     # ---- owners (shared folder only) ----
@@ -156,14 +163,26 @@ class Store:
 
     def drop_owners(self, space, parts):
         prefix = '/'.join(parts)
-        self.db.execute("DELETE FROM owners WHERE space=? AND (path=? OR path LIKE ? ESCAPE '!')",
-                        (space, prefix, like_escape(prefix) + '/%'))
+        self.db.execute("DELETE FROM owners WHERE space=? AND (path=? OR substr(path,1,?)=?)",
+                        (space, prefix, len(prefix) + 1, prefix + '/'))
 
     def may_change(self, space, parts, user, admin):
         """Private files belong to their profile. In the shared folder the uploader or an administrator may change an item."""
         if space == 'mine' or admin:
             return True
         return self.owner(space, parts) in (None, user)
+
+    def may_delete_tree(self, space, parts, user, admin):
+        if space != 'family' or admin:
+            return True
+        prefix = '/'.join(parts) + '/'
+        return self.db.execute("SELECT 1 FROM owners WHERE space=? AND substr(path,1,?)=? AND owner<>? LIMIT 1",
+                               (space, len(prefix), prefix, user)).fetchone() is None
+
+    def move_owners(self, space, before, after):
+        before, after = '/'.join(before), '/'.join(after)
+        self.db.execute("UPDATE OR REPLACE owners SET path=? || substr(path, ?) WHERE space=? AND (path=? OR substr(path,1,?)=?)",
+                        (after, len(before) + 1, space, before, len(before) + 1, before + '/'))
 
     # ---- space accounting ----
     def free_bytes(self):
@@ -225,25 +244,26 @@ class Store:
     def use_link(self, link_id):
         """Count one download if the limit allows it; False when the link has just run out."""
         with self.lock:
-            cursor = self.db.execute('UPDATE links SET downloads = downloads + 1 WHERE id=? AND revoked=0 AND (max_downloads IS NULL OR downloads < max_downloads)', (link_id,))
+            cursor = self.db.execute('UPDATE links SET downloads = downloads + 1 WHERE id=? AND revoked=0 AND expires>? AND (max_downloads IS NULL OR downloads < max_downloads)', (link_id, time.time()))
             return cursor.rowcount == 1
 
-    def my_links(self, owner):
+    def my_links(self, owner, private=True):
         now = time.time()
-        rows = self.db.execute('SELECT id, space, path, created, expires, max_downloads, downloads, password_hash IS NOT NULL, revoked FROM links WHERE owner=? ORDER BY created DESC LIMIT 200', (owner,)).fetchall()
+        rows = self.db.execute('SELECT id, space, path, created, expires, max_downloads, downloads, password_hash IS NOT NULL, revoked FROM links WHERE owner=? AND (space=\'family\' OR ?) ORDER BY created DESC LIMIT 200', (owner, private)).fetchall()
         return [dict(id=r[0], space=r[1], path=r[2], name=r[2].rsplit('/', 1)[-1], created=r[3], expires=r[4], max_downloads=r[5], downloads=r[6],
                      protected=bool(r[7]), active=not r[8] and r[4] > now and (r[5] is None or r[6] < r[5])) for r in rows]
 
-    def revoke(self, owner, link_id, admin):
-        cursor = self.db.execute('UPDATE links SET revoked=1 WHERE id=? AND (owner=? OR ?)', (link_id, owner, 1 if admin else 0))
-        return cursor.rowcount == 1
+    def revoke(self, owner, link_id, admin, private=True):
+        with self.lock:
+            cursor = self.db.execute("UPDATE links SET revoked=1 WHERE id=? AND (owner=? OR ?) AND (space='family' OR ?)",
+                                     (link_id, owner, admin, private or admin))
+            return cursor.rowcount == 1
 
     def revoke_path(self, space, user, parts):
         """Withdraw every link to a deleted file or to anything inside a deleted folder."""
         path = '/'.join(parts)
-        escaped = like_escape(path)
-        sql = "UPDATE links SET revoked=1 WHERE space=? AND (path=? OR path LIKE ? ESCAPE '!')"
-        arguments = [space, path, escaped + '/%']
+        sql = "UPDATE links SET revoked=1 WHERE space=? AND (path=? OR substr(path,1,?)=?)"
+        arguments = [space, path, len(path) + 1, path + '/']
         if space == 'mine':
             sql += ' AND owner=?'
             arguments.append(user)
@@ -267,7 +287,7 @@ def landing(name, size, expires, secret, protected, error=''):
             '<body><main><h1>%s</h1><p>%s. The link works until %s.</p>%s%s</main></body></html>' % (html.escape(name), shown, until, message, form))
 
 
-def register_files(app, cfg, allow, is_admin, csrf_exempt):
+def register_files(app, cfg, body, allow, is_admin, private_access, csrf_exempt):
     root = cfg.get('FILES_ROOT')
     store = Store(root, cfg) if root else None
 
@@ -283,6 +303,8 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
         space = data.get('space')
         if space not in SPACES:
             raise FileError('Choose family files or your files.')
+        if space == 'mine' and not private_access():
+            raise FileError('Ask the server owner to set a profile password to use your private files.', 403)
         return space, clean_path(data.get('path'))
 
     def listing(space, parts):
@@ -315,7 +337,7 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
         if (unavailable := guard()):
             return unavailable
         try:
-            data = request.get_json(silent=True) or {}
+            data = body()
             space, parts = space_and_parts(data)
             name = clean_name(data.get('name'))
             with store.lock:
@@ -397,10 +419,11 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
             space, parts = space_and_parts(request.args)
             if not parts:
                 raise FileError('Choose a file.')
-            target = store.resolve(space, g.user, parts)
-            if not os.path.isfile(target):
-                raise FileError('That is not a file.', 404)
-            return send_attachment(target, parts[-1])
+            with store.lock:
+                target = store.resolve(space, g.user, parts)
+                if not os.path.isfile(target):
+                    raise FileError('That is not a file.', 404)
+                return send_attachment(target, parts[-1])
         except FileError as error:
             return fail(error)
 
@@ -409,7 +432,7 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
         if (unavailable := guard()):
             return unavailable
         try:
-            data = request.get_json(silent=True) or {}
+            data = body()
             space, parts = space_and_parts(data)
             if not parts:
                 raise FileError('Choose an item.')
@@ -423,10 +446,8 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
                     raise FileError('Something with that name already exists.', 409)
                 os.rename(source, target)
                 store.invalidate_uploads(source)
-                owner = store.owner(space, parts)
-                store.drop_owners(space, parts)
-                if owner:
-                    store.set_owner(space, parts[:-1] + [name], owner)
+                store.move_owners(space, parts, parts[:-1] + [name])
+                store.revoke_path(space, g.user, parts)
             return jsonify(name=name)
         except FileError as error:
             return fail(error)
@@ -444,6 +465,8 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
                 if not store.may_change(space, parts, g.user, is_admin()):
                     raise FileError('Only the person who added it can delete it.', 403)
                 if os.path.isdir(target):
+                    if not store.may_delete_tree(space, parts, g.user, is_admin()):
+                        raise FileError('This folder contains files added by another profile.', 403)
                     if os.listdir(target) and request.args.get('recursive') != 'true':
                         raise FileError('That folder is not empty.', 409)
                     store.invalidate_uploads(target)
@@ -466,9 +489,10 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
         if not allow('files-link:' + g.user, 20, 3600):
             return jsonify(error='Too many links made this hour. Try later.'), 429
         try:
-            data = request.get_json(silent=True) or {}
+            data = body()
             space, parts = space_and_parts(data)
-            link_id, secret, expires = store.create_link(g.user, space, parts, data.get('expires_hours'), data.get('password') or None, data.get('max_downloads'))
+            with store.lock:
+                link_id, secret, expires = store.create_link(g.user, space, parts, data.get('expires_hours'), data.get('password') or None, data.get('max_downloads'))
             return jsonify(id=link_id, url=link_url(secret), expires=expires), 201
         except FileError as error:
             return fail(error)
@@ -477,13 +501,13 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
     def files_links():
         if (unavailable := guard()):
             return unavailable
-        return jsonify(links=store.my_links(g.user))
+        return jsonify(links=store.my_links(g.user, private_access()))
 
     @app.delete('/api/files/links/<link_id>')
     def files_link_revoke(link_id):
         if (unavailable := guard()):
             return unavailable
-        if not re.fullmatch('[a-f0-9]{16}', link_id) or not store.revoke(g.user, link_id, is_admin()):
+        if not re.fullmatch('[a-f0-9]{16}', link_id) or not store.revoke(g.user, link_id, is_admin(), private_access()):
             return jsonify(error='That link no longer exists.'), 404
         return '', 204
 
@@ -492,11 +516,12 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
         response = send_file(path, mimetype='application/octet-stream', as_attachment=True, download_name=name, conditional=True, max_age=0)
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Cache-Control'] = 'private, no-store'
+        response.headers['Referrer-Policy'] = 'no-referrer'
         return response
 
     def page(body, status=200):
         response = Response(body, status=status, mimetype='text/html')
-        response.headers['Referrer-Policy'] = 'no-referrer'
+        response.headers['Referrer-Policy'] = 'strict-origin'
         response.headers['X-Robots-Tag'] = 'noindex'
         return response
 
@@ -519,12 +544,19 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
             return None, None
         return (link, target) if os.path.isfile(target) else (None, None)
 
+    def link_page(link, target, secret, error='', status=200):
+        with store.lock:
+            if store.find_link(secret) != link or not os.path.isfile(target):
+                return gone()
+            size = os.path.getsize(target)
+        return page(landing(os.path.basename(target), size, link['expires'], secret, bool(link['password_hash']), error), status)
+
     @app.get('/api/share/<secret>', endpoint='share_landing')
     def share_landing(secret):
         link, target = open_link(secret)
         if not link:
             return gone()
-        return page(landing(os.path.basename(target), os.path.getsize(target), link['expires'], secret, bool(link['password_hash'])))
+        return link_page(link, target, secret)
 
     @app.route('/api/share/<secret>/download', methods=['GET', 'POST'], endpoint='share_download')
     def share_download(secret):
@@ -533,14 +565,18 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
             return gone()
         if link['password_hash']:
             if request.method != 'POST':
-                return page(landing(os.path.basename(target), os.path.getsize(target), link['expires'], secret, True))
+                return link_page(link, target, secret)
             if not allow('share-try:' + secret[:12], 8, 300):
-                return page(landing(os.path.basename(target), os.path.getsize(target), link['expires'], secret, True, 'Too many tries. Wait a few minutes.'), 429)
+                return link_page(link, target, secret, 'Too many tries. Wait a few minutes.', 429)
             if not check_password_hash(link['password_hash'], request.form.get('password', '')[:200]):
-                return page(landing(os.path.basename(target), os.path.getsize(target), link['expires'], secret, True, 'That password is not right.'), 403)
-        if not store.use_link(link['id']):
-            return gone()
-        return send_attachment(target, os.path.basename(target))
+                return link_page(link, target, secret, 'That password is not right.', 403)
+        with store.lock:
+            live = store.find_link(secret)
+            if live != link or not os.path.isfile(target):
+                return gone()
+            if request.method != 'HEAD' and not store.use_link(link['id']):
+                return gone()
+            return send_attachment(target, os.path.basename(target))
 
     # The password form is posted by someone with no FamilyHub session; the secret in the address is the credential.
     csrf_exempt(share_download)

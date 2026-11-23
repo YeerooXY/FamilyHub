@@ -99,6 +99,7 @@ public sealed record ListenerProfile
     [JsonPropertyName("color")] public string Color { get; init; } = "";
     [JsonPropertyName("image_url")] public string ImageUrl { get; init; } = "";
     [JsonPropertyName("image_sha256")] public string ImageSha256 { get; init; } = "";
+    [JsonPropertyName("requires_password")] public bool RequiresPassword { get; init; }
 }
 
 public sealed record ListenerPreferences

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
@@ -41,10 +42,64 @@ public sealed class PublicAppReleases(HttpClient http)
     public static bool IsPublic(AppRelease release, string platform) =>
         FileName(platform, release.Version) is { } file && release.DownloadUrl == DownloadUrl(release.Version, file);
 
-    public Task<HttpResponseMessage> OpenDownloadAsync(AppRelease release, string platform, CancellationToken token)
+    public static bool MatchesMirror(AppRelease published, AppRelease mirrored, string platform) =>
+        IsPublic(published, platform) && ValidPackage(published.Sha256, published.Size) &&
+        mirrored.Version == published.Version && mirrored.Sha256 == published.Sha256 && mirrored.Size == published.Size &&
+        mirrored.DownloadUrl == $"/api/app-updates/{platform}/{published.Sha256}";
+
+    public async Task RequireInstallableAsync(AppRelease release, string platform, Version installed, CancellationToken token)
+    {
+        if (!Version.TryParse(release.Version, out var version) || version <= installed)
+            throw new InvalidDataException("This update must be newer than the installed version.");
+        var published = await CheckAsync(platform, token);
+        if (published is null || (release != published && (platform != "windows-x64" || !MatchesMirror(published, release, platform))))
+            throw new InvalidDataException("This update does not match the official GitHub release.");
+    }
+
+    public async Task<HttpResponseMessage> OpenDownloadAsync(AppRelease release, string platform, CancellationToken token)
     {
         if (!IsPublic(release, platform)) throw new InvalidDataException("Invalid public update URL.");
-        return http.GetAsync(release.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, token);
+        var uri = new Uri(release.DownloadUrl);
+        for (var hops = 0; hops < 4; hops++)
+        {
+            var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, token);
+            if ((int)response.StatusCode is not (301 or 302 or 303 or 307 or 308)) return response;
+            using (response)
+            {
+                if (response.Headers.Location is not { } location || !Uri.TryCreate(uri, location, out var next) ||
+                    next.Scheme != Uri.UriSchemeHttps || !next.IsDefaultPort || next.UserInfo.Length != 0 ||
+                    next.Host is not ("release-assets.githubusercontent.com" or "objects.githubusercontent.com" or "github-releases.githubusercontent.com"))
+                    throw new InvalidDataException("GitHub returned an invalid update download redirect.");
+                uri = next;
+            }
+        }
+        throw new InvalidDataException("GitHub redirected the update download too many times.");
+    }
+
+    public static async Task WriteVerifiedPackageAsync(HttpResponseMessage response, Stream output, AppRelease release,
+        Action<int> progress, CancellationToken token)
+    {
+        response.EnsureSuccessStatusCode();
+        if (!ValidPackage(release.Sha256, release.Size) ||
+            response.Content.Headers.ContentLength is long size && size != release.Size)
+            throw new InvalidDataException("The update download has an unexpected size.");
+        await using var input = await response.Content.ReadAsStreamAsync(token);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buffer = new byte[81920];
+        long received = 0;
+        var lastPercent = -1;
+        int count;
+        while ((count = await input.ReadAsync(buffer, token)) != 0)
+        {
+            received += count;
+            if (received > release.Size) throw new InvalidDataException("The update exceeds its published size.");
+            hash.AppendData(buffer.AsSpan(0, count));
+            await output.WriteAsync(buffer.AsMemory(0, count), token);
+            var percent = (int)(100 * received / release.Size);
+            if (percent != lastPercent) { progress(percent); lastPercent = percent; }
+        }
+        if (received != release.Size || Convert.ToHexStringLower(hash.GetHashAndReset()) != release.Sha256)
+            throw new InvalidDataException("The update failed its integrity check. Try downloading it again.");
     }
 
     private static string DownloadUrl(string version, string file) => $"{HistoryUrl}/download/v{version}/{file}";

@@ -620,6 +620,8 @@ public sealed class MusicSession
     private void StorePreferences(ListenerPreferences value, bool dirty) => Preferences.Default.Set(
         PreferenceKey(Server, User), JsonSerializer.Serialize(new CachedPreferences(value, dirty)));
 
+    private string? profilePassword;
+
     public async Task ConnectServerAsync(string server, Func<Task>? beforeSwitch = null)
     {
         await connectionLock.WaitAsync();
@@ -635,8 +637,8 @@ public sealed class MusicSession
             {
                 connection = await candidate.ConnectAsync(timeout.Token);
                 if (candidate.ServerOrigin.AbsoluteUri == Server && !string.IsNullOrEmpty(User)
-                    && connection.Profiles.Any(p => p.Id == User))
-                    selection = await candidate.SelectProfileAsync(User, timeout.Token);
+                    && connection.Profiles.Any(p => p.Id == User && (!p.RequiresPassword || profilePassword is not null)))
+                    selection = await candidate.SelectProfileAsync(User, timeout.Token, password: profilePassword);
             }
             catch (HttpRequestException error) when (error.HttpRequestError == HttpRequestError.SecureConnectionError)
             {
@@ -668,6 +670,7 @@ public sealed class MusicSession
 
     private void ClearProfile()
     {
+        profilePassword = null;
         accountVersion++; TopListenerId = null; topListenerChecked = default;
         playbackCaches.Clear();
         PinPlayback(null); PinPreparingPlayback(null);
@@ -679,7 +682,7 @@ public sealed class MusicSession
         PlaybackPreferences = new(); NeedsProfileSelection = true;
     }
 
-    public async Task SelectProfileAsync(string id)
+    public async Task SelectProfileAsync(string id, string? password = null)
     {
         await connectionLock.WaitAsync();
         FamilyHubApi? candidate = null;
@@ -700,7 +703,7 @@ public sealed class MusicSession
                 StoreProfiles(server, Profiles);
                 if (!Profiles.Any(profile => profile.Id == id))
                     throw new InvalidOperationException("This profile is no longer available. Choose another profile.");
-                selection = await candidate.SelectProfileAsync(id, timeout.Token);
+                selection = await candidate.SelectProfileAsync(id, timeout.Token, password: password);
             }
             catch (Exception error) when (error is HttpRequestException { StatusCode: null } or OperationCanceledException)
             {
@@ -708,11 +711,13 @@ public sealed class MusicSession
                 if (Server != server) throw new OperationCanceledException("The server changed.");
                 var profile = ReadProfiles(server).FirstOrDefault(profile => profile.Id == id)
                     ?? throw new InvalidOperationException("This profile is not available offline. Reconnect to your server first.");
+                if (profile.RequiresPassword) throw new InvalidOperationException("Connect to your server to sign in to this profile.");
                 var offline = new OfflineLibrary(Path.Combine(FileSystem.AppDataDirectory, "downloads"), candidate.ServerOrigin, id);
                 var library = await offline.GetLibraryAsync();
                 var playlists = await offline.GetPlaylistsAsync();
                 RequireIdleDownload(); EnsureCurrent(version);
                 Configure(server, id, candidate, offline); candidate = null;
+                profilePassword = null;
                 ProfileName = profile.Name; NeedsProfileSelection = false;
                 Profiles = ReadProfiles(server); Library = library; Playlists = playlists;
                 PlaybackPreferences = ReadPreferences().Value;
@@ -721,6 +726,7 @@ public sealed class MusicSession
                 return;
             }
             await ApplySelectionAsync(candidate, selection, connection.Profiles);
+            profilePassword = connection.Profiles.Any(p => p.Id == id && p.RequiresPassword) ? password : null;
             candidate = null;
             await RefreshAsync();
         }
@@ -811,16 +817,22 @@ public sealed class MusicSession
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var connection = await candidate.ConnectAsync(timeout.Token, background);
             StoreProfiles(Server, connection.Profiles);
-            if (string.IsNullOrEmpty(User) || !connection.Profiles.Any(p => p.Id == User))
+            if (string.IsNullOrEmpty(User) || !connection.Profiles.Any(p => p.Id == User && (!p.RequiresPassword || profilePassword is not null)))
             {
                 Api?.Dispose(); Api = candidate; candidate = null;
                 ClearProfile(); Profiles = connection.Profiles; PersistConnection();
                 SetMessage("Choose who's listening."); return;
             }
-            var selection = await candidate.SelectProfileAsync(User, timeout.Token, background);
+            var selection = await candidate.SelectProfileAsync(User, timeout.Token, background, profilePassword);
             await ApplySelectionAsync(candidate, selection, connection.Profiles);
             candidate = null;
             await RefreshAsync(background);
+        }
+        catch (FamilyHubApiException error) when (error.StatusCode == 403)
+        {
+            var profiles = ReadProfiles(Server);
+            ClearProfile(); Profiles = profiles; PersistConnection();
+            SetMessage("Sign in again to use this profile.", "warning");
         }
         catch (Exception error) { OfflineError(error); }
         finally { if (!ReferenceEquals(Api, candidate)) candidate?.Dispose(); connectionLock.Release(); }
@@ -1607,7 +1619,7 @@ public sealed class MusicSession
         if (profile is null || profile.Id != User || string.IsNullOrWhiteSpace(profile.Name))
             throw new InvalidDataException("The server returned an invalid profile.");
         var index = Profiles.FindIndex(p => p.Id == User);
-        if (index >= 0) Profiles[index] = profile;
+        if (index >= 0) Profiles[index] = profile with { RequiresPassword = Profiles[index].RequiresPassword };
         else Profiles.Add(profile);
         ProfileName = profile.Name;
         StoreProfiles(Server, Profiles);

@@ -10,13 +10,13 @@ The iPhone source and build workflow are included. No Mac is available locally, 
 
 ## Server and offline use
 
-Enter the HTTPS FamilyHub server address, connect, then choose who is listening. The native app remembers that profile across launches and reconnects. Use **Switch profile** to choose someone else. A cached profile and its completed downloads remain usable when the server cannot be reached.
+Enter the HTTPS FamilyHub server address, connect, then choose a profile. Use **Switch profile** to change profiles. The app keeps a protected profile's password in memory until you switch profiles or close the app. On the next launch, sign in again to use that profile online.
 
-The private server must enable `FAMILY_PROFILES: true`. This mode uses profile selection without a music-account password; keep access restricted to the private family network. The flag defaults to `false`, preserving the legacy Navidrome password flow for existing web deployments. The native profile flow requires family mode. The private Tailscale server enabled this mode on 13 November 2026; its access remains tailnet-only.
+The native profile flow requires `FAMILY_PROFILES: true`. Keep the service on the private family network. Set `PROFILE_PASSWORD_HASHES` before enabling administrator access, linking a profile to Jellyfin, or opening **Your files**. Ordinary shared profiles can keep one-tap selection. Legacy Navidrome web sign-in remains available with `FAMILY_PROFILES: false`. See [profile password setup](SECURITY_REVIEW.md#profile-password-setup).
 
 On first enablement, `ALLOWED_USERS` seeds profiles with the exact existing usernames as IDs, preserving their playlists. New profiles receive stable generated IDs, with up to 12 profiles in total. Profiles and playback preferences are stored in `WORKSPACE/.family-profiles.json`. Every profile uses the same existing server music catalogue; profile selection does not copy or replace recordings.
 
-Volume and shuffle preferences belong to the selected profile. Native changes are saved locally, sent to the server when connected, and retried on reconnect when changed offline. Downloads, cached playlists, artwork and preferences are separated by server and profile. The web client remembers its selected profile in the existing signed cookie and restores it after server restarts; **Switch profile** clears that choice.
+Volume and shuffle preferences belong to the selected profile. Native changes are saved locally, sent to the server when connected, and retried on reconnect when changed offline. Downloads, cached playlists, artwork and preferences are separated by server and profile. The browser restores ordinary profiles after server restarts. Protected profiles must sign in again.
 
 Downloaded recordings are stored on the device for offline listening, including after an app restart. Download integrity is checked against the server's SHA-256 metadata. Offline playback requires a completed local download; server operations require connectivity. Keep the installed app and its data when updating to retain downloaded recordings.
 

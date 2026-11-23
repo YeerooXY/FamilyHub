@@ -285,11 +285,21 @@ public partial class MainPage : ContentPage
 #endif
         current = new(this);
         blazorWebView.WebResourceRequested += ServeArtwork;
+#if ANDROID
+        blazorWebView.BlazorWebViewInitialized += (_, args) =>
+        {
+            var settings = args.WebView.Settings;
+            settings.AllowFileAccess = false;
+            settings.AllowContentAccess = false;
+            settings.MixedContentMode = Android.Webkit.MixedContentHandling.NeverAllow;
+        };
+#endif
 #if WINDOWS
         blazorWebView.BlazorWebViewInitialized += (_, args) =>
         {
             args.WebView.DefaultBackgroundColor = Microsoft.UI.Colors.Black;
             args.WebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
+            args.WebView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
         };
         audio.IsVisible = false;
         audioNext.IsVisible = false;
@@ -331,7 +341,13 @@ public partial class MainPage : ContentPage
             var activation = session.PlaybackActivation;
             if (session.Api is { } api) Dispatcher.Dispatch(async () => await connection.ReceiveAsync(handover, api, activation));
         };
-        blazorWebView.UrlLoading += (_, args) => { if (args.Url.Host != "0.0.0.1") args.UrlLoadingStrategy = Microsoft.AspNetCore.Components.WebView.UrlLoadingStrategy.CancelLoad; };
+        blazorWebView.UrlLoading += (_, args) =>
+        {
+            if (args.Url.Host != "0.0.0.1" || args.Url.Scheme is not ("https" or "http" or "app") ||
+                !args.Url.IsDefaultPort || args.Url.UserInfo.Length != 0 ||
+                args.UrlLoadingStrategy != Microsoft.AspNetCore.Components.WebView.UrlLoadingStrategy.OpenInWebView)
+                args.UrlLoadingStrategy = Microsoft.AspNetCore.Components.WebView.UrlLoadingStrategy.CancelLoad;
+        };
 	}
     protected override bool OnBackButtonPressed()
     {

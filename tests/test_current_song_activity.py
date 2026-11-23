@@ -12,12 +12,12 @@ class CurrentSongActivity(Base):
         client, token = self.select()
         data=dict(device_id='a'*32,playing=True,track=dict(id='abcdefghijk',title='Song',channel='Artist'))
         self.assertEqual(self.post(client,token,'/api/playback/activity',json=data).status_code,200)
-        row=next(r for r in self.go(client,'GET','/api/server/stats').json['profiles'] if r['id']=='sample-a')
+        row=next(r for r in self.go(client,'GET','/api/activity/stats').json['profiles'] if r['id']=='sample-a')
         self.assertEqual(row['current_track'],data['track'])
         for bad in ('song', {}, {**data['track'],'title':'x'*501}, {**data['track'],'channel':'line\nbreak'}):
             self.assertEqual(self.post(client,token,'/api/playback/activity',json={**data,'track':bad}).status_code,400)
         self.assertEqual(self.post(client,token,'/api/playback/activity',json=dict(device_id='a'*32,playing=False)).status_code,200)
-        row=next(r for r in self.go(client,'GET','/api/server/stats').json['profiles'] if r['id']=='sample-a')
+        row=next(r for r in self.go(client,'GET','/api/activity/stats').json['profiles'] if r['id']=='sample-a')
         self.assertIsNone(row['current_track'])
 
     def test_oversized_queue_leaves_counters_and_presence_unchanged(self):
@@ -30,7 +30,7 @@ class CurrentSongActivity(Base):
             response = self.post(client, token, activity, json={**data, **fields})
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json['error'], 'Invalid playback queue.')
-        stats = self.go(client, 'GET', '/api/server/stats').json
+        stats = self.go(client, 'GET', '/api/activity/stats').json
         self.assertEqual(stats['total_seconds'], 0)
         self.assertFalse(stats['profiles'][0]['online'])
 
@@ -51,4 +51,4 @@ class CurrentSongActivity(Base):
             entry['seconds'] = 120
             self.assertEqual(self.post(client, token, '/api/playback/activity', json=data).status_code, 200)
             self.assertEqual(read.call_count, 2)
-        self.assertEqual(self.go(client, 'GET', '/api/server/stats').json['total_seconds'], 60)
+        self.assertEqual(self.go(client, 'GET', '/api/activity/stats').json['total_seconds'], 60)

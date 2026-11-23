@@ -50,7 +50,7 @@ class HistoryApiTests(Base):
         fixture = HistoryStoreTests()
         fixture.now = datetime.now(timezone.utc)
         event = fixture.event()
-        stats = '/api/server/stats?leaderboard=1'
+        stats = '/api/activity/stats'
         wrapped = '/api/listening/wrapped'
         chart = {'artists': {'data': [{'name': 'Artist'}]},
                  'tracks': {'data': [{'title': 'Song', 'artist': {'name': 'Artist'}}]}}

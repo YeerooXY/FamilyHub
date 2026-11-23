@@ -282,6 +282,7 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-download-progress span { display: block; height: 100%; transform-origin: left; background: #89b4ff; }
 @media (min-width: 1100px) {
     .movie-library-columns { display: grid; align-items: start; grid-template-columns: minmax(0, 1fr) minmax(15rem, 22rem); gap: 1.25rem; }
+    .movie-library-columns-full { grid-template-columns: minmax(0, 1fr); }
     .movie-catalogue { grid-area: 1 / 1; }
     .movie-downloads { grid-area: 1 / 2; }
 }

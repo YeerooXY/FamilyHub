@@ -1,3 +1,4 @@
+const { useMovieBridge } = require("./movies_fixture.cjs");
 // Movie search offers web results and, for linked profiles, Seerr requests.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -26,11 +27,12 @@ async function openSearch(browser, outcome, options = { viewport: { width: 412, 
         if (url.pathname === "/Items" || url.pathname === "/UserItems/Resume") return route.fulfill({ headers, json: { Items: [], TotalRecordCount: 0 } });
         return route.fulfill({ headers, status: 404 });
     });
+    await useMovieBridge(page);
     await page.goto(app + "/");
     await page.evaluate(async ({ jellyfin, outcome, answer }) => {
         window.calls = [];
         const { openMovies } = await import("/movies.js");
-        window.movies = openMovies(document.querySelector("main"), { url: jellyfin, user: "u", token: "t", device: "0123456789abcdef0123456789abcdef", requests_enabled: ["requests", "trinity"].includes(outcome) },
+        window.movies = window.openMovieFixture(openMovies, document.querySelector("main"), { url: jellyfin, user: "u", token: "t", device: "0123456789abcdef0123456789abcdef", requests_enabled: ["requests", "trinity"].includes(outcome) },
             { invokeMethodAsync: (name, ...args) => {
                 if (name === "MovieDownloads") return Promise.resolve('{"available":true,"items":[]}');
                 window.calls.push([name, ...args]);

@@ -2,14 +2,16 @@
 import json
 import re
 from http.client import HTTPException
-from urllib.request import urlopen
+from urllib.request import build_opener
+
+from .catalog_search import NoRedirect
 
 
 def published_answer(day):
     key = day.isoformat()
     url = f"https://www.nytimes.com/svc/wordle/v2/{key}.json"
     try:
-        with urlopen(url, timeout=4) as response:
+        with build_opener(NoRedirect).open(url, timeout=4) as response:
             raw = response.read(8193)
         if len(raw) > 8192:
             return None

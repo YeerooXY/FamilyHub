@@ -14,6 +14,8 @@
     private ElementReference host;
     private IJSObjectReference? module, shelf;
     private DotNetObjectReference<MoviesView>? callback;
+    private FamilyHub.Client.Core.FamilyHubApi? movieApi;
+    private string? mediaTicket;
     private readonly CancellationTokenSource closed = new();
     private string message = "Loading movies…";
     private bool failed, loading;
@@ -32,11 +34,13 @@
         try
         {
             var api = Session.Api ?? throw new InvalidOperationException();
+            movieApi = api;
             var viewer = new { server = Session.Server, profile = Session.User };
             module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./movies.js");
             callback ??= DotNetObjectReference.Create(this);
             var connection = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/movies/session",
                 new { device = Guid.NewGuid().ToString("N") }, cancellationToken: closed.Token);
+            mediaTicket = connection.GetProperty("media_ticket").GetString();
             if (closed.IsCancellationRequested) return;
             shelf = await module.InvokeAsync<IJSObjectReference>("openMovies", host, connection, callback, viewer);
             if (closed.IsCancellationRequested) { await shelf.InvokeVoidAsync("close"); return; }
@@ -108,6 +112,22 @@
     public Task<string> MovieDownloads() => SendMovieRequest("/api/movies/downloads");
 
     [JSInvokable]
+    public async Task<string> MovieLibrary(string path, string query, System.Text.Json.JsonElement? payload)
+    {
+        if (closed.IsCancellationRequested || movieApi is not { } api || !ReferenceEquals(api, Session.Api)) return "{}";
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(closed.Token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(12));
+        try
+        {
+            var result = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/movies/library",
+                new { ticket = mediaTicket, path, query, payload }, timeout.Token);
+            return result.GetRawText();
+        }
+        catch (Exception error) when (error is FamilyHubApiException or HttpRequestException or OperationCanceledException or InvalidDataException or ObjectDisposedException)
+        { return "{}"; }
+    }
+
+    [JSInvokable]
     public Task<string> MovieRequest(string kind, int id, int? season) => SendMovieRequest("/api/movies/request", new { kind, id, season });
 
     private async Task<string> SendMovieRequest(string path, object? payload = null)
@@ -130,6 +150,7 @@
     public async Task MovieOpenLink(string url)
     {
         if (Uri.TryCreate(url, UriKind.Absolute, out var link) && link.Scheme == "https" && link.Host == "www.youtube.com"
+            && link.IsDefaultPort && link.UserInfo.Length == 0 && link.Fragment.Length == 0
             && link.AbsolutePath == "/watch" && System.Text.RegularExpressions.Regex.IsMatch(link.Query, @"^\?v=[A-Za-z0-9_-]{11}$"))
             await Microsoft.Maui.ApplicationModel.Launcher.Default.OpenAsync(link);
     }
@@ -147,7 +168,6 @@
 
     public async ValueTask DisposeAsync()
     {
-        closed.Cancel();
         PlayerScreen.Set(false);
         try
         {
@@ -155,6 +175,19 @@
             if (module is not null) await module.DisposeAsync();
         }
         catch (JSDisconnectedException) { }
-        finally { callback?.Dispose(); }
+        finally
+        {
+            closed.Cancel();
+            callback?.Dispose();
+            if (mediaTicket is { } ticket && movieApi is { } api && ReferenceEquals(api, Session.Api))
+            {
+                try
+                {
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+                    await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/movies/media/close", new { ticket }, timeout.Token);
+                }
+                catch (Exception error) when (error is FamilyHubApiException or HttpRequestException or OperationCanceledException or InvalidDataException or ObjectDisposedException) { }
+            }
+        }
     }
 }

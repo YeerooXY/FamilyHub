@@ -11,7 +11,7 @@ from tests.test_music_web import Base, URL
 
 
 class HttpCapacityTests(Base):
-    extra = {'STATUS_SNAPSHOTS': True}
+    extra = {'STATUS_SNAPSHOTS': True, 'ADMIN_USERS': ['sample-a']}
 
     def test_backlogged_watches_cannot_starve_play_status_or_server_work(self):
         client, token = self.signed_in()

@@ -68,7 +68,7 @@ class RetiredBrowserPlayer(Base):
             self.assertNotIn('<html', response.get_data(as_text=True).lower())
         response = self.go(client, 'GET', '/api/connect')
         self.assertEqual(response.status_code, 200)
-        selected = self.post(client, response.json['csrf_token'], '/api/profile/select', json={'profile_id':'sample-a'})
+        selected = self.post(client, response.json['csrf_token'], '/api/profile/select', json=self.profile_credentials('sample-a'))
         self.assertEqual(selected.status_code,200)
         self.assertEqual(self.go(client,'GET','/api/library').status_code,200)
 

@@ -1,6 +1,6 @@
 # Movies & TV
 
-FamilyHub provides the profile picker, catalogue and player controls. Jellyfin owns the media library, playback negotiation, watched state and resume position. The phone and desktop contact Jellyfin directly for movie bytes. A Jellyfin outage can affect Movies independently of music.
+FamilyHub provides the profile picker, catalogue and player controls. Jellyfin owns the media library, playback negotiation, watched state and resume position. The apps request movie data and streaming media through FamilyHub. A Jellyfin outage can affect Movies independently of music.
 
 ## Release scope (22 November 2026)
 
@@ -64,8 +64,8 @@ Release checks cover a movie, two episodes without the rest of the season, VPN f
 ## Connect a profile
 
 1. Start the existing Jellyfin service on the Debian guest. Give each viewer a separate ordinary Jellyfin account with access to the movie and TV libraries. The projector should use the same viewer account as the phone.
-2. Make Jellyfin available at a private HTTPS address reachable from the family devices. Forward the complete Jellyfin URL space, including video segments and subtitle requests. Check cross-origin access from the app WebView. Exclude credentials and query strings from request logs.
-3. Configure the following keys in the private FamilyHub server configuration. Keep this file readable only by the administrator and service account. The mapping key is the stable FamilyHub profile ID. The example values below are placeholders.
+2. Set a private HTTPS address for Jellyfin artwork. FamilyHub contacts the internal Jellyfin address for authenticated library requests, video, and subtitles. Exclude request paths and query strings for FamilyHub's ticket-bearing routes from proxy logs.
+3. Configure the following keys in the private FamilyHub server configuration. Keep this file readable only by the administrator and service account. Use the stable FamilyHub profile ID as the mapping key and configure a [profile password](SECURITY_REVIEW.md#profile-password-setup).
 
    ```json
    {
@@ -77,7 +77,7 @@ Release checks cover a movie, two episodes without the rest of the season, VPN f
    }
    ```
 
-4. Restart FamilyHub and reconnect the updated app. Linked profiles get **Movies & TV** in the desktop sidebar or phone navigation bar. FamilyHub uses the selected profile to open a regular Jellyfin session. The password stays on the server. The client keeps its playback token in memory and signs out when the screen closes.
+4. Restart FamilyHub and reconnect the updated app. Linked profiles get **Movies & TV** in the desktop sidebar or phone navigation bar. FamilyHub holds the regular Jellyfin session on the server and issues an expiring URL for media. Closing Movies ends that session.
 5. Play a feature-length title, pause, and resume on another device. Switch profiles and verify separate progress. Try Hungarian and English audio and subtitles, real 4K material on the projector, and music playback on a second device. The development library has short fixtures which may fall below Jellyfin's resume threshold.
 
 ## Expansion order

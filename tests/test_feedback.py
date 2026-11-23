@@ -18,7 +18,7 @@ class FeedbackTests(Base):
     def selected(self, name):
         client = self.app.test_client()
         token = self.go(client, "GET", "/api/connect").json["csrf_token"]
-        response = self.post(client, token, "/api/profile/select", json={"profile_id": name})
+        response = self.post(client, token, "/api/profile/select", json=self.profile_credentials(name))
         self.assertEqual(response.status_code, 200)
         return client, response.json["csrf_token"]
 

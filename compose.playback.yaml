@@ -7,6 +7,8 @@ x-common: &common
   restart: unless-stopped
   security_opt: ["no-new-privileges:true"]
   cap_drop: [ALL]
+  read_only: true
+  tmpfs: ["/tmp:rw,nosuid,nodev,noexec,mode=1777,size=256m"]
   logging:
     driver: json-file
     options: { max-size: "10m", max-file: "3" }
