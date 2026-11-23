@@ -16,6 +16,8 @@ This release ships **playback only**: browsing, playback, resume, audio and subt
 
 Resource limits are also not enforced. The priority rules in [New server](NEW_SERVER.md) are a proposal, so a large upload or import can compete with a movie for the disk. Run that document's acceptance run before opening Movies to simultaneous viewers.
 
+**Two languages (23 November 2026, live on the development VM, Chromium).** "Tears of Steel (2012)", a Blender Foundation film under CC BY 3.0, sits in the movie library as an MKV with an English audio track, a second audio track tagged Hungarian, an embedded English subtitle and a Hungarian sidecar `.hu.srt`. The second audio track is the film's music-and-effects mix with no speech, a stand-in that tests switching and not a real dub. Verified: both audio tracks list with their titles; switching audio at 2:00 keeps the position; each subtitle language shows its own 78 or 76 cues, one track at a time; Off shows none; no HTML entities appear in the Hungarian text (the downloaded file had `&#369;` and similar, decoded before install). Not verified: a real Hungarian dub, image subtitles, and a phone. The VM disk is 93% full (15 GB free), so keep test files small.
+
 The next release-gating checks are one real feature film on a phone and on the projector, with Direct Play first and Quick Sync second.
 
 ## iPhone and television (22 November 2026 review)
