@@ -184,12 +184,15 @@ export function buildPlayerUi(ctx) {
 
     // Surface: a tap or click on the picture. Touch toggles the controls, a mouse toggles play, double click goes fullscreen.
     const surfaceLayer = make("div", "movie-ui-surface");
-    let tapTimer;
+    let tapTimer, hiddenAtTouch = false;
+    // The touch itself wakes the controls (show runs on pointerdown), so remember what the tap found.
+    root.addEventListener("pointerdown", () => { hiddenAtTouch = root.classList.contains("movie-idle"); }, { capture: true, signal });
     surfaceLayer.addEventListener("click", event => {
         if (openSheet) { closeSheet(false); return; }
         const pointer = matchMedia("(hover: hover) and (pointer: fine)").matches;
         if (!pointer) {
-            if (root.classList.contains("movie-idle")) show();
+            // Like YouTube: a tap on the picture hides visible controls at once and brings hidden ones back.
+            if (hiddenAtTouch) show();
             else { clearTimeout(idleTimer); root.classList.add("movie-idle"); }
             return;
         }

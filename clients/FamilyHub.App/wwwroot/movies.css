@@ -167,6 +167,10 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-ui > * { position: relative; }
 .movie-ui-surface { position: absolute !important; inset: 0; z-index: 0; }
 .movie-ui-top, .movie-ui-mid, .movie-ui-bottom, .movie-ui-message { z-index: 1; transition: opacity .25s ease; }
+/* Empty space in the control rows passes the tap to the picture, so a tap hides the controls. */
+.movie-ui-top, .movie-ui-mid, .movie-ui-bottom { pointer-events: none; }
+.movie-ui :is(button, input, select, .movie-seek-wrap) { pointer-events: auto; }
+.movie-ui.movie-idle :is(button, input, select, .movie-seek-wrap) { pointer-events: none; }
 .movie-ui.movie-idle :is(.movie-ui-top, .movie-ui-mid, .movie-ui-bottom) { opacity: 0; pointer-events: none; }
 .movie-ui.movie-idle .movie-ui-surface { cursor: none; }
 .movie-library .movie-ui button { font: inherit; color: inherit; }

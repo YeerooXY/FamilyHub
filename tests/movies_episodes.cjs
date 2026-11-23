@@ -10,8 +10,9 @@ const episodes = ["Pilot", "The Move", "Visitors"].map((Name, i) => ({
     ImageTags: {}, UserData: i === 0 ? { PlayedPercentage: 40 } : {} }));
 const film = { Id: "f", Name: "Harbour Lights", Type: "Movie", ImageTags: {} };
 
-async function check(browser) {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
+async function check(browser, touch) {
+    const context = await browser.newContext({ viewport: touch ? { width: 412, height: 915 } : { width: 1280, height: 800 }, reducedMotion: "reduce", hasTouch: touch });
+    const page = await context.newPage();
     page.setDefaultTimeout(6000);
     await page.addInitScript(() => {
         HTMLMediaElement.prototype.play = () => Promise.resolve();
@@ -52,9 +53,19 @@ async function check(browser) {
     assert.equal(await page.getByRole("button", { name: "Episodes" }).isVisible(), false);
     assert.equal(await page.getByRole("button", { name: /^Next episode/ }).isVisible(), false);
     // Controls hide a few seconds after the last touch, also when paused and also with reduced motion (many phones set it).
+    const idle = () => page.evaluate(() => document.querySelector(".movie-ui").classList.contains("movie-idle"));
     await page.waitForFunction(() => document.querySelector(".movie-ui")?.classList.contains("movie-idle"), null, { timeout: 6000 });
-    await page.mouse.move(300, 300);
-    await page.waitForFunction(() => !document.querySelector(".movie-ui").classList.contains("movie-idle"));
+    if (touch) {
+        // A tap wakes hidden controls; the next tap hides them at once, like YouTube.
+        await page.locator(".movie-ui-surface").tap();
+        assert.equal(await idle(), false, "tap shows hidden controls");
+        await page.locator(".movie-ui-surface").tap();
+        assert.equal(await idle(), true, "tap hides visible controls immediately");
+        await page.locator(".movie-ui-surface").tap();
+    } else {
+        await page.mouse.move(300, 300);
+        await page.waitForFunction(() => !document.querySelector(".movie-ui").classList.contains("movie-idle"));
+    }
     await back.click();
     await back.waitFor({ state: "hidden" });
 
@@ -86,7 +97,7 @@ async function check(browser) {
 (async () => {
     for (const engine of [chromium, webkit]) {
         const browser = await engine.launch();
-        try { await check(browser); } finally { await browser.close(); }
+        try { await check(browser, false); await check(browser, true); } finally { await browser.close(); }
     }
     console.log("Episodes and Next Episode verified for a series and absent for a film in Chromium and WebKit.");
 })().catch(error => { console.error(error); process.exit(1); });
