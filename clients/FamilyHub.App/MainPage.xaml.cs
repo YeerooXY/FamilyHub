@@ -172,10 +172,13 @@ public partial class MainPage : ContentPage
     private void UpdatePlaybackNetwork()
     {
         var eligible = !MeteredConnection() && Connectivity.Current.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
-        if (session.CanWarmPlayback == eligible) return;
+        var couldWarm = lastWarmEligibility;
         session.CanWarmPlayback = eligible;
+        lastWarmEligibility = session.CanWarmPlayback;
+        if (couldWarm == lastWarmEligibility) return;
         player.PlaybackNetworkChanged();
     }
+    private bool lastWarmEligibility;
     private bool MeteredConnection()
     {
 #if WINDOWS

@@ -31,11 +31,24 @@ function preferredTrack(tracks, language) {
 
 const labels = { default: "Default", hu: "Hungarian", en: "English", off: "Off" };
 const preferencesKey = viewer => "familyhub:movie-tracks:" + JSON.stringify(viewer);
+const dataChoices = [
+    ["auto", "Auto", "Full on Wi-Fi, Saver on mobile data"],
+    ["full", "Full quality", "Varies by movie"],
+    ["good", "Good", "720p · about 1.1 GB an hour"],
+    ["saver", "Saver", "480p · about 0.45 GB an hour"],
+    ["lowest", "Lowest", "360p · about 0.25 GB an hour"]
+];
+const dataLimits = {
+    good: { bitrate: 2500000, height: 720 },
+    saver: { bitrate: 1000000, height: 480, audioBitrate: 96000 },
+    lowest: { bitrate: 500000, height: 360, audioBitrate: 96000 }
+};
 
 function normalizeMoviePreferences(prefs) {
     return {
         audio: ["hu", "en"].includes(prefs?.audio) ? prefs.audio : "default",
-        subtitles: ["off", "hu", "en"].includes(prefs?.subtitles) ? prefs.subtitles : "default"
+        subtitles: ["off", "hu", "en"].includes(prefs?.subtitles) ? prefs.subtitles : "default",
+        dataSaver: dataChoices.some(([id]) => id === prefs?.dataSaver) ? prefs.dataSaver : "auto"
     };
 }
 
@@ -120,7 +133,22 @@ export function openMovies(host, session, app, viewer) {
     status.setAttribute("role", "status");
     const player = el("section"), library = el("div");
     player.className = "movie-player";
+    player.tabIndex = -1;
+    player.setAttribute("aria-label", "Movie player");
     const preferenceViewer = viewer ?? [base.origin, session.user];
+    const connection = navigator.connection;
+    let connectionRevision = 0, autoHintShown = false;
+    async function qualityFor(choice) {
+        if (choice !== "auto") return choice;
+        const native = await app.invokeMethodAsync("MovieConnectionKind").catch(() => null);
+        if (native === "cellular" || native === "wifi") return native === "cellular" ? "saver" : "full";
+        return connection?.type === "cellular" || connection?.saveData ? "saver" : "full";
+    }
+    function connectionChanged() {
+        connectionRevision++;
+        return current?.refreshQuality();
+    }
+    connection?.addEventListener?.("change", connectionChanged, { signal: life.signal });
     host.replaceChildren(status, player, library);
     const call = async (method, ...args) => JSON.parse(await app.invokeMethodAsync(method, ...args));
     function select(container, name, options) {
@@ -221,20 +249,27 @@ export function openMovies(host, session, app, viewer) {
     async function play(item, opener, options = {}) {
         if (!active) return;
         const { audioIndex, position, paused } = options;
-        if (player.contains(document.activeElement)) {
-            library.hidden = false;
-            opener.focus();
-        }
+        if (player.contains(document.activeElement)) player.focus({ preventScroll: true });
         stop();
         const rev = selection;
         const prefs = readMoviePreferences(preferenceViewer);
+        prefs.dataSaver = options.dataSaver ?? prefs.dataSaver;
         status.textContent = "Opening " + item.Name + "…";
+        if (player.classList.contains("movie-expanded")) {
+            const loading = el("p", status.textContent);
+            loading.className = "movie-ui-message movie-ui-line";
+            loading.setAttribute("role", "status");
+            player.append(loading);
+        }
         const media = el("video");
         const nativeHls = !!media.canPlayType("application/vnd.apple.mpegurl");
         try {
             if (!nativeHls && !globalThis.Hls && (globalThis.MediaSource || globalThis.ManagedMediaSource))
                 await import("./vendor/hls.light.min.js").catch(() => {});
+            const network = connectionRevision;
+            const quality = await qualityFor(prefs.dataSaver);
             if (!active || rev !== selection) return;
+            const limit = dataLimits[quality];
             const Hls = nativeHls ? null : globalThis.Hls;
             const hls = nativeHls || Hls?.isSupported();
             const profile = { Name: "FamilyHub web video",
@@ -242,11 +277,24 @@ export function openMovies(host, session, app, viewer) {
                 TranscodingProfiles: [{ Type: "Video", Context: "Streaming", Protocol: hls ? "hls" : "http",
                     Container: hls ? "ts" : "mp4", VideoCodec: "h264", AudioCodec: "aac" }],
                 SubtitleProfiles: [{ Format: "vtt", Method: "External" }] };
+            const condition = (Property, Value) => ({ Condition: "LessThanEqual", Property, Value: String(Value), IsRequired: true });
+            if (limit) {
+                profile.MaxStreamingBitrate = limit.bitrate;
+                profile.CodecProfiles = [{ Type: "Video", Codec: "h264", Conditions: [condition("Height", limit.height)] }];
+                if (limit.audioBitrate) {
+                    profile.TranscodingProfiles[0].MaxAudioChannels = "2";
+                    profile.TranscodingProfiles[0].EnableAudioVbrEncoding = false;
+                    profile.CodecProfiles.push({ Type: "VideoAudio", Codec: "aac",
+                        Conditions: [condition("AudioBitrate", limit.audioBitrate), condition("AudioChannels", 2)] });
+                }
+            }
             const playbackInfo = (sourceId, index) => request("Items/" + item.Id + "/PlaybackInfo", {userId: session.user}, {
                 UserId: session.user, DeviceProfile: profile,
                 ...(sourceId ? {MediaSourceId: sourceId, SubtitleStreamIndex: -1} : {}),
                 ...(index != null ? {AudioStreamIndex: index} : {}),
-                EnableDirectPlay: index == null, EnableDirectStream: true, EnableTranscoding: true });
+                ...(limit ? { MaxStreamingBitrate: limit.bitrate, AllowVideoStreamCopy: false, AllowAudioStreamCopy: false } : {}),
+                ...(limit?.audioBitrate ? { MaxAudioChannels: 2 } : {}),
+                EnableDirectPlay: !limit && index == null, EnableDirectStream: !limit, EnableTranscoding: true });
             const readResume = async () => {
                 await pendingReportsByItem.get(item.Id);
                 if (active && rev === selection) return request("Items/" + item.Id, {userId: session.user});
@@ -267,16 +315,16 @@ export function openMovies(host, session, app, viewer) {
             const defaultSubtitle = source.DefaultSubtitleStreamIndex;
             const requestedAudio = audioIndex ?? preferredAudio?.Index;
             let selectedAudio = defaultAudio;
-            let direct = source.SupportsDirectPlay;
+            let direct = !limit && source.SupportsDirectPlay;
             // A static stream leaves audio selection to the browser. Ask Jellyfin to select the track on multi-audio files.
             const customAudio = audio.length > 1 ? requestedAudio : undefined;
             if (customAudio != null || (!direct && defaultSubtitle >= 0)) {
                 const playback = await playbackInfo(source.Id, customAudio).catch(() => null);
                 if (!active || rev !== selection) return;
                 const configured = playback?.MediaSources?.[0];
-                if (configured?.TranscodingUrl || (configured?.SupportsDirectPlay && customAudio == null)) {
+                if (configured?.TranscodingUrl || (!limit && configured?.SupportsDirectPlay && customAudio == null)) {
                     selectedAudio = configured.DefaultAudioStreamIndex ?? requestedAudio ?? defaultAudio;
-                    direct = configured.SupportsDirectPlay && customAudio == null;
+                    direct = !limit && configured.SupportsDirectPlay && customAudio == null;
                     result = playback;
                     source = configured;
                 } else if (!direct && defaultSubtitle >= 0) {
@@ -288,20 +336,23 @@ export function openMovies(host, session, app, viewer) {
             const stream = mediaUrl(path, {mediaSourceId: source.Id, playSessionId: result.PlaySessionId});
             if (direct) stream.searchParams.set("static", "true");
             if (!direct && !hls && resume > 0) {
+                await leavePlayer();
+                if (!active || rev !== selection) return;
                 status.textContent = "This device cannot resume this video. Continue on another device.";
                 note("cannot-resume");
                 library.hidden = false;
                 opener.focus();
+                stop();
                 return;
             }
             const back = button("Back to movies", async () => {
                 if (!active || rev !== selection) return;
                 await leavePlayer();
                 if (!active || rev !== selection) return;
-                stop();
-                const closedSelection = selection;
                 library.hidden = false;
                 opener.focus();
+                stop();
+                const closedSelection = selection;
                 await reports;
                 if (active && closedSelection === selection) await reloadResume();
             });
@@ -312,9 +363,9 @@ export function openMovies(host, session, app, viewer) {
                 audio.map(track => [track.Index, track.DisplayTitle || track.Language || "Audio"])) : null;
             if (audioPick) {
                 audioPick.value = String(selectedAudio);
-                audioPick.onchange = () => play(item, opener, { sheet: true, audioIndex: Number(audioPick.value),
+                audioPick.onchange = () => play(item, opener, { sheet: "tracks", audioIndex: Number(audioPick.value),
                     position: metadataLoaded ? media.currentTime : resume, paused: media.paused,
-                    subtitleIndex: playback.subtitleOverride });
+                    subtitleIndex: playback.subtitleOverride, dataSaver: playback.dataSaver });
             }
             const subtitleOptions = subtitles.map(track => [track.Index, track.DisplayTitle || track.Language || "Subtitles"]);
             const subtitlePick = select(controls, "Subtitle track", [[-1, "Off"], ...subtitleOptions]);
@@ -334,7 +385,8 @@ export function openMovies(host, session, app, viewer) {
                 textTracks.set(s.Index, track.track);
             }
             for (const subtitle of subtitles) addSubtitleTrack(subtitle);
-            const playback = { item, source, id: result.PlaySessionId, method: direct ? "DirectPlay" : source.TranscodeReasons?.length ? "Transcode" : "DirectStream" };
+            const playback = { item, source, id: result.PlaySessionId, dataSaver: prefs.dataSaver,
+                method: direct ? "DirectPlay" : limit || source.TranscodeReasons?.length ? "Transcode" : "DirectStream" };
             playback.setSubtitles = (index) => {
                 playback.subtitleOverride = index;
                 const language = prefs.subtitles;
@@ -442,10 +494,41 @@ export function openMovies(host, session, app, viewer) {
                     throw Error("Subtitle track unavailable");
                 }
             };
-            ui = buildPlayerUi({ media, surface: player, back, signal: playerSignal, subtitleSearch,
+            const restartQuality = (dataSaver, sheet) => play(item, opener, {
+                dataSaver, sheet, audioIndex, subtitleIndex: playback.subtitleOverride,
+                position: metadataLoaded ? media.currentTime : resume, paused: media.paused
+            });
+            let qualityChange = 0;
+            playback.refreshQuality = async () => {
+                if (playback.dataSaver !== "auto") return;
+                const change = ++qualityChange;
+                const nextQuality = await qualityFor("auto");
+                if (current === playback && change === qualityChange && playback.dataSaver === "auto" && nextQuality !== quality)
+                    return restartQuality("auto", ui.openSheetName());
+            };
+            const originalGb = (resultInfo.MediaSources[0].Bitrate ?? 0) * 3600 / 8e9;
+            const dataSaver = {
+                choices: dataChoices.map(([id, label, estimate]) =>
+                    [id, label, id === "full" && originalGb >= 0.05 ? `about ${originalGb.toFixed(1)} GB an hour` : estimate]),
+                selected: prefs.dataSaver,
+                quality: limit ? limit.height + "p, saving data" : "Full quality",
+                async change(choice) {
+                    if (!saveMoviePreferences(preferenceViewer, { ...readMoviePreferences(preferenceViewer), dataSaver: choice })) {
+                        ui.say("This device could not save your movie preferences.");
+                        return;
+                    }
+                    playback.dataSaver = choice;
+                    ui.setDataSaver(choice);
+                    const change = ++qualityChange;
+                    const nextQuality = await qualityFor(choice);
+                    if (current === playback && change === qualityChange && nextQuality !== quality)
+                        return restartQuality(choice, "settings");
+                }
+            };
+            ui = buildPlayerUi({ media, surface: player, back, signal: playerSignal, subtitleSearch, dataSaver,
                 title: numbered ? `S${item.ParentIndexNumber}:E${item.IndexNumber} “${item.Name}”` : item.Name,
                 kicker: item.SeriesName, trackControls: [controls], notice });
-            player.append(media, ui.root);
+            player.replaceChildren(media, ui.root);
             enterPlayer();
             playback.setSubtitles(options.subtitleIndex);
             if (item.Type === "Episode" && item.SeriesId) {
@@ -458,20 +541,30 @@ export function openMovies(host, session, app, viewer) {
                     ui.setNext(after, next => play(next, opener));
                 });
             }
-            if (options.sheet && audioPick) ui.openTracksAt();
+            if (options.sheet === "settings") ui.openSettingsAt();
+            else if (options.sheet === "tracks") ui.openTracksAt();
             else ui.playButton.focus();
+            if (quality === "saver" && prefs.dataSaver === "auto" && !autoHintShown) {
+                autoHintShown = true;
+                const key = preferencesKey(preferenceViewer) + ":data-saver-hint";
+                let seen = false;
+                try { seen = !!localStorage.getItem(key); localStorage.setItem(key, "1"); } catch {}
+                if (!seen) ui.hint("Switched to Saver on mobile data.");
+            }
             status.textContent = "";
             if (!paused) media.play().catch(() => {
                 if (current === playback && !status.textContent) { status.textContent = "Press play to start."; ui?.say("Press play to start."); }
             });
+            if (network !== connectionRevision) void playback.refreshQuality();
         } catch {
             if (active && rev === selection) {
-                leavePlayer();
-                stop();
+                await leavePlayer();
+                if (!active || rev !== selection) return;
                 status.textContent = "Could not open this video. Try again.";
                 note("open-failed");
                 library.hidden = false;
                 opener.focus();
+                stop();
             }
         }
     }
@@ -1186,7 +1279,7 @@ export function openMovies(host, session, app, viewer) {
         target.focus({ preventScroll: true });
         target.scrollIntoView({ block: arrows[1] ? "center" : "nearest", inline: "nearest", behavior: quietMotion() ? "auto" : "smooth" });
     });
-    return { async close() {
+    return { connectionChanged, async close() {
         if (!active) return;
         leavePlayer(); active = false; life.abort(); stop(); await reports;
         try { await app.invokeMethodAsync("MovieCloseMedia", session.media_ticket); } catch {}

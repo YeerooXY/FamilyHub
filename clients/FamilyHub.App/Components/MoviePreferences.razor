@@ -3,7 +3,18 @@
 @inject IJSRuntime JS
 
 <section class="settings-panel glass-panel" aria-labelledby="movie-settings-heading">
-    <h2 id="movie-settings-heading">Playback languages</h2>
+    <h2 id="movie-settings-heading">Movie playback</h2>
+    <div class="setting-row movie-data-setting">
+        <label for="movie-data-saver">Data saver</label>
+        <select id="movie-data-saver" @bind="preferences.DataSaver" @bind:after="Save" disabled="@(!ready)" aria-describedby="movie-data-saver-help">
+            <option value="auto">Auto</option>
+            <option value="full">Full quality · varies by movie</option>
+            <option value="good">Good · about 1.1 GB an hour</option>
+            <option value="saver">Saver · about 0.45 GB an hour</option>
+            <option value="lowest">Lowest · about 0.25 GB an hour</option>
+        </select>
+    </div>
+    <p class="setting-help" id="movie-data-saver-help">Auto uses Full quality on Wi-Fi and Saver on mobile data. At Full quality, In Time uses about 5 GB an hour.</p>
     <div class="setting-row">
         <label for="movie-preferred-audio">Preferred audio</label>
         <select id="movie-preferred-audio" @bind="preferences.Audio" @bind:after="Save" disabled="@(!ready)">
@@ -31,6 +42,7 @@
         public Preferences() { }
         public string Audio { get; set; } = "default";
         public string Subtitles { get; set; } = "default";
+        public string DataSaver { get; set; } = "auto";
     }
 
     private Preferences preferences = new();
@@ -65,7 +77,7 @@
         try
         {
             message = await module.InvokeAsync<bool>("saveMoviePreferences", viewer, preferences)
-                ? "Movie preferences saved."
+                ? ""
                 : "This device could not save your movie preferences.";
         }
         catch (JSException)

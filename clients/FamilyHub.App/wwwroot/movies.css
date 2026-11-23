@@ -230,6 +230,9 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-sheet-head h3 { margin: 0; font-size: 1.1rem; }
 .movie-library .movie-sheet-close { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; padding: 0; border: 0; background: transparent; }
 .movie-sheet-body { display: grid; gap: .5rem; }
+.movie-quality-label { margin: 0; }
+.movie-library .movie-quality-options .movie-track-option { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .15rem .6rem; }
+.movie-quality-options small { color: #fff; opacity: .75; font-size: .85em; font-weight: 400; }
 .movie-sheet .movie-track-controls { display: grid; gap: .9rem; }
 .movie-sheet .movie-track-controls select { width: 100%; min-height: 44px; color: #fff; background: #23252c; border: 1px solid #ffffff3d; border-radius: .5rem; }
 .movie-sheet p[role="status"] { margin: 0; color: #ffffffb3; }

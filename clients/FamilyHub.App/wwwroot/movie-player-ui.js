@@ -14,6 +14,7 @@ const paths = {
     next: ["M5 5v14l10-7z", "M19 5v14"],
     episodes: ["M8 4h12v12H8z", "M4 8v12h12"],
     tracks: ["M4 5h16v11h-9l-4 4v-4H4z", "M7 9h10M7 12h6"],
+    settings: ["M4 7h16M4 17h16", "M9 4v6M15 14v6"],
     sound: ["M4 9v6h4l5 4V5L8 9z", "M16.5 9a4.5 4.5 0 0 1 0 6"],
     soundOff: ["M4 9v6h4l5 4V5L8 9z", "M17 9.5l4 5M21 9.5l-4 5"],
     expand: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
@@ -155,6 +156,8 @@ export function buildPlayerUi(ctx) {
     episodesButton.hidden = true;
     const tracksButton = button("movie-ui-action", "Audio and subtitles", paths.tracks, {}, () => toggleSheet("tracks"));
     tracksButton.append(make("span", "", "Audio & Subtitles"));
+    const settingsButton = button("movie-ui-action", "Settings", paths.settings, {}, () => openSettingsAt());
+    settingsButton.append(make("span", "", "Settings"));
     // Sound settings for a PC: phones and televisions have hardware volume, so nothing is offered there.
     const sound = soundPanelWanted() ? attachSound(media, { signal }) : null;
     const soundButton = button("movie-ui-action", "Sound", paths.sound, {}, () => toggleSheet("sound"));
@@ -164,7 +167,7 @@ export function buildPlayerUi(ctx) {
     nextButton.append(make("span", "", "Next Episode"));
     nextButton.hidden = true;
     const actions = make("div", "movie-ui-actions");
-    actions.append(fullscreen, episodesButton, tracksButton, soundButton, nextButton);
+    actions.append(fullscreen, episodesButton, tracksButton, settingsButton, soundButton, nextButton);
     const bottom = make("div", "movie-ui-bottom");
     bottom.append(seekRow, actions);
 
@@ -176,7 +179,7 @@ export function buildPlayerUi(ctx) {
         sheet.setAttribute("role", "dialog");
         sheet.setAttribute("aria-label", heading);
         const head = make("div", "movie-sheet-head");
-        const close = button("movie-sheet-close", closeLabel, paths.close, {}, () => closeSheet(true));
+        const close = button("movie-sheet-close", closeLabel, paths.close, {}, closeSheet);
         head.append(make("h3", "", heading), close);
         const body = make("div", "movie-sheet-body");
         sheet.append(head, body);
@@ -184,6 +187,23 @@ export function buildPlayerUi(ctx) {
         return sheet;
     }
     const tracksSheet = makeSheet("tracks", "Audio & Subtitles", "Close audio and subtitles", tracksButton);
+    const settingsSheet = makeSheet("settings", "Settings", "Close settings", settingsButton);
+    const settingsBody = sheets.settings.body;
+    const qualityLabel = make("p", "movie-quality-label", ctx.dataSaver.quality);
+    const qualityOptions = make("div", "movie-quality-options");
+    qualityOptions.setAttribute("role", "radiogroup");
+    qualityOptions.setAttribute("aria-label", "Data saver");
+    for (const [id, label, estimate] of ctx.dataSaver.choices) {
+        const row = button("movie-track-option", label + ", " + estimate, null, {}, () => ctx.dataSaver.change(id));
+        row.setAttribute("role", "radio");
+        row.setAttribute("aria-checked", String(ctx.dataSaver.selected === id));
+        row.append(make("span", "", label), make("small", "", estimate));
+        qualityOptions.append(row);
+    }
+    settingsBody.append(qualityLabel, make("h4", "movie-quality-label", "Data saver"), qualityOptions);
+    function openSettingsAt() {
+        toggleSheet("settings", qualityOptions.querySelector('[aria-checked="true"]'));
+    }
     const episodesSheet = makeSheet("episodes", "Episodes", "Close episodes", episodesButton);
     const soundSheet = makeSheet("sound", "Sound", "Close sound", soundButton);
     let refreshOutputs = async () => {};
@@ -342,7 +362,7 @@ export function buildPlayerUi(ctx) {
                         try {
                             await ctx.subtitleSearch.add(result, selectedLanguage);
                             if (signal.aborted) return;
-                            if (openSheet === "tracks") closeSheet(true);
+                            if (openSheet === "tracks") closeSheet();
                             results.replaceChildren();
                             feedback.textContent = "";
                             failure.textContent = "Subtitles added.";
@@ -365,8 +385,8 @@ export function buildPlayerUi(ctx) {
         }, { signal });
     }
     function toggleSheet(name, focusTarget) {
-        if (openSheet === name) return closeSheet(true);
-        closeSheet(false);
+        if (openSheet === name) return closeSheet();
+        const previous = openSheet && sheets[openSheet];
         openSheet = name;
         sheets[name].node.hidden = false;
         if (name === "tracks") for (const sync of syncTracks) sync();
@@ -375,17 +395,21 @@ export function buildPlayerUi(ctx) {
         show();
         // Focus starts on the close control (or the current episode), so Escape and Enter work the same everywhere.
         (focusTarget ?? sheets[name].body.querySelector("[aria-current='true']") ?? sheets[name].close).focus();
+        if (previous) {
+            previous.opener.setAttribute("aria-expanded", "false");
+            previous.node.hidden = true;
+        }
     }
-    function closeSheet(restoreFocus) {
+    function closeSheet() {
         if (!openSheet) return;
         const sheet = sheets[openSheet];
         openSheet = null;
-        sheet.node.hidden = true;
         sheet.opener.setAttribute("aria-expanded", "false");
-        if (restoreFocus) sheet.opener.focus();
+        sheet.opener.focus();
+        sheet.node.hidden = true;
         show();
     }
-    for (const name of ["tracks", "episodes", "sound"]) sheets[name].opener.setAttribute("aria-expanded", "false");
+    for (const sheet of Object.values(sheets)) sheet.opener.setAttribute("aria-expanded", "false");
 
     // Surface: a tap or click on the picture. Touch toggles the controls, a mouse toggles play, double click goes fullscreen.
     const surfaceLayer = make("div", "movie-ui-surface");
@@ -393,7 +417,7 @@ export function buildPlayerUi(ctx) {
     // The touch itself wakes the controls (show runs on pointerdown), so remember what the tap found.
     root.addEventListener("pointerdown", () => { hiddenAtTouch = root.classList.contains("movie-idle"); }, { capture: true, signal });
     surfaceLayer.addEventListener("click", event => {
-        if (openSheet) { closeSheet(true); return; }
+        if (openSheet) { closeSheet(); return; }
         const pointer = matchMedia("(hover: hover) and (pointer: fine)").matches;
         if (!pointer) {
             // Like YouTube: a tap on the picture hides visible controls at once and brings hidden ones back.
@@ -410,14 +434,16 @@ export function buildPlayerUi(ctx) {
     const notice = ctx.notice;
     const failure = make("p", "movie-ui-line");
     failure.setAttribute("role", "status");
+    const hint = make("p", "movie-ui-line");
+    hint.setAttribute("role", "status");
     notice.classList.add("movie-ui-line");
     const message = make("div", "movie-ui-message");
-    message.append(notice, failure);
+    message.append(notice, failure, hint);
     const spinnerRoot = make("div", "movie-ui-center");
     spinnerRoot.append(spinner);
     const subs = make("div", "movie-ui-subs");
     subs.setAttribute("aria-hidden", "true");
-    root.append(surfaceLayer, subs, spinnerRoot, message, top, mid, bottom, tracksSheet, episodesSheet, soundSheet);
+    root.append(surfaceLayer, subs, spinnerRoot, message, top, mid, bottom, tracksSheet, episodesSheet, soundSheet, settingsSheet);
 
     // Controls hide a few seconds after the last touch, playing or paused. Reduced motion only removes the fade, not the hiding.
     // A keyboard or remote focus ring keeps them up so the focused control stays visible.
@@ -517,7 +543,7 @@ export function buildPlayerUi(ctx) {
     // Keyboard and TV remote. With a control focused, the arrow keys move between controls (a TV remote has no pointer):
     // left and right inside a row, up and down between rows. The seek bar scrubs with left and right. With nothing
     // focused, left and right skip 10 seconds. Space, K or Enter toggles play, Escape closes a sheet, Back closes the player.
-    const rows = () => [[back], [rewind, playPause, forward], [seek], [fullscreen, episodesButton, tracksButton, soundButton, nextButton].filter(b => !b.hidden)];
+    const rows = () => [[back], [rewind, playPause, forward], [seek], [fullscreen, episodesButton, tracksButton, settingsButton, soundButton, nextButton].filter(b => !b.hidden)];
     function moveFocus(target, key) {
         const sheetNode = openSheet && sheets[openSheet].node;
         if (sheetNode?.contains(target)) {
@@ -541,11 +567,11 @@ export function buildPlayerUi(ctx) {
         return true;
     }
     // The Android Back button arrives here (familyhub.closeTopLayer): close a sheet first, then the player.
-    root.addEventListener("movie-back", () => { if (openSheet) closeSheet(true); else back.click(); });
+    root.addEventListener("movie-back", () => { if (openSheet) closeSheet(); else back.click(); });
     document.addEventListener("keydown", event => {
         if (event.altKey || event.ctrlKey || event.metaKey) return;
         const target = event.target;
-        if (event.key === "Escape" && openSheet) { event.preventDefault(); closeSheet(true); return; }
+        if (event.key === "Escape" && openSheet) { event.preventDefault(); closeSheet(); return; }
         if (event.keyCode === 461 || event.key === "BrowserBack") { event.preventDefault(); back.click(); return; }
         const arrow = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key);
         if (target instanceof HTMLSelectElement) return;
@@ -592,7 +618,7 @@ export function buildPlayerUi(ctx) {
                     row.append(bar);
                 }
                 if (episode.Id === currentId) row.setAttribute("aria-current", "true");
-                row.addEventListener("click", () => { closeSheet(false); play(episode); }, { signal });
+                row.addEventListener("click", () => play(episode), { signal });
                 body.append(row);
             }
         },
@@ -603,6 +629,17 @@ export function buildPlayerUi(ctx) {
         },
         /** A short line over the picture, for example "This device could not play this version." */
         say(text) { failure.textContent = text; busy(false); show(); },
+        hint(text) {
+            hint.textContent = text;
+            const timer = setTimeout(() => { hint.textContent = ""; }, 6000);
+            signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
+        },
+        setDataSaver(id) {
+            ctx.dataSaver.choices.forEach(([choice], index) =>
+                qualityOptions.children[index].setAttribute("aria-checked", String(choice === id)));
+        },
+        openSettingsAt,
+        openSheetName: () => openSheet,
         /** Reopens Audio & Subtitles with the audio list focused, after an audio change rebuilt the player. */
         openTracksAt: () => toggleSheet("tracks", sheets.tracks.body.querySelector("[aria-checked='true']")),
         dispose() { root.remove(); }

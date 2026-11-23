@@ -2,6 +2,7 @@
 @inject MusicSession Session
 @inject MusicPlayer Player
 @inject IJSRuntime JS
+@using Microsoft.Maui.Networking
 
 <div @ref="host" class="movie-library"></div>
 @if (message.Length > 0)
@@ -44,6 +45,7 @@
             if (closed.IsCancellationRequested) return;
             shelf = await module.InvokeAsync<IJSObjectReference>("openMovies", host, connection, callback, viewer);
             if (closed.IsCancellationRequested) { await shelf.InvokeVoidAsync("close"); return; }
+            Connectivity.Current.ConnectivityChanged += MovieConnectionChanged;
             message = "";
             failed = false;
         }
@@ -160,6 +162,16 @@
     public void MovieScreen(bool playing) => PlayerScreen.Set(playing);
 
     [JSInvokable]
+    public string MovieConnectionKind() => ConnectionKind.Current;
+
+    private void MovieConnectionChanged(object? sender, ConnectivityChangedEventArgs args) => _ = InvokeAsync(async () =>
+    {
+        if (closed.IsCancellationRequested || shelf is null) return;
+        try { await shelf.InvokeVoidAsync("connectionChanged"); }
+        catch (JSDisconnectedException) { }
+    });
+
+    [JSInvokable]
     public async Task MovieStarted()
     {
         if (!closed.IsCancellationRequested && Player.Playing && !Player.RemoteActive)
@@ -168,6 +180,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        Connectivity.Current.ConnectivityChanged -= MovieConnectionChanged;
         PlayerScreen.Set(false);
         try
         {
