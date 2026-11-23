@@ -60,6 +60,7 @@ app.MapPost("/fixture/startup/{scenario}", (string scenario) =>
     FixtureApi.Startup = scenario;
 });
 app.MapGet("/fixture/update-check", () => new { Count = Volatile.Read(ref FixtureApi.UpdateChecks), FixtureLauncher.LastAddress });
+app.MapPost("/fixture/server-health/{state}", (string state) => FixtureApi.HealthState = state);
 app.MapPost("/fixture/similar-release", () => FixtureApi.SimilarRelease.TrySetResult());
 app.MapPost("/fixture/wordle-reset/{seconds:int}", (int seconds) =>
     FixtureApi.WordleReset = DateTimeOffset.UtcNow.AddSeconds(Math.Max(1, seconds)));
@@ -82,6 +83,7 @@ static MusicSession MakeSession(string repo)
     Set("Ready", true);
     Set("Connected", FixtureApi.Startup != "update-offline");
     Set("MoviesEnabled", true);
+    Set("ServerHealthAdmin", FixtureApi.Startup == "health-admin");
     session.UiActive = true;
     Set("User", "fixture");
     Set("Profiles", new List<ListenerProfile> { new() { Id = "fixture", Name = "Alex" }, new() { Id = "june", Name = "June" } });
@@ -217,6 +219,7 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
     private bool hideWordleFamily;
     public static volatile bool ListenRequest;
     public static volatile string Startup = "none";
+    public static volatile string HealthState = "ready";
     public static int UpdateChecks;
     public static volatile TaskCompletionSource SimilarRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool reportReplacing;
@@ -226,6 +229,69 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
     {
         var path = request.RequestUri!.AbsolutePath;
+        if (path == "/api/server/stats/now" || path == "/api/server/stats" && request.RequestUri.Query.StartsWith("?range=", StringComparison.Ordinal))
+        {
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            object payload;
+            if (path.EndsWith("/now", StringComparison.Ordinal))
+            {
+                if (HealthState == "current-error") return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+                payload = new ServerHealthNow
+                {
+                    At = now,
+                    Mounts = [
+                        new() { Mount = "/", Total = 120L << 30, Used = 38L << 30, Free = 76L << 30, Growth = 1L << 30,
+                            Disks = [new("nvme0n1", "Passed")] },
+                        new() { Mount = "/srv/familyhub", Total = 4L << 40, Used = 1680L << 30, Free = 2200L << 30, Growth = 37L << 30,
+                            Disks = [new("sda", null)] }
+                    ],
+                    Networks = ["enp3s0", "VPN · tun0"],
+                    Values = new()
+                    {
+                        ["cpu"] = 1.42, ["memory:used"] = 9.3 * (1L << 30), ["memory:available"] = 22.7 * (1L << 30),
+                        ["power:cpu"] = 23.8, ["temperature:cpu"] = 73, ["temperature:nvme0n1"] = 41, ["temperature:sda"] = 55,
+                        ["network:enp3s0:download"] = 2801254, ["network:enp3s0:upload"] = 183465,
+                        ["network:VPN · tun0:download"] = 2570721, ["network:VPN · tun0:upload"] = 113062,
+                    },
+                    Monthly = new() { ["power:cpu"] = 16.28 },
+                };
+            }
+            else
+            {
+                if (HealthState == "history-timeout") await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                if (HealthState == "empty-history") await Task.Delay(250, token);
+                var range = request.RequestUri.Query[7..];
+                var length = range switch { "24h" => 86400, "7d" => 604800, "90d" => 7776000, _ => 3600 };
+                double[][] Points(double level, double change, int phase) =>
+                    Enumerable.Range(1, 36).Select(i => new double[] {
+                        now - length + i * (length / 36), Math.Round(level + change *
+                            (Math.Sin(i * .45 + phase) + .35 * Math.Sin(i * 2.1 + phase)), 2)
+                    }).ToArray();
+                payload = new ServerHealthHistory
+                {
+                    At = now, Since = now - length, Step = length / 36,
+                    Series = HealthState == "empty-history" ? [] : new()
+                    {
+                        ["network:enp3s0:download"] = Points(2150000, 1350000, 1),
+                        ["network:enp3s0:upload"] = Points(644000, 430000, 6),
+                        ["network:VPN · tun0:download"] = Points(1880000, 1210000, 1),
+                        ["network:VPN · tun0:upload"] = Points(355000, 210000, 4),
+                        ["cpu"] = Points(1.4, .9, 0), ["memory:used"] = Points(9.1 * (1L << 30), .8 * (1L << 30), 2),
+                        ["memory:available"] = Points(22.9 * (1L << 30), .8 * (1L << 30), 5),
+                        ["power:cpu"] = Points(23.9, 8.7, 3), ["temperature:cpu"] = Points(67, 12, 2),
+                        ["temperature:sda"] = Points(49, 5, 3), ["temperature:nvme0n1"] = Points(39, 4, 4),
+                        ["disk:/"] = Points(38L << 30, 1L << 29, 0), ["disk:/srv/familyhub"] = Points(1680L << 30, 8L << 30, 0),
+                    },
+                    Totals = new()
+                    {
+                        ["network:enp3s0:download"] = length * 2150000L, ["network:enp3s0:upload"] = length * 644000L,
+                        ["network:VPN · tun0:download"] = length * 1880000L, ["network:VPN · tun0:upload"] = length * 355000L,
+                    },
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            { Content = new StringContent(JsonSerializer.Serialize(payload, FamilyHubApi.JsonOptions), Encoding.UTF8, "application/json") };
+        }
         if (path == "/api/profile/name" && request.Method == HttpMethod.Patch)
         {
             using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));

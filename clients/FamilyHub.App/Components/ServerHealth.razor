@@ -1,0 +1,240 @@
+@implements IDisposable
+@using System.Globalization
+@using FamilyHub.Client.Core
+
+<div class="health-dashboard">
+    <section aria-labelledby="health-current-title" class="health-panel glass-panel">
+        <header class="health-header">
+            <h2 id="health-current-title">Current readings</h2>
+            <button type="button" class="quiet health-action" @onclick="LoadCurrent" aria-disabled="@Flag(currentLoading)">
+                @(currentError ? "Retry current readings" : "Refresh readings")
+            </button>
+        </header>
+        <p class="health-status" role="status">@Status(currentLoading, currentError, current?.At, "readings")</p>
+        @if (current is { } snapshot)
+        {
+            <div class="health-tiles">
+                @foreach (var mount in snapshot.Mounts)
+                {
+                    <article class="health-tile" @key="mount.Mount">
+                        <h3>Disk <span class="health-device">@mount.Mount</span></h3>
+                        @if (mount.Used is { } used && mount.Total is > 0)
+                        {
+                            <strong class="health-value">@Bytes(used) used</strong>
+                            <meter min="0" max="@mount.Total" value="@used" aria-label="@("Disk space used on " + mount.Mount)"></meter>
+                            <p>@Bytes(mount.Free) free · @Bytes(mount.Total) total</p>
+                            <p>7-day change · @(mount.Growth is { } growth ? (growth > 0 ? "+" : growth < 0 ? "−" : "") + Bytes(Math.Abs(growth)) : "Need 7 days of readings")</p>
+                            @foreach (var disk in mount.Disks)
+                            {
+                                <p><span class="health-device">@disk.Name</span> SMART · @(disk.Smart ?? NotMeasured)</p>
+                            }
+                        }
+                        else { <p>Mount unavailable</p> }
+                    </article>
+                }
+                <article class="health-tile">
+                    <h3>CPU load</h3>
+                    <strong class="health-value">@Number(Value(snapshot, "cpu"))</strong>
+                    <p>1-minute load average</p>
+                    <h3>Memory</h3>
+                    <p>@(Value(snapshot, "memory:used") is { } memory ? Bytes(memory) + " used" : NotMeasured)</p>
+                    @if (Value(snapshot, "memory:available") is { } available)
+                    { <p>@Bytes(available) available</p> }
+                </article>
+                <article class="health-tile">
+                    <h3>Power</h3>
+                    <p>CPU package · <strong>@Number(Value(snapshot, "power:cpu"), " W")</strong></p>
+                    <p>Whole machine · <strong>@Number(Value(snapshot, "power:machine"), " W")</strong></p>
+                    <h3>Monthly energy estimate</h3>
+                    <p>CPU package · @Energy(snapshot, "power:cpu")</p>
+                    <p>Whole machine · @Energy(snapshot, "power:machine")</p>
+                </article>
+                <article class="health-tile">
+                    <h3>Temperature</h3>
+                    @Temperature(snapshot, "cpu", "CPU package", 70, 85)
+                    <p>CPU warm at 70 °C · hot at 85 °C</p>
+                    @foreach (var disk in snapshot.Mounts.SelectMany(m => m.Disks).Select(d => d.Name).Distinct())
+                    { @Temperature(snapshot, disk, disk, 45, 55) }
+                    <p>Disks warm at 45 °C · hot at 55 °C</p>
+                </article>
+                <article class="health-tile">
+                    <h3>Network</h3>
+                    @foreach (var name in snapshot.Networks)
+                    {
+                        <p><strong class="health-device">@name</strong></p>
+                        <p>Download · @Rate(Value(snapshot, $"network:{name}:download"))</p>
+                        <p>Upload · @Rate(Value(snapshot, $"network:{name}:upload"))</p>
+                    }
+                    @if (snapshot.Networks.Count == 0) { <p>Ethernet · @NotMeasured</p> }
+                    @if (!snapshot.Networks.Any(n => n.StartsWith("VPN · ", StringComparison.Ordinal)))
+                    { <p>VPN · @NotMeasured</p> }
+                </article>
+            </div>
+        }
+    </section>
+
+    <section aria-labelledby="health-history-title" class="health-panel glass-panel" data-range="@shownRange">
+        <header class="health-header">
+            <h2 id="health-history-title">History</h2>
+            <button type="button" class="quiet health-action" @onclick="() => LoadHistory(range)" aria-disabled="@Flag(historyLoading)">
+                @(historyError ? "Retry history" : "Refresh history")
+            </button>
+        </header>
+        <div role="radiogroup" aria-label="History range" class="health-ranges">
+            @foreach (var choice in Ranges)
+            {
+                <label class="health-range">
+                    <input type="radio" name="server-health-range" value="@choice.Key" checked="@(range == choice.Key)"
+                           @onchange="() => LoadHistory(choice.Key)" />
+                    <span>@choice.Value</span>
+                </label>
+            }
+        </div>
+        <p class="health-status" role="status">
+            @Status(historyLoading, historyError, history?.At, "history")
+            @if (shownRange is not null && shownRange != range) { <span> Showing @Ranges[shownRange].</span> }
+        </p>
+        @if (history is { } data)
+        {
+            @if (data.Series.Count == 0) { <p>No readings in this range.</p> }
+            <div class="health-charts">
+                @foreach (var group in Charts(data))
+                {
+                    <ServerHealthChart @key="group.Title" Title="@group.Title" History="data" Lines="group.Lines" Format="group.Format" />
+                }
+            </div>
+        }
+    </section>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public FamilyHubApi? Api { get; set; }
+    internal const string NotMeasured = "Not measured";
+    private static readonly Dictionary<string, string> Ranges = new()
+        { ["1h"] = "Last hour", ["24h"] = "24 hours", ["7d"] = "7 days", ["90d"] = "90 days" };
+    private readonly CancellationTokenSource lifetime = new();
+    private CancellationTokenSource? historyRequest;
+    private ServerHealthNow? current;
+    private ServerHealthHistory? history;
+    private bool currentLoading, historyLoading, currentError, historyError, disposed;
+    private string range = "1h";
+    private string? shownRange;
+
+    protected override Task OnInitializedAsync() => Task.WhenAll(LoadCurrent(), LoadHistory(range));
+
+    private async Task LoadCurrent()
+    {
+        if (disposed || currentLoading) return;
+        currentLoading = true;
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        request.CancelAfter(TimeSpan.FromSeconds(5));
+        try
+        {
+            if (Api is null) throw new InvalidOperationException();
+            current = await Api.GetServerHealthNowAsync(request.Token).WaitAsync(request.Token);
+            currentError = false;
+        }
+        catch (Exception error) when (error is FamilyHubApiException or HttpRequestException or OperationCanceledException or System.Text.Json.JsonException or InvalidOperationException)
+        {
+            if (error is FamilyHubApiException { StatusCode: 401 or 403 }) current = null;
+            currentError = true;
+        }
+        finally
+        {
+            currentLoading = false;
+            if (!disposed) StateHasChanged();
+        }
+    }
+
+    private async Task LoadHistory(string selected)
+    {
+        if (disposed || (historyLoading && range == selected)) return;
+        historyRequest?.Cancel();
+        range = selected;
+        historyLoading = true;
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        historyRequest = request;
+        request.CancelAfter(TimeSpan.FromSeconds(5));
+        try
+        {
+            if (Api is null) throw new InvalidOperationException();
+            var result = await Api.GetServerHealthHistoryAsync(selected, request.Token).WaitAsync(request.Token);
+            if (historyRequest != request) return;
+            history = result;
+            shownRange = selected;
+            historyError = false;
+        }
+        catch (Exception error) when (error is FamilyHubApiException or HttpRequestException or OperationCanceledException or System.Text.Json.JsonException or InvalidOperationException)
+        {
+            if (historyRequest != request) return;
+            if (error is FamilyHubApiException { StatusCode: 401 or 403 }) { history = null; shownRange = null; }
+            historyError = true;
+        }
+        finally
+        {
+            if (historyRequest == request)
+            {
+                historyRequest = null;
+                historyLoading = false;
+                if (!disposed) StateHasChanged();
+            }
+        }
+    }
+
+    private static string Flag(bool value) => value ? "true" : "false";
+    internal static DateTimeOffset Local(long at) => DateTimeOffset.FromUnixTimeSeconds(at).ToLocalTime();
+    private static string Status(bool loading, bool error, long? at, string name)
+    {
+        var old = at is { } timestamp ? "Last snapshot " + Local(timestamp).ToString("g") + "." : "";
+        if (loading) return $"Loading {name}. {old}".TrimEnd();
+        if (error) return $"Could not load {name}. {old}".TrimEnd();
+        if (at is { } last && DateTimeOffset.UtcNow.ToUnixTimeSeconds() - last <= 120)
+            return "Updated " + Local(last).ToString("t") + ".";
+        return old;
+    }
+
+    private static double? Value(ServerHealthNow snapshot, string key) => snapshot.Values.TryGetValue(key, out var value) ? value : null;
+    private static string Number(double? value, string suffix = "") => value is { } number ? number.ToString("0.##") + suffix : NotMeasured;
+    internal static string Bytes(double? bytes)
+    {
+        if (bytes is not { } value) return NotMeasured;
+        string[] units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+        var index = 0;
+        for (; Math.Abs(value) >= 1024 && index < units.Length - 1; index++) value /= 1024;
+        return value.ToString(index == 0 ? "0" : "0.#") + " " + units[index];
+    }
+    private static string Rate(double? value) => value is null ? NotMeasured : Bytes(value) + "/s";
+    private static string Energy(ServerHealthNow snapshot, string key) =>
+        snapshot.Monthly.TryGetValue(key, out var estimate) ? Number(estimate, " kWh") : NotMeasured;
+
+    private static RenderFragment Temperature(ServerHealthNow snapshot, string key, string label, int warm, int hot) => @<p>
+        @{ var value = Value(snapshot, "temperature:" + key); }
+        @label · <strong class="@(value >= hot ? "health-hot" : value >= warm ? "health-warm" : null)">@Number(value, " °C")</strong>
+        @if (value is not null) { <span> · @(value >= hot ? "Hot" : value >= warm ? "Warm" : "Normal")</span> }
+    </p>;
+
+    private static IEnumerable<(string Title, (string Key, string Label)[] Lines, Func<double?, string> Format)> Charts(ServerHealthHistory history)
+    {
+        var keys = history.Series.Keys;
+        foreach (var name in keys.Where(key => key.StartsWith("network:", StringComparison.Ordinal))
+                     .Select(key => key[8..key.LastIndexOf(':')]).Distinct()
+                     .OrderBy(name => name.StartsWith("VPN · ", StringComparison.Ordinal)).ThenBy(name => name, StringComparer.Ordinal))
+            yield return ("Network · " + name, [($"network:{name}:download", "Download"), ($"network:{name}:upload", "Upload")], Rate);
+        if (keys.Contains("cpu")) yield return ("CPU load", [("cpu", "1-minute load")], value => Number(value));
+        if (keys.Contains("memory:used")) yield return ("Memory", [("memory:used", "Used"), ("memory:available", "Available")], Bytes);
+        if (keys.Any(key => key.StartsWith("power:", StringComparison.Ordinal)))
+            yield return ("Power", [("power:cpu", "CPU package"), ("power:machine", "Whole machine")], value => Number(value, " W"));
+        foreach (var key in keys.Where(key => key.StartsWith("temperature:", StringComparison.Ordinal)).Order(StringComparer.Ordinal))
+            yield return (key == "temperature:cpu" ? "CPU package temperature" : key[12..] + " temperature",
+                [(key, "Temperature")], value => Number(value, " °C"));
+        foreach (var key in keys.Where(key => key.StartsWith("disk:", StringComparison.Ordinal)).Order(StringComparer.Ordinal))
+            yield return ("Disk space · " + key[5..], [(key, "Used")], Bytes);
+    }
+
+    public void Dispose()
+    {
+        disposed = true;
+        lifetime.Cancel();
+        lifetime.Dispose();
+    }
+}

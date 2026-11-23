@@ -84,6 +84,13 @@ public sealed class FamilyHubApi : IDisposable
     public Task<ServerStatistics> GetServerStatsAsync(CancellationToken cancellationToken = default, bool leaderboard = false, bool background = false) =>
         RequestJsonAsync<ServerStatistics>(HttpMethod.Get, leaderboard ? "/api/server/stats?leaderboard=1" : "/api/server/stats", cancellationToken: cancellationToken, background: background);
 
+    public Task<ServerHealthNow> GetServerHealthNowAsync(CancellationToken cancellationToken) =>
+        RequestJsonAsync<ServerHealthNow>(HttpMethod.Get, "/api/server/stats/now", cancellationToken: cancellationToken, background: true);
+
+    public Task<ServerHealthHistory> GetServerHealthHistoryAsync(string range, CancellationToken cancellationToken) =>
+        RequestJsonAsync<ServerHealthHistory>(HttpMethod.Get, "/api/server/stats?range=" + Uri.EscapeDataString(range),
+            cancellationToken: cancellationToken, background: true);
+
     public Task<ActivityReceipt> ReportPlaybackActivityAsync(string deviceId, bool playing, CancellationToken cancellationToken = default, IReadOnlyList<ListeningCounter>? counters = null, string? counterDeviceId = null, MusicTrack? track = null, string? deviceName = null, string? deviceKind = null, double? position = null, long activation = 0, long sequence = 0, bool followingHost = false, string remoteDeviceId = "", bool background = false,
         string? status = null, double? duration = null, PlaybackResume? queue = null, long? queueRevision = null, long? epoch = null, bool localPlay = false, IReadOnlyList<string>? acks = null, int? queueIndex = null)
     {

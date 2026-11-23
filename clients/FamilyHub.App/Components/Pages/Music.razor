@@ -428,6 +428,10 @@ else
     else if (view == "Stats")
     {
         <div class="server-work-page">
+            @if (Session.ServerHealthAdmin)
+            {
+                <ServerHealth @key="(Session.Server, Session.User)" Api="Session.Api" />
+            }
             <ServerStats RefreshReview="RefreshSongReview">
                 @if (Session.MoviesEnabled)
                 {
@@ -1212,7 +1216,7 @@ else
     private bool CannotRecommend => recommendationLookup is not null || Player.Current is null;
     private static string PlaylistAlbum(PlaylistTrack entry, MusicTrack? track) => PlaylistSongs.Album(entry, track);
     private MusicTrack? NextTrack => Player.QueueIndex + 1 < Player.Queue.Count ? Player.Queue[Player.QueueIndex + 1] : null;
-    private static string NavLabel(string tab) => tab switch { "Downloads" => "Downloaded", "Stats" => "Server work", _ => tab };
+    private string NavLabel(string tab) => tab switch { "Downloads" => "Downloaded", "Stats" => Session.ServerHealthAdmin ? "Server" : "Server work", _ => tab };
     private static string NavIcon(string tab) => tab switch { "Library" => "library", "Search" => "search", "Downloads" => "down", "Movies & TV" => "film", "Files" => "folder", "Playlists" => "playlist", "Stats" => "device", "Leaderboard" => "crown", _ => "queue" };
     private Task VolumeChanged(ChangeEventArgs args)
     {

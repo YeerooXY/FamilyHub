@@ -1,5 +1,15 @@
 # Interface verification
 
+## 23 November 2026 · Server health dashboard
+
+Reviewed in the Server work and release tile style on the `codex-downloads` working tree based on `efe74ef`.
+
+| Screen | Layout and visual | Motion | Focus and keyboard | Accessibility | Wording and states |
+| --- | --- | --- | --- | --- | --- |
+| Server current readings and history | Inspected Windows Chromium and WebKit at 1280 and 2000 px and both phone profiles | Checked with normal motion and reduced motion | Checked range arrows, TV controls, chart tables, Retry, and focus restoration | Checked region, radio and table semantics, line patterns and temperature text. Screen readers remain unverified. | Checked readings, unavailable sensors, loading, stale snapshots, timeouts, Retry, empty history, and regular-profile navigation. |
+
+The [verification record](server-dashboard-2026-11-23/README.md) includes screenshots and the emulation limits.
+
 ## 23 November 2026 · Movies search and YouTube cards
 
 Windows Chromium and WebKit fixtures cover the open result lists, card layout,

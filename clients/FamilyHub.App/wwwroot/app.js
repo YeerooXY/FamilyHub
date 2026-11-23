@@ -1,5 +1,41 @@
 let lastFocusId = "";
 document.addEventListener("focusin", event => { if (event.target !== document.body) lastFocusId = event.target.id; });
+let healthFocus;
+document.addEventListener("focusin", event => {
+    healthFocus?.disconnect();
+    const control = event.target.closest?.(".health-table-button");
+    if (!control) return;
+    const panel = control.closest(".health-panel");
+    const observer = new MutationObserver(() => {
+        if (control.isConnected) return;
+        observer.disconnect();
+        if (document.activeElement === document.body) panel.querySelector(".health-header button")?.focus();
+    });
+    healthFocus = observer;
+    observer.observe(panel, { childList: true, subtree: true });
+});
+document.addEventListener("keydown", event => {
+    const arrow = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[event.key];
+    const dashboard = event.target.closest?.(".health-dashboard");
+    if (!arrow || !dashboard || !matchMedia("(min-width:1920px)").matches || event.defaultPrevented) return;
+    const origin = event.target.closest("button,input");
+    const [x, y] = arrow;
+    if (!origin || (x && !origin.matches(".health-table-button"))) return;
+    const controls = [...dashboard.querySelectorAll(x ? ".health-table-button" : "button, input:checked")];
+    const bounds = origin.closest("label,button").getBoundingClientRect();
+    const centered = rect => (rect.left + rect.right) / 2;
+    const candidates = controls.map(control => {
+        const rect = control.closest("label,button").getBoundingClientRect();
+        const horizontal = centered(rect) - centered(bounds);
+        const vertical = rect.top - bounds.top;
+        return { control, distance: horizontal * x + vertical * y, sideways: Math.abs(horizontal * y + vertical * x) };
+    }).filter(item => item.distance > 10 && (!x || item.sideways < 80))
+      .sort((a, b) => a.distance - b.distance || a.sideways - b.sideways);
+    if (candidates.length) {
+        event.preventDefault();
+        candidates[0].control.focus();
+    }
+});
 window.familyhub = { press(id) { document.getElementById(id)?.click(); }, retainFocus(id) { if (document.activeElement === document.body) document.getElementById(id)?.focus(); }, restoreFocus(removedId, successorId) {
     if (document.activeElement?.id === removedId || (document.activeElement === document.body && lastFocusId === removedId)) document.getElementById(successorId)?.focus();
 }, view(name) { document.body.dataset.view = name; familyhub.feedback?.screen(); const content = document.getElementById("content"); if (content) content.scrollTop = 0; if (document.activeElement === document.body) document.getElementById("content")?.focus(); }, focus(id) { const target = document.getElementById(id); if (target) target.focus(); else requestAnimationFrame(() => document.getElementById(id)?.focus()); } };

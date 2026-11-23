@@ -21,6 +21,7 @@ public sealed class MusicSession
     public bool NeedsProfileSelection { get; private set; }
     public ListenerPreferences PlaybackPreferences { get; private set; } = new();
     public bool MoviesEnabled { get; private set; }
+    public bool ServerHealthAdmin { get; private set; }
     public bool Connected { get; private set; }
     private bool uiActive = true;
     public event Action? UiActiveChanged;
@@ -671,6 +672,7 @@ public sealed class MusicSession
         playbackCaches.Clear();
         PinPlayback(null); PinPreparingPlayback(null);
         MoviesEnabled = false;
+        ServerHealthAdmin = false;
         User = ""; ProfileName = ""; Offline = null; Connected = false;
         Library = []; Playlists = []; Downloads = []; DownloadedBytes = 0;
         DownloadFailure = null;
@@ -732,6 +734,7 @@ public sealed class MusicSession
         var playlists = await offline.GetPlaylistsAsync();
         Configure(candidate.ServerOrigin.AbsoluteUri, selection.Profile.Id, candidate, offline);
         MoviesEnabled = selection.MoviesEnabled;
+        ServerHealthAdmin = selection.ServerHealthAdmin;
         ProfileName = selection.Profile.Name; Profiles = profiles; NeedsProfileSelection = false;
         StoreProfiles(Server, profiles);
         Library = library; Playlists = playlists; Connected = true; UpdateMessage("", "info");
