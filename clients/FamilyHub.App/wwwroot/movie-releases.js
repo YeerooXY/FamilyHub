@@ -1,7 +1,7 @@
 const gib = 1024 ** 3;
 // Download times assume this connection; the real speed depends on the server's line and on how many people share the file.
 export const ASSUMED_MBPS = 100;
-const FIRST_PAGE = 12;
+const FIRST_PAGE = 8;
 
 function number(value) {
     return Number.isFinite(value) && value >= 0 ? value : null;
@@ -35,8 +35,7 @@ const TIERS = {
 };
 
 /** The quality tier (drives the colour), a short label such as "1080p Blu-ray", and a plain-words note. */
-export function releaseQuality(title) {
-    const height = resolution(title);
+export function releaseQuality(title, height = resolution(title)) {
     const hdr = /\b(?:HDR10\+?|HDR|DV|Dolby[ ._-]?Vision)\b/i.test(title);
     const camera = /\b(?:CAM|HDCAM|TS|HDTS|TELESYNC|TELECINE)\b/i.test(title);
     const remux = /\bremux\b/i.test(title);
@@ -101,17 +100,17 @@ export function buildReleaseSearch(search, signal, download = null) {
     panel.innerHTML = `
         <p class="movie-source-note" role="status"></p>
         <button type="button" hidden>Retry release lookup</button>
-        <details class="movie-source-details" hidden>
-            <summary>Releases</summary>
+        <section class="movie-release-results" aria-label="Releases" hidden>
+            <h2 tabindex="-1">Releases</h2>
             <div class="movie-release-tools" role="group" aria-label="Sort releases"></div>
             <p class="movie-web-meta" data-release-availability hidden>Downloading is not switched on for your profile. Ask the server owner to turn it on.</p>
             <p class="movie-web-meta">Times assume a ${ASSUMED_MBPS} Mbps connection.</p>
             <ul class="movie-source-list" aria-label="Release results"></ul>
             <button type="button" class="movie-release-more" hidden>Show all releases</button>
-        </details>`;
+        </section>`;
     const retry = panel.querySelector("button");
-    const options = panel.querySelector("details");
-    const summary = options.querySelector("summary");
+    const options = panel.querySelector(".movie-release-results");
+    const heading = options.querySelector("h2");
     const more = panel.querySelector(".movie-release-more");
     const tools = panel.querySelector(".movie-release-tools");
     const canDownload = typeof download === "function";
@@ -250,8 +249,6 @@ export function buildReleaseSearch(search, signal, download = null) {
             return item;
         }));
         more.hidden = showAll || sorted.length <= FIRST_PAGE;
-        more.textContent = `Show all ${sorted.length} releases`;
-        summary.textContent = sorted.length === 1 ? "1 release" : `${sorted.length} releases`;
     }
 
     more.addEventListener("click", () => {
@@ -259,7 +256,7 @@ export function buildReleaseSearch(search, signal, download = null) {
         render();
         // Focus moves to the first newly shown release, so the button's removal never drops it to the page.
         const next = list.querySelector(`li:nth-child(${FIRST_PAGE + 1}) .movie-release-title`);
-        if (next) { next.tabIndex = -1; next.focus(); } else summary.focus();
+        if (next) { next.tabIndex = -1; next.focus(); } else heading.focus();
     });
     async function load() {
         if (busy) return true;
@@ -294,12 +291,13 @@ export function buildReleaseSearch(search, signal, download = null) {
         unavailable = reply.unavailable;
         complete = true;
         const focused = document.activeElement === retry;
-        status.textContent = unavailable ? `${unavailable} ${unavailable === 1 ? "source" : "sources"} did not answer.`
-            : !rows.length && focused ? "No releases found." : "";
+        const count = rows.length === 1 ? "1 release found." : rows.length ? `${rows.length} releases found.` : "";
+        status.textContent = [count, unavailable ? `${unavailable} ${unavailable === 1 ? "source" : "sources"} did not answer.`
+            : !rows.length && focused ? "No releases found." : ""].filter(Boolean).join(" ");
         options.hidden = !rows.length;
         panel.hidden = !rows.length && !unavailable && !focused;
         if (focused) {
-            const target = rows.length ? summary : status;
+            const target = rows.length ? heading : status;
             if (target === status) status.tabIndex = -1;
             target.focus();
         }
@@ -307,6 +305,6 @@ export function buildReleaseSearch(search, signal, download = null) {
         render();
         return !panel.hidden;
     }
-    retry.addEventListener("click", load);
+    retry.addEventListener("click", () => { retry.focus(); load(); });
     return {element: panel, load};
 }

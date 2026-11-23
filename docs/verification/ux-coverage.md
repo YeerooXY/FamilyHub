@@ -1,5 +1,12 @@
 # Interface verification
 
+## 23 November 2026 · Movies search and YouTube cards
+
+Windows Chromium and WebKit fixtures cover the open result lists, card layout,
+keyboard and touch actions, late metadata, and download states. The
+[verification record](youtube-cards-2026-11-23/README.md) has eight captures
+and describes the emulated coverage and remaining device checks.
+
 ## 19 November 2026 — Playlist download status and song pickers
 
 Headless Playwright measured and inspected the playlist header, live row status,

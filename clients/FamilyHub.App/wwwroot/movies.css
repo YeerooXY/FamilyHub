@@ -390,32 +390,7 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
     stroke-linejoin: round;
     vertical-align: -.12em;
 }
-.movie-source-details { margin-top: .7rem; }
-.movie-source-details summary {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: .75rem;
-    min-height: 44px;
-    padding-inline-end: .3rem;
-    border-radius: .25rem;
-    cursor: pointer;
-    font-weight: 600;
-    list-style: none;
-}
-.movie-source-details summary::-webkit-details-marker { display: none; }
-.movie-source-details summary::after {
-    content: "";
-    flex: 0 0 auto;
-    width: .45rem;
-    height: .45rem;
-    border-right: 2px solid currentColor;
-    border-bottom: 2px solid currentColor;
-    transform: rotate(45deg);
-}
-.movie-source-details[open] summary::after { transform: rotate(225deg); }
-.movie-external :is(summary, a, p[tabindex]):focus-visible { outline: 2px solid var(--focus, #98abed); outline-offset: 3px; }
-.movie-source-list a:not(.movie-source-action) { color: inherit; text-underline-offset: .2em; }
+.movie-external :is(a, [tabindex="-1"]):focus-visible { outline: 2px solid var(--focus, #98abed); outline-offset: 3px; }
 .movie-requests button { min-height: 44px; }
 @media (max-width: 480px) {
     .movie-source-row { grid-template-columns: minmax(0, 1fr); justify-items: start; }
@@ -451,11 +426,8 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-art[data-initial]::before { content: attr(data-initial); content: attr(data-initial) / ""; position: absolute; inset: 0; display: grid; place-items: center; font: 700 clamp(2.4rem, 5vw, 4rem)/1 system-ui, sans-serif; color: #ffffffd9; text-shadow: 0 .15rem .8rem #0008; }
 .movie-art img { position: relative; }
 .movie-hero { --art-hue: 215; background: linear-gradient(135deg, hsl(var(--art-hue) 45% 26%), hsl(calc(var(--art-hue) + 40) 50% 10%)); }
-/* Search and Release search share one row. An open Release search takes the full width. */
 .movie-toolbar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .75rem 1rem; margin-bottom: 1rem; }
 .movie-toolbar .movie-search { flex: 1 1 22rem; margin: 0; }
-.movie-toolbar .movie-releases { flex: 0 1 auto; margin: 0; }
-.movie-toolbar .movie-releases[open] { flex: 1 1 100%; }
 /* Headings line up with the first card. */
 .movie-library .movie-shelf > h2 { padding-inline: .35rem; }
 
@@ -507,7 +479,7 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-releases .movie-release-tools button[aria-pressed="true"] { background: #fff; border-color: #fff; color: #0b0d12; font-weight: 700; }
 .movie-source-list li.movie-release { gap: .75rem; padding: 1.15rem 1.3rem; margin-bottom: .8rem; border-radius: 1.05rem; }
 .movie-release-head { display: grid; gap: .5rem; }
-.movie-releases .movie-release-title { margin: 0; font-size: 1.2rem; line-height: 1.25; font-weight: 700; color: #fff; }
+.movie-external .movie-release-title { margin: 0; font-size: 1.2rem; line-height: 1.25; font-weight: 700; color: #fff; }
 .movie-release-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: .5rem 1.2rem; margin: 0; }
 .movie-release-stats > div { display: grid; gap: .1rem; }
 .movie-release-stats dt { font-size: .78rem; color: #ffffff99; }
@@ -516,12 +488,27 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-release-stats dd[data-level="ok"] { color: #7fd3e8; }
 .movie-release-stats dd[data-level="slow"] { color: #f2c46d; }
 .movie-release-stats dd[data-level="none"] { color: #ff9b9b; }
-.movie-releases .movie-release-note { color: #ffffffb8; font-size: .9rem; }
-.movie-releases .movie-release-action { justify-self: start; min-height: 46px; padding: 0 1.5rem; border: 0; border-radius: .75rem; background: linear-gradient(135deg, #89b4ff, #f19cda); color: #0b0d12; font: inherit; font-weight: 700; cursor: pointer; }
-.movie-releases .movie-release-action[aria-disabled="true"] { background: #ffffff1f; color: #ffffffcc; cursor: not-allowed; }
-.movie-releases .movie-release-action:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+.movie-release .movie-release-note { color: #ffffffb8; font-size: .9rem; }
+.movie-library .movie-release .movie-release-action { justify-self: start; min-height: 46px; padding: 0 1.5rem; border: 0; border-radius: .75rem; background: linear-gradient(135deg, #89b4ff, #f19cda); color: #0b0d12; font: inherit; font-weight: 700; cursor: pointer; }
+.movie-library .movie-release .movie-release-action[aria-disabled="true"] { background: #ffffff1f; color: #ffffffcc; cursor: not-allowed; }
+.movie-library .movie-release .movie-release-action:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .movie-release-sent { margin: 0; justify-self: start; padding: .55rem 0; color: #b3e8d0; font-weight: 650; }
 .movie-release-sent:focus-visible { outline: 2px solid var(--focus, #98abed); outline-offset: 3px; }
+
+.movie-youtube .movie-source-list { margin-top: .65rem; }
+.movie-source-list li.movie-youtube-card {
+    grid-template-columns: minmax(8rem, 33%) minmax(0, 1fr);
+    gap: 1rem;
+}
+.movie-youtube-art { aspect-ratio: 16 / 9; min-width: 0; align-self: start; background: var(--border, #ffffff24); border-radius: .65rem; overflow: hidden; }
+.movie-youtube-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.movie-youtube-content { display: grid; align-content: start; gap: .45rem; min-width: 0; }
+.movie-youtube-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; margin-top: .3rem; }
+.movie-youtube-actions .movie-source-action { border-radius: .75rem; }
+.movie-youtube-actions .movie-source-action, .movie-library .movie-youtube-actions .movie-release-action { min-height: 46px; }
+@media (max-width: 600px) {
+    .movie-source-list li.movie-youtube-card { grid-template-columns: minmax(0, 1fr); padding: .85rem; }
+}
 
 /* One colour per quality tier. 4K is the showpiece; Remux is the best 1080p; the rest step down in colour and shine. */
 .movie-release-top > .movie-release-quality { border: 0; box-shadow: none; color: #fff; }

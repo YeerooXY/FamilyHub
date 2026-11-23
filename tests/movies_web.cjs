@@ -60,14 +60,14 @@ async function check(browser, outcome) {
     const search = page.getByRole("button", { name: "Search", exact: true });
     await search.press("Enter");
     if (outcome === "ok") {
-        const watch = page.getByRole("link", {name:"Watch on YouTube"});
+        const watch = page.getByRole("link", {name:"Watch on YouTube"}).first();
         await watch.waitFor();
         assert.equal(await search.evaluate(a => a === document.activeElement), true, "late results preserve search focus");
         assert.equal(await page.getByRole("heading", {name:"Download options"}).count(), 0);
         await watch.press("Enter");
         assert.deepEqual(await page.evaluate(() => window.calls.at(-1)), ["MovieOpenLink", "https://www.youtube.com/watch?v=aaaaaaaaaaa"]);
-        await page.getByText("More YouTube results", {exact:true}).press("Space");
-        await page.getByRole("link", {name:"Előzetes"}).waitFor();
+        await page.getByRole("heading", {name:"YouTube", exact:true}).waitFor();
+        await page.getByRole("heading", {name:"Előzetes"}).waitFor();
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true, "no sideways scroll");
     } else {
         await page.getByText("Searching the web is not set up on this server.").waitFor();

@@ -13,11 +13,16 @@ import subprocess
 import unicodedata
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, wait
+from threading import RLock
+from time import monotonic
+from urllib.parse import parse_qs, urlsplit
 
 log = logging.getLogger('music_web.movie_search')
 
 MAX_QUERY = 120
 MAX_RESULTS = 5
+CANDIDATE_TIMEOUT = 8
 LABELS = ('full film', 'trailer', 'clip', 'other')
 FILM_WORDS = {'teljes', 'film', 'movie', 'full'}
 CLIP_WORDS = {'trailer', 'elozetes', 'fragman', 'review', 'reaction', 'scene', 'jelenet', 'clip', 'reszlet',
@@ -25,6 +30,114 @@ CLIP_WORDS = {'trailer', 'elozetes', 'fragman', 'review', 'reaction', 'scene', '
 FILM_SECONDS = 70 * 60
 VIDEO_ID = re.compile(r'[A-Za-z0-9_-]{11}')
 URL_IN_TEXT = re.compile(r'https?://\S+|www\.\S+', re.I)
+METADATA_TIMEOUT = 4
+METADATA_TTL = 6 * 3600
+metadata_pool = ThreadPoolExecutor(max_workers=10)
+metadata_lock = RLock()
+metadata_cache = {}
+metadata_pending = {}
+
+
+def video_url(ident):
+    return 'https://www.youtube.com/watch?v=' + ident
+
+
+def video_id(url):
+    if not isinstance(url, str) or len(url) > 2048 or any(c.isspace() for c in url):
+        return None
+    try:
+        parsed = urlsplit(url)
+        params = parse_qs(parsed.query, keep_blank_values=True)
+        if parsed.scheme not in ('http', 'https') or 'list' in params:
+            return None
+        if parsed.netloc.lower() == 'youtu.be' and not params.get('v'):
+            ident = parsed.path.removeprefix('/')
+        elif parsed.netloc.lower() in ('youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com'):
+            if parsed.path == '/watch' and len(params.get('v', [])) == 1:
+                ident = params['v'][0]
+            elif parsed.path.startswith(('/shorts/', '/live/')) and not params.get('v'):
+                ident = parsed.path.split('/', 2)[2]
+            else:
+                return None
+        else:
+            return None
+        return ident if VIDEO_ID.fullmatch(ident) else None
+    except ValueError:
+        return None
+
+
+def metadata(entry, ident):
+    def positive(value):
+        return value if type(value) in (int, float) and math.isfinite(value) and value > 0 else None
+
+    source = max(
+        (fmt for fmt in entry.get('formats') or []
+         if fmt.get('vcodec') not in ('none', 'images') and positive(fmt.get('height'))),
+        key=lambda fmt: (fmt['height'], positive(fmt.get('fps')) or 0), default=entry)
+    langs = sorted({lang for field in ('subtitles', 'automatic_captions')
+                    for lang, tracks in (entry.get(field) or {}).items() if tracks and lang != 'live_chat'})
+    thumbnails = [thumb.get('url') for thumb in reversed(entry.get('thumbnails') or [])]
+    thumbnail = next((url for url in [entry.get('thumbnail'), *thumbnails]
+                      if isinstance(url, str) and url.startswith('https://')), None)
+    return dict(duration=positive(entry.get('duration')), height=positive(source.get('height')),
+                fps=positive(source.get('fps')), thumbnail=thumbnail,
+                uploader=entry.get('uploader') or entry.get('channel'),
+                view_count=positive(entry.get('view_count')) or (0 if entry.get('view_count') == 0 else None),
+                upload_date=entry.get('upload_date'), webpage_url=video_url(ident),
+                has_subtitles=bool(langs), subtitle_langs=langs)
+
+
+def cached_metadata(ident):
+    with metadata_lock:
+        cached = metadata_cache.get(ident)
+        if cached and cached[0] > monotonic():
+            return cached[1]
+        metadata_cache.pop(ident, None)
+        return None
+
+
+def cache_metadata(ident, details):
+    with metadata_lock:
+        metadata_cache[ident] = (monotonic() + METADATA_TTL, details)
+        while len(metadata_cache) > 1024:
+            del metadata_cache[next(iter(metadata_cache))]
+
+
+def enrich(ids, run=None, which=None):
+    tool = (which or shutil.which)('yt-dlp')
+    if not tool:
+        return {}
+    deadline = monotonic() + METADATA_TIMEOUT
+
+    def fetch(ident):
+        try:
+            done = (run or subprocess.run)([tool, '--ignore-config', '--no-playlist', '--skip-download',
+                '--dump-single-json', '--no-warnings', '--', video_url(ident)],
+                capture_output=True, timeout=max(0.1, deadline - monotonic()),
+                text=True, encoding='utf-8', errors='replace')
+            if not done.returncode:
+                cache_metadata(ident, metadata(json.loads(done.stdout), ident))
+        except (OSError, subprocess.TimeoutExpired, ValueError, TypeError, AttributeError):
+            pass
+
+    def forget(ident):
+        with metadata_lock:
+            metadata_pending.pop(ident, None)
+
+    pending = []
+    with metadata_lock:
+        for ident in ids:
+            if cached_metadata(ident):
+                continue
+            future = metadata_pending.get(ident)
+            if future is None and len(metadata_pending) < 10:
+                future = metadata_pool.submit(fetch, ident)
+                metadata_pending[ident] = future
+                future.add_done_callback(lambda _, ident=ident: forget(ident))
+            if future is not None:
+                pending.append(future)
+    wait(pending, timeout=max(0, deadline - monotonic()))
+    return {ident: details for ident in ids if (details := cached_metadata(ident)) is not None}
 
 
 def plain(text):
@@ -48,31 +161,37 @@ def youtube_candidates(query, run=subprocess.run, which=shutil.which):
     tool = which('yt-dlp')
     if not tool:
         raise LookupError('yt-dlp is not installed')
+
+    def search(term):
+        try:
+            done = run([tool, '--ignore-config', '--flat-playlist', '--dump-single-json', '--no-warnings', f'ytsearch6:{term}'],
+                       capture_output=True, timeout=CANDIDATE_TIMEOUT, text=True, encoding='utf-8', errors='replace')
+            return [] if done.returncode else json.loads(done.stdout).get('entries') or []
+        except (subprocess.TimeoutExpired, OSError, ValueError, AttributeError):
+            return []
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        pages = list(pool.map(search, (query, query + ' teljes film full movie')))
     found = {}
-    for search in (query, query + ' teljes film full movie'):
-        try:
-            done = run([tool, '--ignore-config', '--flat-playlist', '--dump-single-json', '--no-warnings', f'ytsearch6:{search}'],
-                       capture_output=True, timeout=25, text=True, encoding='utf-8', errors='replace')
-        except (subprocess.TimeoutExpired, OSError):
-            continue
-        if done.returncode:
-            continue
-        try:
-            entries = json.loads(done.stdout).get('entries') or []
-        except ValueError:
-            continue
+    for entries in pages:
         for entry in entries:
             ident = str(entry.get('id', ''))
-            seconds = entry.get('duration')
             if not VIDEO_ID.fullmatch(ident) or ident in found:
                 continue
+            details = metadata(entry, ident)
+            cached = cached_metadata(ident)
+            if cached:
+                details.update({key: value for key, value in cached.items() if value is not None})
+            elif details['height']:
+                cache_metadata(ident, details)
             found[ident] = {
+                **details,
                 'id': ident,
                 'title': str(entry.get('title') or '')[:160],
                 'channel': str(entry.get('channel') or entry.get('uploader') or '')[:80],
-                'seconds': int(seconds) if isinstance(seconds, (int, float)) and 0 < seconds < 86400 else 0,
-                'views': int(entry['view_count']) if isinstance(entry.get('view_count'), (int, float)) else 0,
-                'url': 'https://www.youtube.com/watch?v=' + ident,
+                'seconds': int(details['duration']) if details['duration'] and details['duration'] < 86400 else 0,
+                'views': int(details['view_count'] or 0),
+                'url': video_url(ident),
             }
     return list(found.values())
 

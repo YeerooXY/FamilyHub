@@ -67,6 +67,8 @@ async function verify(browser, name, options) {
                     if (method === "MovieRequest") return JSON.stringify({state:"approved"});
                     if (method !== "MovieReleaseSearch") return "";
                     if (term === "Slow search") return new Promise(resolve => window.finishSlow = () => resolve(JSON.stringify({results:fixture})));
+                    if (term === "Many releases") return JSON.stringify({results:Array.from({length: 10}, (_, index) =>
+                        ({title: `Release ${index + 1} 1080p`, size: 1e9, seeders: 50}))});
                     if (term === "Unavailable" && !window.recovered) {
                         window.recovered = true;
                         return JSON.stringify({error:"The sources did not respond. Try again."});
@@ -92,10 +94,9 @@ async function verify(browser, name, options) {
         assert.equal(await focus(submit), true);
         assert.deepEqual((await page.evaluate(() => calls)).filter(([method]) => method === "MovieReleaseSearch"), [["MovieReleaseSearch", title]]);
         await page.screenshot({path:path.join(output, name + ".png"), fullPage:true});
-        const disclosure = page.getByText("3 releases", {exact:true});
-        await disclosure.focus();
-        await page.keyboard.press("Space");
-        assert.equal(await focus(disclosure), true);
+        const heading = page.getByRole("heading", {name:"Releases", exact:true});
+        await heading.waitFor();
+        await page.getByRole("status").filter({hasText:"3 releases found."}).waitFor();
         const first = result.getByRole("listitem").first();
         assert.equal(await result.getByRole("listitem").count(), 3);
         // Facts first, in plain words: what it is, what it holds, how big, how long, how easy to get. No seeders, leechers or upload settings.
@@ -130,10 +131,8 @@ async function verify(browser, name, options) {
         assert.equal(await first.locator("strong").textContent(), pack);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
         await page.screenshot({path:path.join(output, name + "-releases.png"), fullPage:true});
-        const related = page.getByText("YouTube results", {exact:true});
-        if (options.hasTouch) await related.tap();
-        else await related.press("Enter");
-        await page.getByRole("link", {name:"The Gentlemen trailer"}).waitFor();
+        await page.getByRole("heading", {name:"YouTube", exact:true}).waitFor();
+        await page.getByRole("heading", {name:"The Gentlemen trailer"}).waitFor();
         assert.deepEqual((await page.evaluate(() => calls)).filter(([method]) => method === "MovieFind"), [["MovieFind", title]]);
         assert.equal(await first.locator("strong").textContent(), pack);
         await download.press("Space");
@@ -149,8 +148,15 @@ async function verify(browser, name, options) {
         await retry.waitFor();
         await page.getByRole("status").filter({hasText:"The sources did not respond"}).waitFor();
         await retry.press("Enter");
-        await disclosure.waitFor();
-        assert.equal(await focus(disclosure), true);
+        await heading.waitFor();
+        assert.equal(await focus(heading), true);
+        await search("Many releases");
+        const more = page.getByRole("button", {name:"Show all releases"});
+        await more.waitFor();
+        assert.equal(await result.getByRole("listitem").count(), 8);
+        await more.press("Space");
+        assert.equal(await result.getByRole("listitem").count(), 10);
+        assert.equal(await focus(result.getByRole("heading", {name:"Release 9", exact:true})), true);
         await search("Slow search");
         await page.waitForFunction(() => typeof finishSlow === "function");
         await page.getByRole("button", {name:"Clear", exact:true}).click();
@@ -167,8 +173,8 @@ async function verify(browser, name, options) {
 
         await page.evaluate(() => movieSession.downloads_enabled = true);
         await search(title);
-        await disclosure.press("Enter");
         const grab = first.getByRole("button", {name: /^Download The Gentlemen/});
+        await grab.waitFor();
         await grab.focus();
         await page.keyboard.press("Tab");
         await page.keyboard.press("Shift+Tab");

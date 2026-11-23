@@ -97,6 +97,14 @@
         SendMovieRequest("/api/movies/download", new { guid, indexer_id = indexerId, title });
 
     [JSInvokable]
+    public Task<string> MovieYouTubeMetadata(string[] ids) =>
+        SendMovieRequest("/api/movies/youtube-metadata", new { ids });
+
+    [JSInvokable]
+    public Task<string> MovieYouTubeDownload(string url, string title) =>
+        SendMovieRequest("/api/movies/youtube-download", new { url, title });
+
+    [JSInvokable]
     public Task<string> MovieDownloads() => SendMovieRequest("/api/movies/downloads");
 
     [JSInvokable]

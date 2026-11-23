@@ -1,5 +1,5 @@
 import { buildPlayerUi } from "./movie-player-ui.js";
-import { buildReleaseSearch } from "./movie-releases.js";
+import { buildReleaseSearch, releaseQuality } from "./movie-releases.js";
 
 // AbortSignal.timeout needs Chromium 103; older televisions (webOS) need this form.
 function timeoutSignal(ms) {
@@ -632,10 +632,11 @@ export function openMovies(host, session, app, viewer) {
         results.append(panel);
 
         // Each source publishes independently. Clearing or replacing the search detaches this panel.
-        const web = el("section"), downloads = el("section"), related = el("section");
-        web.className = downloads.className = related.className = "movie-source";
-        web.hidden = downloads.hidden = related.hidden = true;
-        panel.append(web, downloads);
+        const web = el("section"), downloads = el("section");
+        web.className = "movie-source movie-youtube";
+        downloads.className = "movie-source";
+        web.hidden = downloads.hidden = true;
+        panel.append(downloads);
         const release = session.release_search_enabled
             ? buildReleaseSearch(() => call("MovieReleaseSearch", term), signal,
                 session.downloads_enabled ? async row => {
@@ -644,7 +645,7 @@ export function openMovies(host, session, app, viewer) {
                     return reply;
                 } : null) : null;
         if (release) panel.append(release.element);
-        panel.append(related);
+        panel.append(web);
 
         const alive = () => active && !signal.aborted && panel.isConnected;
         const wanted = searchTitle(term);
@@ -666,23 +667,104 @@ export function openMovies(host, session, app, viewer) {
             section.replaceChildren(line, action);
             section.hidden = false;
         }
-        function videoLink(item, label) {
-            const link = el("a", label);
+        function videoCard(video) {
+            const row = el("li"), art = el("div"), image = el("img"), content = el("div");
+            row.className = "movie-release movie-youtube-card";
+            art.className = "movie-youtube-art";
+            image.alt = "";
+            image.decoding = "async";
+            image.referrerPolicy = "no-referrer";
+            image.hidden = true;
+            image.onerror = () => { image.hidden = true; };
+            art.append(image);
+            content.className = "movie-youtube-content";
+            const title = el("h3", video.title), badges = el("div"), quality = el("span"), meta = el("p");
+            title.className = "movie-release-title";
+            badges.className = "movie-release-top";
+            quality.className = "movie-release-quality";
+            badges.append(quality);
+            const actions = el("div"), link = el("a", "Watch on YouTube");
+            actions.className = "movie-youtube-actions";
+            link.className = "movie-source-action";
             link.append(icon("M13 5h6v6m0-6-9 9m6-1v5H6V8h5"));
-            link.href = item.url;
+            link.href = video.url;
             link.rel = "noopener noreferrer";
             link.target = "_blank";
             link.onclick = event => {
                 event.preventDefault();
-                Promise.resolve(app.invokeMethodAsync("MovieOpenLink", item.url))
-                    .catch(() => window.open(item.url, "_blank", "noopener,noreferrer"));
+                link.focus();
+                Promise.resolve(app.invokeMethodAsync("MovieOpenLink", video.url))
+                    .catch(() => window.open(video.url, "_blank", "noopener,noreferrer"));
             };
-            return link;
+            const notice = el("p");
+            notice.setAttribute("role", "status");
+            notice.className = "movie-release-note";
+            const action = button("Download", async () => {
+                action.focus();
+                if (action.getAttribute("aria-disabled") === "true") return;
+                action.setAttribute("aria-disabled", "true");
+                setAction("Sending…");
+                notice.textContent = "";
+                let reply;
+                try { reply = await call("MovieYouTubeDownload", video.url, video.title); } catch {}
+                if (reply?.state === "sent") refreshDownloadsAfterGrab();
+                if (!alive()) return;
+                if (reply?.state === "sent") {
+                    const focused = action === document.activeElement;
+                    const sent = el("p", "Sent to the server");
+                    sent.className = "movie-release-sent";
+                    sent.setAttribute("role", "status");
+                    sent.tabIndex = -1;
+                    action.replaceWith(sent);
+                    if (focused) sent.focus();
+                } else {
+                    action.removeAttribute("aria-disabled");
+                    setAction("Try again");
+                    notice.textContent = reply?.error || "Could not confirm the download. Check On the server before trying again.";
+                }
+            });
+            function setAction(label) {
+                action.textContent = label;
+                action.setAttribute("aria-label", `${label} ${video.title}`);
+            }
+            action.className = "movie-release-action";
+            setAction("Download");
+            if (!session.downloads_enabled) {
+                action.setAttribute("aria-disabled", "true");
+            }
+            actions.append(link, action);
+            content.append(title, badges, meta, actions, notice);
+            row.append(art, content);
+
+            function update(details) {
+                const height = details.height ?? video.height;
+                const {tier} = releaseQuality("", height || 0);
+                quality.dataset.level = row.dataset.tier = tier;
+                quality.textContent = height >= 2160 && height < 4320 ? "4K" : height ? `${height}p` : "Quality unknown";
+                const seconds = details.duration ?? video.duration ?? video.seconds;
+                const minutes = Math.max(1, Math.round(seconds / 60));
+                const duration = seconds > 0 ? minutes >= 60
+                    ? `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")} min` : `${minutes} min` : "";
+                const count = details.view_count ?? video.view_count;
+                const views = Number.isFinite(count) ? `${count.toLocaleString("en")} ${count === 1 ? "view" : "views"}` : "";
+                meta.textContent = [details.uploader || video.uploader || video.channel, duration, views].filter(Boolean).join(" · ");
+                const thumbnail = details.thumbnail || video.thumbnail;
+                if (typeof thumbnail === "string" && thumbnail.startsWith("https://") && image.src !== thumbnail) {
+                    image.src = thumbnail;
+                    image.hidden = false;
+                }
+            }
+            update(video);
+            return {row, update, id: video.url.slice(-11)};
         }
         async function findVideos(event) {
             const trigger = event?.currentTarget;
             if (trigger?.getAttribute("aria-disabled") === "true") return true;
-            if (trigger) { trigger.setAttribute("aria-disabled", "true"); trigger.textContent = "Checking YouTube…"; }
+            if (trigger) {
+                trigger.focus();
+                trigger.setAttribute("aria-disabled", "true");
+                trigger.textContent = "Checking YouTube…";
+            }
             let reply;
             try { reply = await call("MovieFind", term); }
             catch { reply = {error: "YouTube did not respond."}; }
@@ -696,37 +778,36 @@ export function openMovies(host, session, app, viewer) {
             const videos = reply.results.filter(item => typeof item.title === "string"
                 && /^https:\/\/www\.youtube\.com\/watch\?v=[\w-]{11}$/.test(item.url));
             const full = videos.find(item => item.label === "full film" && item.seconds >= 70 * 60 && matchesTitle(item.title));
-            const supplemental = videos.filter(item => item !== full);
+            const ordered = full ? [full, ...videos.filter(item => item !== full)] : videos;
             const focused = trigger === document.activeElement;
             web.replaceChildren();
-            related.replaceChildren();
-            if (full) {
-                const row = el("div"), text = el("div");
-                row.className = "movie-source-row";
-                text.append(el("h2", full.title), el("p", [full.channel, full.seconds ? Math.round(full.seconds / 60) + " min" : ""].filter(Boolean).join(" · ")));
-                const watch = videoLink(full, "Watch on YouTube");
-                watch.className = "movie-source-action";
-                row.append(text, watch);
-                web.append(row);
-            }
-            if (supplemental.length) {
-                const details = el("details"), list = el("ul");
-                details.className = "movie-source-details";
+            if (ordered.length) {
+                const list = el("ul"), heading = el("h2", "YouTube"), status = el("p");
+                status.setAttribute("role", "status");
+                status.className = "movie-source-note";
                 list.className = "movie-source-list";
-                details.append(el("summary", full ? "More YouTube results" : "YouTube results"), list);
-                for (const video of supplemental) {
-                    const row = el("li");
-                    const link = videoLink(video, video.title);
-                    const kind = ({trailer: "Trailer", clip: "Clip"})[video.label] || "Video";
-                    row.append(link, el("p", [kind, video.channel].filter(Boolean).join(" · ")));
-                    list.append(row);
+                list.setAttribute("aria-label", "YouTube videos");
+                const cards = ordered.map(videoCard);
+                list.append(...cards.map(card => card.row));
+                web.append(heading, status);
+                if (!session.downloads_enabled) web.append(el("p", "Downloading is not switched on for your profile."));
+                web.append(list);
+                web.hidden = false;
+                status.textContent = ordered.length === 1 ? "1 video found." : `${ordered.length} videos found.`;
+                const ids = cards.filter((_, index) => !ordered[index].height).map(card => card.id);
+                if (ids.length) {
+                    call("MovieYouTubeMetadata", ids).then(details => {
+                        if (!alive()) return;
+                        for (const card of cards) {
+                            const fresh = details?.results?.[card.id];
+                            if (fresh) card.update(fresh);
+                        }
+                    }).catch(() => {});
                 }
-                related.append(details);
             }
             web.hidden = !web.children.length;
-            related.hidden = !related.children.length;
-            if (focused) (web.querySelector("a") || related.querySelector("summary") || submit).focus();
-            return !web.hidden || !related.hidden;
+            if (focused) (web.querySelector("a") || submit).focus();
+            return !web.hidden;
         }
         const requestStates = {
             pending: "Waiting for approval", approved: "Request approved", failed: "Request needs attention",

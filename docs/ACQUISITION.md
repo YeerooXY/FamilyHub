@@ -93,6 +93,12 @@ Best match puts shared 1080p and higher releases first, followed by shared lower
 
 For YouTube audio, local files and trimming, use the administrator [music intake tool](MUSIC_INTAKE.md). Its tagged imports go into `Local Imports`, alongside Lidarr's `Managed` directory, and Navidrome scans both.
 
+Movies uses the same download profiles for YouTube videos. It saves one video
+at a time under `/srv/familyhub/data/downloads/youtube/<title>/`. Set
+`MOVIE_DOWNLOADS.youtube_dir` to use a different writable directory. The Movies
+service needs yt-dlp and FFmpeg on its PATH. Queue history lasts until the
+service restarts.
+
 ## Upstream references
 
 - [LinuxServer Prowlarr container documentation](https://docs.linuxserver.io/images/docker-prowlarr/)

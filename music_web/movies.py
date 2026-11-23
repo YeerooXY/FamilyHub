@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import secrets
+import shutil
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -15,6 +16,7 @@ from time import monotonic
 from flask import g, jsonify
 
 from . import feedback, movie_search
+from .movie_youtube_downloads import DEFAULT_DIR, YouTubeDownloads
 
 
 log = logging.getLogger('music_web.movies')
@@ -101,6 +103,7 @@ def register_movies(app, cfg, body, allow):
     indexers = tuple(dict.fromkeys(i for i in releases.get('indexer_ids', []) if type(i) is int and i > 0))[:4]
     requests = cfg.get('MOVIE_REQUESTS') or {}
     downloads = cfg.get('MOVIE_DOWNLOADS') or {}
+    youtube = YouTubeDownloads(downloads.get('youtube_dir') or DEFAULT_DIR)
     grab_refs = {}
     grab_lock, queue_lock = Lock(), Lock()
     queue_cache, queue_expires = None, 0
@@ -134,9 +137,32 @@ def register_movies(app, cfg, body, allow):
             if monotonic() >= queue_expires:
                 queue_cache = read_downloads(downloads.get('qbittorrent') or {})
                 queue_expires = monotonic() + 3
-            response = jsonify(queue_cache)
+            snapshot = queue_cache
+        jobs = youtube.items()
+        if jobs:
+            snapshot = dict(available=True, items=[*jobs, *snapshot.get('items', [])])
+        response = jsonify(snapshot)
         response.headers['Cache-Control'] = 'no-store'
         return response
+
+    @app.post('/api/movies/youtube-download')
+    def movie_youtube_download():
+        if not download_access():
+            return jsonify(error='Downloading is not switched on for your profile.'), 403
+        data = body()
+        ident = movie_search.video_id(data.get('url'))
+        title = data.get('title')
+        if not ident or not isinstance(title, str) or not 0 < len(title.strip()) <= 250:
+            return jsonify(error='Select a YouTube video with a title.'), 400
+        if not allow('movie-download:' + g.user, 8, 60):
+            return jsonify(error='Wait a minute before starting another download.'), 429
+        tool = shutil.which('yt-dlp')
+        if not tool:
+            return jsonify(error='YouTube downloads are not set up on this server.'), 503
+        height = (movie_search.cached_metadata(ident) or {}).get('height')
+        if not youtube.enqueue(tool, ident, ' '.join(title.split()), height):
+            return jsonify(error='The download queue is full. Try again later.'), 503
+        return jsonify(state='sent'), 202
 
     @app.post('/api/movies/download')
     def movie_download():
@@ -361,6 +387,18 @@ def register_movies(app, cfg, body, allow):
         feedback.note(movie_event='web-search', results=len(found['results']), ranking=found['ranking'])
         log.info('movie web search profile=%s results=%d ranking=%s', g.user, len(found['results']), found['ranking'])
         return jsonify(found)
+
+    @app.post('/api/movies/youtube-metadata')
+    def movie_youtube_metadata():
+        if g.user not in cfg.get('JELLYFIN_PROFILES', {}):
+            return jsonify(error='Movies are not set up for this profile.'), 404
+        ids = body().get('ids')
+        if (not isinstance(ids, list) or not 0 < len(ids) <= movie_search.MAX_RESULTS
+                or any(not isinstance(ident, str) or not movie_search.VIDEO_ID.fullmatch(ident) for ident in ids)):
+            return jsonify(error='Search again to refresh video details.'), 400
+        if not allow('movie-youtube-metadata:' + g.user, 8, 60):
+            return jsonify(error='Wait a minute before refreshing video details.'), 429
+        return jsonify(results=movie_search.enrich(dict.fromkeys(ids)))
 
     @app.post('/api/movies/session')
     def movie_session():
