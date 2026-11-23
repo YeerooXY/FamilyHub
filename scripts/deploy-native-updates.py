@@ -1,6 +1,7 @@
 """Mirror a packaged native release onto the configured private development server."""
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import uuid
@@ -18,10 +19,17 @@ def main():
     if not platforms or any(p not in ('windows-x64', 'android', 'ios') for p in platforms):
         parser.error('Choose platforms from windows-x64, android and ios.')
     release = args.release.resolve()
-    options = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', '-o', 'HostKeyAlias=familyhub-dev',
-               '-o', 'StrictHostKeyChecking=yes', '-o', 'UserKnownHostsFile=.local/vm/known_hosts',
-               '-i', '.local/vm/id_ed25519']
-    host = 'familyhub@familyhub-dev.mshome.net'
+    # The live server is the physical machine (since 23 Nov 2026). The old VM stays available as a rollback target:
+    # FAMILYHUB_DEPLOY_TARGET=vm deploys there instead.
+    if os.environ.get('FAMILYHUB_DEPLOY_TARGET') == 'vm':
+        options = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', '-o', 'HostKeyAlias=familyhub-dev',
+                   '-o', 'StrictHostKeyChecking=yes', '-o', 'UserKnownHostsFile=.local/vm/known_hosts',
+                   '-i', '.local/vm/id_ed25519']
+        host = 'familyhub@familyhub-dev.mshome.net'
+    else:
+        options = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', '-o', 'StrictHostKeyChecking=yes',
+                   '-o', 'UserKnownHostsFile=.local/vm/known_hosts_server', '-i', '.local/vm/id_ed25519']
+        host = 'familyhub@192.168.31.16'
     ssh = ['ssh', *options, host]
     incoming = '/tmp/familyhub-update-' + uuid.uuid4().hex
     subprocess.run([*ssh, 'mkdir -m 700 ' + incoming], check=True, cwd=ROOT)
