@@ -12,7 +12,7 @@ FamilyHub's own take on a family cloud drive, in the spirit of Nextcloud: every 
 | Download | Forced download (`application/octet-stream`, `nosniff`), with range requests so a download can resume. |
 | Rename and delete | Private files: their owner. Shared folder: the uploader or an administrator. A folder is deleted only when empty, or with `recursive=true`. |
 | Share links | One file per link. Expiry of 1 hour, 1 day, 7 days or 30 days; optional password; optional download limit (1 makes it one-off). The list of a profile's links never includes the address. |
-| Limits | Per upload `FILES_MAX_UPLOAD` (2 GB), per folder `FILES_QUOTA` (20 GB each for the family and every profile), and `FILES_FREE_RESERVE` (5 GB) that the disk must keep free. |
+| Limits | Per upload `FILES_MAX_UPLOAD` (500 GB), per folder `FILES_QUOTA` (0, no limit; set bytes to cap the family folder and each profile) and `FILES_FREE_RESERVE` (20 GB) that the disk must keep free. The family server has a 10 TB data drive and a 4 TB backup drive, so the defaults leave space unrestricted; the development VM has about 14 GB free, so set the reserve lower and a quota there when testing. |
 
 Set `FILES_ROOT` in the server configuration to switch the feature on. Without it every file endpoint answers that file sharing is not set up. `FILES_PUBLIC_URL` (for example `https://files.example.test`) makes created links absolute; without it they are relative to the server address.
 

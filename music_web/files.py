@@ -89,9 +89,9 @@ class Store:
 
     def __init__(self, root, cfg):
         self.root = os.path.realpath(root)
-        self.max_upload = int(cfg.get('FILES_MAX_UPLOAD', 2 * GIB))
-        self.quota = int(cfg.get('FILES_QUOTA', 20 * GIB))
-        self.reserve = int(cfg.get('FILES_FREE_RESERVE', 5 * GIB))
+        self.max_upload = int(cfg.get('FILES_MAX_UPLOAD', 500 * GIB))
+        self.quota = int(cfg.get('FILES_QUOTA', 0))  # 0: no limit per folder
+        self.reserve = int(cfg.get('FILES_FREE_RESERVE', 20 * GIB))
         self.max_link_days = int(cfg.get('FILES_LINK_MAX_DAYS', 30))
         self.public_url = (cfg.get('FILES_PUBLIC_URL') or '').rstrip('/')
         for sub in ('family', 'profiles', '.uploading'):
@@ -164,7 +164,7 @@ class Store:
             raise FileError('Files can be up to %d GB.' % (self.max_upload // GIB), 413)
         if self.free_bytes() - incoming < self.reserve:
             raise FileError('The server is nearly out of disk space. Ask the administrator.', 507)
-        if tree_size(self.base(space, user)) + incoming > self.quota:
+        if self.quota and tree_size(self.base(space, user)) + incoming > self.quota:
             raise FileError('This folder is full (%d GB limit).' % (self.quota // GIB), 507)
 
     # ---- links ----
