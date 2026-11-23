@@ -292,3 +292,13 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
     .movie-library .movie-card, .movie-chev, .movie-expanded .movie-bar { transition: none; }
     .movie-library .movie-card:hover, .movie-library .movie-card:focus-visible { transform: none; }
 }
+
+/* A title missing from the library: the web search offer and its results. */
+.movie-web { display: grid; justify-items: start; gap: .6rem; max-width: 46rem; margin: 1rem 0; }
+.movie-web p { margin: 0; }
+.movie-web-list { display: grid; gap: .5rem; width: 100%; margin: 0; padding: 0; list-style: none; }
+.movie-web-list li { display: grid; gap: .15rem; padding: .7rem .9rem; border: 1px solid #ffffff1f; border-radius: .6rem; background: #ffffff0d; }
+.movie-web-list a { color: inherit; font-weight: 600; overflow-wrap: anywhere; }
+.movie-web-list a:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+.movie-web-meta { color: #ffffffb3; font-size: .9rem; }
+@media (min-width: 1600px) { .movie-web { max-width: 64rem; font-size: 1.3rem; } }

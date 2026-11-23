@@ -34,6 +34,16 @@ Subtitles are drawn by the player, not the browser: just above the picture's bot
 
 The remote works through the arrow keys: they move between cards, shelves, the billboard and the player controls, Enter selects, and the Back key (key code 461) closes the player. The pointer ("magic") remote also works. Not yet tested on a television.
 
+## Web search for titles missing from the library
+
+When a library search finds nothing, Movies offers **Search the web**. The server asks YouTube (through `yt-dlp`) for candidates, ranks and labels them (full film, trailer, clip, other) and returns up to five links. A link opens in the phone's browser; nothing is downloaded or added to the library.
+
+- **Ranking.** With `GEMINI_API_KEY` in the server configuration (a free Google AI Studio key; the model is `MOVIE_SEARCH_MODEL`, default `gemini-flash-latest`), one Gemini call ranks the candidates and gives a short reason. The call carries the film title plus each candidate's title, channel and length; no profile name or other personal data. Without a key, or when the call fails, a fixed rule ranks them (title words, film-length video, trailer and clip words).
+- **Safety.** The model only picks from the returned candidates: a link or label it invents is dropped, reasons are stripped of URLs, and the app opens only `https://www.youtube.com/watch?v=<id>` links. Web text is passed as data, with an instruction to ignore commands inside it.
+- **Limits and logs.** Six searches a minute and forty an hour per profile. The activity log records the count and the ranking method, never the search text.
+- **Needs** `yt-dlp` on the server's PATH. Without it the button answers "Searching the web is not set up on this server."
+- **Not built yet.** An "Add to library" action (download with `yt-dlp`, then a Jellyfin scan), and other sources such as a self-hosted SearXNG. Downloads from torrent sources go through the acquisition pipeline and its VPN rule, not through this feature.
+
 ## Connect a profile
 
 1. Start the existing Jellyfin service on the Debian guest. Give each viewer a separate ordinary Jellyfin account with access to the movie and TV libraries. The projector should use the same viewer account as the phone.

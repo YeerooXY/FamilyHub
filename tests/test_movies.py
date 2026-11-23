@@ -84,3 +84,74 @@ class MovieSessions(Base):
         self.assertEqual(send(kind='started', method='DirectPlay', title='Harbour Lights', minutes=12).status_code, 204)
         self.assertEqual(send(kind='started', title='x' * 201).status_code, 400)
         self.assertEqual(send(kind='stopped', minutes=-3).status_code, 400)
+
+
+class MovieWebSearch(MovieSessions):
+    FULL = {'id': 'aaaaaaaaaaa', 'title': 'Az ördög jobb és bal keze 2 | Teljes Film Magyarul', 'channel': 'Film', 'seconds': 6600, 'views': 9000, 'url': 'https://www.youtube.com/watch?v=aaaaaaaaaaa'}
+    TRAILER = {'id': 'bbbbbbbbbbb', 'title': 'Az ördög jobb és bal keze 2 előzetes', 'channel': 'Film', 'seconds': 100, 'views': 50, 'url': 'https://www.youtube.com/watch?v=bbbbbbbbbbb'}
+
+    def find(self, client, selection, query='Az ördög jobb és bal keze 2'):
+        return self.post(client, selection['csrf_token'], '/api/movies/find', json={'query': query})
+
+    @patch('music_web.movie_search.youtube_candidates')
+    def test_basic_ranking_puts_the_full_film_first_and_labels_the_trailer(self, candidates):
+        candidates.return_value = [self.TRAILER, self.FULL]
+        client, selection = self.select('sample-a')
+        reply = self.find(client, selection)
+        self.assertEqual(reply.status_code, 200)
+        self.assertEqual(reply.json['ranking'], 'basic')
+        self.assertEqual([(r['id'][0], r['label']) for r in reply.json['results']], [('a', 'full film'), ('b', 'trailer')])
+
+    @patch('music_web.movie_search.youtube_candidates')
+    def test_model_cannot_add_links_or_unknown_labels(self, candidates):
+        from music_web import movie_search
+        candidates.return_value = [self.TRAILER, self.FULL]
+        reply = {'results': [{'id': 'zzzzzzzzzzz', 'label': 'full film', 'reason': 'invented'},
+                             {'id': 'aaaaaaaaaaa', 'label': 'masterpiece', 'reason': 'Best match https://evil.test/x for sure'},
+                             {'id': 'aaaaaaaaaaa', 'label': 'full film', 'reason': 'again'}]}
+        ranked = movie_search.validate_model(reply, [self.TRAILER, self.FULL])
+        self.assertEqual([r['id'] for r in ranked], ['aaaaaaaaaaa'])
+        self.assertEqual(ranked[0]['label'], 'other')
+        self.assertNotIn('evil.test', ranked[0]['reason'])
+        self.assertEqual(ranked[0]['url'], self.FULL['url'])
+        self.assertIsNone(movie_search.validate_model({'results': [{'id': 'zzzzzzzzzzz'}]}, [self.FULL]))
+        self.assertIsNone(movie_search.validate_model('not json', [self.FULL]))
+
+    @patch('music_web.movie_search.youtube_candidates')
+    def test_the_search_text_is_never_logged(self, candidates):
+        candidates.return_value = [self.FULL]
+        client, selection = self.select('sample-a')
+        with self.assertLogs('music_web.movies', 'INFO') as logs:
+            reply = self.find(client, selection)
+        self.assertEqual(reply.json['ranking'], 'basic')
+        self.assertNotIn('ördög', '|'.join(logs.output))
+
+    def test_model_failure_and_success_paths(self):
+        from music_web import movie_search
+        both = [self.TRAILER, self.FULL]
+        key = {'GEMINI_API_KEY': 'k'}
+        self.assertEqual(movie_search.find('q', key, lambda q: both, lambda *a: None)['ranking'], 'basic')
+        ranked = [dict(self.FULL, label='full film', reason='Complete film')]
+        self.assertEqual(movie_search.find('q', key, lambda q: both, lambda *a: ranked)['ranking'], 'model')
+        self.assertEqual(movie_search.find('q', {}, lambda q: both, lambda *a: ranked)['ranking'], 'basic')
+
+    def test_input_limits_and_unlinked_profile(self):
+        client, selection = self.select('sample-a')
+        self.assertEqual(self.find(client, selection, 'x').status_code, 400)
+        self.assertEqual(self.find(client, selection, 'y' * 121).status_code, 400)
+        other, other_selection = self.select('sample-b')
+        self.assertEqual(self.find(other, other_selection).status_code, 404)
+
+    @patch('music_web.movie_search.youtube_candidates', side_effect=LookupError('yt-dlp is not installed'))
+    def test_missing_search_tool_is_a_plain_message(self, candidates):
+        client, selection = self.select('sample-a')
+        reply = self.find(client, selection)
+        self.assertEqual(reply.status_code, 503)
+        self.assertNotIn('yt-dlp', reply.json['error'])
+
+    @patch('music_web.movie_search.youtube_candidates', return_value=[])
+    def test_search_is_rate_limited(self, candidates):
+        client, selection = self.select('sample-a')
+        codes = [self.find(client, selection).status_code for _ in range(8)]
+        self.assertEqual(codes[:6], [200] * 6)
+        self.assertEqual(codes[6:], [429, 429])

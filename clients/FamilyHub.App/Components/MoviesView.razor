@@ -69,6 +69,32 @@
         catch (Exception) { }
     }
 
+    // A title missing from the library: ask the server where it can be watched. Answers as JSON text; the search text is not logged.
+    [JSInvokable]
+    public async Task<string> MovieFind(string query)
+    {
+        string Error(string message) => System.Text.Json.JsonSerializer.Serialize(new { error = message });
+        try
+        {
+            if (Session.Api is not { } api) return Error("Sign in again to search the web.");
+            var reply = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/movies/find", new { query }, cancellationToken: closed.Token);
+            return reply.GetRawText();
+        }
+        catch (FamilyHubApiException error) when (error.StatusCode == 429) { return Error("Wait a minute before searching the web again."); }
+        catch (FamilyHubApiException error) when (error.StatusCode == 503) { return Error("Searching the web is not set up on this server."); }
+        catch (Exception) when (!closed.IsCancellationRequested) { return Error("The web search did not finish. Try again."); }
+        catch (Exception) { return Error(""); }
+    }
+
+    // Web results open in the browser app; only a YouTube watch link is accepted.
+    [JSInvokable]
+    public async Task MovieOpenLink(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var link) && link.Scheme == "https" && link.Host == "www.youtube.com"
+            && link.AbsolutePath == "/watch" && System.Text.RegularExpressions.Regex.IsMatch(link.Query, @"^\?v=[A-Za-z0-9_-]{11}$"))
+            await Microsoft.Maui.ApplicationModel.Launcher.Default.OpenAsync(link);
+    }
+
     // The player asks for landscape and hidden system bars while it covers the window.
     [JSInvokable]
     public void MovieScreen(bool playing) => PlayerScreen.Set(playing);

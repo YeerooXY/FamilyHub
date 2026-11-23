@@ -509,6 +509,7 @@ export function openMovies(host, session, app, viewer) {
                 if (term && reset) {
                     const count = page.TotalRecordCount ?? offset;
                     status.textContent = count ? `${count} matching ${count === 1 ? "title" : "titles"}.` : "No matching titles.";
+                    if (!count) extra.noMatch?.();
                 }
                 if (wasFocused || focusedCard) (successor || first || heading).focus();
             } catch {
@@ -530,6 +531,40 @@ export function openMovies(host, session, app, viewer) {
             life.signal.addEventListener("abort", () => watcher.disconnect(), { once: true });
         } else load(true);
         return () => load(true);
+    }
+    // A title that is not in the library: offer a web search. The server ranks real YouTube results; nothing downloads.
+    function webOffer(term) {
+        if (!active || results.querySelector(".movie-web")) return;
+        const box = el("section"), lead = el("p"), find = button("Search the web", () => run()), list = el("ul"), line = el("p");
+        box.className = "movie-web";
+        lead.textContent = `“${term}” is not in the library.`;
+        line.setAttribute("role", "status");
+        list.className = "movie-web-list";
+        box.append(lead, find, line, list);
+        results.append(box);
+        const kinds = { "full film": "Full film", trailer: "Trailer", clip: "Clip", other: "Other" };
+        async function run() {
+            if (find.getAttribute("aria-disabled") === "true") return;
+            find.setAttribute("aria-disabled", "true"); line.textContent = "Searching the web…"; list.replaceChildren();
+            let answer;
+            try { answer = JSON.parse(await app.invokeMethodAsync("MovieFind", term)); }
+            catch { answer = { error: "The web search did not finish. Try again." }; }
+            find.removeAttribute("aria-disabled");
+            if (!active || !box.isConnected) return;
+            if (answer.error !== undefined) { line.textContent = answer.error; find.textContent = "Try again"; return; }
+            if (!answer.results.length) { line.textContent = "Nothing found on the web either."; return; }
+            line.textContent = `${answer.results.length} ${answer.results.length === 1 ? "result" : "results"}${answer.ranking === "model" ? ", ranked with AI help" : ""}. Links open in your browser; nothing is downloaded.`;
+            find.textContent = "Search again";
+            let first;
+            for (const item of answer.results) {
+                const row = el("li"), link = el("a"), meta = el("span", `${kinds[item.label] ?? "Other"}${item.seconds ? ` · ${Math.round(item.seconds / 60)} min` : ""}${item.channel ? ` · ${item.channel}` : ""}${item.reason ? ` — ${item.reason}` : ""}`);
+                link.href = item.url; link.textContent = item.title || item.url; link.rel = "noopener noreferrer"; link.target = "_blank";
+                link.onclick = event => { event.preventDefault(); Promise.resolve(app.invokeMethodAsync("MovieOpenLink", item.url)).catch(() => window.open(item.url, "_blank", "noopener,noreferrer")); };
+                meta.className = "movie-web-meta";
+                row.append(link, meta); list.append(row); first ??= link;
+            }
+            first?.focus();
+        }
     }
     const form = el("form"), query = el("input"), submit = el("button", "Search");
     form.className = "movie-search";
@@ -558,7 +593,7 @@ export function openMovies(host, session, app, viewer) {
         browse.hidden = true;
         searchRequest = new AbortController();
         status.textContent = "Searching…";
-        shelf("Search results", "Movie,Episode", false, results, term, searchRequest.signal);
+        shelf("Search results", "Movie,Episode", false, results, term, searchRequest.signal, { noMatch: () => webOffer(term) });
     };
     query.oninput = () => { if (!query.value.trim()) resetSearch(); };
     life.signal.addEventListener("abort", () => searchRequest?.abort(), {once:true});

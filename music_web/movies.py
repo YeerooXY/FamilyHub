@@ -8,7 +8,7 @@ import urllib.request
 
 from flask import g, jsonify
 
-from . import feedback
+from . import feedback, movie_search
 
 
 log = logging.getLogger('music_web.movies')
@@ -55,6 +55,24 @@ def register_movies(app, cfg, body, allow):
         feedback.note(movie_event=kind, method=method, title=title, minutes=minutes if minutes is not None else '')
         (log.warning if kind in PROBLEMS else log.info)('movie client %s profile=%s method=%s', kind, g.user, method or '-')
         return '', 204
+
+    @app.post('/api/movies/find')
+    def movie_find():
+        """Where a film that is not in the library can be watched. The search text is never logged."""
+        if g.user not in cfg.get('JELLYFIN_PROFILES', {}):
+            return jsonify(error='Movies are not set up for this profile.'), 404
+        query = movie_search.clean_query(body().get('query'))
+        if query is None:
+            return jsonify(error='Type a film title of 2 to %d characters.' % movie_search.MAX_QUERY), 400
+        if not allow('movie-find:' + g.user, 6, 60) or not allow('movie-find-hour:' + g.user, 40, 3600):
+            return jsonify(error='Wait a minute before searching the web again.'), 429
+        try:
+            found = movie_search.find(query, cfg)
+        except LookupError:
+            return jsonify(error='Searching the web is not set up on this server.'), 503
+        feedback.note(movie_event='web-search', results=len(found['results']), ranking=found['ranking'])
+        log.info('movie web search profile=%s results=%d ranking=%s', g.user, len(found['results']), found['ranking'])
+        return jsonify(found)
 
     @app.post('/api/movies/session')
     def movie_session():
