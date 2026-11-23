@@ -156,7 +156,7 @@
             var target = FreeName(folder, name);
             await using (var file = File.Create(target)) await response.Content.CopyToAsync(file, closed.Token);
             await Microsoft.Maui.ApplicationModel.DataTransfer.Share.Default.RequestAsync(new Microsoft.Maui.ApplicationModel.DataTransfer.ShareFileRequest
-            { Title = name, File = new Microsoft.Maui.Storage.ShareFile(target) });
+            { Title = name, File = new Microsoft.Maui.ApplicationModel.DataTransfer.ShareFile(target) });
             return $"{name} is ready. Choose where to keep it.";
 #endif
         }
