@@ -122,6 +122,7 @@ public sealed record ProfileConnection
 
 public sealed record ProfileSelection
 {
+    [JsonPropertyName("server_health_admin")] public bool ServerHealthAdmin { get; init; }
     [JsonPropertyName("movies_enabled")] public bool MoviesEnabled { get; init; }
     [JsonPropertyName("profile")] public ListenerProfile Profile { get; init; } = new();
     [JsonPropertyName("preferences")] public ListenerPreferences Preferences { get; init; } = new();

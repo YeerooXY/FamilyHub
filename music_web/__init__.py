@@ -234,6 +234,8 @@ def create_app(test_config=None):
     bulk_file_lock = threading.Lock()
     bulk_revision = bulk_saved_revision = 0
     app.extensions["music"] = SimpleNamespace(sessions=sessions, jobs=jobs)
+    from . import server_stats as health_stats
+    app.extensions["server_health"] = (health_stats.start(ws, cfg) if test_config is None else health_stats.Collector())
     log = logging.getLogger("music_web")
     resources = ResourceGovernor(lambda: resource_queue(), lambda: resource_metrics())
     def resource_changed():
@@ -527,6 +529,7 @@ def create_app(test_config=None):
         else:
             resources.presence((profile["id"], session["sid"]))
         return jsonify(profile=profile, preferences=preferences, csrf_token=generate_csrf(),
+                       server_health_admin=profile["id"] in cfg["ADMIN_USERS"],
                        movies_enabled=bool(cfg.get("JELLYFIN_PUBLIC_URL") and profile["id"] in cfg.get("JELLYFIN_PROFILES", {})))
 
     @app.route("/api/profile/playback", methods=["GET", "PUT", "PATCH"])
@@ -910,6 +913,26 @@ def create_app(test_config=None):
 
     @app.get("/api/server/stats")
     def server_stats():
+        if "range" in request.args:
+            return server_health(request.args["range"])
+        return server_work()
+
+    @app.get("/api/server/stats/now")
+    def server_health_now():
+        return server_health()
+
+    def server_health(period=None):
+        if g.user not in cfg["ADMIN_USERS"]:
+            raise ApiError("Only an admin can view server health.", 403)
+        if period is not None and period not in health_stats.RANGES:
+            raise ApiError("Choose a supported time range.", 400)
+        collector = app.extensions["server_health"]
+        snapshot = collector.now if period is None else collector.ranges.get(period)
+        if snapshot is None:
+            raise ApiError("Server measurements are unavailable. Retry shortly.", 503)
+        return app.response_class(snapshot, mimetype="application/json")
+
+    def server_work():
         profiles = profile_store.list() if family_mode else [dict(id=u, name=u) for u in cfg["ALLOWED_USERS"]]
         names = {p["id"]: p["name"] for p in profiles}
         leaderboard = request.args.get('leaderboard') == '1'
@@ -3399,8 +3422,9 @@ def create_app(test_config=None):
         auto_thread.start()
     from .snapshots import bounded_snapshot
     if cfg.get('STATUS_SNAPSHOTS', cfg['PUBLIC_ORIGIN'] != 'https://music.test'):
+        server_work = bounded_snapshot(server_work)
         for rule in app.url_map.iter_rules():
-            if 'GET' in rule.methods and rule.rule in ('/api/server/stats', '/api/catalogue/review', '/api/catalogue/source-quality', '/api/catalogue/reports'):
+            if 'GET' in rule.methods and rule.rule in ('/api/catalogue/review', '/api/catalogue/source-quality', '/api/catalogue/reports'):
                 app.view_functions[rule.endpoint] = bounded_snapshot(app.view_functions[rule.endpoint])
 
     def close_state():

@@ -57,6 +57,8 @@ Verify a harmless HTTPS request succeeds inside the qBittorrent network namespac
 
    Omit the block or set `enabled` to `false` to disable new requests in FamilyHub. Existing Seerr requests and downloads follow Seerr and the importers' settings.
 
+   For exact TV season lengths when Seerr omits episode runtimes, add a TMDb API Read Access Token as `tmdb_read_token` inside the private `MOVIE_REQUESTS` block. When episode runtimes are unavailable, FamilyHub labels totals calculated from Seerr's typical episode length and episode count as estimates. Movie runtimes and Hungarian titles come from Seerr. [TMDb season details](https://developer.themoviedb.org/reference/tv-season-details)
+
 6. Before giving the family access, use one authorized movie and one authorized series to verify search, approval, transfer, import and playback. Confirm the movie and series appear in the expected Jellyfin libraries and a repeat request does not create a duplicate. Check actual audio and subtitle tracks against the household's preferred languages.
 
 ## Scope and limits

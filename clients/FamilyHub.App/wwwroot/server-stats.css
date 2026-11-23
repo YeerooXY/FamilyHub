@@ -1,4 +1,62 @@
 .server-stats { width:100%; min-width:0; }
+.health-dashboard { display:grid; gap:20px; min-width:0; }
+.health-panel { min-width:0; padding:clamp(14px,2vw,24px); }
+.health-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; }
+.health-header h2 { margin:0; font-size:1.25em; }
+.health-status { margin:8px 0 14px; color:var(--muted); }
+.health-action,.health-range span { min-height:44px; padding:8px 14px; border:1px solid var(--border,#ffffff2e); border-radius:999px; }
+.health-action[aria-disabled=true] { opacity:.65; }
+.health-ranges { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.health-range { position:relative; cursor:pointer; }
+.health-range input { position:absolute; width:1px; height:1px; opacity:0; }
+.health-range span { display:flex; align-items:center; color:var(--muted); }
+.health-range input:checked + span { border-color:var(--accent-blue); background:color-mix(in srgb,var(--accent-blue) 18%,transparent); color:var(--ink); font-weight:700; }
+.health-action:focus-visible,.health-range input:focus-visible + span { outline:2px solid var(--accent-blue); outline-offset:3px; }
+.health-tiles,.health-charts { display:grid; gap:12px; align-items:start; }
+.health-tiles { grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr)); align-items:stretch; }
+.health-charts { grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr)); }
+.health-tile { min-width:0; padding:16px; border:1px solid var(--border,#ffffff24); border-radius:16px; background:var(--panel-bg,#17191f); overflow-wrap:anywhere; }
+.health-tile h3 { margin:0 0 8px; font-size:1.05em; }
+.health-tile h3:not(:first-child) { margin-top:12px; }
+.health-tile p { margin:4px 0 0; color:var(--muted); }
+.health-device,.health-value,.health-table,.health-plot,.health-legend { font-variant-numeric:tabular-nums; }
+.health-tile h3 .health-device { margin-left:6px; color:var(--muted); font-weight:500; }
+.health-value { font-size:1.35em; }
+.health-tile meter { display:block; width:100%; height:8px; margin:6px 0; accent-color:var(--accent-blue); appearance:none; }
+.health-tile meter::-webkit-meter-bar { background:#ffffff16; border:0; border-radius:5px; box-shadow:none; }
+.health-tile meter::-webkit-meter-optimum-value { background:var(--accent-blue); border-radius:5px; }
+.health-warm { color:#f2c46d; }
+.health-hot { color:#ff9b9b; }
+.health-chart figure { display:grid; gap:12px; margin:0; }
+.health-legend { display:flex; flex-wrap:wrap; gap:8px 20px; font-size:.9em; }
+.health-legend > div { display:grid; gap:2px; }
+.health-legend span,.health-plot { color:var(--muted); }
+.health-legend i { display:inline-block; width:18px; margin-right:6px; vertical-align:middle; border-top:2px solid var(--accent-blue); }
+.health-legend .health-series-1 i { border-top:2px dashed var(--accent-pink); }
+.health-plot { display:grid; grid-template-columns:auto minmax(0,1fr); gap:4px 8px; font-size:max(12px,.8em); }
+.health-plot svg { display:block; width:100%; height:clamp(112px,14vw,152px); overflow:visible; }
+.health-plot .stats-chart-grid { vector-effect:non-scaling-stroke; }
+.health-scale,.health-times { display:flex; justify-content:space-between; gap:8px; }
+.health-scale { flex-direction:column; text-align:right; }
+.health-times { grid-column:2; }
+.health-times span:last-child { text-align:right; }
+.health-trace { fill:none; stroke:var(--accent-blue); stroke-width:2; stroke-linecap:round; }
+.health-trace.health-series-1 { stroke:var(--accent-pink); stroke-dasharray:5 4; }
+.health-table-button { margin-top:10px; text-align:left; }
+.health-table { width:100%; table-layout:fixed; border-collapse:collapse; margin-top:8px; font-size:.9em; }
+.health-table caption { text-align:left; }
+.health-table :is(th,td) { padding:6px 4px; text-align:left; border-bottom:1px solid var(--border,#ffffff24); }
+@media (max-width:480px) {
+    .health-ranges { gap:6px; }
+    .health-range span { padding-inline:8px; }
+    .health-legend { gap:8px 12px; }
+    .health-legend > div { flex:1 1 120px; }
+}
+@media (min-width:1920px) {
+    .health-dashboard { font-size:18px; }
+    .health-action,.health-range span { min-height:60px; }
+    .health-action:focus-visible,.health-range input:focus-visible + span { outline-width:4px; }
+}
 .server-stats button:focus-visible,.server-stats summary:focus-visible { outline:2px solid var(--accent-blue); outline-offset:3px; }
 .stats-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:16px; margin:16px 0 32px; }
 .stats-server-status { display:flex; align-items:center; gap:12px; color:var(--muted); font-size:12px; }

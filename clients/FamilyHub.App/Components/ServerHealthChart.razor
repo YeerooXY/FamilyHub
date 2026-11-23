@@ -1,0 +1,105 @@
+@using System.Globalization
+@using System.Text
+@using FamilyHub.Client.Core
+
+<article class="health-tile health-chart">
+    <h3>@Title</h3>
+    <figure>
+        <figcaption class="health-legend">
+            @for (var i = 0; i < series.Length; i++)
+            {
+                var line = series[i];
+                <div class="@("health-series-" + i)">
+                    <strong><i aria-hidden="true"></i>@line.Label</strong>
+                    @if (line.Points.Length > 0)
+                    {
+                        <span>Latest @Format(line.Points[^1][1]) · Peak @Format(line.Peak)</span>
+                        @if (History.Totals.TryGetValue(line.Key, out var total))
+                        { <span>@ServerHealth.Bytes(total) recorded</span> }
+                    }
+                    else { <span>@ServerHealth.NotMeasured</span> }
+                </div>
+            }
+        </figcaption>
+        <div class="health-plot" aria-hidden="true">
+            <div class="health-scale"><span>@Format(high)</span><span>@Format(low)</span></div>
+            <svg viewBox="0 0 600 140" preserveAspectRatio="none" focusable="false">
+                <path class="stats-chart-grid" d="M0 4H600M0 70H600M0 136H600" />
+                @for (var i = 0; i < series.Length; i++)
+                {
+                    <path class="@("health-trace health-series-" + i)" d="@PathFor(series[i].Points)" vector-effect="non-scaling-stroke" />
+                }
+            </svg>
+            <div class="health-times"><span>@TimeLabel(History.Since)</span><span>@TimeLabel(History.At)</span></div>
+        </div>
+    </figure>
+    <button type="button" class="quiet health-action health-table-button" aria-expanded="@(showTable ? "true" : "false")"
+            aria-controls="@tableId" @onclick="() => showTable = !showTable">
+        <span aria-hidden="true">@(showTable ? "−" : "+")</span> @Title data
+    </button>
+    <div id="@tableId" hidden="@(!showTable)">
+        @if (showTable)
+        {
+            <table class="health-table">
+                <caption>@Title readings</caption>
+                <thead>
+                    <tr><th scope="col">Time</th>@foreach (var line in series) { <th scope="col">@line.Label</th> }</tr>
+                </thead>
+                <tbody>
+                    @foreach (var at in tableTimes)
+                    {
+                        <tr>
+                            <th scope="row">@ServerHealth.Local(at).ToString("g")</th>
+                            @foreach (var line in series)
+                            { <td>@Format(line.ByTime.TryGetValue(at, out var value) ? value : null)</td> }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</article>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter, EditorRequired] public ServerHealthHistory History { get; set; } = new();
+    [Parameter, EditorRequired] public (string Key, string Label)[] Lines { get; set; } = [];
+    [Parameter, EditorRequired] public Func<double?, string> Format { get; set; } = _ => "";
+    private readonly string tableId = "health-data-" + Guid.NewGuid().ToString("N");
+    private bool showTable;
+    private long[] tableTimes = [];
+    private Series[] series = [];
+    private double low, high;
+
+    protected override void OnParametersSet()
+    {
+        series = Lines.Select(line => new Series(line.Key, line.Label, History.Series.GetValueOrDefault(line.Key, []))).ToArray();
+        tableTimes = series.SelectMany(line => line.ByTime.Keys).Distinct().OrderDescending().ToArray();
+        high = series.Select(line => line.Peak).DefaultIfEmpty(0).Max();
+        low = series.SelectMany(line => line.Points).Select(point => point[1]).Append(0).Min();
+        if (high == low) high = low + 1;
+    }
+
+    private string PathFor(double[][] points)
+    {
+        var path = new StringBuilder();
+        var previous = double.NegativeInfinity;
+        foreach (var point in points)
+        {
+            var x = 2 + 596 * (point[0] - History.Since) / Math.Max(1, History.At - History.Since);
+            var y = 136 - 132 * (point[1] - low) / (high - low);
+            var gap = point[0] - previous > History.Step * 1.5;
+            path.Append(CultureInfo.InvariantCulture, $"{(gap ? 'M' : 'L')}{x:0.##} {y:0.##}");
+            if (gap) path.Append("l.01 0");
+            previous = point[0];
+        }
+        return path.ToString();
+    }
+
+    private string TimeLabel(long at) => ServerHealth.Local(at).ToString(History.At - History.Since <= 3600 ? "t" : "g");
+    private sealed record Series(string Key, string Label, double[][] Points)
+    {
+        public double Peak { get; } = Points.Select(point => point[1]).DefaultIfEmpty(0).Max();
+        public Dictionary<long, double> ByTime { get; } = Points.ToDictionary(point => (long)point[0], point => point[1]);
+    }
+}
