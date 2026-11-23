@@ -1341,7 +1341,7 @@ else
         await Task.WhenAll(minimum, Task.WhenAny(Session.FirstConnection, Task.Delay(6000)));
         splash = SplashState.Leaving;
         await InvokeAsync(StateHasChanged);
-        await Task.Delay(560);
+        await Task.Delay(820);
         splash = SplashState.Gone;
         await InvokeAsync(StateHasChanged);
     }

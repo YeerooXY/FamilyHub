@@ -461,3 +461,46 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-sound-readout { text-align: right; font-variant-numeric: tabular-nums; }
 .movie-sound-hint { margin: -.4rem 0 0; color: #ffffffb3; font-size: .85rem; }
 .movie-sound-hint[hidden], .movie-sound-body .movie-track-col[hidden] { display: none; }
+
+/* Search at the top, centred, one soft focus ring on the whole bar (not a second ring on the input). */
+.movie-library .movie-toolbar, .movie-library .movie-search-results, .movie-library .movie-releases { max-width: 60rem; margin-inline: auto; }
+.movie-library .movie-toolbar { position: sticky; top: 0; z-index: 6; padding: .6rem 0 .5rem; background: linear-gradient(#0b0d12f2 78%, #0b0d1200); }
+.movie-library .movie-search { max-width: none; border-radius: 999px; background: #171a22; border-color: #ffffff2e; }
+.movie-library .movie-search:focus-within { border-color: var(--focus, #98abed); box-shadow: 0 0 0 3px #98abed38; }
+.movie-library .movie-search input { padding-inline: 1.3rem .4rem; }
+.movie-library .movie-search input:focus-visible { outline: none; }
+.movie-library .movie-search button { border-radius: 999px; }
+
+/* Release tiles: a bigger card each, quality shown by colour, words instead of seeders. */
+.movie-release-tools { display: flex; flex-wrap: wrap; gap: .45rem; margin: .7rem 0 .9rem; }
+.movie-releases .movie-release-tools button { min-height: 40px; padding: 0 1.05rem; border: 1px solid #ffffff2e; border-radius: 999px; background: transparent; color: inherit; font: inherit; font-size: .92rem; }
+.movie-releases .movie-release-tools button[aria-pressed="true"] { background: #fff; border-color: #fff; color: #0b0d12; font-weight: 700; }
+.movie-source-list li.movie-release { gap: .75rem; padding: 1.15rem 1.3rem; margin-bottom: .8rem; border-radius: 1.05rem; }
+.movie-release-head { display: grid; gap: .5rem; }
+.movie-releases .movie-release-title { margin: 0; font-size: 1.2rem; line-height: 1.25; font-weight: 700; color: #fff; }
+.movie-release-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: .5rem 1.2rem; margin: 0; }
+.movie-release-stats > div { display: grid; gap: .1rem; }
+.movie-release-stats dt { font-size: .78rem; color: #ffffff99; }
+.movie-release-stats dd { margin: 0; font-size: 1.12rem; font-weight: 700; color: #fff; }
+.movie-release-stats dd[data-level="great"], .movie-release-stats dd[data-level="good"] { color: #7ee2a0; }
+.movie-release-stats dd[data-level="ok"] { color: #7fd3e8; }
+.movie-release-stats dd[data-level="slow"] { color: #f2c46d; }
+.movie-release-stats dd[data-level="none"] { color: #ff9b9b; }
+.movie-releases .movie-release-note { color: #ffffffb8; font-size: .9rem; }
+.movie-releases .movie-release-action { justify-self: start; min-height: 46px; padding: 0 1.5rem; border: 0; border-radius: .75rem; background: linear-gradient(135deg, #89b4ff, #f19cda); color: #0b0d12; font: inherit; font-weight: 700; cursor: pointer; }
+.movie-releases .movie-release-action[aria-disabled="true"] { background: #ffffff1f; color: #ffffffcc; cursor: not-allowed; }
+.movie-releases .movie-release-action:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+
+/* One colour per quality tier. 4K is the showpiece; Remux is the best 1080p; the rest step down in colour and shine. */
+.movie-release-top > .movie-release-quality { border: 0; box-shadow: none; color: #fff; }
+.movie-release-quality[data-level="uhd"] { background: linear-gradient(110deg, #ffd76a, #ff9e5e 45%, #ff6fb5, #ffd76a); background-size: 220% 100%; color: #2a1400; box-shadow: 0 0 16px #ffb45e66; animation: movie-shine 5s linear infinite; }
+.movie-release-quality[data-level="remux"] { background: linear-gradient(120deg, #9a78ff, #4f8cff); box-shadow: 0 0 12px #7a8cff55; }
+.movie-release-quality[data-level="bluray"] { background: #2f6fe4; }
+.movie-release-quality[data-level="web"] { background: #14998d; }
+.movie-release-quality[data-level="hd"] { background: #5b6b82; }
+.movie-release-quality[data-level="tv"] { background: #4a4f5c; }
+.movie-release-quality[data-level="poor"] { background: #c2410c; }
+li.movie-release[data-tier="uhd"] { border-color: #ffb45e66; box-shadow: inset 0 0 0 1px #ffb45e26, 0 0 24px #ffb45e14; }
+li.movie-release[data-tier="remux"] { border-color: #8f8cff66; }
+@keyframes movie-shine { to { background-position: -220% 0; } }
+@media (prefers-reduced-motion: reduce) { .movie-release-quality[data-level="uhd"] { animation: none; } }

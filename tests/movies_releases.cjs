@@ -89,21 +89,35 @@ async function verify(browser, name, options) {
         assert.equal(await focus(disclosure), true);
         const first = result.getByRole("listitem").first();
         assert.equal(await result.getByRole("listitem").count(), 3);
-        // Facts first: what it is, what it holds, how big, how long, how healthy. No upload settings or leecher counts.
+        // Facts first, in plain words: what it is, what it holds, how big, how long, how easy to get. No seeders, leechers or upload settings.
         const text = await first.innerText();
         assert.match(text, /Recommended/);
-        assert.match(text, /1080p/);
+        assert.match(text, /1080p Web/);
         assert.match(text, /Full season 2/);
-        assert.match(text, /390 seeders/);
-        assert.match(text, /16\.1 GB · about 23 min to download · Web/);
-        assert.doesNotMatch(text, /leecher|Upload|Mbps budget|The Pirate Bay|Knaben/);
+        assert.match(text, /^The Gentlemen\n/);
+        assert.match(text, /Size\s+16\.1 GB/);
+        assert.match(text, /Download time\s+about 23 min/);
+        assert.match(text, /Availability\s+Very easy to get/);
+        assert.doesNotMatch(text, /seeder|leecher|Upload|The Pirate Bay|Knaben/);
+        assert.equal(await first.locator(".movie-release-quality").getAttribute("data-level"), "web");
         assert.equal(await page.getByText("Times assume a 100 Mbps connection.").isVisible(), true);
         assert.equal(await page.getByRole("spinbutton").count(), 0);
         const second = result.getByRole("listitem").nth(1);
-        assert.match(await second.innerText(), /720p.*Full season 2.*22 seeders.*1\.9 GB/s);
+        assert.match(await second.innerText(), /720p.*Full season 2.*1\.9 GB.*Easy to get/s);
+        assert.equal(await second.locator(".movie-release-quality").getAttribute("data-level"), "hd");
         const none = result.getByRole("listitem").nth(2);
-        assert.match(await none.innerText(), /4K.*No seeders/s);
-        assert.doesNotMatch(await none.innerText(), /to download/);
+        assert.match(await none.innerText(), /4K.*Hard to get/s);
+        assert.equal(await none.locator(".movie-release-quality").getAttribute("data-level"), "uhd");
+        assert.doesNotMatch(await none.innerText(), /about \d+ (?:min|h)/);
+        // The action is present on every tile and explains itself while downloads are off for the profile.
+        const action = first.getByRole("button", {name: /^Download The Gentlemen/});
+        assert.equal(await action.getAttribute("aria-disabled"), "true");
+        // Sorting by file size puts the smallest first; sorting by quality puts 4K first.
+        await page.getByRole("button", {name: "Smallest file", exact: true}).click();
+        assert.match(await result.getByRole("listitem").first().innerText(), /720p/);
+        await page.getByRole("button", {name: "Quality", exact: true}).click();
+        assert.match(await result.getByRole("listitem").first().innerText(), /4K/);
+        await page.getByRole("button", {name: "Best match", exact: true}).click();
         assert.equal(await first.locator("strong").textContent(), pack);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
         await page.screenshot({path:path.join(output, name + "-releases.png"), fullPage:true});

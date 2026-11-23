@@ -2,19 +2,19 @@
     <h1 id="view-title">FamilyHub</h1>
     <nav class="hub-grid" aria-label="Apps">
         <button class="hub-card hub-music" @ref="cards[0]" @onkeydown="e => MoveFocus(0, e)" @onclick='() => Open.InvokeAsync("Home")'>
-            <span class="hub-art" aria-hidden="true"><span class="hub-sleeve"></span><span class="hub-record"></span></span>
+            <span class="hub-art" aria-hidden="true"><img class="hub-image" src="hub-art/music.webp" alt="" width="768" height="768" decoding="async" /></span>
             <span class="hub-text"><span class="hub-label">Music</span><span class="hub-note">Songs, playlists and radio</span></span>
         </button>
         <button class="hub-card hub-word" @ref="cards[1]" @onkeydown="e => MoveFocus(1, e)" @onclick='() => Open.InvokeAsync("Wordle")'>
-            <span class="hub-art" aria-hidden="true"><span class="hub-tiles"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span>
+            <span class="hub-art" aria-hidden="true"><img class="hub-image" src="hub-art/wordle.webp" alt="" width="768" height="768" decoding="async" /></span>
             <span class="hub-text"><span class="hub-label">Daily Wordle</span><span class="hub-note">One word a day</span></span>
         </button>
         <button class="hub-card hub-movies" @ref="cards[2]" @onkeydown="e => MoveFocus(2, e)" @onclick='() => Open.InvokeAsync("Movies & TV")'>
-            <span class="hub-art" aria-hidden="true"><span class="hub-film"><i></i><i></i><i></i><i></i></span><span class="hub-play"></span></span>
+            <span class="hub-art" aria-hidden="true"><img class="hub-image" src="hub-art/movies.webp" alt="" width="768" height="768" decoding="async" /></span>
             <span class="hub-text"><span class="hub-label">Movies &amp; TV</span><span class="hub-note">Your films and series</span></span>
         </button>
         <button class="hub-card hub-files" @ref="cards[3]" @onkeydown="e => MoveFocus(3, e)" @onclick='() => Open.InvokeAsync("Files")'>
-            <span class="hub-art" aria-hidden="true"><span class="hub-sheet hub-sheet-back"></span><span class="hub-sheet"></span><span class="hub-folder"><i></i></span></span>
+            <span class="hub-art" aria-hidden="true"><img class="hub-image" src="hub-art/files.webp" alt="" width="768" height="768" decoding="async" /></span>
             <span class="hub-text"><span class="hub-label">Files</span><span class="hub-note">Family and private folders</span></span>
         </button>
     </nav>

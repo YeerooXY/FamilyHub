@@ -36,37 +36,10 @@ body:has(.workspace:is([data-app-view="Hub"], [data-app-view="Wordle"], [data-ap
 .hub-grid .hub-card::after { content:""; position:absolute; inset:auto 0 0 0; height:55%; z-index:1; pointer-events:none; background:linear-gradient(transparent,#0000009e); }
 .hub-art > * { position:absolute; }
 
-/* Music: a record sliding out of its sleeve. */
-.hub-sleeve { right:calc(var(--art) * .1); top:calc(var(--art) * .12); width:calc(var(--art) * 1.05); aspect-ratio:1; border-radius:calc(var(--art) * .08);
-    background:linear-gradient(135deg,#25566f,#0f2431); border:1px solid #9fd0e255; transform:rotate(6deg); box-shadow:0 18px 30px #0007; }
-.hub-record { right:calc(var(--art) * .42); top:calc(var(--art) * .22); width:calc(var(--art) * 1.05); aspect-ratio:1; border-radius:50%; transform:rotate(-4deg);
-    background:radial-gradient(circle,#10202a 0 3.5%,#8cc7d9 4% 21%,transparent 21.5%),
-        repeating-radial-gradient(circle,#7fa8b552 0 1px,transparent 1.5px 5px),
-        conic-gradient(from 36deg,#0b1a22,#7fa6b6,#0b1a22 38%,#2e4a60,#0b1a22);
-    box-shadow:0 20px 34px #0008; border:1px solid #a2cedb66; }
-
-/* Wordle: a board of scored tiles. */
-.hub-tiles { right:calc(var(--art) * .12); top:calc(var(--art) * .12); display:grid; grid-template-columns:repeat(5,calc(var(--art) * .21)); gap:calc(var(--art) * .045); transform:rotate(-7deg); }
-.hub-tiles i { aspect-ratio:1; background:#3a3a3c; border:1px solid #ffffff22; border-radius:calc(var(--art) * .04); box-shadow:0 8px 14px #0003; }
-.hub-tiles i:nth-child(5n+1), .hub-tiles i:nth-child(5n+4), .hub-tiles i:nth-child(n+11) { background:#538d4e; }
-.hub-tiles i:nth-child(5n+2), .hub-tiles i:nth-child(12) { background:#b59f3b; }
-.hub-tiles i:nth-child(14) { background:#3a3a3c; }
-
-/* Movies: a film strip behind a play button. */
-.hub-film { right:calc(var(--art) * -.15); top:calc(var(--art) * .22); display:flex; gap:calc(var(--art) * .05); width:calc(var(--art) * 1.4); height:calc(var(--art) * .9);
-    padding:calc(var(--art) * .1) calc(var(--art) * .05); transform:rotate(-12deg); border-block:calc(var(--art) * .05) dashed #d7c2df; background:#241d2e; box-shadow:0 18px 30px #0007; }
-.hub-film i { flex:1; border-radius:calc(var(--art) * .02); background:linear-gradient(135deg,#d3a7dc,#4d395d 70%); }
-.hub-film i:nth-child(2) { background:linear-gradient(135deg,#9bb8e8,#3a4a78 70%); }.hub-film i:nth-child(3) { background:linear-gradient(135deg,#f0b48a,#6a3c4a 70%); }
-.hub-play { right:calc(var(--art) * .45); top:calc(var(--art) * .42); width:calc(var(--art) * .5); aspect-ratio:1; border-radius:50%; background:#ffffffeb; box-shadow:0 10px 24px #0008; }
-.hub-play::after { content:""; position:absolute; left:38%; top:28%; border-left:calc(var(--art) * .17) solid #3a2a48; border-block:calc(var(--art) * .11) solid transparent; }
-
-/* Files: a folder holding two sheets. */
-.hub-sheet { right:calc(var(--art) * .3); top:calc(var(--art) * .1); width:calc(var(--art) * .62); height:calc(var(--art) * .78); border-radius:calc(var(--art) * .04); background:linear-gradient(#f4f6fb,#c9d3e6); transform:rotate(-6deg); box-shadow:0 10px 18px #0004; }
-.hub-sheet-back { right:calc(var(--art) * .12); transform:rotate(7deg); background:linear-gradient(#e3e9f5,#b6c3dc); }
-.hub-folder { right:calc(var(--art) * .08); top:calc(var(--art) * .42); width:calc(var(--art) * 1.3); height:calc(var(--art) * .86); border-radius:calc(var(--art) * .07); transform:rotate(-4deg);
-    background:linear-gradient(135deg,#a9c4de,#4b6a86); box-shadow:0 18px 30px #0007; border:1px solid #ffffff44; }
-.hub-folder::before { content:""; position:absolute; left:0; top:calc(var(--art) * -.12); width:calc(var(--art) * .5); height:calc(var(--art) * .16); border-radius:calc(var(--art) * .05) calc(var(--art) * .05) 0 0; background:#86a6c3; }
-.hub-folder i { position:absolute; left:calc(var(--art) * .12); right:calc(var(--art) * .12); bottom:calc(var(--art) * .14); height:calc(var(--art) * .04); border-radius:99px; background:#ffffff66; box-shadow:0 calc(var(--art) * -.1) 0 #ffffff44; }
+/* One generated picture per app (Meshy, text-free, transparent background), sized from --art. */
+.hub-image { position:absolute; right:2%; top:4%; height:90%; width:auto; aspect-ratio:1; object-fit:contain;
+    transform:rotate(-4deg); filter:drop-shadow(0 calc(var(--art) * .08) calc(var(--art) * .1) #000a); transition:transform .3s cubic-bezier(.2,.7,.2,1); will-change:transform; }
+@media (hover:hover) { .hub-card:hover .hub-image { transform:translateY(-6px) scale(1.05) rotate(-4deg); } }
 
 .hub-grid button:focus-visible { outline:3px solid var(--accent,#91baff); outline-offset:3px; }
 @media (hover:hover) { .hub-card:hover { transform:translateY(-4px); border-color:#ffffff90; box-shadow:inset 0 1px #ffffff1c, 0 26px 50px #0008; } }
@@ -76,6 +49,7 @@ body:has(.workspace:is([data-app-view="Hub"], [data-app-view="Wordle"], [data-ap
     .hub-grid { grid-auto-rows:minmax(190px,1fr); gap:12px; }
     .hub-grid .hub-card { align-items:flex-end; padding:14px; }
     .hub-note { display:none; }
+    .hub-image { right:calc(var(--art) * -.06); top:calc(var(--art) * .02); width:calc(var(--art) * 1.5); height:auto; }
     .hub-tiles { grid-template-columns:repeat(3,calc(var(--art) * .26)); }.hub-tiles i:nth-child(n+10) { display:none; }
 }
 @media (min-width:1600px) { /* television */
