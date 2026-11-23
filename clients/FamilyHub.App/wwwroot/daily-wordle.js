@@ -99,10 +99,22 @@ export function open(dialog, openerId) {
     dialog.querySelector('button')?.focus({preventScroll: true});
 }
 
-export async function afterReveal(remaining) {
-    if (remaining > 0 && !matchMedia('(prefers-reduced-motion: reduce)').matches)
-        await new Promise(resolve => setTimeout(resolve, remaining));
-    return !document.hidden && !document.querySelector('dialog[open]');
+export async function afterReveal(surface, remaining, won) {
+    const handle = handles.get(surface);
+    if (!handle) return false;
+    if (remaining > 0 && (won || !matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+        await new Promise(resolve => {
+            const cancel = () => { clearTimeout(timer); resolve(); };
+            const timer = setTimeout(() => {
+                handle.abort.signal.removeEventListener('abort', cancel);
+                resolve();
+            }, remaining);
+            handle.abort.signal.addEventListener('abort', cancel, {once: true});
+        });
+    }
+    const active = document.activeElement;
+    return surface.isConnected && !handle.abort.signal.aborted && !document.hidden &&
+        (active === document.body || surface.contains(active)) && !document.querySelector('dialog[open]');
 }
 
 export function restoreInside(dialog, successor) {

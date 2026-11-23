@@ -1,11 +1,12 @@
 """Daily Our Word puzzles and profile-scoped results."""
-from collections import defaultdict
+from collections import Counter, defaultdict
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from functools import lru_cache
 import hashlib
 import json
+from math import log2
 from pathlib import Path
 import re
 from threading import Lock, RLock
@@ -72,13 +73,50 @@ def marks_for(word, answer):
     return marks
 
 
+EMPTY_CLUES = ("." * WORD_LENGTH, ())
+
+
+def keep_clues(word, clues):
+    greens, required = clues
+    return all(green == "." or word[i] == green for i, green in enumerate(greens)) and all(
+        word.count(letter) >= count for letter, count in required)
+
+
+def add_clues(clues, guess, marks):
+    greens, required = clues
+    found = Counter(letter for letter, mark in zip(guess, marks) if mark != "absent")
+    greens = "".join(letter if mark == "correct" else green
+                     for green, letter, mark in zip(greens, guess, marks))
+    return greens, tuple(sorted((Counter(dict(required)) | found).items()))
+
+
+def hard_clue_history(guesses, answer):
+    clues = EMPTY_CLUES
+    history = []
+    for guess in guesses:
+        if not keep_clues(guess, clues):
+            return None
+        history.append(clues)
+        clues = add_clues(clues, guess, marks_for(guess, answer))
+    return tuple(history) if any(clues != EMPTY_CLUES for clues in history) else None
+
+
+def legal_guesses(clues):
+    pool = accepted_guesses()
+    return frozenset(word for word in pool if keep_clues(word, clues)) if clues else pool
+
+
 @lru_cache(maxsize=128)
 def analyze_guesses(guesses, answer):
     candidates = accepted_guesses() | {answer}
     remaining = []
+    grades = []
     verdict = None
+    hard_history = hard_clue_history(guesses, answer)
     for index, guess in enumerate(guesses):
         before = len(candidates)
+        clues = hard_history[index] if hard_history else None
+        grades.append(grade_guess(tuple(sorted(candidates)), guess, MAX_GUESSES - index, clues))
         if guess == answer:
             if before >= 10:
                 verdict = ("lucky", before)
@@ -89,12 +127,118 @@ def analyze_guesses(guesses, answer):
         marks = marks_for(guess, answer)
         candidates = {candidate for candidate in candidates if marks_for(guess, candidate) == marks}
         remaining.append(len(candidates))
-    return tuple(remaining), verdict
+    return tuple(remaining), verdict, tuple(grades), hard_history is not None
 
 
-def review(guesses, answer):
-    remaining, verdict = analyze_guesses(tuple(guesses), answer)
-    result = dict(remaining=remaining)
+BOOK_OPENERS = frozenset(("adieu", "arise", "crate", "raise", "slate", "stare", "trace"))
+
+
+def feedback_groups(guess, candidates):
+    groups = defaultdict(int)
+    for index, candidate in enumerate(candidates):
+        groups[tuple(marks_for(guess, candidate))] |= 1 << index
+    return groups
+
+
+def information(guess, candidates):
+    sizes = (group.bit_count() for group in feedback_groups(guess, candidates).values())
+    return log2(len(candidates)) - sum(size * log2(size) for size in sizes) / len(candidates)
+
+
+@lru_cache(maxsize=256)
+def information_baseline(candidates, clues):
+    # A deterministic sample keeps opening analysis bounded on the result request.
+    sample = candidates[::max(1, (len(candidates) + 255) // 256)]
+    letters = Counter(letter for word in candidates for letter in set(word))
+    pool = legal_guesses(clues) | set(candidates)
+    shortlist = sorted(pool, key=lambda word: (-sum(letters[c] for c in set(word)), word))[:96]
+    if len(candidates) <= 256:
+        shortlist = set(shortlist) | set(candidates)
+    best = max(shortlist, key=lambda word: (information(word, sample), word in candidates, word))
+    return best, information(best, sample), sample
+
+
+@lru_cache(maxsize=16)
+def endgame(candidates, turns, clues):
+    if turns == 1:
+        return dict.fromkeys(candidates, 1)
+
+    # Each bit represents an answer. A final guess can solve one answer per feedback group.
+    pool = legal_guesses(clues) | set(candidates)
+    partitions = {}
+    wins = {}
+    for word in sorted(pool):
+        groups = feedback_groups(word, candidates)
+        solved = groups.pop(("correct",) * WORD_LENGTH, 0)
+        if turns == 3:
+            partitions[word] = (solved, groups)
+        wins[word] = bool(solved) + len(groups)
+    if turns == 2:
+        return wins
+
+    splits = {word: (solved, tuple(sorted(groups.values()))) for word, (solved, groups) in partitions.items()}
+    open_splits = set(splits.values())
+
+    @lru_cache(maxsize=None)
+    def best_second(group, next_clues):
+        size = group.bit_count()
+        if size <= 2:
+            return size
+        best = 1
+        choices = (split for word, split in splits.items() if keep_clues(word, next_clues)) if next_clues else open_splits
+        for solved, branches in choices:
+            best = max(best, bool(solved & group) + sum(bool(branch & group) for branch in branches))
+            if best == size:
+                break
+        return best
+
+    for word, (solved, branches) in partitions.items():
+        wins[word] = bool(solved) + sum(
+            best_second(branch, add_clues(clues, word, marks) if clues else None)
+            for marks, branch in branches.items())
+    return wins
+
+
+def grade_guess(candidates, guess, turns, clues=None):
+    count = len(candidates)
+    if count == 1:
+        best = candidates[0]
+        return ("best", None) if guess == best else ("miss" if turns > 1 else "blunder", best)
+    if turns == 1 or (turns == 2 and count <= 256) or (turns == 3 and count <= 12):
+        wins = endgame(candidates, turns, clues)
+        best = max(wins, key=lambda word: (wins[word], word in candidates, word))
+        possible = wins.get(guess, 0)
+        if turns == 1 and possible == 0:
+            return "blunder", best
+        if possible == count and guess not in candidates and not any(wins[word] == count for word in candidates):
+            return "brilliant", None
+        if possible == count and sum(result == count for result in wins.values()) <= 3:
+            return "great", None
+        if wins[best] == count and possible / count <= 0.8:
+            return "miss", best
+        loss = (wins[best] - possible) / count
+    else:
+        best, benchmark, sample = information_baseline(candidates, clues)
+        score = information(guess, sample)
+        if turns == MAX_GUESSES and guess in BOOK_OPENERS and score >= benchmark * 0.82:
+            return "book", None
+        loss = (benchmark - score) / benchmark if benchmark else 0
+
+    if loss <= 0.000001:
+        return "best", None
+    for limit, grade in ((0.05, "excellent"), (0.15, "good"), (0.30, "inaccuracy"), (0.55, "mistake")):
+        if loss <= limit:
+            return grade, best
+    return "blunder", best
+
+
+def review(guesses, answer, guess_times=None):
+    remaining, verdict, grades, hard_rules = analyze_guesses(tuple(guesses), answer)
+    result = dict(remaining=remaining, grades=[dict(kind=kind, better=better) for kind, better in grades])
+    if hard_rules:
+        result["hard_rules"] = True
+    if guess_times:
+        result["guess_times_ms"] = guess_times
     if verdict:
         result.update(outcome=verdict[0], final_options=verdict[1])
     return result
@@ -156,6 +300,9 @@ class WordPuzzles:
                     guesses TEXT NOT NULL,
                     guess_count INTEGER NOT NULL,
                     status TEXT NOT NULL,
+                    active_ms INTEGER,
+                    guess_times_ms TEXT,
+                    row_active_ms INTEGER,
                     PRIMARY KEY (profile, day)
                 );
                 CREATE TABLE IF NOT EXISTS wordle_settings (
@@ -165,8 +312,13 @@ class WordPuzzles:
             """)
 
             db.execute("BEGIN IMMEDIATE")
-            if not any(column[1] == "active_ms" for column in db.execute("PRAGMA table_info(progress)")):
+            columns = {column[1] for column in db.execute("PRAGMA table_info(progress)")}
+            if "active_ms" not in columns:
                 db.execute("ALTER TABLE progress ADD COLUMN active_ms INTEGER")
+            if "guess_times_ms" not in columns:
+                db.execute("ALTER TABLE progress ADD COLUMN guess_times_ms TEXT")
+            if "row_active_ms" not in columns:
+                db.execute("ALTER TABLE progress ADD COLUMN row_active_ms INTEGER")
             active = db.execute("SELECT profile, day, guesses FROM progress WHERE day = ? AND status = 'playing'",
                                 (current_day().isoformat(),)).fetchall()
             for profile, day, raw in active:
@@ -212,16 +364,20 @@ class WordPuzzles:
             wait_for_write(done)
         return candidate
 
-    def play(self, profile, day, word=None, expected_guesses=None):
+    def play(self, profile, day, word=None, expected_guesses=None, measured_ms=None):
         key = day.isoformat()
         answer = self.answer(day, key, wait=word is None)
         if word is not None and word != answer and word not in accepted_guesses():
             raise self.error("That word is outside the guess list.")
         done = None
         with self.activity_lock:
-            record = self.memory.execute("SELECT guesses, status, active_ms FROM progress WHERE profile = ? AND day = ?",
-                                (profile, key)).fetchone()
-            guesses, status, active_ms = (json.loads(record[0]), record[1], record[2]) if record else ([], "playing", None)
+            record = self.memory.execute("""
+                SELECT guesses, status, active_ms, guess_times_ms, row_active_ms
+                FROM progress WHERE profile = ? AND day = ?
+                """, (profile, key)).fetchone()
+            guesses, status, active_ms, raw_times, row_active_ms = (
+                (json.loads(record[0]), *record[1:]) if record else ([], "playing", None, None, None))
+            guess_times = json.loads(raw_times) if raw_times else []
             if word is not None and expected_guesses != len(guesses):
                 if type(expected_guesses) is not int or not 0 <= expected_guesses < len(guesses) or guesses[expected_guesses] != word:
                     raise self.error("This puzzle changed on another device. Refresh and try again.", 409)
@@ -230,21 +386,30 @@ class WordPuzzles:
                     raise self.error("You've finished today's puzzle.", 409)
                 if word in guesses:
                     raise self.error("Already guessed.")
+                activity = self.activity.get(profile)
+                now = monotonic()
+                current_view = activity and activity.day == key and activity.row == len(guesses)
+                elapsed = self.elapsed(activity, now) if current_view else None
+                if measured_ms is None and (row_active_ms is not None or elapsed is not None):
+                    measured_ms = (row_active_ms or 0) + (elapsed or 0)
+                if measured_ms is not None:
+                    active_ms = (active_ms or 0) - (row_active_ms or 0) + measured_ms
+                guess_times.extend([None] * (len(guesses) - len(guess_times)))
+                guess_times.append(measured_ms)
                 guesses.append(word)
                 status = "won" if word == answer else "lost" if len(guesses) == MAX_GUESSES else "playing"
-                activity = self.activity.get(profile)
-                if status != "playing" and activity and activity.day == key:
-                    elapsed = self.elapsed(activity, monotonic())
-                    if elapsed:
-                        active_ms = (active_ms or 0) + elapsed
                 done = self._write("""
-                    INSERT INTO progress (profile, day, guesses, guess_count, status, active_ms) VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO progress (profile, day, guesses, guess_count, status, active_ms, guess_times_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(profile, day) DO UPDATE SET
                         guesses=excluded.guesses, guess_count=excluded.guess_count, status=excluded.status,
-                        active_ms=excluded.active_ms
-                    """, (profile, key, json.dumps(guesses), len(guesses), status, active_ms))
-                if status != "playing" and activity and activity.day == key:
-                    del self.activity[profile]
+                        active_ms=excluded.active_ms, guess_times_ms=excluded.guess_times_ms, row_active_ms=NULL
+                    """, (profile, key, json.dumps(guesses), len(guesses), status, active_ms, json.dumps(guess_times)))
+                if activity and activity.day == key:
+                    if status != "playing":
+                        del self.activity[profile]
+                    elif current_view and now - activity.seen < ACTIVITY_TIMEOUT:
+                        self.activity[profile] = ActiveView(activity.view, key, len(guesses), 0, now, activity.seen)
         wait_for_write(done)
         result = dict(date=key, next_reset=next_reset(day), status=status,
                       max_guesses=MAX_GUESSES, word_length=WORD_LENGTH,
@@ -252,7 +417,7 @@ class WordPuzzles:
         if status != "playing":
             result["answer"] = answer
             result["active_ms"] = active_ms
-            result["review"] = review(guesses, answer)
+            result["review"] = review(guesses, answer, guess_times)
         return result
 
     def settings(self, profile, hide=None):
@@ -285,11 +450,11 @@ class WordPuzzles:
             reveal = self.finished(db, profile, key)
             hide = not reveal and self.hides_family(db, profile)
             records = db.execute("""
-                SELECT profile, guesses, answer, status, active_ms FROM progress
+                SELECT profile, guesses, answer, status, active_ms, guess_times_ms FROM progress
                 JOIN puzzle USING(day) WHERE day = ?
                 """, (key,))
-            boards = {owner: (json.loads(guesses), answer, status, active_ms)
-                      for owner, guesses, answer, status, active_ms in records if not hide or owner == profile}
+            boards = {owner: (json.loads(guesses), answer, status, active_ms, raw_times)
+                      for owner, guesses, answer, status, active_ms, raw_times in records if not hide or owner == profile}
             now = monotonic()
             active = {owner: view for owner, view in self.activity.items()
                       if view.day == key and now - view.seen < ACTIVITY_TIMEOUT}
@@ -298,7 +463,7 @@ class WordPuzzles:
             owner = person["id"]
             if hide and owner != profile:
                 continue
-            guesses, answer, status, active_ms = boards.get(owner, ([], None, "playing", None))
+            guesses, answer, status, active_ms, raw_times = boards.get(owner, ([], None, "playing", None, None))
             rows = [marks_for(word, answer) for word in guesses]
             entry = dict(id=owner, name=person["name"], rows=rows)
             if status == "playing" and owner in active:
@@ -309,7 +474,7 @@ class WordPuzzles:
             if status != "playing":
                 entry["active_ms"] = active_ms
                 if reveal:
-                    entry["review"] = review(guesses, answer)
+                    entry["review"] = review(guesses, answer, json.loads(raw_times) if raw_times else None)
             family.append(entry)
         return family
 
@@ -326,16 +491,17 @@ class WordPuzzles:
             checkpoint = now
             if same_day:
                 expired = now - before.seen >= ACTIVITY_TIMEOUT
-                if row is None or expired or now - before.checkpoint >= TIME_CHECKPOINT:
+                if row is None or row != before.row or expired or now - before.checkpoint >= TIME_CHECKPOINT:
                     elapsed = self.elapsed(before, now)
                     if elapsed:
                         done = self._write("""
-                            INSERT INTO progress (profile, day, guesses, guess_count, status, active_ms)
-                            SELECT ?, day, '[]', 0, 'playing', ? FROM puzzle WHERE day = ?
+                            INSERT INTO progress (profile, day, guesses, guess_count, status, active_ms, row_active_ms)
+                            SELECT ?, day, '[]', 0, 'playing', ?, ? FROM puzzle WHERE day = ?
                             ON CONFLICT(profile, day) DO UPDATE SET
-                                active_ms=COALESCE(progress.active_ms, 0) + excluded.active_ms
-                            WHERE progress.status = 'playing'
-                            """, (profile, elapsed, day))
+                                active_ms=COALESCE(progress.active_ms, 0) + excluded.active_ms,
+                                row_active_ms=COALESCE(progress.row_active_ms, 0) + excluded.row_active_ms
+                            WHERE progress.status = 'playing' AND progress.guess_count = ?
+                            """, (profile, elapsed, elapsed, day, before.row))
                 else:
                     checkpoint = before.checkpoint
             if row is not None:
@@ -440,7 +606,10 @@ def register(app, workspace, require_family, profiles, body, api_error, daily_an
         expected = data.get("guess_count")
         if type(expected) is not int or not 0 <= expected <= MAX_GUESSES:
             raise api_error("Invalid guess count. Open today's puzzle and try again.")
-        return jsonify(puzzles.play(g.user, day, word.strip().lower(), expected))
+        measured_ms = data.get("guess_active_ms")
+        if measured_ms is not None and (type(measured_ms) is not int or not 0 <= measured_ms <= 25 * 60 * 60 * 1000):
+            raise api_error("Invalid guess time.")
+        return jsonify(puzzles.play(g.user, day, word.strip().lower(), expected, measured_ms))
 
     @app.get("/api/wordle/stats")
     def wordle_stats():

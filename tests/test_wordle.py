@@ -127,20 +127,69 @@ class DailyWordTests(Base):
             clock.return_value = 93
             result = puzzles.play(profile, DAY, "apple", 0)
             self.assertEqual(result["active_ms"], 12000)
+            self.assertEqual(result["review"]["guess_times_ms"], [12000])
             self.assertEqual(puzzles.play(profile, DAY, "apple", 0), result)
             self.assertEqual(puzzles.family_boards(profile, DAY, [{"id": profile, "name": "Alex"}])[0]["active_ms"], 12000)
 
     def test_remaining_words_and_luck_use_cumulative_duplicate_letter_marks(self):
         with patch.object(wordle, "accepted_guesses", return_value=frozenset({"alley", "ample", "angle", "apply"})):
-            self.assertEqual(wordle.review(("alley", "angle", "apple"), "apple"), {"remaining": (3, 2, 0)})
+            self.assertEqual(wordle.review(("alley", "angle", "apple"), "apple")["remaining"], (3, 2, 0))
         lucky = wordle.review(("apple",), "apple")
-        self.assertEqual(lucky, {"remaining": (0,), "outcome": "lucky",
-                                 "final_options": len(wordle.accepted_guesses() | {"apple"})})
+        self.assertEqual(lucky["remaining"], (0,))
+        self.assertEqual(lucky["outcome"], "lucky")
+        self.assertEqual(lucky["final_options"], len(wordle.accepted_guesses() | {"apple"}))
         words = ("frost", "shine", "chord", "whisk", "sight", "ample")
         with patch.object(wordle, "accepted_guesses", return_value=frozenset(words)):
             unlucky = wordle.review(words, "apple")
             self.assertEqual((unlucky["outcome"], unlucky["final_options"], unlucky["remaining"][-1]),
                              ("unlucky", 2, 1))
+
+    def test_guess_times_survive_pause_rejection_and_retry(self):
+        puzzles = wordle.WordPuzzles(self.ws, lambda day: "apple", ApiError)
+        puzzles.play("sample-a", DAY)
+        with patch.object(wordle, "monotonic", return_value=10) as clock:
+            key = DAY.isoformat()
+            puzzles.set_activity("sample-a", "one", key, 0, 0)
+            clock.return_value = 14
+            with self.assertRaises(ApiError):
+                puzzles.play("sample-a", DAY, "zzzzz", 0)
+            clock.return_value = 16
+            puzzles.play("sample-a", DAY, "alley", 0)
+            clock.return_value = 18
+            puzzles.set_activity("sample-a", "one", key, None, 0)
+            clock.return_value = 60
+            puzzles.set_activity("sample-a", "two", key, 1, 0)
+            clock.return_value = 63
+            result = puzzles.play("sample-a", DAY, "apple", 1)
+            self.assertEqual(result["review"]["guess_times_ms"], [6000, 5000])
+            self.assertEqual(result["active_ms"], 11000)
+            self.assertEqual(result, puzzles.play("sample-a", DAY, "apple", 1))
+
+    def test_queued_guess_time_keeps_local_measurement(self):
+        puzzles = wordle.WordPuzzles(self.ws, lambda day: "apple", ApiError)
+        puzzles.play("sample-a", DAY, "alley", 0, 3400)
+        result = puzzles.play("sample-a", DAY, "apple", 1, 2700)
+        self.assertEqual(result["review"]["guess_times_ms"], [3400, 2700])
+        self.assertEqual(result["active_ms"], 6100)
+        self.assertEqual(puzzles.play("sample-a", DAY, "apple", 1, 9000), result)
+
+    def test_late_guess_grades_reward_a_probe_and_preserve_forced_answers(self):
+        candidates = ("bakes", "cakes", "lakes", "makes")
+        with patch.object(wordle, "accepted_guesses", return_value=frozenset((*candidates, "climb"))):
+            self.assertEqual(wordle.grade_guess(candidates, "climb", 2), ("brilliant", None))
+            self.assertEqual(wordle.grade_guess(candidates, "bakes", 2), ("miss", "climb"))
+            hard_clues = wordle.add_clues(wordle.EMPTY_CLUES, "party", wordle.marks_for("party", "bakes"))
+            self.assertEqual(wordle.grade_guess(candidates, "bakes", 2, hard_clues), ("best", None))
+            self.assertEqual(wordle.grade_guess(candidates, "climb", 1)[0], "blunder")
+            self.assertEqual(wordle.grade_guess(("bakes",), "bakes", 1), ("best", None))
+
+    def test_hard_rules_inferred_from_greens_yellows_and_duplicate_counts(self):
+        words = ("level", "speed", "steer")
+        self.assertTrue(wordle.review(words, "steer")["hard_rules"])
+        self.assertNotIn("hard_rules", wordle.review(("level", "screw", "steer"), "steer"))
+        self.assertNotIn("hard_rules", wordle.review(("level", "eerie", "steer"), "steer"))
+        self.assertNotIn("hard_rules", wordle.review(("steer",), "steer"))
+        self.assertNotIn("hard_rules", wordle.review(("black", "steer"), "steer"))
 
     def test_family_activity_tracks_edits_and_honors_spoiler_setting(self):
         a, token = self.selected("sample-a")

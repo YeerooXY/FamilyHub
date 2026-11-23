@@ -177,7 +177,7 @@
                 <h2 id="dw-member-title">@(InspectedBoard?.Name ?? "Family board")</h2>
                 <form method="dialog"><button class="dw-icon" type="submit" aria-label="Close family board"><MusicIcon Name="close" /></button></form>
             </header>
-            <div role="status">
+            <div>
                 @if (InspectedBoard is { } inspected)
                 {
                     var rows = BoardRows(inspected);
@@ -189,6 +189,7 @@
                         <div class="dw-member-summary">
                             <p>@(IsSolved(rows) ? $"Solved in {rows.Length} {(rows.Length == 1 ? "guess" : "guesses")}" : "Unsolved")</p>
                             @if (activeTime is { } duration) { <p><strong>@FormatActiveTime(duration)</strong> active time</p> }
+                            @if (review?.HardRules == true) { <p>Played with hard-mode rules</p> }
                         </div>
                     }
                     else if (rows.Length == 0) { <p>No guesses yet.</p> }
@@ -199,7 +200,11 @@
                             <p>@verdict.FinalOptions.GetValueOrDefault().ToString("N0") words fit the clues before the final guess.</p>
                         </div>
                     }
-                    @if (rows.Length > 0) { @InspectRows(rows, words, review) }
+                    @if (rows.Length > 0) { @InspectRows(rows, words, review, interactive: true) }
+                    @if (inspected.Id == Session.User && Finished && review is null)
+                    {
+                        <p role="status">@(syncFailed ? "Guess ratings will appear after your board syncs." : "Loading guess ratings…")</p>
+                    }
                     @if (!Finished && inspected.Id != Session.User && rows.Length > 0) { <p>Finish your puzzle to see the letters.</p> }
                 }
                 else { <p>This board is unavailable.</p> }
@@ -310,9 +315,13 @@
 </section>
 
 @code {
-    private sealed record Guess(string Word, string[] Marks);
+    private sealed record Guess(string Word, string[] Marks, long? ActiveMs = null);
+    private sealed record GuessGrade(string Kind, string? Better);
     private sealed record GuessReview(int[] Remaining, string? Outcome,
-        [property: JsonPropertyName("final_options")] int? FinalOptions);
+        [property: JsonPropertyName("final_options")] int? FinalOptions,
+        GuessGrade[]? Grades = null,
+        [property: JsonPropertyName("guess_times_ms")] long?[]? GuessTimes = null,
+        [property: JsonPropertyName("hard_rules")] bool HardRules = false);
     private sealed record Puzzle(string Date, string Status, Guess[] Guesses, string? Answer,
         [property: JsonPropertyName("next_reset")] string? NextReset,
         [property: JsonPropertyName("local_solution")] string? LocalSolution = null, FamilyBoard[]? Family = null,
@@ -352,7 +361,12 @@
     private string draft = "", announcement = "";
     private string? message, scheduledReset, inspectedBoardId, memberOpenerId, familyFocus, statsRequestedDate;
     private bool showMemberBoard;
-    private FamilyBoard? InspectedBoard => familyBoards.FirstOrDefault(board => board.Id == inspectedBoardId);
+    private int? expandedGrade;
+    private FamilyBoard? InspectedBoard => familyBoards.FirstOrDefault(board => board.Id == inspectedBoardId)
+        ?? (inspectedBoardId == Session.User && puzzle is not null
+            ? new FamilyBoard(Session.User, Session.Profiles.FirstOrDefault(profile => profile.Id == Session.User)?.Name ?? "Your board",
+                [], null, false, 0)
+            : null);
     private int revealRow = -1;
     private bool Finished => puzzle?.Status is "won" or "lost";
     private string KeysDisabled => puzzle?.Status != "playing" || submitting ? "true" : "false";
@@ -374,11 +388,13 @@
             if (disposed) { await module.DisposeAsync(); return; }
             await module.InvokeVoidAsync("bind", surface, keyboardReference);
         }
-        if (Finished && puzzle?.Review is not null && resultRevealUntil != 0)
+        if (Finished && puzzle is { } finished && resultRevealUntil != 0 &&
+            (finished.Status == "won" || finished.Review is not null))
         {
             var remaining = Math.Max(0, resultRevealUntil - Environment.TickCount64);
             resultRevealUntil = 0;
-            if (puzzle.Review.Outcome is "lucky" or "unlucky") _ = ShowOutcomeAfterReveal(puzzle.Date, remaining);
+            if (finished.Status == "won" || finished.Review?.Outcome == "unlucky")
+                _ = ShowReviewAfterReveal(finished.Date, remaining, finished.Status == "won");
         }
         if (focusBoard) { focusBoard = false; await module!.InvokeVoidAsync("restoreBoard", surface); }
         if (focusResult && Finished && statsButton.Context is not null) { focusResult = false; await statsButton.FocusAsync(preventScroll: true); }
@@ -538,7 +554,8 @@
                 new { date = active.Date, word = draft.ToLowerInvariant(), guess_count = active.Guesses.Length });
             if (disposed) return;
             LoadPuzzle(updated);
-            if (Finished) resultRevealUntil = Environment.TickCount64 + RevealMilliseconds;
+            if (Finished) resultRevealUntil = Environment.TickCount64 +
+                (updated.Status == "won" ? WinReviewMilliseconds : RevealMilliseconds);
             revealRow = updated.Guesses.Length - 1;
             draft = "";
             if (updated.Guesses.LastOrDefault() is { } last)
@@ -633,12 +650,39 @@
         return $"{seconds / 60}:{seconds % 60:00}";
     }
 
-    private RenderFragment InspectRows(string[][] rows, Guess[]? guesses, GuessReview? review) => @<ol class="dw-inspect">
+    private static string? GradeName(string? grade) => grade switch
+    {
+        "brilliant" => "Brilliant", "great" => "Great", "best" => "Best", "excellent" => "Excellent", "good" => "Good",
+        "book" => "Book", "inaccuracy" => "Inaccuracy", "mistake" => "Mistake", "blunder" => "Blunder", "miss" => "Miss",
+        _ => null
+    };
+
+    private static string GradeExplanation(string grade) => grade switch
+    {
+        "brilliant" => "This word cannot be the answer, yet it guarantees a solve in the guesses you have left. No possible answer did.",
+        "great" => "This guess guarantees a solve in the guesses you have left. Only a few words do.",
+        "best" => "No other word does better from here.",
+        "excellent" => "Almost the best choice. Another word narrowed the options slightly more.",
+        "good" => "A solid guess. Another word narrowed the options more.",
+        "book" => "A strong opening word. It tests common letters in useful places.",
+        "inaccuracy" => "Another word made better use of the clues.",
+        "mistake" => "Another word had much better odds or revealed much more.",
+        "blunder" => "This guess gave up most of your chances, or could not win on the last turn.",
+        "miss" => "A word that guaranteed a solve was available. This guess did not.",
+        _ => ""
+    };
+
+    private RenderFragment InspectRows(string[][] rows, Guess[]? guesses, GuessReview? review, bool interactive = false) => @<ol class="dw-inspect">
         @for (var i = 0; i < rows.Length; i++)
         {
+            var index = i;
             var row = rows[i];
             var guess = guesses?.ElementAtOrDefault(i);
             int? remaining = review?.Remaining is { } counts && i < counts.Length ? counts[i] : null;
+            var grade = review?.Grades?.ElementAtOrDefault(i);
+            var gradeName = GradeName(grade?.Kind);
+            var duration = review?.GuessTimes?.ElementAtOrDefault(i) ?? guess?.ActiveMs;
+            var expanded = interactive && expandedGrade == index;
             var label = guess is null ? $"Guess {i + 1}: {string.Join(", ", row.Select(MarkLabel))}" : RowLabel(i, guess.Word.ToUpperInvariant(), guess);
             <li aria-label="@(remaining is { } left ? $"{label}. {left:N0} {(left == 1 ? "word" : "words")} left." : label)">
                 <span class="dw-inspect-number" aria-hidden="true">@(i + 1)</span>
@@ -646,13 +690,55 @@
                 {
                     <span class="dw-inspect-tile @row[column]" aria-hidden="true">@(guess is null ? "" : char.ToUpperInvariant(guess.Word[column]).ToString())</span>
                 }
-                @if (remaining is { } count) { <span class="dw-inspect-count" aria-hidden="true">(@count.ToString("N0") left)</span> }
+                @if (remaining is not null || duration is not null || gradeName is not null)
+                {
+                    <div class="dw-inspect-meta">
+                        @if (remaining is { } count) { <span class="dw-inspect-count" aria-hidden="true">(@count.ToString("N0") left)</span> }
+                        @if (grade is not null && gradeName is not null)
+                        {
+                            @if (interactive)
+                            {
+                                <button type="button" class="dw-grade" aria-label="@($"Guess {i + 1}: {gradeName}")"
+                                        aria-expanded="@expanded.ToString().ToLowerInvariant()" title="@gradeName"
+                                        @onclick="() => expandedGrade = expanded ? null : index">
+                                    <span class="dw-grade-icon @grade.Kind" aria-hidden="true"></span>
+                                </button>
+                            }
+                            else
+                            {
+                                <span class="dw-grade-icon @grade.Kind" role="img" aria-label="@gradeName" title="@gradeName"></span>
+                            }
+                        }
+                        @if (duration is >= 0)
+                        {
+                            <span class="dw-guess-time"><span class="dw-visually-hidden">Active time </span>@FormatActiveTime(duration.Value)</span>
+                        }
+                    </div>
+                }
+                @if (expanded && grade is not null && gradeName is not null)
+                {
+                    <p class="dw-grade-detail" role="status"><strong>@gradeName.</strong> @GradeExplanation(grade.Kind)
+                        @if (IsPuzzleWord(grade.Better)) { <span>Suggested guess <strong>@grade.Better?.ToUpperInvariant()</strong>.</span> }
+                        @if (duration is >= 0 && review is { GuessTimes: { } times, Grades: { } grades })
+                        {
+                            var peers = times.Where((time, rowIndex) => time is >= 0 &&
+                                grades.ElementAtOrDefault(rowIndex)?.Kind == grade.Kind).ToArray();
+                            if (peers.Length > 1)
+                            {
+                                var rank = 1 + peers.Count(time => time / 1000 < duration / 1000);
+                                <span>Speed rank @rank of @peers.Length among @gradeName guesses.</span>
+                            }
+                        }
+                    </p>
+                }
             </li>
         }
     </ol>;
 
     private void OpenFamilyBoard(string id, bool automatic = false)
     {
+        if (!automatic) { reviewRequest++; resultRevealUntil = 0; }
+        expandedGrade = null;
         inspectedBoardId = id;
         memberOpenerId = automatic ? null : "dw-board-" + id;
         showMemberBoard = true;
@@ -767,6 +853,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        PauseClock();
         disposed = true;
         Session.UiActiveChanged -= WordleVisibilityChanged;
         var api = Session.Api;

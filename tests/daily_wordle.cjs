@@ -7,7 +7,7 @@ const capture = process.env.WORDLE_CAPTURE;
 
 async function openWordle(page) {
     await page.goto(origin);
-    await page.getByRole('button', {name: 'Daily Wordle', exact: true}).click();
+    await page.getByRole('button', {name: /^Daily Wordle\b/}).click();
     await page.getByRole('heading', {name: 'Wordle', exact: true}).waitFor();
     await page.getByRole('button', {name: 'Submit guess', exact: true}).waitFor();
     await page.waitForFunction(() => document.querySelector('.daily-wordle')?.dataset.playing === 'true');
@@ -21,6 +21,7 @@ async function dailyPlay(name, engine, options) {
         const page = await browser.newPage({...options, colorScheme: 'light', reducedMotion: 'reduce'});
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
+        await page.request.post(origin + '/fixture/startup/default');
         await page.request.post(origin + '/fixture/wordle-reset/86400');
         await page.request.post(origin + '/fixture/wordle-member/-1/false');
         const panel = await openWordle(page);
@@ -174,7 +175,7 @@ async function preferences() {
         await page.getByText('Wordle settings saved.', {exact: true}).waitFor();
         assert(await setting.evaluate(node => node === document.activeElement));
         await page.locator('#open-hub').click();
-        await page.getByRole('button', {name: 'Daily Wordle', exact: true}).click();
+        await page.getByRole('button', {name: /^Daily Wordle\b/}).click();
         await page.waitForFunction(() => document.querySelector('.daily-wordle')?.dataset.playing === 'true');
         assert.equal(await page.getByRole('button', {name: /^June,/}).count(), 0);
         console.log('Wordle spoiler setting saved and hid family boards');
@@ -321,6 +322,11 @@ async function resultsPopup(scenario, reducedMotion) {
         await result.getByRole('heading', {name: lucky ? 'Lucky guess' : 'Unlucky finish'}).waitFor();
         await result.getByText('0:23 active time').waitFor();
         await result.getByText(lucky ? '(0 left)' : '(1 left)', {exact: true}).waitFor();
+        if (!lucky) {
+            await result.getByRole('button', {name: 'Guess 2: Inaccuracy'}).press('Enter');
+            await result.getByText('Speed rank 1 of 5 among Inaccuracy guesses.').waitFor();
+            await result.getByText('Suggested guess CRANE.').waitFor();
+        }
         if (capture) await result.screenshot({path: path.join(capture, scenario + '.png')});
         await result.getByRole('button', {name: 'Close family board'}).press('Space');
         await result.waitFor({state: 'hidden'});
@@ -334,8 +340,55 @@ async function resultsPopup(scenario, reducedMotion) {
     } finally { await browser.close(); }
 }
 
+async function ordinaryWinReview(name, engine, options) {
+    const browser = await engine.launch();
+    try {
+        const page = await browser.newPage({...options, colorScheme: 'dark', reducedMotion: name === 'iphone-webkit' ? 'reduce' : 'no-preference'});
+        await page.request.post(origin + '/fixture/startup/default');
+        await page.request.post(origin + '/fixture/wordle-reset/86400');
+        const panel = await openWordle(page);
+        for (const [index, word] of ['slate', 'crate'].entries()) {
+            await panel.focus();
+            await page.keyboard.type(word);
+            await page.keyboard.press('Enter');
+            await panel.locator('.dw-row').nth(index).locator('.dw-reveal').first().waitFor();
+        }
+        const result = panel.getByRole('dialog', {name: 'Alex'});
+        assert.equal(await result.isVisible(), false);
+        await result.getByText('Solved in 2 guesses').waitFor();
+        await result.getByText('Hard rules', {exact: true}).waitFor();
+        await result.locator('.dw-guess-time').filter({hasText: '0:04'}).waitFor();
+        await result.locator('.dw-guess-time').filter({hasText: '0:18'}).waitFor();
+        const book = result.getByRole('button', {name: 'Guess 1: Book'});
+        const best = result.getByRole('button', {name: 'Guess 2: Best'});
+        await page.keyboard.press('Tab');
+        assert(await book.evaluate(node => node === document.activeElement));
+        await page.keyboard.press('Enter');
+        await result.getByText('This opener tests a strong set of letters.').waitFor();
+        assert(await book.evaluate(node => node === document.activeElement));
+        await page.keyboard.press('Tab');
+        assert(await best.evaluate(node => node === document.activeElement));
+        await page.keyboard.press('Shift+Tab');
+        assert(await book.evaluate(node => node === document.activeElement));
+        await page.keyboard.press('Space');
+        await result.locator('.dw-grade-detail').waitFor({state: 'hidden'});
+        if (options.hasTouch) {
+            await best.tap();
+            await result.getByText('This was one of the solver’s top choices.').waitFor();
+            await best.tap();
+        }
+        assert(await result.evaluate(node => node.scrollWidth <= node.clientWidth));
+        assert.equal(await page.request.get(origin + '/wordle-grades.png').then(r => r.status()), 200);
+        if (capture) await result.screenshot({path: path.join(capture, name + '-review.png')});
+        await result.getByRole('button', {name: 'Close family board'}).press('Space');
+        await result.waitFor({state: 'hidden'});
+        await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Statistics');
+        console.log(name + ' ordinary win opened review with ratings, per-guess time and preserved keyboard focus');
+    } finally { await browser.close(); }
+}
+
 async function boardFit() {
-    const shots = path.resolve(root, 'docs/verification/wordle-fit-2026-11-23');
+    const shots = capture || path.resolve(root, 'docs/verification/wordle-fit-2026-11-23');
     require('node:fs').mkdirSync(shots, {recursive: true});
     const profiles = [
         ['pixel7-412x915', chromium, {...devices['Pixel 7'], viewport: {width: 412, height: 915}}],
@@ -387,7 +440,11 @@ async function boardFit() {
         ['mac-webkit', webkit, {...devices['Desktop Safari'], viewport: {width: 850, height: 900}}],
         ['android-chromium', chromium, {...devices['Pixel 7'], viewport: {width: 390, height: 844}}],
         ['iphone-webkit', webkit, {...devices['iPhone 13'], viewport: {width: 320, height: 750}}]
-    ]) await dailyPlay(name, engine, profile);
+    ]) {
+        if (process.env.WORDLE_ONLY !== 'grades') await dailyPlay(name, engine, profile);
+        await ordinaryWinReview(name, engine, profile);
+    }
+    if (process.env.WORDLE_ONLY === 'grades') return;
     await boardFit();
     await rollover();
     await localScoring();

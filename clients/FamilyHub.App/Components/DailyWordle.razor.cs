@@ -13,8 +13,12 @@ public partial class DailyWordle
         return reader.ReadToEnd().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
     });
 
-    private sealed record SavedGuesses(string Date, string[] Words);
+    private sealed record SavedGuesses(string Date, string[] Words, long?[]? Times = null);
+    private sealed record SavedClock(string Date, int Row, long Milliseconds);
     private string SaveKey => $"wordle.pending:{Session.Server}:{Session.User}";
+    private string ClockKey => SaveKey + ":clock";
+    private SavedClock? clock;
+    private long? clockStarted;
     private int confirmed;
     private bool syncing, syncFailed;
 
@@ -25,13 +29,43 @@ public partial class DailyWordle
     private long nextHeartbeat;
     private bool liveVisible = true;
     private const int RevealMilliseconds = 1700;
+    private const int WinReviewMilliseconds = 3000;
     private long resultRevealUntil;
+    private int reviewRequest;
 
     private void WordleVisibilityChanged() => _ = InvokeAsync(PublishActivity);
+
+    private void PauseClock()
+    {
+        if (clock is null || clockStarted is not { } start) return;
+        clock = clock with { Milliseconds = clock.Milliseconds + Environment.TickCount64 - start };
+        clockStarted = null;
+        Preferences.Default.Set(ClockKey, JsonSerializer.Serialize(clock));
+    }
+
+    private void UpdateClock()
+    {
+        if (puzzle is not { Status: "playing", LocalSolution: not null } active || !liveVisible || !Session.UiActive)
+        {
+            PauseClock();
+            return;
+        }
+        if (clock?.Date != active.Date || clock.Row != active.Guesses.Length)
+        {
+            PauseClock();
+            SavedClock? saved = null;
+            try { saved = JsonSerializer.Deserialize<SavedClock>(Preferences.Default.Get(ClockKey, "null")); }
+            catch (JsonException) { }
+            clock = saved?.Date == active.Date && saved.Row == active.Guesses.Length
+                ? saved : new SavedClock(active.Date, active.Guesses.Length, 0);
+        }
+        clockStarted ??= Environment.TickCount64;
+    }
 
     private void PublishActivity()
     {
         if (disposed || puzzle is null) return;
+        UpdateClock();
         var playing = liveVisible && Session.UiActive && puzzle.Status == "playing";
         if (!playing && lastActivity?.Row is null) return;
         var activity = new Activity(puzzle.Date, playing ? puzzle.Guesses.Length : null, playing ? draft.Length : 0);
@@ -70,13 +104,14 @@ public partial class DailyWordle
         catch (Exception error) when (IsRequestError(error)) { }
     }
 
-    private async Task ShowOutcomeAfterReveal(string date, long remaining)
+    private async Task ShowReviewAfterReveal(string date, long remaining, bool won)
     {
+        var request = ++reviewRequest;
         try
         {
-            if (module is null || !await module.InvokeAsync<bool>("afterReveal", lifetime.Token, remaining) ||
-                disposed || showMemberBoard || !Session.UiActive || puzzle?.Date != date || !Finished ||
-                !familyBoards.Any(board => board.Id == Session.User)) return;
+            if (module is null || !await module.InvokeAsync<bool>("afterReveal", lifetime.Token, surface, remaining, won) ||
+                disposed || request != reviewRequest || showMemberBoard || !Session.UiActive || puzzle?.Date != date ||
+                puzzle.Status != (won ? "won" : "lost")) return;
 
             OpenFamilyBoard(Session.User, automatic: true);
             StateHasChanged();
@@ -84,7 +119,7 @@ public partial class DailyWordle
         catch (Exception error) when (error is JSDisconnectedException or OperationCanceledException or ObjectDisposedException) { }
     }
 
-    private static Puzzle AddGuess(Puzzle active, string word, string solution)
+    private static Puzzle AddGuess(Puzzle active, string word, string solution, long? time = null)
     {
         var remaining = solution.ToCharArray();
         string[] marks = ["absent", "absent", "absent", "absent", "absent"];
@@ -102,7 +137,7 @@ public partial class DailyWordle
             marks[i] = "present";
             remaining[match] = '\0';
         }
-        Guess[] guesses = [.. active.Guesses, new Guess(word, marks)];
+        Guess[] guesses = [.. active.Guesses, new Guess(word, marks, time)];
         string status = word == solution ? "won" : guesses.Length == 6 ? "lost" : "playing";
         return active with { Guesses = guesses, Status = status, Answer = status == "playing" ? null : solution };
     }
@@ -116,11 +151,18 @@ public partial class DailyWordle
             shake = true;
             return;
         }
-        var updated = AddGuess(active, word, solution);
-        var saved = new SavedGuesses(active.Date, updated.Guesses.Select(g => g.Word).ToArray());
+        UpdateClock();
+        PauseClock();
+        var updated = AddGuess(active, word, solution,
+            clock?.Date == active.Date && clock.Row == active.Guesses.Length ? clock.Milliseconds : null);
+        var saved = new SavedGuesses(active.Date, updated.Guesses.Select(g => g.Word).ToArray(),
+            updated.Guesses.Select(g => g.ActiveMs).ToArray());
         Preferences.Default.Set(SaveKey, JsonSerializer.Serialize(saved));
+        Preferences.Default.Remove(ClockKey);
+        clock = null;
         LoadPuzzle(updated);
-        if (Finished) resultRevealUntil = Environment.TickCount64 + RevealMilliseconds;
+        if (Finished) resultRevealUntil = Environment.TickCount64 +
+            (updated.Status == "won" ? WinReviewMilliseconds : RevealMilliseconds);
         revealRow = updated.Guesses.Length - 1;
         announcement = RowLabel(revealRow, draft, updated.Guesses[^1]);
         draft = "";
@@ -144,10 +186,12 @@ public partial class DailyWordle
             server.LocalSolution is { } solution && IsPuzzleWord(solution) &&
             server.Guesses.Select(g => g.Word).SequenceEqual(words.Take(confirmed)))
         {
-            foreach (var word in words.Skip(confirmed))
+            for (var index = confirmed; index < words.Length; index++)
             {
                 if (server.Status != "playing") break;
-                if (!server.Guesses.Any(g => g.Word == word)) server = AddGuess(server, word, solution);
+                var word = words[index];
+                if (!server.Guesses.Any(g => g.Word == word))
+                    server = AddGuess(server, word, solution, saved.Times?.ElementAtOrDefault(index));
             }
         }
         else if (json.Length != 0)
@@ -167,7 +211,8 @@ public partial class DailyWordle
             while (!disposed && puzzle is { } active && confirmed < active.Guesses.Length)
             {
                 var updated = await RequestPuzzle(HttpMethod.Post, "guess", new {
-                    date = active.Date, word = active.Guesses[confirmed].Word, guess_count = confirmed
+                    date = active.Date, word = active.Guesses[confirmed].Word, guess_count = confirmed,
+                    guess_active_ms = active.Guesses[confirmed].ActiveMs
                 });
                 if (disposed) return;
                 if (updated.Date != active.Date || updated.Guesses.Length <= confirmed ||

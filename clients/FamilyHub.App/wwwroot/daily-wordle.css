@@ -257,14 +257,48 @@
 .daily-wordle .dw-family-details small { display: block; color: var(--dw-muted); }
 .daily-wordle .dw-family-details .dw-family li:last-child { border-bottom: 0; }
 .daily-wordle .dw-inspect { display: grid; gap: 5px; margin-block: 8px 12px; }
-.daily-wordle .dw-member-dialog .dw-inspect { --dw-inspect-tile: clamp(22px, 8.5vw, 52px); --dw-inspect-font: clamp(16px, 4vw, 27px); }
+.daily-wordle .dw-member-dialog .dw-inspect {
+    --dw-inspect-tile: clamp(22px, 7.5vw, 52px);
+    --dw-inspect-font: clamp(16px, 4vw, 27px);
+}
 .daily-wordle .dw-inspect li {
     --dw-inspect-size: var(--dw-inspect-tile, 24px);
     display: grid; grid-template-columns: 1.1em repeat(5, var(--dw-inspect-size)) minmax(0, 1fr);
     align-items: center; gap: clamp(3px, 1vw, 6px);
 }
-.daily-wordle .dw-inspect-number, .daily-wordle .dw-inspect-count { color: var(--dw-muted); font-variant-numeric: tabular-nums; }
-.daily-wordle .dw-inspect-count { margin-inline-start: clamp(0px, 1vw, 8px); overflow-wrap: anywhere; }
+.daily-wordle .dw-inspect-number, .daily-wordle .dw-inspect-count, .daily-wordle .dw-guess-time {
+    color: var(--dw-muted); font-variant-numeric: tabular-nums;
+}
+.daily-wordle .dw-inspect-meta {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 0 4px; min-width: 0;
+    margin-inline-start: clamp(0px, 1vw, 8px); font-size: clamp(12px, 3.5vw, 18px);
+}
+.daily-wordle .dw-guess-time { margin-inline-start: auto; white-space: nowrap; }
+.daily-wordle .dw-grade {
+    display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
+    color: inherit; background: transparent; border: 0; border-radius: 6px; cursor: pointer;
+}
+.daily-wordle .dw-grade:hover, .daily-wordle .dw-grade[aria-expanded="true"] { background: var(--dw-line); }
+@media (pointer: coarse) { .daily-wordle .dw-grade { width: 44px; height: 44px; } }
+.daily-wordle .dw-grade:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+.daily-wordle .dw-grade-icon {
+    display: block; width: 20px; height: 20px; flex: none;
+    background: url("./wordle-grades.png") calc(-20px * var(--grade)) center / 200px 20px no-repeat;
+}
+.daily-wordle .dw-grade-icon.brilliant { --grade: 0; }
+.daily-wordle .dw-grade-icon.great { --grade: 1; }
+.daily-wordle .dw-grade-icon.best { --grade: 2; }
+.daily-wordle .dw-grade-icon.excellent { --grade: 3; }
+.daily-wordle .dw-grade-icon.good { --grade: 4; }
+.daily-wordle .dw-grade-icon.book { --grade: 5; }
+.daily-wordle .dw-grade-icon.inaccuracy { --grade: 6; }
+.daily-wordle .dw-grade-icon.mistake { --grade: 7; }
+.daily-wordle .dw-grade-icon.blunder { --grade: 8; }
+.daily-wordle .dw-grade-icon.miss { --grade: 9; }
+.daily-wordle .dw-grade-detail {
+    grid-column: 2 / -1; margin: 2px 0 8px; padding: 8px 10px;
+    border-inline-start: 2px solid var(--dw-line); font-size: 14px;
+}
 .daily-wordle .dw-inspect-tile {
     display: grid; place-items: center; block-size: var(--dw-inspect-size); font-weight: 700;
     font-size: var(--dw-inspect-font, inherit); border-radius: 2px;

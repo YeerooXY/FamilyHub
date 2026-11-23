@@ -100,9 +100,9 @@ async function check(browser, name, options) {
         const open = (profile = "alex") => page.evaluate(async ({ jellyfin, profile }) => {
             await window.movies?.close();
             const { openMovies } = await import("/movies.js");
-            window.movies = openMovies(document.querySelector("main"), { url: jellyfin, user: profile, device: "fixture", token: "fixture" },
+            window.movies = window.openMovieFixture(openMovies, document.querySelector("main"), { url: jellyfin, user: profile, device: "fixture", token: "fixture" },
                 { invokeMethodAsync: async method => method === "MovieConnectionKind" ? window.nativeConnection : undefined },
-                { server: location.origin, profile });
+                { server: jellyfin + "/", profile });
         }, { jellyfin, profile });
         const start = () => page.getByRole("button", { name: item.Name, exact: true }).last().press("Enter");
         const settings = page.getByRole("button", { name: "Settings", exact: true });

@@ -473,7 +473,11 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
                 active_ms = finishedBoard ? 23000 : (int?)null,
                 review = finishedBoard ? new { remaining = wordleGuesses.Select((_, i) => won && i == wordleGuesses.Count - 1 ? 0 : 6 - i),
                     outcome = lost ? "unlucky" : fastFamilyWin ? "lucky" : null,
-                    final_options = lost ? 2 : fastFamilyWin ? 5193 : (int?)null } : null,
+                    final_options = lost ? 2 : fastFamilyWin ? 5193 : (int?)null,
+                    hard_rules = won && wordleGuesses.Count == 2 && wordleGuesses[0].Word == "slate",
+                    grades = wordleGuesses.Select((_, i) => new { kind = i == 0 ? "book" : won && i == wordleGuesses.Count - 1 ? "best" : "inaccuracy",
+                        better = i == 0 || (won && i == wordleGuesses.Count - 1) ? null : "crane" }),
+                    guess_times_ms = wordleGuesses.Select((_, i) => i == 0 ? 4400 : 18600) } : null,
                 family,
                 local_solution = Startup is "wordle-delayed" or "wordle-lucky" or "wordle-unlucky" ? "crate" : null,
                 next_reset = nextDay ? WordleReset.AddDays(1) : WordleReset
