@@ -1,0 +1,9 @@
+# Movies downloads and subtitle verification
+
+Headless Playwright on Windows used Chromium and WebKit at 1280 × 850, 2000 × 1000, Pixel 7, and iPhone 13. Both phone profiles were emulated in both engines. Each capture used reduced motion. The PNG names give the engine, viewport profile and feature.
+
+- **Per-release Download.** Checked the disabled explanation, opaque grab arguments, plain-word failure and retry, repeat activation while a grab is pending, the new queue item, and focus on **Sent to the server**. Keyboard checks used Tab, Shift+Tab, Enter and Space.
+- **On the server.** Checked the desktop side column and phone placement above the catalogue, read-only profile access, progress scaling, minute estimates, unavailable and empty states, and polling with a simulated clock and document visibility.
+- **Subtitle search.** Checked the profile language, language picker, searching and empty results, rating and download count, delayed Jellyfin refresh, and focus return after adding. Chromium played a synthetic local clip while loading and displaying the WebVTT cue. Windows WebKit used simulated playback and a fixture cue. Both engines kept the video element and source through track selection.
+
+Playwright mocked FamilyHub and Jellyfin API responses. Python tests used the FamilyHub routes with mocked Prowlarr and qBittorrent responses to check profile permissions, grab payloads, private references, qBittorrent mapping and cache, and error sanitization. The Prowlarr fixture also covers retrying with a single object when the pinned release rejects array binding on the grab route. Live service setup, native WebViews, physical phones, screen-reader speech, enlarged text and standard-motion behavior remain unverified. [Prowlarr grab route](https://github.com/Prowlarr/Prowlarr/blob/v2.7.0.5723/src/Prowlarr.Api.V1/Search/SearchController.cs)

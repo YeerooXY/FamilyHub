@@ -93,15 +93,23 @@
     public Task<string> MovieReleaseSearch(string query) => SendMovieRequest("/api/movies/releases", new { query });
 
     [JSInvokable]
+    public Task<string> MovieDownload(string guid, int indexerId, string title) =>
+        SendMovieRequest("/api/movies/download", new { guid, indexer_id = indexerId, title });
+
+    [JSInvokable]
+    public Task<string> MovieDownloads() => SendMovieRequest("/api/movies/downloads");
+
+    [JSInvokable]
     public Task<string> MovieRequest(string kind, int id, int? season) => SendMovieRequest("/api/movies/request", new { kind, id, season });
 
-    private async Task<string> SendMovieRequest(string path, object payload)
+    private async Task<string> SendMovieRequest(string path, object? payload = null)
     {
         string Error(string text) => System.Text.Json.JsonSerializer.Serialize(new { error = text });
         try
         {
             if (Session.Api is not { } api) return Error("Sign in again and try again.");
-            var reply = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, path, payload, cancellationToken: closed.Token);
+            var reply = await api.RequestJsonAsync<System.Text.Json.JsonElement>(
+                payload is null ? HttpMethod.Get : HttpMethod.Post, path, payload, cancellationToken: closed.Token);
             return reply.GetRawText();
         }
         catch (FamilyHubApiException error) { return Error(error.Message); }

@@ -1,11 +1,16 @@
 """Issue a regular Jellyfin session for the active FamilyHub profile."""
+import http.client
+import http.cookiejar
 import json
 import logging
 import re
+import secrets
 import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
+from time import monotonic
 
 from flask import g, jsonify
 
@@ -36,12 +41,69 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def download_item(row):
+    progress = max(0, min(1, float(row['progress'])))
+    state, name = row['state'], row['name']
+    if not isinstance(name, str) or not isinstance(state, str):
+        raise ValueError()
+    if state in {'error', 'missingFiles', 'unknown'}:
+        label = 'Problem'
+    elif state == 'moving':
+        label = 'Almost done'
+    elif progress == 1:
+        label = 'Finished'
+    elif state in {'pausedDL', 'stoppedDL'}:
+        label = 'Paused'
+    elif state == 'stalledDL':
+        label = 'Stalled'
+    elif state in {'downloading', 'forcedDL'}:
+        label = 'Almost done' if progress >= 0.95 else 'Downloading'
+    else:
+        label = 'Waiting'
+    eta = row.get('eta')
+    return dict(name=name, progress=progress, size=max(0, int(row['size'])),
+                state=label, eta=eta if type(eta) is int and 0 <= eta < 8640000 else None,
+                speed=max(0, int(row.get('dlspeed', 0))))
+
+
+def read_downloads(qb):
+    url = (qb.get('url') or '').rstrip('/')
+    if not all((url, qb.get('user'), qb.get('password'))):
+        return dict(available=False, reason='Server downloads are not set up.')
+    try:
+        origin = urllib.parse.urlsplit(url)
+        if (origin.scheme not in ('http', 'https') or not origin.hostname
+                or origin.username is not None or origin.query or origin.fragment):
+            raise ValueError()
+        opener = urllib.request.build_opener(NoRedirect, urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        login = urllib.request.Request(url + '/api/v2/auth/login',
+            data=urllib.parse.urlencode({'username': qb['user'], 'password': qb['password']}).encode(),
+            headers={'Referer': url + '/'})
+        with opener.open(login, timeout=2) as reply:
+            if reply.read(64).strip() != b'Ok.':
+                raise ValueError()
+        with opener.open(url + '/api/v2/torrents/info?category=familyhub', timeout=2) as reply:
+            rows = json.loads(reply.read(1024 * 1024))
+        if not isinstance(rows, list):
+            raise ValueError()
+        return dict(available=True, items=[download_item(row) for row in rows])
+    except urllib.error.HTTPError as error:
+        error.close()
+    except (OSError, http.client.HTTPException, ValueError, TypeError, KeyError, OverflowError):
+        pass
+    return dict(available=False, reason='The download server is unavailable.')
+
+
 def register_movies(app, cfg, body, allow):
     base = cfg.get('JELLYFIN_INTERNAL_URL', 'http://127.0.0.1:8096').rstrip('/')
     releases = cfg.get('MOVIE_RELEASE_SEARCH') or {}
     prowlarr = releases.get('url', 'http://127.0.0.1:9696').rstrip('/')
     indexers = tuple(dict.fromkeys(i for i in releases.get('indexer_ids', []) if type(i) is int and i > 0))[:4]
     requests = cfg.get('MOVIE_REQUESTS') or {}
+    downloads = cfg.get('MOVIE_DOWNLOADS') or {}
+    grab_refs = {}
+    grab_lock, queue_lock = Lock(), Lock()
+    queue_cache, queue_expires = None, 0
     seerr = requests.get('url', '').rstrip('/')
     seerr_key = requests.get('api_key', '')
     try:
@@ -61,6 +123,62 @@ def register_movies(app, cfg, body, allow):
     def release_access():
         return bool(releases.get('api_key') and indexers and g.user in releases.get('profiles', [])
                     and g.user in cfg.get('JELLYFIN_PROFILES', {}))
+
+    def download_access():
+        return g.user in downloads.get('profiles', []) and g.user in cfg.get('JELLYFIN_PROFILES', {})
+
+    @app.get('/api/movies/downloads')
+    def movie_downloads():
+        nonlocal queue_cache, queue_expires
+        with queue_lock:
+            if monotonic() >= queue_expires:
+                queue_cache = read_downloads(downloads.get('qbittorrent') or {})
+                queue_expires = monotonic() + 3
+            response = jsonify(queue_cache)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
+    @app.post('/api/movies/download')
+    def movie_download():
+        if not download_access():
+            return jsonify(error='Downloading is not switched on for your profile.'), 403
+        data = body()
+        ref, indexer, title = data.get('guid'), data.get('indexer_id'), data.get('title')
+        if (not isinstance(ref, str) or not re.fullmatch(r'[A-Za-z0-9_-]{24}', ref)
+                or type(indexer) is not int or not isinstance(title, str) or not 0 < len(title) <= 250):
+            return jsonify(error='Search again and select a release.'), 400
+        if not allow('movie-download:' + g.user, 8, 60):
+            return jsonify(error='Wait a minute before starting another download.'), 429
+        with grab_lock:
+            entry = grab_refs.get(ref)
+        if not entry or entry[:2] != (g.user, indexer) or entry[3] <= monotonic():
+            return jsonify(error='This release is no longer available. Search again.'), 404
+        release = {'guid': entry[2], 'indexerId': indexer}
+
+        def grab(payload):
+            req = urllib.request.Request(prowlarr + '/api/v1/search', data=json.dumps(payload).encode(),
+                headers={'X-Api-Key': releases['api_key'], 'Content-Type': 'application/json'})
+            try:
+                with urllib.request.build_opener(NoRedirect).open(req, timeout=6):
+                    return None, b''
+            except urllib.error.HTTPError as error:
+                with error:
+                    return error.code, error.read(8192).lower()
+
+        try:
+            code, detail = grab([release])
+            # Prowlarr's single-grab route on current versions binds a JSON object.
+            if code == 400 and any(problem in detail for problem in (b'convert', b'"release"', b"body can't be empty")):
+                code, detail = grab(release)
+        except (OSError, http.client.HTTPException, ValueError):
+            return jsonify(error='Could not confirm the download. Check On the server before trying again.'), 503
+        if b'download client' in detail and any(word in detail for word in (b'configur', b'no download client')):
+            return jsonify(error='Prowlarr has no download client set up for this release.'), 503
+        if code == 404 or b'getting release from indexer failed' in detail:
+            return jsonify(error='This release is no longer available. Search again.'), 404
+        if code:
+            return jsonify(error='Prowlarr could not send this release. Try again.'), 503
+        return jsonify(state='sent')
 
     @app.post('/api/movies/releases')
     def movie_releases():
@@ -85,7 +203,8 @@ def register_movies(app, cfg, body, allow):
                 with urllib.request.build_opener(NoRedirect).open(req, timeout=4 if season is not None else 8) as reply:
                     rows = json.loads(reply.read(1024 * 1024))
                 return [dict(title=row['title'][:250], source=row.get('indexer', '')[:80], size=row.get('size'),
-                             seeders=row.get('seeders'), leechers=row.get('leechers')) for row in rows
+                             seeders=row.get('seeders'), leechers=row.get('leechers'),
+                             guid=row.get('guid'), indexerId=row.get('indexerId', indexer)) for row in rows
                         if isinstance(row.get('title'), str) and row['title'].strip()]
             except (OSError, ValueError, KeyError, TypeError, AttributeError):
                 return None
@@ -109,7 +228,21 @@ def register_movies(app, cfg, body, allow):
         unavailable = pages.count(None)
         if unavailable == len(indexers):
             return jsonify(error='The sources did not respond. Try again.'), 503
-        return jsonify(results=[row for page in pages if page is not None for row in page], unavailable=unavailable)
+        rows = [row for page in pages if page is not None for row in page]
+        with grab_lock:
+            now = monotonic()
+            for ref in list(grab_refs):
+                if grab_refs[ref][3] <= now:
+                    del grab_refs[ref]
+            for row in rows:
+                guid, indexer = row.pop('guid'), row.pop('indexerId')
+                if isinstance(guid, str) and 0 < len(guid) <= 8192 and type(indexer) is int and indexer in indexers:
+                    ref = secrets.token_urlsafe(18)
+                    grab_refs[ref] = (g.user, indexer, guid, now + 1800)
+                    row.update(guid=ref, indexerId=indexer)
+            while len(grab_refs) > 10000:
+                del grab_refs[next(iter(grab_refs))]
+        return jsonify(results=rows, unavailable=unavailable)
 
     def seerr_call(path, user, payload=None):
         req = urllib.request.Request(seerr + '/api/v1/' + path,
@@ -270,6 +403,7 @@ def register_movies(app, cfg, body, allow):
                 connection['requests_enabled'] = True
             if release_access():
                 connection['release_search_enabled'] = True
+            connection['downloads_enabled'] = download_access()
             response = jsonify(connection)
             response.headers['Cache-Control'] = 'no-store'
             return response

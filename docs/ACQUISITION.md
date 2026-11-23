@@ -61,7 +61,7 @@ Verify a harmless HTTPS request succeeds inside the qBittorrent network namespac
 
 ## Scope and limits
 
-Prowlarr manages and searches indexers. The indexers determine catalogue coverage and availability. The Compose project provides the existing download services. The optional FamilyHub request feature connects to operator-configured Seerr, Radarr and Sonarr services. Bazarr and subtitle downloads are outside this workflow. Inbound peer connectivity requires a separate network change.
+Prowlarr manages and searches indexers. The indexers determine catalogue coverage and availability. The Compose project provides the existing download services. The optional FamilyHub request feature connects to operator-configured Seerr, Radarr and Sonarr services. Jellyfin handles subtitle search and downloads separately. Inbound peer connectivity requires a separate network change.
 
 ### Release search
 
@@ -69,7 +69,27 @@ To include torrent releases in Movies & TV searches without an exact library mat
 
 A query ending in `S2` or `Season 2` first searches with `S02`. An indexer that returns no matching pack gets a title-only lookup. FamilyHub keeps packs matching the requested title and season in both cases.
 
-The panel ranks seeded 1080p and higher releases first when the upload fits the selected time budget, with seeded lower resolutions next. Enter an assumed sustained upload speed to compare the time needed to upload twice each release's size. Peer demand can make actual seeding time longer. This search does not queue transfers or set qBittorrent's share limits. For live acquisition, configure a 2.0 share ratio in the download workflow after the VPN check.
+Best match puts shared 1080p and higher releases first, followed by shared lower resolutions and releases with no active shares. Each tile estimates download time at 100 Mbps. The actual speed depends on the server's connection and the people sharing the file.
+
+### Per-release downloads and subtitles
+
+- [ ] Follow the [download VPN check](#connect-the-download-vpn), then create a qBittorrent category named `familyhub`. Set its save path under the downloads directory and configure the agreed 2.0 share ratio in qBittorrent.
+- [ ] In Prowlarr under **Settings → Download Clients**, add or select the qBittorrent client used for direct Prowlarr searches. Set its category to `familyhub`, test the connection, and select that client for the applicable torrent indexers. [Prowlarr download client settings](https://wiki.servarr.com/prowlarr/settings#download-clients)
+- [ ] Configure release search above and add this block to FamilyHub's private JSON configuration. Include only the FamilyHub profiles allowed to start a download. A profile needs release-search access to see the release tiles. All signed-in Movies profiles can view **On the server**. Use the private Web API URL as seen from FamilyHub and keep qBittorrent credentials on the server.
+
+  ```json
+  "MOVIE_DOWNLOADS": {
+    "profiles": ["family-profile-id"],
+    "qbittorrent": {
+      "url": "http://127.0.0.1:8080",
+      "user": "<qBittorrent WebUI user>",
+      "password": "<qBittorrent WebUI password>"
+    }
+  }
+  ```
+
+- [ ] In Jellyfin, install **Open Subtitles** from the plugin catalog and connect an OpenSubtitles.com account. Enable subtitle management for the linked regular Jellyfin users who should search and download subtitles. Use Jellyfin's writable metadata storage for downloaded subtitles when the movie and TV mounts are read-only. [Jellyfin Open Subtitles](https://jellyfin.org/docs/general/server/plugins/open-subtitles/) · [Jellyfin subtitle downloads and user permissions](https://jellyfin.org/posts/roku-300/)
+- [ ] Restart FamilyHub after saving its configuration. From an authorized profile, grab one release you have permission to download and confirm it appears in `familyhub` and **On the server**. Check that a read-only profile can see progress. During playback, find and add a subtitle with a regular Jellyfin account and verify the text appears while the video continues.
 
 For YouTube audio, local files and trimming, use the administrator [music intake tool](MUSIC_INTAKE.md). Its tagged imports go into `Local Imports`, alongside Lidarr's `Managed` directory, and Navidrome scans both.
 

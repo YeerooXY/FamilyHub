@@ -32,6 +32,7 @@ async function openSearch(browser, outcome, options = { viewport: { width: 412, 
         const { openMovies } = await import("/movies.js");
         window.movies = openMovies(document.querySelector("main"), { url: jellyfin, user: "u", token: "t", device: "0123456789abcdef0123456789abcdef", requests_enabled: ["requests", "trinity"].includes(outcome) },
             { invokeMethodAsync: (name, ...args) => {
+                if (name === "MovieDownloads") return Promise.resolve('{"available":true,"items":[]}');
                 window.calls.push([name, ...args]);
                 if (name === "MovieFind") return Promise.resolve(JSON.stringify(outcome === "ok" ? answer : { error: "Searching the web is not set up on this server." }));
                 if (name === "MovieRequestSearch" && outcome === "trinity") return JSON.stringify({ results: [

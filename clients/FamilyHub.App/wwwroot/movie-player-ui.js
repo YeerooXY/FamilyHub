@@ -263,24 +263,106 @@ export function buildPlayerUi(ctx) {
             list.setAttribute("role", "radiogroup");
             list.setAttribute("aria-label", name);
             column.append(make("h4", "", /^audio/i.test(name) ? "Audio" : "Subtitles"), list);
-            const rowsFor = [...pick.options].map(option => {
-                const row = make("button", "movie-track-option", option.text);
-                row.type = "button";
-                row.setAttribute("role", "radio");
-                row.addEventListener("click", () => {
-                    pick.value = option.value;
-                    pick.dispatchEvent(new Event("change"));
-                    sync();
-                }, { signal });
-                list.append(row);
-                return [row, option];
-            });
-            const sync = () => { for (const [row, option] of rowsFor) row.setAttribute("aria-checked", String(pick.value === option.value)); };
+            let options = [];
+            const sync = () => {
+                const next = [...pick.options];
+                if (next.length !== options.length || next.some((option, index) => option !== options[index])) {
+                    options = next;
+                    list.replaceChildren(...options.map(option => {
+                        const row = make("button", "movie-track-option", option.text);
+                        row.type = "button";
+                        row.setAttribute("role", "radio");
+                        row.addEventListener("click", () => {
+                            pick.value = option.value;
+                            pick.dispatchEvent(new Event("change"));
+                            sync();
+                        }, { signal });
+                        return row;
+                    }));
+                }
+                options.forEach((option, index) =>
+                    list.children[index].setAttribute("aria-checked", String(pick.value === option.value)));
+            };
             sync();
             syncTracks.push(sync);
             control.append(column);
         }
         sheets.tracks.body.append(control);
+    }
+    if (ctx.subtitleSearch) {
+        const finder = make("div", "movie-subtitle-finder");
+        const form = make("div", "movie-subtitle-form");
+        const languageLabel = make("label", "", "Subtitle language");
+        const language = make("select");
+        language.add(new Option("English", "eng"));
+        language.add(new Option("Hungarian", "hun"));
+        language.value = ctx.subtitleSearch.language;
+        languageLabel.append(language);
+        const find = make("button", "movie-subtitle-action", "Find subtitles");
+        find.type = "button";
+        const feedback = make("p", "");
+        feedback.setAttribute("role", "status");
+        const results = make("ul", "movie-subtitle-results");
+        results.setAttribute("aria-label", "Subtitle results");
+        form.append(languageLabel, find);
+        finder.append(form, feedback, results);
+        sheets.tracks.body.append(finder);
+        let busy = false;
+        function setBusy(value) {
+            busy = value;
+            find.setAttribute("aria-disabled", String(value));
+            for (const row of results.querySelectorAll("button")) row.setAttribute("aria-disabled", String(value));
+        }
+        find.addEventListener("click", async () => {
+            if (busy) return;
+            find.focus();
+            results.replaceChildren();
+            setBusy(true);
+            feedback.textContent = "Searching for subtitles…";
+            const selectedLanguage = language.value;
+            const languageName = language.selectedOptions[0].text;
+            try {
+                const matches = await ctx.subtitleSearch.find(selectedLanguage);
+                if (signal.aborted) return;
+                for (const result of matches.filter(result => typeof result.Id === "string" && result.Id)) {
+                    const entry = make("li");
+                    const add = make("button", "movie-subtitle-action");
+                    add.type = "button";
+                    const facts = [languageName];
+                    if (Number.isFinite(result.CommunityRating) && result.CommunityRating > 0)
+                        facts.push(`Rating ${result.CommunityRating.toLocaleString(undefined, {maximumFractionDigits: 1})}`);
+                    if (Number.isFinite(result.DownloadCount))
+                        facts.push(`${result.DownloadCount.toLocaleString()} ${result.DownloadCount === 1 ? "download" : "downloads"}`);
+                    add.append(make("strong", "", result.Name || "Subtitle"), make("span", "", facts.join(" · ")));
+                    add.addEventListener("click", async () => {
+                        if (busy) return;
+                        add.focus();
+                        setBusy(true);
+                        feedback.textContent = "Adding subtitles…";
+                        try {
+                            await ctx.subtitleSearch.add(result, selectedLanguage);
+                            if (signal.aborted) return;
+                            if (openSheet === "tracks") closeSheet(true);
+                            results.replaceChildren();
+                            feedback.textContent = "";
+                            failure.textContent = "Subtitles added.";
+                            show();
+                        } catch {
+                            if (!signal.aborted) feedback.textContent = "Could not add the subtitles. Try again or check with the server owner.";
+                        } finally {
+                            if (!signal.aborted) setBusy(false);
+                        }
+                    }, { signal });
+                    entry.append(add);
+                    results.append(entry);
+                }
+                feedback.textContent = results.childElementCount ? "" : "No subtitles found.";
+            } catch {
+                if (!signal.aborted) feedback.textContent = "Could not search for subtitles. Check subtitle access with the server owner and try again.";
+            } finally {
+                if (!signal.aborted) setBusy(false);
+            }
+        }, { signal });
     }
     function toggleSheet(name, focusTarget) {
         if (openSheet === name) return closeSheet(true);
@@ -311,7 +393,7 @@ export function buildPlayerUi(ctx) {
     // The touch itself wakes the controls (show runs on pointerdown), so remember what the tap found.
     root.addEventListener("pointerdown", () => { hiddenAtTouch = root.classList.contains("movie-idle"); }, { capture: true, signal });
     surfaceLayer.addEventListener("click", event => {
-        if (openSheet) { closeSheet(false); return; }
+        if (openSheet) { closeSheet(true); return; }
         const pointer = matchMedia("(hover: hover) and (pointer: fine)").matches;
         if (!pointer) {
             // Like YouTube: a tap on the picture hides visible controls at once and brings hidden ones back.

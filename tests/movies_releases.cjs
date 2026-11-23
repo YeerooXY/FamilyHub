@@ -1,17 +1,17 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { chromium, webkit, devices } = require(require.resolve("playwright", { paths: [process.cwd(), path.resolve(__dirname, "../../agent-dock")] }));
+const {output: verification, verifyMovieProfiles} = require("./movies_fixture.cjs");
 
 const app = "http://familyhub.test", jellyfin = "https://jellyfin.test";
 const root = path.resolve(__dirname, "..");
 const assets = path.join(root, "clients/FamilyHub.App/wwwroot");
-const output = path.resolve(process.argv[2] || path.join(root, ".local/release-search-preview"));
+const output = path.join(root, ".local/release-search-preview");
 const title = "The Gentlemen S2";
 const pack = "The.Gentlemen.S02.1080p.NF.WEB-DL.DDP5.1.ENG.Atmos.ITA.H265-TBK";
 const fixture = [
-    { title: pack, source: "The Pirate Bay", size: 17244393718, seeders: 390, leechers: 157 },
-    { title: pack, source: "Knaben", size: 17244393718, seeders: 378, leechers: 145 },
+    { title: pack, source: "The Pirate Bay", size: 17244393718, seeders: 390, leechers: 157, guid: "reference-a", indexerId: 1 },
+    { title: pack, source: "Knaben", size: 17244393718, seeders: 378, leechers: 145, guid: "reference-b", indexerId: 2 },
     { title: "The Gentlemen S02 720p WEB-DL", source: "The Pirate Bay", size: 2000000000, seeders: 22, leechers: 5 },
     { title: "The Gentlemen S02 2160p", source: "Knaben", size: 30500000000, seeders: 0, leechers: 1 }
 ];
@@ -46,9 +46,18 @@ async function verify(browser, name, options) {
         await page.evaluate(async ({jellyfin, fixture}) => {
             const {openMovies} = await import("/movies.js");
             window.calls = [];
-            openMovies(document.querySelector("main"), {url:jellyfin, user:"fixture", token:"fixture", device:"fixture", release_search_enabled:true, requests_enabled:true}, {
+            window.movieSession = {url:jellyfin, user:"fixture", token:"fixture", device:"fixture", release_search_enabled:true, requests_enabled:true};
+            openMovies(document.querySelector("main"), window.movieSession, {
                 invokeMethodAsync: async (method, term, ...args) => {
+                    if (method === "MovieDownloads") return JSON.stringify({available:true, items:window.queueItems || []});
                     window.calls.push([method, term, ...args]);
+                    if (method === "MovieDownload") {
+                        if (!window.downloadAttempt) {
+                            window.downloadAttempt = 1;
+                            return JSON.stringify({error:"Prowlarr has no download client set up for this release."});
+                        }
+                        return new Promise(resolve => window.confirmGrab = () => resolve(JSON.stringify({state:"sent"})));
+                    }
                     if (method === "MovieFind") return JSON.stringify({results: term === "The Gentlemen S2" ? [
                         {title:"The Gentlemen trailer", url:"https://www.youtube.com/watch?v=fixture0000", label:"trailer"}
                     ] : []});
@@ -155,19 +164,45 @@ async function verify(browser, name, options) {
         assert.equal(await page.getByRole("button", {name:"First Season", exact:true}).count(), 0);
         assert.equal(await page.evaluate(() => calls.length), count);
         await page.screenshot({path:path.join(output, name + "-library.png"), fullPage:true});
+
+        await page.evaluate(() => movieSession.downloads_enabled = true);
+        await search(title);
+        await disclosure.press("Enter");
+        const grab = first.getByRole("button", {name: /^Download The Gentlemen/});
+        await grab.focus();
+        await page.keyboard.press("Tab");
+        await page.keyboard.press("Shift+Tab");
+        assert.equal(await focus(grab), true);
+        await page.keyboard.press("Enter");
+        const retryGrab = first.getByRole("button", {name:/^Try again/});
+        await retryGrab.waitFor();
+        assert.equal(await focus(retryGrab), true);
+        await page.getByRole("status").filter({hasText:"Prowlarr has no download client"}).waitFor();
+        await page.clock.install();
+        await page.keyboard.press("Space");
+        await page.waitForFunction(() => typeof confirmGrab === "function");
+        await page.keyboard.press("Enter");
+        await page.evaluate(() => {
+            window.queueItems = [{name:"The Gentlemen Season 2", progress:0, size:17244393718, state:"Waiting", eta:null, speed:0}];
+            confirmGrab();
+        });
+        const sent = first.getByText("Sent to the server", {exact:true});
+        await sent.waitFor();
+        assert.equal(await focus(sent), true);
+        assert.deepEqual(await page.evaluate(() => calls.filter(call => call[0] === "MovieDownload")),
+            [["MovieDownload", "reference-a", 1, pack], ["MovieDownload", "reference-a", 1, pack]]);
+        await page.clock.fastForward(3200);
+        await page.getByRole("region", {name:"On the server"}).getByText("The Gentlemen Season 2", {exact:true}).waitFor();
+        assert.equal(await focus(sent), true);
+        await page.screenshot({path:path.join(verification, name + "-release.png"), fullPage:true});
+        await page.getByRole("button", {name:"Smallest file", exact:true}).click();
+        await page.getByRole("button", {name:"Best match", exact:true}).click();
+        assert.equal(await sent.isVisible(), true);
     } finally { await page.close(); }
 }
 
 (async () => {
     fs.mkdirSync(output, {recursive:true});
-    for (const [engine, profiles] of [
-        [chromium, [["windows", {viewport:{width:1280,height:850}}], ["android", devices["Pixel 7"]],
-            ["wide", {viewport:{width:2000,height:1000}}]]],
-        [webkit, [["mac", {viewport:{width:1280,height:850}}], ["iphone", {...devices["iPhone 13"], reducedMotion:"reduce"}]]]
-    ]) {
-        const browser = await engine.launch();
-        try { for (const [name, options] of profiles) await verify(browser, name, options); }
-        finally { await browser.close(); }
-    }
-    console.log("Integrated release search passed in four browser profiles.");
+    await verifyMovieProfiles(verify);
+    console.log("Integrated release search passed in eight browser profiles.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

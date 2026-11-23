@@ -266,6 +266,25 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-track-controls label { display: grid; gap: .35rem; min-width: 0; }
 .movie-track-controls select { max-width: 100%; }
 .movie-library p[role="status"]:empty { margin: 0; }
+.movie-library-columns, .movie-catalogue { min-width: 0; }
+.movie-library .movie-downloads {
+    margin: .75rem 0 1.5rem;
+    padding: 1rem;
+    border: 1px solid #ffffff26;
+    border-radius: .85rem;
+    background: #171a22;
+}
+.movie-downloads h2 { margin: 0 0 .6rem; font-size: 1.1rem; }
+.movie-downloads ul { display: grid; gap: .65rem; margin: 0; padding: 0; list-style: none; }
+.movie-downloads li { padding: .75rem; border-radius: .6rem; background: #ffffff0d; overflow-wrap: anywhere; }
+.movie-downloads p { margin: 0; color: #ffffffb8; font-size: .9rem; }
+.movie-download-progress { height: .3rem; margin: .65rem 0 .5rem; border-radius: 1rem; background: #ffffff26; overflow: hidden; }
+.movie-download-progress span { display: block; height: 100%; transform-origin: left; background: #89b4ff; }
+@media (min-width: 1100px) {
+    .movie-library-columns { display: grid; align-items: start; grid-template-columns: minmax(0, 1fr) minmax(15rem, 22rem); gap: 1.25rem; }
+    .movie-catalogue { grid-area: 1 / 1; }
+    .movie-downloads { grid-area: 1 / 2; }
+}
 .movie-library video { margin-top: .75rem; }
 .movie-library .movie-search {
     display: flex;
@@ -445,6 +464,17 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-sheet-tracks .movie-track-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr)); gap: 1rem 1.25rem; }
 .movie-track-col h4 { margin: 0 0 .4rem; font-size: .95rem; color: #ffffffb3; font-weight: 600; }
 .movie-track-list { display: grid; gap: .1rem; max-height: 14rem; overflow: auto; }
+.movie-subtitle-finder { display: grid; gap: .6rem; padding-top: .7rem; border-top: 1px solid #ffffff26; }
+.movie-subtitle-form { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem; }
+.movie-subtitle-form label { display: grid; gap: .25rem; flex: 1 1 8rem; }
+.movie-subtitle-form select, .movie-library .movie-subtitle-action {
+    min-height: 44px; padding: .45rem .7rem; border: 1px solid #ffffff36; border-radius: .55rem; background: #23252c; color: #fff;
+}
+.movie-library .movie-subtitle-action[aria-disabled="true"] { opacity: .65; }
+.movie-subtitle-results { display: grid; gap: .4rem; margin: 0; padding: 0; list-style: none; }
+.movie-subtitle-results:empty { display: none; }
+.movie-subtitle-results .movie-subtitle-action { display: grid; gap: .25rem; width: 100%; text-align: start; overflow-wrap: anywhere; }
+.movie-subtitle-results span { color: #ffffffb8; font-size: .85em; }
 .movie-library .movie-track-option { position: relative; display: block; width: 100%; min-height: 44px; padding: .5rem .6rem .5rem 2.1rem; border: 0; border-radius: .5rem; background: transparent; color: #ffffffcc; font: inherit; text-align: start; overflow-wrap: anywhere; }
 .movie-track-option::before { content: ""; position: absolute; left: .75rem; top: 50%; width: .5rem; height: .85rem; margin-top: -.55rem; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg); opacity: 0; }
 .movie-track-option[aria-checked="true"] { color: #fff; font-weight: 700; }
@@ -490,6 +520,8 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-releases .movie-release-action { justify-self: start; min-height: 46px; padding: 0 1.5rem; border: 0; border-radius: .75rem; background: linear-gradient(135deg, #89b4ff, #f19cda); color: #0b0d12; font: inherit; font-weight: 700; cursor: pointer; }
 .movie-releases .movie-release-action[aria-disabled="true"] { background: #ffffff1f; color: #ffffffcc; cursor: not-allowed; }
 .movie-releases .movie-release-action:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+.movie-release-sent { margin: 0; justify-self: start; padding: .55rem 0; color: #b3e8d0; font-weight: 650; }
+.movie-release-sent:focus-visible { outline: 2px solid var(--focus, #98abed); outline-offset: 3px; }
 
 /* One colour per quality tier. 4K is the showpiece; Remux is the best 1080p; the rest step down in colour and shine. */
 .movie-release-top > .movie-release-quality { border: 0; box-shadow: none; color: #fff; }

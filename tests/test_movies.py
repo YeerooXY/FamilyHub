@@ -226,6 +226,108 @@ class MovieReleaseSearch(Base):
         self.assertEqual(opener.return_value.open.call_count, 4)
 
 
+class MovieDownloads(Base):
+    extra = {**MovieReleaseSearch.extra, 'MOVIE_DOWNLOADS': {
+        'profiles': ['sample-a'],
+        'qbittorrent': {'url': 'http://downloads.test', 'user': 'fixture-user', 'password': 'fixture-password'}}}
+    select = MovieSessions.select
+    guid = 'https://private-indexer.test/download?key=private-indexer-key'
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_search_and_grab_require_permission_and_keep_indexer_links_private(self, opener):
+        def upstream(req, timeout):
+            if req.get_method() == 'POST':
+                return io.BytesIO(b'{"downloadUrl":"https://private-indexer.test"}')
+            indexer = urllib.parse.parse_qs(urllib.parse.urlsplit(req.full_url).query)['indexerIds'][0]
+            rows = [dict(title='Sample Release', indexerId=1, guid=self.guid,
+                         magnetUrl='magnet:fixture', downloadUrl=self.guid)] if indexer == '1' else []
+            return io.BytesIO(json.dumps(rows).encode())
+
+        opener.return_value.open.side_effect = upstream
+        client, profile = self.select('sample-a')
+        search = self.post(client, profile['csrf_token'], '/api/movies/releases', json={'query': 'Sample Release'})
+        row, = search.json['results']
+        self.assertEqual(row['indexerId'], 1)
+        self.assertNotIn(self.guid, search.get_data(as_text=True))
+        self.assertNotIn('magnet:', search.get_data(as_text=True))
+        payload = dict(guid=row['guid'], indexer_id=1, title=row['title'])
+        other, selected = self.select('sample-b')
+        denied = self.post(other, selected['csrf_token'], '/api/movies/download', json=payload)
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(opener.return_value.open.call_count, 2)
+        mismatched = self.post(client, profile['csrf_token'], '/api/movies/download', json={**payload, 'indexer_id': 3})
+        self.assertEqual(mismatched.status_code, 404)
+        reply = self.post(client, profile['csrf_token'], '/api/movies/download', json=payload)
+        self.assertEqual(reply.json, {'state': 'sent'})
+        req = opener.return_value.open.call_args.args[0]
+        self.assertTrue(req.full_url.endswith('/api/v1/search'))
+        self.assertEqual(req.get_method(), 'POST')
+        self.assertEqual(req.get_header('X-api-key'), 'fixture-key')
+        self.assertEqual(json.loads(req.data), [{'guid': self.guid, 'indexerId': 1}])
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_grab_uses_single_release_if_array_binding_fails_and_sanitizes_errors(self, opener):
+        def upstream_error(code, detail):
+            return urllib.error.HTTPError('http://prowlarr.test', code, 'fixture', {}, io.BytesIO(detail))
+
+        def upstream(req, timeout):
+            if req.get_method() == 'GET':
+                indexer = urllib.parse.parse_qs(urllib.parse.urlsplit(req.full_url).query)['indexerIds'][0]
+                return io.BytesIO(json.dumps([dict(title='Sample Release', guid=self.guid)] if indexer == '1' else []).encode())
+            payload = json.loads(req.data)
+            if isinstance(payload, list):
+                raise upstream_error(400, b'{"errors":{"$":["could not be converted to ReleaseResource"]}}')
+            self.assertEqual(payload, {'guid': self.guid, 'indexerId': 1})
+            raise next(errors)
+
+        errors = iter([upstream_error(500, b"Download client isn't configured yet fixture-key"),
+                       upstream_error(404, self.guid.encode())])
+        opener.return_value.open.side_effect = upstream
+        client, profile = self.select('sample-a')
+        csrf = profile['csrf_token']
+        search = self.post(client, csrf, '/api/movies/releases', json={'query': 'Sample Release'})
+        row, = search.json['results']
+        with self.assertNoLogs('music_web.movies', 'WARNING'):
+            for status, error in [(503, 'Prowlarr has no download client set up for this release.'),
+                                  (404, 'This release is no longer available. Search again.')]:
+                reply = self.post(client, csrf, '/api/movies/download',
+                                  json=dict(guid=row['guid'], indexer_id=1, title=row['title']))
+                self.assertEqual((reply.status_code, reply.json), (status, {'error': error}))
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_queue_mapping_cache_and_private_login(self, opener):
+        states = [('queuedDL', 0, 'Waiting'), ('downloading', .4, 'Downloading'),
+                  ('forcedDL', .95, 'Almost done'), ('stalledUP', 2, 'Finished'),
+                  ('stalledDL', .2, 'Stalled'), ('stoppedDL', .2, 'Paused'), ('missingFiles', 1, 'Problem'),
+                  ('moving', 1, 'Almost done')]
+        rows = [dict(name=state, progress=progress, size=200, state=state, dlspeed=10,
+                     eta=8640000 if index == 0 else 65, tracker=self.guid)
+                for index, (state, progress, _) in enumerate(states)]
+        opener.return_value.open.side_effect = [io.BytesIO(b'Ok.'), io.BytesIO(json.dumps(rows).encode()),
+                                                 TimeoutError('fixture-password')]
+        anon = self.go(self.app.test_client(), 'GET', '/api/movies/downloads')
+        self.assertEqual(anon.status_code, 401)
+        first, _ = self.select('sample-b')
+        other, _ = self.select('sample-a')
+        with patch('music_web.movies.monotonic', side_effect=[10, 10, 12.99, 13, 13]):
+            with self.assertNoLogs('music_web.movies', 'WARNING'):
+                reply = self.go(first, 'GET', '/api/movies/downloads')
+                self.assertEqual(reply.headers['Cache-Control'], 'no-store')
+                self.assertEqual(reply.json, dict(available=True, items=[
+                    dict(name=state, progress=min(1, progress), size=200, state=label,
+                         eta=None if index == 0 else 65, speed=10)
+                    for index, (state, progress, label) in enumerate(states)]))
+                self.assertEqual(self.go(other, 'GET', '/api/movies/downloads').json, reply.json)
+                self.assertEqual(self.go(other, 'GET', '/api/movies/downloads').json,
+                                 dict(available=False, reason='The download server is unavailable.'))
+        login, info, _ = opener.return_value.open.call_args_list
+        self.assertEqual(login.args[0].full_url, 'http://downloads.test/api/v2/auth/login')
+        self.assertEqual(urllib.parse.parse_qs(login.args[0].data.decode()),
+                         {'username': ['fixture-user'], 'password': ['fixture-password']})
+        self.assertEqual(info.args[0], 'http://downloads.test/api/v2/torrents/info?category=familyhub')
+        self.assertEqual([login.kwargs['timeout'], info.kwargs['timeout']], [2, 2])
+
+
 class MovieWebSearch(MovieSessions):
     FULL = {'id': 'aaaaaaaaaaa', 'title': 'Az ördög jobb és bal keze 2 | Teljes Film Magyarul', 'channel': 'Film', 'seconds': 6600, 'views': 9000, 'url': 'https://www.youtube.com/watch?v=aaaaaaaaaaa'}
     TRAILER = {'id': 'bbbbbbbbbbb', 'title': 'Az ördög jobb és bal keze 2 előzetes', 'channel': 'Film', 'seconds': 100, 'views': 50, 'url': 'https://www.youtube.com/watch?v=bbbbbbbbbbb'}

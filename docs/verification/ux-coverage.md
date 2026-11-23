@@ -372,3 +372,7 @@ The Movies fixtures cover a locally available season, a Season 2 request, a full
 ## Files screen (23 November 2026)
 
 Emulated only: Chromium and WebKit, 412x915 and 1280x800, with a fake server behind the .NET bridge (`tests/files_view.cjs`, screenshots in `files-view-2026-11-23/`). Covered: list, tabs, breadcrumb, new folder, rename with a server error, delete and where focus lands, upload progress line, share-link sheet (password, one-off, copy), revoke, Escape and focus return, no sideways scroll. Never reviewed: television width, a real Android or iPhone file picker and share sheet, screen reader output, enlarged text.
+
+## 23 November 2026 · Release downloads, server queue and subtitle search
+
+The [verification record](downloads-2026-11-23/README.md) covers layout, focus, status wording and state changes in Chromium and WebKit. Windows WebKit playback and subtitle cues used fixtures. Live services, physical devices, native WebViews, screen-reader speech, text enlargement and standard-motion behavior remain open.

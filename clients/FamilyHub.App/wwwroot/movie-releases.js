@@ -25,13 +25,13 @@ export function releaseKind(title) {
 }
 
 const TIERS = {
-    uhd: { rank: 6, note: "Ultra HD: the sharpest picture." },
-    remux: { rank: 5, note: "Remux: the untouched Blu-ray video. The best picture there is, and a very big file." },
-    bluray: { rank: 4, note: "Blu-ray: a compressed copy of the disc, a very good picture." },
-    web: { rank: 3, note: "Web: taken from a streaming service." },
-    hd: { rank: 2, note: "HD, but smaller and softer than 1080p." },
-    tv: { rank: 1, note: "From TV or DVD. A plain picture." },
-    poor: { rank: 0, note: "Low quality: a camera copy or a very small picture." }
+    uhd: { rank: 6 },
+    remux: { rank: 5, note: "A remux keeps the original Blu-ray video." },
+    bluray: { rank: 4 },
+    web: { rank: 3 },
+    hd: { rank: 2 },
+    tv: { rank: 1 },
+    poor: { rank: 0 }
 };
 
 /** The quality tier (drives the colour), a short label such as "1080p Blu-ray", and a plain-words note. */
@@ -94,7 +94,7 @@ const SORTS = [
     ["speed", "Easiest to get"]
 ];
 
-export function buildReleaseSearch(search, signal, requestsEnabled, download = null) {
+export function buildReleaseSearch(search, signal, download = null) {
     const panel = document.createElement("section");
     panel.className = "movie-releases";
     panel.hidden = true;
@@ -125,7 +125,7 @@ export function buildReleaseSearch(search, signal, requestsEnabled, download = n
         choice.type = "button";
         choice.textContent = label;
         choice.dataset.sort = id;
-        choice.addEventListener("click", () => { sortBy = id; showAll = false; render(); });
+        choice.addEventListener("click", () => { choice.focus(); sortBy = id; showAll = false; render(); });
         tools.append(choice);
         return choice;
     });
@@ -191,7 +191,8 @@ export function buildReleaseSearch(search, signal, requestsEnabled, download = n
 
             const note = document.createElement("p");
             note.className = "movie-release-note";
-            note.textContent = row.quality.note + (row.size > 40 * gib ? " Big files use a lot of server space." : "");
+            note.textContent = [row.quality.note, row.size > 40 * gib ? "This file uses over 40 GB of server space." : ""]
+                .filter(Boolean).join(" ");
 
             const name = document.createElement("strong");
             name.className = "movie-release-name";
@@ -200,21 +201,52 @@ export function buildReleaseSearch(search, signal, requestsEnabled, download = n
             const action = document.createElement("button");
             action.type = "button";
             action.className = "movie-release-action";
-            action.textContent = "Download";
-            action.setAttribute("aria-label", `Download ${displayTitle(row.title)}, ${row.quality.label}, ${row.size ? (row.size / gib).toFixed(1) + " GB" : "size unknown"}`);
-            if (!canDownload) {
+            const label = `${displayTitle(row.title)}, ${row.quality.label}, ${row.size ? (row.size / gib).toFixed(1) + " GB" : "size unknown"}`;
+            const sent = document.createElement("p");
+            sent.className = "movie-release-sent";
+            sent.setAttribute("role", "status");
+            sent.textContent = "Sent to the server";
+            sent.tabIndex = -1;
+            action.textContent = row.pending ? "Sending…" : row.failed ? "Try again" : "Download";
+            action.setAttribute("aria-label", `${action.textContent} ${label}`);
+            if (!canDownload || !row.guid) {
                 action.setAttribute("aria-disabled", "true");
-                action.title = "Downloading is not switched on for your profile.";
+                action.title = canDownload ? "Search again to get a download reference." : "Downloading is not switched on for your profile.";
             }
+            if (row.pending) action.setAttribute("aria-disabled", "true");
+            row.showSent = () => {
+                const focused = document.activeElement === action;
+                action.replaceWith(sent);
+                if (focused) sent.focus();
+            };
+            row.showError = () => {
+                action.textContent = "Try again";
+                action.setAttribute("aria-label", `Try again: download ${label}`);
+                action.removeAttribute("aria-disabled");
+            };
             action.addEventListener("click", async () => {
-                if (!canDownload || action.getAttribute("aria-disabled") === "true") return;
+                if (action.getAttribute("aria-disabled") === "true") return;
+                action.focus();
+                row.pending = true;
+                status.textContent = "";
                 action.setAttribute("aria-disabled", "true");
-                action.textContent = "Starting…";
-                const reply = await Promise.resolve(download(row)).catch(() => ({ error: "Could not start the download. Try again." }));
-                action.textContent = reply?.error ? "Try again" : "Added to the server";
-                if (reply?.error) { action.removeAttribute("aria-disabled"); status.textContent = reply.error; }
+                action.textContent = "Sending…";
+                action.setAttribute("aria-label", `Sending ${label}`);
+                let reply;
+                try { reply = await download(row); } catch {}
+                if (signal.aborted) return;
+                row.pending = false;
+                row.sent = reply?.state === "sent";
+                row.failed = !row.sent;
+                if (row.sent) row.showSent();
+                else {
+                    row.showError();
+                    status.textContent = reply?.error || "Could not confirm the download. Check On the server before trying again.";
+                }
             });
-            item.append(head, stats, note, name, action);
+            item.append(head, stats);
+            if (note.textContent) item.append(note);
+            item.append(name, row.sent ? sent : action);
             return item;
         }));
         more.hidden = showAll || sorted.length <= FIRST_PAGE;
@@ -250,10 +282,13 @@ export function buildReleaseSearch(search, signal, requestsEnabled, download = n
         const matches = new Map();
         for (const item of reply.results) {
             const row = { title: item.title, height: resolution(item.title), size: number(item.size),
-                seeders: number(item.seeders), kind: releaseKind(item.title), quality: releaseQuality(item.title) };
+                seeders: number(item.seeders), kind: releaseKind(item.title), quality: releaseQuality(item.title),
+                guid: item.guid, indexerId: item.indexerId };
             const key = `${row.title.toLowerCase()}\n${row.size}`;
             const previous = matches.get(key);
-            if (!previous || (row.seeders ?? -1) > (previous.seeders ?? -1)) matches.set(key, row);
+            const preferReference = canDownload && previous && Boolean(row.guid) !== Boolean(previous.guid);
+            if (!previous || (preferReference ? row.guid : (row.seeders ?? -1) > (previous.seeders ?? -1)))
+                matches.set(key, row);
         }
         rows = [...matches.values()];
         unavailable = reply.unavailable;

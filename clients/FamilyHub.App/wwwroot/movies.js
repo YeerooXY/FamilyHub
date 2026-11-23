@@ -100,6 +100,7 @@ export function openMovies(host, session, app, viewer) {
     player.className = "movie-player";
     const preferenceViewer = viewer ?? [base.origin, session.user];
     host.replaceChildren(status, player, library);
+    const call = async (method, ...args) => JSON.parse(await app.invokeMethodAsync(method, ...args));
     function select(container, name, options) {
         const label = el("label", name), pick = el("select");
         for (const [value, text] of options) pick.add(new Option(text, value));
@@ -294,7 +295,7 @@ export function openMovies(host, session, app, viewer) {
                     subtitleIndex: playback.subtitleOverride });
             }
             const subtitleOptions = subtitles.map(track => [track.Index, track.DisplayTitle || track.Language || "Subtitles"]);
-            const subtitlePick = subtitles.length ? select(controls, "Subtitle track", [[-1, "Off"], ...subtitleOptions]) : null;
+            const subtitlePick = select(controls, "Subtitle track", [[-1, "Off"], ...subtitleOptions]);
             const notice = el("p");
             notice.setAttribute("role", "status");
             media.controls = false; media.playsInline = true; media.preload = "metadata";
@@ -302,13 +303,14 @@ export function openMovies(host, session, app, viewer) {
             media.crossOrigin = "anonymous";
             media.setAttribute("aria-label", item.Name);
             const textTracks = new Map();
-            for (const s of subtitles) {
+            function addSubtitleTrack(s) {
                 const track = el("track"); track.kind = "subtitles"; track.label = s.DisplayTitle || s.Language || "Subtitles";
                 track.srclang = s.Language || "und";
                 track.src = url(`Videos/${item.Id}/${source.Id}/Subtitles/${s.Index}/Stream.vtt`, {api_key:session.token});
                 media.append(track);
                 textTracks.set(s.Index, track.track);
             }
+            for (const subtitle of subtitles) addSubtitleTrack(subtitle);
             const playback = { item, source, id: result.PlaySessionId, method: direct ? "DirectPlay" : source.TranscodeReasons?.length ? "Transcode" : "DirectStream" };
             playback.setSubtitles = (index) => {
                 playback.subtitleOverride = index;
@@ -319,7 +321,7 @@ export function openMovies(host, session, app, viewer) {
                 const activeSubtitle = textTracks.has(selected) ? selected : -1;
                 for (const [trackIndex, track] of textTracks)
                     track.mode = trackIndex === activeSubtitle ? "hidden" : "disabled"; // hidden: the player draws the cues itself
-                if (subtitlePick) subtitlePick.value = String(activeSubtitle);
+                subtitlePick.value = String(activeSubtitle);
                 const audioFallback = audioIndex == null && audioLanguage !== "default" && (!preferredAudio || preferredAudio.Index !== selectedAudio);
                 notice.textContent = [
                     audioFallback ? `${labels[audioLanguage]} audio unavailable. Using the default track.` : "",
@@ -327,7 +329,7 @@ export function openMovies(host, session, app, viewer) {
                     unavailable ? `${labels[language]} subtitles unavailable. Subtitles are off.` : ""
                 ].filter(Boolean).join(" ");
             };
-            if (subtitlePick) subtitlePick.onchange = () => playback.setSubtitles(Number(subtitlePick.value));
+            subtitlePick.onchange = () => playback.setSubtitles(Number(subtitlePick.value));
             current = playback; video = media; library.hidden = true;
             let metadataLoaded = false;
             media.onloadedmetadata = () => {
@@ -378,7 +380,46 @@ export function openMovies(host, session, app, viewer) {
             let ui;
             const numbered = item.ParentIndexNumber != null && item.IndexNumber != null;
             playerLife = new AbortController();
-            ui = buildPlayerUi({ media, surface: player, back, signal: playerLife.signal,
+            const playerSignal = playerLife.signal;
+            const subtitleItem = /^[a-f\d]{32}$|^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(source.Id) ? source.Id : item.Id;
+            const subtitlePath = `Items/${encodeURIComponent(subtitleItem)}`;
+            const remote = subtitlePath + "/RemoteSearch/Subtitles/";
+            const subtitleSearch = {
+                language: prefs.subtitles === "hu" ? "hun" : "eng",
+                find: language => searchLibrary(remote + language, {}, undefined, playerSignal),
+                async add(result, language) {
+                    const readTracks = async () => {
+                        const fresh = await searchLibrary(subtitlePath, {userId: session.user}, undefined, playerSignal);
+                        return (fresh.MediaSources?.find(candidate => candidate.Id === source.Id)?.MediaStreams
+                            ?? fresh.MediaStreams ?? []).filter(stream => stream.Type === "Subtitle" && stream.IsTextSubtitleStream);
+                    };
+                    const existing = await readTracks();
+                    await searchLibrary(remote + encodeURIComponent(result.Id), {}, {}, playerSignal);
+                    for (let attempt = 0; attempt < 12 && !playerSignal.aborted; attempt++) {
+                        if (attempt) await new Promise(resolve => setTimeout(resolve, 500));
+                        if (playerSignal.aborted) return;
+                        const refreshed = await readTracks();
+                        const added = refreshed.filter(track => track.IsExternal && !existing.some(old =>
+                            old.Path && track.Path ? old.Path === track.Path : old.Index === track.Index));
+                        const matching = added.filter(track => languageCodes[language === "hun" ? "hu" : "en"]
+                            .includes(track.Language?.toLowerCase().split(/[-_]/)[0]));
+                        const track = matching.length === 1 ? matching[0] : null;
+                        if (!track || playerSignal.aborted) continue;
+                        for (const node of media.querySelectorAll("track")) node.remove();
+                        subtitles.splice(0, subtitles.length, ...refreshed);
+                        textTracks.clear();
+                        subtitlePick.replaceChildren(new Option("Off", -1));
+                        for (const stream of subtitles) {
+                            addSubtitleTrack(stream);
+                            subtitlePick.add(new Option(stream.DisplayTitle || stream.Language || "Subtitles", stream.Index));
+                        }
+                        playback.setSubtitles(track.Index);
+                        return;
+                    }
+                    throw Error("Subtitle track unavailable");
+                }
+            };
+            ui = buildPlayerUi({ media, surface: player, back, signal: playerSignal, subtitleSearch,
                 title: numbered ? `S${item.ParentIndexNumber}:E${item.IndexNumber} “${item.Name}”` : item.Name,
                 kicker: item.SeriesName, trackControls: [controls], notice });
             player.append(media, ui.root);
@@ -591,13 +632,17 @@ export function openMovies(host, session, app, viewer) {
         results.append(panel);
 
         // Each source publishes independently. Clearing or replacing the search detaches this panel.
-        const call = async (method, ...args) => JSON.parse(await app.invokeMethodAsync(method, ...args));
         const web = el("section"), downloads = el("section"), related = el("section");
         web.className = downloads.className = related.className = "movie-source";
         web.hidden = downloads.hidden = related.hidden = true;
         panel.append(web, downloads);
         const release = session.release_search_enabled
-            ? buildReleaseSearch(() => call("MovieReleaseSearch", term), signal, session.requests_enabled) : null;
+            ? buildReleaseSearch(() => call("MovieReleaseSearch", term), signal,
+                session.downloads_enabled ? async row => {
+                    const reply = await call("MovieDownload", row.guid, row.indexerId, row.title);
+                    if (reply?.state === "sent") refreshDownloadsAfterGrab();
+                    return reply;
+                } : null) : null;
         if (release) panel.append(release.element);
         panel.append(related);
 
@@ -829,7 +874,70 @@ export function openMovies(host, session, app, viewer) {
     const toolbar = el("div");
     toolbar.className = "movie-toolbar";
     toolbar.append(form);
-    library.append(toolbar, browse, results);
+    const columns = el("div"), catalogue = el("div"), downloadsPanel = el("section");
+    columns.className = "movie-library-columns";
+    catalogue.className = "movie-catalogue";
+    downloadsPanel.className = "movie-downloads";
+    downloadsPanel.setAttribute("aria-label", "On the server");
+    const queue = el("div");
+    queue.append(el("p", "Checking server downloads…"));
+    downloadsPanel.append(el("h2", "On the server"), queue);
+    catalogue.append(browse, results);
+    columns.append(downloadsPanel, catalogue);
+    library.append(toolbar, columns);
+
+    let queueTimer, checkingQueue = false, refreshAfterGrabAt = 0;
+    const queueVisible = () => active && !document.hidden && !library.hidden && host.isConnected;
+    function scheduleDownloads(delay) {
+        clearTimeout(queueTimer);
+        if (queueVisible()) queueTimer = setTimeout(updateDownloads, delay);
+    }
+    function refreshDownloadsAfterGrab() {
+        // Let the server's three-second queue cache expire before checking for the new item.
+        refreshAfterGrabAt = Date.now() + 3100;
+        scheduleDownloads(3100);
+    }
+    async function updateDownloads() {
+        if (!queueVisible() || checkingQueue) return;
+        checkingQueue = true;
+        if (Date.now() >= refreshAfterGrabAt) refreshAfterGrabAt = 0;
+        let reply;
+        try { reply = await call("MovieDownloads"); } catch {}
+        checkingQueue = false;
+        if (!queueVisible()) return;
+        const itemsAvailable = reply?.available && Array.isArray(reply.items);
+        if (!itemsAvailable) {
+            queue.replaceChildren(el("p", reply?.reason || "The download server is unavailable."));
+        } else if (!reply.items.length) {
+            queue.replaceChildren(el("p", "No downloads on the server."));
+        } else {
+            const items = el("ul");
+            for (const item of reply.items) {
+                const tile = el("li"), bar = el("div"), fill = el("span");
+                const progress = Math.max(0, Math.min(1, Number(item.progress) || 0));
+                bar.className = "movie-download-progress";
+                bar.setAttribute("role", "progressbar");
+                bar.setAttribute("aria-label", item.name);
+                bar.setAttribute("aria-valuenow", Math.round(progress * 100));
+                fill.style.transform = `scaleX(${progress})`;
+                bar.append(fill);
+                const eta = item.eta != null && ["Downloading", "Almost done"].includes(item.state)
+                    ? ` · about ${Math.max(1, Math.ceil(item.eta / 60))} min left` : "";
+                tile.append(el("strong", item.name), bar, el("p", item.state + eta));
+                items.append(tile);
+            }
+            queue.replaceChildren(items);
+        }
+        if (refreshAfterGrabAt) scheduleDownloads(Math.max(0, refreshAfterGrabAt - Date.now()));
+        else if (itemsAvailable && reply.items.some(item =>
+            ["Waiting", "Downloading", "Almost done", "Stalled"].includes(item.state))) scheduleDownloads(5000);
+    }
+    const queueVisibility = () => scheduleDownloads(0);
+    const queueObserver = new MutationObserver(queueVisibility);
+    queueObserver.observe(library, {attributes: true, attributeFilter: ["hidden"]});
+    document.addEventListener("visibilitychange", queueVisibility, {signal: life.signal});
+    life.signal.addEventListener("abort", () => { clearTimeout(queueTimer); queueObserver.disconnect(); });
+    queueVisibility();
     // Featured billboard: the title in progress, otherwise the newest movie that has a backdrop.
     async function billboard() {
         const section = el("section"), art = el("img"), body = el("div");
