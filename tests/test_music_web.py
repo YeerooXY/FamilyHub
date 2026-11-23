@@ -4,6 +4,7 @@ Needs requirements-mobile.txt; the whole module is skipped when Flask is not ins
 Run from the repository root: python -m unittest tests.test_music_web
 """
 import io, json, os, pathlib, re, sys, tempfile, threading, time, unittest
+import wave
 from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -710,6 +711,77 @@ class UploadTests(Base):
         self.assertEqual(self.calls["import"].track, 3)
         self.assertEqual(self.leftovers(), [])
         self.assertNotIn(self.ws, str(job))
+
+    def test_cancelling_queued_upload_removes_only_its_staged_input(self):
+        c, token = self.signed_in()
+        stream = io.BytesIO()
+        with wave.open(stream, "wb") as audio:
+            audio.setparams((1, 2, 8000, 0, "NONE", "not compressed"))
+            audio.writeframes(b"\x01\x02" * 160)
+        data = stream.getvalue()
+        entered, release = threading.Event(), threading.Event()
+        active_files = []
+
+        def stage(args):
+            path = pathlib.Path(args.file)
+            active_files.append(path)
+            entered.set()
+            self.assertTrue(release.wait(5))
+            self.assertEqual(path.read_bytes(), data)
+            return {"item": "fixture"}
+
+        resources = self.state.resources
+        with (mock.patch.object(resources, "reservations", return_value=("listening", 2, 2)),
+              mock.patch.object(resources, "background_slots", return_value=0),
+              mock.patch.object(self.intake, "cmd_stage", side_effect=stage) as staging,
+              mock.patch.object(self.intake, "cmd_import") as importer):
+            active = self.upload(c, token, name="active.wav", data=data).json["job"]
+            try:
+                self.assertTrue(entered.wait(2))
+                queued = self.upload(c, token, name="queued.wav", data=data).json["job"]
+                self.assertEqual(queued["state"], "queued")
+                self.assertEqual(len(self.leftovers()), 2)
+                cancelled = self.post(c, token, f"/api/jobs/{queued['id']}/cancel", json={})
+                self.assertEqual(cancelled.json["job"]["state"], "cancelled")
+                self.assertEqual(self.leftovers(), [active_files[0].name])
+                self.assertEqual(self.post(c, token, f"/api/jobs/{active['id']}/cancel", json={}).status_code, 200)
+                self.assertTrue(active_files[0].is_file())
+            finally:
+                release.set()
+            self.assertEqual(self.wait(c, active["id"])["state"], "cancelled")
+            self.assertEqual(self.leftovers(), [])
+            staging.assert_called_once()
+            importer.assert_not_called()
+
+    def test_cancelling_upload_during_copy_skips_queue_and_cleans_up(self):
+        from werkzeug.datastructures import FileStorage
+
+        c, token = self.signed_in()
+        entered, release = threading.Event(), threading.Event()
+        responses = []
+        save = FileStorage.save
+
+        def copy(storage, destination):
+            save(storage, destination)
+            entered.set()
+            self.assertTrue(release.wait(5))
+
+        with (mock.patch.object(FileStorage, "save", autospec=True, side_effect=copy),
+              mock.patch.object(self.intake, "cmd_stage") as staging):
+            thread = threading.Thread(target=lambda: responses.append(self.upload(c, token)))
+            thread.start()
+            try:
+                self.assertTrue(entered.wait(2))
+                job = self.go(c, "GET", "/api/jobs").json["jobs"][0]
+                self.assertEqual(self.post(c, token, f"/api/jobs/{job['id']}/cancel", json={}).status_code, 200)
+                self.assertEqual(len(self.leftovers()), 1)
+            finally:
+                release.set()
+                thread.join(3)
+            self.assertEqual([response.status_code for response in responses], [202])
+            self.assertEqual(responses[0].json["job"]["state"], "cancelled")
+            self.assertEqual(self.leftovers(), [])
+            staging.assert_not_called()
 
     def test_upload_failure_names_the_reason_without_paths(self):
         self.fake_ok()

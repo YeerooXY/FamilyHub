@@ -18,7 +18,8 @@ async function check(browser, options) {
     page.setDefaultTimeout(5000);
     const requestedTracks = [];
     const reports = [];
-    let savedPosition = 0, playSession = 0;
+    const logoutAfter = [];
+    let savedPosition = 0, playSession = 0, delayedProgress;
     await page.addInitScript(() => {
         // These checks cover negotiation and track controls independently of the media stream.
         HTMLMediaElement.prototype.play = () => Promise.resolve();
@@ -84,11 +85,17 @@ async function check(browser, options) {
         if (url.pathname === "/Items/full")
             return route.fulfill({ headers, json: { UserData: { PlaybackPositionTicks: savedPosition * 1e7 } } });
         if (url.pathname.startsWith("/Sessions/Playing")) {
-            reports.push([url.pathname, req.postDataJSON()]);
+            const data = req.postDataJSON();
+            reports.push([url.pathname, data]);
+            if (delayedProgress && data.ItemId === "full") {
+                if (url.pathname === "/Sessions/Playing/Progress") await delayedProgress;
+                if (url.pathname === "/Sessions/Playing/Stopped") savedPosition = data.PositionTicks / 1e7;
+            }
             if (url.pathname === "/Sessions/Playing")
                 await new Promise(resolve => setTimeout(resolve, 75));
             return route.fulfill({ headers, status: 204 });
         }
+        if (url.pathname === "/Sessions/Logout") logoutAfter.push(reports.length);
         return route.fulfill({ headers, status: 204 });
     });
     await page.goto(app);
@@ -97,7 +104,8 @@ async function check(browser, options) {
         const { openMovies } = await import("/movies.js");
         window.movies = openMovies(document.querySelector("main"),
             { url: jellyfin, user: profile, device: "device", token: "fixture" },
-            { invokeMethodAsync: () => Promise.resolve() }, { server: location.origin, profile });
+            { invokeMethodAsync: method => Promise.resolve(method === "MovieFind" ? '{"results":[]}' : undefined) },
+            { server: location.origin, profile });
     }, { profile, jellyfin });
     const focused = async node => page.waitForFunction(el => el === document.activeElement, await node.elementHandle());
     // "Recently added" repeats titles from the library shelves, so look cards up outside it.
@@ -134,10 +142,10 @@ async function check(browser, options) {
     await search.fill("Pilot");
     await search.press("Enter");
     await page.getByRole("button", { name: "Pilot", exact: true }).waitFor();
-    await page.getByText("1 matching title.").waitFor();
+    await page.getByText("1 in your library").waitFor();
     await search.fill("Éjfél");
     await search.press("Enter");
-    await page.getByText("No matches in your library.").waitFor();
+    await page.getByText("No watch or download options found. Try another title.").waitFor();
     await page.getByRole("button", { name: "Clear", exact: true }).press("Space");
     await focused(search);
     await two.waitFor();
@@ -291,6 +299,60 @@ async function check(browser, options) {
     });
     assert.deepEqual(reports.slice(-2).map(([path, data]) => [path.slice("/Sessions/Playing".length), data.PositionTicks / 1e7]),
         [["", 180], ["/Stopped", 225]]);
+
+    // Block the first title's progress write while opening a second title and then resuming the first.
+    await open("viewer-b");
+    await two.press("Enter");
+    await back.waitFor();
+    await page.evaluate(() => {
+        const fetch = window.fetch;
+        window.resumeReads = [];
+        window.fetch = (url, options) => {
+            const pathname = new URL(url).pathname;
+            if (["/Items/full", "/Items/limited"].includes(pathname)) window.resumeReads.push(pathname);
+            return fetch(url, options);
+        };
+    });
+    const reportStart = reports.length;
+    await setMedia({ duration: 1200, currentTime: 0, paused: false }, ["loadedmetadata", "playing"]);
+    let releaseProgress;
+    delayedProgress = new Promise(resolve => { releaseProgress = resolve; });
+    try {
+        const progress = page.waitForRequest(request => request.method() === "POST"
+            && new URL(request.url()).pathname === "/Sessions/Playing/Progress");
+        await setMedia({ currentTime: 250 }, ["seeked"]);
+        await progress;
+        await setMedia({ currentTime: 260 }, []);
+        await back.press("Space");
+        await focused(two);
+
+        await one.press("Enter");
+        await page.getByRole("heading", { name: "One language", exact: true }).waitFor();
+        await setMedia({ currentTime: 30, paused: false }, ["playing"]);
+        await back.press("Space");
+        await focused(one);
+        assert.equal(reports.length, reportStart + 2, "playback reports still queue behind the slow write");
+
+        const reopening = page.waitForResponse(response => response.request().method() === "POST"
+            && new URL(response.url()).pathname === "/Items/full/PlaybackInfo");
+        await two.press("Enter");
+        await reopening;
+        assert.deepEqual(await page.evaluate(() => window.resumeReads), ["/Items/limited"],
+            "same-title startup waits to fetch the saved position");
+    } finally {
+        releaseProgress();
+    }
+    await back.waitFor();
+    assert.equal(await setMedia({ duration: 1200, currentTime: 0, paused: false }, ["loadedmetadata", "playing"]), 260);
+    const logoutCount = logoutAfter.length;
+    await page.evaluate(() => window.movies.close());
+    assert.deepEqual(reports.slice(reportStart).map(([path, data]) =>
+        [path.slice("/Sessions/Playing".length), data.ItemId, data.PositionTicks / 1e7]), [
+        ["", "full", 180], ["/Progress", "full", 250], ["/Stopped", "full", 260],
+        ["", "limited", 30], ["/Stopped", "limited", 30], ["", "full", 260], ["/Stopped", "full", 260]
+    ]);
+    assert.deepEqual(logoutAfter.slice(logoutCount), [reports.length]);
+    delayedProgress = undefined;
 
     // The HTTP-only fallback must keep the saved position when it cannot seek.
     await page.evaluate(() => {

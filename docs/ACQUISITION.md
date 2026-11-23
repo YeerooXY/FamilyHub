@@ -65,7 +65,9 @@ Prowlarr manages and searches indexers. The indexers determine catalogue coverag
 
 ### Release search
 
-To enable the read-only **Release search** panel in Movies & TV, add `MOVIE_RELEASE_SEARCH` to FamilyHub's private server configuration. Set `api_key` to the Prowlarr API key, `indexer_ids` to the configured indexer IDs (up to four), and `profiles` to the FamilyHub profile IDs allowed to search. Each profile also needs a Movies connection. `url` defaults to `http://127.0.0.1:9696`.
+To include torrent releases in Movies & TV searches without an exact library match, add `MOVIE_RELEASE_SEARCH` to FamilyHub's private server configuration. Set `api_key` to the Prowlarr API key, `indexer_ids` to the configured indexer IDs (up to four), and `profiles` to the FamilyHub profile IDs allowed to search. Each profile also needs a Movies connection. `url` defaults to `http://127.0.0.1:9696`.
+
+A query ending in `S2` or `Season 2` first searches with `S02`. An indexer that returns no matching pack gets a title-only lookup. FamilyHub keeps packs matching the requested title and season in both cases.
 
 The panel ranks seeded 1080p and higher releases first when the upload fits the selected time budget, with seeded lower resolutions next. Enter an assumed sustained upload speed to compare the time needed to upload twice each release's size. Peer demand can make actual seeding time longer. This search does not queue transfers or set qBittorrent's share limits. For live acquisition, configure a 2.0 share ratio in the download workflow after the VPN check.
 

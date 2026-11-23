@@ -269,10 +269,17 @@ def create_app(test_config=None):
     app.intake.BACKGROUND_COMMAND = background_command
     app.intake.AUDIO_COMMAND = audio_command
 
+    def remove_upload(path):
+        if path:
+            with suppress(OSError):
+                os.unlink(path)
+
     def cancel_acquisition(job):
         with job_changed:
             job["cancel"].set()
+            upload = job.pop("tmp", None) if job["state"] == "queued" else None
             job_changed.notify_all()
+        remove_upload(upload)
         if job.get("library_addition") and job["state"] in ("queued", "running"):
             save_bulk_queue()
         transfers.wake()
@@ -1201,9 +1208,9 @@ def create_app(test_config=None):
                         m = meta({"artist": (artist or "YouTube").removesuffix(" - Topic")[:120],
                                   "title": title[:120], "album": (source.get("album") or "Selected recordings")[:120]})
                         job.update(meta=m, artist=m["artist"], title=m["title"])
-                if not job["save"] and (not item.get("existing", False) or any(
-                        j.get("temporary_item") and j.get("item") == item["item"] for j in jobs.values())):
-                    job["temporary_item"] = True
+                    if not job["save"] and (not item.get("existing", False) or any(
+                            j.get("temporary_item") and j.get("item") == item["item"] for j in jobs.values())):
+                        job["temporary_item"] = True
             else:
                 item = intake.cmd_stage(SimpleNamespace(file=tmp, workspace=ws))
                 manifest = item.get("manifest", {})
@@ -1245,7 +1252,17 @@ def create_app(test_config=None):
                 except Exception as e:
                     log.warning("preview for job %s failed: %s", job["id"], type(e).__name__)
                     job["preview_state"] = "unavailable"
-            if url and job["save"] and "gain_db" not in job.get("playback", {}):
+            can_analyze = url and os.path.isdir(item["item"])
+            with job_changed:
+                if job["cancel"].is_set():
+                    raise intake.IntakeError("cancelled")
+                # A save request either reaches this worker or sees a finished preview to promote.
+                if not job["save"]:
+                    if can_analyze and not job.get("analysis"):
+                        job.update(analysis_state="pending", analysis_queued_at=time.monotonic())
+                    settle(job, "done", "Prepared")
+                    return
+            if url and "gain_db" not in job.get("playback", {}):
                 try:
                     job["playback"] = profile(intake, item["item"], item.get("manifest", {}), measure=True)
                 except (ValueError, OSError, intake.IntakeError):
@@ -1255,40 +1272,38 @@ def create_app(test_config=None):
             settle(job, "running", STEP_TEXT[step])
             if job["cancel"].is_set():
                 raise intake.IntakeError("cancelled")
-            if job["save"]:
-                record = item.get("manifest", {}).get("import")
-                if record:
-                    with job["publish"]:
-                        title, artist = recording_labels(item["manifest"]["source"], record)
-                        job.update(artist=artist, title=title)
-                        job["committed"] = True
-                else:
-                    with job["publish"], lock:
-                        job["metadata_locked"] = True
-                        m = job["meta"]
-                        job.update(artist=m["artist"], title=m["title"])
-                    with resources.track("import", "import lock") as running, import_lock:
-                        running()
-                        job_budget(job)
-                        if not job.get("local_existing"):
-                            owner = None if job.get('source_replacement') else job['owner']
-                            intake.cmd_import(SimpleNamespace(item=item["item"], library=lib, added_by=owner,
-                                                              automatic_title=bool(url and job.get("automatic_meta")), **m))
-                            with addition_lock:
-                                addition_checked = None
-                job["committed"] = True
-                job["temporary_item"] = False
-                step = "prepare"
-                job["phase"] = step
-                settle(job, "running", STEP_TEXT[step])
-                resource_changed()
-                job_playback_stage(job, "purification_started")
-                prepare_record(finished_audio, listening_versions, lib, item["item"],
-                               background=lambda: analyzing_job(job))
-                job_playback_stage(job, "purification_finished")
+            record = item.get("manifest", {}).get("import")
+            if record:
+                with job["publish"], lock:
+                    if job["cancel"].is_set():
+                        raise intake.IntakeError("cancelled")
+                    title, artist = recording_labels(item["manifest"]["source"], record)
+                    job.update(artist=artist, title=title, committed=True)
             else:
-                outcome = ("done", "Prepared")
-            if url and os.path.isdir(item["item"]) and not job.get("analysis"):
+                with job["publish"], lock:
+                    job["metadata_locked"] = True
+                    m = job["meta"]
+                    job.update(artist=m["artist"], title=m["title"])
+                with resources.track("import", "import lock") as running, import_lock:
+                    running()
+                    job_budget(job)
+                    if not job.get("local_existing"):
+                        owner = None if job.get('source_replacement') else job['owner']
+                        intake.cmd_import(SimpleNamespace(item=item["item"], library=lib, added_by=owner,
+                                                          automatic_title=bool(url and job.get("automatic_meta")), **m))
+                        with addition_lock:
+                            addition_checked = None
+            job["committed"] = True
+            job["temporary_item"] = False
+            step = "prepare"
+            job["phase"] = step
+            settle(job, "running", STEP_TEXT[step])
+            resource_changed()
+            job_playback_stage(job, "purification_started")
+            prepare_record(finished_audio, listening_versions, lib, item["item"],
+                            background=lambda: analyzing_job(job))
+            job_playback_stage(job, "purification_finished")
+            if can_analyze and not job.get("analysis"):
                 job.update(analysis_state="pending", analysis_queued_at=time.monotonic())
         except AcquisitionDeferred:
             with job_changed:
@@ -1321,9 +1336,7 @@ def create_app(test_config=None):
             intake.CONTROL.cancel = intake.CONTROL.budget = intake.CONTROL.publish = None
             intake.CONTROL.committed = intake.CONTROL.defer_youtube = intake.CONTROL.priority = None
             intake.CONTROL.background = False
-        if tmp:
-            with suppress(OSError):
-                os.unlink(tmp)  # only the temp file this request created; removed before the job reports its result
+        remove_upload(tmp)
         if outcome[0] == "cancelled" or (outcome[0] == "error" and step == "fetch"):
             with suppress(OSError, intake.IntakeError):
                 remove_preview(job["id"])
@@ -2553,7 +2566,8 @@ def create_app(test_config=None):
             return
         if type(value) is not int or not 0 <= value <= 2**53 - 1:
             raise ApiError("Invalid request sequence.")
-        with session_lock:
+        # Register newer requests through the same lock that guards job mutation.
+        with lock, session_lock:
             record = sessions.get(session.get("sid"))
             if not record or record["expiry"] <= time.time():
                 raise ApiError(HTTP_TEXT[401], 401)
@@ -2579,13 +2593,16 @@ def create_app(test_config=None):
             raise ApiError("Enter one YouTube video link.")
         m = fetch_metadata(d, vid)
         feedback.note(song=m.get("title"), artist=m.get("artist"), video=vid, prefetch=prefetch)
-        if d.get("allow_new") is False and not saved_source(vid):
-            raise ApiError("Enable Allow new music downloads and discovery to listen to this recording.", 403)
-        if not prefetch and not background_activity():
-            resources.presence(listener_identity(), "listening")
-        job = new_job(g.user, "fetch", m, vid, priority=10 if prefetch else 0, preserve_priority=prefetch)
+        allowed = d.get("allow_new") is not False or saved_source(vid)
         explicit = any(k in d for k in ("artist", "album", "track"))
-        with job["publish"], lock:
+        with lock:
+            if not prefetch:
+                generation(d, "listen")
+            if not allowed:
+                raise ApiError("Enable Allow new music downloads and discovery to listen to this recording.", 403)
+            if not prefetch and not background_activity():
+                resources.presence(listener_identity(), "listening")
+            job = new_job(g.user, "fetch", m, vid, priority=10 if prefetch else 0, preserve_priority=prefetch)
             if action and not prefetch:
                 job["play_action"] = action
                 playback_diagnostics.record(g.user, action, "job_accepted", begin=True)
@@ -2728,9 +2745,11 @@ def create_app(test_config=None):
             addition_playlist(g.user, target)
             modified = []
             saved = []
-            pending = sum(j["owner"] == g.user and j.get("library_addition") and j["state"] in ("queued", "running") for j in list(jobs.values()))
-            active_sources = {j.get("source_id") for j in list(jobs.values()) if j["owner"] == g.user
-                              and j["state"] in ("queued", "running") and not j["cancel"].is_set()}
+            with lock:
+                pending = sum(1 for j in jobs.values() if j["owner"] == g.user
+                              and j.get("library_addition") and j["state"] in ("queued", "running"))
+                active_sources = {j.get("source_id") for j in jobs.values() if j["owner"] == g.user
+                                  and j["state"] in ("queued", "running") and not j["cancel"].is_set()}
             additions = sum(source not in active_sources and not saved_source(source) for source in sources)
             if pending + additions > 200:
                 raise ApiError("Your library queue is full. Wait for songs to finish before adding more.", 429)
@@ -3118,7 +3137,7 @@ def create_app(test_config=None):
         preload_search = d.get("preload_search", d["allow_new"])
         if type(preload_search) is not bool:
             raise ApiError("Invalid search preload setting.")
-        requested, prepared = set(), []
+        requested, candidates = set(), []
         for i, row in enumerate(rows + (previews if preload_search else [])):
             if not isinstance(row, dict):
                 raise ApiError("Invalid recording.")
@@ -3139,22 +3158,26 @@ def create_app(test_config=None):
             if not (d["allow_new"] or explicit or is_preview and preload_search) and not saved_source(vid):
                 continue
             requested.add(vid)
-            if explicit and not is_preview and not background_activity():
-                resources.presence(listener_identity(), "listening")
             m = fetch_metadata(row, vid)
-            position = len(prepared)
+            position = len(candidates)
             priority = (1 if position == 0 else 18 + position) if not is_preview else 2 + i - len(rows)
             if not is_preview and position > 0 and preload_search:
                 visible = next((n for n, p in enumerate(previews) if isinstance(p, dict) and p.get("url") == row.get("url")), None)
                 if visible is not None:
                     priority = 2 + visible
-            job = new_job(g.user, "fetch", m, vid, priority, False)
-            job["search_preview"] = is_preview
-            job["explicit_preview"] = explicit
-            job.setdefault("automatic_meta", not any(k in row for k in ("artist", "album", "track")))
-            start(job, app.intake.WATCH + vid, None, m)
-            prepared.append(public(job))
+            automatic = not any(k in row for k in ("artist", "album", "track"))
+            candidates.append((vid, m, priority, is_preview, explicit, automatic))
+        prepared = []
         with lock:
+            generation(d, "queue")
+            for vid, m, priority, is_preview, explicit, automatic in candidates:
+                if explicit and not is_preview and not background_activity():
+                    resources.presence(listener_identity(), "listening")
+                job = new_job(g.user, "fetch", m, vid, priority, False)
+                job.update(search_preview=is_preview, explicit_preview=explicit)
+                job.setdefault("automatic_meta", automatic)
+                enqueue_acquisition(job, app.intake.WATCH + vid, None)
+                prepared.append(public(job))
             for job in jobs.values():
                 if not job.get("playlist_import") and not job.get("library_addition") and job["owner"] == g.user and job.get("priority", 0) > 0 and job.get("source_id") not in requested:
                     if not job.get("committed") and job["state"] in ("queued", "running"):
@@ -3229,11 +3252,14 @@ def create_app(test_config=None):
             if not 0 < size <= max_upload:
                 raise ApiError("The file is empty." if not size else "The upload is too large.", 400 if not size else 413)
         except BaseException as e:
-            with suppress(OSError):
-                os.unlink(tmp)
+            remove_upload(tmp)
             settle(job, "error", "Upload failed.")
             raise e if isinstance(e, ApiError) else ApiError("Upload failed.", 500)
         with job_changed:
+            if job["cancel"].is_set():
+                remove_upload(tmp)
+                settle(job, "cancelled", "Cancelled")
+                return jsonify(job=public(job)), 202
             response = start(job, None, tmp, m)
             job_changed.notify_all()
             return response

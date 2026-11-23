@@ -93,7 +93,7 @@
     public Task<string> MovieReleaseSearch(string query) => SendMovieRequest("/api/movies/releases", new { query });
 
     [JSInvokable]
-    public Task<string> MovieRequest(string kind, int id) => SendMovieRequest("/api/movies/request", new { kind, id });
+    public Task<string> MovieRequest(string kind, int id, int? season) => SendMovieRequest("/api/movies/request", new { kind, id, season });
 
     private async Task<string> SendMovieRequest(string path, object payload)
     {

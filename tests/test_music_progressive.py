@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import threading
@@ -11,7 +12,7 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 
-from tests.test_music_intake import Base, HAVE_FFMPEG, ffmpeg, mi
+from tests.test_music_intake import Base, HAVE_FFMPEG, fake_item, ffmpeg, mi
 from tests.test_music_web import Base as WebBase, META, URL
 
 
@@ -577,6 +578,43 @@ class Coordinator(WebBase):
         again = self.post(c, token, "/api/queue", json=data).json["jobs"][0]
         self.assertEqual(first["id"], again["id"])
 
+    def test_listen_at_preview_completion_imports_the_recording(self):
+        c, token = self.signed_in()
+        item = str(fake_item(Path(self.ws)))
+        entered, release = threading.Event(), threading.Event()
+        real_isdir = os.path.isdir
+
+        def isdir(path):
+            if path == item and not entered.is_set():
+                entered.set()
+                self.assertTrue(release.wait(5))
+                return False  # The synthetic audio has no beats to analyze.
+            return real_isdir(path)
+
+        with (mock.patch.object(self.intake, "cmd_fetch", return_value={"item": item}) as fetch,
+              mock.patch.object(self.intake, "cmd_preview", return_value={"assets": set()}),
+              mock.patch.object(self.intake, "tag_copy", side_effect=lambda source, target, tags: shutil.copyfile(source, target)),
+              mock.patch.object(self.intake, "cmd_import", wraps=self.intake.cmd_import) as importer,
+              mock.patch.object(os.path, "isdir", side_effect=isdir)):
+            preview = self.post(c, token, "/api/queue", json={"tracks": [{"url": URL}], "allow_new": True})
+            preview_id = preview.json["jobs"][0]["id"]
+            try:
+                self.assertTrue(entered.wait(2))
+                status = self.go(c, "GET", f"/api/jobs/{preview_id}").json["job"]
+                self.assertEqual(status["preview_state"], "ready")
+                importer.assert_not_called()
+                listen = self.post(c, token, "/api/jobs", json={"url": URL})
+                self.assertEqual(listen.status_code, 202, listen.json)
+            finally:
+                release.set()
+            job = self.wait(c, listen.json["job"]["id"])
+            self.assertEqual((job["state"], job["saved"]), ("done", True), job)
+            fetch.assert_called_once()
+            importer.assert_called_once()
+            self.assertEqual(importer.call_args.args[0].item, item)
+            _, manifest, audio = self.intake.load_item(item)
+            self.assertEqual(Path(self.lib, manifest["import"]["path"]).read_bytes(), Path(audio).read_bytes())
+
     def test_search_preloads_are_independent_bounded_and_reused_for_listening(self):
         self.fake_ok()
         c, token = self.signed_in()
@@ -613,6 +651,73 @@ class Coordinator(WebBase):
             r = self.post(c, token, "/api/jobs", json={"url": URL, "allow_new": False})
             self.assertEqual(r.status_code, 403)
             fetch.assert_not_called()
+
+    def test_superseded_requests_do_not_publish_jobs_or_cancel_newer_work(self):
+        c, token = self.signed_in()
+        first_url = "https://youtu.be/00000000001"
+        slow_url = "https://youtu.be/00000000002"
+        fast_url = "https://youtu.be/00000000003"
+        video_id = self.intake.video_id
+        for path, old, new in (
+            ("/api/queue", {"tracks": [{"url": first_url}, {"url": slow_url}], "allow_new": True},
+             {"tracks": [{"url": fast_url}], "allow_new": True}),
+            ("/api/jobs", {"url": slow_url}, {"url": URL}),
+        ):
+            with self.subTest(path=path):
+                entered, release, finish = threading.Event(), threading.Event(), threading.Event()
+                responses = []
+                existing = set(self.state.jobs)
+
+                def parse(url):
+                    if url == slow_url:
+                        entered.set()
+                        self.assertTrue(release.wait(5))
+                    return video_id(url)
+
+                def fetch(args):
+                    self.assertTrue(finish.wait(5))
+                    return {"item": "fixture"}
+
+                def post_old():
+                    responses.append(self.post(c, token, path, json={**old, "generation": 1}))
+
+                with (mock.patch.object(self.intake, "video_id", side_effect=parse),
+                      mock.patch.object(self.intake, "cmd_fetch", side_effect=fetch),
+                      mock.patch.object(self.intake, "cmd_preview", return_value={"assets": set()}),
+                      mock.patch.object(self.intake, "cmd_import")):
+                    thread = threading.Thread(target=post_old)
+                    thread.start()
+                    try:
+                        self.assertTrue(entered.wait(2))
+                        response = self.post(c, token, path, json={**new, "generation": 2})
+                        self.assertEqual(response.status_code, 200 if path == "/api/queue" else 202)
+                        job = response.json["jobs"][0] if path == "/api/queue" else response.json["job"]
+                        release.set()
+                        thread.join(3)
+                        self.assertEqual([r.status_code for r in responses], [409])
+                        self.assertEqual(set(self.state.jobs) - existing, {job["id"]})
+                        private = self.state.jobs[job["id"]]
+                        self.assertFalse(private["cancel"].is_set())
+                        self.assertEqual(private["current"], path == "/api/jobs")
+                        legacy = self.post(c, token, path, json=new)
+                        self.assertEqual(legacy.status_code, response.status_code)
+                    finally:
+                        release.set()
+                        finish.set()
+                        thread.join(3)
+                    self.assertEqual(self.wait(c, job["id"])["state"], "done")
+
+    def test_library_additions_pending_count_ignores_ordinary_jobs(self):
+        self.fake_ok()
+        c, token = self.signed_in()
+        ordinary = self.post(c, token, "/api/jobs", json={"url": URL}).json["job"]
+        self.assertEqual(self.wait(c, ordinary["id"])["state"], "done")
+        response = self.post(c, token, "/api/library/additions", json={"urls": ["https://youtu.be/00000000001"]})
+        self.assertEqual(response.status_code, 202, response.json)
+        addition = response.json["jobs"][0]
+        self.assertEqual(self.wait(c, addition["id"])["state"], "done")
+        self.assertEqual([job["id"] for job in self.go(c, "GET", "/api/library/additions").json["jobs"]],
+                         [addition["id"]])
 
     def test_cancel_owner_csrf_and_readiness(self):
         self.fake_ok()

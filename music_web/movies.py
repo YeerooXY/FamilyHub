@@ -17,6 +17,18 @@ log = logging.getLogger('music_web.movies')
 REPORT_KINDS = {'playback-error', 'open-failed', 'progress-save-failed', 'cannot-resume', 'started', 'stopped'}
 PROBLEMS = REPORT_KINDS - {'started', 'stopped'}
 REPORT_METHODS = {'', 'DirectPlay', 'DirectStream', 'Transcode'}
+SEASON_QUERY = re.compile(r'(.+?)\s+(?:season\s+|s)(\d{1,2})$', re.I)
+SEASON_MARKER = re.compile(r'\b(?:season[\s._-]+|s)(\d{1,2})(?!\d)', re.I)
+
+
+def season_pack(title, wanted_words, season):
+    if not wanted_words <= movie_search.words(title):
+        return False
+    markers = list(SEASON_MARKER.finditer(title))
+    if len(markers) != 1 or int(markers[0][1]) != season:
+        return False
+    suffix = title[markers[0].end():]
+    return not re.match(r'(?:[\s._-]*(?:e(?:p(?:isode)?)?[\s._-]*\d|x\d)|\s*(?:[-–/&+,]|and\b|to\b)\s*\d)', suffix, re.I)
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -60,18 +72,37 @@ def register_movies(app, cfg, body, allow):
         if not allow('movie-release-search:' + g.user, 6, 60):
             return jsonify(error='Wait a minute before searching again.'), 429
 
-        def lookup(indexer):
-            params = urllib.parse.urlencode({'query': query, 'type': 'search', 'indexerIds': indexer, 'limit': 50})
+        season_query = SEASON_QUERY.fullmatch(query)
+        title = season_query[1] if season_query else query
+        season = int(season_query[2]) if season_query else None
+        wanted_words = movie_search.words(title)
+
+        def search_indexer(indexer, term):
+            params = urllib.parse.urlencode({'query': term, 'type': 'search', 'indexerIds': indexer, 'limit': 50})
             req = urllib.request.Request(prowlarr + '/api/v1/search?' + params,
                 headers={'X-Api-Key': releases['api_key'], 'Accept': 'application/json'})
             try:
-                with urllib.request.build_opener(NoRedirect).open(req, timeout=8) as reply:
+                with urllib.request.build_opener(NoRedirect).open(req, timeout=4 if season is not None else 8) as reply:
                     rows = json.loads(reply.read(1024 * 1024))
                 return [dict(title=row['title'][:250], source=row.get('indexer', '')[:80], size=row.get('size'),
                              seeders=row.get('seeders'), leechers=row.get('leechers')) for row in rows
                         if isinstance(row.get('title'), str) and row['title'].strip()]
             except (OSError, ValueError, KeyError, TypeError, AttributeError):
                 return None
+
+        def lookup(indexer):
+            if season is None:
+                return search_indexer(indexer, query)
+            rows = search_indexer(indexer, f'{title} S{season:02d}')
+            if rows is None:
+                return None
+            matches = [row for row in rows if season_pack(row['title'], wanted_words, season)]
+            if matches:
+                return matches
+            rows = search_indexer(indexer, title)
+            if rows is None:
+                return None
+            return [row for row in rows if season_pack(row['title'], wanted_words, season)]
 
         with ThreadPoolExecutor(max_workers=len(indexers)) as pool:
             pages = list(pool.map(lookup, indexers))
@@ -97,19 +128,23 @@ def register_movies(app, cfg, body, allow):
             return jsonify(error='Enter a title of 2 to 120 characters.'), 400
         if not allow('movie-request-search:' + g.user, 12, 60):
             return jsonify(error='Wait a minute before searching again.'), 429
+        season_query = SEASON_QUERY.fullmatch(query)
+        title_query = season_query[1] if season_query else query
         try:
-            _, reply = seerr_call('search?' + urllib.parse.urlencode({'query': query, 'page': 1}), user)
+            _, reply = seerr_call('search?' + urllib.parse.urlencode({'query': title_query, 'page': 1}), user)
             results = []
             for item in reply['results']:
                 kind, ident = item.get('mediaType'), item.get('id')
                 if kind not in ('movie', 'tv') or type(ident) is not int or not 0 < ident <= 2**31 - 1:
+                    continue
+                if season_query and kind != 'tv':
                     continue
                 title, date = (item.get('title'), item.get('releaseDate')) if kind == 'movie' else (item.get('name'), item.get('firstAirDate'))
                 if not isinstance(title, str) or not title:
                     continue
                 status = (item.get('mediaInfo') or {}).get('status')
                 results.append(dict(kind=kind, id=ident, title=title[:250], year=date[:4] if isinstance(date, str) else '', status=status))
-            return jsonify(results=results)
+            return jsonify(results=results, **({'season': int(season_query[2])} if season_query else {}))
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             log.warning('Seerr title search failed')
             return jsonify(error='Title search is unavailable. Try again.'), 503
@@ -120,14 +155,15 @@ def register_movies(app, cfg, body, allow):
         if user is None:
             return jsonify(error='Movie and TV requests are disabled for this profile.'), 404
         data = body()
-        kind, ident = data.get('kind'), data.get('id')
-        if kind not in ('movie', 'tv') or type(ident) is not int or not 0 < ident <= 2**31 - 1:
+        kind, ident, season = data.get('kind'), data.get('id'), data.get('season')
+        if (kind not in ('movie', 'tv') or type(ident) is not int or not 0 < ident <= 2**31 - 1
+                or season is not None and (kind != 'tv' or type(season) is not int or not 0 <= season <= 99)):
             return jsonify(error='Search again and select a movie or series.'), 400
         if not allow('movie-request:' + g.user, 8, 60):
             return jsonify(error='Wait a minute before requesting another title.'), 429
         payload = {'mediaType': kind, 'mediaId': ident, 'is4k': False}
         if kind == 'tv':
-            payload['seasons'] = 'all'
+            payload['seasons'] = 'all' if season is None else [season]
         try:
             status, reply = seerr_call('request', user, payload)
             if status == 202 and kind == 'tv':

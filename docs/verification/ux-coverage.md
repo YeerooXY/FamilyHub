@@ -361,6 +361,14 @@ The exact search `Az ördög jobb és bal keze` preserved the Hungarian characte
 
 `node tests/movies_releases.cjs` renders the search panel with captured Prowlarr results for *Regular Show* Season 1. The interactive preview and four screenshots are in `.local/release-search-preview/`. Windows Chromium and emulated Mac Safari, Android Chrome and iPhone Safari cover wrapping, alignment, horizontal overflow, keyboard submission, Tab and Shift+Tab, touch disclosure, focus after closing, and reduced motion on iPhone. They also check that 1080p sorts first when it fits the upload time budget, and that increasing estimated upload time can put a smaller release first. The API test covers profile scope, partial source failures and private link handling. Native WebView layout, screen-reader speech and physical-device behavior remain open.
 
+### 23 November 2026 · Release search in Movies title results
+
+`node tests/movies_releases.cjs` now exercises the actual Movies view with a simulated Jellyfin session and the Season 2 release title from the supplied screenshot. Windows Chromium and emulated Mac Safari, Android Chrome and iPhone Safari covered the source actions, long titles, wrapping and overflow, keyboard focus, pending, empty, retry, and successful searches. The iPhone profile ran with reduced motion. The test checks that a smaller release leads when the 1080p pack exceeds the budget and that a cleared search ignores late results. Captures are in `.local/release-search-preview/`. Native WebViews, television width, real devices and screen-reader speech remain open.
+
+### 23 November 2026 · Unified Movies search
+
+The Movies fixtures cover a locally available season, a Season 2 request, a full-length YouTube link, and expandable torrent and trailer results from the same search. Chromium and WebKit checked the field and action layout at 1280px, 2000px, and phone widths. Captures in `.local/unified-search/` show Windows Chromium and emulated Mac Safari, Android Chrome and iPhone Safari, including search cards without artwork. The keyboard and touch checks cover Tab, Shift+Tab, Enter, Space, disclosure markers, retry, and focus after a request receipt or clearing a pending search. The iPhone profile uses reduced motion. Native-device input, physical TV navigation, screen-reader speech, and live acquisition remain open.
+
 ## Files screen (23 November 2026)
 
 Emulated only: Chromium and WebKit, 412x915 and 1280x800, with a fake server behind the .NET bridge (`tests/files_view.cjs`, screenshots in `files-view-2026-11-23/`). Covered: list, tabs, breadcrumb, new folder, rename with a server error, delete and where focus lands, upload progress line, share-link sheet (password, one-off, copy), revoke, Escape and focus return, no sideways scroll. Never reviewed: television width, a real Android or iPhone file picker and share sheet, screen reader output, enlarged text.

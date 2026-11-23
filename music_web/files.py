@@ -4,6 +4,7 @@ Files live on disk under FILES_ROOT (`family/` and `profiles/<id>/`). Share link
 SQLite database next to the files. A link serves one file as a forced download; the landing page does not count a download,
 so a chat app's link preview cannot use up a one-off link. File and folder names are never written to the activity log.
 """
+from dataclasses import dataclass
 import hashlib
 import hmac
 import html
@@ -29,6 +30,14 @@ class FileError(Exception):
     def __init__(self, message, status=400):
         super().__init__(message)
         self.status = status
+
+
+@dataclass
+class Upload:
+    base: str
+    folder: str
+    identity: os.stat_result | None
+    size: int
 
 
 def clean_name(value):
@@ -71,7 +80,7 @@ def like_escape(text):
 
 
 def tree_size(folder, budget=5.0):
-    """Bytes under a folder. Stops counting after `budget` seconds so a huge tree cannot stall a request."""
+    """Bytes under a folder, with a time limit for quota checks."""
     total, stop = 0, time.monotonic() + budget
     for base, dirs, names in os.walk(folder):
         for name in names:
@@ -80,7 +89,7 @@ def tree_size(folder, budget=5.0):
             except OSError:
                 pass
         if time.monotonic() > stop:
-            break
+            raise FileError('The server could not check the folder size in time. Try again.', 503)
     return total
 
 
@@ -97,6 +106,7 @@ class Store:
         for sub in ('family', 'profiles', '.uploading'):
             os.makedirs(os.path.join(self.root, sub), exist_ok=True)
         self.lock = threading.Lock()
+        self.uploads: dict[str, Upload] = {}
         self.db = sqlite3.connect(os.path.join(self.root, '.familyhub-files.db'), check_same_thread=False, isolation_level=None)
         self.db.executescript('''
             CREATE TABLE IF NOT EXISTS owners (space TEXT NOT NULL, path TEXT NOT NULL, owner TEXT NOT NULL, PRIMARY KEY (space, path));
@@ -159,13 +169,31 @@ class Store:
     def free_bytes(self):
         return shutil.disk_usage(self.root).free
 
-    def check_room(self, space, user, incoming):
+    def check_room(self, base, incoming):
+        """Check capacity with the store lock held, including admitted uploads."""
         if incoming > self.max_upload:
             raise FileError('Files can be up to %d GB.' % (self.max_upload // GIB), 413)
-        if self.free_bytes() - incoming < self.reserve:
+        if self.quota:
+            pending = sum(upload.size for upload in self.uploads.values() if upload.base == base)
+            if tree_size(base) + pending + incoming > self.quota:
+                raise FileError('This folder is full (%d GB limit).' % (self.quota // GIB), 507)
+        unwritten = incoming
+        # Measure staging first so a concurrent write can only make this estimate conservative.
+        for temporary, upload in self.uploads.items():
+            try:
+                staged = os.path.getsize(temporary)
+            except FileNotFoundError:
+                staged = 0
+            unwritten += max(0, upload.size - staged)
+        if self.free_bytes() - unwritten < self.reserve:
             raise FileError('The server is nearly out of disk space. Ask the administrator.', 507)
-        if self.quota and tree_size(self.base(space, user)) + incoming > self.quota:
-            raise FileError('This folder is full (%d GB limit).' % (self.quota // GIB), 507)
+
+    def invalidate_uploads(self, target):
+        """Invalidate destinations under a renamed or deleted path while holding the store lock."""
+        target = os.path.normcase(target)
+        for upload in self.uploads.values():
+            if os.path.commonpath([target, os.path.normcase(upload.folder)]) == target:
+                upload.identity = None
 
     # ---- links ----
     def create_link(self, owner, space, parts, hours, password, max_downloads):
@@ -290,14 +318,15 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
             data = request.get_json(silent=True) or {}
             space, parts = space_and_parts(data)
             name = clean_name(data.get('name'))
-            folder = store.resolve(space, g.user, parts)
-            if not os.path.isdir(folder):
-                raise FileError('That is not a folder.')
-            target = os.path.join(folder, name)
-            if os.path.lexists(target):
-                raise FileError('Something with that name already exists.', 409)
-            os.mkdir(target)
-            store.set_owner(space, parts + [name], g.user)
+            with store.lock:
+                folder = store.resolve(space, g.user, parts)
+                if not os.path.isdir(folder):
+                    raise FileError('That is not a folder.')
+                target = os.path.join(folder, name)
+                if os.path.lexists(target):
+                    raise FileError('Something with that name already exists.', 409)
+                os.mkdir(target)
+                store.set_owner(space, parts + [name], g.user)
             return jsonify(name=name), 201
         except FileError as error:
             return fail(error)
@@ -314,12 +343,16 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
             size = request.content_length
             if size is None or size <= 0:
                 raise FileError('The file is empty.')
-            store.check_room(space, g.user, size)
-            folder = store.resolve(space, g.user, parts)
-            if not os.path.isdir(folder):
-                raise FileError('That is not a folder.')
             request.max_content_length = store.max_upload + CHUNK
             temporary = os.path.join(store.root, '.uploading', secrets.token_hex(16))
+            with store.lock:
+                folder = store.resolve(space, g.user, parts)
+                if not os.path.isdir(folder):
+                    raise FileError('That is not a folder.')
+                base = os.path.normcase(store.base(space, g.user))
+                store.check_room(base, size)
+                upload = Upload(base, folder, os.stat(folder), size)
+                store.uploads[temporary] = upload
             received = 0
             try:
                 with open(temporary, 'xb') as out:
@@ -334,12 +367,24 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
                 if received != size:
                     raise FileError('The upload did not finish. Try again.')
                 with store.lock:
+                    try:
+                        current = os.stat(store.resolve(space, g.user, parts))
+                    except (FileError, FileNotFoundError, NotADirectoryError):
+                        current = None
+                    if upload.identity is None or current is None or not os.path.samestat(upload.identity, current):
+                        raise FileError('The destination folder changed. Open the folder you want and upload again.', 409)
+                    store.check_room(base, 0)
                     final = unique_name(folder, name)
                     os.replace(temporary, os.path.join(folder, final))
+                    del store.uploads[temporary]
                     store.set_owner(space, parts + [final], g.user)
             finally:
-                if os.path.exists(temporary):
-                    os.unlink(temporary)
+                with store.lock:
+                    try:
+                        if temporary in store.uploads and os.path.exists(temporary):
+                            os.unlink(temporary)
+                    finally:
+                        store.uploads.pop(temporary, None)
             return jsonify(name=final, size=size), 201
         except FileError as error:
             return fail(error)
@@ -369,17 +414,19 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
             if not parts:
                 raise FileError('Choose an item.')
             name = clean_name(data.get('name'))
-            source = store.resolve(space, g.user, parts)
-            if not store.may_change(space, parts, g.user, is_admin()):
-                raise FileError('Only the person who added it can change it.', 403)
-            target = os.path.join(os.path.dirname(source), name)
-            if os.path.lexists(target):
-                raise FileError('Something with that name already exists.', 409)
-            os.rename(source, target)
-            owner = store.owner(space, parts)
-            store.drop_owners(space, parts)
-            if owner:
-                store.set_owner(space, parts[:-1] + [name], owner)
+            with store.lock:
+                source = store.resolve(space, g.user, parts)
+                if not store.may_change(space, parts, g.user, is_admin()):
+                    raise FileError('Only the person who added it can change it.', 403)
+                target = os.path.join(os.path.dirname(source), name)
+                if os.path.lexists(target):
+                    raise FileError('Something with that name already exists.', 409)
+                os.rename(source, target)
+                store.invalidate_uploads(source)
+                owner = store.owner(space, parts)
+                store.drop_owners(space, parts)
+                if owner:
+                    store.set_owner(space, parts[:-1] + [name], owner)
             return jsonify(name=name)
         except FileError as error:
             return fail(error)
@@ -392,17 +439,19 @@ def register_files(app, cfg, allow, is_admin, csrf_exempt):
             space, parts = space_and_parts(request.args)
             if not parts:
                 raise FileError('Choose an item.')
-            target = store.resolve(space, g.user, parts)
-            if not store.may_change(space, parts, g.user, is_admin()):
-                raise FileError('Only the person who added it can delete it.', 403)
-            if os.path.isdir(target):
-                if os.listdir(target) and request.args.get('recursive') != 'true':
-                    raise FileError('That folder is not empty.', 409)
-                shutil.rmtree(target)
-            else:
-                os.unlink(target)
-            store.drop_owners(space, parts)
-            store.revoke_path(space, g.user, parts)
+            with store.lock:
+                target = store.resolve(space, g.user, parts)
+                if not store.may_change(space, parts, g.user, is_admin()):
+                    raise FileError('Only the person who added it can delete it.', 403)
+                if os.path.isdir(target):
+                    if os.listdir(target) and request.args.get('recursive') != 'true':
+                        raise FileError('That folder is not empty.', 409)
+                    store.invalidate_uploads(target)
+                    shutil.rmtree(target)
+                else:
+                    os.unlink(target)
+                store.drop_owners(space, parts)
+                store.revoke_path(space, g.user, parts)
             return '', 204
         except FileError as error:
             return fail(error)

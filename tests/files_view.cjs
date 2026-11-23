@@ -19,8 +19,20 @@ async function check(browser, label, viewport) {
     await page.goto(app + "/");
     await page.evaluate(async () => {
         const now = Date.now() / 1000;
-        const tree = { mine: { "": [["Trips", "dir"], ["notes.txt", "file", 1200], ["report.pdf", "file", 3400000]], Trips: [["plan.txt", "file", 80]] }, family: { "": [["Photos", "dir"], ["recipes.doc", "file", 5000]] } };
+        const tree = { mine: { "": [["Trips", "dir"], ["notes.txt", "file", 1200], ["report.pdf", "file", 3400000]], Trips: [["Receipts", "dir"], ["plan.txt", "file", 80]] }, family: { "": [["Photos", "dir"], ["recipes.doc", "file", 5000]] } };
         const links = [];
+        const heldListings = new Map();
+        window.holdListing = (key) => {
+            let release;
+            const pending = new Promise((resolve) => { release = resolve; });
+            heldListings.set(key, { pending, release });
+        };
+        window.releaseListing = async ([key, error]) => {
+            const hold = heldListings.get(key);
+            heldListings.delete(key);
+            hold.release(error);
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+        };
         window.log = [];
         const reply = (status, body) => JSON.stringify({ status, body: body === undefined ? "" : JSON.stringify(body) });
         const bridge = { invokeMethodAsync: async (name, ...args) => {
@@ -29,6 +41,11 @@ async function check(browser, label, viewport) {
                 const [method, url, json] = args, u = new URL(url, "http://x"), p = u.searchParams, space = p.get("space"), dir = p.get("path") || "";
                 const body = json ? JSON.parse(json) : {};
                 if (u.pathname === "/api/files/list") {
+                    const hold = heldListings.get(space + "/" + dir);
+                    if (hold) {
+                        const error = await hold.pending;
+                        if (error) return reply(404, { error });
+                    }
                     const rows = (tree[space]?.[dir] ?? []).map(([n, t, s]) => ({ name: n, type: t, size: s ?? 0, modified: now - 86400, owner: null }));
                     return reply(200, { space, path: dir, entries: rows.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "dir" ? -1 : 1)) });
                 }
@@ -82,6 +99,50 @@ async function check(browser, label, viewport) {
     await page.getByRole("button", { name: "Download recipes.doc" }).waitFor();
     await page.getByRole("tab", { name: "My files" }).click();
     await page.getByRole("button", { name: "Download notes.txt" }).waitFor();
+
+    // A slow Family response cannot redraw My files or take focus back to Family.
+    await page.evaluate(() => window.holdListing("family/"));
+    await page.getByRole("tab", { name: "My files" }).focus();
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await active(), "Family");
+    assert.equal(await page.getByRole("tab", { name: "Family" }).getAttribute("aria-selected"), "true");
+    assert.equal(await page.locator(".files-row").count(), 0);
+    await page.keyboard.press("Tab");
+    assert.equal(await active(), "Upload files");
+    await page.keyboard.press("Shift+Tab");
+    assert.equal(await active(), "Family");
+    await page.keyboard.press("ArrowLeft");
+    await page.getByRole("button", { name: "Download notes.txt" }).waitFor();
+    await page.keyboard.press("Tab");
+    assert.equal(await active(), "Upload files");
+    await page.evaluate(() => window.releaseListing(["family/"]));
+    assert.equal(await page.getByRole("button", { name: "Download notes.txt" }).count(), 1);
+    assert.equal(await page.getByRole("button", { name: "Download recipes.doc" }).count(), 0);
+    assert.equal(await page.locator(".files-status").innerText(), "");
+    assert.equal(await active(), "Upload files");
+
+    // A slow nested folder error cannot clear its parent's rows or announce an error there.
+    await page.getByRole("button", { name: "Open folder Trips" }).focus();
+    await page.keyboard.press("Enter");
+    const receipts = page.getByRole("button", { name: "Open folder Receipts" });
+    await receipts.waitFor();
+    await page.evaluate(() => window.holdListing("mine/Trips/Receipts"));
+    await receipts.focus();
+    await page.keyboard.press("Space");
+    assert.equal(await page.locator(".files-crumb[aria-current]").innerText(), "Receipts");
+    assert.equal(await page.locator(".files-status").innerText(), "Loading…");
+    await page.getByRole("button", { name: "Trips", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "Download plan.txt" }).waitFor();
+    await page.getByRole("button", { name: "New folder" }).focus();
+    await page.evaluate(() => window.releaseListing(["mine/Trips/Receipts", "The folder was removed."]));
+    assert.equal(await page.getByRole("button", { name: "Download plan.txt" }).count(), 1);
+    assert.equal(await page.locator(".files-crumb[aria-current]").innerText(), "Trips");
+    assert.equal(await page.locator(".files-status").innerText(), "");
+    assert.equal(await active(), "New folder");
+    await page.getByRole("button", { name: "My files", exact: true }).click();
+    await page.getByRole("button", { name: "Download notes.txt" }).waitFor();
+
     await noScroll("listing");
     await page.screenshot({ path: path.join(__dirname, `../docs/verification/files-view-2026-11-23/${label}-list.png`) });
 

@@ -32,10 +32,10 @@ def bounded_snapshot(view):
                     if victim is None:
                         return jsonify(error="Server work is busy. Retry shortly."), 503
                     del entries[victim]
-                entry = entries[key] = dict(response=None, at=0, ready=threading.Event())
+                entry = entries[key] = dict(response=None, at=0, checked_at=0, ready=threading.Event())
                 start = True
             else:
-                start = entry['ready'].is_set() and time.monotonic() - entry['at'] >= 1
+                start = entry['ready'].is_set() and time.monotonic() - entry['checked_at'] >= 1
             if start and slots.acquire(blocking=False):
                 entry['ready'].clear()
                 user = g.user
@@ -56,7 +56,10 @@ def bounded_snapshot(view):
                         # A response object acquires session headers after this function returns.
                         snapshot = (response.get_data(), response.status_code, list(response.headers))
                         with lock:
-                            entry.update(response=snapshot, at=time.monotonic())
+                            entry['checked_at'] = time.monotonic()
+                            cached = entry['response']
+                            if cached is None or cached[1] != 200 or not 500 <= snapshot[1] < 600:
+                                entry.update(response=snapshot, at=entry['checked_at'])
                     finally:
                         entry['ready'].set()
                         slots.release()

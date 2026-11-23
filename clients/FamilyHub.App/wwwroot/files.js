@@ -24,6 +24,7 @@ const EXPIRY = [[1, "1 hour"], [24, "1 day"], [168, "7 days"], [720, "30 days"]]
 export function openFiles(host, app, viewer) {
     const life = new AbortController();
     let space = "mine", path = "", entries = [], menu = null, sheet = null, busy = false;
+    let navigation = 0, listing = 0, uploadNavigation;
 
     const root = el("div", "files");
     host.replaceChildren(root);
@@ -51,7 +52,7 @@ export function openFiles(host, app, viewer) {
     for (const [key, label] of [["mine", "My files"], ["family", "Family"]]) {
         const b = el("button", "files-tab", label);
         b.type = "button"; b.setAttribute("role", "tab"); b.dataset.space = key;
-        b.onclick = () => { if (space !== key) { space = key; path = ""; load(); } };
+        b.onclick = () => { if (space !== key) navigate(key, ""); };
         tabButtons[key] = b; tabs.append(b);
     }
     const actions = el("div", "files-actions");
@@ -80,24 +81,25 @@ export function openFiles(host, app, viewer) {
         const make = (label, target, current) => {
             const b = el("button", "files-crumb", label); b.type = "button";
             if (current) b.setAttribute("aria-current", "page");
-            b.onclick = () => { path = target; load(); };
+            b.onclick = () => navigate(space, target);
             return b;
         };
         crumbs.append(make(space === "mine" ? "My files" : "Family", "", !parts.length));
         parts.forEach((part, i) => { crumbs.append(el("span", "files-sep", "›"), make(part, parts.slice(0, i + 1).join("/"), i === parts.length - 1)); });
     }
-    function draw(focusName) {
+    function drawLocation() {
         drawTabs(); drawCrumbs();
         title.textContent = (path ? path.split("/").at(-1) : space === "mine" ? "My files" : "Family files") + " folder";
+    }
+    function draw() {
         list.replaceChildren();
-        empty.textContent = entries.length ? "" : path ? "This folder is empty." : space === "mine" ? "Nothing here yet. Upload a file to start." : "The family folder is empty.";
         for (const entry of entries) {
             const row = el("li", "files-row"), main = el("button", "files-name"), more = el("button", "files-more");
             main.type = "button"; more.type = "button";
             main.dataset.name = entry.name;
             main.append(el("span", "files-kind", entry.type === "dir" ? "Folder" : "File"), el("span", "files-label", entry.name));
             main.setAttribute("aria-label", entry.type === "dir" ? `Open folder ${entry.name}` : `Download ${entry.name}`);
-            main.onclick = () => entry.type === "dir" ? (path = here(entry.name), load()) : download(entry, main);
+            main.onclick = () => entry.type === "dir" ? navigate(space, here(entry.name)) : download(entry, main);
             const meta = el("span", "files-meta", entry.type === "dir" ? "" : bytes(entry.size));
             const when = el("span", "files-when", day.format(new Date(entry.modified * 1000)));
             more.textContent = "⋯";
@@ -107,18 +109,41 @@ export function openFiles(host, app, viewer) {
             row.append(main, meta, when, more);
             list.append(row);
         }
-        if (focusName) (list.querySelector(`.files-name[data-name="${CSS.escape(focusName)}"]`) ?? title).focus();
     }
-    async function load(focusName) {
+    function navigate(nextSpace, nextPath, focusTarget = title) {
+        if (space !== nextSpace || path !== nextPath) {
+            space = nextSpace; path = nextPath; navigation++;
+            closeMenu();
+            drawLocation();
+            entries = [];
+            list.replaceChildren();
+            empty.textContent = "";
+            focusTarget.focus();
+        }
+        load({ focusTarget });
+    }
+    async function load({ focusName, focusTarget = title, notice = "" } = {}) {
+        const request = ++listing;
         closeMenu();
+        const previousFocus = document.activeElement;
         status.textContent = "Loading…";
         const r = await call("GET", `/api/files/list?space=${space}&path=${q(path)}`);
-        if (life.signal.aborted) return;
-        if (!r.ok) { status.textContent = r.error; entries = []; draw(); return; }
-        entries = r.body.entries;
-        status.textContent = "";
-        draw(focusName);
-        if (!focusName) title.focus();
+        if (life.signal.aborted || request !== listing) return;
+        entries = r.ok ? r.body.entries : [];
+        status.textContent = r.ok ? notice : [r.error, notice].filter(Boolean).join(" ");
+        empty.textContent = r.ok && !entries.length ? "This folder is empty." : "";
+        const focused = document.activeElement;
+        const focusedRow = focused.closest(".files-row");
+        const moveFocus = focusTarget && !sheet && focused === previousFocus;
+        const restoreRow = !moveFocus && focusedRow;
+        if (restoreRow) focusName = focusedRow.querySelector(".files-name").dataset.name;
+        closeMenu();
+        draw();
+        if (moveFocus || focusedRow) {
+            const rowButton = focusName && list.querySelector(`.files-name[data-name="${CSS.escape(focusName)}"]`);
+            const action = restoreRow && !focused.matches(".files-name") && rowButton?.parentElement.querySelector(".files-more");
+            (action || rowButton || focusTarget || title).focus();
+        }
     }
 
     // ---- one actions menu per row ----
@@ -189,13 +214,15 @@ export function openFiles(host, app, viewer) {
         const input = el("input"); input.type = "text"; input.value = value; input.maxLength = 120; input.autocomplete = "off";
         const error = message(), go = el("button", "files-primary", verb); go.type = "button";
         go.onclick = async () => {
+            const location = navigation;
             go.disabled = true; error.textContent = "";
             const r = await run(input.value.trim());
             go.disabled = false;
+            if (life.signal.aborted || location !== navigation) return;
             if (!r.ok) { error.textContent = r.error; input.focus(); return; }
             const created = r.body?.name ?? input.value.trim();
             closeSheet(false);
-            await load(created);
+            await load({ focusName: created });
         };
         input.onkeydown = (event) => { if (event.key === "Enter") { event.preventDefault(); go.click(); } };
         body.append(field("Name", input), error, go);
@@ -211,17 +238,18 @@ export function openFiles(host, app, viewer) {
         const error = message(), go = el("button", "files-danger", "Delete"); go.type = "button";
         const keep = el("button", "files-quiet", "Keep it"); keep.type = "button"; keep.onclick = () => closeSheet(true);
         go.onclick = async () => {
+            const location = navigation;
             go.disabled = true;
             const r = await call("DELETE", `/api/files?space=${space}&path=${q(here(entry.name))}${recursive ? "&recursive=true" : ""}`);
             go.disabled = false;
+            if (life.signal.aborted || location !== navigation) return;
             if (!r.ok && folder && !recursive && /not empty/i.test(r.error)) { closeSheet(false); deleteSheet(entry, opener, true); return; }
             if (!r.ok) { error.textContent = r.error; return; }
             // The deleted row's neighbour gets focus, so keyboard focus never falls to the page.
             const at = entries.findIndex((e) => e.name === entry.name);
             const next = entries[at + 1] ?? entries[at - 1];
             closeSheet(false);
-            await load(next?.name);
-            status.textContent = `Deleted ${entry.name}.`;
+            await load({ focusName: next?.name, notice: `Deleted ${entry.name}.` });
         };
         body.append(error, el("div", "files-buttons"));
         body.lastChild.append(keep, go);
@@ -230,25 +258,35 @@ export function openFiles(host, app, viewer) {
 
     // ---- download and upload run in .NET (file system, picker) ----
     async function download(entry, opener) {
+        const location = navigation;
+        const previousFocus = document.activeElement;
         status.textContent = `Downloading ${entry.name}…`;
-        try { status.textContent = await app.invokeMethodAsync("FilesDownload", space, here(entry.name), entry.name); }
-        catch { status.textContent = `Could not download ${entry.name}. Try again.`; }
-        opener?.focus?.();
+        let result;
+        try { result = await app.invokeMethodAsync("FilesDownload", space, here(entry.name), entry.name); }
+        catch { result = `Could not download ${entry.name}. Try again.`; }
+        if (life.signal.aborted || location !== navigation) return;
+        status.textContent = result;
+        if (opener.isConnected && document.activeElement === previousFocus) opener.focus();
     }
     upload.onclick = async () => {
         if (busy) return;
+        const uploadSpace = space, uploadPath = path, previousFocus = document.activeElement;
         busy = true; upload.setAttribute("aria-disabled", "true");
+        uploadNavigation = navigation;
         let result;
-        try { result = JSON.parse(await app.invokeMethodAsync("FilesUpload", space, path)); }
+        try { result = JSON.parse(await app.invokeMethodAsync("FilesUpload", uploadSpace, uploadPath)); }
         catch { result = { uploaded: [], errors: ["The upload did not finish. Try again."] }; }
         busy = false; upload.removeAttribute("aria-disabled");
         progress.hidden = true;
+        if (life.signal.aborted || uploadSpace !== space || uploadPath !== path) return;
+        const sameVisit = uploadNavigation === navigation;
         const parts = [];
         if (result.uploaded.length) parts.push(`${result.uploaded.length} ${result.uploaded.length === 1 ? "file" : "files"} uploaded.`);
         parts.push(...result.errors);
-        await load();
-        status.textContent = parts.join(" ");
-        upload.focus();
+        await load({
+            focusTarget: sameVisit && document.activeElement === previousFocus ? upload : null,
+            notice: sameVisit ? parts.join(" ") : ""
+        });
     };
     function showProgress(name, sent, total) {
         const percent = total ? Math.min(100, Math.round(sent * 100 / total)) : 0;
@@ -256,7 +294,7 @@ export function openFiles(host, app, viewer) {
         progress.setAttribute("aria-valuenow", String(percent)); progress.setAttribute("aria-label", `Uploading ${name}`);
         progress.setAttribute("aria-valuetext", `${name}: ${percent} percent`);
         bar.style.width = percent + "%"; thumb.style.left = percent + "%";
-        status.textContent = `Uploading ${name}: ${percent}%`;
+        if (uploadNavigation === navigation) status.textContent = `Uploading ${name}: ${percent}%`;
     }
 
     // ---- share links ----
@@ -326,11 +364,13 @@ export function openFiles(host, app, viewer) {
 
     tabs.addEventListener("keydown", (event) => {
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
         const keys = Object.keys(tabButtons), next = keys[(keys.indexOf(space) + (event.key === "ArrowRight" ? 1 : -1) + keys.length) % keys.length];
-        space = next; path = ""; load().then(() => tabButtons[next].focus());
+        navigate(next, "", tabButtons[next]);
     });
     document.addEventListener("keydown", (event) => { if (event.key === "Escape") { if (sheet) closeSheet(true); else if (menu) closeMenu(true); } }, { signal: life.signal });
 
+    drawLocation();
     load();
     return {
         progress: showProgress,

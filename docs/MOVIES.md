@@ -34,19 +34,19 @@ Subtitles are drawn by the player, not the browser: just above the picture's bot
 
 The remote works through the arrow keys: they move between cards, shelves, the billboard and the player controls, Enter selects, and the Back key (key code 461) closes the player. The pointer ("magic") remote also works. Not yet tested on a television.
 
-## Web search for titles missing from the library
+## Search and watch
 
-When a library search finds nothing, Movies offers **Search the web**. The server asks YouTube (through `yt-dlp`) for candidates, ranks and labels them (full film, trailer, clip, other) and returns up to five links. A link opens in the phone's browser; nothing is downloaded or added to the library.
+Search once in **Movies & TV**. Exact library matches offer **Play** or **Resume**. If there is no exact match, Movies checks YouTube, the configured release indexers, and Seerr for profiles with access. A matching full-length upload offers **Watch on YouTube**. Clips, trailers, and release details appear in expandable sections. [Release search setup](ACQUISITION.md#release-search)
 
 - **Ranking.** With `GEMINI_API_KEY` in the server configuration (a free Google AI Studio key; the model is `MOVIE_SEARCH_MODEL`, default `gemini-flash-latest`), one Gemini call ranks the candidates and gives a short reason. The call carries the film title plus each candidate's title, channel and length; no profile name or other personal data. Without a key, or when the call fails, a fixed rule ranks them (title words, film-length video, trailer and clip words).
 - **Safety.** The model only picks from the returned candidates: a link or label it invents is dropped, reasons are stripped of URLs, and the app opens only `https://www.youtube.com/watch?v=<id>` links. Web text is passed as data, with an instruction to ignore commands inside it.
 - **Limits and logs.** Six searches a minute and forty an hour per profile. The activity log records the count and the ranking method, never the search text.
-- **Needs** `yt-dlp` on the server's PATH. Without it the button answers "Searching the web is not set up on this server."
+- **Needs** `yt-dlp` on the server's PATH. If YouTube lookup fails, the search offers a source-specific retry.
 ## Request a movie or series
 
-Search in **Movies & TV**, then choose **Find titles to request**. Match the year and choose **Request movie** or **Request all seasons**. A series request covers seasons listed in Seerr at the time of the request, excluding specials. Run the same search later to check whether the title is available. Completed imports appear in the Jellyfin library after it scans the files.
+Match the title and year in **Download options**, then choose **Request download**, **Request all seasons**, or **Request season 2** for a numbered season search. An all-seasons request covers seasons listed in Seerr at the time of the request, excluding specials. Run the same search later to check availability. Completed imports appear in the Jellyfin library after it scans the files.
 
-FamilyHub passes the selected title's TMDB ID to Seerr. Radarr searches for movies and Sonarr searches for episodes, using the administrator's configured sources and quality profiles. Availability depends on those sources and profiles. [Set up media requests](ACQUISITION.md#enable-movie-and-tv-requests).
+FamilyHub passes the selected title's TMDB ID and season scope to Seerr. After approval, Radarr or Sonarr selects a release using the configured sources and quality profiles. Release details in FamilyHub help compare options and do not select the download. [Set up media requests](ACQUISITION.md#enable-movie-and-tv-requests).
 
 ## Next release — downloads and seeding
 

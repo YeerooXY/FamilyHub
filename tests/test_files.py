@@ -1,11 +1,29 @@
 """Family file sharing: private and shared folders, uploads, and one-off share links."""
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+import io
 import os
 import sqlite3
 import tempfile
+import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from test_music_web import Base
+
+
+class PausedUpload(io.RawIOBase):
+    def __init__(self, data):
+        self.body = io.BytesIO(data)
+        self.reading = threading.Event()
+        self.resume = threading.Event()
+
+    def readinto(self, target):
+        self.reading.set()
+        if not self.resume.wait(5):
+            raise TimeoutError('The test did not release the upload stream.')
+        return self.body.readinto(target)
 
 
 class FileBase(Base):
@@ -34,9 +52,20 @@ class FileBase(Base):
         kw.setdefault('headers', {})['X-CSRFToken'] = token
         return self.go(client, method, path, **kw)
 
-    def upload(self, who, space, name, data=b'hello', folder=''):
+    def upload(self, who, space, name, data=b'hello', folder='', **kw):
         client, token = (self.a, self.ta) if who == 'a' else (self.b, self.tb)
-        return self.call(client, token, 'PUT', f'/api/files/upload?space={space}&path={folder}&name={name}', data=data)
+        return self.call(client, token, 'PUT', f'/api/files/upload?space={space}&path={folder}&name={name}', data=data, **kw)
+
+    @contextmanager
+    def paused_upload(self, space, name, data, folder=''):
+        stream = PausedUpload(data)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            result = pool.submit(self.upload, 'a', space, name, data, folder, environ_overrides={'wsgi.input': stream})
+            try:
+                self.assertTrue(stream.reading.wait(5), 'The upload did not start reading.')
+                yield result, stream.resume
+            finally:
+                stream.resume.set()
 
     def names(self, client, space, path=''):
         return [e['name'] for e in self.go(client, 'GET', f'/api/files/list?space={space}&path={path}').json['entries']]
@@ -56,6 +85,46 @@ class FileSharing(FileBase):
         self.assertEqual(got.headers['X-Content-Type-Options'], 'nosniff')
         part = self.go(self.a, 'GET', '/api/files/download?space=mine&path=Trips/plan.txt', headers={'Range': 'bytes=1-2'})
         self.assertEqual((part.status_code, part.data), (206, b'ne'))
+
+    def test_overlapping_uploads_keep_both_same_name_files(self):
+        with self.paused_upload('family', 'plan.txt', b'first') as (first, resume):
+            second = self.upload('b', 'family', 'plan.txt', b'second')
+            self.assertEqual((second.status_code, second.json['name']), (201, 'plan.txt'))
+            resume.set()
+            reply = first.result(timeout=5)
+            self.assertEqual((reply.status_code, reply.json['name']), (201, 'plan (2).txt'))
+        for name, data, owner in (('plan.txt', b'second', 'sample-b'), ('plan (2).txt', b'first', 'sample-a')):
+            reply = self.go(self.a, 'GET', f'/api/files/download?space=family&path={name}')
+            self.assertEqual((reply.status_code, reply.data), (200, data))
+            self.assertEqual(self.app.extensions['files'].owner('family', [name]), owner)
+
+    def test_destination_changes_reject_an_upload_to_a_replacement(self):
+        for change in ('rename', 'delete'):
+            with self.subTest(change=change):
+                folder = f'{change}/Nested'
+                self.assertEqual(self.call(self.b, self.tb, 'POST', '/api/files/folder',
+                                           json={'space': 'family', 'path': '', 'name': change}).status_code, 201)
+                self.assertEqual(self.call(self.b, self.tb, 'POST', '/api/files/folder',
+                                           json={'space': 'family', 'path': change, 'name': 'Nested'}).status_code, 201)
+                with self.paused_upload('family', 'plan.txt', b'first', folder) as (first, resume):
+                    if change == 'rename':
+                        reply = self.call(self.b, self.tb, 'POST', '/api/files/rename',
+                                          json={'space': 'family', 'path': change, 'name': 'Moved'})
+                        self.assertEqual(reply.status_code, 200)
+                    else:
+                        reply = self.call(self.b, self.tb, 'DELETE', f'/api/files?space=family&path={change}&recursive=true')
+                        self.assertEqual(reply.status_code, 204)
+                    self.assertEqual(self.call(self.b, self.tb, 'POST', '/api/files/folder',
+                                               json={'space': 'family', 'path': '', 'name': change}).status_code, 201)
+                    self.assertEqual(self.call(self.b, self.tb, 'POST', '/api/files/folder',
+                                               json={'space': 'family', 'path': change, 'name': 'Nested'}).status_code, 201)
+                    resume.set()
+                    reply = first.result(timeout=5)
+                    self.assertEqual(reply.status_code, 409)
+                    self.assertIn('upload again', reply.json['error'])
+                self.assertEqual(self.names(self.a, 'family', folder), [])
+                self.assertEqual(os.listdir(os.path.join(self.files_root, '.uploading')), [])
+        self.assertEqual(self.names(self.a, 'family', 'Moved/Nested'), [])
 
     def test_private_files_stay_private_and_family_files_are_shared(self):
         self.upload('a', 'mine', 'diary.txt')
@@ -183,12 +252,58 @@ class FileLimits(FileBase):
         self.assertEqual(self.upload('a', 'mine', 'c.bin', b'x' * 10).status_code, 507)
         self.assertEqual(self.upload('b', 'mine', 'a.bin', b'x' * 10).status_code, 201)
 
+    def test_overlapping_uploads_reserve_the_shared_quota(self):
+        self.assertEqual(self.upload('a', 'family', 'existing.bin', b'x' * 10).status_code, 201)
+        with self.paused_upload('family', 'first.bin', b'x' * 10) as (first, resume):
+            self.assertEqual(self.upload('b', 'family', 'second.bin', b'x' * 10).status_code, 507)
+            self.assertEqual(self.upload('b', 'mine', 'second.bin', b'x' * 10).status_code, 201)
+            resume.set()
+            self.assertEqual(first.result(timeout=5).status_code, 201)
+        self.assertEqual(self.upload('b', 'family', 'second.bin', b'x' * 5).status_code, 201)
+        self.assertEqual(self.names(self.a, 'family'), ['existing.bin', 'first.bin', 'second.bin'])
+
 
 class FileReserve(FileBase):
     files_extra = {'FILES_FREE_RESERVE': 1 << 60}
 
     def test_a_nearly_full_disk_refuses_uploads(self):
         self.assertEqual(self.upload('a', 'mine', 'a.bin').status_code, 507)
+
+
+class ConcurrentFileReserve(FileBase):
+    files_extra = {'FILES_FREE_RESERVE': 1}
+
+    def test_finished_staging_uses_disk_space_once(self):
+        store = self.app.extensions['files']
+        staged, publish = threading.Event(), threading.Event()
+        staging = os.path.join(self.files_root, '.uploading')
+
+        @contextmanager
+        def pause_before_publish(path, mode):
+            with open(path, mode) as handle:
+                yield handle
+            if threading.current_thread() is not threading.main_thread():
+                staged.set()
+                if not publish.wait(5):
+                    raise TimeoutError('The test did not release the staged upload.')
+
+        def free_bytes():
+            folders = (staging, store.base('family', 'sample-a'), store.base('mine', 'sample-b'))
+            used = sum(os.path.getsize(os.path.join(folder, name)) for folder in folders
+                       if os.path.isdir(folder) for name in os.listdir(folder))
+            return 13 - used
+
+        with patch.object(store, 'free_bytes', side_effect=free_bytes), patch('music_web.files.open', pause_before_publish, create=True):
+            with self.paused_upload('family', 'first.bin', b'x' * 6) as (first, resume):
+                try:
+                    self.assertEqual(self.upload('b', 'mine', 'second.bin', b'x' * 7).status_code, 507)
+                    resume.set()
+                    self.assertTrue(staged.wait(5), 'The first file was not staged.')
+                    self.assertEqual(self.upload('b', 'mine', 'second.bin', b'x' * 6).status_code, 201)
+                finally:
+                    publish.set()
+                self.assertEqual(first.result(timeout=5).status_code, 201)
+        self.assertEqual(os.listdir(staging), [])
 
 
 class FilesDisabled(Base):

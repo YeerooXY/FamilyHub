@@ -153,6 +153,31 @@ class MovieRequests(Base):
         self.assertEqual(reply.status_code, 404)
         opener.assert_not_called()
 
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_numbered_season_search_and_request_keep_the_selected_season(self, opener):
+        search = io.BytesIO(json.dumps({'results': [
+            dict(mediaType='movie', id=11, title='The Gentlemen'),
+            dict(mediaType='tv', id=12, name='The Gentlemen'),
+        ]}).encode())
+        search.status = 200
+        accepted = io.BytesIO(b'{"id":8,"status":2}')
+        accepted.status = 201
+        opener.return_value.open.side_effect = [search, accepted]
+        client, selection = self.select('sample-a')
+        token = selection['csrf_token']
+        reply = self.post(client, token, '/api/movies/request-search', json={'query': 'The Gentlemen S2'})
+        self.assertEqual(reply.json['season'], 2)
+        self.assertEqual([item['id'] for item in reply.json['results']], [12])
+        request = opener.return_value.open.call_args.args[0]
+        self.assertIn('query=The+Gentlemen&', request.full_url)
+
+        reply = self.post(client, token, '/api/movies/request', json={'kind': 'tv', 'id': 12, 'season': 2})
+        self.assertEqual(reply.json, {'state': 'approved'})
+        request = opener.return_value.open.call_args.args[0]
+        self.assertEqual(json.loads(request.data)['seasons'], [2])
+        reply = self.post(client, token, '/api/movies/request', json={'kind': 'movie', 'id': 11, 'season': 2})
+        self.assertEqual(reply.status_code, 400)
+
 
 class MovieReleaseSearch(Base):
     extra = {**MovieSessions.extra, 'MOVIE_RELEASE_SEARCH': {
@@ -165,7 +190,7 @@ class MovieReleaseSearch(Base):
             self.assertEqual(req.get_method(), 'GET')
             self.assertEqual(req.get_header('X-api-key'), 'fixture-key')
             query = urllib.parse.parse_qs(urllib.parse.urlsplit(req.full_url).query)
-            self.assertEqual(query['query'], ['Regular Show Season 1'])
+            self.assertEqual(query['query'], ['Regular Show S01'])
             if query['indexerIds'] == ['1']:
                 raise TimeoutError()
             self.assertEqual(query['indexerIds'], ['3'])
@@ -180,6 +205,25 @@ class MovieReleaseSearch(Base):
             self.assertEqual(reply.status_code, status)
         self.assertEqual(reply.json, {'unavailable': 1, 'results': [dict(
             title='Regular Show S01', source='The Pirate Bay', size=123, seeders=82, leechers=14)]})
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_season_search_falls_back_to_title_without_mixing_seasons_or_episodes(self, opener):
+        wanted = 'The.Gentlemen.S02.1080p.NF.WEB-DL.DDP5.1.ENG.Atmos.ITA.H265-TBK'
+        other = ['The.Gentlemen.2024.S01.COMPLETE.1080p', 'The.Gentlemen.S02E01.1080p',
+                 'The Gentlemen S01-S02 Complete', 'Gentlemen Jack S02', 'The Gentlemen S02 & 3']
+
+        def lookup(req, timeout):
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(req.full_url).query)
+            titles = other if query['query'] == ['The Gentlemen S02'] else [*other, wanted]
+            self.assertIn(query['query'], (['The Gentlemen S02'], ['The Gentlemen']))
+            return io.BytesIO(json.dumps([dict(title=title, indexer='The Pirate Bay') for title in titles]).encode())
+
+        opener.return_value.open.side_effect = lookup
+        client, selected = self.select('sample-a')
+        reply = self.post(client, selected['csrf_token'], '/api/movies/releases', json={'query': 'The Gentlemen S2'})
+        self.assertEqual(reply.status_code, 200)
+        self.assertEqual({row['title'] for row in reply.json['results']}, {wanted})
+        self.assertEqual(opener.return_value.open.call_count, 4)
 
 
 class MovieWebSearch(MovieSessions):

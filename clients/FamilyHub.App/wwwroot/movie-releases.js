@@ -11,36 +11,32 @@ function resolution(title) {
     return /\b(?:4K|UHD)\b/i.test(title) ? 2160 : 0;
 }
 
-export function buildReleaseSearch(search) {
-    const panel = document.createElement("details");
+export function buildReleaseSearch(search, signal, requestsEnabled) {
+    const panel = document.createElement("section");
     panel.className = "movie-releases";
+    panel.hidden = true;
     panel.innerHTML = `
-        <summary>Release search</summary>
-        <form role="search" aria-label="Releases">
-            <label class="movie-release-query">Title <input name="query" type="search" maxlength="120" required></label>
-            <button type="submit">Search releases</button>
-        </form>
-        <div class="movie-release-settings">
-            <label>Assumed upload (Mbps) <input name="speed" type="number" min="0.1" step="0.1" value="10"></label>
-            <label>Upload time budget (hours) <input name="budget" type="number" min="0.1" step="0.1" value="24"></label>
-            <span>Share ratio target <strong>2.0×</strong></span>
-        </div>
-        <p class="movie-web-meta">Upload times assume a steady rate. Peers determine the actual speed.</p>
-        <p role="status"></p>
-        <ul class="movie-web-list" aria-label="Release results"></ul>`;
-    const form = panel.querySelector("form");
-    const summary = panel.querySelector("summary");
-    const searchButton = form.querySelector("button");
-    const query = form.elements.query;
+        <p class="movie-source-note" role="status"></p>
+        <button type="button" hidden>Retry release lookup</button>
+        <details class="movie-source-details" hidden>
+            <summary>Release details</summary>
+            <p class="movie-web-meta" data-release-availability hidden>Download requests are unavailable for this profile.</p>
+            <div class="movie-release-settings">
+                <label>Upload speed (Mbps) <input name="speed" type="number" min="0.1" step="0.1" value="10"></label>
+                <label>Time budget (hours) <input name="budget" type="number" min="0.1" step="0.1" value="24"></label>
+            </div>
+            <p class="movie-web-meta">2.0× upload estimates assume peers are downloading from you at the entered speed.</p>
+            <ul class="movie-source-list" aria-label="Release results"></ul>
+        </details>`;
+    const retry = panel.querySelector("button");
+    const options = panel.querySelector("details");
+    const summary = options.querySelector("summary");
+    options.querySelector("[data-release-availability]").hidden = !!requestsEnabled;
     const speed = panel.querySelector('[name="speed"]');
     const budget = panel.querySelector('[name="budget"]');
     const status = panel.querySelector('[role="status"]');
     const list = panel.querySelector("ul");
     let rows = [], unavailable = 0, busy = false, complete = false;
-
-    summary.addEventListener("click", () => {
-        if (document.activeElement === document.body || panel.contains(document.activeElement)) summary.focus();
-    });
 
     function render() {
         if (busy || !complete) return;
@@ -54,7 +50,7 @@ export function buildReleaseSearch(search) {
         };
         const sorted = rows.map(row => ({ ...row, hours: row.size && mbps > 0 ? row.size * 16 / (mbps * 1e6 * 3600) : null }));
         sorted.sort((a, b) => rating(a) - rating(b) || b.height - a.height || b.seeders - a.seeders || a.hours - b.hours);
-        list.replaceChildren(...sorted.map(row => {
+        list.replaceChildren(...sorted.map((row, index) => {
             const item = document.createElement("li");
             const title = document.createElement("strong");
             title.textContent = row.title;
@@ -70,35 +66,36 @@ export function buildReleaseSearch(search) {
             const duration = minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
             const time = row.hours === null ? "" : ` · ${duration} at ${mbps} Mbps${limit > 0 && row.hours > limit ? " · Over time budget" : ""}`;
             upload.textContent = row.size ? `Upload ${(row.size * 2 / gib).toFixed(2)} GiB for 2.0×${time}` : "Upload target unavailable";
+            if (index === 0 && rating(row) <= 1) {
+                const recommended = document.createElement("p");
+                recommended.className = "movie-web-meta";
+                recommended.textContent = "Best fit for your upload budget";
+                item.append(recommended);
+            }
             item.append(stats, upload);
             return item;
         }));
-        const result = sorted.length ? `${sorted.length} ${sorted.length === 1 ? "release" : "releases"}` : "No releases found. Try another title.";
-        status.textContent = unavailable ? `${result} · ${unavailable} ${unavailable === 1 ? "source" : "sources"} unavailable` : result;
+        summary.textContent = sorted.length === 1 ? "1 torrent release" : `${sorted.length} torrent releases`;
     }
 
     speed.addEventListener("input", render);
     budget.addEventListener("input", render);
-    form.addEventListener("submit", async event => {
-        event.preventDefault();
-        if (busy) return;
-        const term = query.value.trim();
-        if (term.length < 2) { status.textContent = "Enter at least two characters."; return; }
-        if (document.activeElement === query || document.activeElement === document.body) searchButton.focus();
+    async function load() {
+        if (busy) return true;
         busy = true;
-        searchButton.setAttribute("aria-disabled", "true");
+        retry.setAttribute("aria-disabled", "true");
         complete = false;
-        list.replaceChildren();
-        status.textContent = "Searching releases…";
+        if (!retry.hidden) status.textContent = "Checking releases…";
         let reply;
-        try { reply = await search(term); }
+        try { reply = await search(); }
         catch { reply = { error: "Release search is unavailable. Try again." }; }
-        if (!panel.isConnected) return;
+        if (signal.aborted || !panel.isConnected) return false;
         busy = false;
-        searchButton.removeAttribute("aria-disabled");
+        retry.removeAttribute("aria-disabled");
         if (reply?.error || !Array.isArray(reply?.results)) {
             status.textContent = reply?.error || "Release search is unavailable. Try again.";
-            return;
+            panel.hidden = retry.hidden = false;
+            return true;
         }
         const matches = new Map();
         for (const item of reply.results) {
@@ -113,7 +110,20 @@ export function buildReleaseSearch(search) {
         rows = [...matches.values()];
         unavailable = reply.unavailable;
         complete = true;
+        const focused = document.activeElement === retry;
+        status.textContent = unavailable ? `${unavailable} ${unavailable === 1 ? "indexer" : "indexers"} unavailable.`
+            : !rows.length && focused ? "No torrent releases found." : "";
+        options.hidden = !rows.length;
+        panel.hidden = !rows.length && !unavailable && !focused;
+        if (focused) {
+            const target = rows.length ? summary : status;
+            if (target === status) status.tabIndex = -1;
+            target.focus();
+        }
+        retry.hidden = true;
         render();
-    });
-    return panel;
+        return !panel.hidden;
+    }
+    retry.addEventListener("click", load);
+    return {element: panel, load};
 }

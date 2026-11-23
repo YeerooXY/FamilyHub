@@ -6,6 +6,8 @@ from pathlib import Path
 from unittest import mock
 
 from tests.test_music_web import Base, URL
+from flask import g
+from music_web import ApiError
 from music_web.resources import ResourceGovernor, TransferResources
 
 
@@ -281,3 +283,68 @@ class ServerSnapshotTests(Base):
         self.assertTrue(a.json['can_edit'])
         self.assertFalse(b.json['can_edit'])
         self.assertNotIn('Set-Cookie', b.headers)
+
+    def test_leaderboard_keeps_snapshot_through_delayed_refresh_failure(self):
+        first, _ = self.signed_in()
+        second, _ = self.signed_in('sample-b')
+        path = '/api/server/stats?leaderboard=1'
+        refreshing, release = threading.Event(), threading.Event()
+        workers = []
+        responses = iter([10, 503, 20, 403])
+
+        def stats(*args, **kwargs):
+            if g.user == 'sample-b':
+                raise ApiError('Try again.', 503)
+            total = next(responses)
+            if total == 503:
+                refreshing.set()
+                if not release.wait(5):
+                    raise RuntimeError('test did not release the refresh')
+            if total in (503, 403):
+                raise ApiError('Snapshot unavailable.', total)
+            return {'total_seconds': total}
+
+        def record_worker(**kwargs):
+            worker = threading.Thread(**kwargs)
+            workers.append(worker)
+            return worker
+
+        def join_refresh():
+            workers[-1].join(2)
+            self.assertFalse(workers[-1].is_alive())
+
+        with (mock.patch('music_web.snapshots.time') as clock,
+              mock.patch('music_web.snapshots.threading', wraps=threading) as threads,
+              mock.patch('music_web.ListeningStats.snapshot', side_effect=stats) as read):
+            threads.Thread.side_effect = record_worker
+            clock.monotonic.return_value = 100
+            self.assertEqual(self.go(first, 'GET', path).json, {'total_seconds': 10, 'snapshot_age_seconds': 0})
+            join_refresh()
+            clock.monotonic.return_value = 102
+            try:
+                self.assertEqual(self.go(first, 'GET', path).json, {'total_seconds': 10, 'snapshot_age_seconds': 2})
+                self.assertTrue(refreshing.wait(2))
+                self.assertEqual(self.go(first, 'GET', path).json['total_seconds'], 10)
+                self.assertEqual(self.go(self.app.test_client(), 'GET', path).status_code, 401)
+                # The other refresh may wait for the catalogue lock held by the first.
+                self.assertEqual(self.go(second, 'GET', path).status_code, 503)
+            finally:
+                release.set()
+                for worker in workers:
+                    worker.join(2)
+                    self.assertFalse(worker.is_alive())
+
+            clock.monotonic.return_value = 102.5
+            self.assertEqual(self.go(first, 'GET', path).json, {'total_seconds': 10, 'snapshot_age_seconds': 2})
+            self.assertEqual(self.go(second, 'GET', path).status_code, 503)
+            self.assertEqual(read.call_count, 3)
+            clock.monotonic.return_value = 105
+            self.assertEqual(self.go(first, 'GET', path).json['snapshot_age_seconds'], 5)
+            join_refresh()
+            self.assertEqual(self.go(first, 'GET', path).json, {'total_seconds': 20, 'snapshot_age_seconds': 0})
+            self.assertEqual(self.go(second, 'GET', path).status_code, 503)
+            join_refresh()
+            clock.monotonic.return_value = 106
+            self.assertEqual(self.go(first, 'GET', path).status_code, 200)
+            join_refresh()
+            self.assertEqual(self.go(first, 'GET', path).status_code, 403)
