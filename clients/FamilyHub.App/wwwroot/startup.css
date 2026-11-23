@@ -1,6 +1,5 @@
 /* One night backdrop for startup and updating. It never changes between the two, so opening the app and installing an update look like one scene. */
-.startup-screen, .night-backdrop {
-    background:
+:root { --night-backdrop:
         radial-gradient(3px 3px at 12% 18%, #ffffffb0 45%, #0000 70%),
         radial-gradient(2px 2px at 28% 72%, #ffffff80 45%, #0000 70%),
         radial-gradient(3px 3px at 44% 30%, #d9e2ff90 45%, #0000 70%),
@@ -8,8 +7,8 @@
         radial-gradient(4px 4px at 78% 22%, #f6d4ffa0 45%, #0000 70%),
         radial-gradient(2px 2px at 90% 58%, #ffffff80 45%, #0000 70%),
         radial-gradient(2px 2px at 8% 56%, #ffffff60 45%, #0000 70%),
-        radial-gradient(ellipse at 50% 46%, #1a2340 0, #0b0e18 52%, #06070c 100%);
-}
+        radial-gradient(ellipse at 50% 46%, #1a2340 0, #0b0e18 52%, #06070c 100%); }
+.startup-screen, .night-backdrop { background:var(--night-backdrop); }
 .startup-screen { position:fixed; inset:0; z-index:100; display:grid; place-items:center; margin:0; overflow:hidden; }
 .startup-stage { display:grid; justify-items:center; gap:1.6rem; animation:startup-stage-in 1s cubic-bezier(.2,.7,.2,1) both; }
 .startup-disc { position:relative; width:92px; height:92px; animation:startup-rise 1.1s cubic-bezier(.2,.7,.2,1) both; }
@@ -47,11 +46,62 @@
 .update-line { position:relative; width:100%; height:4px; margin:1.5rem 0 .5rem; border-radius:2px; background:#ffffff40; }
 .update-line-fill { position:absolute; inset:0 auto 0 0; border-radius:2px; background:linear-gradient(90deg, #89b4ff, #f19cda); transition:width .25s ease; }
 .update-line-thumb { position:absolute; top:50%; width:1.1rem; height:1.1rem; margin:-.55rem 0 0 -.55rem; border-radius:50%; background:#f19cda; box-shadow:0 0 14px #f19cda80; transition:left .25s ease; }
-.update-percent { margin:0; font-size:1.1rem; font-variant-numeric:tabular-nums; }
-.update-status { margin:0; min-height:1.4em; color:#ffffffb3; font-size:.9rem; }
+/* Spoken progress only: the percentage is announced, never shown. */
+.update-status { position:absolute; width:1px; height:1px; margin:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
 @media(prefers-reduced-motion:reduce) {
     .startup-stage, .startup-disc, .startup-disc img, .startup-orbit, .startup-word, .startup-line, .startup-line span, .startup-twinkle, .workspace, .update-screen { animation:none; }
     .startup-line span { width:100%; }
     .startup-screen.is-leaving { animation:startup-out .2s ease both; }
     .update-line-fill, .update-line-thumb { transition:none; }
 }
+
+/* What FamilyHub offers, one scene at a time while the update downloads: each fades and slides in as the last leaves.
+   The scenes are drawn in CSS and SVG with no baked-in lettering; every loop is 3 s so the inner motion restarts with its scene. */
+.update-stage { position:relative; width:100%; height:9.5rem; margin-top:.75rem; }
+.update-scene { position:absolute; inset:0; display:grid; justify-items:center; align-content:center; gap:.7rem; opacity:0; animation:update-scene 12s ease-in-out infinite both; animation-delay:calc(var(--i) * 3s); }
+.update-scene b { font-size:.95rem; font-weight:600; letter-spacing:.04em; color:#ffffffd9; }
+@keyframes update-scene {
+    0% { opacity:0; transform:translateX(28px) scale(.96); }
+    5%, 21% { opacity:1; transform:translateX(0) scale(1); }
+    26%, 100% { opacity:0; transform:translateX(-28px) scale(.96); }
+}
+.scene-music { display:flex; align-items:flex-end; gap:.4rem; height:4.5rem; }
+.scene-music span { width:.7rem; height:100%; border-radius:.35rem; background:linear-gradient(180deg, #f19cda, #89b4ff); transform-origin:bottom; animation:update-bar 1.2s ease-in-out infinite alternate; }
+.scene-music span:nth-child(2) { animation-delay:-.4s; } .scene-music span:nth-child(3) { animation-delay:-.8s; } .scene-music span:nth-child(4) { animation-delay:-.2s; } .scene-music span:nth-child(5) { animation-delay:-.6s; }
+@keyframes update-bar { from { transform:scaleY(.25); } to { transform:scaleY(1); } }
+.scene-wordle { display:flex; gap:.4rem; }
+.scene-wordle span { width:2.6rem; height:2.6rem; border-radius:.3rem; background:#3a3a3c; animation:update-tile 3s ease-in-out infinite both; animation-delay:var(--d); }
+@keyframes update-tile {
+    0%, 10% { transform:rotateX(0); background:#3a3a3c; }
+    24% { transform:rotateX(90deg); background:#3a3a3c; }
+    25% { transform:rotateX(90deg); background:var(--c); }
+    40%, 100% { transform:rotateX(0); background:var(--c); }
+}
+.scene-files svg, .scene-movies svg { width:6.5rem; height:4.9rem; overflow:visible; }
+.folder-back { fill:#6f8fd8; } .folder-front { fill:#89b4ff; } .folder-page { fill:#f4f6fb; animation:update-page 3s ease-in-out infinite both; }
+@keyframes update-page { 0%, 12% { transform:translateY(-30px); opacity:0; } 45%, 80% { transform:translateY(0); opacity:1; } 100% { transform:translateY(0); opacity:1; } }
+.screen { fill:#1c2233; stroke:#89b4ff; stroke-width:3; } .play { fill:#f19cda; transform-origin:51px 36px; animation:update-play 3s ease-in-out infinite both; }
+@keyframes update-play { 0%, 100% { transform:scale(.85); } 50% { transform:scale(1.1); } }
+@media(prefers-reduced-motion:reduce) {
+    .update-stage { height:auto; display:flex; justify-content:center; gap:1.1rem; flex-wrap:wrap; }
+    .update-scene { position:static; opacity:1; animation:none; transform:none; }
+    .scene-music span, .scene-wordle span, .folder-page, .play { animation:none; }
+    .scene-wordle span { background:var(--c); } .scene-music span { transform:scaleY(.7); }
+    .scene-wordle span { width:1.2rem; height:1.2rem; } .scene-files svg, .scene-movies svg { width:3.4rem; height:2.6rem; } .scene-music { height:2.6rem; }
+}
+
+/* The update popup wears the same night sky; its button turns into the progress bar in place. */
+.popup-panel.update-dialog:is([open],.is-open) { background:var(--night-backdrop); }
+.app-update button { position:relative; overflow:hidden; transition:min-height .35s ease, height .35s ease, border-radius .35s ease, padding .35s ease, background-color .35s ease; }
+.app-update button .update-line-fill { opacity:0; border-radius:inherit; transition:width .25s ease, opacity .25s ease; }
+.app-update button .update-btn-label, .app-update button .icon { transition:opacity .2s ease; }
+.app-update button.is-morphing { min-height:6px; height:6px; padding:0; border:0; border-radius:3px; background:#ffffff40; pointer-events:none; }
+.app-update button.is-morphing .update-btn-label, .app-update button.is-morphing .icon { opacity:0; }
+.app-update button.is-morphing .update-line-fill { opacity:1; }
+.app-update .update-stage { height:8rem; margin:1rem 0 .25rem; animation:update-stage-in .45s ease-out both; }
+@keyframes update-stage-in { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+@media(prefers-reduced-motion:reduce) {
+    .app-update button, .app-update button .update-line-fill, .app-update button .update-btn-label, .app-update button .icon { transition:none; }
+    .app-update .update-stage { animation:none; }
+}
+.popup-panel.update-dialog .dialog-heading { background:transparent; }

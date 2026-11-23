@@ -4,21 +4,28 @@
 @if (AppUpdater.Platform is not null && available is not null)
 {
     <div class="app-update @(Compact ? "compact-update" : "")">
-        <button @ref="buttonRef" id="@Id" type="button" aria-label="@Label" title="@Label" @onclick="Update" aria-disabled="@(working ? "true" : "false")"><MusicIcon Name="download" />@if (!Compact) { @Label }</button>
+        <button @ref="buttonRef" id="@Id" type="button" class="@(morphing ? "is-morphing" : "")" role="@(morphing ? "progressbar" : null)"
+                aria-label="@(morphing ? "Updating FamilyHub" : Label)" title="@Label" @onclick="Update" aria-disabled="@(working ? "true" : "false")"
+                aria-valuemin="@(morphing ? 0 : null)" aria-valuemax="@(morphing ? 100 : null)" aria-valuenow="@(morphing ? percent : null)" aria-valuetext="@(morphing ? percent + " percent downloaded" : null)">
+            <MusicIcon Name="download" />@if (!Compact) { <span class="update-btn-label">@Label</span> }
+            <span class="update-line-fill" style="width:@(percent)%" aria-hidden="true"></span>
+        </button>
+        @if (morphing) { @Stage }
         @if (!Compact) { <Notice Level="@(failed ? "error" : "info")" Message="@(working ? "" : message)" /> }
+        @if (morphing) { <p class="update-status" role="status">@announcement</p> }
     </div>
-    @if (working && !Compact && !AppUpdater.UpdatesInSideStore)
+    @if (working && !Compact && !Inline && !AppUpdater.UpdatesInSideStore)
     {
         <div class="update-screen night-backdrop" role="dialog" aria-modal="true" aria-labelledby="update-screen-title">
             <div class="update-card">
                 <div class="startup-disc update-disc"><img src="familyhub-logo.svg" alt="" /></div>
                 <h2 @ref="titleRef" id="update-screen-title" tabindex="-1">Updating FamilyHub</h2>
                 <p class="update-versions">@AppUpdater.CurrentVersion → @available.Version</p>
+                @Stage
                 <div class="update-line" role="progressbar" aria-labelledby="update-screen-title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@percent" aria-valuetext="@percent percent downloaded">
                     <span class="update-line-fill" style="width:@(percent)%"></span>
                     <span class="update-line-thumb" style="left:@(percent)%"></span>
                 </div>
-                <p class="update-percent">@percent%</p>
                 <p class="update-status" role="status">@announcement</p>
             </div>
         </div>
@@ -28,6 +35,31 @@
 @code {
     [Parameter] public bool Compact { get; set; }
     [Parameter] public bool VersionInHeading { get; set; }
+    /// <summary>In a popup: the button turns into the progress bar in place instead of opening the full-screen updater.</summary>
+    [Parameter] public bool Inline { get; set; }
+    private bool morphing => working && Inline && !Compact && !AppUpdater.UpdatesInSideStore;
+    private RenderFragment Stage => @<text>
+        @* stage: decorative scenes for what FamilyHub offers; the live status below is the accessible text *@
+                <div class="update-stage" aria-hidden="true">
+                    <div class="update-scene" style="--i:0">
+                        <div class="scene-music"><span></span><span></span><span></span><span></span><span></span></div>
+                        <b>Music</b>
+                    </div>
+                    <div class="update-scene" style="--i:1">
+                        <div class="scene-wordle"><span style="--c:#538d4e;--d:0s"></span><span style="--c:#b59f3b;--d:.15s"></span><span style="--c:#3a3a3c;--d:.3s"></span><span style="--c:#538d4e;--d:.45s"></span><span style="--c:#538d4e;--d:.6s"></span></div>
+                        <b>Wordle</b>
+                    </div>
+                    <div class="update-scene" style="--i:2">
+                        <div class="scene-files"><svg viewBox="0 0 96 72"><path class="folder-back" d="M6 14a6 6 0 0 1 6-6h20l8 9h44a6 6 0 0 1 6 6v36a6 6 0 0 1-6 6H12a6 6 0 0 1-6-6z"/><rect class="folder-page" x="26" y="2" width="38" height="46" rx="4"/><path class="folder-front" d="M6 30a6 6 0 0 1 6-6h72a6 6 0 0 1 6 6v30a6 6 0 0 1-6 6H12a6 6 0 0 1-6-6z"/></svg></div>
+                        <b>Files</b>
+                    </div>
+                    <div class="update-scene" style="--i:3">
+                        <div class="scene-movies"><svg viewBox="0 0 96 72"><rect class="screen" x="4" y="6" width="88" height="60" rx="8"/><path class="play" d="M40 24v24l22-12z"/></svg></div>
+                        <b>Movies</b>
+                    </div>
+                </div>
+                @* /stage *@
+    </text>;
     private bool working, failed, focusTitle, focusButton;
     private int percent;
     private string announcement = "";
@@ -65,7 +97,7 @@
             await Available.InvokeAsync(available);
             return;
         }
-        working = true; failed = false; percent = 0; focusTitle = !Compact && !AppUpdater.UpdatesInSideStore;
+        working = true; failed = false; percent = 0; focusTitle = !Compact && !Inline && !AppUpdater.UpdatesInSideStore;
         announcement = "Downloading the update.";
         var lastAnnounced = 0;
         try

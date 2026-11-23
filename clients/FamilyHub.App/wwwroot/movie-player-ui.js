@@ -2,6 +2,8 @@
 // play button, a seek bar with the remaining time, and Episodes / Audio & Subtitles / Next Episode below.
 // The module owns only the controls. movies.js owns the video element, Jellyfin and progress reporting.
 
+import { attachSound, soundPanelWanted, SOUND_MODES, MAX_VOLUME } from "./movie-sound.js";
+
 const SVG = "http://www.w3.org/2000/svg";
 const paths = {
     back: "M15 5l-7 7 7 7",
@@ -12,6 +14,8 @@ const paths = {
     next: ["M5 5v14l10-7z", "M19 5v14"],
     episodes: ["M8 4h12v12H8z", "M4 8v12h12"],
     tracks: ["M4 5h16v11h-9l-4 4v-4H4z", "M7 9h10M7 12h6"],
+    sound: ["M4 9v6h4l5 4V5L8 9z", "M16.5 9a4.5 4.5 0 0 1 0 6"],
+    soundOff: ["M4 9v6h4l5 4V5L8 9z", "M17 9.5l4 5M21 9.5l-4 5"],
     expand: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
     collapse: "M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"
 };
@@ -151,11 +155,16 @@ export function buildPlayerUi(ctx) {
     episodesButton.hidden = true;
     const tracksButton = button("movie-ui-action", "Audio and subtitles", paths.tracks, {}, () => toggleSheet("tracks"));
     tracksButton.append(make("span", "", "Audio & Subtitles"));
+    // Sound settings for a PC: phones and televisions have hardware volume, so nothing is offered there.
+    const sound = soundPanelWanted() ? attachSound(media, { signal }) : null;
+    const soundButton = button("movie-ui-action", "Sound", paths.sound, {}, () => toggleSheet("sound"));
+    soundButton.append(make("span", "", "Sound"));
+    soundButton.hidden = !sound;
     const nextButton = button("movie-ui-action", "Next episode", paths.next, {}, () => nextEpisode?.play());
     nextButton.append(make("span", "", "Next Episode"));
     nextButton.hidden = true;
     const actions = make("div", "movie-ui-actions");
-    actions.append(fullscreen, episodesButton, tracksButton, nextButton);
+    actions.append(fullscreen, episodesButton, tracksButton, soundButton, nextButton);
     const bottom = make("div", "movie-ui-bottom");
     bottom.append(seekRow, actions);
 
@@ -176,6 +185,69 @@ export function buildPlayerUi(ctx) {
     }
     const tracksSheet = makeSheet("tracks", "Audio & Subtitles", "Close audio and subtitles", tracksButton);
     const episodesSheet = makeSheet("episodes", "Episodes", "Close episodes", episodesButton);
+    const soundSheet = makeSheet("sound", "Sound", "Close sound", soundButton);
+    let refreshOutputs = async () => {};
+    if (sound) {
+        soundSheet.classList.add("movie-sheet-sound");
+        const volumeRow = make("div", "movie-sound-volume");
+        const mute = make("button", "movie-sound-mute");
+        mute.type = "button";
+        const volume = make("input", "movie-sound-slider");
+        Object.assign(volume, { type: "range", min: 0, max: MAX_VOLUME * 100, step: 5 });
+        volume.setAttribute("aria-label", "Volume");
+        const readout = make("output", "movie-sound-readout");
+        const hint = make("p", "movie-sound-hint", "Above 100% is louder than the original and can distort.");
+        volumeRow.append(mute, volume, readout);
+        const options = (heading, label) => {
+            const column = make("div", "movie-track-col");
+            const list = make("div", "movie-track-list");
+            list.setAttribute("role", "radiogroup");
+            list.setAttribute("aria-label", label);
+            column.append(make("h4", "", heading), list);
+            return { column, list };
+        };
+        const modes = options("Sound mode", "Sound mode"), outputs = options("Output", "Sound output");
+        const modeRows = SOUND_MODES.map(([id, name]) => {
+            const row = make("button", "movie-track-option", name);
+            row.type = "button";
+            row.setAttribute("role", "radio");
+            row.dataset.value = id;
+            row.addEventListener("click", () => { sound.set({ mode: id }); modes.list.querySelector("[aria-checked='true']")?.focus(); }, { signal });
+            modes.list.append(row);
+            return row;
+        });
+        const paint = state => {
+            volume.value = state.muted ? 0 : Math.round(state.volume * 100);
+            readout.textContent = (state.muted ? 0 : Math.round(state.volume * 100)) + "%";
+            volume.setAttribute("aria-valuetext", readout.textContent);
+            mute.setAttribute("aria-label", state.muted ? "Unmute" : "Mute");
+            mute.setAttribute("aria-pressed", String(state.muted));
+            mute.replaceChildren(icon(state.muted || state.volume === 0 ? paths.soundOff : paths.sound));
+            hint.hidden = state.muted || state.volume <= 1;
+            for (const row of modeRows) row.setAttribute("aria-checked", String(row.dataset.value === state.mode));
+            for (const row of outputs.list.children) row.setAttribute("aria-checked", String(row.dataset.value === state.device));
+        };
+        mute.addEventListener("click", () => sound.toggleMute(), { signal });
+        volume.addEventListener("input", () => sound.set({ volume: Number(volume.value) / 100 }), { signal });
+        sound.onChange(paint);
+        refreshOutputs = async () => {
+            const found = sound.canPickOutput ? await sound.outputs() : [];
+            outputs.column.hidden = found.length < 2;
+            outputs.list.replaceChildren(...found.map(({ id, label }) => {
+                const row = make("button", "movie-track-option", label);
+                row.type = "button";
+                row.setAttribute("role", "radio");
+                row.dataset.value = id === "default" ? "" : id;
+                row.addEventListener("click", () => sound.set({ device: row.dataset.value }), { signal });
+                return row;
+            }));
+            paint(sound.state);
+        };
+        const body = sheets.sound.body;
+        body.classList.add("movie-sound-body");
+        body.append(volumeRow, hint, modes.column, outputs.column);
+        paint(sound.state);
+    }
     // Audio & Subtitles is one popover with a list per kind, like Netflix. The labelled selects stay in the document,
     // hidden, as the single source of truth: choosing a row sets its select and fires the select's change event.
     tracksSheet.classList.add("movie-sheet-tracks");
@@ -216,6 +288,7 @@ export function buildPlayerUi(ctx) {
         openSheet = name;
         sheets[name].node.hidden = false;
         if (name === "tracks") for (const sync of syncTracks) sync();
+        if (name === "sound") refreshOutputs();
         sheets[name].opener.setAttribute("aria-expanded", "true");
         show();
         // Focus starts on the close control (or the current episode), so Escape and Enter work the same everywhere.
@@ -230,7 +303,7 @@ export function buildPlayerUi(ctx) {
         if (restoreFocus) sheet.opener.focus();
         show();
     }
-    for (const name of ["tracks", "episodes"]) sheets[name].opener.setAttribute("aria-expanded", "false");
+    for (const name of ["tracks", "episodes", "sound"]) sheets[name].opener.setAttribute("aria-expanded", "false");
 
     // Surface: a tap or click on the picture. Touch toggles the controls, a mouse toggles play, double click goes fullscreen.
     const surfaceLayer = make("div", "movie-ui-surface");
@@ -262,7 +335,7 @@ export function buildPlayerUi(ctx) {
     spinnerRoot.append(spinner);
     const subs = make("div", "movie-ui-subs");
     subs.setAttribute("aria-hidden", "true");
-    root.append(surfaceLayer, subs, spinnerRoot, message, top, mid, bottom, tracksSheet, episodesSheet);
+    root.append(surfaceLayer, subs, spinnerRoot, message, top, mid, bottom, tracksSheet, episodesSheet, soundSheet);
 
     // Controls hide a few seconds after the last touch, playing or paused. Reduced motion only removes the fade, not the hiding.
     // A keyboard or remote focus ring keeps them up so the focused control stays visible.
@@ -362,11 +435,11 @@ export function buildPlayerUi(ctx) {
     // Keyboard and TV remote. With a control focused, the arrow keys move between controls (a TV remote has no pointer):
     // left and right inside a row, up and down between rows. The seek bar scrubs with left and right. With nothing
     // focused, left and right skip 10 seconds. Space, K or Enter toggles play, Escape closes a sheet, Back closes the player.
-    const rows = () => [[back], [rewind, playPause, forward], [seek], [fullscreen, episodesButton, tracksButton, nextButton].filter(b => !b.hidden)];
+    const rows = () => [[back], [rewind, playPause, forward], [seek], [fullscreen, episodesButton, tracksButton, soundButton, nextButton].filter(b => !b.hidden)];
     function moveFocus(target, key) {
         const sheetNode = openSheet && sheets[openSheet].node;
         if (sheetNode?.contains(target)) {
-            const items = [...sheetNode.querySelectorAll("button, select")];
+            const items = [...sheetNode.querySelectorAll("button, select, input")].filter(node => !node.closest("[hidden]"));
             const at = items.indexOf(target) + (key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : 0);
             if (at !== items.indexOf(target) && items[at]) items[at].focus();
             return true;
@@ -394,6 +467,8 @@ export function buildPlayerUi(ctx) {
         if (event.keyCode === 461 || event.key === "BrowserBack") { event.preventDefault(); back.click(); return; }
         const arrow = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key);
         if (target instanceof HTMLSelectElement) return;
+        // A volume slider keeps its own Left and Right; only the seek bar scrubs.
+        if (target instanceof HTMLInputElement && target !== seek && ["ArrowLeft", "ArrowRight"].includes(event.key)) return;
         if (arrow && root.contains(target) && target !== document.body) {
             show();
             if (moveFocus(target, event.key)) event.preventDefault();
@@ -405,6 +480,7 @@ export function buildPlayerUi(ctx) {
         else if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); show(); playPause.focus(); }
         else if (event.key === " " || event.key === "k" || event.key === "Enter") { event.preventDefault(); toggle(); }
         else if (event.key === "f" || event.key === "F") fullscreen.click();
+        else if ((event.key === "m" || event.key === "M") && sound) { sound.toggleMute(); failure.textContent = sound.state.muted ? "Muted." : "Sound on."; show(); }
     }, { signal, capture: true });
 
     sync();

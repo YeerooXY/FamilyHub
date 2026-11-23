@@ -546,12 +546,12 @@ else
 
 @if (startupUpdate is not null)
 {
-    <dialog id="update-dialog" class="popup-panel update-dialog" aria-labelledby="update-heading">
+    <dialog id="update-dialog" class="popup-panel update-dialog night-backdrop" aria-labelledby="update-heading">
         <div class="dialog-heading">
             <h2 id="update-heading">FamilyHub @startupUpdate.Version is available</h2>
             <button class="quiet" aria-label="Close update" @onclick="LaterUpdate"><MusicIcon Name="close" /></button>
         </div>
-        <AppUpdate Id="dialog-update" InitialRelease="startupUpdate" VersionInHeading="true" />
+        <AppUpdate Id="dialog-update" Inline="true" InitialRelease="startupUpdate" VersionInHeading="true" />
         <button id="update-later" class="quiet" @onclick="LaterUpdate">Later</button>
     </dialog>
 }
