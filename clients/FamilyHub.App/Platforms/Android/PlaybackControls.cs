@@ -182,12 +182,12 @@ internal sealed class PlaybackControls
             if (version != publicationVersion || player.NotificationPlayback.Track?.Id != track.Id || session.ArtworkScope != metadata.Account)
                 return;
             player.TraceNotification(published ? "notification_published" : "notification_failed", track, position,
-                published ? reason : "Android could not post the notification");
+                published ? reason : "Android could not post the notification" + (PlaybackService.LastError is { } why ? $" ({why})" : ""));
             if (!published && retry) _ = RetryNotificationAsync(metadata, track, state, position, reason, version);
             if (!published) WarnIfNotificationsBlocked();
         }
         try { ShowNotification(metadata, state, Report); }
-        catch (Java.Lang.RuntimeException) { Report(false); }
+        catch (Java.Lang.RuntimeException error) { PlaybackService.Remember(error); Report(false); }
     }
 
     private static bool warnedAboutNotifications;
@@ -334,6 +334,14 @@ internal sealed class PlaybackService : Service
     private Publication? published;
     private bool foreground;
     internal static bool IsStarted => starting || running is not null;
+    /// <summary>Why Android refused the last notification or foreground start, for the playback attempt list.</summary>
+    internal static string? LastError { get; private set; }
+    internal static void Remember(Java.Lang.RuntimeException error) => Describe(error);
+    private static string Describe(Java.Lang.RuntimeException error)
+    {
+        var text = $"{error.GetType().Name}: {error.Message}";
+        return LastError = text.Length > 140 ? text[..140] : text;
+    }
 
     internal static void Show(Context context, Notification notification, bool playing, Action<bool> report)
     {
@@ -349,7 +357,7 @@ internal sealed class PlaybackService : Service
             }
             catch (Java.Lang.RuntimeException error)
             {
-                Android.Util.Log.Warn("FamilyHub", $"Playback service could not start: {error.GetType().Name}");
+                Android.Util.Log.Warn("FamilyHub", $"Playback service could not start: {Describe(error)}");
                 report(false);
             }
         }
@@ -412,7 +420,7 @@ internal sealed class PlaybackService : Service
         }
         catch (Java.Lang.RuntimeException error)
         {
-            Android.Util.Log.Warn("FamilyHub", $"Playback notification could not be published: {error.GetType().Name}");
+            Android.Util.Log.Warn("FamilyHub", $"Playback notification could not be published: {Describe(error)}");
             pending.Report(false);
             return false;
         }
