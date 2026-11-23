@@ -13,6 +13,10 @@
             <span class="hub-film" aria-hidden="true"><i></i><i></i><i></i></span>
             <span class="hub-label">Movies &amp; TV</span>
         </button>
+        <button class="hub-card hub-files" @onclick='() => Open.InvokeAsync("Files")'>
+            <span class="hub-folder" aria-hidden="true"><i></i></span>
+            <span class="hub-label">Files</span>
+        </button>
     </nav>
 </section>
 @code {

@@ -135,6 +135,10 @@ else
     {
         <MoviesView @key="AppearanceKey" />
     }
+    else if (view == "Files")
+    {
+        <FilesView @key="AppearanceKey" />
+    }
     else if (view == "Album" && selectedAlbum is { } album)
     {
         <section class="playlist-hero glass-panel">
@@ -1206,7 +1210,7 @@ else
     private static string PlaylistAlbum(PlaylistTrack entry, MusicTrack? track) => PlaylistSongs.Album(entry, track);
     private MusicTrack? NextTrack => Player.QueueIndex + 1 < Player.Queue.Count ? Player.Queue[Player.QueueIndex + 1] : null;
     private static string NavLabel(string tab) => tab switch { "Downloads" => "Downloaded", "Stats" => "Server work", _ => tab };
-    private static string NavIcon(string tab) => tab switch { "Library" => "library", "Search" => "search", "Downloads" => "down", "Movies & TV" => "film", "Playlists" => "playlist", "Stats" => "device", "Leaderboard" => "crown", _ => "queue" };
+    private static string NavIcon(string tab) => tab switch { "Library" => "library", "Search" => "search", "Downloads" => "down", "Movies & TV" => "film", "Files" => "folder", "Playlists" => "playlist", "Stats" => "device", "Leaderboard" => "crown", _ => "queue" };
     private Task VolumeChanged(ChangeEventArgs args)
     {
         if (!double.TryParse(args.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value)) return Task.CompletedTask;

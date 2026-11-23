@@ -247,6 +247,24 @@ public sealed class FamilyHubApi : IDisposable
             ?? throw new InvalidDataException("The server returned no data.");
     }
 
+    // ---- Files: the server's own error text matters here, so these return status and body as they are. ----
+    public async Task<(int Status, string Body)> FilesRequestAsync(HttpMethod method, string path, string? json, CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(method, path, json is null ? null : new StringContent(json, System.Text.Encoding.UTF8, "application/json"), cancellationToken);
+        return ((int)response.StatusCode, await response.Content.ReadAsStringAsync(cancellationToken));
+    }
+
+    public async Task<(int Status, string Body)> UploadFileAsync(string space, string folder, string name, Stream content, long length, Action<long> progress, CancellationToken cancellationToken = default)
+    {
+        var path = "/api/files/upload?space=" + Uri.EscapeDataString(space) + "&path=" + Uri.EscapeDataString(folder) + "&name=" + Uri.EscapeDataString(name);
+        using var body = new ProgressContent(content, length, progress);
+        using var response = await SendAsync(HttpMethod.Put, path, body, cancellationToken);
+        return ((int)response.StatusCode, await response.Content.ReadAsStringAsync(cancellationToken));
+    }
+
+    public Task<HttpResponseMessage> OpenFileAsync(string space, string path, CancellationToken cancellationToken = default) =>
+        SendAsync(HttpMethod.Get, "/api/files/download?space=" + Uri.EscapeDataString(space) + "&path=" + Uri.EscapeDataString(path), null, cancellationToken);
+
     public async IAsyncEnumerable<T> WatchJobStatusAsync<T>(string path,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token = default)
     {

@@ -1,0 +1,192 @@
+@implements IAsyncDisposable
+@inject MusicSession Session
+@inject IJSRuntime JS
+
+<div @ref="host" class="files-host"></div>
+@if (message.Length > 0)
+{
+    <p role="status">@message</p>
+    @if (failed) { <button class="quiet" @onclick="Load">Retry files</button> }
+}
+
+@code {
+    private ElementReference host;
+    private IJSObjectReference? module, screen;
+    private DotNetObjectReference<FilesView>? callback;
+    private readonly CancellationTokenSource closed = new();
+    private string message = "Loading files…";
+    private bool failed, loading;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await Load();
+    }
+
+    private async Task Load()
+    {
+        if (loading || closed.IsCancellationRequested) return;
+        loading = true;
+        try
+        {
+            if (Session.Api is null) throw new InvalidOperationException();
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./files.js");
+            callback ??= DotNetObjectReference.Create(this);
+            screen = await module.InvokeAsync<IJSObjectReference>("openFiles", host, callback, new { server = Session.Server });
+            if (closed.IsCancellationRequested) { await screen.InvokeVoidAsync("close"); return; }
+            message = "";
+            failed = false;
+        }
+        catch (Exception) when (!closed.IsCancellationRequested)
+        {
+            message = "Files are unavailable. Check the connection to your server.";
+            failed = true;
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            loading = false;
+            if (!closed.IsCancellationRequested) await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static string Reply(int status, string body) => System.Text.Json.JsonSerializer.Serialize(new { status, body });
+
+    // JSON endpoints under /api/files. The screen asks for a method and address; anything else is refused here.
+    [JSInvokable]
+    public async Task<string> FilesCall(string method, string url, string? json)
+    {
+        var verb = method switch { "GET" => HttpMethod.Get, "POST" => HttpMethod.Post, "DELETE" => HttpMethod.Delete, _ => null };
+        if (verb is null || !url.StartsWith("/api/files/") && !url.StartsWith("/api/files?") || Session.Api is not { } api) return Reply(0, "");
+        try
+        {
+            var (status, body) = await api.FilesRequestAsync(verb, url, json, closed.Token);
+            return Reply(status, body);
+        }
+        catch (Exception) { return Reply(0, ""); }
+    }
+
+    private static string ErrorText(string body, string fallback)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(body);
+            if (document.RootElement.TryGetProperty("error", out var error) && error.ValueKind == System.Text.Json.JsonValueKind.String) return error.GetString() ?? fallback;
+        }
+        catch (System.Text.Json.JsonException) { }
+        return fallback;
+    }
+
+    private async Task Report(string name, long sent, long total)
+    {
+        try { if (screen is not null && !closed.IsCancellationRequested) await screen.InvokeVoidAsync("progress", name, sent, total); }
+        catch (Exception) { }
+    }
+
+    // Pick files and stream each one to the server; the file is never held in memory.
+    [JSInvokable]
+    public async Task<string> FilesUpload(string space, string folder)
+    {
+        var uploaded = new List<string>();
+        var errors = new List<string>();
+        if (Session.Api is not { } api) return System.Text.Json.JsonSerializer.Serialize(new { uploaded, errors = new[] { "Sign in again to upload." } });
+        IEnumerable<Microsoft.Maui.Storage.FileResult>? picks = null;
+        try { picks = await Microsoft.Maui.Storage.FilePicker.Default.PickMultipleAsync(); }
+        catch (Exception) { errors.Add("The file picker could not open."); }
+        foreach (var pick in picks ?? [])
+        {
+            string? copy = null;
+            try
+            {
+                await using var stream = await pick.OpenReadAsync();
+                Stream source = stream;
+                if (!stream.CanSeek)
+                {
+                    copy = Path.Combine(Microsoft.Maui.Storage.FileSystem.CacheDirectory, Guid.NewGuid().ToString("N"));
+                    await using (var temp = File.Create(copy)) await stream.CopyToAsync(temp, closed.Token);
+                    source = File.OpenRead(copy);
+                }
+                try
+                {
+                    var total = source.Length;
+                    var last = DateTime.MinValue;
+                    var (status, body) = await api.UploadFileAsync(space, folder, pick.FileName, source, total, sent =>
+                    {
+                        if (sent == total || DateTime.UtcNow - last > TimeSpan.FromMilliseconds(250)) { last = DateTime.UtcNow; _ = Report(pick.FileName, sent, total); }
+                    }, closed.Token);
+                    if (status is >= 200 and < 300) uploaded.Add(pick.FileName);
+                    else errors.Add($"{pick.FileName}: {ErrorText(body, "the upload failed.")}");
+                }
+                finally { if (!ReferenceEquals(source, stream)) await source.DisposeAsync(); }
+            }
+            catch (OperationCanceledException) { break; }
+            catch (Exception) { errors.Add($"{pick.FileName}: the upload did not finish."); }
+            finally { if (copy is not null) { try { File.Delete(copy); } catch (IOException) { } } }
+        }
+        return System.Text.Json.JsonSerializer.Serialize(new { uploaded, errors });
+    }
+
+    private static string FreeName(string folder, string name)
+    {
+        name = Path.GetFileName(name);
+        var target = Path.Combine(folder, name);
+        for (var number = 2; File.Exists(target) && number < 1000; number++)
+            target = Path.Combine(folder, $"{Path.GetFileNameWithoutExtension(name)} ({number}){Path.GetExtension(name)}");
+        return target;
+    }
+
+    // Windows saves to the Downloads folder. Phones save to the app's cache and open the share sheet, where the person
+    // chooses Files, Drive or another app to keep it.
+    [JSInvokable]
+    public async Task<string> FilesDownload(string space, string path, string name)
+    {
+        if (Session.Api is not { } api) return "Sign in again to download.";
+        try
+        {
+            using var response = await api.OpenFileAsync(space, path, closed.Token);
+            if (!response.IsSuccessStatusCode) return $"Could not download {name}. It may have been removed.";
+#if WINDOWS
+            var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+            Directory.CreateDirectory(folder);
+            var target = FreeName(folder, name);
+            await using (var file = File.Create(target)) await response.Content.CopyToAsync(file, closed.Token);
+            return $"Saved {Path.GetFileName(target)} to your Downloads folder.";
+#else
+            var folder = Path.Combine(Microsoft.Maui.Storage.FileSystem.CacheDirectory, "files-download");
+            Directory.CreateDirectory(folder);
+            var target = FreeName(folder, name);
+            await using (var file = File.Create(target)) await response.Content.CopyToAsync(file, closed.Token);
+            await Microsoft.Maui.ApplicationModel.DataTransfer.Share.Default.RequestAsync(new Microsoft.Maui.ApplicationModel.DataTransfer.ShareFileRequest
+            { Title = name, File = new Microsoft.Maui.Storage.ShareFile(target) });
+            return $"{name} is ready. Choose where to keep it.";
+#endif
+        }
+        catch (OperationCanceledException) { return ""; }
+        catch (Exception) { return $"Could not download {name}. Check the connection and try again."; }
+    }
+
+    [JSInvokable]
+    public async Task<bool> FilesCopy(string text)
+    {
+        try { await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.Default.SetTextAsync(text); return true; }
+        catch (Exception) { return false; }
+    }
+
+    [JSInvokable]
+    public async Task FilesShare(string text)
+    {
+        try { await Microsoft.Maui.ApplicationModel.DataTransfer.Share.Default.RequestAsync(new Microsoft.Maui.ApplicationModel.DataTransfer.ShareTextRequest { Text = text, Title = "FamilyHub file link" }); }
+        catch (Exception) { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        closed.Cancel();
+        try
+        {
+            if (screen is not null) { await screen.InvokeVoidAsync("close"); await screen.DisposeAsync(); }
+            if (module is not null) await module.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+        finally { callback?.Dispose(); }
+    }
+}

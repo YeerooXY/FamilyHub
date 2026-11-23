@@ -1,0 +1,170 @@
+// The Files screen with a fake server behind the .NET bridge: listing, folders, rename, delete, upload progress,
+// share links and focus. Runs in Chromium and WebKit at phone and desktop width.
+const assert = require("node:assert/strict");
+const path = require("node:path");
+const { chromium, webkit } = require(require.resolve("playwright", { paths: [process.cwd(), path.resolve(__dirname, "../../agent-dock")] }));
+
+const app = "http://familyhub.test";
+const wwwroot = path.join(__dirname, "../clients/FamilyHub.App/wwwroot");
+
+async function check(browser, label, viewport) {
+    const page = await browser.newPage({ viewport });
+    page.setDefaultTimeout(6000);
+    page.on("pageerror", (e) => console.log("PAGEERROR", e.message));
+    await page.route(app + "/**", (route) => {
+        const name = new URL(route.request().url()).pathname.slice(1);
+        return name ? route.fulfill({ path: path.join(wwwroot, name) })
+            : route.fulfill({ contentType: "text/html", body: '<link rel="stylesheet" href="/files.css"><main style="padding:1rem;background:#0b0d12;min-height:100vh"><div id="host"></div></main>' });
+    });
+    await page.goto(app + "/");
+    await page.evaluate(async () => {
+        const now = Date.now() / 1000;
+        const tree = { mine: { "": [["Trips", "dir"], ["notes.txt", "file", 1200], ["report.pdf", "file", 3400000]], Trips: [["plan.txt", "file", 80]] }, family: { "": [["Photos", "dir"], ["recipes.doc", "file", 5000]] } };
+        const links = [];
+        window.log = [];
+        const reply = (status, body) => JSON.stringify({ status, body: body === undefined ? "" : JSON.stringify(body) });
+        const bridge = { invokeMethodAsync: async (name, ...args) => {
+            window.log.push([name, ...args]);
+            if (name === "FilesCall") {
+                const [method, url, json] = args, u = new URL(url, "http://x"), p = u.searchParams, space = p.get("space"), dir = p.get("path") || "";
+                const body = json ? JSON.parse(json) : {};
+                if (u.pathname === "/api/files/list") {
+                    const rows = (tree[space]?.[dir] ?? []).map(([n, t, s]) => ({ name: n, type: t, size: s ?? 0, modified: now - 86400, owner: null }));
+                    return reply(200, { space, path: dir, entries: rows.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "dir" ? -1 : 1)) });
+                }
+                if (u.pathname === "/api/files/folder") {
+                    (tree[body.space][body.path] ??= []).push([body.name, "dir"]);
+                    tree[body.space][body.path === "" ? body.name : body.path + "/" + body.name] = [];
+                    return reply(201, { name: body.name });
+                }
+                if (u.pathname === "/api/files/rename") {
+                    const parts = body.path.split("/"), old = parts.pop(), where = parts.join("/");
+                    if (tree[body.space][where].some((r) => r[0] === body.name)) return reply(409, { error: "Something with that name already exists." });
+                    tree[body.space][where].find((r) => r[0] === old)[0] = body.name;
+                    return reply(200, { name: body.name });
+                }
+                if (u.pathname === "/api/files" && method === "DELETE") {
+                    const parts = dir.split("/"), old = parts.pop(), where = parts.join("/");
+                    tree[space][where] = tree[space][where].filter((r) => r[0] !== old);
+                    return reply(204);
+                }
+                if (u.pathname === "/api/files/links" && method === "POST") {
+                    links.unshift({ id: "a".repeat(16), space: body.space, path: body.path, name: body.path.split("/").at(-1), created: now, expires: now + body.expires_hours * 3600, max_downloads: body.max_downloads ?? null, downloads: 0, protected: Boolean(body.password), active: true });
+                    return reply(201, { id: "a".repeat(16), url: "/api/share/SECRET", expires: now + body.expires_hours * 3600 });
+                }
+                if (u.pathname === "/api/files/links" && method === "GET") return reply(200, { links });
+                if (u.pathname.startsWith("/api/files/links/") && method === "DELETE") { links[0].active = false; return reply(204); }
+            }
+            if (name === "FilesUpload") {
+                for (const pct of [10, 60, 100]) { window.screen1.progress("big.iso", pct, 100); await new Promise((r) => setTimeout(r, 120)); }
+                tree[args[0]][args[1]].push(["big.iso", "file", 9e9]);
+                return JSON.stringify({ uploaded: ["big.iso"], errors: [] });
+            }
+            if (name === "FilesDownload") return `Saved ${args[2]} to your Downloads folder.`;
+            if (name === "FilesCopy") return true;
+            return null;
+        } };
+        const { openFiles } = await import("/files.js");
+        window.screen1 = openFiles(document.getElementById("host"), bridge, { server: "https://server.test" });
+    });
+    const active = () => page.evaluate(() => document.activeElement?.getAttribute("aria-label") || document.activeElement?.textContent?.trim() || document.activeElement?.tagName);
+    const noScroll = async (where) => assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true, `${label}: no sideways scroll ${where}`);
+
+    // Listing, tabs, breadcrumb
+    await page.getByRole("button", { name: "Open folder Trips" }).waitFor();
+    assert.equal(await page.locator(".files-row").count(), 3);
+    await page.getByRole("button", { name: "Open folder Trips" }).click();
+    await page.getByRole("button", { name: "Download plan.txt" }).waitFor();
+    assert.equal(await page.locator(".files-crumb", { hasText: "Trips" }).getAttribute("aria-current"), "page");
+    await page.locator(".files-crumb", { hasText: "My files" }).click();
+    await page.getByRole("button", { name: "Download notes.txt" }).waitFor();
+    await page.getByRole("tab", { name: "Family" }).click();
+    await page.getByRole("button", { name: "Download recipes.doc" }).waitFor();
+    await page.getByRole("tab", { name: "My files" }).click();
+    await page.getByRole("button", { name: "Download notes.txt" }).waitFor();
+    await noScroll("listing");
+    await page.screenshot({ path: path.join(__dirname, `../docs/verification/files-view-2026-11-23/${label}-list.png`) });
+
+    // New folder: Escape closes the sheet and returns focus to its opener.
+    await page.getByRole("button", { name: "New folder" }).click();
+    await page.getByRole("dialog", { name: "New folder" }).waitFor();
+    await page.keyboard.press("Escape");
+    await page.getByRole("dialog").waitFor({ state: "hidden" });
+    assert.equal(await active(), "New folder", `${label}: Escape returns focus to New folder`);
+    await page.getByRole("button", { name: "New folder" }).click();
+    await page.getByRole("textbox", { name: "Name" }).fill("Taxes");
+    await page.getByRole("button", { name: "Create folder" }).click();
+    await page.getByRole("button", { name: "Open folder Taxes" }).waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.name), "Taxes", `${label}: focus lands on the new folder`);
+
+    // Rename: a clash shows the server's own words, then a free name works.
+    await page.getByRole("button", { name: "Actions for notes.txt" }).click();
+    await page.getByRole("menuitem", { name: "Rename" }).click();
+    await page.getByRole("textbox", { name: "Name" }).fill("Taxes");
+    await page.getByRole("button", { name: "Rename", exact: true }).click();
+    await page.getByRole("alert").filter({ hasText: "Something with that name already exists." }).waitFor();
+    await page.getByRole("textbox", { name: "Name" }).fill("diary.txt");
+    await page.getByRole("button", { name: "Rename", exact: true }).click();
+    await page.getByRole("button", { name: "Download diary.txt" }).waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.name), "diary.txt");
+
+    // Delete: focus moves to a neighbouring row, never to the page.
+    await page.getByRole("button", { name: "Actions for diary.txt" }).click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    await page.getByRole("button", { name: "Download diary.txt" }).waitFor({ state: "detached" });
+    assert.notEqual(await page.evaluate(() => document.activeElement.tagName), "BODY", `${label}: focus did not fall to the page`);
+    assert.match(await page.evaluate(() => document.activeElement.dataset.name || ""), /report\.pdf|Taxes|Trips/);
+
+    // Upload shows a progress line, then hides it and reports the result.
+    await page.getByRole("button", { name: "Upload files" }).click();
+    await page.getByRole("progressbar").waitFor({ state: "visible" });
+    assert.match(await page.getByRole("progressbar").getAttribute("aria-valuetext"), /big\.iso: \d+ percent/);
+    await page.getByRole("button", { name: "Download big.iso" }).waitFor();
+    await page.getByRole("progressbar").waitFor({ state: "hidden" });
+    assert.match(await page.locator(".files-status").innerText(), /1 file uploaded\./);
+    assert.equal(await active(), "Upload files");
+
+    // Share link: password and one-off, copy, then revoke from the list.
+    await page.getByRole("button", { name: "Actions for report.pdf" }).click();
+    await page.getByRole("menuitem", { name: "Share link" }).click();
+    await page.getByLabel("Password (optional)").fill("abc");
+    await page.getByRole("button", { name: "Create link" }).click();
+    await page.getByRole("alert").filter({ hasText: "at least 4 characters" }).waitFor();
+    await page.getByLabel("Password (optional)").fill("pa55word");
+    await page.getByLabel("One-off: works for a single download").check();
+    await page.getByRole("button", { name: "Create link" }).click();
+    const address = page.getByRole("textbox", { name: "Link address" });
+    await address.waitFor();
+    assert.equal(await address.inputValue(), "https://server.test/api/share/SECRET");
+    assert.equal(await address.evaluate((n) => n.readOnly), true);
+    await page.getByRole("button", { name: "Copy link" }).click();
+    await page.getByText("Copied.").waitFor();
+    assert.ok(await page.evaluate(() => window.log.some((l) => l[0] === "FilesCopy" && l[1] === "https://server.test/api/share/SECRET")));
+    const sent = await page.evaluate(() => JSON.parse(window.log.filter((l) => l[0] === "FilesCall" && l[1] === "POST" && l[2] === "/api/files/links").at(-1)[3]));
+    assert.deepEqual([sent.max_downloads, sent.password, sent.expires_hours], [1, "pa55word", 168]);
+    await page.getByRole("button", { name: "Close share link" }).click();
+    assert.equal(await active(), "Actions for report.pdf", `${label}: focus returns to the row's menu button`);
+    await page.getByRole("button", { name: "Your links" }).click();
+    await page.getByText("report.pdf · works until").waitFor();
+    await page.getByRole("button", { name: "Revoke link to report.pdf" }).click();
+    await page.getByText("Revoked the link to report.pdf.").waitFor();
+    assert.notEqual(await page.evaluate(() => document.activeElement.tagName), "BODY", `${label}: focus stays in the sheet after revoke`);
+    await page.keyboard.press("Escape");
+    await page.getByRole("dialog").waitFor({ state: "hidden" });
+    await noScroll("after sheets");
+    await page.screenshot({ path: path.join(__dirname, `../docs/verification/files-view-2026-11-23/${label}-after.png`) });
+    await page.evaluate(() => window.screen1.close());
+    await page.close();
+}
+
+(async () => {
+    for (const engine of [chromium, webkit]) {
+        const browser = await engine.launch();
+        try {
+            await check(browser, engine.name() + "-phone", { width: 412, height: 915 });
+            await check(browser, engine.name() + "-desktop", { width: 1280, height: 800 });
+        } finally { await browser.close(); }
+    }
+    console.log("Files screen verified: list, tabs, breadcrumb, folder, rename, delete focus, upload progress, share link, revoke, in Chromium and WebKit at phone and desktop width.");
+})().catch((error) => { console.error(error); process.exit(1); });

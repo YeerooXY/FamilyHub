@@ -346,3 +346,21 @@ phone, an LG remote and a real series with several seasons remain unverified.
 ## 23 November 2026 — Wordle phone fit
 
 Daily Wordle sizes its board from the play-area height (container units), so all six rows sit above the keyboard with no scrolling at 412x915, 390x844, 375x667 and 1280x800; Chromium and WebKit emulation, screenshots in `docs/verification/wordle-fit-2026-11-23/`. Real Samsung/iPhone check remains open.
+
+## 23 November 2026 — Movie and TV requests
+
+The [request screenshots](movie-requests-2026-11-23/) use Windows Chromium and emulated Mac Safari, Android Chrome (Pixel 7) and iPhone Safari (iPhone 13). Checked label alignment, title wrapping, no horizontal overflow and the empty library with both search actions. No icons were added.
+
+`node tests/movies_web.cjs` checks Enter, Space, Tab, Shift+Tab, mobile taps, focus after a successful request, and focus on the retryable action after an error. It checks the iPhone profile with reduced motion enabled. Search and request updates appear immediately, with live status text for loading, success and errors. Python movie tests check request permissions, media IDs, all-season requests and duplicate handling against fixtures.
+
+Open checks for this screen are physical-device layout and controls, native WebView keyboard behavior, screen-reader speech, and a live request through download, import and playback.
+
+The exact search `Az ördög jobb és bal keze` preserved the Hungarian characters and selected *They Call Me Trinity* (1970, TMDB 9394) in the Seerr fixture. The [capture](movie-requests-2026-11-23/trinity-fixture.png) shows the original and the separately selectable 1971 sequel. On the live Debian server at verification time, Jellyfin returned only the 1971 sequel for that search, with one external Hungarian subtitle track. Seerr, Radarr, Sonarr and Bazarr were not running there. The browser test also verifies that refreshing while a request is pending cannot replace the row before its receipt arrives.
+
+## 23 November 2026 — Release search
+
+`node tests/movies_releases.cjs` renders the search panel with captured Prowlarr results for *Regular Show* Season 1. The interactive preview and four screenshots are in `.local/release-search-preview/`. Windows Chromium and emulated Mac Safari, Android Chrome and iPhone Safari cover wrapping, alignment, horizontal overflow, keyboard submission, Tab and Shift+Tab, touch disclosure, focus after closing, and reduced motion on iPhone. They also check that 1080p sorts first when it fits the upload time budget, and that increasing estimated upload time can put a smaller release first. The API test covers profile scope, partial source failures and private link handling. Native WebView layout, screen-reader speech and physical-device behavior remain open.
+
+## Files screen (23 November 2026)
+
+Emulated only: Chromium and WebKit, 412x915 and 1280x800, with a fake server behind the .NET bridge (`tests/files_view.cjs`, screenshots in `files-view-2026-11-23/`). Covered: list, tabs, breadcrumb, new folder, rename with a server error, delete and where focus lands, upload progress line, share-link sheet (password, one-off, copy), revoke, Escape and focus return, no sideways scroll. Never reviewed: television width, a real Android or iPhone file picker and share sheet, screen reader output, enlarged text.
