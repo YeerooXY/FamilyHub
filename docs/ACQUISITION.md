@@ -77,7 +77,7 @@ Best match puts shared 1080p and higher releases first, followed by shared lower
 
 - [ ] Follow the [download VPN check](#connect-the-download-vpn), then create a qBittorrent category named `familyhub`. Set its save path under the downloads directory and configure the agreed 2.0 share ratio in qBittorrent.
 - [ ] In Prowlarr under **Settings → Download Clients**, add or select the qBittorrent client used for direct Prowlarr searches. Set its category to `familyhub`, test the connection, and select that client for the applicable torrent indexers. [Prowlarr download client settings](https://wiki.servarr.com/prowlarr/settings#download-clients)
-- [ ] Configure release search above and add this block to FamilyHub's private JSON configuration. Include only the FamilyHub profiles allowed to start a download. A profile needs release-search access to see the release tiles. All signed-in Movies profiles can view **On the server**. Use the private Web API URL as seen from FamilyHub and keep qBittorrent credentials on the server.
+- [ ] Configure release search above and add this block to FamilyHub's private JSON configuration. Use the private qBittorrent Web API URL. Give the profiles that start downloads or view **On the server** a linked Jellyfin account, membership in `ADMIN_USERS` and an entry in `MOVIE_DOWNLOADS.profiles`. Release tiles also require release-search access.
 
   ```json
   "MOVIE_DOWNLOADS": {
@@ -91,7 +91,7 @@ Best match puts shared 1080p and higher releases first, followed by shared lower
   ```
 
 - [ ] In Jellyfin, install **Open Subtitles** from the plugin catalog and connect an OpenSubtitles.com account. Enable subtitle management for the linked regular Jellyfin users who should search and download subtitles. Use Jellyfin's writable metadata storage for downloaded subtitles when the movie and TV mounts are read-only. [Jellyfin Open Subtitles](https://jellyfin.org/docs/general/server/plugins/open-subtitles/) · [Jellyfin subtitle downloads and user permissions](https://jellyfin.org/posts/roku-300/)
-- [ ] Restart FamilyHub after saving its configuration. From an authorized profile, grab one release you have permission to download and confirm it appears in `familyhub` and **On the server**. Check that a read-only profile can see progress. During playback, find and add a subtitle with a regular Jellyfin account and verify the text appears while the video continues.
+- [ ] Restart FamilyHub after saving its configuration. From an authorized profile, grab one release you have permission to download and confirm it appears in `familyhub` and **On the server**. During playback, find and add a subtitle with a regular Jellyfin account and verify the text appears while the video continues.
 
 For YouTube audio, local files and trimming, use the administrator [music intake tool](MUSIC_INTAKE.md). Its tagged imports go into `Local Imports`, alongside Lidarr's `Managed` directory, and Navidrome scans both.
 
@@ -116,6 +116,92 @@ episodes together, and **On the server** shows the season's combined progress.
 }
 ```
 
+## Automatic Jellyfin import
+
+FamilyHub checks qBittorrent's `familyhub` category on startup and every two
+minutes. It takes the main video from a film release and the numbered videos
+from a season release. A film goes into `movies/Title (Year)/Title (Year).mkv`
+when the release supplies a year. An episode goes into
+`tv/Series/Season 01/Series - S01E01.mkv`. The importer preserves the video
+extension and embedded tracks. Archives, extras and external sidecar files
+stay in the download directory. Season videos need a season and episode
+number in their filenames.
+
+Existing videos in the same film folder or episode slot stay in place.
+FamilyHub hardlinks files with the expected owner and mode when the storage
+allows it. Otherwise it stages a copy, checks available space and publishes
+the full copy atomically. Original torrent files stay available for seeding.
+`STATE_DIR/.movie-imports.sqlite3` records completed hand-offs and pending
+Jellyfin refreshes. Keep it in state backups. An interrupted copy can leave a
+hidden `.familyhub-import-*.part` in the target folder. Check that the worker
+has stopped before removing an interrupted staging file.
+
+### Server rollout
+
+1. Deploy the updated `music_web` package to
+   `/usr/local/lib/familyhub/mobile/music_web` through the existing web
+   release process. Ship the updated native client through the normal client
+   release process to expose the Seeding section in **Server work**.
+2. Keep `familyhub-music-web.service` running as `familyhub-writer` (UID and
+   GID 2000). Confirm its `ReadWritePaths` includes `STATE_DIR`, the Movies
+   root and the TV root. The defaults are `/srv/familyhub/data/media/movies`
+   and `/srv/familyhub/data/media/tv`, mounted read-only in Jellyfin at
+   `/data/movies` and `/data/tv`. Confirm those paths are included in the
+   intended Jellyfin libraries. Use the existing reader ACL for UID/GID
+   2001 on media and completed downloads. Hardlinks keep the source ACL.
+3. In `/etc/familyhub-music-web/config.json`, retain
+   `MOVIE_DOWNLOADS.qbittorrent` and `STATE_DIR`. Set `JELLYFIN_API_KEY` to
+   the existing Jellyfin server key. `JELLYFIN_INTERNAL_URL` defaults to
+   `http://127.0.0.1:8096`. Merge the following into `MOVIE_DOWNLOADS`.
+
+   ```json
+   "import": {
+     "enabled": true,
+     "dry_run": true
+   }
+   ```
+
+   Override `downloads_dir`, `movies_dir` or `shows_dir` in that block if
+   the host paths differ. The default download root is
+   `/srv/familyhub/data/downloads`, mapped from the qBittorrent path
+   `/data/downloads`.
+4. Run `sudo systemctl daemon-reload` after unit changes and
+   `sudo systemctl restart familyhub-music-web.service`. Read the planned
+   paths with `sudo journalctl -u familyhub-music-web.service -n 100`. Dry-run
+   validates sources and paths and writes no media or import records. Set
+   `dry_run` to `false`, then restart the service to enable imports and
+   Jellyfin refreshes. Set `enabled` to `false` and restart to pause import.
+5. Verify one authorized movie or season. Check the destination and
+   `2000:2000` ownership with mode `0660`, confirm Jellyfin can play it, and
+   check that qBittorrent still sees the original files. Restart the web
+   service and check that the library still has a single copy. Compare
+   **Server work > Seeding** with qBittorrent and the recorder.
+
+### Torrent ratio recorder
+
+The timer records every torrent's last observation and the first observation
+at or above the 2.0 share ratio after completion. The database at
+`STATE_DIR/.torrent-ratio.sqlite3` retains records for removed torrents.
+**Server work > Seeding** lists current torrents across categories and shows
+the first recorded goal time where one exists. It marks samples older than
+two minutes. The recorder samples every 30 seconds.
+
+Install or update the recorder with these commands from the release checkout.
+Keep the existing database. Adjust the unit's `ReadWritePaths` if
+`STATE_DIR` differs from `/var/lib/familyhub-music/state`.
+
+```sh
+sudo install -m 0644 scripts/torrent-ratio-audit.py /usr/local/lib/familyhub/torrent-ratio-audit.py
+sudo install -m 0644 scripts/systemd/familyhub-torrent-ratio.service scripts/systemd/familyhub-torrent-ratio.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now familyhub-torrent-ratio.timer
+sudo systemctl start familyhub-torrent-ratio.service
+```
+
+Read proof for a title or hash with
+`sudo -u familyhub-writer /usr/bin/python3 /usr/local/lib/familyhub/torrent-ratio-audit.py --show "Title"`.
+Use `--show` alone for all records.
+
 ## Upstream references
 
 - [LinuxServer Prowlarr container documentation](https://docs.linuxserver.io/images/docker-prowlarr/)
@@ -128,7 +214,7 @@ Both pinned services were deployed in the Debian VM on 8 November 2026. Applicat
 
 The temporary qBittorrent password was replaced. New Windows copies of the two acquisition passwords use DPAPI encryption in the ignored, restricted `.local/playback/` directory. Native app configuration and database secrets still need appdata protection and encrypted backups; DPAPI does not encrypt the applications' Linux data. Existing playback test credential JSON remains a separate development limitation.
 
-Prowlarr's native qBittorrent connection test passed. Public indexer configuration lives only in this private VM, not in Compose templates or Git. A 792,723,456-byte Debian installer torrent completed from real peers; SHA-512 matched the HTTPS mirror checksum. File ownership was 2000:2000, mode 0660, under the completed-download path. Credentials and save-path configuration survived a qBittorrent restart; Jellyfin and Navidrome health checks remained HTTP 200. These checks establish the search/download foundation, not automated media selection and library import.
+Prowlarr's native qBittorrent connection test passed. The private VM holds the public indexer configuration. A 792,723,456-byte Debian installer torrent completed from real peers and its SHA-512 matched the HTTPS mirror checksum. File ownership was 2000:2000, mode 0660, under the completed-download path. Credentials and save-path configuration survived a qBittorrent restart. Jellyfin and Navidrome health checks remained HTTP 200.
 
 The workstation qBittorrent SSH tunnel uses `127.0.0.1:8080`, matching the guest port. A different forwarded port triggered its Host-header check. Keep native authentication and Host-header checks enabled. Current SSH tunnels are development processes and do not automatically recover after a workstation reboot. Tailscale private app access does not change the torrent client's outbound route or hide it from torrent peers.
 

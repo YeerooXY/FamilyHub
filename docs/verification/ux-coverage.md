@@ -233,6 +233,17 @@ checked shared refresh and independent failure recovery. Physical device
 behavior, enlarged text, screen-reader speech, and full motion coverage remain
 unverified.
 
+### Server work Seeding
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Seeding list, loading, empty, stale and retry | never | never | never | never | never | Source check, 24 Nov 2026 | never |
+
+The progress bar uses a native control with immediate updates. Loading, stale,
+error and completion use live announcements. The section action keeps the
+same button while its label changes. Windows Chromium, emulated Mac
+Safari/WebKit, Android Chrome and iPhone Safari checks are pending.
+
 ## 21 November 2026 — Hub and version tracker
 
 The Hub opened Daily Wordle and Music and returned to the app switcher on

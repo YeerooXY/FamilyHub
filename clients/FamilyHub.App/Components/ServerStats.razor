@@ -240,6 +240,58 @@
             }
         </section>
         @ChildContent
+        @if (Session.ServerHealthAdmin)
+        {
+            var seeding = seedingIdentity == Identity ? seedingData : null;
+            var seedingProblem = Offline ? "Connect to the server to load seeding." : seedingIdentity == Identity ? seedingError : null;
+            <section class="srv-seeding srv-automatic glass-panel" aria-labelledby="srv-seeding-title">
+                <div class="stats-section-heading">
+                    <h2 id="srv-seeding-title">Seeding</h2>
+                    <button type="button" class="quiet" @onclick="RefreshSeedingFromButton" aria-disabled="@Aria(seedingFetching)">
+                        @(seedingProblem is not null || seeding?.Stale == true ? "Retry seeding" : "Refresh seeding")
+                    </button>
+                </div>
+                <Notice Level="@(seedingFetching ? "info" : seedingProblem is not null ? "error" : seeding?.Stale == true ? "warning" : "info")"
+                        Message="@(seedingFetching ? "Loading seeding records…" : seedingProblem ?? (seeding?.Stale == true ? "The ratio recorder is behind." : null))" />
+                @if (seeding is not null)
+                {
+                    <p class="srv-seeding-sample">@(seeding.Stale || seedingProblem is not null || seedingFetching ? "Last snapshot" : "Sampled") <time datetime="@seeding.LastSampleAt.ToString("o", Inv)">@seeding.LastSampleAt.ToLocalTime().ToString("g")</time></p>
+                    @if (seeding.Items.Count == 0)
+                    {
+                        <Notice Level="empty" Message="No torrents in the last sample." />
+                    }
+                    else
+                    {
+                        <ul class="srv-work-list srv-seeding-list">
+                            @foreach (var torrent in seeding.Items)
+                            {
+                                var share = $"{torrent.Ratio.ToString("0.0##", Inv)} / {seeding.Goal.ToString("0.0", Inv)}";
+                                <li @key="torrent.Hash">
+                                    <div class="srv-seeding-line"><strong>@torrent.Name</strong><span>@torrent.State</span></div>
+                                    <div class="srv-seeding-ratio">
+                                        <progress max="@seeding.Goal.ToString("R", Inv)" value="@(Math.Min(seeding.Goal, torrent.Ratio).ToString("R", Inv))"
+                                                  aria-label="@($"Share ratio for {torrent.Name}")" aria-valuetext="@share"></progress>
+                                        <span aria-hidden="true">@share</span>
+                                    </div>
+                                    <dl class="srv-seeding-facts">
+                                        <div><dt>Uploaded</dt><dd>@Bytes(torrent.Uploaded)</dd></div>
+                                        <div><dt>Downloaded</dt><dd>@Bytes(torrent.Downloaded)</dd></div>
+                                        <div><dt>Goal recorded</dt><dd>
+                                            @if (torrent.ReachedGoalAt is { } reached)
+                                            {
+                                                <time datetime="@reached.ToString("o", Inv)">@reached.ToLocalTime().ToString("g")</time>
+                                            }
+                                            else { <text>Pending</text> }
+                                        </dd></div>
+                                    </dl>
+                                </li>
+                            }
+                        </ul>
+                    }
+                }
+                <span class="sr" role="status">@(seeding is { Stale: false } && !seedingFetching && seedingProblem is null ? "Seeding updated." : "")</span>
+            </section>
+        }
         @if (data is { } details)
         {
             var used = Math.Max(0, details.StorageTotalBytes - details.StorageFreeBytes);
@@ -374,10 +426,10 @@
         if (Offline || needsSignIn)
         {
             await RefreshNow();
-            if (!disposed && !Offline) await RefreshReview.InvokeAsync();
+            if (!disposed && !Offline) await Task.WhenAll(RefreshReview.InvokeAsync(), RefreshSeeding());
             return;
         }
-        await Task.WhenAll(Refresh(), RefreshReview.InvokeAsync());
+        await Task.WhenAll(Refresh(), RefreshReview.InvokeAsync(), RefreshSeeding());
     }
 
     [Parameter] public bool Leaderboard { get; set; }
@@ -428,6 +480,62 @@
         await Refresh();
     }
     private string Identity => Session.Server + "\n" + Session.User;
+
+    private ServerSeeding? seedingData;
+    private string? seedingIdentity, seedingError;
+    private bool seedingFetching, seedingNeedsSignIn;
+
+    private Task RefreshSeedingFromButton() => RefreshSeeding(reconnect: true);
+
+    private async Task RefreshSeeding(bool reconnect = false)
+    {
+        if (Leaderboard || !Session.ServerHealthAdmin || disposed || seedingFetching || (Offline && !reconnect)) return;
+        var identity = Identity;
+        if (seedingIdentity != identity)
+        {
+            seedingData = null;
+            seedingError = null;
+            seedingNeedsSignIn = false;
+            seedingIdentity = identity;
+        }
+        seedingFetching = true;
+        StateHasChanged();
+        try
+        {
+            using var request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            request.CancelAfter(TimeSpan.FromSeconds(5));
+            if (reconnect && (Offline || seedingNeedsSignIn))
+                await Session.ReconnectAsync().WaitAsync(request.Token);
+            if (identity != Identity || Session.Api is not { } api || Offline) return;
+            var result = await api.GetServerSeedingAsync(request.Token).WaitAsync(request.Token);
+            for (var retry = 0; retry < 2 && result.Stale; retry++)
+            {
+                if (disposed || identity != Identity) return;
+                seedingData = result;
+                await Task.Delay(TimeSpan.FromMilliseconds(750), request.Token);
+                result = await api.GetServerSeedingAsync(request.Token).WaitAsync(request.Token);
+            }
+            if (!disposed && identity == Identity)
+            {
+                seedingData = result;
+                seedingError = null;
+                seedingNeedsSignIn = false;
+            }
+        }
+        catch (OperationCanceledException) when (!disposed && identity == Identity)
+        { seedingError = "Seeding took too long to load."; }
+        catch (FamilyHubApiException failure) when (!disposed && identity == Identity && failure.RequiresSignIn)
+        { seedingNeedsSignIn = true; seedingError = "Your session expired. Retry seeding to reconnect."; }
+        catch (Exception) when (!disposed && identity == Identity)
+        { seedingError = "Could not load seeding records."; }
+        catch (Exception) when (disposed || identity != Identity) { }
+        finally
+        {
+            seedingFetching = false;
+            if (!disposed && identity != Identity) await RefreshSeeding();
+            if (!disposed) StateHasChanged();
+        }
+    }
 
     private DateTimeOffset snapshotAt;
     private int snapshotRetries;
@@ -492,12 +600,14 @@
     private async Task UpdateIdentity()
     {
         if (disposed) return;
+        var seeding = seedingIdentity != Identity ? RefreshSeeding() : Task.CompletedTask;
         if (requestedIdentity != Identity)
         {
             data = null;
             wrappedMemberId = null;
             if (!fetching) await Refresh();
         }
+        await seeding;
         StateHasChanged();
     }
     public void Dispose() { disposed = true; Session.Changed -= Changed; lifetime.Cancel(); lifetime.Dispose(); }

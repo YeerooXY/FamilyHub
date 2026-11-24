@@ -1,10 +1,13 @@
 """Movie sessions use the selected FamilyHub profile and ordinary Jellyfin accounts."""
 import io
 import json
+from datetime import datetime, timezone
+from pathlib import Path
 import urllib.error
 import urllib.parse
 from unittest.mock import patch
 from test_music_web import Base
+from test_torrent_ratio_audit import sample
 
 
 def upstream_json(payload, status=200):
@@ -319,6 +322,29 @@ class MovieDownloads(Base):
     select = MovieSessions.select
     guid = 'https://private-indexer.test/download?key=private-indexer-key'
 
+    def test_seeding_lists_current_torrents_and_durable_milestone_for_admins(self):
+        path = Path(self.ws) / '.torrent-ratio.sqlite3'
+        client, _ = self.select('sample-a')
+        other, _ = self.select('sample-b')
+        route = '/api/server/seeding'
+        self.assertEqual(self.go(self.app.test_client(), 'GET', route).status_code, 401)
+        self.assertEqual(self.go(other, 'GET', route).status_code, 403)
+        self.assertEqual(self.go(client, 'GET', route).status_code, 503)
+        old = '2026-01-01T00:00:00+00:00'
+        now = datetime.now(timezone.utc).isoformat()
+        row = dict(hash='a' * 40, name='Fixture season', category='other', state='uploading',
+                   ratio=2.01, uploaded=2010, downloaded=1000, progress=1)
+        sample(path, [row, dict(row, hash='b' * 40)], old)
+        self.assertTrue(self.go(client, 'GET', route).json['stale'])
+        sample(path, [dict(row, state='stalledUP', ratio=0.003, uploaded=3)], now)
+        response = self.go(client, 'GET', route)
+        self.assertEqual(response.headers['Cache-Control'], 'no-store')
+        self.assertEqual(response.json, dict(available=True, goal=2.0, stale=False, last_sample_at=now,
+            items=[dict(hash=row['hash'], name=row['name'], state='Stalled seeding', ratio=0.003,
+                        uploaded=3, downloaded=1000, reached_goal_at=old)]))
+        sample(path, [], '2099-01-01T00:00:00+00:00')
+        self.assertEqual(self.go(client, 'GET', route).json['items'], [])
+
     @patch('music_web.movies.urllib.request.build_opener')
     def test_search_and_grab_require_permission_and_keep_indexer_links_private(self, opener):
         def upstream(req, timeout):
@@ -389,6 +415,9 @@ class MovieDownloads(Base):
         rows = [dict(name=state, progress=progress, size=200, state=state, dlspeed=10,
                      eta=8640000 if index == 0 else 65, tracker=self.guid)
                 for index, (state, progress, _) in enumerate(states)]
+        rows[3].update(ratio=0.003, uploaded=15)
+        seeding = ['Queued to download', 'Downloading', 'Downloading', 'Stalled seeding',
+                   'Stalled download', 'Stopped', 'Missing files', 'Moving']
         opener.return_value.open.side_effect = [io.BytesIO(b'Ok.'), io.BytesIO(json.dumps(rows).encode()),
                                                  TimeoutError('fixture-password')]
         anon = self.go(self.app.test_client(), 'GET', '/api/movies/downloads')
@@ -403,7 +432,8 @@ class MovieDownloads(Base):
                 self.assertEqual(reply.headers['Cache-Control'], 'no-store')
                 self.assertEqual(reply.json, dict(available=True, items=[
                     dict(name=state, progress=min(1, progress), size=200, state=label,
-                         eta=None if index == 0 else 65, speed=10)
+                         eta=None if index == 0 else 65, speed=10, goal=2.0, seeding_state=seeding[index],
+                         ratio=0.003 if index == 3 else 0, uploaded=15 if index == 3 else 0)
                     for index, (state, progress, label) in enumerate(states)]))
                 self.assertEqual(self.go(other, 'GET', '/api/movies/downloads').json, reply.json)
                 self.assertEqual(self.go(other, 'GET', '/api/movies/downloads').json,

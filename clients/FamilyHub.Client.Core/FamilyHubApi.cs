@@ -87,6 +87,9 @@ public sealed class FamilyHubApi : IDisposable
     public Task<ServerHealthNow> GetServerHealthNowAsync(CancellationToken cancellationToken) =>
         RequestJsonAsync<ServerHealthNow>(HttpMethod.Get, "/api/server/stats/now", cancellationToken: cancellationToken, background: true);
 
+    public Task<ServerSeeding> GetServerSeedingAsync(CancellationToken cancellationToken) =>
+        RequestJsonAsync<ServerSeeding>(HttpMethod.Get, "/api/server/seeding", cancellationToken: cancellationToken, background: true);
+
     public Task<ServerHealthHistory> GetServerHealthHistoryAsync(string range, CancellationToken cancellationToken) =>
         RequestJsonAsync<ServerHealthHistory>(HttpMethod.Get, "/api/server/stats?range=" + Uri.EscapeDataString(range),
             cancellationToken: cancellationToken, background: true);

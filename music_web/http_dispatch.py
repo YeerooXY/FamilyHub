@@ -56,7 +56,8 @@ class RequestDispatcher:
             lane = 'control'
         elif watch:
             lane = "watch"
-        elif request.command == "GET" and (path in ("/api/activity/stats", "/api/server/stats", "/api/server/stats/now") or path.startswith("/api/catalogue/")):
+        elif request.command == "GET" and (path in ("/api/activity/stats", "/api/server/stats", "/api/server/stats/now",
+                                                   "/api/server/seeding") or path.startswith("/api/catalogue/")):
             lane = "snapshot"
         elif path.startswith(('/api/artwork/', '/api/discovery/covers/', '/api/profile-images/')) or '/artwork/' in path:
             lane = 'artwork'

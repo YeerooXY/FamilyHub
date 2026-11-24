@@ -25,7 +25,7 @@ STATE_NAMES = (
     '.source-quality.json', '.song-analysis.json', '.replacements.json', '.library-additions.json',
     '.metadata-votes.json', '.deezer-chart.json', '.playlists', '.lyrics', '.listening-versions.json',
     '.movie-audio-jobs.json', '.profile-passwords.json',
-    '.server-stats.sqlite3',
+    '.server-stats.sqlite3', '.torrent-ratio.sqlite3', '.movie-imports.sqlite3',
 )
 
 

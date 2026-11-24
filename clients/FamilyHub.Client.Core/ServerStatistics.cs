@@ -2,6 +2,25 @@ using System.Text.Json.Serialization;
 
 namespace FamilyHub.Client.Core;
 
+public sealed record ServerSeeding
+{
+    [JsonPropertyName("goal")] public double Goal { get; init; }
+    [JsonPropertyName("last_sample_at")] public DateTimeOffset LastSampleAt { get; init; }
+    [JsonPropertyName("stale")] public bool Stale { get; init; }
+    [JsonPropertyName("items")] public List<ServerTorrent> Items { get; init; } = [];
+}
+
+public sealed record ServerTorrent
+{
+    [JsonPropertyName("hash")] public string Hash { get; init; } = "";
+    [JsonPropertyName("name")] public string Name { get; init; } = "";
+    [JsonPropertyName("state")] public string State { get; init; } = "";
+    [JsonPropertyName("ratio")] public double Ratio { get; init; }
+    [JsonPropertyName("uploaded")] public long Uploaded { get; init; }
+    [JsonPropertyName("downloaded")] public long Downloaded { get; init; }
+    [JsonPropertyName("reached_goal_at")] public DateTimeOffset? ReachedGoalAt { get; init; }
+}
+
 public sealed record ServerStatistics
 {
     [JsonPropertyName("snapshot_age_seconds")] public int SnapshotAgeSeconds { get; init; }

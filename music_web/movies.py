@@ -1,6 +1,5 @@
 """Issue a regular Jellyfin session for the active FamilyHub profile."""
 import http.client
-import http.cookiejar
 import html
 import json
 import logging
@@ -16,7 +15,8 @@ from time import monotonic
 
 from flask import g, jsonify, session
 
-from . import audio_tracks, feedback, movie_media, movie_search, tmdb
+from . import audio_tracks, feedback, movie_import, movie_media, movie_search, tmdb, torrent_seeding
+from .catalog_search import NoRedirect
 from .movie_youtube_downloads import DEFAULT_DIR, MAX_PENDING, YouTubeDownloads
 
 
@@ -104,11 +104,6 @@ def season_pack(title, wanted_words, season):
     return not re.match(r'(?:[\s._-]*(?:e(?:p(?:isode)?)?[\s._-]*\d|x\d)|\s*(?:[-–/&+,]|and\b|to\b)\s*\d)', suffix, re.I)
 
 
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args):
-        return None
-
-
 def service_url(value, schemes=('http', 'https')):
     if not isinstance(value, str) or any(c.isspace() for c in value):
         return ''
@@ -142,9 +137,13 @@ def download_item(row):
     else:
         label = 'Waiting'
     eta = row.get('eta')
+    uploaded = row.get('uploaded')
     return dict(name=name, progress=progress, size=max(0, int(row['size'])),
                 state=label, eta=eta if type(eta) is int and 0 <= eta < 8640000 else None,
-                speed=max(0, int(row.get('dlspeed', 0))))
+                speed=max(0, int(row.get('dlspeed', 0))),
+                ratio=torrent_seeding.ratio(row.get('ratio')),
+                uploaded=max(0, uploaded) if type(uploaded) is int else 0, goal=torrent_seeding.GOAL,
+                seeding_state=torrent_seeding.STATES.get(state, 'Unknown'))
 
 
 def read_downloads(qb):
@@ -152,17 +151,8 @@ def read_downloads(qb):
     if not all((url, qb.get('user'), qb.get('password'))):
         return dict(available=False, reason='Server downloads are not set up.')
     try:
-        opener = urllib.request.build_opener(NoRedirect, urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-        login = urllib.request.Request(url + '/api/v2/auth/login',
-            data=urllib.parse.urlencode({'username': qb['user'], 'password': qb['password']}).encode(),
-            headers={'Referer': url + '/'})
-        with opener.open(login, timeout=2) as reply:
-            if reply.read(64).strip() != b'Ok.':
-                raise ValueError()
-        with opener.open(url + '/api/v2/torrents/info?category=familyhub', timeout=2) as reply:
-            rows = json.loads(reply.read(1024 * 1024))
-        if not isinstance(rows, list):
-            raise ValueError()
+        opener = movie_import.torrent_login(url, qb, timeout=2)
+        rows = movie_import.torrent_rows(opener, url + '/api/v2/torrents/info?category=' + movie_import.CATEGORY, 2)
         return dict(available=True, items=[download_item(row) for row in rows])
     except urllib.error.HTTPError as error:
         error.close()
@@ -180,6 +170,8 @@ def register_movies(app, cfg, body, allow, session_is_live):
     indexers = tuple(dict.fromkeys(i for i in releases.get('indexer_ids', []) if type(i) is int and i > 0))[:4]
     requests = cfg.get('MOVIE_REQUESTS') or {}
     downloads = cfg.get('MOVIE_DOWNLOADS') or {}
+    qb = downloads.get('qbittorrent') or {}
+    movie_import.start(cfg, service_url(qb.get('url')), base)
     youtube = YouTubeDownloads(downloads.get('youtube_dir') or DEFAULT_DIR, app.intake.spawn, app.intake.stop_process)
     seeds = downloads.get('videa_seeds')
     videa_seeds = {videa_title(title): link for title, link in (seeds.items() if isinstance(seeds, dict) else ())
@@ -245,13 +237,23 @@ def register_movies(app, cfg, body, allow, session_is_live):
             return jsonify(error='Downloading is not switched on for your profile.'), 403
         with queue_lock:
             if monotonic() >= queue_expires:
-                queue_cache = read_downloads(downloads.get('qbittorrent') or {})
+                queue_cache = read_downloads(qb)
                 queue_expires = monotonic() + 3
             snapshot = queue_cache
         jobs = [*audio_items(g.user), *youtube.items()]
         if jobs:
             snapshot = dict(available=True, items=[*jobs, *snapshot.get('items', [])])
         response = jsonify(snapshot)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
+    @app.get('/api/server/seeding')
+    def server_seeding():
+        if g.user not in cfg['ADMIN_USERS']:
+            return jsonify(error='Only an admin can view seeding.'), 403
+        result = torrent_seeding.snapshot(cfg)
+        response = jsonify(result)
+        response.status_code = 200 if result['available'] else 503
         response.headers['Cache-Control'] = 'no-store'
         return response
 

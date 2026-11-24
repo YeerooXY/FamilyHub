@@ -1,0 +1,16 @@
+[Unit]
+Description=Record FamilyHub torrent share ratios
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=familyhub-writer
+Group=familyhub-writer
+ExecStart=/usr/bin/python3 /usr/local/lib/familyhub/torrent-ratio-audit.py
+TimeoutStartSec=25s
+UMask=0077
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/familyhub-music/state
+NoNewPrivileges=true
