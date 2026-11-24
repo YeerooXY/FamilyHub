@@ -1,4 +1,4 @@
-"""Single-worker queue for YouTube downloads started from Movies."""
+"""Single-worker queue for web video downloads started from Movies."""
 import logging
 import os
 import re
@@ -13,12 +13,13 @@ from threading import Event, Lock, Thread
 from . import movie_search
 
 log = logging.getLogger(__name__)
-MAX_PENDING = 16
+MAX_PENDING = 24
 MAX_DOWNLOAD_BYTES = 20 << 30
 FREE_RESERVE = 5 << 30
 DOWNLOAD_TIMEOUT = 7200
 DEFAULT_DIR = '/srv/familyhub/data/downloads/youtube'
 PROGRESS = re.compile(r'familyhub-progress:\s*(\d+(?:\.\d+)?)%')
+TERMINAL = {'Finished', 'Problem'}
 
 
 class YouTubeDownloads:
@@ -33,18 +34,43 @@ class YouTubeDownloads:
 
     def items(self):
         with self.lock:
-            return [dict(job) for job in reversed(self.jobs.values())]
+            rows = {}
+            for ident, job in reversed(self.jobs.items()):
+                batch = job.get('batch')
+                rows.setdefault(batch or ident, []).append(job)
+            return [self._summary(key[0], jobs) if isinstance(key, tuple) else dict(jobs[0])
+                    for key, jobs in rows.items()]
 
-    def enqueue(self, tool, ident, title, height):
+    @staticmethod
+    def _summary(title, jobs):
+        states = {job['state'] for job in jobs}
+        if states == {'Finished'}:
+            state = 'Finished'
+        elif states <= TERMINAL:
+            state = 'Problem'
+        elif states == {'Waiting'}:
+            state = 'Waiting'
+        else:
+            state = 'Downloading'
+        return dict(name=title, progress=sum(job['progress'] for job in jobs) / len(jobs), state=state)
+
+    def enqueue(self, tool, ident, title, height, *, url=None):
+        return self.enqueue_many(tool, [(ident, title, height, url or movie_search.video_url(ident))])
+
+    def enqueue_many(self, tool, videos, title=None):
         with self.lock:
-            if self.jobs.get(ident, {}).get('state') in ('Waiting', 'Downloading', 'Almost done', 'Finished'):
-                return True
-            if len(self.pending) >= MAX_PENDING:
+            pending = [video for video in videos if self.jobs.get(video[0], {}).get('state') in (None, 'Problem')]
+            if pending and len(self.pending) + len(pending) > MAX_PENDING:
                 return False
-            self.jobs.pop(ident, None)
-            self.jobs[ident] = dict(name=title, progress=0, state='Waiting')
-            self.pending.append((tool, ident, title, height))
-            if not self.running:
+            for ident, name, height, url in pending:
+                self.jobs.pop(ident, None)
+                self.jobs[ident] = dict(name=name, progress=0, state='Waiting')
+                self.pending.append((tool, ident, name, height, url))
+            if title:
+                batch = (title, tuple(sorted(video[0] for video in videos)))
+                for ident, *_ in videos:
+                    self.jobs[ident]['batch'] = batch
+            if pending and not self.running:
                 self.running = True
                 Thread(target=self._work, name='movie-youtube-download', daemon=True).start()
             return True
@@ -55,11 +81,11 @@ class YouTubeDownloads:
                 if not self.pending:
                     self.running = False
                     return
-                tool, ident, title, height = self.pending.popleft()
+                tool, ident, title, height, url = self.pending.popleft()
                 job = self.jobs[ident]
                 job['state'] = 'Downloading'
             try:
-                success = self._download(tool, ident, title, height, job)
+                success = self._download(tool, ident, title, height, url, job)
             except (OSError, ValueError, RuntimeError):
                 success = False
             with self.lock:
@@ -67,13 +93,18 @@ class YouTubeDownloads:
                 if success:
                     job['progress'] = 1
                 else:
-                    log.warning('Movie YouTube download failed')
-                finished = [key for key, item in self.jobs.items() if item['state'] in ('Finished', 'Problem')]
-                for key in finished[:-50]:
-                    del self.jobs[key]
+                    log.warning('Movie web video download failed')
+                active_batches = {item.get('batch') for item in self.jobs.values() if item['state'] not in TERMINAL}
+                finished = [key for key, item in self.jobs.items() if item['state'] in TERMINAL
+                            and (not item.get('batch') or item['batch'] not in active_batches)]
+                old = set(finished[:-50])
+                old_batches = {self.jobs[key]['batch'] for key in old if 'batch' in self.jobs[key]}
+                for key in finished:
+                    if key in old or self.jobs[key].get('batch') in old_batches:
+                        del self.jobs[key]
 
-    def _download(self, tool, ident, title, height, job):
-        if not movie_search.VIDEO_ID.fullmatch(ident):
+    def _download(self, tool, ident, title, height, url, job):
+        if url not in (movie_search.video_url(ident), 'https://videa.hu/player?v=' + ident) or not re.fullmatch(r'[A-Za-z0-9_-]{11}|[A-Za-z0-9]{16}', ident):
             return False
         folder = re.sub(r'[<>:"/\\|?*%$\x00-\x1f\x7f]', '_', title).strip(' .')
         folder = folder.encode('utf-8', errors='replace')[:200].decode('utf-8', errors='ignore').rstrip(' .') or ident
@@ -87,9 +118,9 @@ class YouTubeDownloads:
         if shutil.disk_usage(root).free < FREE_RESERVE:
             return False
         with tempfile.TemporaryDirectory(prefix='.youtube-', dir=root) as work:
-            return self._transfer(tool, ident, height, job, Path(work), directory)
+            return self._transfer(tool, ident, height, url, job, Path(work), directory)
 
-    def _transfer(self, tool, ident, height, job, work, directory):
+    def _transfer(self, tool, ident, height, url, job, work, directory):
         cap = f'[height<={int(height)}]' if height else ''
         args = [tool, '--ignore-config', '--no-playlist', '--match-filter', '!is_live', '--socket-timeout', '15',
                 '--max-filesize', str(MAX_DOWNLOAD_BYTES),
@@ -98,7 +129,7 @@ class YouTubeDownloads:
                 '--newline', '--progress', '--progress-delta', '1',
                 '--progress-template', 'download:familyhub-progress:%(progress._percent_str)s',
                 '--progress-template', 'postprocess:familyhub-postprocess',
-                '-P', str(work), '-o', '%(id)s.%(ext)s', '--', movie_search.video_url(ident)]
+                '-P', str(work), '-o', '%(id)s.%(ext)s', '--', url]
         with (self.spawn or subprocess.Popen)(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                                text=True, encoding='utf-8', errors='replace') as process:
             finished, interrupted = Event(), Event()

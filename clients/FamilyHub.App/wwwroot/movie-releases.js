@@ -122,7 +122,12 @@ const SORTS = [
     ["speed", "Easiest to get"]
 ];
 
-export function buildReleaseSearch(search, signal, download = null, showDetails = () => {}) {
+const audioMarkers = {
+    hu: /\b(?:hun|magyarul|hungarian[ ._-]+audio|magyar[ ._-]+szinkron)\b/i,
+    en: /\b(?:eng|english[ ._-]+audio)\b/i
+};
+
+export function buildReleaseSearch(search, signal, download = null, showDetails = () => {}, preferredAudio = "default") {
     const panel = document.createElement("section");
     panel.className = "movie-releases";
     panel.hidden = true;
@@ -136,7 +141,7 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             <section class="movie-quality-guide" aria-label="Quality guide">
                 <h3>Quality guide</h3>
                 <ul class="movie-quality-chips"></ul>
-                <p class="movie-web-meta">Times assume a ${ASSUMED_MBPS} Mbps connection.</p>
+                <p class="movie-web-meta" data-release-timing>Times assume a ${ASSUMED_MBPS} Mbps connection.</p>
             </section>
             <ul class="movie-source-list" aria-label="Release results"></ul>
             <button type="button" class="movie-release-more" hidden>Show all releases</button>
@@ -148,6 +153,7 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
     const tools = panel.querySelector(".movie-release-tools");
     const canDownload = typeof download === "function";
     options.querySelector("[data-release-availability]").hidden = canDownload;
+    const timing = options.querySelector("[data-release-timing]");
     const status = panel.querySelector('[role="status"]');
     const list = panel.querySelector(".movie-source-list");
     let rows = [], unavailable = 0, busy = false, complete = false, showAll = false, sortBy = "best";
@@ -186,14 +192,15 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
 
     function compare(a, b) {
         // Healthy releases first, so a perfect copy that nobody shares never leads the list.
-        const group = row => !row.seeders ? 2 : row.quality.rank >= 3 ? 0 : 1;
-        const quality = b.quality.rank - a.quality.rank || b.height - a.height;
+        const group = row => row.site || row.seeders ? 0 : 1;
+        const quality = b.height - a.height || b.quality.rank - a.quality.rank;
+        const audio = Number(b.audio.includes(preferredAudio)) - Number(a.audio.includes(preferredAudio));
         const speed = (b.seeders ?? -1) - (a.seeders ?? -1);
         const size = (a.size ?? 1e18) - (b.size ?? 1e18);
         if (sortBy === "quality") return quality || speed || size;
         if (sortBy === "size") return size || quality;
         if (sortBy === "speed") return speed || quality;
-        return group(a) - group(b) || quality || speed || size;
+        return group(a) - group(b) || audio || quality || speed || size;
     }
 
     function render() {
@@ -201,6 +208,7 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
         for (const choice of sortButtons) choice.setAttribute("aria-pressed", String(choice.dataset.sort === sortBy));
         const sorted = rows.slice().sort(compare);
         const shown = showAll ? sorted : sorted.slice(0, FIRST_PAGE);
+        timing.hidden = !shown.some(row => row.size && row.seeders);
         list.replaceChildren(...shown.map((row, index) => {
             const item = document.createElement("li");
             item.className = "movie-release";
@@ -209,15 +217,17 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             head.className = "movie-release-head";
             const heading = document.createElement("h3");
             heading.className = "movie-release-title";
-            heading.textContent = displayTitle(row.title);
+            heading.textContent = row.name;
             const badges = document.createElement("div");
             badges.className = "movie-release-top";
             if (sortBy === "best" && index === 0 && row.seeders >= 20 && row.quality.rank >= 3) badges.append(chip("movie-release-pick", "Recommended"));
             badges.append(chip("movie-release-quality", row.quality.label, row.quality.tier));
             if (row.kind) badges.append(chip("movie-release-kind", row.kind));
+            if (row.site) badges.append(chip("movie-release-kind", row.site));
+            if (row.audio.includes("hu")) badges.append(chip("movie-release-kind", "Hungarian audio listed"));
             head.append(heading, badges);
 
-            const [level, words] = availability(row.seeders);
+            const [level, words] = row.site ? ["ok", "Direct download"] : availability(row.seeders);
             const stats = document.createElement("dl");
             stats.className = "movie-release-stats";
             const stat = (label, value, extra) => {
@@ -252,7 +262,8 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             const action = document.createElement("button");
             action.type = "button";
             action.className = "movie-release-action";
-            const label = `${displayTitle(row.title)}, ${row.quality.label}, ${row.size ? (row.size / gib).toFixed(1) + " GB" : "size unknown"}`;
+            const label = row.episodes ? `${row.name}, ${row.kind}`
+                : `${row.name}, ${row.quality.label}, ${row.size ? (row.size / gib).toFixed(1) + " GB" : "size unknown"}`;
             const sent = document.createElement("p");
             sent.className = "movie-release-sent";
             sent.setAttribute("role", "status");
@@ -260,7 +271,7 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             sent.tabIndex = -1;
             action.textContent = row.pending ? "Sending…" : row.failed ? "Try again" : "Download";
             action.setAttribute("aria-label", `${action.textContent} ${label}`);
-            if (!canDownload || !row.guid) {
+            if (!canDownload || !(row.guid || row.site && (row.url || row.episodes))) {
                 action.setAttribute("aria-disabled", "true");
                 action.title = canDownload ? "Search again to get a download reference." : "Downloading is not switched on for your profile.";
             }
@@ -295,9 +306,11 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
                     status.textContent = reply?.error || "Could not confirm the download. Check On the server before trying again.";
                 }
             });
-            item.append(head, stats);
-            if (note.textContent) item.append(note);
-            item.append(name, row.sent ? sent : action);
+            item.append(head);
+            if (!row.episodes) item.append(stats);
+            if (!row.site && note.textContent) item.append(note);
+            if (!row.episodes) item.append(name);
+            item.append(row.sent ? sent : action);
             return item;
         }));
         more.hidden = showAll || sorted.length <= FIRST_PAGE;
@@ -335,8 +348,10 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             if (typeof item.title !== "string") continue;
             const title = cleanResultTitle(item.title);
             if (!title) continue;
-            const height = resolution(title), size = number(item.size);
-            const kind = details.kind === "movie" ? "" : releaseKind(title);
+            const episodes = item.site === "Videa" && Array.isArray(item.episodes) && item.episodes.length ? item.episodes : null;
+            const height = number(item.height) || resolution(title), size = number(item.size);
+            const kind = episodes ? `${episodes.length} ${episodes.length === 1 ? "episode" : "episodes"}`
+                : details.kind === "movie" ? "" : releaseKind(title);
             const isSeriesPack = details.kind === "tv" && kind === "Complete series";
             const length = isSeriesPack ? details.series_minutes || (details.season == null ? details.runtime_minutes : null)
                 : details.runtime_minutes;
@@ -345,10 +360,13 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             const comparisonLength = oneEpisode && details.episode_count > 0 ? length / details.episode_count : length;
             const mismatch = !lengthEstimated && !oneEpisode && height === 1080 && comparisonLength > 0
                 && size > 0 && size / comparisonLength < 3e6;
-            const row = { title, height, size, length, lengthEstimated, mismatch, kind,
-                seeders: number(item.seeders), quality: releaseQuality(title, height, size, comparisonLength),
-                guid: item.guid, indexerId: item.indexerId };
-            const key = `${row.title.toLowerCase()}\n${row.size}`;
+            const audio = Object.keys(audioMarkers).filter(language => (episodes || [item]).every(video => audioMarkers[language].test(video.title)));
+            const quality = releaseQuality(episodes ? "" : title, height, size, comparisonLength);
+            if (episodes && height > 0 && item.max_height > height) quality.label = `${height}p–${item.max_height}p`;
+            const name = episodes ? `${title} · Season ${item.number}` : displayTitle(title);
+            const row = { title, name, height, size, length, lengthEstimated, mismatch, kind, audio, episodes, quality,
+                seeders: number(item.seeders), guid: item.guid, indexerId: item.indexerId, site: item.site, url: item.url };
+            const key = row.site ? `${row.site}\n${row.url}` : `${row.title.toLowerCase()}\n${row.size}`;
             const previous = matches.get(key);
             const preferReference = canDownload && previous && Boolean(row.guid) !== Boolean(previous.guid);
             if (!previous || (preferReference ? row.guid : (row.seeders ?? -1) > (previous.seeders ?? -1)))

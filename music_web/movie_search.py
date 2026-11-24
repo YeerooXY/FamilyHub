@@ -119,7 +119,7 @@ def cache_metadata(ident, details):
             del metadata_cache[next(iter(metadata_cache))]
 
 
-def enrich(ids, run=None, which=None):
+def enrich(ids, run=None, which=None, *, make_url=video_url):
     tool = (which or shutil.which)('yt-dlp')
     if not tool:
         return {}
@@ -127,12 +127,13 @@ def enrich(ids, run=None, which=None):
 
     def fetch(ident):
         try:
+            url = make_url(ident)
             done = (run or subprocess.run)([tool, '--ignore-config', '--no-playlist', '--skip-download',
-                '--dump-single-json', '--no-warnings', '--', video_url(ident)],
+                '--dump-single-json', '--no-warnings', '--', url],
                 capture_output=True, timeout=max(0.1, deadline - monotonic()),
                 text=True, encoding='utf-8', errors='replace')
             if not done.returncode:
-                cache_metadata(ident, metadata(json.loads(done.stdout), ident))
+                cache_metadata(ident, dict(metadata(json.loads(done.stdout), ident), webpage_url=url))
         except (OSError, subprocess.TimeoutExpired, ValueError, TypeError, AttributeError):
             pass
 

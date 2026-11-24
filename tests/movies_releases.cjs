@@ -75,6 +75,7 @@ async function verify(browser, name, options) {
                         {kind:"tv", id:12, title:"The Gentlemen", year:"2024"}
                     ]} : {results:[]});
                     if (method === "MovieRequest") return JSON.stringify({state:"approved"});
+                    if (method === "MovieVideaSearch") return JSON.stringify({results:[]});
                     if (method !== "MovieReleaseSearch") return "";
                     if (term === "Slow search") return new Promise(resolve => window.finishSlow = () => resolve(JSON.stringify({results:fixture})));
                     if (term === "Many releases") return JSON.stringify({results:Array.from({length: 10}, (_, index) =>

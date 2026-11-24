@@ -1,6 +1,7 @@
 """Issue a regular Jellyfin session for the active FamilyHub profile."""
 import http.client
 import http.cookiejar
+import html
 import json
 import logging
 import re
@@ -16,7 +17,7 @@ from time import monotonic
 from flask import g, jsonify, session
 
 from . import audio_tracks, feedback, movie_media, movie_search
-from .movie_youtube_downloads import DEFAULT_DIR, YouTubeDownloads
+from .movie_youtube_downloads import DEFAULT_DIR, MAX_PENDING, YouTubeDownloads
 
 
 log = logging.getLogger('music_web.movies')
@@ -26,6 +27,71 @@ PROBLEMS = REPORT_KINDS - {'started', 'stopped'}
 REPORT_METHODS = {'', 'DirectPlay', 'DirectStream', 'Transcode'}
 SEASON_QUERY = re.compile(r'(.+?)\s+(?:season\s+|s)(\d{1,2})$', re.I)
 SEASON_MARKER = re.compile(r'\b(?:season[\s._-]+|s)(\d{1,2})(?!\d)', re.I)
+VIDEA_LINK = re.compile(r'https://videa\.hu/videok/(?:[^/\s?#"<>]+/)+[^/\s?#"<>]+-([A-Za-z0-9]{16})')
+VIDEA_RESULT = re.compile(r'<h2 class="title">\s*<a href="([^"]+)"[^>]*>([^<]+)</a>\s*</h2>')
+VIDEA_PAGE_TITLE = re.compile(r'<meta property="og:title" content="([^"]+)"')
+VIDEA_EPISODE = re.compile(r'\b(?:s(\d{1,2})[ ._-]*e(\d{1,3})|(\d{1,2})x(\d{1,3})|'
+                           r'(\d{1,2})\.?\s*evad\s+(\d{1,3})\.?\s*resz)\b')
+VIDEA_EPISODE_CODE = re.compile(r'\bs(\d{2})e(\d{2,3})\b')
+VIDEA_HUNGARIAN_SEASON = re.compile(r'(.+?)\s+(\d{1,2})\.?\s+[ée]vad$', re.I)
+
+
+def videa_player_url(ident):
+    return 'https://videa.hu/player?v=' + ident
+
+
+def videa_title(title):
+    def episode_code(match):
+        season, episode = (int(part) for part in match.groups() if part is not None)
+        return f's{season:02d}e{episode:02d}'
+
+    title = VIDEA_EPISODE.sub(episode_code, movie_search.plain(title))
+    return ' '.join(re.findall(r'[a-z0-9]+', title))
+
+
+def videa_matches(page, wanted, seed=None, season=None):
+    cards = VIDEA_RESULT.findall(page)
+    if seed and (title := VIDEA_PAGE_TITLE.search(page)):
+        cards.insert(0, (seed, title[1]))
+    results = {}
+    for link, title in cards:
+        link, title = html.unescape(link), html.unescape(title).strip()[:250]
+        match = VIDEA_LINK.fullmatch(link)
+        normalized = videa_title(title)
+        if season is not None:
+            episode = VIDEA_EPISODE_CODE.search(normalized)
+            if not episode or int(episode[1]) != season:
+                continue
+        if match and len(link) <= 512 and wanted <= movie_search.words(normalized):
+            results.setdefault(match[1], dict(url=link, title=title))
+            if len(results) == (MAX_PENDING if season is not None else 5):
+                break
+    return results
+
+
+def videa_search_url(query):
+    return 'https://videa.hu/kereses/' + urllib.parse.quote(query, safe='', errors='replace')
+
+
+def videa_download_item(data):
+    if not isinstance(data, dict):
+        return None
+    url, title = data.get('url'), data.get('title')
+    match = VIDEA_LINK.fullmatch(url) if isinstance(url, str) and len(url) <= 512 else None
+    if match and isinstance(title, str) and 0 < len(title.strip()) <= 250:
+        ident = match[1]
+        return ident, ' '.join(title.split()), None, videa_player_url(ident)
+
+
+def videa_season(title, season, results):
+    episodes = {}
+    for row in results.values():
+        episode = int(VIDEA_EPISODE_CODE.search(videa_title(row['title']))[2])
+        if episode not in episodes or (row['height'] or 0) > (episodes[episode]['height'] or 0):
+            episodes[episode] = row
+    rows = [episodes[number] for number in sorted(episodes)]
+    heights = [row['height'] or 0 for row in rows]
+    return dict(title=title, number=season, height=min(heights), max_height=max(heights), episodes=rows)
 
 
 def season_pack(title, wanted_words, season):
@@ -115,6 +181,9 @@ def register_movies(app, cfg, body, allow, session_is_live):
     requests = cfg.get('MOVIE_REQUESTS') or {}
     downloads = cfg.get('MOVIE_DOWNLOADS') or {}
     youtube = YouTubeDownloads(downloads.get('youtube_dir') or DEFAULT_DIR, app.intake.spawn, app.intake.stop_process)
+    seeds = downloads.get('videa_seeds')
+    videa_seeds = {videa_title(title): link for title, link in (seeds.items() if isinstance(seeds, dict) else ())
+                   if isinstance(link, str) and len(link) <= 512 and VIDEA_LINK.fullmatch(link)}
     grab_refs = {}
     grab_lock, queue_lock = Lock(), Lock()
     queue_cache, queue_expires = None, 0
@@ -204,6 +273,81 @@ def register_movies(app, cfg, body, allow, session_is_live):
         if not youtube.enqueue(tool, ident, ' '.join(title.split()), height):
             return jsonify(error='The download queue is full. Try again later.'), 503
         return jsonify(state='sent'), 202
+
+    @app.post('/api/movies/videa-download')
+    def movie_videa_download():
+        if not download_access():
+            return jsonify(error='Downloading is not switched on for your profile.'), 403
+        data = body(limit=32 * 1024)
+        season = 'episodes' in data
+        title = data.get('title')
+        episodes = data.get('episodes') if season else [data]
+        if (not isinstance(episodes, list) or not 0 < len(episodes) <= MAX_PENDING
+                or not isinstance(title, str) or not 0 < len(title.strip()) <= 250):
+            return jsonify(error='Search again and select a Videa release.'), 400
+        items = [videa_download_item(episode) for episode in episodes]
+        if not all(items) or len({item[0] for item in items}) != len(items):
+            return jsonify(error='Search again and select a Videa release.'), 400
+        if not allow('movie-download:' + g.user, 8, 60):
+            return jsonify(error='Wait a minute before starting another download.'), 429
+        tool = shutil.which('yt-dlp')
+        if not tool:
+            return jsonify(error='Videa downloads are unavailable. Ask the server admin to check yt-dlp.'), 503
+        if season:
+            queued = youtube.enqueue_many(tool, items, ' '.join(title.split()))
+        else:
+            ident, name, height, url = items[0]
+            queued = youtube.enqueue(tool, ident, name, height, url=url)
+        if not queued:
+            return jsonify(error='The download queue is full. Try again later.'), 503
+        return jsonify(state='sent'), 202
+
+    @app.post('/api/movies/videa-search')
+    def movie_videa_search():
+        if not download_access():
+            return jsonify(error='Downloading is not switched on for your profile.'), 403
+        query = movie_search.clean_query(body().get('query'))
+        normalized = videa_title(query) if query else ''
+        season_query = (SEASON_QUERY.fullmatch(query) or VIDEA_HUNGARIAN_SEASON.fullmatch(query)) if query else None
+        season = int(season_query[2]) if season_query else None
+        wanted = movie_search.words(season_query[1] if season_query else normalized)
+        if not wanted:
+            return jsonify(results=[])
+        if not allow('movie-videa-search:' + g.user, 12, 60):
+            return jsonify(error='Wait a minute before searching Videa again.'), 429
+        opener = urllib.request.build_opener(NoRedirect())
+
+        def lookup(url, *, seed=None):
+            with opener.open(url, timeout=4) as reply:
+                page = reply.read(768 * 1024).decode('utf-8', errors='replace')
+            return videa_matches(page, wanted, seed, season)
+
+        try:
+            results = lookup(videa_search_url(query))
+            episode = VIDEA_EPISODE_CODE.search(normalized)
+            if not results and (season_query or episode):
+                series = videa_title(season_query[1]) if season_query else normalized[:episode.start()].strip()
+                seed = videa_seeds.get(series)
+                if seed:
+                    results = lookup(seed, seed=seed)
+                else:
+                    if season_query:
+                        alternate = (f'{series} S{season:02d}' if VIDEA_HUNGARIAN_SEASON.fullmatch(query)
+                                     else f'{series} {season}. évad')
+                    else:
+                        alternate = normalized if episode[0] not in query.lower() else (
+                            f'{series} {int(episode[1])}. évad {int(episode[2])}. rész {normalized[episode.end():]}').strip()
+                    results = lookup(videa_search_url(alternate))
+        except (OSError, http.client.HTTPException):
+            return jsonify(error='Videa did not respond. Try again.'), 503
+        if results:
+            details = movie_search.enrich(results, make_url=videa_player_url)
+            for ident, row in results.items():
+                row['height'] = details.get(ident, {}).get('height')
+        reply = dict(results=list(results.values()))
+        if season_query and results:
+            reply['season'] = videa_season(season_query[1].strip(), season, results)
+        return jsonify(reply)
 
     @app.post('/api/movies/download')
     def movie_download():

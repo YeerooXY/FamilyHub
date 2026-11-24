@@ -31,11 +31,47 @@ async function openSearch(browser, outcome, options = { viewport: { width: 412, 
     await page.goto(app + "/");
     await page.evaluate(async ({ jellyfin, outcome, answer }) => {
         window.calls = [];
+        window.queue = [];
         const { openMovies } = await import("/movies.js");
-        window.movies = window.openMovieFixture(openMovies, document.querySelector("main"), { url: jellyfin, user: "u", token: "t", device: "0123456789abcdef0123456789abcdef", requests_enabled: ["requests", "trinity"].includes(outcome) },
+        window.movies = window.openMovieFixture(openMovies, document.querySelector("main"), { url: jellyfin, user: "u", token: "t", device: "0123456789abcdef0123456789abcdef", requests_enabled: ["requests", "trinity"].includes(outcome),
+            release_search_enabled: outcome === "videa", downloads_enabled: outcome === "videa" },
             { invokeMethodAsync: (name, ...args) => {
-                if (name === "MovieDownloads") return Promise.resolve('{"available":true,"items":[]}');
+                if (name === "MovieDownloads") return JSON.stringify({available: true, items: window.queue});
                 window.calls.push([name, ...args]);
+                if (outcome === "videa") {
+                    const title = "Most Wanted A hajsza S02E03";
+                    if (args[0] === "Most Wanted A hajsza S2") {
+                        if (name === "MovieFind" || name === "MovieReleaseSearch") return JSON.stringify({results: []});
+                        if (name === "MovieVideaSearch") {
+                            const episodes = Array.from({length: 10}, (_, index) => ({
+                                title: `Most Wanted A hajsza S02E${String(index + 1).padStart(2, "0")} HUN`,
+                                url: `https://videa.hu/videok/film-animacio/fixture-${String(index + 1).padStart(16, "0")}`
+                            }));
+                            return JSON.stringify({results: episodes, season: {
+                                title: "Most Wanted A hajsza", number: 2, height: 360, max_height: 1080, episodes
+                            }});
+                        }
+                    }
+                    if (name === "MovieVideaSeasonDownload") {
+                        window.queue = [{name: args[0], progress: .2, state: "Downloading"}];
+                        return JSON.stringify({state: "sent"});
+                    }
+                    if (name === "MovieFind") return JSON.stringify({results: [
+                        {title, url: "https://www.youtube.com/watch?v=aaaaaaaaaaa", height: 1080, label: "full film", seconds: 4500}
+                    ]});
+                    if (name === "MovieReleaseSearch") return JSON.stringify({results: [
+                        {title: title + " 1080p WEB-DL", size: 2e9, seeders: 50, guid: "fixture", indexerId: 1}
+                    ]});
+                    if (name === "MovieVideaSearch") return new Promise(resolve => {
+                        window.finishVidea = () => resolve(JSON.stringify({results: [
+                            {title: title + " HUN 1080p WEB-DL", height: 720, url: "https://videa.hu/videok/film-animacio/fixture-ry9BOkAA4SZIAYZp"}
+                        ]}));
+                    });
+                    if (name === "MovieVideaDownload") {
+                        window.queue = [{name: args[1], progress: .45, state: "Downloading"}];
+                        return JSON.stringify({state: "sent"});
+                    }
+                }
                 if (name === "MovieFind") return Promise.resolve(JSON.stringify(outcome === "ok" ? answer : { error: "Searching the web is not set up on this server." }));
                 if (name === "MovieRequestSearch" && outcome === "trinity") return JSON.stringify({ results: [
                     { kind: "movie", id: 9394, title: "They Call Me Trinity", year: "1970" },
@@ -143,6 +179,84 @@ async function checkTrinity(browser, screenshots) {
     await page.close();
 }
 
+async function checkVidea(browser, name, options, screenshots) {
+    const page = await openSearch(browser, "videa", options);
+    const query = page.getByRole("searchbox");
+    const title = "Most Wanted A hajsza S02E03";
+    const submit = page.getByRole("button", {name: "Search", exact: true});
+    const focused = locator => locator.evaluate(node => node === document.activeElement);
+    await query.fill(title);
+    await query.press("Enter");
+    await page.waitForFunction(() => typeof window.finishVidea === "function");
+    const list = page.getByRole("list", {name: "Release results"});
+    assert.equal(await list.isVisible(), false);
+    await page.evaluate(() => window.finishVidea());
+    const cards = list.getByRole("listitem");
+    await cards.last().waitFor();
+    assert.equal(await focused(submit), true);
+    assert.deepEqual(await cards.locator(".movie-release-quality").allTextContents(), ["1080p Web", "1080p", "720p"]);
+    const videa = cards.filter({hasText: "Hungarian audio listed"});
+    assert.equal(await videa.getByText("Videa", {exact: true}).count(), 1);
+    assert.equal(await videa.getByRole("link").count(), 0);
+    const action = videa.getByRole("button", {name: /^Download /});
+    await action.focus();
+    await page.keyboard.press("Shift+Tab");
+    assert.equal(await focused(cards.nth(1).getByRole("button", {name: /^Download /})), true);
+    await page.keyboard.press("Tab");
+    assert.equal(await focused(action), true);
+    if (screenshots) await page.screenshot({path: path.join(screenshots, `videa-${name}.png`), fullPage: true});
+    if (options.hasTouch) await action.tap();
+    else await action.press("Space");
+    const sent = videa.getByRole("status").filter({hasText: "Sent to the server"});
+    await sent.waitFor();
+    assert.equal(await focused(sent), true);
+    await page.getByRole("region", {name: "On the server"}).getByText("Downloading", {exact: true}).waitFor({timeout: 5000});
+    assert.deepEqual(await page.evaluate(() => window.calls.find(([method]) => method === "MovieVideaDownload")), [
+        "MovieVideaDownload", "https://videa.hu/videok/film-animacio/fixture-ry9BOkAA4SZIAYZp", title + " HUN 1080p WEB-DL"
+    ]);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
+    await page.getByRole("button", {name: "Clear"}).press("Enter");
+    assert.equal(await focused(query), true);
+    await page.evaluate(async () => {
+        const {saveMoviePreferences} = await import("/movies.js");
+        saveMoviePreferences({server: "https://jellyfin.test/", profile: "viewer"}, {audio: "hu"});
+        window.finishVidea = null;
+    });
+    await query.fill(title);
+    await query.press("Enter");
+    await page.waitForFunction(() => typeof window.finishVidea === "function");
+    await page.evaluate(() => window.finishVidea());
+    await cards.first().getByText("Hungarian audio listed").waitFor();
+    await page.getByRole("button", {name: "Quality", exact: true}).press("Enter");
+    assert.deepEqual(await cards.locator(".movie-release-quality").allTextContents(), ["1080p Web", "1080p", "720p"]);
+
+    await query.fill("Most Wanted A hajsza S2");
+    await query.press("Enter");
+    const season = cards.filter({hasText: "10 episodes"});
+    const seasonAction = season.getByRole("button", {name: /^Download Most Wanted A hajsza · Season 2, 10 episodes/});
+    await season.getByText("360p–1080p", {exact: true}).waitFor();
+    assert.equal(await cards.count(), 1);
+    assert.equal(await season.getByRole("link").count(), 0);
+    await seasonAction.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    assert.equal(await focused(seasonAction), true);
+    if (screenshots) await page.screenshot({path: path.join(screenshots, `videa-season-${name}.png`), fullPage: true});
+    if (options.hasTouch) await seasonAction.tap();
+    else await seasonAction.press("Enter");
+    await season.getByText("Sent to the server").waitFor();
+    assert.equal(await focused(season.getByText("Sent to the server")), true);
+    const queue = page.getByRole("region", {name: "On the server"});
+    await queue.getByText("Most Wanted A hajsza · Season 2", {exact: true}).waitFor({timeout: 5000});
+    assert.equal(await queue.getByRole("progressbar").count(), 1);
+    if (screenshots) await page.screenshot({path: path.join(screenshots, `videa-season-queued-${name}.png`), fullPage: true});
+    const seasonCalls = await page.evaluate(() => window.calls.filter(([method]) => method === "MovieVideaSeasonDownload"));
+    assert.equal(seasonCalls.length, 1);
+    assert.equal(seasonCalls[0][2].length, 10);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
+    await page.close();
+}
+
 (async () => {
     const screenshots = process.argv[2];
     if (screenshots) fs.mkdirSync(screenshots, { recursive: true });
@@ -154,7 +268,10 @@ async function checkTrinity(browser, screenshots) {
         try {
             await check(browser, "ok");
             await check(browser, "unavailable");
-            for (const [name, options] of profiles) await checkRequests(browser, name, options, screenshots);
+            for (const [name, options] of profiles) {
+                await checkRequests(browser, name, options, screenshots);
+                await checkVidea(browser, name, options, screenshots);
+            }
             await checkTrinity(browser, engine === chromium ? screenshots : null);
         } finally { await browser.close(); }
     }

@@ -95,11 +95,26 @@ Best match puts shared 1080p and higher releases first, followed by shared lower
 
 For YouTube audio, local files and trimming, use the administrator [music intake tool](MUSIC_INTAKE.md). Its tagged imports go into `Local Imports`, alongside Lidarr's `Managed` directory, and Navidrome scans both.
 
-Movies uses the same download profiles for YouTube videos. It saves one video
-at a time under `/srv/familyhub/data/downloads/youtube/<title>/`. Set
+Movies uses the same download profiles for YouTube and Videa videos. Matches
+from Videa and full-film matches from YouTube join the release results. Both
+sites share one queue and save one video at a time under
+`/srv/familyhub/data/downloads/youtube/<title>/`. Set
 `MOVIE_DOWNLOADS.youtube_dir` to use a different writable directory. The Movies
 service needs yt-dlp and FFmpeg on its PATH. Queue history lasts until the
 service restarts.
+
+If Videa's title search misses an episode or season, FamilyHub checks the
+configured episode page and its related videos, or tries another numbering
+format when there is no configured page. Add known Videa episode pages under
+`MOVIE_DOWNLOADS.videa_seeds`. A search such as `Most Wanted A hajsza S2`
+shows one card with the number of matched episodes. Download queues the
+episodes together, and **On the server** shows the season's combined progress.
+
+```json
+"videa_seeds": {
+  "Most Wanted A hajsza": "https://videa.hu/videok/film-animacio/most-wanted-a-hajsza-s02e01-film-animation-lTPdnqR9dF0gU7I9"
+}
+```
 
 ## Upstream references
 

@@ -111,6 +111,17 @@
         SendMovieRequest("/api/movies/youtube-download", new { url, title });
 
     [JSInvokable]
+    public Task<string> MovieVideaSearch(string query) => SendMovieRequest("/api/movies/videa-search", new { query });
+
+    [JSInvokable]
+    public Task<string> MovieVideaDownload(string url, string title) =>
+        SendMovieRequest("/api/movies/videa-download", new { url, title });
+
+    [JSInvokable]
+    public Task<string> MovieVideaSeasonDownload(string title, System.Text.Json.JsonElement[] episodes) =>
+        SendMovieRequest("/api/movies/videa-download", new { title, episodes });
+
+    [JSInvokable]
     public Task<string> MovieDownloads() => SendMovieRequest("/api/movies/downloads");
 
     [JSInvokable]

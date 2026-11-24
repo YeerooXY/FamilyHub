@@ -801,17 +801,61 @@ export function openMovies(host, session, app, viewer) {
         downloads.className = "movie-source";
         web.hidden = downloads.hidden = true;
         panel.append(downloads);
-        const release = session.release_search_enabled
-            ? buildReleaseSearch(() => call("MovieReleaseSearch", term), signal,
-                session.downloads_enabled ? async row => {
-                    const reply = await call("MovieDownload", row.guid, row.indexerId, row.title);
-                    if (reply?.state === "sent") refreshDownloadsAfterGrab();
-                    return reply;
-                } : null, showDetails) : null;
+        const alive = () => active && !signal.aborted && panel.isConnected;
+        const wanted = searchTitle(term);
+        const matchesTitle = value => {
+            const title = searchTitle(value);
+            if (!wanted) return false;
+            if (title === wanted) return true;
+            if (!title.startsWith(wanted + " ")) return false;
+            return /^(?:(?:19|20)\d\d\s+)?(?:full|teljes|movie|film|magyarul|hd|4k|1080p)\b/.test(title.slice(wanted.length + 1));
+        };
+        const youtubeVideos = reply => (Array.isArray(reply?.results) ? reply.results : []).filter(item =>
+            typeof item.title === "string" && /^https:\/\/www\.youtube\.com\/watch\?v=[\w-]{11}$/.test(item.url))
+            .map(item => ({...item, title: cleanResultTitle(item.title)})).filter(item => item.title);
+        const fullMatch = item => item.label === "full film" && item.seconds >= 70 * 60 && matchesTitle(item.title);
+        let youtubeSearch = call("MovieFind", term).catch(() => ({error: "YouTube did not respond."}));
+        let youtubeMetadata;
+        function enrichVideos(videos) {
+            if (youtubeMetadata) return youtubeMetadata;
+            const ids = videos.filter(video => !video.height || !(video.duration ?? video.seconds)).map(video => video.url.slice(-11));
+            youtubeMetadata = ids.length ? call("MovieYouTubeMetadata", ids).catch(() => null) : Promise.resolve(null);
+            return youtubeMetadata;
+        }
+        const release = session.release_search_enabled || session.downloads_enabled
+            ? buildReleaseSearch(async () => {
+                const [torrents, videa, youtube] = await Promise.all([
+                    session.release_search_enabled ? call("MovieReleaseSearch", term).catch(() => null) : null,
+                    session.downloads_enabled ? call("MovieVideaSearch", term).catch(() => null) : null,
+                    session.downloads_enabled ? youtubeSearch : null
+                ]);
+                const torrentFailed = session.release_search_enabled && !Array.isArray(torrents?.results);
+                const videaFailed = session.downloads_enabled && !Array.isArray(videa?.results);
+                const candidates = youtubeVideos(youtube);
+                const videos = candidates.filter(fullMatch);
+                const details = videos.some(item => !item.height) && alive() ? await enrichVideos(candidates) : null;
+                const videaMatches = videaFailed ? [] : videa?.season ? [videa.season] : videa?.results || [];
+                const ranked = [
+                    ...(torrentFailed ? [] : torrents?.results || []),
+                    ...videaMatches.map(item => ({...item, site: "Videa"})),
+                    ...videos.map(item => ({...item, site: "YouTube", height: item.height || details?.results?.[item.url.slice(-11)]?.height}))
+                ];
+                if (!ranked.length && (torrentFailed || videaFailed)) {
+                    return {error: [torrentFailed && (torrents?.error || "Release lookup did not respond."),
+                        videaFailed && (videa?.error || "Videa did not respond.")].filter(Boolean).join(" ")};
+                }
+                return {results: ranked, title_details: torrents?.title_details || youtube?.title_details, unavailable: (torrents?.unavailable || 0) + Number(torrentFailed) + Number(videaFailed)};
+            }, signal, session.downloads_enabled ? async row => {
+                const reply = row.episodes
+                    ? await call("MovieVideaSeasonDownload", row.name, row.episodes)
+                    : row.site
+                    ? await call(row.site === "Videa" ? "MovieVideaDownload" : "MovieYouTubeDownload", row.url, row.title)
+                    : await call("MovieDownload", row.guid, row.indexerId, row.title);
+                if (reply?.state === "sent") refreshDownloadsAfterGrab();
+                return reply;
+            } : null, showDetails, readMoviePreferences(preferenceViewer).audio) : null;
         if (release) panel.append(release.element);
         panel.append(web);
-
-        const alive = () => active && !signal.aborted && panel.isConnected;
         const message = el("p", "Checking other sources…");
         message.className = "movie-source-note";
         message.setAttribute("role", "status");
@@ -931,9 +975,11 @@ export function openMovies(host, session, app, viewer) {
                 trigger.setAttribute("aria-disabled", "true");
                 trigger.textContent = "Checking YouTube…";
             }
-            let reply;
-            try { reply = await call("MovieFind", term); }
-            catch { reply = {error: "YouTube did not respond."}; }
+            if (trigger) {
+                youtubeMetadata = null;
+                youtubeSearch = call("MovieFind", term).catch(() => ({error: "YouTube did not respond."}));
+            }
+            const reply = await youtubeSearch;
             if (!alive()) return false;
             if (reply?.error || !Array.isArray(reply?.results)) {
                 const focused = trigger === document.activeElement;
@@ -942,9 +988,7 @@ export function openMovies(host, session, app, viewer) {
                 return true;
             }
             showDetails(reply.title_details);
-            const videos = reply.results.filter(item => typeof item.title === "string"
-                && /^https:\/\/www\.youtube\.com\/watch\?v=[\w-]{11}$/.test(item.url))
-                .map(item => ({...item, title: cleanResultTitle(item.title)})).filter(item => item.title);
+            const videos = youtubeVideos(reply);
             const focused = trigger === document.activeElement;
             web.replaceChildren();
             videoCards = [];
@@ -962,19 +1006,13 @@ export function openMovies(host, session, app, viewer) {
                 web.append(list);
                 web.hidden = false;
                 status.textContent = videos.length === 1 ? "1 video found." : `${videos.length} videos found.`;
-                const ids = cards.filter((_, index) => {
-                    const video = videos[index];
-                    return !video.height || !(video.duration ?? video.seconds);
-                }).map(card => card.id);
-                if (ids.length) {
-                    call("MovieYouTubeMetadata", ids).then(details => {
-                        if (!alive()) return;
-                        for (const card of cards) {
-                            const fresh = details?.results?.[card.id];
-                            if (fresh) card.update(fresh);
-                        }
-                    }).catch(() => {});
-                }
+                enrichVideos(videos).then(details => {
+                    if (!alive()) return;
+                    for (const card of cards) {
+                        const fresh = details?.results?.[card.id];
+                        if (fresh) card.update(fresh);
+                    }
+                });
             }
             web.hidden = !web.children.length;
             if (focused) (web.querySelector("a") || submit).focus();
@@ -1058,8 +1096,7 @@ export function openMovies(host, session, app, viewer) {
             if (!alive()) return;
             shown ||= found;
             outstanding--;
-            if (shown) message.textContent = "";
-            else if (!outstanding) message.textContent = "No watch or download options found. Try another title.";
+            if (!outstanding) message.textContent = shown ? "" : "No watch or download options found. Try another title.";
         });
     }
 

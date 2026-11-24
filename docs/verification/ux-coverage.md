@@ -413,3 +413,13 @@ Emulated only: Chromium and WebKit, 412x915 and 1280x800, with a fake server beh
 ## 23 November 2026 · Release downloads, server queue and subtitle search
 
 The [verification record](downloads-2026-11-23/README.md) covers layout, focus, status wording and state changes in Chromium and WebKit. Windows WebKit playback and subtitle cues used fixtures. Live services, physical devices, native WebViews, screen-reader speech, text enlargement and standard-motion behavior remain open.
+
+## 24 November 2026 · Videa in Movies search
+
+`node tests/movies_web.cjs .local/videa-ranked` checks a late 720p Videa match ranking below 1080p results from YouTube and a torrent indexer. The Videa result shows its listed Hungarian audio and uses the existing Download action and server queue. Setting preferred audio to Hungarian advances the match in Best match and preserves resolution order in Quality. The captures cover Windows Chromium and emulated Mac Safari, Android Chrome and iPhone Safari. Checked alignment, wrapping, overflow, Tab, Shift+Tab, Enter, Space, touch activation, live status and focus after sending a download. Videa uses the existing release-card transitions. The iPhone profile uses reduced motion.
+
+FamilyHub's Videa endpoint returned a match for `orult kigyasz` against the live site. Videa's live title search omitted episodes 2 and 3 of *Most Wanted – A hajsza*. Both pages opened from episode 1's related links, and `yt-dlp` read the available video metadata without downloading. The browser fixtures simulate Jellyfin and the app bridge. Physical-device layout, TV input, enlarged text, screen-reader speech and a live download through the deployed FamilyHub server remain open.
+
+### 24 November 2026 · Videa season downloads
+
+Both `Most Wanted A hajsza S2` and `Most Wanted A hajsza 2. évad` returned a season result with episodes 1–10 and a 360p–1080p range in a local FamilyHub API test against live Videa. The browser fixture in `tests/movies_web.cjs` checks one card, one batch request, one queue progress row, activation by Enter and touch, Tab and Shift+Tab, focus after receipt, and no horizontal overflow. Captures are in `.local/videa-season-card/` for Windows Chromium and emulated Mac Safari, Android Chrome and iPhone Safari. The physical-device and live-transfer checks above remain open.

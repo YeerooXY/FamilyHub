@@ -1,5 +1,6 @@
 """YouTube Movies tests with a local Flask client and a mocked yt-dlp."""
 import json
+import io
 import subprocess
 import tempfile
 import unittest
@@ -8,15 +9,42 @@ from threading import Event
 from unittest.mock import Mock, patch
 
 from music_web import movie_search
-from music_web.movie_youtube_downloads import YouTubeDownloads
+from music_web.movie_youtube_downloads import MAX_PENDING, YouTubeDownloads
 import test_movies
 from test_music_web import Base
 
 ID = 'abcABC123_-'
 URL = movie_search.video_url(ID)
+VIDEA_ID = 'Abcdef0123456789'
+VIDEA_URL = f'https://videa.hu/videok/film-animacio/example-s02e03-{VIDEA_ID}'
+VIDEA_SEED = VIDEA_URL.replace('s02e03', 's02e01').replace(VIDEA_ID, 'a' * 16)
 
 
 class YouTubeMetadata(unittest.TestCase):
+    def test_season_capacity_and_queue_summary(self):
+        queue = YouTubeDownloads('unused')
+        queue.running = True
+        videos = [(str(number), f'Episode {number}', None, f'https://videa.hu/player?v={number}') for number in range(10)]
+        queue.enqueue_many('yt-dlp', [(str(100 + number), f'Video {number}', None, URL)
+                                      for number in range(MAX_PENDING - 9)])
+        self.assertFalse(queue.enqueue_many('yt-dlp', videos, 'Season 2'))
+        self.assertFalse(any(ident in queue.jobs for ident, *_ in videos))
+        queue.pending.popleft()
+        self.assertTrue(queue.enqueue_many('yt-dlp', videos, 'Season 2'))
+        self.assertTrue(queue.enqueue_many('yt-dlp', videos, 'Season 2'))
+        self.assertEqual(len(queue.pending), MAX_PENDING)
+        queue.jobs['0'].update(state='Finished', progress=1)
+        queue.jobs['1'].update(state='Downloading', progress=.5)
+        self.assertEqual(queue.items()[0], dict(name='Season 2', progress=.15, state='Downloading'))
+        self.assertFalse(any(row['name'].startswith('Episode') for row in queue.items()))
+        queue.pending.clear()
+        for ident, *_ in videos:
+            queue.jobs[ident].update(state='Finished', progress=1)
+        queue.jobs['1'].update(state='Problem', progress=0)
+        self.assertEqual(queue.items()[0]['state'], 'Problem')
+        self.assertTrue(queue.enqueue_many('yt-dlp', videos, 'Season 2'))
+        self.assertEqual([item[1] for item in queue.pending], ['1'])
+
     def test_only_single_video_urls_are_accepted(self):
         for url in (URL, f'https://youtu.be/{ID}?si=tracking', f'https://m.youtube.com/shorts/{ID}'):
             self.assertEqual(movie_search.video_id(url), ID)
@@ -94,7 +122,7 @@ class YouTubeMetadata(unittest.TestCase):
                 queue.enqueue('yt-dlp', ID, '../A $TITLE', 1080)
                 try:
                     self.assertTrue(extracting.wait(3))
-                    queue.enqueue('yt-dlp', 'b' * 11, 'Next video', None)
+                    queue.enqueue('yt-dlp', VIDEA_ID, 'Next video', None, url=f'https://videa.hu/player?v={VIDEA_ID}')
                     self.assertEqual([row['state'] for row in queue.items()], ['Waiting', 'Downloading'])
                     self.assertEqual(popen.call_count, 1)
                 finally:
@@ -108,6 +136,7 @@ class YouTubeMetadata(unittest.TestCase):
             self.assertIn('--max-filesize', args)
             self.assertFalse(directory.exists())
             self.assertEqual(args[-2:], ['--', URL])
+            self.assertEqual(popen.call_args_list[1].args[0][-2:], ['--', f'https://videa.hu/player?v={VIDEA_ID}'])
             self.assertEqual(snapshots, [dict(name='../A $TITLE', progress=.47, state='Downloading'),
                                          dict(name='../A $TITLE', progress=.99, state='Almost done')])
             self.assertEqual(queue.items(), [dict(name='Next video', progress=0, state='Problem'),
@@ -124,9 +153,96 @@ class YouTubeMetadata(unittest.TestCase):
 
 
 class YouTubeEndpoints(Base):
-    extra = {**test_movies.MovieSessions.extra, 'ADMIN_USERS': ['sample-a'],
-             'MOVIE_DOWNLOADS': {'profiles': ['sample-a'], 'youtube_dir': 'fixture-youtube'}}
+    extra = {**test_movies.MovieSessions.extra, 'ADMIN_USERS': ['sample-a'], 'MOVIE_DOWNLOADS': {'profiles': ['sample-a'], 'youtube_dir': 'fixture-youtube',
+                                                                  'videa_seeds': {'Example & Friends': VIDEA_SEED}}}
     select = test_movies.MovieSessions.select
+
+    @patch('music_web.movies.shutil.which', return_value='yt-dlp')
+    @patch('music_web.movies.YouTubeDownloads.enqueue', return_value=True)
+    def test_videa_uses_same_queue_and_fixed_upstream(self, enqueue, which):
+        endpoint = '/api/movies/videa-download'
+        payload = dict(url=VIDEA_URL, title=' Example  S02E03 ')
+        denied, selection = self.select('sample-b')
+        self.assertEqual(self.post(denied, selection['csrf_token'], endpoint, json=payload).status_code, 403)
+        allowed, selection = self.select('sample-a')
+        csrf = selection['csrf_token']
+        for url in (VIDEA_URL.replace('videa.hu', 'videa.hu.evil.test'), VIDEA_URL + '?next=other', URL):
+            self.assertEqual(self.post(allowed, csrf, endpoint, json={**payload, 'url': url}).status_code, 400)
+        which.assert_not_called()
+        reply = self.post(allowed, csrf, endpoint, json=payload)
+        self.assertEqual((reply.status_code, reply.json), (202, {'state': 'sent'}))
+        enqueue.assert_called_once_with('yt-dlp', VIDEA_ID, 'Example S02E03', None, url=f'https://videa.hu/player?v={VIDEA_ID}')
+
+    @patch('music_web.movie_search.enrich', return_value={VIDEA_ID: {'height': 720}})
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_videa_search_keeps_the_requested_episode(self, opener, enrich):
+        listed_title = 'Example &amp; Friends S02E03 HUN 1080p'
+        rows = [(VIDEA_URL, listed_title), (VIDEA_URL, listed_title),
+                (VIDEA_URL.replace('videa.hu', 'videa.hu.evil.test'), listed_title),
+                (VIDEA_URL.replace(VIDEA_ID, 'a' * 16), 'Example &amp; Friends S02E02 1080p')]
+        opener.return_value.open.return_value.__enter__.return_value.read.return_value = ''.join(
+            f'<h2 class="title"><a href="{url}" title="Video">{title}</a></h2>' for url, title in rows).encode()
+        allowed, selection = self.select('sample-a')
+        reply = self.post(allowed, selection['csrf_token'], '/api/movies/videa-search', json={'query': 'Example & Friends S02E03'})
+        self.assertEqual(reply.json, {'results': [{'url': VIDEA_URL, 'title': 'Example & Friends S02E03 HUN 1080p', 'height': 720}]})
+        opener.return_value.open.assert_called_once_with('https://videa.hu/kereses/Example%20%26%20Friends%20S02E03', timeout=4)
+        self.assertEqual(list(enrich.call_args.args[0]), [VIDEA_ID])
+
+    @patch('music_web.movie_search.enrich', return_value={})
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_videa_uses_one_fallback_and_checks_episode_number(self, opener, enrich):
+        client, selection = self.select('sample-a')
+        open_page = opener.return_value.open
+        for query, fallback, title in [
+            ('Example & Friends 2x03', VIDEA_SEED, 'Example &amp; Friends S02E03 HUN'),
+            ('Example S2E3', 'https://videa.hu/kereses/example%20s02e03', 'Example 2. évad 3. rész'),
+        ]:
+            with self.subTest(query=query):
+                open_page.reset_mock()
+                page = f'<h2 class="title"><a href="{VIDEA_URL}">{title}</a></h2>'
+                wrong_episode = f'<h2 class="title"><a href="{VIDEA_SEED}">Example &amp; Friends S02E01</a></h2>'
+                open_page.side_effect = [io.BytesIO(wrong_episode.encode()), io.BytesIO((wrong_episode + page).encode())]
+                result = self.post(client, selection['csrf_token'], '/api/movies/videa-search', json={'query': query})
+                self.assertEqual(result.status_code, 200)
+                self.assertEqual([row['url'] for row in result.json['results']], [VIDEA_URL])
+                self.assertEqual(open_page.call_count, 2)
+                self.assertEqual(open_page.call_args.args[0], fallback)
+
+    @patch('music_web.movie_search.enrich', return_value={})
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_videa_season_search_returns_all_matching_episodes(self, opener, enrich):
+        client, selection = self.select('sample-a')
+        cards = ['<meta property="og:title" content="Example &amp; Friends S02E01 HUN">']
+        for episode in range(2, 11):
+            ident = f'{episode:016d}'
+            link = f'https://videa.hu/videok/film-animacio/example-s02e{episode:02d}-{ident}'
+            cards.append(f'<h2 class="title"><a href="{link}">Example &amp; Friends S02E{episode:02d} HUN</a></h2>')
+        cards.append(f'<h2 class="title"><a href="{VIDEA_URL}">Example &amp; Friends S01E03</a></h2>')
+        open_page = opener.return_value.open
+        open_page.side_effect = [io.BytesIO(b''), io.BytesIO(''.join(cards).encode())]
+        result = self.post(client, selection['csrf_token'], '/api/movies/videa-search', json={'query': 'Example & Friends S2'})
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual([row['title'] for row in result.json['results']],
+                         [f'Example & Friends S02E{episode:02d} HUN' for episode in range(1, 11)])
+        self.assertEqual(result.json['season'], dict(title='Example & Friends', number=2, height=0, max_height=0,
+                                                    episodes=result.json['results']))
+        self.assertEqual(open_page.call_args.args[0], VIDEA_SEED)
+
+    @patch('music_web.movies.shutil.which', return_value='yt-dlp')
+    @patch('music_web.movies.YouTubeDownloads.enqueue_many', return_value=True)
+    def test_season_download_validates_the_entire_batch_before_queueing(self, enqueue, which):
+        client, selection = self.select('sample-a')
+        payload = {'title': 'Example · Season 2', 'episodes': [dict(url=VIDEA_URL, title='Example S02E03'),
+                                                               dict(url=VIDEA_SEED, title='Example S02E01')]}
+        bad = {**payload, 'episodes': [*payload['episodes'], {'url': 'https://elsewhere.test', 'title': 'Invalid'}]}
+        endpoint = '/api/movies/videa-download'
+        self.assertEqual(self.post(client, selection['csrf_token'], endpoint, json=bad).status_code, 400)
+        enqueue.assert_not_called()
+        reply = self.post(client, selection['csrf_token'], endpoint, json=payload)
+        self.assertEqual((reply.status_code, reply.json), (202, {'state': 'sent'}))
+        args = enqueue.call_args.args
+        self.assertEqual(args[2], payload['title'])
+        self.assertEqual([item[0] for item in args[1]], [VIDEA_ID, 'a' * 16])
 
     @patch('music_web.movies.shutil.which', return_value='yt-dlp')
     @patch('music_web.movies.YouTubeDownloads.enqueue', return_value=True)

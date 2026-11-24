@@ -45,6 +45,7 @@ async function verify(browser, profile, options) {
                 window.calls.push([method, ...args]);
                 if (method === "MovieFind") return JSON.stringify({results: candidates,
                     title_details: {kind:"movie", title:candidates[0].title, runtime_minutes:90}});
+                if (method === "MovieVideaSearch") return JSON.stringify({results: []});
                 if (method === "MovieYouTubeMetadata") return new Promise(resolve => {
                     window.sendMetadata = results => resolve(JSON.stringify({results}));
                 });
