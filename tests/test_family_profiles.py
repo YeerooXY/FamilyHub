@@ -29,6 +29,16 @@ class DisabledProfiles(Base):
 class FirstPassword(Base):
     extra = {'FAMILY_PROFILES': True, 'ADMIN_USERS': ['sample-a'], 'PROFILE_PASSWORD_HASHES': {}}
 
+    def test_password_setup_signs_in_even_after_normal_sign_in_is_rate_limited(self):
+        client = self.app.test_client()
+        token = self.go(client, 'GET', '/api/connect').json['csrf_token']
+        credentials = {'profile_id': 'sample-a', 'password': 'long enough pass'}
+        for _ in range(8):
+            self.assertEqual(self.post(client, token, '/api/profile/select', json=credentials).status_code, 403)
+        self.assertEqual(self.post(client, token, '/api/profile/select', json=credentials).status_code, 429)
+        self.assertEqual(self.post(client, token, '/api/profile/password-setup', json=credentials).status_code, 200)
+        self.assertEqual(self.go(client, 'GET', '/api/profile/preferences').status_code, 200)
+
     def test_protected_profile_without_hash_creates_one_then_needs_it(self):
         client = self.app.test_client()
         boot = self.go(client, 'GET', '/api/connect').json

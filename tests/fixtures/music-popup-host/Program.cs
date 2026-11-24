@@ -37,6 +37,8 @@ builder.Services.AddScoped<PlaybackConnection>();
 builder.Services.AddScoped<PlaybackDevicePoll>();
 typeof(Preferences).GetFields(BindingFlags.Static | BindingFlags.NonPublic)
     .Single(f => f.FieldType == typeof(IPreferences)).SetValue(null, new MemoryPreferences());
+typeof(SecureStorage).GetFields(BindingFlags.Static | BindingFlags.NonPublic)
+    .Single(f => f.FieldType == typeof(ISecureStorage)).SetValue(null, new MemorySecureStorage());
 typeof(Launcher).GetFields(BindingFlags.Static | BindingFlags.NonPublic)
     .Single(f => f.FieldType == typeof(ILauncher)).SetValue(null, new FixtureLauncher());
 var patcher = new Harmony("familyhub.fixture");
@@ -151,6 +153,15 @@ static MusicSession MakeSession(string repo)
     return session;
 }
 
+sealed class MemorySecureStorage : ISecureStorage
+{
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> values = new();
+    public Task<string?> GetAsync(string key) => Task.FromResult(values.GetValueOrDefault(key));
+    public Task SetAsync(string key, string value) { values[key] = value; return Task.CompletedTask; }
+    public bool Remove(string key) => values.TryRemove(key, out _);
+    public void RemoveAll() => values.Clear();
+}
+
 sealed class MemoryPreferences : IPreferences
 {
     readonly System.Collections.Concurrent.ConcurrentDictionary<string, object?> data = new();
@@ -237,6 +248,27 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
     {
         var path = request.RequestUri!.AbsolutePath;
+        if (Startup is "password-create" or "password-signin")
+        {
+            var creating = Startup == "password-create";
+            if (path == "/api/connect")
+                return new(HttpStatusCode.OK) { Content = System.Net.Http.Json.JsonContent.Create(new {
+                    family_profiles = true, csrf_token = "fixture-boot", profiles = new[] {
+                        new { id = "fixture", name = "Yeeroo", requires_password = true, needs_password_setup = creating }
+                    }
+                }) };
+            if (path is "/api/profile/select" or "/api/profile/password-setup")
+            {
+                using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
+                var accepted = payload.RootElement.GetProperty("password").GetString() == "long enough pass"
+                    && creating == (path == "/api/profile/password-setup");
+                return accepted
+                    ? new(HttpStatusCode.OK) { Content = System.Net.Http.Json.JsonContent.Create(new {
+                        profile = new { id = "fixture", name = "Yeeroo" }, preferences = new { spotify_subscribed = false }, csrf_token = "fixture-signed-in"
+                    }) }
+                    : new(HttpStatusCode.Forbidden) { Content = System.Net.Http.Json.JsonContent.Create(new { error = "Incorrect password. Try again." }) };
+            }
+        }
         if (path == "/api/server/stats/now" || path == "/api/server/stats" && request.RequestUri.Query.StartsWith("?range=", StringComparison.Ordinal))
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();

@@ -28,42 +28,52 @@ else if (EntryScreen)
     <main id="content" class="entry-screen" tabindex="-1">
         @if (Session.NeedsProfileSelection && view != "Settings")
         {
-            <section class="profile-picker" aria-labelledby="profile-heading">
-                <h1 id="profile-heading">Choose a profile</h1>
-                <div class="profile-grid">
-                    @foreach (var profile in Session.Profiles)
+            <section class="profile-picker" aria-labelledby="@(protectedProfile is null ? "profile-heading" : "profile-password-title")" @onkeydown="ProfilePickerKeyDown">
+                <div class="profile-stage">
+                    <div class="profile-choices" inert="@(protectedProfile is not null)">
+                        <h1 id="profile-heading">Choose a profile</h1>
+                        <div class="profile-grid">
+                            @foreach (var profile in Session.Profiles)
+                            {
+                                <button id="@("profile-choice-" + profile.Id)" class="@(protectedProfile?.Id == profile.Id ? "profile-choice is-selected" : "profile-choice")" @key="profile.Id" @onclick="() => PickProfile(profile)" aria-disabled="@Aria(busy)">
+                                    <ProfileAvatar Profile="profile" Size="112" /><span>@profile.Name</span>
+                                </button>
+                            }
+                            <button id="add-profile" class="profile-choice" @onclick="ShowAddProfile" aria-disabled="@Aria(busy)"><span class="profile-image profile-add" aria-hidden="true"><MusicIcon Name="plus" /></span><span>Add profile</span></button>
+                        </div>
+                    </div>
+                    @if (protectedProfile is { } selected)
                     {
-                        <button id="@("profile-choice-" + profile.Id)" class="profile-choice" @key="profile.Id" @onclick="() => PickProfile(profile)" aria-disabled="@Aria(busy)">
-                            <ProfileAvatar Profile="profile" Size="112" /><span>@profile.Name</span>
-                        </button>
-                    }
-                    <button id="add-profile" class="profile-choice" @onclick="ShowAddProfile" aria-disabled="@Aria(busy)"><span class="profile-image profile-add" aria-hidden="true"><MusicIcon Name="plus" /></span><span>Add profile</span></button>
-                </div>
-                @if (protectedProfile is { } selected)
-                {
-                    var creating = selected.NeedsPasswordSetup;
-                    <form class="profile-password-card" @onsubmit="SignInToProfile" @onsubmit:preventDefault aria-labelledby="profile-password-title">
-                        <h2 id="profile-password-title">@(creating ? $"Create a password for {selected.Name}" : $"Sign in as {selected.Name}")</h2>
-                        @if (creating) { <p>This profile has no password yet. Choose one with at least 8 characters, then enter it again.</p> }
-                        <label for="profile-password">@(creating ? "New password" : "Password")</label>
-                        <div class="password-field">
-                            <input id="profile-password" type="@(showPassword ? "text" : "password")" @bind="profilePassword" @bind:event="oninput" minlength="@(creating ? 8 : 1)" maxlength="256" autocomplete="@(creating ? "new-password" : "current-password")" required />
-                            <button type="button" class="password-eye" @onclick="() => showPassword = !showPassword" aria-pressed="@(showPassword ? "true" : "false")" aria-label="Show password" title="Show password"><MusicIcon Name="@(showPassword ? "eye-off" : "eye")" /></button>
-                        </div>
-                        @if (creating)
-                        {
-                            <label for="profile-password-confirm">Repeat password</label>
-                            <div class="password-field">
-                                <input id="profile-password-confirm" type="@(showPassword ? "text" : "password")" @bind="profilePasswordRepeat" @bind:event="oninput" maxlength="256" autocomplete="new-password" required />
+                        var creating = selected.NeedsPasswordSetup;
+                        <form class="profile-password-card" @onsubmit="SignInToProfile" @onsubmit:preventDefault aria-labelledby="profile-password-title" aria-busy="@Aria(busy)">
+                            <header class="profile-sign-in-identity">
+                                <ProfileAvatar Profile="selected" Size="128" />
+                                <h1 id="profile-password-title">@selected.Name</h1>
+                            </header>
+                            <div class="profile-sign-in-fields">
+                                <label for="profile-password">@(creating ? "New password" : "Password")</label>
+                                @if (creating) { <p id="profile-password-requirement">Use at least 8 characters.</p> }
+                                <div class="password-field">
+                                    <input id="profile-password" type="@(showPassword ? "text" : "password")" @bind="profilePassword" @bind:event="oninput" minlength="@(creating ? 8 : 1)" maxlength="256" autocomplete="@(creating ? "new-password" : "current-password")" aria-describedby="@(creating ? "profile-password-requirement" : null)" readonly="@busy" required />
+                                    <button type="button" class="password-eye" @onclick="() => showPassword = !showPassword" aria-pressed="@(showPassword ? "true" : "false")" aria-label="Show password" title="Show password"><MusicIcon Name="@(showPassword ? "eye-off" : "eye")" /></button>
+                                </div>
+                                @if (creating)
+                                {
+                                    <label for="profile-password-confirm">Repeat password</label>
+                                    <div class="password-field">
+                                        <input id="profile-password-confirm" type="@(showPassword ? "text" : "password")" @bind="profilePasswordRepeat" @bind:event="oninput" maxlength="256" autocomplete="new-password" readonly="@busy" required />
+                                    </div>
+                                    @if (profilePasswordRepeat.Length > 0 && profilePasswordRepeat != profilePassword) { <p class="password-hint" role="status">The passwords do not match yet.</p> }
+                                }
+                                <div class="password-actions">
+                                    <button class="primary" type="submit" aria-disabled="@Aria(busy || profilePassword.Length == 0 || (creating && (profilePassword.Length < 8 || profilePassword != profilePasswordRepeat)))">@(busy ? "Signing in…" : creating ? "Create password and sign in" : "Sign in")</button>
+                                    <button class="quiet" type="button" @onclick="ClosePasswordCard" aria-disabled="@Aria(busy)">Back to profiles</button>
+                                </div>
+                                <Notice Level="error" Message="@error" />
                             </div>
-                            @if (profilePasswordRepeat.Length > 0 && profilePasswordRepeat != profilePassword) { <p class="password-hint" role="status">The passwords do not match yet.</p> }
-                        }
-                        <div class="password-actions">
-                            <button class="primary" type="submit" aria-disabled="@Aria(busy || (creating && (profilePassword.Length < 8 || profilePassword != profilePasswordRepeat)))">@(creating ? "Create password and sign in" : "Sign in")</button>
-                            <button type="button" @onclick="ClosePasswordCard">Cancel</button>
-                        </div>
-                    </form>
-                }
+                        </form>
+                    }
+                </div>
                 @if (addingProfile)
                 {
                     <form class="profile-name-form" @onsubmit="CreateProfile" @onsubmit:preventDefault>
@@ -71,7 +81,7 @@ else if (EntryScreen)
                         <button class="primary" type="submit" aria-disabled="@Aria(busy)">Create profile</button><button type="button" @onclick="CancelAddProfile">Cancel</button>
                     </form>
                 }
-                <Notice Level="@(error is null ? Session.MessageLevel : "error")" Message="@(error ?? EntryMessage)" />
+                @if (protectedProfile is null) { <Notice Level="@(error is null ? Session.MessageLevel : "error")" Message="@(error ?? EntryMessage)" /> }
                 <button class="quiet change-server" @onclick='() => Navigate("Settings")'>Change server</button>
                 <AppUpdate InitialRelease="startupUpdate" />
             </section>
@@ -1268,6 +1278,7 @@ else
     private Task SharePlaylist(MusicPlaylist playlist, bool shared) => Run(() => Session.EditPlaylistAsync(playlist, new { shared }));
     private ListenerProfile? protectedProfile;
     private string profilePassword = "", profilePasswordRepeat = "";
+    private double[]? profileAvatarStart;
     private bool showPassword;
     private void ShowAddProfile() { CancelProfilePassword(); addingProfile = true; pendingFocus = "new-profile-name"; }
     private void CancelAddProfile() { addingProfile = false; pendingFocus = "add-profile"; }
@@ -1284,32 +1295,54 @@ else
 
     private Task OpenImportFeedback() => feedbackDialog?.OpenAsync("report-import-problem", "import-failed") ?? Task.CompletedTask;
     private Task OpenPlaybackFeedback() => feedbackDialog?.OpenAsync("report-playback-problem", "playback-failed") ?? Task.CompletedTask;
-    private Task PickProfile(ListenerProfile profile)
+    private async Task PickProfile(ListenerProfile profile)
     {
-        if (busy) return Task.CompletedTask;
+        if (busy || protectedProfile is not null) return;
         CancelAddProfile(); CancelProfilePassword();
-        if (!profile.RequiresPassword) return ChooseProfile(profile.Id);
+        error = null;
+        if (!profile.RequiresPassword) { await ChooseProfile(profile.Id); return; }
+        var avatarStart = await JS.InvokeAsync<double[]?>("familyhub.profileAvatarBounds", "profile-choice-" + profile.Id);
+        if (protectedProfile is not null) return;
+        profileAvatarStart = avatarStart;
         protectedProfile = profile;
         pendingFocus = "profile-password";
-        return Task.CompletedTask;
     }
-    private void ClosePasswordCard() { if (protectedProfile is { } opened) pendingFocus = "profile-choice-" + opened.Id; CancelProfilePassword(); }
+    private void ProfilePickerKeyDown(KeyboardEventArgs args) { if (args.Key == "Escape") ClosePasswordCard(); }
+    private void ClosePasswordCard()
+    {
+        if (busy || protectedProfile is not { } opened) return;
+        pendingFocus = "profile-choice-" + opened.Id;
+        error = null;
+        CancelProfilePassword();
+    }
     private void CancelProfilePassword() { protectedProfile = null; profilePassword = ""; profilePasswordRepeat = ""; showPassword = false; }
     private async Task SignInToProfile()
     {
         if (busy || protectedProfile is not { } profile) return;
         var password = profilePassword;
-        if (profile.NeedsPasswordSetup && (password.Length < 8 || password != profilePasswordRepeat)) return;
+        if (password.Length == 0 || (profile.NeedsPasswordSetup && (password.Length < 8 || password != profilePasswordRepeat))) return;
         profilePassword = ""; profilePasswordRepeat = "";
         await ChooseProfile(profile.Id, password, profile.NeedsPasswordSetup);
         if (!Session.NeedsProfileSelection) CancelProfilePassword();
+        else if (Session.Profiles.FirstOrDefault(item => item.Id == profile.Id) is { } refreshed)
+        {
+            protectedProfile = refreshed;
+            pendingFocus = "profile-password";
+        }
+        else ClosePasswordCard();
     }
-    private Task ChooseProfile(string id, string? password = null, bool createPassword = false) => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); ResetProfileView(); await Session.SelectProfileAsync(id, password, createPassword); });
+    private Task ChooseProfile(string id, string? password = null, bool createPassword = false) => Run(async () =>
+    {
+        await Session.SavePlaybackAsync(Player.CaptureResume());
+        await Player.StopAsync();
+        await Session.SelectProfileAsync(id, password, createPassword);
+        ResetProfileView(fromProfilePicker: true);
+    });
     private Task CreateProfile() => Run(async () => { await Session.CreateProfileAsync(profileName); await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); ResetProfileView(); await Session.SelectProfileAsync(Session.Profiles.Last().Id); });
     private Task SwitchProfile() => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); await Session.SwitchProfileAsync(); ResetProfileView(); });
-    private void ResetProfileView()
+    private void ResetProfileView(bool fromProfilePicker = false)
     {
-        var keepDeepLink = EntryScreen && view is ("Stats" or "Wordle");
+        var keepDeepLink = (EntryScreen || fromProfilePicker) && view is ("Stats" or "Wordle");
         CancelSearch();
         recommendationLookup?.Cancel();
         recommendationLookup = null;
@@ -1428,6 +1461,11 @@ else
         if (wasDownloading && Session.DownloadingId is null)
             await JS.InvokeVoidAsync("familyhub.restoreFocus", "pause-download", view == "Playlists" && Selected is not null ? "keep-playlist" : "content");
         wasDownloading = Session.DownloadingId is not null;
+        if (profileAvatarStart is { } avatarStart)
+        {
+            profileAvatarStart = null;
+            await JS.InvokeVoidAsync("familyhub.centerProfileAvatar", avatarStart);
+        }
         if (pendingFocus is { } target && (!EntryScreen || target is not ("artist-mappings-title" or "catalogue-review-title" or "view-title"))) { pendingFocus = null; await JS.InvokeVoidAsync("familyhub.focus", target); }
         if (AppUpdater.Platform is not null && !updateCheckInFlight && updateCheckOrigin != Session.Server)
             _ = CheckStartupUpdate(Session.Server);
@@ -1531,6 +1569,7 @@ else
         if (await JS.InvokeAsync<bool>("familyhub.closeTopLayer")) return true;
         if (EntryScreen)
         {
+            if (protectedProfile is not null && view != "Settings") { ClosePasswordCard(); StateHasChanged(); return true; }
             if (view != "Settings" || string.IsNullOrEmpty(Session.User) || Session.NeedsProfileSelection) return false;
             view = "Home"; StateHasChanged(); return true;
         }

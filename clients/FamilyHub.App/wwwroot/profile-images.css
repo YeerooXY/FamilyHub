@@ -19,17 +19,34 @@
 .profile-picture-editor .fh-notice:not([hidden]) { margin:8px 0 0; padding:0; border:0; background:transparent; font-size:13px; box-shadow:none; --notice-gap:6px; --notice-icon-size:16px; }
 .profile-picture-editor>.fh-notice { grid-column:1 / -1; }
 @media(max-width:480px) { .profile-picture-editor { grid-template-columns:76px minmax(0,1fr); column-gap:12px; } }
-.profile-password-card { display:grid; gap:8px; width:min(100%,380px); margin:24px auto 0; padding:20px; border:1px solid #ffffff1f; border-radius:16px; background:#12151cf2; text-align:left; scroll-margin-bottom:24px; }
-.profile-password-card h2 { margin:0; font-size:18px; line-height:1.3; }
+.profile-stage { display:grid; place-items:center; isolation:isolate; }
+.profile-choices, .profile-password-card { grid-area:1 / 1; }
+.profile-choices { width:100%; transition:opacity 180ms ease, visibility 0s; }
+.profile-choices[inert] { opacity:0; visibility:hidden; transition-delay:0s, 180ms; }
+.profile-choice.is-selected { visibility:hidden; }
+.profile-password-card { display:grid; justify-items:center; gap:24px; width:min(100%,340px); margin:0; padding:8px 0; z-index:1; scroll-margin-bottom:24px; }
+.profile-sign-in-identity { display:grid; justify-items:center; gap:16px; }
+.profile-sign-in-identity .profile-avatar { box-shadow:0 0 48px #93a9eb20; }
+.profile-sign-in-identity h1 { margin:0; font-size:clamp(24px, 4vw, 34px); line-height:1.15; overflow-wrap:anywhere; }
+.profile-password-card .profile-sign-in-fields { display:grid; gap:8px; width:100%; text-align:left; }
+.profile-sign-in-identity h1, .profile-sign-in-fields { animation:profile-sign-in-enter 230ms ease both; }
+@keyframes profile-sign-in-enter { from { opacity:0; translate:0 7px; } to { opacity:1; translate:0 0; } }
+.profile-choices:not([inert]) { transition-delay:0s; }
 .profile-password-card p { margin:0; color:var(--muted); font-size:14px; line-height:1.4; }
 .profile-password-card .password-hint { color:var(--warning,#f0c36a); }
 .profile-password-card label { margin-top:6px; font-size:14px; font-weight:650; }
 .password-field { position:relative; display:flex; align-items:center; }
 .password-field input { width:100%; min-height:48px; margin:0; padding:0 48px 0 14px; border:1px solid #ffffff2e; border-radius:12px; background:#ffffff0d; color:var(--ink); font-size:16px; }
 .password-field input:focus-visible { outline:2px solid var(--focus,var(--accent-blue)); outline-offset:2px; }
-.password-eye { position:absolute; right:4px; display:grid; place-items:center; width:40px; height:40px; padding:0; border:0; border-radius:10px; background:transparent; color:var(--muted); }
+.password-eye { position:absolute; right:2px; display:grid; place-items:center; width:44px; height:44px; padding:0; border:0; border-radius:10px; background:transparent; color:var(--muted); }
 .password-eye svg { width:22px; height:22px; }
 .password-eye[aria-pressed=true] { color:var(--ink); }
-.password-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; }
-.password-actions .primary { flex:1 1 180px; }
-.password-actions button { min-height:46px; }
+.password-actions { display:grid; justify-items:stretch; gap:4px; margin-top:8px; }
+.password-actions button { min-height:44px; }
+.profile-sign-in-fields .fh-notice:not([hidden]) { position:static; margin:0; }
+body[data-effects=off] .profile-choices { transition:none; }
+body[data-effects=off] :is(.profile-sign-in-identity h1,.profile-sign-in-fields) { animation:none; }
+@media(prefers-reduced-motion:reduce) {
+    .profile-choices { transition:none; }
+    .profile-sign-in-identity h1, .profile-sign-in-fields { animation:none; }
+}

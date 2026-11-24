@@ -40,6 +40,21 @@ window.familyhub = { press(id) { document.getElementById(id)?.click(); }, retain
     if (document.activeElement?.id === removedId || (document.activeElement === document.body && lastFocusId === removedId)) document.getElementById(successorId)?.focus();
 }, view(name) { document.body.dataset.view = name; familyhub.feedback?.screen(); const content = document.getElementById("content"); if (content) content.scrollTop = 0; if (document.activeElement === document.body) document.getElementById("content")?.focus(); }, focus(id) { const target = document.getElementById(id); if (target) target.focus(); else requestAnimationFrame(() => document.getElementById(id)?.focus()); } };
 
+familyhub.profileAvatarBounds = id => {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches || document.body.dataset.effects === 'off') return null;
+    const bounds = document.getElementById(id)?.querySelector('.profile-avatar')?.getBoundingClientRect();
+    return bounds?.width ? [bounds.x, bounds.y, bounds.width] : null;
+};
+familyhub.centerProfileAvatar = ([x, y, width]) => {
+    const avatar = document.querySelector('.profile-sign-in-identity .profile-avatar');
+    if (!avatar) return;
+    const end = avatar.getBoundingClientRect();
+    avatar.animate([
+        {transform: `translate(${x - end.x}px, ${y - end.y}px) scale(${width / end.width})`, transformOrigin: 'top left'},
+        {transform: 'none', transformOrigin: 'top left'}
+    ], {duration: 280, easing: 'cubic-bezier(.2,.75,.25,1)'});
+};
+
 // Collect control actions only. Never read text, form values, paths, URLs, or key characters.
 window.familyhub.feedback = (() => {
     const keys = new Set(['Enter', 'Escape', ' ', 'Tab', 'Backspace', 'Delete', 'Home', 'End', 'PageUp', 'PageDown',

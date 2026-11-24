@@ -13,6 +13,9 @@ internal static class SessionChecks
         var reachable = true;
         var removed = false;
         var unauthorized = false;
+        string? expectedPassword = null;
+        var passwordSetup = false;
+        var passwordSelections = 0;
         var publishLibrary = false;
         const string playlistId = "0123456789abcdefghijkl";
         var playlistRevision = 1;
@@ -121,12 +124,26 @@ internal static class SessionChecks
                 playlistDeleted = true;
                 return Json("""{"deleted":true}""");
             }
+            if ((passwordSetup || expectedPassword is not null) && request.RequestUri.AbsolutePath is "/api/profile/select" or "/api/profile/password-setup")
+            {
+                passwordSelections++;
+                using var body = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                var password = body.RootElement.GetProperty("password").GetString();
+                if (passwordSetup && request.RequestUri.AbsolutePath.EndsWith("password-setup"))
+                {
+                    expectedPassword = password;
+                    passwordSetup = false;
+                }
+                if (password != expectedPassword) return new(HttpStatusCode.Forbidden);
+            }
             return request.RequestUri!.AbsolutePath switch
             {
                 "/api/jobs" => Json("{\"job\":{\"id\":\"preview\",\"source_id\":\"abcdefghijk\",\"state\":\"running\",\"stream_url\":\"/api/jobs/preview/media/index.m3u8?ticket=test\"}}"),
                 "/api/connect" => Json("{\"family_profiles\":true,\"csrf_token\":\"boot\",\"profiles\":" +
-                    (removed ? "[]" : "[{\"id\":\"alex\",\"name\":\"Alex\"},{\"id\":\"sam\",\"name\":\"Sam\"}]") + "}"),
-                "/api/profile/select" => Json("{\"profile\":{\"id\":\"alex\",\"name\":\"Alex\"},\"csrf_token\":\"selected\",\"preferences\":{\"volume\":0.8,\"shuffle\":false}}"),
+                    (removed ? "[]" : JsonSerializer.Serialize(new[] { new { id = "alex", name = "Alex", requires_password = passwordSetup || expectedPassword is not null, needs_password_setup = passwordSetup },
+                        new { id = "sam", name = "Sam", requires_password = false, needs_password_setup = false } })) + "}"),
+                "/api/profile/select" or "/api/profile/password-setup" => Json("{\"profile\":{\"id\":\"alex\",\"name\":\"Alex\"},\"csrf_token\":\"selected\",\"preferences\":{\"volume\":0.8,\"shuffle\":false}}"),
+                "/api/profile/preferences" => Json("{\"preferences\":" + request.Content!.ReadAsStringAsync().GetAwaiter().GetResult() + "}"),
                 "/api/listening/summary" => Json("{}"),
                 "/api/library" => Json(System.Text.Json.JsonSerializer.Serialize(new { results = publishLibrary ? new[] { recording } : [] }, FamilyHubApi.JsonOptions)),
                 "/api/playlists" => Json(JsonSerializer.Serialize(new { playlists = playlistDeleted ? [] : new[] {
@@ -459,7 +476,27 @@ internal static class SessionChecks
             unauthorized = true;
             try { await restarted.SelectProfileAsync("alex"); throw new Exception("Unauthorized response used offline fallback"); }
             catch (FamilyHubApiException error) when (error.StatusCode == 401) { checks++; }
+            unauthorized = false;
+            passwordSetup = true;
+            await restarted.SelectProfileAsync("alex", "fixture password", createPassword: true);
+            Check(restarted.Connected && !restarted.Profiles.Single(p => p.Id == "alex").NeedsPasswordSetup, "First password did not sign in and clear setup locally");
             restarted.Api?.Dispose();
+            var remembered = new MusicSession(Api);
+            await remembered.InitializeAsync();
+            await remembered.FirstConnection;
+            Check(remembered.Connected && remembered.User == "alex" && passwordSelections == 2, "App restart did not use the device's saved sign-in");
+            expectedPassword = "changed fixture password";
+            await remembered.ReconnectAsync();
+            Check(remembered.NeedsProfileSelection && SecureStorage.Default.Count == 0, "Rejected sign-in was not removed");
+            await remembered.SelectProfileAsync("alex", expectedPassword);
+            passwordSetup = true;
+            var selectionsBeforeReset = passwordSelections;
+            await remembered.ReconnectAsync();
+            Check(remembered.NeedsProfileSelection && passwordSelections == selectionsBeforeReset && SecureStorage.Default.Count == 0, "Reset tried the saved password instead of offering setup");
+            await remembered.SelectProfileAsync("alex", "replacement fixture password", createPassword: true);
+            await remembered.SwitchProfileAsync();
+            Check(remembered.NeedsProfileSelection && SecureStorage.Default.Count == 0, "Switch profile kept the saved sign-in");
+            remembered.Api?.Dispose();
         }
         finally
         {
@@ -488,6 +525,15 @@ internal sealed class Preferences
     public bool ContainsKey(string key) => values.ContainsKey(key);
     public string Get(string key, string fallback) => values.GetValueOrDefault(key, fallback);
     public void Set(string key, string value) => values[key] = value;
+}
+internal sealed class SecureStorage
+{
+    public static SecureStorage Default { get; } = new();
+    private readonly Dictionary<string, string> values = [];
+    public int Count => values.Count;
+    public Task<string?> GetAsync(string key) => Task.FromResult(values.GetValueOrDefault(key));
+    public Task SetAsync(string key, string value) { values[key] = value; return Task.CompletedTask; }
+    public bool Remove(string key) => values.Remove(key);
 }
 internal enum DevicePlatform { WinUI, Android, MacCatalyst, iOS }
 internal enum DeviceIdiom { Desktop, Tablet }

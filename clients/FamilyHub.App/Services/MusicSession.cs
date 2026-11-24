@@ -310,6 +310,8 @@ public sealed class MusicSession
                 else
                 {
                     Configure(config.Server, config.User);
+                    try { profilePassword = await SecureStorage.Default.GetAsync(ProfileSignInKey); }
+                    catch (Exception) { ForgetProfileSignIn(); }
                     ProfileName = config.ProfileName ?? config.User;
                     PlaybackPreferences = ReadPreferences().Value;
                     Library = await Offline!.GetLibraryAsync();
@@ -636,6 +638,15 @@ public sealed class MusicSession
         PreferenceKey(Server, User), JsonSerializer.Serialize(new CachedPreferences(value, dirty)));
 
     private string? profilePassword;
+    private string ProfileSignInKey => PreferenceKey(Server, User) + ":sign-in";
+
+    private void ForgetProfileSignIn()
+    {
+        profilePassword = null;
+        if (User.Length == 0) return;
+        try { SecureStorage.Default.Remove(ProfileSignInKey); }
+        catch (Exception) { /* The device's credential store is unavailable. */ }
+    }
 
     public async Task ConnectServerAsync(string server, Func<Task>? beforeSwitch = null)
     {
@@ -652,7 +663,7 @@ public sealed class MusicSession
             {
                 connection = await candidate.ConnectAsync(timeout.Token);
                 if (candidate.ServerOrigin.AbsoluteUri == Server && !string.IsNullOrEmpty(User)
-                    && connection.Profiles.Any(p => p.Id == User && (!p.RequiresPassword || profilePassword is not null)))
+                    && connection.Profiles.Any(p => p.Id == User && (!p.RequiresPassword || !p.NeedsPasswordSetup && profilePassword is not null)))
                     selection = await candidate.SelectProfileAsync(User, timeout.Token, password: profilePassword);
             }
             catch (HttpRequestException error) when (error.HttpRequestError == HttpRequestError.SecureConnectionError)
@@ -672,6 +683,7 @@ public sealed class MusicSession
                 await RefreshAsync();
                 return;
             }
+            ForgetProfileSignIn();
             Api?.Dispose(); Api = candidate; candidate = null;
             Server = Api.ServerOrigin.AbsoluteUri;
             ClearProfile(); Profiles = connection.Profiles;
@@ -740,10 +752,21 @@ public sealed class MusicSession
                 SetMessage("Server unavailable. Downloaded songs are available offline.", "warning");
                 return;
             }
+            var selectedIndex = connection.Profiles.FindIndex(p => p.Id == id);
+            var selected = connection.Profiles[selectedIndex];
+            if (createPassword) connection.Profiles[selectedIndex] = selected with { NeedsPasswordSetup = false };
+            if (User != id) ForgetProfileSignIn();
             await ApplySelectionAsync(candidate, selection, connection.Profiles);
-            profilePassword = connection.Profiles.Any(p => p.Id == id && p.RequiresPassword) ? password : null;
             candidate = null;
+            profilePassword = selected.RequiresPassword ? password : null;
+            var saved = true;
+            if (profilePassword is { } credential)
+            {
+                try { await SecureStorage.Default.SetAsync(ProfileSignInKey, credential); }
+                catch (Exception) { saved = false; }
+            }
             await RefreshAsync();
+            if (!saved) SetMessage("This device could not save your sign-in. Enter your password next time you open the app.", "warning");
         }
         finally { if (!ReferenceEquals(Api, candidate)) candidate?.Dispose(); connectionLock.Release(); }
     }
@@ -812,6 +835,7 @@ public sealed class MusicSession
         try
         {
             RequireIdleDownload();
+            ForgetProfileSignIn();
             ClearProfile(); PersistConnection();
             Api?.Dispose(); Api = string.IsNullOrEmpty(Server) ? null : createApi(new Uri(Server));
             Changed?.Invoke();
@@ -832,9 +856,11 @@ public sealed class MusicSession
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var connection = await candidate.ConnectAsync(timeout.Token, background);
             StoreProfiles(Server, connection.Profiles);
-            if (string.IsNullOrEmpty(User) || !connection.Profiles.Any(p => p.Id == User && (!p.RequiresPassword || profilePassword is not null)))
+            var profile = connection.Profiles.FirstOrDefault(p => p.Id == User);
+            if (profile is null || profile.RequiresPassword && (profile.NeedsPasswordSetup || profilePassword is null))
             {
                 Api?.Dispose(); Api = candidate; candidate = null;
+                ForgetProfileSignIn();
                 ClearProfile(); Profiles = connection.Profiles; PersistConnection();
                 SetMessage("Choose who's listening."); return;
             }
@@ -843,9 +869,10 @@ public sealed class MusicSession
             candidate = null;
             await RefreshAsync(background);
         }
-        catch (FamilyHubApiException error) when (error.StatusCode == 403)
+        catch (FamilyHubApiException error) when (error.StatusCode is 401 or 403)
         {
             var profiles = ReadProfiles(Server);
+            ForgetProfileSignIn();
             ClearProfile(); Profiles = profiles; PersistConnection();
             SetMessage("Sign in again to use this profile.", "warning");
         }

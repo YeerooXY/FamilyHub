@@ -423,3 +423,9 @@ FamilyHub's Videa endpoint returned a match for `orult kigyasz` against the live
 ### 24 November 2026 · Videa season downloads
 
 Both `Most Wanted A hajsza S2` and `Most Wanted A hajsza 2. évad` returned a season result with episodes 1–10 and a 360p–1080p range in a local FamilyHub API test against live Videa. The browser fixture in `tests/movies_web.cjs` checks one card, one batch request, one queue progress row, activation by Enter and touch, Tab and Shift+Tab, focus after receipt, and no horizontal overflow. Captures are in `.local/videa-season-card/` for Windows Chromium and emulated Mac Safari, Android Chrome and iPhone Safari. The physical-device and live-transfer checks above remain open.
+
+## 24 November 2026 ? Native profile sign-in
+
+The Windows Chromium fixture and emulated Mac Safari, Android Chrome and iPhone Safari show the selected avatar and password fields in one centered column. The captures are in `.local/profile-sign-in-review/`. Checked normal animation, reduced motion on iPhone, Enter and Space selection, touch, Tab and Shift+Tab, focus after Back and Escape, inline rejection, and completion into the app. The fixture uses fallback avatars and simulated server responses. Portable client tests cover saved sign-in after restart and removal after a rejected password, a reset, or Switch profile.
+
+Physical Android and iPhone keyboards, macOS and iOS font rendering, native secure storage on physical devices, enlarged text and screen-reader speech remain open.

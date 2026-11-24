@@ -537,8 +537,10 @@ def create_app(test_config=None):
         digest = password_hashes.get(user)
         if not digest:
             raise ApiError("Ask the server owner to set a password for this profile.", 403)
-        if not isinstance(password, str) or not 1 <= len(password) <= 256 or not check_password_hash(digest, password):
+        if not isinstance(password, str) or not 1 <= len(password) <= 256:
             raise ApiError("Enter the password for this profile.", 403)
+        if not check_password_hash(digest, password):
+            raise ApiError("Incorrect password. Try again.", 403)
 
     @app.get("/api/connect")
     def family_connect():
@@ -584,7 +586,7 @@ def create_app(test_config=None):
             write_state_json(password_file, {**{key: value for key, value in password_hashes.items() if key not in cfg["PROFILE_PASSWORD_HASHES"]},
                                               profile["id"]: digest})
             password_hashes[profile["id"]] = digest
-        return select_family_profile()
+        return sign_in_family_profile(profile, background_activity())
 
     @app.post("/api/profile/select")
     def select_family_profile():
@@ -593,6 +595,9 @@ def create_app(test_config=None):
         data = body()
         profile = profile_store.get(data.get("profile_id"))
         verify_profile_password(profile["id"], data.get("password"))
+        return sign_in_family_profile(profile, background)
+
+    def sign_in_family_profile(profile, background):
         preferences = profile_store.preferences(profile["id"])
         establish_session(profile["id"], True, activity_header=background)
         g.pop("csrf_token", None)
