@@ -45,6 +45,9 @@ def snapshot(config):
         stale = (datetime.now(timezone.utc) - sampled_at).total_seconds() > 120
     except (sqlite3.Error, ValueError, TypeError):
         return unavailable
-    return dict(available=True, goal=GOAL, last_sample_at=sampled_at.isoformat(), stale=stale,
-                items=[dict(row) | {'state': STATES.get(row['state'], 'Unknown'), 'ratio': ratio(row['ratio'])}
-                       for row in rows])
+    items = [dict(row) | {'state': STATES.get(row['state'], 'Unknown'), 'ratio': ratio(row['ratio'])} for row in rows]
+    uploaded = sum(max(0, item['uploaded']) for item in items if type(item['uploaded']) is int)
+    downloaded = sum(max(0, item['downloaded']) for item in items if type(item['downloaded']) is int)
+    return dict(available=True, goal=GOAL, last_sample_at=sampled_at.isoformat(), stale=stale, items=items,
+                total_uploaded=uploaded, total_downloaded=downloaded,
+                global_ratio=round(uploaded / downloaded, 4) if downloaded else 0.0)

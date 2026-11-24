@@ -119,6 +119,8 @@ The following rules are registered with family mode enabled. Feature flags and p
 
 ```text
 GET /
+GET /admin
+GET /admin/<name>
 GET /api/activity/stats
 GET /api/admin/discovery
 POST /api/admin/discovery
@@ -200,6 +202,7 @@ POST /api/movies/releases
 POST /api/movies/report
 POST /api/movies/request
 POST /api/movies/request-search
+POST /api/movies/season-episodes
 POST /api/movies/session
 POST /api/movies/videa-download
 POST /api/movies/videa-search

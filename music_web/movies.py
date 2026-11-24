@@ -2,6 +2,7 @@
 import http.client
 import html
 import json
+import time
 import logging
 import re
 import secrets
@@ -15,7 +16,7 @@ from time import monotonic
 
 from flask import g, jsonify, session
 
-from . import audio_tracks, feedback, movie_import, movie_media, movie_search, tmdb, torrent_seeding
+from . import audio_tracks, feedback, movie_import, movie_media, movie_search, tmdb, tmdb_stills, torrent_seeding
 from .catalog_search import NoRedirect
 from .movie_youtube_downloads import DEFAULT_DIR, MAX_PENDING, YouTubeDownloads
 
@@ -503,7 +504,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
             seasons = cached_search(('tmdb-tv', ident), 3600, lambda: catalogue_seasons(ident, key))
             if seasons is None:
                 return jsonify(error='The full season list is unavailable.'), 503
-            return jsonify(seasons=seasons)
+            return jsonify(seasons=seasons, series_id=ident)
         if not release_access() or not isinstance(key, str) or not key:
             return jsonify(matches=[])
         if query is None:
@@ -516,6 +517,40 @@ def register_movies(app, cfg, body, allow, session_is_live):
         if found is None:
             return jsonify(error='Posters are unavailable right now.'), 503
         return jsonify(matches=found)
+
+    stills = tmdb_stills.StillCache(cfg)
+
+    @app.post('/api/movies/season-episodes')
+    def movie_season_episodes():
+        if g.user not in cfg.get('JELLYFIN_PROFILES', {}):
+            return jsonify(error='Movies are unavailable for this profile.'), 403
+        data = body()
+        series, season = data.get('series'), data.get('season')
+        if set(data) != {'series', 'season'} or type(series) is not int or type(season) is not int                 or not 0 < series <= 2**31 - 1 or not 0 <= season <= 999:
+            return jsonify(error='Choose a season from the list.'), 400
+        if not allow('movie-stills:' + g.user, 60, 60):
+            return jsonify(error='Wait a minute before opening the episodes again.'), 429
+        key = cfg.get('TMDB_API_KEY')
+        key = key if isinstance(key, str) and key else None
+        if not key and not tmdb_token:
+            return jsonify(error='Episode pictures are unavailable.'), 503
+        detail = cached_search(('tmdb-season', series, season), 3600,
+                               lambda: tmdb_season(f'tv/{series}/season/{season}', key) or None)
+        rows = detail.get('episodes') if isinstance(detail, dict) else None
+        if not isinstance(rows, list):
+            return jsonify(error='Episode pictures are unavailable.'), 503
+        episodes, deadline = [], time.monotonic() + 8
+        for row in rows[:100]:
+            number = row.get('episode_number') if isinstance(row, dict) else None
+            if type(number) is not int or not 0 <= number <= 9999:
+                continue
+            picture = stills.read(series, season, number)
+            if picture is None and time.monotonic() < deadline:
+                picture = stills.fetch(series, season, number, row.get('still_path'))
+            name = row.get('name')
+            episodes.append(dict(number=number, name=name[:200] if isinstance(name, str) else '',
+                                 still=stills.data_url(picture)))
+        return jsonify(episodes=episodes)
 
     def seerr_call(path, user, payload=None):
         req = urllib.request.Request(seerr + '/api/v1/' + path,

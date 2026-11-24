@@ -341,7 +341,8 @@ class MovieDownloads(Base):
         self.assertEqual(response.headers['Cache-Control'], 'no-store')
         self.assertEqual(response.json, dict(available=True, goal=2.0, stale=False, last_sample_at=now,
             items=[dict(hash=row['hash'], name=row['name'], state='Stalled seeding', ratio=0.003,
-                        uploaded=3, downloaded=1000, reached_goal_at=old)]))
+                        uploaded=3, downloaded=1000, reached_goal_at=old)],
+            total_uploaded=3, total_downloaded=1000, global_ratio=0.003))
         sample(path, [], '2099-01-01T00:00:00+00:00')
         self.assertEqual(self.go(client, 'GET', route).json['items'], [])
 

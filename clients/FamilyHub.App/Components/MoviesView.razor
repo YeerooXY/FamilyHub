@@ -100,6 +100,8 @@
 
     [JSInvokable]
     public Task<string> MovieMatches(string query) => SendMovieRequest("/api/movies/matches", new { query });
+    [JSInvokable]
+    public Task<string> MovieSeasonEpisodes(int series, int season) => SendMovieRequest("/api/movies/season-episodes", new { series, season });
 
     [JSInvokable]
     public Task<string> MovieReleaseSearch(string query) => SendMovieRequest("/api/movies/releases", new { query });

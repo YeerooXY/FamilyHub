@@ -364,7 +364,7 @@ def create_app(test_config=None):
         if request.host != host:
             app.logger.warning("Rejected request: invalid host")
             abort(400)
-        if not cfg["BROWSER_PLAYER"] and not request.path.startswith("/api/"):
+        if not cfg["BROWSER_PLAYER"] and not request.path.startswith("/api/") and request.endpoint not in ("admin_page", "admin_asset"):
             return app.response_class("Open the FamilyHub app.\n", status=410, mimetype="text/plain")
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             limit = body_limit(request.method, request.path)
@@ -376,7 +376,7 @@ def create_app(test_config=None):
             if not (sent == origin if sent is not None else ref == origin or ref.startswith(origin + "/")):
                 app.logger.warning("Rejected request: invalid origin")
                 abort(403)
-        if request.endpoint in ("login", "static", "family_connect", "create_family_profile", "select_family_profile", "set_first_family_password", "app_update_manifest", "app_update_package", "profile_image", "share_landing", "share_download", "movie_media"):
+        if request.endpoint in ("admin_page", "admin_asset", "login", "static", "family_connect", "create_family_profile", "select_family_profile", "set_first_family_password", "app_update_manifest", "app_update_package", "profile_image", "share_landing", "share_download", "movie_media"):
             return
         # Audio players cannot send the sign-in cookie, so a stream link carries a signed ticket.
         if request.endpoint in ("playback_audio", "download_library_recording", "job_media") and "ticket" in request.args:
@@ -504,6 +504,8 @@ def create_app(test_config=None):
             raise ApiError("Family profiles are not enabled on this server.", 409)
 
     app_updates.register(app, ws, require_family)
+    from . import admin_page
+    admin_page.register(app)
     profile_artwork.register(app, ws, profile_store, require_family, catalogue_lock, resources)
 
     @app.errorhandler(ProfileError)

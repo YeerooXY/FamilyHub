@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>FamilyHub admin</title>
+<link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+<main>
+  <h1>FamilyHub admin</h1>
+  <section id="signin" aria-label="Sign in" hidden>
+    <form id="signin-form" novalidate>
+      <label for="profile">Profile</label>
+      <select id="profile"></select>
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password">
+      <p id="signin-error" role="alert"></p>
+      <button type="submit">Sign in</button>
+    </form>
+  </section>
+  <section id="seeding" aria-label="Torrent seeding" hidden>
+    <div class="global">
+      <h2 id="global-title" tabindex="-1">All torrents</h2>
+      <p class="figure"><span id="global-ratio">0.00</span>× <small>of <span id="goal">2.0</span>× goal</small></p>
+      <div class="meter" role="progressbar" aria-labelledby="global-title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="global-meter"><i></i></div>
+      <p id="global-detail" class="muted"></p>
+    </div>
+    <p id="status" class="muted" role="status"></p>
+    <button type="button" id="retry" hidden>Retry</button>
+    <h2>Files</h2>
+    <ul id="items"></ul>
+  </section>
+</main>
+<script src="/admin/admin.js" defer></script>
+</body>
+</html>

@@ -34,10 +34,10 @@ def main():
     incoming = '/tmp/familyhub-update-' + uuid.uuid4().hex
     subprocess.run([*ssh, 'mkdir -m 700 ' + incoming], check=True, cwd=ROOT)
     web_files = ('__init__.py', 'app_updates.py', 'playlist_artwork.py', 'playlists.py', 'finished_audio.py', 'audio_profile.py', 'mobile_audio.py', 'playlist_preparation.py', 'profile_artwork.py', 'profiles.py', 'public_playlists.py', 'listening_rooms.py', 'listening_versions.py', 'listening_history.py', 'listening_stats.py', 'catalogue_review.py', 'source_quality.py', 'analysis.py', 'song_analysis.py', 'worker_activity.py', 'musicbrainz.py', 'catalog_search.py', 'genres.py', 'lyrics.py', '__main__.py', 'link_playlists.py', 'playback_devices.py', 'radio.py', 'http_dispatch.py', 'playback_diagnostics.py', 'review_confidence.py', 'snapshots.py', 'resources.py', 'logs.py', 'discovery.py') + (
-        'movies.py', 'movie_search.py', 'movie_youtube_downloads.py', 'movie_import.py', 'torrent_seeding.py', 'movie_media.py', 'tmdb.py', 'audio_tracks.py', 'server_stats.py', 'verified_hashes.py', 'mixing.py', 'wrapped.py', 'files.py', 'wordle.py', 'wordle_source.py', 'feedback.py', 'http_limits.py', 'state.py',
+        'movies.py', 'movie_search.py', 'movie_youtube_downloads.py', 'movie_import.py', 'torrent_seeding.py', 'tmdb_stills.py', 'admin_page.py', 'movie_media.py', 'tmdb.py', 'audio_tracks.py', 'server_stats.py', 'verified_hashes.py', 'mixing.py', 'wrapped.py', 'files.py', 'wordle.py', 'wordle_source.py', 'feedback.py', 'http_limits.py', 'state.py',
         'wordle_data/answers.txt', 'wordle_data/guesses.txt', 'wordle_data/SOURCES.txt',
         'wordle_data/SCOWL-en-US.txt', 'wordle_data/SCOWL-en-GB.txt',
-        'static/app.js', 'static/playlists.js', 'static/prefix-cache.js', 'static/share.css', 'templates/index.html', 'templates/login.html',
+        'admin_static/admin.html', 'admin_static/admin.css', 'admin_static/admin.js', 'static/app.js', 'static/playlists.js', 'static/prefix-cache.js', 'static/share.css', 'templates/index.html', 'templates/login.html',
     )
     files = []
     if not args.assets_only:

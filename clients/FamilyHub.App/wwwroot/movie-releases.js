@@ -138,11 +138,14 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             <h2 tabindex="-1">Releases</h2>
             <div class="movie-release-tools" role="group" aria-label="Sort releases"></div>
             <p class="movie-web-meta" data-release-availability hidden>Downloading is not switched on for your profile. Ask the server owner to turn it on.</p>
-            <section class="movie-quality-guide" aria-label="Quality guide">
-                <h3>Quality guide</h3>
-                <ul class="movie-quality-chips"></ul>
+            <details class="movie-quality-guide">
+                <summary>Quality guide</summary>
+                <table class="movie-quality-table">
+                    <thead><tr><th scope="col">Label</th><th scope="col">Meaning</th></tr></thead>
+                    <tbody></tbody>
+                </table>
                 <p class="movie-web-meta" data-release-timing>Times assume a ${ASSUMED_MBPS} Mbps connection.</p>
-            </section>
+            </details>
             <ul class="movie-source-list" aria-label="Release results"></ul>
             <button type="button" class="movie-release-more" hidden>Show all releases</button>
         </section>`;
@@ -151,6 +154,7 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
     const heading = options.querySelector("h2");
     const more = panel.querySelector(".movie-release-more");
     const tools = panel.querySelector(".movie-release-tools");
+    tools.hidden = true; // results already arrive best match first
     const canDownload = typeof download === "function";
     options.querySelector("[data-release-availability]").hidden = canDownload;
     const timing = options.querySelector("[data-release-timing]");
@@ -183,18 +187,20 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
         return node;
     }
 
-    const guide = panel.querySelector(".movie-quality-chips");
-    for (const [id, label, meaning] of TIERS) {
-        const item = document.createElement("li");
-        item.append(chip("movie-release-quality", label, id), document.createTextNode(meaning));
-        guide.append(item);
-    }
+    const guide = panel.querySelector(".movie-quality-table tbody");
+    const guideRow = (group, badge, meaning) => {
+        const row = document.createElement("tr"), first = document.createElement("td"), second = document.createElement("td");
+        first.append(badge);
+        second.textContent = meaning;
+        row.dataset.group = group;
+        row.append(first, second);
+        guide.append(row);
+    };
+    for (const [id, label, meaning] of TIERS) guideRow("quality", chip("movie-release-quality", label, id), meaning);
     for (const [seeders, meaning] of [[100, "100 or more sharing"], [20, "20 to 99 sharing"],
         [5, "5 to 19 sharing"], [1, "1 to 4 sharing"], [0, "Nobody sharing"], [null, "No share count"]]) {
         const [level, label] = availability(seeders);
-        const item = document.createElement("li");
-        item.append(chip("movie-release-availability", label, level), document.createTextNode(meaning));
-        guide.append(item);
+        guideRow("availability", chip("movie-release-availability", label, level), meaning);
     }
 
     function compare(a, b) {
@@ -215,6 +221,8 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
         for (const choice of sortButtons) choice.setAttribute("aria-pressed", String(choice.dataset.sort === sortBy));
         const sorted = rows.slice().sort(compare);
         const shown = showAll ? sorted : sorted.slice(0, FIRST_PAGE);
+        const sizes = shown.map(row => row.size).filter(size => size > 0);
+        const smallest = Math.min(...sizes), largest = Math.max(...sizes);
         timing.hidden = !shown.some(row => row.size && row.seeders);
         list.replaceChildren(...shown.map((row, index) => {
             const item = document.createElement("li");
@@ -247,7 +255,13 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
                 stats.append(cell);
                 return detail;
             };
-            stat("Size", row.size ? `${(row.size / gib).toFixed(1)} GB` : "Unknown");
+            const sizeCell = stat("Size", row.size ? `${(row.size / gib).toFixed(1)} GB` : "Unknown");
+            if (row.size && sizes.length > 1 && largest / smallest >= 1.5) {
+                const level = row.size === smallest ? "smallest" : row.size === largest ? "largest" : row.size / smallest >= 3 ? "large" : "middle";
+                sizeCell.dataset.size = level;
+                if (level === "smallest") sizeCell.append(chip("movie-release-size-note", "smallest"));
+                else if (row.size / smallest >= 1.5) sizeCell.append(chip("movie-release-size-note", `${row.size / smallest >= 10 ? Math.round(row.size / smallest) : (row.size / smallest).toFixed(1).replace(/\.0$/, "")}× the smallest`));
+            }
             const known = matchFor(row);
             const length = formatMinutes(row.length || (!row.episodes && !row.kind && known?.kind === "movie" ? known.runtime : 0));
             if (length) stat("Length", row.lengthEstimated ? "About " + length : length);

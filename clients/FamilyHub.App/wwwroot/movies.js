@@ -734,6 +734,7 @@ export function openMovies(host, session, app, viewer) {
             const prefix = "tmdb:tv:title:" + (/^\d{4}$/.test(year) ? year : "") + ":";
             const term = /^[1-9]\d{0,9}$/.test(String(id)) ? "tmdb:tv:" + id : prefix + item.Name.slice(0, 120 - prefix.length);
             const reply = await call("MovieMatches", term);
+            if (seriesView && Number.isInteger(reply?.series_id)) seriesView.tmdbId = reply.series_id;
             return Array.isArray(reply?.seasons) ? reply.seasons : null;
         };
         async function load(retry) {
@@ -777,12 +778,18 @@ export function openMovies(host, session, app, viewer) {
         row.className = "movie-season";
         header.className = "movie-season-header";
         counts.className = "movie-season-counts";
-        header.append(el("h3", title), counts);
+        // The state comes first so a season's availability reads before anything else on the row.
+        const state = el("span");
+        state.className = "movie-season-state";
+        row.dataset.season = number;
+        row.dataset.seriesKey = searchTitle(item.Name);
+        header.append(state, el("h3", title), counts);
         row.append(header);
         if (!episodes.length) {
             if (Number.isInteger(total)) counts.append(chip(plural(total, "episode")));
             if (libraryKnown) {
-                counts.append(chip("Unavailable in your library"));
+                state.dataset.state = "missing";
+                state.textContent = "Missing";
                 header.append(button("Find season " + number, () => {
                     const suffix = " S" + String(number).padStart(2, "0");
                     query.value = item.Name.slice(0, query.maxLength - suffix.length).trimEnd() + suffix;
@@ -790,8 +797,18 @@ export function openMovies(host, session, app, viewer) {
                     startSearch(true);
                 }));
             }
+            updateSeasonState(row);
+            if (seriesView?.tmdbId) {
+                const disclosure = el("details"), toggle = el("summary", "Episodes"), items = el("ol");
+                toggle.setAttribute("aria-label", "Episodes for " + title.toLowerCase());
+                disclosure.append(toggle, items);
+                row.append(disclosure);
+                episodeStills(disclosure, items, number, new Map(), row);
+            }
             return row;
         }
+        state.dataset.state = "available";
+        state.textContent = "Available";
         const watched = episodes.filter(episode => episode.UserData?.Played).length;
         const watchedChip = chip(`${watched} of ${episodes.length} watched`);
         watchedChip.dataset.watched = "";
@@ -801,6 +818,7 @@ export function openMovies(host, session, app, viewer) {
         toggle.setAttribute("aria-label", "Episodes for " + title.toLowerCase());
         disclosure.append(toggle, items);
         row.append(disclosure);
+        const owned = new Map();
         for (const episode of episodes.sort((a, b) => (a.IndexNumber ?? 0) - (b.IndexNumber ?? 0))) {
             const entry = el("li"), action = button("", () => play(episode, action));
             const episodeProgress = chip("");
@@ -808,9 +826,72 @@ export function openMovies(host, session, app, viewer) {
             updateEpisodeProgress(episodeProgress, episode);
             action.append(el("span", (episode.IndexNumber == null ? "" : episode.IndexNumber + ". ") + episode.Name), episodeProgress);
             entry.append(action);
+            if (episode.IndexNumber != null) { entry.dataset.episode = episode.IndexNumber; owned.set(episode.IndexNumber, entry); }
             items.append(entry);
         }
+        if (seriesView?.tmdbId) episodeStills(disclosure, items, number, owned, row);
         return row;
+    }
+    /** Loads the season's TMDB pictures once, when the list is first opened; the server stores each picture after the first fetch. */
+    function episodeStills(disclosure, items, number, owned, row) {
+        let loaded = false;
+        const picture = still => {
+            const frame = el("span");
+            frame.className = "movie-episode-still";
+            if (still) {
+                const image = el("img");
+                image.alt = ""; image.decoding = "async"; image.src = still;
+                image.onerror = () => { image.remove(); frame.dataset.missing = ""; };
+                frame.append(image);
+            } else frame.dataset.missing = "";
+            return frame;
+        };
+        disclosure.addEventListener("toggle", async () => {
+            if (!disclosure.open || loaded || !seriesView?.tmdbId) return;
+            loaded = true;
+            let reply;
+            try { reply = await call("MovieSeasonEpisodes", seriesView.tmdbId, number); } catch {}
+            if (!active || !disclosure.isConnected) return;
+            if (!Array.isArray(reply?.episodes)) { loaded = false; return; }
+            for (const episode of reply.episodes) {
+                const entry = owned.get(episode.number);
+                if (entry) { entry.firstElementChild.prepend(picture(episode.still)); continue; }
+                const missing = el("li"), body = el("div"), title = el("span", `${episode.number}. ${episode.name || "Episode " + episode.number}`);
+                const marker = el("span", row.querySelector(".movie-season-state")?.dataset.state === "downloading" ? "Downloading" : "Not in library");
+                marker.className = "movie-episode-marker";
+                missing.className = "movie-episode-missing";
+                body.className = "movie-episode-body";
+                body.append(picture(episode.still), title, marker);
+                missing.append(body);
+                items.append(missing);
+            }
+        });
+    }
+    /** Marks a season missing, downloading (with progress) or available from the server's download list. */
+    function updateSeasonState(row) {
+        const state = row.querySelector(".movie-season-state");
+        if (!state || state.dataset.state === "available") return;
+        const number = Number(row.dataset.season), key = row.dataset.seriesKey;
+        const found = downloadItems.find(entry => {
+            if (typeof entry?.name !== "string" || entry.state === "Finished" || !(entry.progress < 1)) return false;
+            const name = searchTitle(entry.name);
+            if (name !== key && !name.startsWith(key + " ")) return false;
+            const wanted = /(?:^|[^a-z0-9])s(\d{1,3})(?:e\d+)?(?![a-z0-9])|season[ ._-]*(\d{1,3})(?!\d)/.exec(entry.name.toLowerCase());
+            return wanted && Number(wanted[1] ?? wanted[2]) === number;
+        });
+        const find = row.querySelector(".movie-season-header > button");
+        if (found) {
+            const percent = Math.round(Math.max(0, Math.min(1, Number(found.progress) || 0)) * 100);
+            const eta = found.eta != null && ["Downloading", "Almost done"].includes(found.state)
+                ? ` · about ${Math.max(1, Math.ceil(found.eta / 60))} min left` : "";
+            state.dataset.state = "downloading";
+            state.textContent = `Downloading ${percent}%${eta}`;
+            if (find) find.hidden = true;
+        } else {
+            state.dataset.state = "missing";
+            state.textContent = "Missing";
+            if (find) find.hidden = false;
+        }
     }
     function updateEpisodeProgress(chip, episode) {
         const progress = progressOf(episode);
@@ -831,14 +912,10 @@ export function openMovies(host, session, app, viewer) {
         });
         const download = matches.find(item => typeof item.progress === "number" &&
             item.progress >= 0 && item.progress < 1 && item.state !== "Finished");
-        const seed = matches.find(item => (item.seeding === true || item.state === "Seeding" ||
-            item.seeding == null && item.state === "Finished" && item.progress === 1) &&
-            (typeof item.ratio === "number" || typeof item.ratio === "string" && item.ratio.trim()) &&
-            Number.isFinite(Number(item.ratio)) && Number(item.ratio) >= 0);
-        badge.hidden = !download && !seed;
-        const fraction = download ? download.progress : Math.min(1, Number(seed?.ratio) / 2);
-        const label = download ? `${download.state || "Downloading"} ${Math.round(fraction * 100)}%`
-            : seed ? `Seeding, share ratio ${Number(seed.ratio).toFixed(2)} / 2.0` : "";
+        // Seeding ratios belong on the server dashboard; cards show only a download in progress.
+        badge.hidden = !download;
+        const fraction = download ? download.progress : 0;
+        const label = download ? `${download.state || "Downloading"} ${Math.round(fraction * 100)}%` : "";
         badge.firstChild.textContent = label;
         badge.lastChild.firstChild.style.transform = label ? `scaleX(${fraction})` : "";
     }
@@ -1127,7 +1204,7 @@ export function openMovies(host, session, app, viewer) {
                     grid.append(pick);
                 }
                 matchShelf.append(el("h2", "Matching titles"), grid, credit);
-                panel.prepend(matchShelf);
+                // The release cards carry the posters, so the matches only feed them.
                 release?.setMatches(list);
             }).catch(() => {});
         }
@@ -1490,12 +1567,12 @@ export function openMovies(host, session, app, viewer) {
     columns.className = "movie-library-columns";
     catalogue.className = "movie-catalogue";
     downloadsPanel.className = "movie-downloads";
-    downloadsPanel.setAttribute("aria-label", "On the server");
+    downloadsPanel.setAttribute("aria-label", "Downloading");
     const queue = el("div");
     catalogue.append(browse, results);
     if (session.downloads_enabled) {
-        queue.append(el("p", "Checking server downloads…"));
-        downloadsPanel.append(el("h2", "On the server"), queue);
+        downloadsPanel.hidden = true;
+        downloadsPanel.append(el("h2", "Downloading"), queue);
         columns.append(downloadsPanel);
     } else columns.classList.add("movie-library-columns-full");
     columns.append(catalogue);
@@ -1527,17 +1604,22 @@ export function openMovies(host, session, app, viewer) {
             const card = tile.dataset.downloadKey ? tile : tile.querySelector("[data-download-key]");
             if (card?.dataset.downloadKey) updateCardDownload(card);
         }
+        if (seriesView) for (const row of seriesView.section.querySelectorAll(".movie-season[data-season]")) updateSeasonState(row);
         if (queue.contains(document.activeElement)) {
             scheduleDownloads(5000);
             return;
         }
+        // Only work in progress shows here; finished downloads and audio jobs leave the panel.
+        const running = itemsAvailable ? reply.items.filter(item => audioJobRunning(item) ||
+            !["Finished", "Added", "Seeding", "Complete"].includes(item.state)) : [];
+        downloadsPanel.hidden = !running.length;
         if (!itemsAvailable) {
-            queue.replaceChildren(el("p", reply?.reason || "The download server is unavailable."));
-        } else if (!reply.items.length) {
-            queue.replaceChildren(el("p", "No downloads on the server."));
+            queue.replaceChildren();
+        } else if (!running.length) {
+            queue.replaceChildren();
         } else {
             const items = el("ul");
-            for (const item of reply.items) {
+            for (const item of running) {
                 const tile = el("li"), bar = el("div"), fill = el("span");
                 const progress = Math.max(0, Math.min(1, Number(item.progress) || 0));
                 bar.className = "movie-download-progress";
