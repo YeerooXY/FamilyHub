@@ -25,8 +25,8 @@ log = logging.getLogger('music_web.movies')
 REPORT_KINDS = {'playback-error', 'open-failed', 'progress-save-failed', 'cannot-resume', 'started', 'stopped'}
 PROBLEMS = REPORT_KINDS - {'started', 'stopped'}
 REPORT_METHODS = {'', 'DirectPlay', 'DirectStream', 'Transcode'}
-SEASON_QUERY = re.compile(r'(.+?)\s+(?:season\s+|s)(\d{1,2})$', re.I)
-SEASON_MARKER = re.compile(r'\b(?:season[\s._-]+|s)(\d{1,2})(?!\d)', re.I)
+SEASON_QUERY = re.compile(r'(.+?)\s+(?:season\s+|s)(\d{1,3})$', re.I)
+SEASON_MARKER = re.compile(r'\b(?:season[\s._-]+|s)(\d{1,3})(?!\d)', re.I)
 VIDEA_LINK = re.compile(r'https://videa\.hu/videok/(?:[^/\s?#"<>]+/)+[^/\s?#"<>]+-([A-Za-z0-9]{16})')
 VIDEA_RESULT = re.compile(r'<h2 class="title">\s*<a href="([^"]+)"[^>]*>([^<]+)</a>\s*</h2>')
 VIDEA_PAGE_TITLE = re.compile(r'<meta property="og:title" content="([^"]+)"')
@@ -483,9 +483,29 @@ def register_movies(app, cfg, body, allow, session_is_live):
     @app.post('/api/movies/matches')
     def movie_matches():
         key = cfg.get('TMDB_API_KEY')
+        query = movie_search.clean_query(body().get('query'))
+        season_id = re.fullmatch(r'tmdb:tv:([1-9][0-9]{0,9})', query or '')
+        season_title = re.fullmatch(r'tmdb:tv:title:([0-9]{4})?:(.+)', query or '')
+        if season_id or season_title:
+            if g.user not in cfg.get('JELLYFIN_PROFILES', {}):
+                return jsonify(error='Movies are unavailable for this profile.'), 403
+            if not allow('movie-seasons:' + g.user, 30, 60):
+                return jsonify(error='Wait a minute before opening the season list again.'), 429
+            if not isinstance(key, str):
+                key = None
+            if not key and (not tmdb_token or season_title):
+                return jsonify(error='The full season list is unavailable.'), 503
+            ident = int(season_id[1]) if season_id else cached_search(
+                ('tmdb-tv-title', season_title[1], season_title[2].casefold()), 3600,
+                lambda: catalogue_series_id(key, season_title[1], season_title[2]))
+            if ident is None:
+                return jsonify(error='Could not match the series in TMDB.'), 503
+            seasons = cached_search(('tmdb-tv', ident), 3600, lambda: catalogue_seasons(ident, key))
+            if seasons is None:
+                return jsonify(error='The full season list is unavailable.'), 503
+            return jsonify(seasons=seasons)
         if not release_access() or not isinstance(key, str) or not key:
             return jsonify(matches=[])
-        query = movie_search.clean_query(body().get('query'))
         if query is None:
             return jsonify(error='Enter a title of 2 to 120 characters.'), 400
         if not allow('movie-matches:' + g.user, 20, 60):
@@ -535,17 +555,37 @@ def register_movies(app, cfg, body, allow, session_is_live):
         except (OSError, ValueError):
             return {}
 
-    def tmdb_season(path):
-        if not tmdb_token:
+    def tmdb_season(path, api_key=None):
+        if not tmdb_token and not api_key:
             return {}
         try:
-            req = urllib.request.Request('https://api.themoviedb.org/3/' + path,
-                headers={'Authorization': 'Bearer ' + tmdb_token, 'Accept': 'application/json'})
+            target = 'https://api.themoviedb.org/3/' + path
+            headers = {'Accept': 'application/json'}
+            if tmdb_token:
+                headers['Authorization'] = 'Bearer ' + tmdb_token
+            else:
+                target += '?' + urllib.parse.urlencode({'api_key': api_key})
+            req = urllib.request.Request(target, headers=headers)
             with urllib.request.build_opener(NoRedirect).open(req, timeout=4) as reply:
                 result = json.loads(reply.read(1024 * 1024))
             return result if isinstance(result, dict) else {}
         except (OSError, ValueError):
             return {}
+
+    def catalogue_seasons(ident, key):
+        rows = tmdb_season(f'tv/{ident}', key).get('seasons')
+        if not isinstance(rows, list):
+            return None
+        return [{'number': row['season_number'], 'episode_count': row.get('episode_count')}
+                for row in rows if isinstance(row, dict) and type(row.get('season_number')) is int
+                and 0 < row['season_number'] <= 999 and type(row.get('episode_count')) is int
+                and row['episode_count'] >= 0]
+
+    def catalogue_series_id(key, year, title):
+        exact = [match['id'] for match in tmdb.search(key, title) or []
+                 if match['kind'] == 'tv' and movie_search.plain(match['title']) == movie_search.plain(title)
+                 and (not year or match['year'] == int(year))]
+        return exact[0] if len(exact) == 1 else None
 
     def title_details(item, season, user):
         path = f"{item['kind']}/{item['id']}"
@@ -652,7 +692,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
         data = body()
         kind, ident, season = data.get('kind'), data.get('id'), data.get('season')
         if (kind not in ('movie', 'tv') or type(ident) is not int or not 0 < ident <= 2**31 - 1
-                or season is not None and (kind != 'tv' or type(season) is not int or not 0 <= season <= 99)):
+                or season is not None and (kind != 'tv' or type(season) is not int or not 0 <= season <= 999)):
             return jsonify(error='Search again and select a movie or series.'), 400
         if not allow('movie-request:' + g.user, 8, 60):
             return jsonify(error='Wait a minute before requesting another title.'), 429

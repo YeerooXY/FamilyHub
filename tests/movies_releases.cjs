@@ -213,7 +213,7 @@ async function verify(browser, name, options) {
         assert.equal(await focus(query), true);
         const count = await page.evaluate(() => calls.length);
         await search("Catalogued Show Season 2");
-        const local = page.getByRole("button", {name:"Second Season", exact:true});
+        const local = page.getByRole("button", {name:"Catalogued Show", exact:true});
         await local.waitFor();
         assert.equal(await page.getByRole("button", {name:"First Season", exact:true}).count(), 0);
         assert.equal(await page.evaluate(() => calls.length), count);

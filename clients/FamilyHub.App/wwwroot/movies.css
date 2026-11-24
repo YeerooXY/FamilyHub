@@ -1,37 +1,22 @@
-.movie-library { --movie-poster: clamp(8rem, 12vw, 11rem); --movie-wide: clamp(13rem, 20vw, 19rem); --movie-edge: #0b0d12; }
+.movie-library { --movie-target: 44px; --movie-edge: #0b0d12; }
 .movie-library section { margin-block: 1rem 2rem; }
 .movie-library .movie-shelf { margin-block: 0 1.25rem; }
 .movie-library .movie-shelf > h2 { margin: 0 0 .25rem; font-size: clamp(1.05rem, 1.4vw, 1.4rem); }
 
-/* Wrapping grid: search results. */
+/* Shelves and search results wrap within the catalogue. */
 .movie-cards {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(100%, clamp(8rem, 23vw, 10.5rem)), 1fr));
     gap: clamp(.65rem, 1.6vw, 1rem);
+    padding: .35rem;
 }
 .movie-cards-wide {
     grid-template-columns: repeat(auto-fill, minmax(min(100%, clamp(9rem, 32vw, 14rem)), 1fr));
 }
 
-/* Horizontal shelf. The block padding leaves room for the hover lift and the focus ring. */
-.movie-row-wrap { position: relative; --art-width: var(--movie-poster); --art-ratio: 1.5; }
-.movie-row-wrap-wide { --art-width: var(--movie-wide); --art-ratio: .5625; }
-.movie-row {
-    display: flex;
-    gap: clamp(.55rem, 1vw, .9rem);
-    overflow-x: auto;
-    padding: .7rem .35rem 1rem;
-    scroll-snap-type: x proximity;
-    scroll-padding-inline: .35rem;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-}
-.movie-row::-webkit-scrollbar { display: none; }
-.movie-row > :is(.movie-card, .movie-card-with-details) { flex: 0 0 var(--art-width); scroll-snap-align: start; }
-.movie-row > :not(.movie-card, .movie-card-with-details) { padding: .5rem 0; }
 .movie-card-with-details { min-width: 0; display: grid; align-content: start; gap: .35rem; }
 .movie-card-with-details > .movie-card { width: 100%; }
-.movie-card-with-details > button:last-child { justify-self: start; min-height: 44px; }
+.movie-card-with-details > button:last-child { justify-self: start; min-height: var(--movie-target); }
 
 .movie-library .movie-card {
     display: grid;
@@ -58,14 +43,14 @@
     border-radius: .7rem .7rem 0 0;
     background: #131a24;
 }
-.movie-cards-wide .movie-art, .movie-row-wide .movie-art { aspect-ratio: 16 / 9; }
+.movie-cards-wide .movie-art { aspect-ratio: 16 / 9; }
 .movie-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .movie-art img:not([src]) { display: none; }
 .movie-caption { padding: .6rem .7rem .7rem; font-weight: 600; line-height: 1.3; font-size: .92em; }
 .movie-library .movie-card:hover,
 .movie-library .movie-card:focus-visible {
     border-color: var(--focus, #98abed);
-    transform: translateY(-3px) scale(1.04);
+    transform: translateY(-3px);
     box-shadow: 0 .75rem 1.5rem #0009;
     position: relative;
     z-index: 2;
@@ -76,31 +61,43 @@
 .movie-progress { position: absolute; inset: auto 0 0; height: .3rem; background: #ffffff40; }
 .movie-progress > span { display: block; height: 100%; background: var(--focus, #98abed); }
 
-/* Round chevrons sit on the artwork row. They show for a pointer on hover or focus, never on touch. */
-.movie-chev {
-    position: absolute;
-    top: calc(.7rem + var(--art-width) * var(--art-ratio) / 2 - 1.375rem);
-    z-index: 3;
-    display: none;
-    place-items: center;
-    width: 2.75rem;
-    height: 2.75rem;
-    padding: 0;
-    border: 1px solid #ffffff3d;
-    border-radius: 50%;
-    background: #0b0d12e6;
+.movie-library .movie-series { max-width: 60rem; margin-inline: auto; scroll-margin-top: 6rem; }
+.movie-series h2, .movie-series h3 { margin: 0; overflow-wrap: anywhere; }
+.movie-series > h2 { margin-bottom: .6rem; }
+.movie-series > p { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.movie-season-list { display: grid; gap: .65rem; }
+.movie-library .movie-season {
+    min-width: 0;
+    margin: 0;
+    padding: .75rem;
+    border: 1px solid #ffffff29;
+    border-radius: .75rem;
+    background: #17191f;
     color: #fff;
-    opacity: 0;
-    transition: opacity .15s ease;
 }
-.movie-chev[hidden] { display: none; }
-.movie-chev-left { left: .4rem; }
-.movie-chev-right { right: .4rem; }
-.movie-chev svg { width: 1.5rem; height: 1.5rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-@media (hover: hover) and (pointer: fine) {
-    .movie-chev:not([hidden]) { display: grid; }
-    .movie-row-wrap:hover .movie-chev, .movie-row-wrap:focus-within .movie-chev { opacity: 1; }
+.movie-season-header, .movie-season-counts { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.movie-season-header > button { margin-inline-start: auto; }
+.movie-chip {
+    display: inline-block;
+    padding: .15em .65em;
+    border-radius: 1rem;
+    background: #263449;
+    color: #f2f7ff;
+    font-size: .85em;
 }
+.movie-chip[hidden] { display: none; }
+.movie-library :is(.movie-series button, .movie-series summary, .movie-more) { min-width: var(--movie-target); min-height: var(--movie-target); }
+.movie-season details { margin-top: .4rem; }
+.movie-season summary { display: flex; align-items: center; gap: .65rem; padding-inline: .55rem; cursor: pointer; }
+.movie-season summary::-webkit-details-marker { display: none; }
+.movie-season summary::before { content: ""; width: .5rem; height: .5rem; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(-45deg); }
+.movie-season details[open] > summary::before { transform: rotate(45deg); }
+.movie-season summary:focus-visible { outline: 2px solid var(--focus, #98abed); outline-offset: 2px; }
+.movie-season ol { display: grid; gap: .3rem; list-style: none; padding: 0; margin: .3rem 0 0; }
+.movie-library .movie-season ol button { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; width: 100%; text-align: start; white-space: normal; overflow-wrap: anywhere; }
+.movie-download-badge { display: block; padding: 0 .7rem .6rem; font-size: .85em; }
+.movie-download-badge[hidden] { display: none; }
+.movie-download-badge .movie-download-progress { display: block; margin: .35rem 0 0; }
 
 /* Billboard. */
 .movie-library .movie-hero {
@@ -344,21 +341,21 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 @media (max-width: 600px) {
     .movie-library .movie-hero { min-height: 24rem; }
     .movie-hero::after { background: linear-gradient(0deg, #0b0d12 8%, #0b0d12b3 45%, #0b0d1233 100%); }
-    .movie-library { --movie-poster: 7.5rem; --movie-wide: 12.5rem; }
 }
 
 /* Television width (1920 px CSS on a webOS set): larger type, targets and focus ring for a remote at three metres. */
 @media (min-width: 1600px) {
-    .movie-library { --movie-poster: 12.5rem; --movie-wide: 21rem; font-size: 1.15rem; }
+    .movie-library { --movie-target: 60px; font-size: 1.15rem; }
     .movie-library .movie-hero { min-height: 62vh; }
     .movie-hero-body { max-width: 46rem; padding: 3.5rem; }
     .movie-library .movie-hero-play { min-height: 60px; font-size: 1.15em; }
     .movie-library :is(button, select):focus-visible { outline-width: 4px; outline-offset: 4px; }
-    .movie-library .movie-card:hover, .movie-library .movie-card:focus-visible { transform: translateY(-4px) scale(1.07); }
+    .movie-library .movie-search input { min-height: var(--movie-target); }
+    .movie-library .movie-search button { flex-basis: var(--movie-target); height: var(--movie-target); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .movie-library .movie-card, .movie-chev, .movie-expanded .movie-bar { transition: none; }
+    .movie-library .movie-card, .movie-expanded .movie-bar { transition: none; }
     .movie-library .movie-card:hover, .movie-library .movie-card:focus-visible { transform: none; }
 }
 
@@ -515,7 +512,7 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 
 /* Release tiles: a bigger card each, quality shown by colour, words instead of seeders. */
 .movie-release-tools { display: flex; flex-wrap: wrap; gap: .45rem; margin: .7rem 0 .9rem; }
-.movie-releases .movie-release-tools button { min-height: 40px; padding: 0 1.05rem; border: 1px solid #ffffff2e; border-radius: 999px; background: transparent; color: inherit; font: inherit; font-size: .92rem; }
+.movie-releases .movie-release-tools button { min-height: var(--movie-target, 44px); padding: 0 1.05rem; border: 1px solid #ffffff2e; border-radius: 999px; background: transparent; color: inherit; font: inherit; font-size: .92rem; }
 .movie-releases .movie-release-tools button[aria-pressed="true"] { background: #fff; border-color: #fff; color: #0b0d12; font-weight: 700; }
 .movie-source-list li.movie-release { gap: .75rem; padding: 1.15rem 1.3rem; margin-bottom: .8rem; border-radius: 1.05rem; }
 .movie-release-head { display: grid; gap: .5rem; }
@@ -603,7 +600,7 @@ li.movie-release[data-tier="4k-bluray"] { border-color: #ba7bcb66; }
 /* Same-size cards: every caption holds two lines, so a one-line title no longer makes a shorter card. */
 .movie-library .movie-caption { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; box-sizing: content-box; min-height: 2.6em; }
 .movie-library .movie-caption:has(.movie-search-play) { display: block; -webkit-line-clamp: none; line-clamp: none; }
-.movie-library .movie-cards > .movie-card-with-details > .movie-card, .movie-library .movie-row > .movie-card-with-details > .movie-card { height: 100%; }
+.movie-library .movie-cards > .movie-card-with-details > .movie-card { height: 100%; }
 
 /* The pinned search band hides what scrolls beneath it completely (the cards showed through the old 92% tint). */
 .movie-library .movie-toolbar { box-shadow: 0 0 0 100vmax #0b0d12; }

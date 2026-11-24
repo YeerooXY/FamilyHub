@@ -64,7 +64,7 @@ async function check(browser, options) {
         if (url.pathname === "/Items") {
             if (url.searchParams.has("searchTerm")) {
                 assert.equal(url.searchParams.get("userId"), "viewer-a");
-                assert.equal(url.searchParams.get("includeItemTypes"), "Movie,Episode");
+                assert.equal(url.searchParams.get("includeItemTypes"), "Movie,Series,Episode");
                 const Items = url.searchParams.get("searchTerm") === "Pilot" ? [{ Id: "ep", Name: "Pilot", Type: "Episode" }] : [];
                 return route.fulfill({ headers, json: { Items, TotalRecordCount: Items.length } });
             }
@@ -110,8 +110,7 @@ async function check(browser, options) {
             { server: jellyfin + "/", profile });
     }, { profile, jellyfin });
     const focused = async node => page.waitForFunction(el => el === document.activeElement, await node.elementHandle());
-    // "Recently added" repeats titles from the library shelves, so look cards up outside it.
-    const moviesShelf = page.locator(".movie-shelf").filter({ hasNot: page.getByRole("heading", { name: "Recently added" }) });
+    const moviesShelf = page.locator(".movie-shelf:not([hidden])");
     const openTracks = () => page.getByRole("button", { name: "Audio", exact: true }).click();
     const select = name => page.locator("label", { hasText: name }).locator("select");
     // Each popover has a radio list. The hidden selects keep the values.
@@ -165,8 +164,8 @@ async function check(browser, options) {
     await bare("One language", "O");
     await bare("FamilyHub Sample 1080p", "F");
     await bare("FamilyHub Sample 4K HEVC", "F");
-    await image("Show · Pilot", "/Items/series/Images/Thumb", 16 / 9);
-    await bare("Show · Finale", "S");
+    await image("Show", "/Items/series/Images/Thumb", 16 / 9);
+    await bare("Show, Finale", "S");
     await two.press("Enter");
     await back.waitFor();
     // The player fills the window; controls follow the Netflix-style layout and start on Play.

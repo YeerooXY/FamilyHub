@@ -10,6 +10,7 @@ const episodes = ["Pilot", "The Move", "Visitors"].map((Name, i) => ({
     Id: "e" + i, Name, Type: "Episode", SeriesName: "Harbour Town", SeriesId: "s", ParentIndexNumber: 1, IndexNumber: i + 1,
     ImageTags: {}, UserData: i === 0 ? { PlayedPercentage: 40 } : {} }));
 const film = { Id: "f", Name: "Harbour Lights", Type: "Movie", ImageTags: {} };
+const series = { Id: "s", Name: "Harbour Town", Type: "Series", ProviderIds: { Tmdb: "42" } };
 
 async function check(browser, touch) {
     const context = await browser.newContext({ viewport: touch ? { width: 412, height: 915 } : { width: 1280, height: 800 }, reducedMotion: "reduce", hasTouch: touch });
@@ -33,7 +34,7 @@ async function check(browser, touch) {
             return route.fulfill({ headers, json: { PlaySessionId: "p", MediaSources: [{ Id: "src", SupportsDirectPlay: true,
                 DefaultAudioStreamIndex: 1, DefaultSubtitleStreamIndex: -1, MediaStreams: [{ Type: "Audio", Index: 1, Language: "eng" }] }] } });
         if (url.pathname === "/Shows/s/Episodes") return list(episodes);
-        if (url.pathname === "/Items") return list(url.searchParams.get("includeItemTypes") === "Episode" ? episodes : [film]);
+        if (url.pathname === "/Items") return list(url.searchParams.get("includeItemTypes") === "Series" ? [series] : [film]);
         if (url.pathname === "/UserItems/Resume") return list([]);
         if (url.pathname.startsWith("/Items/")) return route.fulfill({ headers, json: {} });
         if (url.pathname.includes("/Sessions/Playing")) return route.fulfill({ headers, status: 204 });
@@ -44,9 +45,11 @@ async function check(browser, touch) {
     await page.evaluate(async jellyfin => {
         const { openMovies } = await import("/movies.js");
         window.movies = window.openMovieFixture(openMovies, document.querySelector("main"), { url: jellyfin, user: "u", token: "t", device: "0123456789abcdef0123456789abcdef" },
-            { invokeMethodAsync: () => Promise.resolve() }, { server: location.origin, profile: "viewer" });
+            { invokeMethodAsync: async method => method === "MovieMatches" ? JSON.stringify({
+                seasons: [{number:1, episode_count:3}, {number:2, episode_count:8}]
+            }) : undefined }, { server: location.origin, profile: "viewer" });
     }, jellyfin);
-    const shelf = page.locator(".movie-shelf").filter({ has: page.getByRole("heading", { name: "TV episodes" }) });
+    const shelf = page.locator(".movie-shelf").filter({ has: page.getByRole("heading", { name: "TV series" }) });
     const back = page.getByRole("button", { name: "Back to movies" });
 
     // A film: no series buttons.
@@ -72,7 +75,11 @@ async function check(browser, touch) {
     await back.waitFor({ state: "hidden" });
 
     // An episode: title shows season and episode, the sheet lists the season, Next plays the following episode.
-    await shelf.getByRole("button", { name: "Harbour Town · The Move" }).click();
+    await shelf.getByRole("button", { name: "Harbour Town" }).click();
+    await page.getByRole("button", { name: "Find season 2" }).waitFor();
+    await page.getByText("2 seasons in total").waitFor();
+    await page.getByLabel("Episodes for season 1").click();
+    await page.getByRole("button", { name: "2. The Move" }).click();
     await page.getByRole("heading", { name: "S1:E2 “The Move”" }).waitFor();
     const episodesButton = page.getByRole("button", { name: "Episodes", exact: true });
     await episodesButton.waitFor();

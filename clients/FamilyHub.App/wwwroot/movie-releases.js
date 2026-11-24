@@ -16,12 +16,12 @@ function resolution(title) {
 
 /** What the release holds when it is a series: one episode, a whole season, or several seasons. */
 export function releaseKind(title) {
-    if (/\bS\d{1,2}\s*[-–]\s*S?\d{1,2}\b/i.test(title) || /\b(?:complete|full)[ ._-]*(?:series|collection)\b/i.test(title)
+    if (/\bS\d{1,3}\s*[-–]\s*S?\d{1,3}\b/i.test(title) || /\b(?:complete|full)[ ._-]*(?:series|collection)\b/i.test(title)
         || /\b(?:full[ ._-]+hun|teljes[ ._-]+sorozat)\b/i.test(title)
         || /\bseasons?[ ._-]*\d+[ ._-]*(?:-|to|&)[ ._-]*\d+\b/i.test(title)) return "Complete series";
-    const episode = title.match(/\bS(\d{1,2})[ ._-]*E(\d{1,3})\b/i) || title.match(/\b(\d{1,2})x(\d{2,3})\b/);
-    if (episode) return `One episode · S${String(Number(episode[1])).padStart(2, "0")}E${String(Number(episode[2])).padStart(2, "0")}`;
-    const season = title.match(/\bS(\d{1,2})\b/i) || title.match(/\bseason[ ._-]*(\d{1,2})\b/i);
+    const episode = title.match(/\bS(\d{1,3})[ ._-]*E(\d{1,3})\b/i) || title.match(/\b(\d{1,3})x(\d{2,3})\b/);
+    if (episode) return `One episode, S${String(Number(episode[1])).padStart(2, "0")}E${String(Number(episode[2])).padStart(2, "0")}`;
+    const season = title.match(/\bS(\d{1,3})\b/i) || title.match(/\bseason[ ._-]*(\d{1,3})\b/i);
     return season ? `Full season ${Number(season[1])}` : "";
 }
 
@@ -109,7 +109,7 @@ export function availability(seeders) {
 /** A readable name for the tile: the title, then the year when the release name has one. */
 export function displayTitle(name) {
     const spaced = name.replace(/[[(].*?[\])]/g, " ").replace(/[._]+/g, " ");
-    const cut = spaced.search(/\b(?:19|20)\d{2}\b|\bS\d{1,2}(?:E\d{1,3})?\b|\b(?:2160|1440|1080|720|576|480)[pi]\b|\bseasons?\b|\bcomplete\b|\b(?:uhd|bluray|blu-ray|web-?dl|webrip|hdtv|remux)\b/i);
+    const cut = spaced.search(/\b(?:19|20)\d{2}\b|\bS\d{1,3}(?:E\d{1,3})?\b|\b(?:2160|1440|1080|720|576|480)[pi]\b|\bseasons?\b|\bcomplete\b|\b(?:uhd|bluray|blu-ray|web-?dl|webrip|hdtv|remux)\b/i);
     const title = (cut > 0 ? spaced.slice(0, cut) : spaced).replace(/\s+/g, " ").trim();
     const year = name.match(/(?:^|[ ._([])((?:19|20)\d{2})(?=[ ._)\]]|$)/)?.[1];
     return (title || name) + (year && cut > 0 ? ` (${year})` : "");
