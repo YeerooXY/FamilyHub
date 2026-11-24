@@ -505,6 +505,25 @@ export function openMovies(host, session, app, viewer) {
                     throw Error("Subtitle track unavailable");
                 }
             };
+            /** No subtitle in the viewer's language: find the most downloaded one and switch it on, once a week per title at most. */
+            async function autoSubtitles() {
+                const language = prefs.subtitles;
+                if (options.subtitleIndex != null || !languageCodes[language] || preferredTrack(subtitles, language)) return;
+                const key = preferencesKey(preferenceViewer) + ":autosub:" + item.Id + ":" + language;
+                try {
+                    if (Date.now() - Number(localStorage.getItem(key) ?? 0) < 7 * 864e5) return;
+                    localStorage.setItem(key, String(Date.now()));
+                } catch { return; }
+                const code = language === "hu" ? "hun" : "eng";
+                try {
+                    const found = await subtitleSearch.find(code);
+                    const best = (Array.isArray(found) ? found : []).filter(result => typeof result?.Id === "string")
+                        .sort((a, b) => (b.DownloadCount ?? 0) - (a.DownloadCount ?? 0) || (b.CommunityRating ?? 0) - (a.CommunityRating ?? 0))[0];
+                    if (!best || playerSignal.aborted || current !== playback) return;
+                    await subtitleSearch.add(best, code);
+                    if (!playerSignal.aborted && current === playback) ui?.say(`${labels[language]} subtitles added.`);
+                } catch { /* the Subtitles sheet still offers a manual search */ }
+            }
             const restartQuality = (dataSaver, sheet) => play(item, opener, {
                 dataSaver, sheet, audioIndex, subtitleIndex: playback.subtitleOverride,
                 position: metadataLoaded ? media.currentTime : resume, paused: media.paused
@@ -543,6 +562,7 @@ export function openMovies(host, session, app, viewer) {
             player.replaceChildren(media, ui.root);
             enterPlayer();
             playback.setSubtitles(options.subtitleIndex);
+            autoSubtitles();
             if (item.Type === "Episode" && item.SeriesId) {
                 seriesEpisodes(item).then(list => {
                     if (current !== playback || !list) return;

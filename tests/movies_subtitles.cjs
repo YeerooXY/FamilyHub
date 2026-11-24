@@ -75,6 +75,8 @@ async function verify(browser, profile, options) {
             const { openMovies, saveMoviePreferences } = await import("/movies.js");
             const viewer = {server: jellyfin + "/", profile: "fixture"};
             saveMoviePreferences(viewer, {subtitles: "hu"});
+            // This test drives the manual search. Mark the automatic one as already tried for this title.
+            localStorage.setItem("familyhub:movie-tracks:" + JSON.stringify(viewer) + ":autosub:trinity:hu", String(Date.now()));
             window.openMovieFixture(openMovies, document.querySelector("main"), {url: jellyfin, user: "fixture", token: "fixture", device: "fixture"},
                 {invokeMethodAsync: async () => "{}"}, viewer);
         }, jellyfin);
