@@ -1,0 +1,54 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Movies concepts</title>
+<style>
+:root{--bg:#0b0d12;--muted:#ffffffb3;--line:#ffffff1f;--focus:#98abed}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#fff;font:15px/1.4 "Segoe UI",system-ui,sans-serif}
+.screen{width:1280px;height:800px;position:relative;overflow:hidden;background:var(--bg)}
+.p{--h:210;background:linear-gradient(160deg,hsl(var(--h) 45% 34%),hsl(calc(var(--h) + 40) 40% 14%));display:grid;place-items:center;font-weight:800;font-size:44px;color:#ffffffd9;border-radius:10px}
+.p.a{--h:20}.p.b{--h:150}.p.c{--h:260}.p.d{--h:340}.p.e{--h:60}.p.f{--h:190}
+nav{display:flex;gap:22px;align-items:center;padding:18px 40px;color:var(--muted);font-weight:600}nav b{color:#fff;font-size:20px;margin-right:12px}
+.search{margin-left:auto;width:280px;border:1px solid var(--line);border-radius:999px;padding:9px 16px;color:var(--muted);background:#ffffff0d}
+h2{font-size:18px;margin:0 0 10px}
+.chip{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:3px 11px;font-size:12px;margin-right:6px;color:var(--muted)}
+.btn{display:inline-block;background:#fff;color:#111;border-radius:8px;padding:10px 22px;font-weight:700;margin-right:10px}.btn.g{background:#ffffff26;color:#fff}
+.heroA{position:absolute;inset:0 0 270px 0;background:radial-gradient(120% 90% at 78% 20%,#3a5a6e 0,#14202c 50%,var(--bg) 100%)}
+.heroA::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,var(--bg) 8%,transparent 60%),linear-gradient(0deg,var(--bg) 0,transparent 45%)}
+.t{position:absolute;left:40px;bottom:335px;z-index:2;width:520px}.t h1{font-size:54px;margin:0 0 8px;letter-spacing:-.5px}
+.rowA{position:absolute;left:0;right:0;bottom:24px;padding:0 40px;display:flex;gap:12px;align-items:flex-end;z-index:3}.rowA .p{width:150px;height:225px;flex:none}.rowA .p.z{width:170px;height:255px;box-shadow:0 14px 40px #000a;outline:2px solid #fff}
+.lab{position:absolute;left:40px;bottom:292px;z-index:3;font-weight:700}
+.bar{display:flex;justify-content:center;padding:6px 0 16px}.bigsearch{width:640px;border:1px solid #ffffff33;border-radius:999px;padding:13px 20px;background:#171a22;font-size:16px}
+.gridB{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;padding:0 40px}.gridB .p{aspect-ratio:2/3;font-size:34px}.gridB small{display:block;margin-top:6px;font-weight:600}.gridB .meta{color:var(--muted);font-size:12px}
+.sec{padding:14px 40px 8px}
+.rel{margin:0 40px;border:1px solid var(--line);border-radius:14px;display:grid;grid-template-columns:96px 1fr auto;gap:16px;padding:12px;background:#14161c;align-items:center}.rel .p{width:96px;height:64px;font-size:22px}.rel .m{color:var(--muted);font-size:13px}
+.good{color:#8fe3b0;font-weight:700}
+.rail{position:absolute;left:0;top:0;bottom:0;width:84px;border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:26px;padding-top:24px;color:var(--muted);font-size:11px}
+.rail i{width:34px;height:34px;border-radius:10px;background:#ffffff14;display:block;margin:0 auto 4px}.rail .on i{background:var(--focus)}
+.main{position:absolute;left:84px;right:0;top:0;bottom:0;padding:24px 36px}
+.strip{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:14px;height:240px}.strip .p{font-size:24px;place-items:end start;padding:16px;border-radius:16px}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:18px}.tiles .p{aspect-ratio:16/9;font-size:22px;place-items:end start;padding:12px;border-radius:12px}
+</style>
+<body>
+<section class="screen" id="A" aria-label="Concept A Spotlight">
+ <div class="heroA"></div>
+ <nav style="position:relative;z-index:4"><b>FamilyHub</b><span style="color:#fff">Home</span><span>Movies</span><span>Series</span><span>My list</span><div class="search">Search movies, series, episodes</div></nav>
+ <div class="t"><span class="chip">New this week</span><h1>The Long Way Home</h1><p style="color:var(--muted)">A quiet town gets a visitor with a map nobody has seen, and one evening decides what everyone does next.</p><span class="btn">▶ Play</span><span class="btn g">More info</span></div>
+ <div class="lab">Continue watching</div>
+ <div class="rowA"><div class="p z">Z</div><div class="p a">A</div><div class="p b">B</div><div class="p c">C</div><div class="p d">D</div><div class="p e">E</div><div class="p f">F</div></div>
+</section>
+<section class="screen" id="B" aria-label="Concept B Search first">
+ <nav><b>FamilyHub</b><span>Home</span><span style="color:#fff">Movies</span><span>Series</span></nav>
+ <div class="bar"><div class="bigsearch">most wanted 2</div></div>
+ <div class="sec"><h2>Matches</h2></div>
+ <div class="gridB"><div><div class="p a">M</div><small>Most Wanted 2</small><span class="meta">2026 · Film</span></div><div><div class="p b">W</div><small>Most Wanted</small><span class="meta">2012 · Film</span></div><div><div class="p c">H</div><small>A hajsza</small><span class="meta">2019 · Film</span></div><div><div class="p d">M</div><small>Most Wanted, season 1</small><span class="meta">Series</span></div><div><div class="p e">W</div><small>Wanted</small><span class="meta">2008 · Film</span></div><div><div class="p f">H</div><small>Hajsza 2</small><span class="meta">2021 · Film</span></div></div>
+ <div class="sec" style="padding-top:22px"><h2>Ways to get Most Wanted 2</h2></div>
+ <div class="rel"><div class="p a">4K</div><div><b>Most Wanted 2 (2026)</b><div class="m">4K Remux · 77.4 GB · about 1 h 51 min <span class="good">· Very easy to get</span></div></div><span class="btn" style="margin:0">Download</span></div>
+</section>
+<section class="screen" id="C" aria-label="Concept C Rail and tiles">
+ <div class="rail"><div class="on"><i></i>Movies</div><div><i></i>Series</div><div><i></i>Search</div><div><i></i>Music</div></div>
+ <div class="main">
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px"><h2 style="margin:0;font-size:26px">Movies</h2><div class="search">Search movies, series, episodes</div></div>
+  <div class="strip"><div class="p a">The Long Way Home</div><div class="p b">Harbour Town</div><div class="p c">In Time</div></div>
+  <h2 style="margin-top:20px">Because you watched Harbour Town</h2>
+  <div class="tiles"><div class="p d">One</div><div class="p e">Two</div><div class="p f">Three</div><div class="p a">Four</div></div>
+ </div>
+</section>
+</body></html>
