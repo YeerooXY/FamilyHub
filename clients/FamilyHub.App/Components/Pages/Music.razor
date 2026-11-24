@@ -33,7 +33,7 @@ else if (EntryScreen)
                 <div class="profile-grid">
                     @foreach (var profile in Session.Profiles)
                     {
-                        <button class="profile-choice" @key="profile.Id" @onclick="() => PickProfile(profile)" aria-disabled="@Aria(busy)">
+                        <button id="@("profile-choice-" + profile.Id)" class="profile-choice" @key="profile.Id" @onclick="() => PickProfile(profile)" aria-disabled="@Aria(busy)">
                             <ProfileAvatar Profile="profile" Size="112" /><span>@profile.Name</span>
                         </button>
                     }
@@ -60,7 +60,7 @@ else if (EntryScreen)
                         }
                         <div class="password-actions">
                             <button class="primary" type="submit" aria-disabled="@Aria(busy || (creating && (profilePassword.Length < 8 || profilePassword != profilePasswordRepeat)))">@(creating ? "Create password and sign in" : "Sign in")</button>
-                            <button type="button" @onclick="CancelProfilePassword">Cancel</button>
+                            <button type="button" @onclick="ClosePasswordCard">Cancel</button>
                         </div>
                     </form>
                 }
@@ -1293,6 +1293,7 @@ else
         pendingFocus = "profile-password";
         return Task.CompletedTask;
     }
+    private void ClosePasswordCard() { if (protectedProfile is { } opened) pendingFocus = "profile-choice-" + opened.Id; CancelProfilePassword(); }
     private void CancelProfilePassword() { protectedProfile = null; profilePassword = ""; profilePasswordRepeat = ""; showPassword = false; }
     private async Task SignInToProfile()
     {

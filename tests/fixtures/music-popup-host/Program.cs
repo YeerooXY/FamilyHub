@@ -88,6 +88,14 @@ static MusicSession MakeSession(string repo)
     Set("User", "fixture");
     Set("Profiles", new List<ListenerProfile> { new() { Id = "fixture", Name = "Alex" }, new() { Id = "june", Name = "June" } });
     Set("ProfileName", "Alex");
+    if (FixtureApi.Startup is "password-create" or "password-signin")
+    {
+        var create = FixtureApi.Startup == "password-create";
+        Set("Profiles", new List<ListenerProfile> {
+            new() { Id = "fixture", Name = "Yeeroo", RequiresPassword = true, NeedsPasswordSetup = create },
+            new() { Id = "june", Name = "June" }, new() { Id = "kit", Name = "Nemozoli" }, new() { Id = "zaza", Name = "Zaza" } });
+        typeof(MusicSession).GetProperty("NeedsProfileSelection")!.SetValue(session, true);
+    }
     Set("Server", "https://music.fixture.test/");
     Set("Offline", new OfflineLibrary(Path.Combine(repo, ".local", "popup-fixture-cache"), new Uri(session.Server), session.User));
     Set("PlaybackPreferences", new ListenerPreferences { SpotifySubscribed = FixtureApi.Startup == "spotify" ? null : false });
