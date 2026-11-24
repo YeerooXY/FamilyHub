@@ -24,7 +24,7 @@ STATE_NAMES = (
     '.artist-genres.json', '.verified-audio.sqlite3', '.familyhub-files.db', '.discovery',
     '.source-quality.json', '.song-analysis.json', '.replacements.json', '.library-additions.json',
     '.metadata-votes.json', '.deezer-chart.json', '.playlists', '.lyrics', '.listening-versions.json',
-    '.movie-audio-jobs.json',
+    '.movie-audio-jobs.json', '.profile-passwords.json',
     '.server-stats.sqlite3',
 )
 

@@ -697,7 +697,7 @@ public sealed class MusicSession
         PlaybackPreferences = new(); NeedsProfileSelection = true;
     }
 
-    public async Task SelectProfileAsync(string id, string? password = null)
+    public async Task SelectProfileAsync(string id, string? password = null, bool createPassword = false)
     {
         await connectionLock.WaitAsync();
         FamilyHubApi? candidate = null;
@@ -718,7 +718,7 @@ public sealed class MusicSession
                 StoreProfiles(server, Profiles);
                 if (!Profiles.Any(profile => profile.Id == id))
                     throw new InvalidOperationException("This profile is no longer available. Choose another profile.");
-                selection = await candidate.SelectProfileAsync(id, timeout.Token, password: password);
+                selection = await candidate.SelectProfileAsync(id, timeout.Token, password: password, createPassword: createPassword);
             }
             catch (Exception error) when (error is HttpRequestException { StatusCode: null } or OperationCanceledException)
             {

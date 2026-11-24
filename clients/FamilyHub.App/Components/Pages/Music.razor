@@ -41,9 +41,27 @@ else if (EntryScreen)
                 </div>
                 @if (protectedProfile is { } selected)
                 {
-                    <form class="profile-name-form" @onsubmit="SignInToProfile" @onsubmit:preventDefault>
-                        <label for="profile-password">Password for @selected.Name</label><input id="profile-password" type="password" @bind="profilePassword" maxlength="256" autocomplete="current-password" required />
-                        <button class="primary" type="submit" disabled="@busy">Sign in</button><button type="button" @onclick="CancelProfilePassword">Cancel</button>
+                    var creating = selected.NeedsPasswordSetup;
+                    <form class="profile-password-card" @onsubmit="SignInToProfile" @onsubmit:preventDefault aria-labelledby="profile-password-title">
+                        <h2 id="profile-password-title">@(creating ? $"Create a password for {selected.Name}" : $"Sign in as {selected.Name}")</h2>
+                        @if (creating) { <p>This profile has no password yet. Choose one with at least 8 characters, then enter it again.</p> }
+                        <label for="profile-password">@(creating ? "New password" : "Password")</label>
+                        <div class="password-field">
+                            <input id="profile-password" type="@(showPassword ? "text" : "password")" @bind="profilePassword" @bind:event="oninput" minlength="@(creating ? 8 : 1)" maxlength="256" autocomplete="@(creating ? "new-password" : "current-password")" required />
+                            <button type="button" class="password-eye" @onclick="() => showPassword = !showPassword" aria-pressed="@(showPassword ? "true" : "false")" aria-label="Show password" title="Show password"><MusicIcon Name="@(showPassword ? "eye-off" : "eye")" /></button>
+                        </div>
+                        @if (creating)
+                        {
+                            <label for="profile-password-confirm">Repeat password</label>
+                            <div class="password-field">
+                                <input id="profile-password-confirm" type="@(showPassword ? "text" : "password")" @bind="profilePasswordRepeat" @bind:event="oninput" maxlength="256" autocomplete="new-password" required />
+                            </div>
+                            @if (profilePasswordRepeat.Length > 0 && profilePasswordRepeat != profilePassword) { <p class="password-hint" role="status">The passwords do not match yet.</p> }
+                        }
+                        <div class="password-actions">
+                            <button class="primary" type="submit" aria-disabled="@Aria(busy || (creating && (profilePassword.Length < 8 || profilePassword != profilePasswordRepeat)))">@(creating ? "Create password and sign in" : "Sign in")</button>
+                            <button type="button" @onclick="CancelProfilePassword">Cancel</button>
+                        </div>
                     </form>
                 }
                 @if (addingProfile)
@@ -1249,7 +1267,8 @@ else
     private static string ProfileColor(string color) => System.Text.RegularExpressions.Regex.IsMatch(color, "^#[0-9A-Fa-f]{6}$") ? color : "#9275cf";
     private Task SharePlaylist(MusicPlaylist playlist, bool shared) => Run(() => Session.EditPlaylistAsync(playlist, new { shared }));
     private ListenerProfile? protectedProfile;
-    private string profilePassword = "";
+    private string profilePassword = "", profilePasswordRepeat = "";
+    private bool showPassword;
     private void ShowAddProfile() { CancelProfilePassword(); addingProfile = true; pendingFocus = "new-profile-name"; }
     private void CancelAddProfile() { addingProfile = false; pendingFocus = "add-profile"; }
     private void OpenProfileMenu() => profileMenu = true;
@@ -1274,16 +1293,17 @@ else
         pendingFocus = "profile-password";
         return Task.CompletedTask;
     }
-    private void CancelProfilePassword() { protectedProfile = null; profilePassword = ""; }
+    private void CancelProfilePassword() { protectedProfile = null; profilePassword = ""; profilePasswordRepeat = ""; showPassword = false; }
     private async Task SignInToProfile()
     {
         if (busy || protectedProfile is not { } profile) return;
         var password = profilePassword;
-        profilePassword = "";
-        await ChooseProfile(profile.Id, password);
+        if (profile.NeedsPasswordSetup && (password.Length < 8 || password != profilePasswordRepeat)) return;
+        profilePassword = ""; profilePasswordRepeat = "";
+        await ChooseProfile(profile.Id, password, profile.NeedsPasswordSetup);
         if (!Session.NeedsProfileSelection) CancelProfilePassword();
     }
-    private Task ChooseProfile(string id, string? password = null) => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); ResetProfileView(); await Session.SelectProfileAsync(id, password); });
+    private Task ChooseProfile(string id, string? password = null, bool createPassword = false) => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); ResetProfileView(); await Session.SelectProfileAsync(id, password, createPassword); });
     private Task CreateProfile() => Run(async () => { await Session.CreateProfileAsync(profileName); await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); ResetProfileView(); await Session.SelectProfileAsync(Session.Profiles.Last().Id); });
     private Task SwitchProfile() => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); await Session.SwitchProfileAsync(); ResetProfileView(); });
     private void ResetProfileView()

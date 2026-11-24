@@ -26,6 +26,29 @@ class DisabledProfiles(Base):
         self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 401)
 
 
+class FirstPassword(Base):
+    extra = {'FAMILY_PROFILES': True, 'ADMIN_USERS': ['sample-a'], 'PROFILE_PASSWORD_HASHES': {}}
+
+    def test_protected_profile_without_hash_creates_one_then_needs_it(self):
+        client = self.app.test_client()
+        boot = self.go(client, 'GET', '/api/connect').json
+        profile = next(p for p in boot['profiles'] if p['id'] == 'sample-a')
+        self.assertTrue(profile['requires_password'] and profile['needs_password_setup'])
+        short = self.post(client, boot['csrf_token'], '/api/profile/password-setup', json={'profile_id': 'sample-a', 'password': 'short'})
+        self.assertEqual(short.status_code, 400)
+        made = self.post(client, boot['csrf_token'], '/api/profile/password-setup', json={'profile_id': 'sample-a', 'password': 'long enough pass'})
+        self.assertEqual(made.status_code, 200, made.json)
+        other = self.app.test_client()
+        boot = self.go(other, 'GET', '/api/connect').json
+        self.assertNotIn('needs_password_setup', next(p for p in boot['profiles'] if p['id'] == 'sample-a'))
+        again = self.post(other, boot['csrf_token'], '/api/profile/password-setup', json={'profile_id': 'sample-a', 'password': 'another long pass'})
+        self.assertEqual(again.status_code, 409)
+        wrong = self.post(other, boot['csrf_token'], '/api/profile/select', json={'profile_id': 'sample-a', 'password': 'nope nope'})
+        self.assertEqual(wrong.status_code, 403)
+        right = self.post(other, boot['csrf_token'], '/api/profile/select', json={'profile_id': 'sample-a', 'password': 'long enough pass'})
+        self.assertEqual(right.status_code, 200)
+
+
 class FamilyProfiles(Base):
     extra = {'FAMILY_PROFILES': True}
 

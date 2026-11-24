@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from flask import Flask, Response, abort, g, jsonify, redirect, render_template, request, session, send_file
 from flask_wtf.csrf import CSRFError, CSRFProtect, generate_csrf
 from werkzeug.exceptions import HTTPException
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 from .catalog_search import NoRedirect
 from .genres import GenreLabels, artist_name, genre_key, genre_label, most_common_genre
 from .playlist_preparation import PlaylistPreparation
@@ -22,7 +22,7 @@ from .listening_stats import ListeningStats
 from .wrapped import DeezerChart
 from .playlists import PlaylistError, PlaylistStore, fetch_playlist, fetch_youtube_playlist, rank_matches, preferred_match, library_match_key, reuse_library_match
 from .profiles import ProfileError, ProfileStore
-from .state import StateWriter, migrate_state, state_path, start_backups, wait_for_write
+from .state import StateWriter, migrate_state, state_path, start_backups, wait_for_write, write_json as write_state_json
 from .mixing import transition
 from .audio_profile import profile
 from . import mobile_audio
@@ -199,7 +199,14 @@ def create_app(test_config=None):
     allowed = set(cfg["ALLOWED_USERS"])
     family_mode = cfg.get("FAMILY_PROFILES") is True
     profile_store = ProfileStore(cfg, allowed, writer=state_writer) if family_mode else None
-    password_hashes = cfg["PROFILE_PASSWORD_HASHES"]
+    password_file = state_path(cfg, ".profile-passwords.json")
+    password_hashes = dict(cfg["PROFILE_PASSWORD_HASHES"])
+    try:
+        saved = json.loads(password_file.read_text(encoding="utf-8"))
+        password_hashes.update({key: value for key, value in saved.items() if isinstance(key, str) and isinstance(value, str)})
+    except (OSError, ValueError, AttributeError):
+        pass
+    password_lock = threading.Lock()
     protected_profiles = set(password_hashes) | set(cfg["ADMIN_USERS"]) | set(cfg.get("JELLYFIN_PROFILES", {}))
     max_upload = cfg["MAX_UPLOAD"]
 
@@ -364,7 +371,7 @@ def create_app(test_config=None):
             if not (sent == origin if sent is not None else ref == origin or ref.startswith(origin + "/")):
                 app.logger.warning("Rejected request: invalid origin")
                 abort(403)
-        if request.endpoint in ("login", "static", "family_connect", "create_family_profile", "select_family_profile", "app_update_manifest", "app_update_package", "profile_image", "share_landing", "share_download", "movie_media"):
+        if request.endpoint in ("login", "static", "family_connect", "create_family_profile", "select_family_profile", "set_first_family_password", "app_update_manifest", "app_update_package", "profile_image", "share_landing", "share_download", "movie_media"):
             return
         # Audio players cannot send the sign-in cookie, so a stream link carries a signed ticket.
         if request.endpoint in ("playback_audio", "download_library_recording", "job_media") and "ticket" in request.args:
@@ -518,6 +525,8 @@ def create_app(test_config=None):
         for profile in profiles:
             if profile["id"] in protected_profiles:
                 profile["requires_password"] = True
+                if profile["id"] not in password_hashes:
+                    profile["needs_password_setup"] = True
         return profiles
 
     def verify_profile_password(user, password):
@@ -555,6 +564,27 @@ def create_app(test_config=None):
         with catalogue_lock:
             profile = profile_store.set_name(g.user, data["name"])
         return jsonify(profile=profile)
+
+    @app.post("/api/profile/password-setup")
+    def set_first_family_password():
+        require_family()
+        data = body()
+        profile = profile_store.get(data.get("profile_id"))
+        password = data.get("password")
+        if profile["id"] not in protected_profiles:
+            raise ApiError("This profile does not use a password.", 400)
+        if not isinstance(password, str) or not 8 <= len(password) <= 256:
+            raise ApiError("Use a password of 8 to 256 characters.", 400)
+        if not allow("profile-password-setup", 10, 300):
+            raise ApiError("Too many attempts. Wait a few minutes.", 429)
+        with password_lock:
+            if profile["id"] in password_hashes:
+                raise ApiError("This profile already has a password. Sign in with it.", 409)
+            digest = generate_password_hash(password)
+            write_state_json(password_file, {**{key: value for key, value in password_hashes.items() if key not in cfg["PROFILE_PASSWORD_HASHES"]},
+                                              profile["id"]: digest})
+            password_hashes[profile["id"]] = digest
+        return select_family_profile()
 
     @app.post("/api/profile/select")
     def select_family_profile():

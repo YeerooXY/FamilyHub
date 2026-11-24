@@ -195,10 +195,10 @@ public sealed class FamilyHubApi : IDisposable
         return result;
     }
 
-    public async Task<ProfileSelection> SelectProfileAsync(string id, CancellationToken cancellationToken = default, bool background = false, string? password = null)
+    public async Task<ProfileSelection> SelectProfileAsync(string id, CancellationToken cancellationToken = default, bool background = false, string? password = null, bool createPassword = false)
     {
         if (string.IsNullOrWhiteSpace(id) || id.Length > 64) throw new ArgumentException("Choose a profile.");
-        var result = await RequestJsonAsync<ProfileSelection>(HttpMethod.Post, "/api/profile/select", new { profile_id = id, password }, cancellationToken, background);
+        var result = await RequestJsonAsync<ProfileSelection>(HttpMethod.Post, createPassword ? "/api/profile/password-setup" : "/api/profile/select", new { profile_id = id, password }, cancellationToken, background);
         if (result.Profile.Id != id || string.IsNullOrWhiteSpace(result.CsrfToken))
             throw new InvalidDataException("The server returned an invalid profile selection.");
         csrf = result.CsrfToken;
