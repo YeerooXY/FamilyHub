@@ -1,6 +1,8 @@
 # Server health on Debian
 
-The **Server** view and both `/api/server/` endpoints require an administrator. Configure a [profile password](SECURITY_REVIEW.md#profile-password-setup) for each FamilyHub administrator. Signed-in profiles can open **Leaderboard** through `/api/activity/stats`.
+The **Server** view and its health endpoints require an administrator. Configure a [profile password](SECURITY_REVIEW.md#profile-password-setup) for each FamilyHub administrator. Signed-in profiles can open **Leaderboard** through `/api/activity/stats`.
+
+Open `/admin` on the FamilyHub server and sign in with an administrator profile to view torrent seeding. The page displays the combined upload and download totals, the share ratio against the configured goal, and each torrent's ratio. It refreshes every 30 seconds while visible. The page is available when the browser player is disabled and obtains its data from the administrator-only `/api/server/seeding` endpoint.
 
 The collector starts with the service and reads every 15 seconds. It writes `.server-stats.sqlite3` and the SQLite WAL files under `STATE_DIR` (the workspace when `STATE_DIR` is unset). Keep that directory writable by the service account through `ReadWritePaths=` when using `ProtectSystem=strict`. SQLite keeps 15-second readings for 6 hours, one-minute readings for 7 days, and 15-minute readings for 90 days. History refreshes about once a minute. Charts combine older readings into at most 400 points per series.
 

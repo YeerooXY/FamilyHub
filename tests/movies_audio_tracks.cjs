@@ -84,11 +84,8 @@ verifyMovieProfiles(async (browser, profile, options) => {
             {profile: "owner"});
     }, {jellyfin, movie});
     const focused = async node => page.waitForFunction(el => el === document.activeElement, await node.elementHandle());
-    const library = page.getByRole("region", {name: "On the server"});
-    const details = page.getByRole("button", {name: "Details for In Time", exact: true}).first();
-    await details.press("Enter");
-    const detail = page.getByRole("dialog", {name: "In Time", exact: true});
-    const add = detail.getByRole("button", {name: "Add audio track"});
+    const library = page.getByRole("region", {name: "Audio tracks"});
+    const add = page.getByRole("button", {name: "Add audio track for In Time", exact: true}).first();
     await add.press("Enter");
     const sheet = page.getByRole("dialog", {name: "Add audio track"});
     const close = sheet.getByRole("button", {name: "Close", exact: true});
@@ -103,8 +100,6 @@ verifyMovieProfiles(async (browser, profile, options) => {
     await page.screenshot({path: path.join(output, profile + "-result.png")});
     await close.press("Enter");
     await focused(add);
-    await detail.getByRole("button", {name: "Close", exact: true}).press("Enter");
-    await focused(details);
     await library.getByText(jobName()).waitFor();
     const remove = library.getByRole("button", {name: "Delete source file"});
     await remove.press("Enter");

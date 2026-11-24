@@ -72,4 +72,26 @@ async function verifyMovieProfiles(verify) {
     }
 }
 
-module.exports = { app, jellyfin, cors, output, moviePage, useMovieBridge, verifyMovieProfiles };
+const reviewProfiles = [
+    [chromium, "windows-chromium-1280", {viewport: {width: 1280, height: 850}}],
+    [chromium, "windows-chromium-2000", {viewport: {width: 2000, height: 1000}}],
+    [chromium, "chromium-tablet-768", {viewport: {width: 768, height: 1024}, hasTouch: true}],
+    [chromium, "android-pixel7-360", {...devices["Pixel 7"], viewport: {width: 360, height: 800}}],
+    [webkit, "mac-webkit-1280", {viewport: {width: 1280, height: 850}}],
+    [webkit, "iphone13", {...devices["iPhone 13"], reducedMotion: "reduce"}]
+];
+
+async function reviewMovieProfiles(verify) {
+    for (const engine of [chromium, webkit]) {
+        const browser = await engine.launch({headless: true});
+        try {
+            for (const [browserType, name, {defaultBrowserType, ...options}] of reviewProfiles) {
+                if (engine === browserType) await verify(browser, name, options);
+            }
+        } finally {
+            await browser.close();
+        }
+    }
+}
+
+module.exports = { app, jellyfin, cors, output, moviePage, useMovieBridge, verifyMovieProfiles, reviewMovieProfiles };

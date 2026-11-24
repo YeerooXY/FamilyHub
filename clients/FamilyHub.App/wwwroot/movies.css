@@ -63,8 +63,9 @@
 
 .movie-library .movie-series { max-width: 60rem; margin-inline: auto; scroll-margin-top: 6rem; }
 .movie-series h2, .movie-series h3 { margin: 0; overflow-wrap: anywhere; }
-.movie-series > h2 { margin-bottom: .6rem; }
-.movie-series > p { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.movie-series-header { display: grid; justify-items: start; gap: .55rem; margin-bottom: 1rem; }
+.movie-series-header h2 { font-size: clamp(1.6rem, 4vw, 2.5rem); }
+.movie-series-header p { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: 0; }
 .movie-season-list { display: grid; gap: .65rem; }
 .movie-library .movie-season {
     min-width: 0;
@@ -276,24 +277,24 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-track-controls select { max-width: 100%; }
 .movie-library p[role="status"]:empty { margin: 0; }
 .movie-library-columns, .movie-catalogue { min-width: 0; }
-.movie-library .movie-downloads {
+.movie-library :is(.movie-downloads, .movie-audio-jobs) {
     margin: .75rem 0 1.5rem;
     padding: 1rem;
     border: 1px solid #ffffff26;
     border-radius: .85rem;
     background: #171a22;
 }
-.movie-downloads h2 { margin: 0 0 .6rem; font-size: 1.1rem; }
-.movie-downloads ul { display: grid; gap: .65rem; margin: 0; padding: 0; list-style: none; }
-.movie-downloads li { padding: .75rem; border-radius: .6rem; background: #ffffff0d; overflow-wrap: anywhere; }
-.movie-downloads p { margin: 0; color: #ffffffb8; font-size: .9rem; }
+:is(.movie-downloads, .movie-audio-jobs) h2 { margin: 0 0 .6rem; font-size: 1.1rem; }
+:is(.movie-downloads, .movie-audio-jobs) ul { display: grid; gap: .65rem; margin: 0; padding: 0; list-style: none; }
+:is(.movie-downloads, .movie-audio-jobs) li { padding: .75rem; border-radius: .6rem; background: #ffffff0d; overflow-wrap: anywhere; }
+:is(.movie-downloads, .movie-audio-jobs) p { margin: 0; color: #ffffffb8; font-size: .9rem; }
 .movie-download-progress { height: .3rem; margin: .65rem 0 .5rem; border-radius: 1rem; background: #ffffff26; overflow: hidden; }
 .movie-download-progress span { display: block; height: 100%; transform-origin: left; background: #89b4ff; }
 @media (min-width: 1100px) {
     .movie-library-columns { display: grid; align-items: start; grid-template-columns: minmax(0, 1fr) minmax(15rem, 22rem); gap: 1.25rem; }
     .movie-library-columns-full { grid-template-columns: minmax(0, 1fr); }
     .movie-catalogue { grid-area: 1 / 1; }
-    .movie-downloads { grid-area: 1 / 2; }
+    .movie-work { grid-area: 1 / 2; min-width: 0; }
 }
 .movie-library video { margin-top: .75rem; }
 .movie-library .movie-search {
@@ -623,13 +624,11 @@ li.movie-release[data-tier="4k-bluray"] { border-color: #ba7bcb66; }
 
 /* Billboard layout: the title sits left in the pinned band and the search pill sits right, widening when used. */
 .movie-library .movie-toolbar { max-width: none; display: flex; flex-wrap: nowrap; align-items: center; gap: 1rem; padding: .7rem 1.2rem .6rem; margin-bottom: 1rem; }
-.movie-library .movie-toolbar::before { content: "Movies"; margin-right: auto; font-size: 1.4rem; font-weight: 800; letter-spacing: -.01em; }
-.movie-library .movie-toolbar .movie-search { flex: 0 1 20rem; width: auto; margin: 0; transition: flex-basis .3s cubic-bezier(.2, .7, .2, 1); }
+.movie-library .movie-toolbar .movie-search { flex: 0 1 20rem; width: auto; margin: 0 0 0 auto; transition: flex-basis .3s cubic-bezier(.2, .7, .2, 1); }
 .movie-library .movie-toolbar .movie-search:is(:focus-within, :has(input:not(:placeholder-shown))) { flex-basis: 34rem; }
 .movie-library .movie-hero { min-height: clamp(22rem, 62vh, 44rem); }
 .movie-hero-title { font-size: clamp(2.2rem, 5.2vw, 4.4rem); letter-spacing: -.01em; }
 @media (max-width: 640px) {
-    .movie-library .movie-toolbar::before { display: none; }
     .movie-library .movie-toolbar .movie-search { flex: 1 1 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .movie-library .movie-toolbar .movie-search { transition: none; } }

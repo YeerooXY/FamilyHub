@@ -248,6 +248,51 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
     {
         var path = request.RequestUri!.AbsolutePath;
+        if (Startup == "movies-polish" && path.StartsWith("/api/movies/", StringComparison.Ordinal))
+        {
+            string json;
+            switch (path)
+            {
+                case "/api/movies/session":
+                    json = """{"media_ticket":"fixture","url":"https://movies.fixture.test/","media_url":"https://music.fixture.test/","user":"viewer","downloads_enabled":true}""";
+                    break;
+                case "/api/movies/library":
+                    using (var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token)))
+                    {
+                        var resource = payload.RootElement.GetProperty("path").GetString();
+                        var query = payload.RootElement.GetProperty("query").GetString();
+                        json = resource switch {
+                            "Items" when query?.Contains("includeItemTypes=Series") == true =>
+                                """{"result":{"Items":[{"Id":"series","Name":"Harbour Town","Type":"Series","ProviderIds":{"Tmdb":"42"}}],"TotalRecordCount":1}}""",
+                            "Shows/series/Episodes" =>
+                                """{"result":{"Items":[{"Id":"episode","Name":"Pilot","Type":"Episode","SeriesId":"series","ParentIndexNumber":1,"IndexNumber":1}],"TotalRecordCount":1}}""",
+                            _ => """{"result":{"Items":[],"TotalRecordCount":0}}"""
+                        };
+                    }
+                    break;
+                case "/api/movies/matches":
+                    json = """{"series_id":42,"seasons":[{"number":1,"episode_count":1},{"number":2,"episode_count":2},{"number":3,"episode_count":1}]}""";
+                    break;
+                case "/api/movies/downloads":
+                    json = """{"available":true,"items":[{"name":"Harbour.Town.S02.1080p","state":"Downloading","progress":0.3,"eta":125}]}""";
+                    break;
+                case "/api/movies/season-episodes":
+                    using (var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token)))
+                    {
+                        if (payload.RootElement.GetProperty("series").GetInt32() != 42 ||
+                            payload.RootElement.GetProperty("season").GetInt32() != 1)
+                            return new(HttpStatusCode.BadRequest);
+                        var jpeg = Path.Combine(AppContext.BaseDirectory, "movie-polish-still.jpg");
+                        var still = "data:image/jpeg;base64," + Convert.ToBase64String(await File.ReadAllBytesAsync(jpeg, token));
+                        json = JsonSerializer.Serialize(new {episodes = new[] {new {number = 1, name = "Pilot", still}}});
+                    }
+                    break;
+                default:
+                    json = "{}";
+                    break;
+            }
+            return new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+        }
         if (Startup is "password-create" or "password-signin")
         {
             var creating = Startup == "password-create";

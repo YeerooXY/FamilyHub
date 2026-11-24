@@ -4,7 +4,9 @@ The client asks the server for a season's episodes; each picture is fetched from
 needed and read from disk afterwards, so TMDB is not asked again for a stored image.
 """
 import base64
+from pathlib import Path
 import re
+from tempfile import NamedTemporaryFile
 import urllib.request
 
 from .catalog_search import NoRedirect
@@ -21,7 +23,9 @@ class StillCache:
         self.timeout = timeout
 
     def file(self, series, season, episode):
-        if not all(type(value) is int and 0 <= value <= 99999 for value in (series, season, episode)):
+        if not all(type(value) is int for value in (series, season, episode)):
+            return None
+        if not (0 < series <= 2**31 - 1 and 0 <= season <= 999 and 0 <= episode <= 9999):
             return None
         return self.root / str(series) / f'{season}-{episode}.jpg'
 
@@ -47,9 +51,15 @@ class StillCache:
             if not data or len(data) > MAX_BYTES or not data.startswith(b'\xff\xd8'):
                 return None
             path.parent.mkdir(parents=True, exist_ok=True)
-            partial = path.with_suffix('.part')
-            partial.write_bytes(data)
-            partial.replace(path)
+            with NamedTemporaryFile(dir=path.parent, suffix='.part', delete=False) as stream:
+                partial = Path(stream.name)
+                try:
+                    stream.write(data)
+                    stream.close()
+                    partial.replace(path)
+                finally:
+                    stream.close()
+                    partial.unlink(missing_ok=True)
             return data
         except (OSError, ValueError):
             return None

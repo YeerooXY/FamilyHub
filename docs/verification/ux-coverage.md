@@ -1,5 +1,15 @@
 # Interface verification
 
+## 24 November 2026 · FamilyHub 1.4.0 Movies and admin
+
+| Screen | Layout and visual | Motion | Focus and keyboard | Accessibility | Wording and states |
+| --- | --- | --- | --- | --- | --- |
+| Movies releases and Downloading | Six browser profiles, including 360, 768, 1280 and 2000 px | Standard-motion releases and reduced-motion iPhone fixture | Search, quality guide, download receipt, and audio action focus checked | Regions, disclosure and progress values checked. Screen-reader speech pending. | Results, unavailable downloads, and empty queue checked. Live acquisition pending. |
+| Series and episodes | Same profiles, including missing artwork | Immediate disclosure with and without reduced motion | Enter, Space, Tab, Escape and touch checked | State labels and visible disclosures checked. Screen-reader speech pending. | Available, downloading, missing, retry and episode pictures checked. Live stills pending. |
+| Admin sign-in and seeding | Same profiles | Meter transitions with standard motion and reduced-motion iPhone | Tab, Shift+Tab, Enter, Space, and retry focus checked | Named progress bars, sign-in fields, alerts and live status checked. Screen-reader speech pending. | Signed out, wrong password, non-admin, success, refresh failure and recovery checked. |
+
+[Screenshots and verification commands](movies-polish-2026-11-24/README.md)
+
 ## 24 November 2026 · Add audio track
 
 | Screen | Layout and visual | Motion | Focus and keyboard | Accessibility | Wording and states |

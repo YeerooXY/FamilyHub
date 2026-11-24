@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory)][string]$NotesFile,
     [string]$WindowsDirectory,
     [string]$AndroidPackage,
+    [switch]$IncludeIos,
     [switch]$AssetsOnly
 )
 $ErrorActionPreference = 'Stop'
@@ -18,6 +19,13 @@ try {
     & python @arguments
     if ($LASTEXITCODE) { throw 'Packaging failed.' }
     $release = Join-Path $repo ('.local/artifacts/releases/' + $tag)
+    if ($IncludeIos) {
+        foreach ($name in @("FamilyHub-Music-iOS-$version-unsigned.ipa", 'ios.json', 'sidestore.json')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $release $name) -PathType Leaf)) {
+                throw "Prepare the iPhone release asset $name before publishing."
+            }
+        }
+    }
     $assets = @(Get-ChildItem -LiteralPath $release -File | Select-Object -ExpandProperty FullName)
     $existing = @((& gh api "repos/$repository/releases" | ConvertFrom-Json) | Where-Object tag_name -eq $tag)
     if ($LASTEXITCODE) { throw 'Could not inspect existing releases.' }
@@ -39,6 +47,7 @@ try {
         }
     }
     $mirrorArguments = @('scripts/deploy-native-updates.py', $release)
+    if ($IncludeIos) { $mirrorArguments += @('--platforms', 'windows-x64,android,ios') }
     if ($AssetsOnly) { $mirrorArguments += '--assets-only' }
     & python @mirrorArguments
     if ($LASTEXITCODE) { throw 'The update mirror deployment failed. The GitHub release remains a draft.' }
@@ -46,5 +55,7 @@ try {
     if ($LASTEXITCODE) { throw 'The update mirror is ready, but GitHub release publication failed.' }
     & gh release view $tag --repo $repository --json url,tagName,isDraft,assets
     # SideStore reads its source from the latest release, so a release without the iPhone build hides every iPhone update.
-    Write-Warning ('This release has no iPhone build yet. Run the Build private iPhone app workflow (native-ios.yml), then scripts/publish-ios-release.ps1 -RunId <run> for ' + $tag + '.')
+    if (-not $IncludeIos) {
+        Write-Warning ('This release has no iPhone build yet. Run the Build private iPhone app workflow (native-ios.yml), then scripts/publish-ios-release.ps1 -RunId <run> for ' + $tag + '.')
+    }
 } finally { Pop-Location }

@@ -1,12 +1,12 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const REFRESH_MS = 30000;
-let csrf = '', timer = 0;
+let csrf = '', timer = 0, refreshing = false;
 
 async function api(path, options = {}) {
   const headers = {Accept: 'application/json'};
   if (options.body) { headers['Content-Type'] = 'application/json'; headers['X-CSRFToken'] = csrf; }
-  const response = await fetch(path, {credentials: 'same-origin', ...options, headers});
+  const response = await fetch(path, {credentials: 'same-origin', signal: AbortSignal.timeout(10000), ...options, headers});
   let data = null;
   try { data = await response.json(); } catch { /* the reply has no body */ }
   return {status: response.status, data};
@@ -29,13 +29,19 @@ function show(which) {
 
 async function showSignIn(message) {
   clearTimeout(timer);
-  const {data} = await api('/api/connect');
-  csrf = data?.csrf_token || csrf;
   const select = $('profile');
-  select.replaceChildren(...(data?.profiles || []).map(profile => new Option(profile.name, profile.id)));
+  const prior = select.value;
+  const {data} = await api('/api/connect').catch(() => ({data: null}));
+  if (!Array.isArray(data?.profiles) || !data.profiles.length) {
+    showUnavailable('Profiles did not load.');
+    return;
+  }
+  csrf = data.csrf_token;
+  select.replaceChildren(...data.profiles.map(profile => new Option(profile.name, profile.id)));
+  if (data.profiles.some(profile => profile.id === prior)) select.value = prior;
   $('signin-error').textContent = message || '';
   show('signin');
-  (message ? $('password') : select).focus();
+  select.focus();
 }
 
 function part(label, value) {
@@ -51,8 +57,9 @@ function render(snapshot) {
   $('global-ratio').textContent = fixed(snapshot.global_ratio);
   meter($('global-meter'), (Number(snapshot.global_ratio) || 0) / goal);
   const need = Math.max(0, goal * snapshot.total_downloaded - snapshot.total_uploaded);
-  $('global-detail').textContent = `${gb(snapshot.total_uploaded)} uploaded · ${gb(snapshot.total_downloaded)} downloaded` +
-    (need ? ` · ${gb(need)} more to reach ${goal.toFixed(1)}×` : ` · ${goal.toFixed(1)}× goal reached`);
+  const detail = need ? `${gb(need)} more to reach ${goal.toFixed(1)}×`
+    : snapshot.global_ratio >= goal ? `${goal.toFixed(1)}× goal reached` : 'No downloads recorded.';
+  $('global-detail').textContent = `${gb(snapshot.total_uploaded)} uploaded · ${gb(snapshot.total_downloaded)} downloaded · ${detail}`;
   const items = snapshot.items.map(item => {
     const node = document.createElement('li'), title = document.createElement('h3'), tag = document.createElement('span');
     title.textContent = item.name;
@@ -75,23 +82,43 @@ function render(snapshot) {
     return node;
   });
   $('items').replaceChildren(...items);
-  $('status').textContent = items.length ? '' : 'No torrents on the server.';
+  $('items').hidden = $('files-title').hidden = !items.length;
+  $('global').hidden = false;
+  $('status').textContent = snapshot.stale ? 'The latest reading is more than two minutes old.'
+    : items.length ? '' : 'No torrents on the server.';
+}
+
+function showUnavailable(message) {
+  const wasSigningIn = $('signin').contains(document.activeElement);
+  show('seeding');
+  $('status').textContent = message;
+  $('retry').hidden = false;
+  if (wasSigningIn) $('retry').focus();
 }
 
 async function refresh() {
+  if (refreshing) return;
+  refreshing = true;
   clearTimeout(timer);
   const {status, data} = await api('/api/server/seeding').catch(() => ({status: 0, data: null}));
-  if (status === 401 || status === 403) return showSignIn(status === 403 ? 'This profile is not an administrator.' : '');
-  show('seeding');
-  if (status === 200 && data?.available) {
-    $('retry').hidden = true;
-    render(data);
-    if (data.stale) $('status').textContent = 'The latest reading is more than two minutes old.';
-  } else {
-    $('status').textContent = 'Seeding records did not load.';
-    $('retry').hidden = false;
+  if (status === 401 || status === 403) {
+    if ($('seeding').contains(document.activeElement)) $('page-title').focus();
+    $('global').hidden = $('items').hidden = $('files-title').hidden = true;
+    await showSignIn(status === 403 ? 'Choose an administrator profile.' : '');
+    refreshing = false;
+    return;
   }
-  timer = setTimeout(refresh, REFRESH_MS);
+  if (status === 200 && data?.available) {
+    const moveFocus = document.activeElement === $('retry') || $('signin').contains(document.activeElement);
+    render(data);
+    show('seeding');
+    if (moveFocus) $('global-title').focus();
+    $('retry').hidden = true;
+  } else {
+    showUnavailable($('global').hidden ? 'Seeding records did not load.' : 'Refresh failed. Showing the last reading.');
+  }
+  refreshing = false;
+  if (!document.hidden) timer = setTimeout(refresh, REFRESH_MS);
 }
 
 $('retry').addEventListener('click', () => { $('retry').focus(); refresh(); });
@@ -101,14 +128,17 @@ document.addEventListener('visibilitychange', () => {
 });
 $('signin-form').addEventListener('submit', async event => {
   event.preventDefault();
+  const submit = $('signin-submit');
+  if (submit.getAttribute('aria-disabled') === 'true') return;
+  submit.setAttribute('aria-disabled', 'true');
   $('signin-error').textContent = '';
   const {status, data} = await api('/api/profile/select', {method: 'POST',
     body: JSON.stringify({profile_id: $('profile').value, password: $('password').value})}).catch(() => ({status: 0, data: null}));
   $('password').value = '';
+  submit.removeAttribute('aria-disabled');
   if (status === 200) {
     csrf = data?.csrf_token || csrf;
     await refresh();
-    $('global-title').focus();
     return;
   }
   $('signin-error').textContent = status === 403 || status === 401 ? (data?.error || 'Incorrect password. Try again.')

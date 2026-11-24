@@ -325,7 +325,7 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
                 if (row.sent) row.showSent();
                 else {
                     row.showError();
-                    status.textContent = reply?.error || "Could not confirm the download. Check On the server before trying again.";
+                    status.textContent = reply?.error || "Could not confirm the download. Check the Downloading panel before trying again.";
                 }
             });
             item.append(head);

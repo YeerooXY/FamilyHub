@@ -210,7 +210,7 @@ async function checkVidea(browser, name, options, screenshots) {
     const sent = videa.getByRole("status").filter({hasText: "Sent to the server"});
     await sent.waitFor();
     assert.equal(await focused(sent), true);
-    await page.getByRole("region", {name: "On the server"}).getByText("Downloading", {exact: true}).waitFor({timeout: 5000});
+    await page.getByRole("region", {name: "Downloading"}).getByRole("listitem").getByText("Downloading", {exact: true}).waitFor({timeout: 5000});
     assert.deepEqual(await page.evaluate(() => window.calls.find(([method]) => method === "MovieVideaDownload")), [
         "MovieVideaDownload", "https://videa.hu/videok/film-animacio/fixture-ry9BOkAA4SZIAYZp", title + " HUN 1080p WEB-DL"
     ]);
@@ -227,8 +227,8 @@ async function checkVidea(browser, name, options, screenshots) {
     await page.waitForFunction(() => typeof window.finishVidea === "function");
     await page.evaluate(() => window.finishVidea());
     await cards.first().getByText("Hungarian audio listed").waitFor();
-    await page.getByRole("button", {name: "Quality", exact: true}).press("Enter");
-    assert.deepEqual(await cards.locator(".movie-release-quality").allTextContents(), ["1080p Web", "1080p", "720p"]);
+    assert.equal(await page.getByRole("button", {name: "Quality", exact: true}).isVisible(), false);
+    assert.deepEqual((await cards.locator(".movie-release-quality").allTextContents()).sort(), ["1080p", "1080p Web", "720p"]);
 
     await query.fill("Most Wanted A hajsza S2");
     await query.press("Enter");
@@ -246,7 +246,7 @@ async function checkVidea(browser, name, options, screenshots) {
     else await seasonAction.press("Enter");
     await season.getByText("Sent to the server").waitFor();
     assert.equal(await focused(season.getByText("Sent to the server")), true);
-    const queue = page.getByRole("region", {name: "On the server"});
+    const queue = page.getByRole("region", {name: "Downloading"});
     await queue.getByText("Most Wanted A hajsza · Season 2", {exact: true}).waitFor({timeout: 5000});
     assert.equal(await queue.getByRole("progressbar").count(), 1);
     if (screenshots) await page.screenshot({path: path.join(screenshots, `videa-season-queued-${name}.png`), fullPage: true});

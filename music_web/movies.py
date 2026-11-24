@@ -526,7 +526,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
             return jsonify(error='Movies are unavailable for this profile.'), 403
         data = body()
         series, season = data.get('series'), data.get('season')
-        if set(data) != {'series', 'season'} or type(series) is not int or type(season) is not int                 or not 0 < series <= 2**31 - 1 or not 0 <= season <= 999:
+        if set(data) != {'series', 'season'} or stills.file(series, season, 0) is None:
             return jsonify(error='Choose a season from the list.'), 400
         if not allow('movie-stills:' + g.user, 60, 60):
             return jsonify(error='Wait a minute before opening the episodes again.'), 429

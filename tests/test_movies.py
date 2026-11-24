@@ -316,7 +316,7 @@ class MovieLocalizedSearch(Base):
 
 
 class MovieDownloads(Base):
-    extra = {**MovieReleaseSearch.extra, 'ADMIN_USERS': ['sample-a'], 'MOVIE_DOWNLOADS': {
+    extra = {**MovieReleaseSearch.extra, 'BROWSER_PLAYER': False, 'ADMIN_USERS': ['sample-a'], 'MOVIE_DOWNLOADS': {
         'profiles': ['sample-a'],
         'qbittorrent': {'url': 'http://downloads.test', 'user': 'fixture-user', 'password': 'fixture-password'}}}
     select = MovieSessions.select
@@ -327,6 +327,14 @@ class MovieDownloads(Base):
         client, _ = self.select('sample-a')
         other, _ = self.select('sample-b')
         route = '/api/server/seeding'
+        signed_out = self.app.test_client()
+        with self.go(signed_out, 'GET', '/admin') as page:
+            self.assertEqual(page.status_code, 200)
+            self.assertIn(b'FamilyHub admin', page.data)
+            self.assertEqual(page.headers['Cache-Control'], 'no-store')
+        with self.go(signed_out, 'GET', '/admin/admin.js') as script:
+            self.assertEqual(script.status_code, 200)
+        self.assertEqual(self.go(signed_out, 'GET', '/admin/admin.html').status_code, 404)
         self.assertEqual(self.go(self.app.test_client(), 'GET', route).status_code, 401)
         self.assertEqual(self.go(other, 'GET', route).status_code, 403)
         self.assertEqual(self.go(client, 'GET', route).status_code, 503)

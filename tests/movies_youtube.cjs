@@ -66,7 +66,7 @@ async function verify(browser, profile, options) {
         await page.getByText("A Train Through the Alps: 1 h 30 min", {exact:true}).waitFor();
         await cards.nth(2).getByRole("heading", {name:"Rail & Snow's Trailer"}).waitFor();
         assert.equal(await cards.count(), 5);
-        assert.equal(await page.locator(".movie-external details").count(), 0);
+        assert.equal(await list.locator("details").count(), 0);
         assert.equal(await focused(page.getByRole("button", {name: "Search", exact: true})), true);
         await page.getByRole("status").filter({hasText: "5 videos found."}).waitFor();
         const watch = card.getByRole("link", {name: "Watch on YouTube"});
@@ -129,8 +129,8 @@ async function verify(browser, profile, options) {
         const sent = card.getByText("Sent to the server");
         await sent.waitFor();
         await page.clock.fastForward(3200);
-        const panel = page.getByRole("region", {name: "On the server"});
-        await panel.getByText("Downloading", {exact: true}).waitFor();
+        const panel = page.getByRole("region", {name: "Downloading"});
+        await panel.getByRole("listitem").getByText("Downloading", {exact: true}).waitFor();
         assert.equal(await panel.getByRole("progressbar", {name: title}).getAttribute("aria-valuenow"), "45");
         assert.equal(await focused(sent), true);
         assert.deepEqual(await page.evaluate(() => calls.filter(([method]) => method === "MovieYouTubeDownload")),

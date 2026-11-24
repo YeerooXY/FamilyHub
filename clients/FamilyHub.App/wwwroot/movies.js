@@ -1,5 +1,5 @@
 import { buildPlayerUi } from "./movie-player-ui.js";
-import { addAudioDialog, audioJobResults, audioJobRunning, audioLanguage as audioLanguageName, movieDialog } from "./movie-audio-ui.js";
+import { addAudioDialog, audioJobResults, audioJobRunning, audioLanguage as audioLanguageName } from "./movie-audio-ui.js";
 import { movieAudioSync } from "./movie-audio-sync.js";
 import { buildReleaseSearch, cleanResultTitle, formatMinutes, videoQualityTier } from "./movie-releases.js";
 
@@ -699,7 +699,10 @@ export function openMovies(host, session, app, viewer) {
         list.className = "movie-season-list";
         credit.className = "movie-matches-credit";
         credit.hidden = true;
-        section.append(heading, back, summary, list, credit);
+        const header = el("header");
+        header.className = "movie-series-header";
+        header.append(back, heading, summary);
+        section.append(header, list, credit);
         section.addEventListener("keydown", event => {
             if (event.key === "Escape") { event.stopPropagation(); closeSeries(); }
         });
@@ -734,7 +737,7 @@ export function openMovies(host, session, app, viewer) {
             const prefix = "tmdb:tv:title:" + (/^\d{4}$/.test(year) ? year : "") + ":";
             const term = /^[1-9]\d{0,9}$/.test(String(id)) ? "tmdb:tv:" + id : prefix + item.Name.slice(0, 120 - prefix.length);
             const reply = await call("MovieMatches", term);
-            if (seriesView && Number.isInteger(reply?.series_id)) seriesView.tmdbId = reply.series_id;
+            if (!signal.aborted && Number.isInteger(reply?.series_id)) seriesView.tmdbId = reply.series_id;
             return Array.isArray(reply?.seasons) ? reply.seasons : null;
         };
         async function load(retry) {
@@ -779,8 +782,9 @@ export function openMovies(host, session, app, viewer) {
         header.className = "movie-season-header";
         counts.className = "movie-season-counts";
         // The state comes first so a season's availability reads before anything else on the row.
-        const state = el("span");
+        const state = el("span", "Availability unknown");
         state.className = "movie-season-state";
+        state.setAttribute("role", "status");
         row.dataset.season = number;
         row.dataset.seriesKey = searchTitle(item.Name);
         header.append(state, el("h3", title), counts);
@@ -885,13 +889,21 @@ export function openMovies(host, session, app, viewer) {
             const eta = found.eta != null && ["Downloading", "Almost done"].includes(found.state)
                 ? ` · about ${Math.max(1, Math.ceil(found.eta / 60))} min left` : "";
             state.dataset.state = "downloading";
-            state.textContent = `Downloading ${percent}%${eta}`;
+            const label = `Downloading ${percent}%${eta}`;
+            if (state.textContent !== label) state.textContent = label;
+            if (find === document.activeElement) {
+                state.tabIndex = -1;
+                state.focus({preventScroll: true});
+            }
             if (find) find.hidden = true;
         } else {
-            state.dataset.state = "missing";
-            state.textContent = "Missing";
+            state.dataset.state = find ? "missing" : "unknown";
+            const label = find ? "Missing" : "Availability unknown";
+            if (state.textContent !== label) state.textContent = label;
             if (find) find.hidden = false;
         }
+        for (const marker of row.querySelectorAll(".movie-episode-marker"))
+            marker.textContent = found ? "Downloading" : "Not in library";
     }
     function updateEpisodeProgress(chip, episode) {
         const progress = progressOf(episode);
@@ -988,17 +1000,10 @@ export function openMovies(host, session, app, viewer) {
         if (!session.downloads_enabled || !["Movie", "Episode", "Season"].includes(item.Type)) return b;
         const wrapper = el("div");
         wrapper.className = "movie-card-with-details";
-        const details = button("Details", () => {
-            const dialog = movieDialog(library, details, item.Name, life.signal);
-            if (item.Overview) dialog.append(el("p", item.Overview));
-            dialog.append(button("Play", () => {
-                dialog.close();
-                play(item, b);
-            }));
-            dialog.append(button("Add audio track", event => addAudio(item, event.currentTarget, dialog, life.signal)));
-        });
-        details.setAttribute("aria-label", "Details for " + name);
-        wrapper.append(b, details);
+        const audio = button("Add audio track", event => addAudio(item, event.currentTarget, library, life.signal));
+        audio.setAttribute("aria-label", "Add audio track for " + name);
+        audio.setAttribute("aria-haspopup", "dialog");
+        wrapper.append(b, audio);
         return wrapper;
     }
     const browseShelves = [];
@@ -1308,7 +1313,7 @@ export function openMovies(host, session, app, viewer) {
                 } else {
                     action.removeAttribute("aria-disabled");
                     setAction("Try again");
-                    notice.textContent = reply?.error || "Could not confirm the download. Check On the server before trying again.";
+                    notice.textContent = reply?.error || "Could not confirm the download. Check the Downloading panel before trying again.";
                 }
             });
             function setAction(label) {
@@ -1568,13 +1573,19 @@ export function openMovies(host, session, app, viewer) {
     catalogue.className = "movie-catalogue";
     downloadsPanel.className = "movie-downloads";
     downloadsPanel.setAttribute("aria-label", "Downloading");
-    const queue = el("div");
+    const work = el("aside"), queue = el("div"), audioPanel = el("section"), audioQueue = el("div");
     catalogue.append(browse, results);
     if (session.downloads_enabled) {
-        downloadsPanel.hidden = true;
+        work.className = "movie-work";
+        work.hidden = downloadsPanel.hidden = audioPanel.hidden = true;
         downloadsPanel.append(el("h2", "Downloading"), queue);
-        columns.append(downloadsPanel);
-    } else columns.classList.add("movie-library-columns-full");
+        audioPanel.className = "movie-audio-jobs";
+        audioPanel.setAttribute("aria-label", "Audio tracks");
+        audioPanel.append(el("h2", "Audio tracks"), audioQueue);
+        work.append(downloadsPanel, audioPanel);
+        columns.append(work);
+    }
+    columns.classList.add("movie-library-columns-full");
     columns.append(catalogue);
     library.append(toolbar, columns);
 
@@ -1605,21 +1616,18 @@ export function openMovies(host, session, app, viewer) {
             if (card?.dataset.downloadKey) updateCardDownload(card);
         }
         if (seriesView) for (const row of seriesView.section.querySelectorAll(".movie-season[data-season]")) updateSeasonState(row);
-        if (queue.contains(document.activeElement)) {
-            scheduleDownloads(5000);
-            return;
-        }
-        // Only work in progress shows here; finished downloads and audio jobs leave the panel.
-        const running = itemsAvailable ? reply.items.filter(item => audioJobRunning(item) ||
-            !["Finished", "Added", "Seeding", "Complete"].includes(item.state)) : [];
-        downloadsPanel.hidden = !running.length;
-        if (!itemsAvailable) {
-            queue.replaceChildren();
-        } else if (!running.length) {
-            queue.replaceChildren();
-        } else {
+        const audioJobs = downloadItems.filter(item => Array.isArray(item.results));
+        const running = downloadItems.filter(item => !Array.isArray(item.results) && item.progress < 1 &&
+            !["Finished", "Added", "Seeding", "Complete"].includes(item.state));
+        function renderQueue(panel, container, entries) {
+            if (container.contains(document.activeElement)) return;
+            panel.hidden = !entries.length;
+            if (panel.hidden) {
+                container.replaceChildren();
+                return;
+            }
             const items = el("ul");
-            for (const item of running) {
+            for (const item of entries) {
                 const tile = el("li"), bar = el("div"), fill = el("span");
                 const progress = Math.max(0, Math.min(1, Number(item.progress) || 0));
                 bar.className = "movie-download-progress";
@@ -1637,11 +1645,14 @@ export function openMovies(host, session, app, viewer) {
                 }));
                 items.append(tile);
             }
-            queue.replaceChildren(items);
+            container.replaceChildren(items);
         }
+        renderQueue(downloadsPanel, queue, running);
+        renderQueue(audioPanel, audioQueue, audioJobs);
+        work.hidden = downloadsPanel.hidden && audioPanel.hidden;
+        columns.classList.toggle("movie-library-columns-full", work.hidden);
         if (refreshAfterGrabAt) scheduleDownloads(Math.max(0, refreshAfterGrabAt - Date.now()));
-        else if (downloadItems.some(item => item &&
-            (audioJobRunning(item) || item.seeding === true || ["Downloading", "Almost done", "Stalled", "Seeding"].includes(item.state))))
+        else if (running.length || audioJobs.some(audioJobRunning) || audioQueue.contains(document.activeElement))
             scheduleDownloads(5000);
     }
     const queueVisibility = () => scheduleDownloads(0);

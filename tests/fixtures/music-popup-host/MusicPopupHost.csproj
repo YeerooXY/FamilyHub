@@ -10,5 +10,6 @@
     <Reference Include="FamilyHub.Client.Core"><HintPath>$(FixtureNative)/FamilyHub.Client.Core.dll</HintPath></Reference>
     <Reference Include="Microsoft.Maui.Essentials"><HintPath>$(FixtureNative)/Microsoft.Maui.Essentials.dll</HintPath></Reference>
     <PackageReference Include="Lib.Harmony" Version="2.4.2" />
+    <None Include="../../../clients/FamilyHub.App/wwwroot/movie-art/episode.jpg" Link="movie-polish-still.jpg" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

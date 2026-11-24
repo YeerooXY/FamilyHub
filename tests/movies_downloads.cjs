@@ -28,8 +28,9 @@ async function verify(browser, profile, options) {
                     return JSON.stringify({results: []});
                 }});
         }, jellyfin);
-        const panel = page.getByRole("region", {name: "On the server"});
+        const panel = page.getByRole("region", {name: "Downloading"});
         await panel.getByText("Downloading · about 3 min left").waitFor();
+        assert.equal(await panel.getByText("The General").count(), 0);
         assert.equal(await panel.getByRole("progressbar").first().getAttribute("aria-valuenow"), "64");
         assert.equal(await panel.getByRole("progressbar").first().locator("span").evaluate(el => el.style.transform), "scaleX(0.64)");
         assert.doesNotMatch(await panel.innerText(), /seeder|bytes|9143/);
@@ -67,14 +68,15 @@ async function verify(browser, profile, options) {
         assert.equal(await page.evaluate(() => queueReads), 3);
         await page.evaluate(() => { window.queueResponse.items = []; });
         await setHidden(false);
-        await panel.getByText("No downloads on the server.").waitFor();
+        await panel.waitFor({state: "hidden"});
         await page.clock.fastForward(15000);
         assert.equal(await page.evaluate(() => queueReads), 4);
 
         await page.evaluate(() => { window.queueResponse = {available: false, reason: "Server downloads are not set up."}; });
         await setHidden(true);
         await setHidden(false);
-        await panel.getByText("Server downloads are not set up.").waitFor();
+        await page.waitForFunction(() => queueReads === 5);
+        assert.equal(await panel.isVisible(), false);
         await page.evaluate(() => window.movies.close());
         await page.clock.fastForward(10000);
         assert.equal(await page.evaluate(() => queueReads), 5);
