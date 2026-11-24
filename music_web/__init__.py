@@ -241,7 +241,7 @@ def create_app(test_config=None):
     bulk_revision = bulk_saved_revision = 0
     app.extensions["music"] = SimpleNamespace(sessions=sessions, jobs=jobs)
     from . import server_stats as health_stats
-    app.extensions["server_health"] = (health_stats.start(ws, cfg) if test_config is None else health_stats.Collector())
+    app.extensions["server_health"] = (health_stats.start(state_path(cfg, ".server-stats.sqlite3").parent, cfg) if test_config is None else health_stats.Collector())
     log = logging.getLogger("music_web")
     resources = ResourceGovernor(lambda: resource_queue(), lambda: resource_metrics())
     def resource_changed():

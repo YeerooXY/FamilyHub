@@ -2,7 +2,7 @@
 
 The **Server** view and both `/api/server/` endpoints require an administrator. Configure a [profile password](SECURITY_REVIEW.md#profile-password-setup) for each FamilyHub administrator. Signed-in profiles can open **Leaderboard** through `/api/activity/stats`.
 
-The collector starts with the service and reads every 15 seconds. It writes `.server-stats.sqlite3` and the SQLite WAL files under `WORKSPACE`. Keep that directory writable by the service account through `ReadWritePaths=` when using `ProtectSystem=strict`. SQLite keeps 15-second readings for 6 hours, one-minute readings for 7 days, and 15-minute readings for 90 days. History refreshes about once a minute. Charts combine older readings into at most 400 points per series.
+The collector starts with the service and reads every 15 seconds. It writes `.server-stats.sqlite3` and the SQLite WAL files under `STATE_DIR` (the workspace when `STATE_DIR` is unset). Keep that directory writable by the service account through `ReadWritePaths=` when using `ProtectSystem=strict`. SQLite keeps 15-second readings for 6 hours, one-minute readings for 7 days, and 15-minute readings for 90 days. History refreshes about once a minute. Charts combine older readings into at most 400 points per series.
 
 ## Optional config
 
