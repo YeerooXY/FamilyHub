@@ -860,6 +860,7 @@ export function openMovies(host, session, app, viewer) {
                 }
                 matchShelf.append(el("h2", "Matching titles"), grid, credit);
                 panel.prepend(matchShelf);
+                release?.setMatches(list);
             }).catch(() => {});
         }
         const release = session.release_search_enabled || session.downloads_enabled

@@ -642,3 +642,9 @@ li.movie-release[data-tier="4k-bluray"] { border-color: #ba7bcb66; }
 .movie-matches-credit { margin: .7rem 0 0; font-size: .75rem; }
 @media (prefers-reduced-motion: reduce) { .movie-match { animation: none; } }
 @media (max-width: 520px) { .movie-matches-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; } }
+
+/* Release cards carry the matching title's poster as a small thumbnail. */
+.movie-source-list li.movie-release.has-poster { grid-template-columns: 4.6rem minmax(0, 1fr); column-gap: 1rem; align-items: start; }
+.movie-source-list li.movie-release.has-poster > * { grid-column: 2; min-width: 0; }
+.movie-source-list li.movie-release.has-poster > .movie-release-poster { grid-column: 1; grid-row: 1 / span 6; width: 4.6rem; aspect-ratio: 2 / 3; object-fit: cover; border-radius: .5rem; background: #131a24; }
+@media (max-width: 520px) { .movie-source-list li.movie-release.has-poster { grid-template-columns: 3.4rem minmax(0, 1fr); column-gap: .75rem; } .movie-source-list li.movie-release.has-poster > .movie-release-poster { width: 3.4rem; } }

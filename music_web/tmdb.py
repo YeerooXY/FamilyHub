@@ -53,3 +53,25 @@ def search(api_key, query, limit=6, opener=None):
             return parse(json.loads(reply.read(1024 * 1024)), limit)
     except (OSError, ValueError):
         return None
+
+
+def runtime(api_key, ident, opener=None):
+    """Return a movie's length in minutes, or None."""
+    if type(ident) is not int or ident <= 0:
+        return None
+    request = urllib.request.Request(f'https://api.themoviedb.org/3/movie/{ident}?' + urllib.parse.urlencode({'api_key': api_key}),
+                                     headers={'Accept': 'application/json'})
+    try:
+        with (opener or urllib.request.build_opener(_NoRedirect)).open(request, timeout=6) as reply:
+            minutes = json.loads(reply.read(1024 * 1024)).get('runtime')
+    except (OSError, ValueError, AttributeError):
+        return None
+    return minutes if type(minutes) is int and 0 < minutes < 1000 else None
+
+
+def search_with_runtime(api_key, query, limit=6, opener=None):
+    """Matches, with the length of the first two movies filled in."""
+    found = search(api_key, query, limit, opener)
+    for match in [m for m in found or () if m['kind'] == 'movie'][:2]:
+        match['runtime'] = runtime(api_key, match['id'], opener)
+    return found

@@ -156,7 +156,14 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
     const timing = options.querySelector("[data-release-timing]");
     const status = panel.querySelector('[role="status"]');
     const list = panel.querySelector(".movie-source-list");
-    let rows = [], unavailable = 0, busy = false, complete = false, showAll = false, sortBy = "best";
+    let rows = [], unavailable = 0, busy = false, complete = false, showAll = false, sortBy = "best", matches = [];
+    const squash = text => String(text ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+    /** The poster of the matching title whose name begins the release name, so a release never shows another film's poster. */
+    const matchFor = row => {
+        const name = squash(row.name);
+        return matches.find(match => squash(match.title).length > 1 && name.startsWith(squash(match.title))
+            && (!row.year || !match.year || row.year === match.year)) ?? null;
+    };
 
     const sortButtons = SORTS.map(([id, label]) => {
         const choice = document.createElement("button");
@@ -241,7 +248,8 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
                 return detail;
             };
             stat("Size", row.size ? `${(row.size / gib).toFixed(1)} GB` : "Unknown");
-            const length = formatMinutes(row.length);
+            const known = matchFor(row);
+            const length = formatMinutes(row.length || (!row.episodes && !row.kind && known?.kind === "movie" ? known.runtime : 0));
             if (length) stat("Length", row.lengthEstimated ? "About " + length : length);
             stat("Download time", row.seeders === 0 ? "May never finish" : downloadTime(row.size, row.seeders) || "Unknown",
                 row.seeders === 0 ? "none" : undefined).title = "An estimate from the file size and how many people share it, assuming a 100 Mbps connection.";
@@ -311,6 +319,19 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             if (!row.site && note.textContent) item.append(note);
             if (!row.episodes) item.append(name);
             item.append(row.sent ? sent : action);
+            const poster = matchFor(row)?.poster;
+            if (poster) {
+                const art = document.createElement("img");
+                art.className = "movie-release-poster";
+                art.alt = "";
+                art.loading = "lazy";
+                art.decoding = "async";
+                art.referrerPolicy = "no-referrer";
+                art.onerror = () => { art.remove(); item.classList.remove("has-poster"); };
+                art.src = poster;
+                item.classList.add("has-poster");
+                item.prepend(art);
+            }
             return item;
         }));
         more.hidden = showAll || sorted.length <= FIRST_PAGE;
@@ -391,5 +412,9 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
         return !panel.hidden;
     }
     retry.addEventListener("click", () => { retry.focus(); load(); });
-    return {element: panel, load};
+    function setMatches(list) {
+        matches = Array.isArray(list) ? list : [];
+        if (!busy && complete) render();
+    }
+    return {element: panel, load, setMatches};
 }

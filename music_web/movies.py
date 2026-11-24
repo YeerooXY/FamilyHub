@@ -490,7 +490,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
             return jsonify(error='Wait a minute before searching again.'), 429
         season_query = SEASON_QUERY.fullmatch(query)
         term = season_query[1] if season_query else query
-        found = cached_search(('tmdb', term.casefold()), 3600, lambda: tmdb.search(key, term))
+        found = cached_search(('tmdb', term.casefold()), 3600, lambda: tmdb.search_with_runtime(key, term))
         if found is None:
             return jsonify(error='Posters are unavailable right now.'), 503
         return jsonify(matches=found)

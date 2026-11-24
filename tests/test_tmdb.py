@@ -30,5 +30,21 @@ class Parse(unittest.TestCase):
         self.assertEqual(tmdb.parse({'results': 'x'}), [])
 
 
+class Runtime(unittest.TestCase):
+    class Opener:
+        def __init__(self, body):
+            self.body = body
+
+        def open(self, request, timeout=0):
+            import io
+            return io.BytesIO(self.body)
+
+    def test_reads_minutes_and_rejects_nonsense(self):
+        self.assertEqual(tmdb.runtime('k', 5, self.Opener(b'{"runtime": 118}')), 118)
+        self.assertIsNone(tmdb.runtime('k', 5, self.Opener(b'{"runtime": 0}')))
+        self.assertIsNone(tmdb.runtime('k', 5, self.Opener(b'not json')))
+        self.assertIsNone(tmdb.runtime('k', 'x', self.Opener(b'{}')))
+
+
 if __name__ == '__main__':
     unittest.main()
