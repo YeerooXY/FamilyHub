@@ -242,7 +242,7 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             };
             stat("Size", row.size ? `${(row.size / gib).toFixed(1)} GB` : "Unknown");
             const length = formatMinutes(row.length);
-            stat("Length", length ? (row.lengthEstimated ? "About " + length : length) : "Unknown");
+            if (length) stat("Length", row.lengthEstimated ? "About " + length : length);
             stat("Download time", row.seeders === 0 ? "May never finish" : downloadTime(row.size, row.seeders) || "Unknown",
                 row.seeders === 0 ? "none" : undefined);
             const detail = stat("Availability", words, level);

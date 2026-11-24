@@ -857,7 +857,7 @@ export function openMovies(host, session, app, viewer) {
         if (release) panel.append(release.element);
         panel.append(web);
         const message = el("p", "Checking other sources…");
-        message.className = "movie-source-note";
+        message.className = "movie-source-note is-checking";
         message.setAttribute("role", "status");
         alternate.after(message);
 
@@ -1096,7 +1096,7 @@ export function openMovies(host, session, app, viewer) {
             if (!alive()) return;
             shown ||= found;
             outstanding--;
-            if (!outstanding) message.textContent = shown ? "" : "No watch or download options found. Try another title.";
+            if (!outstanding) { message.classList.remove("is-checking"); message.textContent = shown ? "" : "No watch or download options found. Try another title."; }
         });
     }
 

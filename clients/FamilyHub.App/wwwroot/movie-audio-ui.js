@@ -57,7 +57,7 @@ export function audioJobResults(job, call) {
                 cut_warning: cuts, less_certain: dub, matched } = result.report;
             const timing = offset ? `Audio moved ${Math.abs(offset) / 1000} s ${offset < 0 ? "earlier" : "later"}.` : "Audio timing unchanged.";
             row.append(make("p", `${matched ? timing : "Could not match the audio automatically."} Confidence ${confidence}.`));
-            if (speed !== 1) row.append(make("p", `Speed adjusted to ${(speed * 100).toFixed(2)}%.`));
+            if (Math.abs(speed - 1) >= 0.005) row.append(make("p", speed > 1 ? "The audio was sped up slightly to match the video." : "The audio was slowed down slightly to match the video."));
             if (dub) row.append(make("p", "The source has no English track. The match used changes in volume."));
             if (cuts) row.append(make("p", `The cuts may differ. The largest timing difference was ${drift / 1000} s.`));
         }

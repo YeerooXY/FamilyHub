@@ -592,3 +592,27 @@ li.movie-release[data-tier="4k-bluray"] { border-color: #ba7bcb66; }
     font-weight: 500;
     text-shadow: 0 0 .12em rgba(0, 0, 0, .95), 0 .04em .14em rgba(0, 0, 0, .95), 0 .08em .3em rgba(0, 0, 0, .8);
 }
+
+/* Same-size cards: every caption holds two lines, so a one-line title no longer makes a shorter card. */
+.movie-library .movie-caption { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; box-sizing: content-box; min-height: 2.6em; }
+.movie-library .movie-caption:has(.movie-search-play) { display: block; -webkit-line-clamp: none; line-clamp: none; }
+.movie-library .movie-cards > .movie-card-with-details > .movie-card, .movie-library .movie-row > .movie-card-with-details > .movie-card { height: 100%; }
+
+/* The pinned search band hides what scrolls beneath it completely (the cards showed through the old 92% tint). */
+.movie-library .movie-toolbar { box-shadow: 0 0 0 100vmax #0b0d12; }
+
+/* Waiting and arriving: a soft moving shimmer while sources are checked, and results ease in. */
+.movie-source-note.is-checking { display: flex; align-items: center; gap: .6rem; }
+.movie-source-note.is-checking::before { content: ""; flex: none; width: 1.1rem; height: 1.1rem; border-radius: 50%; border: 2px solid #ffffff2e; border-top-color: var(--focus, #98abed); animation: movie-spin .9s linear infinite; }
+.movie-source-note.is-checking { background: linear-gradient(100deg, transparent 20%, #ffffff12 50%, transparent 80%) 0 0 / 220% 100%; animation: movie-shimmer 1.6s ease-in-out infinite; border-radius: .5rem; padding: .35rem .5rem; }
+@keyframes movie-spin { to { transform: rotate(360deg); } }
+@keyframes movie-shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+@keyframes movie-arrive { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.movie-search-results .movie-card-with-details, .movie-search-results .movie-card, .movie-releases .movie-release, .movie-external .movie-release { animation: movie-arrive .38s cubic-bezier(.2, .7, .2, 1) both; }
+.movie-search-results :is(.movie-card-with-details, .movie-card):nth-child(2), .movie-releases .movie-release:nth-child(2) { animation-delay: .04s; }
+.movie-search-results :is(.movie-card-with-details, .movie-card):nth-child(3), .movie-releases .movie-release:nth-child(3) { animation-delay: .08s; }
+.movie-search-results :is(.movie-card-with-details, .movie-card):nth-child(n+4), .movie-releases .movie-release:nth-child(n+4) { animation-delay: .12s; }
+@media (prefers-reduced-motion: reduce) {
+    .movie-source-note.is-checking, .movie-source-note.is-checking::before,
+    .movie-search-results .movie-card-with-details, .movie-search-results .movie-card, .movie-releases .movie-release, .movie-external .movie-release { animation: none; }
+}
