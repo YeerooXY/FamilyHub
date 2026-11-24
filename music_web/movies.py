@@ -16,7 +16,7 @@ from time import monotonic
 
 from flask import g, jsonify, session
 
-from . import audio_tracks, feedback, movie_media, movie_search
+from . import audio_tracks, feedback, movie_media, movie_search, tmdb
 from .movie_youtube_downloads import DEFAULT_DIR, MAX_PENDING, YouTubeDownloads
 
 
@@ -477,6 +477,23 @@ def register_movies(app, cfg, body, allow, session_is_live):
             while len(grab_refs) > 10000:
                 del grab_refs[next(iter(grab_refs))]
         return jsonify(results=rows, unavailable=unavailable, **({'title_details': metadata} if metadata else {}))
+
+    @app.post('/api/movies/matches')
+    def movie_matches():
+        key = cfg.get('TMDB_API_KEY')
+        if not release_access() or not isinstance(key, str) or not key:
+            return jsonify(matches=[])
+        query = movie_search.clean_query(body().get('query'))
+        if query is None:
+            return jsonify(error='Enter a title of 2 to 120 characters.'), 400
+        if not allow('movie-matches:' + g.user, 20, 60):
+            return jsonify(error='Wait a minute before searching again.'), 429
+        season_query = SEASON_QUERY.fullmatch(query)
+        term = season_query[1] if season_query else query
+        found = cached_search(('tmdb', term.casefold()), 3600, lambda: tmdb.search(key, term))
+        if found is None:
+            return jsonify(error='Posters are unavailable right now.'), 503
+        return jsonify(matches=found)
 
     def seerr_call(path, user, payload=None):
         req = urllib.request.Request(seerr + '/api/v1/' + path,

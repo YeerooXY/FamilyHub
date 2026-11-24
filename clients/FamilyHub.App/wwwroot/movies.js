@@ -822,6 +822,46 @@ export function openMovies(host, session, app, viewer) {
             youtubeMetadata = ids.length ? call("MovieYouTubeMetadata", ids).catch(() => null) : Promise.resolve(null);
             return youtubeMetadata;
         }
+        if (session.release_search_enabled) {
+            call("MovieMatches", term).then(reply => {
+                const list = Array.isArray(reply?.matches) ? reply.matches : [];
+                if (!list.length || !alive()) return;
+                const matchShelf = el("section"), grid = el("div"), credit = el("p", "Posters and details from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.");
+                matchShelf.className = "movie-matches";
+                matchShelf.setAttribute("aria-label", "Matching titles");
+                grid.className = "movie-matches-grid";
+                credit.className = "movie-source-note movie-matches-credit";
+                for (const item of list) {
+                    const pick = button("", () => {
+                        query.value = item.kind === "tv" || !item.year ? item.title : `${item.title} ${item.year}`;
+                        form.requestSubmit();
+                    });
+                    pick.className = "movie-match";
+                    const art = el("span");
+                    art.className = "movie-art";
+                    art.style.setProperty("--art-hue", titleHue(item.title));
+                    art.dataset.initial = [...item.title.trim()][0]?.toUpperCase() ?? "";
+                    if (item.poster) {
+                        const image = el("img");
+                        image.alt = "";
+                        image.loading = "lazy";
+                        image.decoding = "async";
+                        image.referrerPolicy = "no-referrer";
+                        image.onerror = () => image.remove();
+                        image.src = item.poster;
+                        art.append(image);
+                    }
+                    const caption = el("span", item.title), meta = el("span", [item.year, item.kind === "tv" ? "Series" : "Film"].filter(Boolean).join(" · "));
+                    caption.className = "movie-caption";
+                    meta.className = "movie-match-meta";
+                    pick.append(art, caption, meta);
+                    pick.setAttribute("aria-label", `Search for ${item.title}${item.year ? ` (${item.year})` : ""}`);
+                    grid.append(pick);
+                }
+                matchShelf.append(el("h2", "Matching titles"), grid, credit);
+                panel.prepend(matchShelf);
+            }).catch(() => {});
+        }
         const release = session.release_search_enabled || session.downloads_enabled
             ? buildReleaseSearch(async () => {
                 const [torrents, videa, youtube] = await Promise.all([

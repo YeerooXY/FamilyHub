@@ -96,6 +96,9 @@
     public Task<string> MovieRequestSearch(string query) => SendMovieRequest("/api/movies/request-search", new { query });
 
     [JSInvokable]
+    public Task<string> MovieMatches(string query) => SendMovieRequest("/api/movies/matches", new { query });
+
+    [JSInvokable]
     public Task<string> MovieReleaseSearch(string query) => SendMovieRequest("/api/movies/releases", new { query });
 
     [JSInvokable]

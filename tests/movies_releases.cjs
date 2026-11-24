@@ -76,6 +76,10 @@ async function verify(browser, name, options) {
                     ]} : {results:[]});
                     if (method === "MovieRequest") return JSON.stringify({state:"approved"});
                     if (method === "MovieVideaSearch") return JSON.stringify({results:[]});
+                    if (method === "MovieMatches") return JSON.stringify(term === "The Gentlemen S2" ? {matches:[
+                        {id:1, kind:"tv", title:"The Gentlemen", year:2024, poster:"data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 2 3%27%3E%3Crect width=%272%27 height=%273%27 fill=%27%23355a6e%27/%3E%3C/svg%3E", overview:""},
+                        {id:2, kind:"movie", title:"The Gentlemen", year:2019, poster:null, overview:""},
+                        {id:3, kind:"movie", title:"Gentlemen Broncos", year:2009, poster:null, overview:""}]} : {matches:[]});
                     if (method !== "MovieReleaseSearch") return "";
                     if (term === "Slow search") return new Promise(resolve => window.finishSlow = () => resolve(JSON.stringify({results:fixture})));
                     if (term === "Many releases") return JSON.stringify({results:Array.from({length: 10}, (_, index) =>
@@ -108,6 +112,10 @@ async function verify(browser, name, options) {
         await search(title);
         const download = page.getByRole("button", {name:"Request season 2: The Gentlemen (2024)"});
         await download.waitFor();
+        await page.getByRole("heading", {name:"Matching titles", exact:true}).waitFor();
+        assert.equal(await page.locator(".movie-match").count(), 3);
+        assert.match(await page.locator(".movie-matches-credit").innerText(), /not endorsed or certified by TMDB/);
+        await page.screenshot({path:path.join(output, name + "-matches.png"), fullPage:true});
         assert.equal(await page.getByRole("searchbox").count(), 1);
         assert.equal(await page.getByRole("heading", {name:"In your library", exact:true}).isVisible(), false);
         assert.equal(await focus(submit), true);

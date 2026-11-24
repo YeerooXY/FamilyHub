@@ -629,3 +629,16 @@ li.movie-release[data-tier="4k-bluray"] { border-color: #ba7bcb66; }
     .movie-library .movie-toolbar .movie-search { flex: 1 1 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .movie-library .movie-toolbar .movie-search { transition: none; } }
+
+/* Matching titles: a poster grid above the release results. */
+.movie-matches { margin: 0 0 1.4rem; }
+.movie-matches > h2 { margin: 0 0 .6rem; font-size: 1.05rem; }
+.movie-matches-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5rem), 10.5rem)); gap: .9rem; }
+.movie-match { display: grid; align-content: start; gap: .3rem; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer; animation: movie-arrive .38s cubic-bezier(.2, .7, .2, 1) both; }
+.movie-match .movie-art { border-radius: .7rem; }
+.movie-match .movie-caption { padding: .1rem .1rem 0; }
+.movie-match-meta { padding: 0 .1rem; color: var(--muted, #ffffffb3); font-size: .8rem; }
+.movie-match:hover .movie-art, .movie-match:focus-visible .movie-art { outline: 2px solid var(--focus, #98abed); outline-offset: 2px; }
+.movie-matches-credit { margin: .7rem 0 0; font-size: .75rem; }
+@media (prefers-reduced-motion: reduce) { .movie-match { animation: none; } }
+@media (max-width: 520px) { .movie-matches-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; } }
