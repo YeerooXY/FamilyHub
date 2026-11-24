@@ -158,7 +158,7 @@
 /* Player: always the whole window. The accent is one variable. */
 .movie-library { --movie-accent: #e5484d; }
 .movie-icon { width: 1.4rem; height: 1.4rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.movie-icon-number { fill: currentColor; stroke: none; font: 700 7px system-ui, sans-serif; }
+.movie-icon-number { fill: currentColor; stroke: none; font: 700 8px system-ui, sans-serif; pointer-events: none; }
 html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-library .movie-player.movie-expanded { position: fixed; inset: 0; z-index: 2147483000; margin: 0; background: #000; }
 .movie-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; margin: 0 !important; }
@@ -168,6 +168,8 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 .movie-ui > * { position: relative; }
+.movie-ui { -webkit-tap-highlight-color: transparent; }
+.movie-ui :is(button, select, input[type="range"], .movie-icon-number) { -webkit-user-select: none; user-select: none; }
 .movie-ui-surface { position: absolute !important; inset: 0; z-index: 0; }
 .movie-ui-top, .movie-ui-mid, .movie-ui-bottom, .movie-ui-message { z-index: 1; transition: opacity .25s ease; }
 /* Empty space in the control rows passes the tap to the picture, so a tap hides the controls. */
@@ -177,7 +179,9 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-ui.movie-idle :is(.movie-ui-top, .movie-ui-mid, .movie-ui-bottom) { opacity: 0; pointer-events: none; }
 .movie-ui.movie-idle .movie-ui-surface { cursor: none; }
 .movie-library .movie-ui button { font: inherit; color: inherit; }
-.movie-ui :is(button, input):focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+.movie-library .movie-ui :is(button, input, select):focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+.movie-library .movie-ui :is(button, input):focus:not(:focus-visible),
+.movie-library .movie-ui.movie-pointer :is(button, input):focus { outline: none; }
 
 .movie-ui-top { display: flex; justify-content: center; padding: .9rem 4rem 1.6rem; background: linear-gradient(#000c, #0000); text-align: center; }
 .movie-ui-heading { min-width: 0; }
@@ -193,13 +197,12 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 @media (min-width: 1600px) { .movie-ui-sub { font-size: 1.9rem; } }
 
 .movie-ui-mid { display: flex; align-items: center; justify-content: center; gap: clamp(2.2rem, 14vw, 9rem); }
-.movie-library .movie-ui :is(.movie-ui-skip, .movie-ui-play) { display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; }
+.movie-library .movie-ui :is(.movie-ui-skip, .movie-ui-play) { display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; box-shadow: none; }
 .movie-ui-skip { width: 5rem; height: 5rem; }
-.movie-ui-skip .movie-icon { width: 100%; height: 100%; stroke-width: 1.5; }
 .movie-ui-play { width: 6.5rem; height: 6.5rem; }
-.movie-ui-play .movie-icon { width: 100%; height: 100%; fill: currentColor; stroke-width: 1; }
+.movie-ui-mid .movie-icon { width: clamp(2.4rem, 7vmin, 4rem); height: auto; }
 
-.movie-ui-bottom { padding: 2.5rem clamp(1rem, 3vw, 2rem) .9rem; background: linear-gradient(#0000, #000d); }
+.movie-ui-bottom { padding: 2.5rem clamp(1rem, 3vw, 2rem) .9rem; background: linear-gradient(transparent, #000e 45%, #000f); }
 .movie-ui-seekrow { display: flex; align-items: center; gap: 1rem; }
 .movie-seek-wrap { position: relative; flex: 1; }
 .movie-ui-remaining { min-width: 3.4rem; text-align: right; font-variant-numeric: tabular-nums; }
@@ -222,6 +225,8 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-ui-message { position: absolute !important; left: 50%; top: 18%; transform: translateX(-50%); display: grid; gap: .4rem; width: max-content; max-width: min(32rem, 86%); pointer-events: none; }
 .movie-ui-line { margin: 0; padding: .6rem 1rem; border-radius: .6rem; background: #000d; text-align: center; }
 .movie-ui-line:empty { display: none; }
+.movie-ui-shortcut { position: absolute !important; z-index: 2; top: max(4rem, calc(env(safe-area-inset-top) + 3rem)); right: max(1rem, env(safe-area-inset-right)); padding: .35rem .75rem; border-radius: .4rem; background: #000e; pointer-events: none; }
+.movie-ui-shortcut:empty { padding: 0; }
 
 .movie-sheet {
     position: absolute !important; z-index: 3; right: max(1rem, env(safe-area-inset-right)); bottom: 7.5rem;
@@ -262,10 +267,11 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
     .movie-ui-skip { width: 7rem; height: 7rem; }
     .movie-ui-play { width: 9rem; height: 9rem; }
     .movie-seek::-webkit-slider-runnable-track { height: 6px; }
-    .movie-ui :is(button, input):focus-visible { outline-width: 4px; }
+    .movie-library .movie-ui :is(button, input, select):focus-visible { outline-width: 4px; }
 }
 @media (prefers-reduced-motion: reduce) {
     .movie-ui-top, .movie-ui-mid, .movie-ui-bottom, .movie-ui-subs { transition: none; }
+    .movie-ui-spinner { animation: none; }
 }
 .movie-more { margin-top: .85rem; }
 .movie-track-controls { display: flex; flex-wrap: wrap; gap: .75rem; }
@@ -470,6 +476,7 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-track-col h4 { margin: 0 0 .4rem; font-size: .95rem; color: #ffffffb3; font-weight: 600; }
 .movie-track-list { display: grid; gap: .1rem; max-height: 14rem; overflow: auto; }
 .movie-subtitle-finder { display: grid; gap: .6rem; padding-top: .7rem; border-top: 1px solid #ffffff26; }
+.movie-subtitle-finder p[role="status"]:empty { display: block; position: absolute; }
 .movie-subtitle-form { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem; }
 .movie-subtitle-form label { display: grid; gap: .25rem; flex: 1 1 8rem; }
 .movie-subtitle-form select, .movie-library .movie-subtitle-action {

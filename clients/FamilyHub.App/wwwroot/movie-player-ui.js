@@ -8,9 +8,9 @@ const SVG = "http://www.w3.org/2000/svg";
 const paths = {
     back: "M15 5l-7 7 7 7",
     close: "M6 6l12 12M18 6L6 18",
-    play: "M7 4.5v15l12-7.5z",
+    play: "M8 4.5v15l12-7.5z",
     pause: "M7 4h4v16H7zM13 4h4v16h-4z",
-    skip: ["M9 3L6 6l3 3", "M6 6a8 8 0 1 1-2 5"],
+    skip: ["M5 12.5a7 7 0 1 0 7-7", "M15 2.5l-3 3 3 3"],
     next: ["M5 5v14l10-7z", "M19 5v14"],
     episodes: ["M8 4h12v12H8z", "M4 8v12h12"],
     audio: ["M4 9v6h4l5 4V5L8 9z", "M16.5 9a4.5 4.5 0 0 1 0 6"],
@@ -46,8 +46,8 @@ function icon(shape, { flip = false, label = "" } = {}) {
     svg.append(group);
     if (label) {
         const text = document.createElementNS(SVG, "text");
-        text.setAttribute("x", "12.5");
-        text.setAttribute("y", "15.2");
+        text.setAttribute("x", "12");
+        text.setAttribute("y", "15.5");
         text.setAttribute("text-anchor", "middle");
         text.setAttribute("class", "movie-icon-number");
         text.textContent = label;
@@ -146,12 +146,21 @@ export function buildPlayerUi(ctx) {
     const seekRow = make("div", "movie-ui-seekrow");
     seekRow.append(seekWrap, remaining);
 
-    const fullscreen = button("movie-ui-action", "Full screen", paths.expand, {}, () => {
-        if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
-        else surface.requestFullscreen?.({ navigationUI: "hide" }).catch(() => {});
-    });
-    fullscreen.append(make("span", "", "Full screen"));
-    fullscreen.hidden = !document.fullscreenEnabled;
+    const isFullscreen = () => ctx.isFullscreen?.() ?? document.fullscreenElement === surface;
+    async function toggleFullscreen() {
+        if (fullscreen.hidden) return;
+        const focused = document.activeElement;
+        const on = !isFullscreen();
+        if (ctx.setFullscreen && !await ctx.setFullscreen(on) && !signal.aborted)
+            failure.textContent = on ? "Could not enter full screen. Try again." : "Could not exit full screen. Try again.";
+        if (signal.aborted) return;
+        syncFullscreen();
+        if (document.activeElement === document.body)
+            (root.contains(focused) ? focused : playPause).focus({ preventScroll: true });
+        show();
+    }
+    const fullscreen = button("movie-ui-action", "Full screen", paths.expand, {}, toggleFullscreen);
+    fullscreen.hidden = !(ctx.fullscreenEnabled ?? document.fullscreenEnabled);
     const episodesButton = button("movie-ui-action", "Episodes", paths.episodes, {}, () => toggleSheet("episodes"));
     episodesButton.append(make("span", "", "Episodes"));
     episodesButton.hidden = true;
@@ -286,19 +295,29 @@ export function buildPlayerUi(ctx) {
         function sync() {
             const next = [...pick.options];
             if (next.length !== options.length || next.some((option, index) => option !== options[index])) {
+                const previousRows = [...list.children];
+                const focusedIndex = previousRows.indexOf(document.activeElement);
+                const focusedValue = options[focusedIndex]?.value;
                 options = next;
-                list.replaceChildren(...options.map(option => {
+                const nextRows = options.map(option => {
                     const row = make("button", "movie-track-option", option.text);
                     row.type = "button";
                     row.setAttribute("role", "radio");
                     row.addEventListener("click", () => {
-                        if (pick.value === option.value) return;
+                        if (pick !== ctx.subtitlePick && pick.value === option.value) return;
                         pick.value = option.value;
                         pick.dispatchEvent(new Event("change"));
                         sync();
                     }, { signal });
                     return row;
-                }));
+                });
+                if (focusedIndex < 0) list.replaceChildren(...nextRows);
+                else {
+                    list.append(...nextRows);
+                    (nextRows[next.findIndex(option => option.value === focusedValue)] ?? nextRows[0])
+                        ?.focus({ preventScroll: true });
+                    previousRows.forEach(row => row.remove());
+                }
             }
             options.forEach((option, index) =>
                 list.children[index].setAttribute("aria-checked", String(pick.value === option.value)));
@@ -336,6 +355,7 @@ export function buildPlayerUi(ctx) {
         add.textContent = "Add audio track";
         sheets.audio.body.append(add);
     }
+    let subtitleStatus = () => {};
     if (ctx.subtitleSearch) {
         const finder = make("div", "movie-subtitle-finder");
         const form = make("div", "movie-subtitle-form");
@@ -360,18 +380,21 @@ export function buildPlayerUi(ctx) {
             find.setAttribute("aria-disabled", String(value));
             for (const row of results.querySelectorAll("button")) row.setAttribute("aria-disabled", String(value));
         }
+        subtitleStatus = (text, working = false) => {
+            feedback.textContent = text;
+            setBusy(working);
+        };
         find.addEventListener("click", async () => {
             if (busy) return;
             find.focus();
             results.replaceChildren();
-            setBusy(true);
-            feedback.textContent = "Searching for subtitles…";
+            subtitleStatus("Searching for subtitles…", true);
             const selectedLanguage = language.value;
             const languageName = language.selectedOptions[0].text;
             try {
                 const matches = await ctx.subtitleSearch.find(selectedLanguage);
                 if (signal.aborted) return;
-                for (const result of matches.filter(result => typeof result.Id === "string" && result.Id)) {
+                for (const result of matches) {
                     const entry = make("li");
                     const add = make("button", "movie-subtitle-action");
                     add.type = "button";
@@ -380,12 +403,11 @@ export function buildPlayerUi(ctx) {
                         facts.push(`Rating ${result.CommunityRating.toLocaleString(undefined, {maximumFractionDigits: 1})}`);
                     if (Number.isFinite(result.DownloadCount))
                         facts.push(`${result.DownloadCount.toLocaleString()} ${result.DownloadCount === 1 ? "download" : "downloads"}`);
-                    add.append(make("strong", "", result.Name || "Subtitle"), make("span", "", facts.join(" · ")));
+                    add.append(make("strong", "", result.Name || "Subtitle"), make("span", "", facts.join(", ")));
                     add.addEventListener("click", async () => {
                         if (busy) return;
                         add.focus();
-                        setBusy(true);
-                        feedback.textContent = "Adding subtitles…";
+                        subtitleStatus("Adding subtitles…", true);
                         try {
                             await ctx.subtitleSearch.add(result, selectedLanguage);
                             if (signal.aborted) return;
@@ -405,7 +427,7 @@ export function buildPlayerUi(ctx) {
                 }
                 feedback.textContent = results.childElementCount ? "" : "No subtitles found.";
             } catch {
-                if (!signal.aborted) feedback.textContent = "Could not search for subtitles. Check subtitle access with the server owner and try again.";
+                if (!signal.aborted) feedback.textContent = "Could not search for subtitles. Try again or ask the server owner to check the Jellyfin subtitle provider and your subtitle management permission.";
             } finally {
                 if (!signal.aborted) setBusy(false);
             }
@@ -444,8 +466,10 @@ export function buildPlayerUi(ctx) {
     let tapTimer, hiddenAtTouch = false;
     // The touch itself wakes the controls (show runs on pointerdown), so remember what the tap found.
     root.addEventListener("pointerdown", () => { hiddenAtTouch = root.classList.contains("movie-idle"); }, { capture: true, signal });
+    surfaceLayer.addEventListener("mousedown", event => event.preventDefault(), { signal });
     surfaceLayer.addEventListener("click", event => {
         if (openSheet) { closeSheet(); return; }
+        if (document.activeElement === document.body) playPause.focus({ preventScroll: true });
         const pointer = matchMedia("(hover: hover) and (pointer: fine)").matches;
         if (!pointer) {
             // Like YouTube: a tap on the picture hides visible controls at once and brings hidden ones back.
@@ -453,7 +477,7 @@ export function buildPlayerUi(ctx) {
             else { clearTimeout(idleTimer); root.classList.add("movie-idle"); }
             return;
         }
-        if (event.detail > 1) { clearTimeout(tapTimer); fullscreen.click(); return; }
+        if (event.detail > 1) { clearTimeout(tapTimer); void toggleFullscreen(); return; }
         clearTimeout(tapTimer);
         tapTimer = setTimeout(toggle, 220);
     }, { signal });
@@ -471,18 +495,30 @@ export function buildPlayerUi(ctx) {
     spinnerRoot.append(spinner);
     const subs = make("div", "movie-ui-subs");
     subs.setAttribute("aria-hidden", "true");
-    root.append(surfaceLayer, subs, spinnerRoot, message, top, mid, bottom, audioSheet, subtitlesSheet, episodesSheet, soundSheet, settingsSheet);
+    const shortcutStatus = make("div", "movie-ui-shortcut");
+    shortcutStatus.setAttribute("role", "status");
+    let shortcutTimer;
+    function showShortcut(text) {
+        shortcutStatus.textContent = text;
+        clearTimeout(shortcutTimer);
+        shortcutTimer = setTimeout(() => { shortcutStatus.textContent = ""; }, 1200);
+    }
+    root.append(surfaceLayer, subs, spinnerRoot, message, top, mid, bottom, shortcutStatus,
+        audioSheet, subtitlesSheet, episodesSheet, soundSheet, settingsSheet);
 
     // Controls hide a few seconds after the last touch, playing or paused. Reduced motion only removes the fade, not the hiding.
     // A keyboard or remote focus ring keeps them up so the focused control stays visible.
-    let keyboardMode = false;
-    document.addEventListener("keydown", () => { keyboardMode = true; }, { capture: true, signal });
-    root.addEventListener("pointerdown", () => { keyboardMode = false; }, { signal });
+    root.addEventListener("pointerdown", () => root.classList.add("movie-pointer"), { capture: true, signal });
+    root.addEventListener("click", event => {
+        const button = event.target.closest("button");
+        if (button && event.detail > 0) button.focus({ preventScroll: true });
+    }, { capture: true, signal });
     function show() {
         root.classList.remove("movie-idle");
         clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
-            if (!dragging && !openSheet && !(keyboardMode && root.querySelector(":focus-visible"))) root.classList.add("movie-idle");
+            if (!dragging && !openSheet && !root.querySelector(
+                root.classList.contains("movie-pointer") ? "select:focus-visible" : ":focus-visible")) root.classList.add("movie-idle");
         }, 3500);
     }
     // Subtitles: draw the active cues just above the bottom of the picture, and above the seek row while the controls show.
@@ -517,7 +553,7 @@ export function buildPlayerUi(ctx) {
 
     for (const type of ["pointermove", "pointerdown", "touchstart", "focusin"])
         root.addEventListener(type, event => { if (!root.classList.contains("movie-idle") || type !== "pointermove" || event.pointerType === "mouse") show(); }, { passive: true, signal });
-    signal.addEventListener("abort", () => { clearTimeout(idleTimer); clearTimeout(tapTimer); });
+    signal.addEventListener("abort", () => { clearTimeout(idleTimer); clearTimeout(tapTimer); clearTimeout(shortcutTimer); });
 
     // Seek bar.
     const duration = () => Number.isFinite(media.duration) && media.duration > 0 ? media.duration : 0;
@@ -555,22 +591,22 @@ export function buildPlayerUi(ctx) {
         playPause.setAttribute("aria-label", paused ? "Play" : "Pause");
         playPause.replaceChildren(icon(paused ? paths.play : paths.pause));
         root.classList.toggle("movie-paused", paused);
-        if (paused) show(); else show();
+        show();
     };
     const busy = on => { spinner.hidden = !on; };
     for (const [type, run] of [["play", sync], ["pause", sync], ["playing", () => { busy(false); failure.textContent = ""; sync(); }],
         ["waiting", () => busy(true)], ["seeking", () => busy(true)], ["seeked", () => busy(false)],
         ["canplay", () => busy(false)], ["timeupdate", paint], ["durationchange", paint], ["loadedmetadata", paint]])
         media.addEventListener(type, run, { signal });
-    document.addEventListener("fullscreenchange", () => {
-        const on = document.fullscreenElement === surface;
-        fullscreen.replaceChildren(icon(on ? paths.collapse : paths.expand), make("span", "", on ? "Exit full screen" : "Full screen"));
-        fullscreen.setAttribute("aria-label", on ? "Exit full screen" : "Full screen");
-    }, { signal });
+    function syncFullscreen() {
+        const label = isFullscreen() ? "Exit full screen" : "Full screen";
+        fullscreen.replaceChildren(icon(isFullscreen() ? paths.collapse : paths.expand), make("span", "", label));
+        fullscreen.setAttribute("aria-label", label);
+    }
+    document.addEventListener("fullscreenchange", syncFullscreen, { signal });
+    syncFullscreen();
 
-    // Keyboard and TV remote. With a control focused, the arrow keys move between controls (a TV remote has no pointer):
-    // left and right inside a row, up and down between rows. The seek bar scrubs with left and right. With nothing
-    // focused, left and right skip 10 seconds. Space, K or Enter toggles play, Escape closes a sheet, Back closes the player.
+    // TV remotes use the arrows to move between controls and scrub on the seek bar.
     const rows = () => [[back], [rewind, playPause, forward], [seek], [fullscreen, episodesButton, audioButton, subtitlesButton, settingsButton, soundButton, nextButton].filter(b => !b.hidden)];
     function moveFocus(target, key) {
         const sheetNode = openSheet && sheets[openSheet].node;
@@ -584,7 +620,7 @@ export function buildPlayerUi(ctx) {
         if (row < 0) return false;
         if (key === "ArrowLeft" || key === "ArrowRight") {
             const step = key === "ArrowRight" ? 1 : -1;
-            if (target === seek) skip(step * 10);
+            if (target === seek) seekBy(step * 10);
             else all[row][Math.min(all[row].length - 1, Math.max(0, all[row].indexOf(target) + step))].focus();
             return true;
         }
@@ -601,29 +637,79 @@ export function buildPlayerUi(ctx) {
         else if (openSheet) closeSheet();
         else back.click();
     });
+    function seekBy(seconds) {
+        const before = media.currentTime;
+        skip(seconds);
+        const moved = Math.round(media.currentTime - before);
+        showShortcut(moved ? `${moved > 0 ? "+" : "−"}${Math.abs(moved)} s` : clock(media.currentTime));
+    }
     document.addEventListener("keydown", event => {
-        if (event.altKey || event.ctrlKey || event.metaKey) return;
-        const target = event.target;
-        if (target.closest?.("dialog")) return;
-        if (event.key === "Escape" && openSheet) { event.preventDefault(); closeSheet(); return; }
-        if (event.keyCode === 461 || event.key === "BrowserBack") { event.preventDefault(); back.click(); return; }
+        const target = event.target, key = event.key.toLowerCase();
+        if (!(target instanceof HTMLElement) || (!surface.contains(target) && target !== document.body) || target.closest("dialog") ||
+            event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey) return;
         const arrow = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key);
-        if (target instanceof HTMLSelectElement) return;
-        // A volume slider keeps its own Left and Right; only the seek bar scrubs.
-        if (target instanceof HTMLInputElement && target !== seek && ["ArrowLeft", "ArrowRight"].includes(event.key)) return;
-        if (arrow && root.contains(target) && target !== document.body) {
-            show();
-            if (moveFocus(target, event.key)) event.preventDefault();
+        const inSheet = openSheet && sheets[openSheet].node.contains(target);
+        const tv = innerWidth >= 1600 && !matchMedia("(hover: hover) and (pointer: fine)").matches;
+        if (key === "tab" || key === "enter" && !event.altKey || arrow && (tv || inSheet))
+            root.classList.remove("movie-pointer");
+        if (key === "tab" && !event.altKey) {
+            const controls = [...root.querySelectorAll("button, input, select")].filter(control =>
+                !control.disabled && control.tabIndex >= 0 && control.getClientRects().length);
+            const edge = event.shiftKey ? controls[0] : controls.at(-1);
+            if (target === edge || target === document.body) {
+                event.preventDefault();
+                (event.shiftKey ? controls.at(-1) : controls[0])?.focus();
+            }
             return;
         }
-        if (target instanceof HTMLButtonElement && [" ", "Enter"].includes(event.key)) return;
-        if (event.key === "ArrowLeft") { event.preventDefault(); skip(-10); }
-        else if (event.key === "ArrowRight") { event.preventDefault(); skip(10); }
-        else if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); show(); playPause.focus(); }
-        else if (event.key === " " || event.key === "k" || event.key === "Enter") { event.preventDefault(); toggle(); }
-        else if (event.key === "f" || event.key === "F") fullscreen.click();
-        else if ((event.key === "m" || event.key === "M") && sound) { sound.toggleMute(); failure.textContent = sound.state.muted ? "Muted." : "Sound on."; show(); }
+        if (target.isContentEditable || target.matches("textarea, input:not([type=range])")) return;
+        if (key === "escape" && !event.altKey) {
+            if (isFullscreen()) { event.preventDefault(); void toggleFullscreen(); }
+            else if (openSheet) { event.preventDefault(); closeSheet(); }
+            return;
+        }
+        if (target.matches("select") || target !== seek && target.matches("input")) return;
+        if ((!event.altKey && (key === "f11" || key === "f")) || event.altKey && key === "enter") {
+            if (fullscreen.hidden) return;
+            event.preventDefault();
+            if (!event.repeat) void toggleFullscreen();
+            return;
+        }
+        if (event.altKey) return;
+        if (event.keyCode === 461 || key === "browserback") { event.preventDefault(); back.click(); return; }
+        if (inSheet) {
+            if (arrow && moveFocus(target, event.key)) event.preventDefault();
+            return;
+        }
+        if (key === " " || key === "spacebar" || key === "k" || key === "enter" && !target.closest("button")) {
+            event.preventDefault();
+            if (!event.repeat) toggle();
+        } else if (arrow) {
+            event.preventDefault();
+            show();
+            if (tv && !(event.shiftKey && target === seek) && moveFocus(target, event.key)) return;
+            if (key === "arrowleft" || key === "arrowright") {
+                seekBy((key === "arrowright" ? 1 : -1) * (event.shiftKey ? 30 : 10));
+            } else {
+                const step = key === "arrowup" ? .05 : -.05;
+                const volume = sound?.state.volume ?? media.volume;
+                const next = Math.round(Math.min(Math.max(1, volume), Math.max(0, volume + step)) * 100) / 100;
+                if (sound) sound.set({ volume: next });
+                else { media.volume = next; if (next > 0) media.muted = false; }
+                showShortcut(volumeLabel());
+            }
+        } else if (key === "m") {
+            event.preventDefault();
+            if (event.repeat) return;
+            if (sound) sound.toggleMute();
+            else media.muted = !media.muted;
+            showShortcut(volumeLabel());
+        }
     }, { signal, capture: true });
+    function volumeLabel() {
+        const { muted, volume } = sound?.state ?? media;
+        return muted ? "Muted" : `Volume ${Math.round(volume * 100)}%`;
+    }
 
     sync();
     paint();
@@ -662,6 +748,8 @@ export function buildPlayerUi(ctx) {
         },
         /** A short line over the picture, for example "This device could not play this version." */
         say(text) { failure.textContent = text; busy(false); show(); },
+        subtitleStatus,
+        syncSubtitles,
         hint(text) {
             hint.textContent = text;
             const timer = setTimeout(() => { hint.textContent = ""; }, 6000);

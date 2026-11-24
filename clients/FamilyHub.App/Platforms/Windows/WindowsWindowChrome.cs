@@ -15,6 +15,48 @@ internal static class WindowsWindowChrome
     [DllImport("dwmapi.dll", ExactSpelling = true)]
     private static extern int DwmSetWindowAttribute(nint window, int attribute, in uint value, int size);
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowPlacement
+    {
+        public uint Length, Flags, ShowCommand;
+        public int MinX, MinY, MaxX, MaxY, Left, Top, Right, Bottom;
+    }
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowPlacement(nint window, ref WindowPlacement placement);
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPlacement(nint window, in WindowPlacement placement);
+
+    private static (AppWindow Window, nint Handle, AppWindowPresenter Presenter, WindowPlacement Placement)? movieWindow;
+
+    public static bool SetMovieFullscreen(bool on)
+    {
+        if (on)
+        {
+            if (movieWindow is not null) return true;
+            if (Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Handler?.PlatformView
+                is not Microsoft.UI.Xaml.Window window) return false;
+            var appWindow = window.AppWindow;
+            var handle = WinRT.Interop.WindowNative.GetWindowHandle(window);
+            var placement = new WindowPlacement { Length = (uint)Marshal.SizeOf<WindowPlacement>() };
+            if (!GetWindowPlacement(handle, ref placement)) return false;
+            var presenter = appWindow.Presenter;
+            appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+            movieWindow = (appWindow, handle, presenter, placement);
+            return true;
+        }
+        if (movieWindow is { } previous)
+        {
+            previous.Window.SetPresenter(previous.Presenter);
+            SetWindowPlacement(previous.Handle, previous.Placement);
+            movieWindow = null;
+        }
+        return false;
+    }
+
     public static void SetBorderColor(Microsoft.UI.Xaml.Window window)
     {
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
@@ -27,6 +69,9 @@ internal static class WindowsWindowChrome
         if (!AppWindowTitleBar.IsCustomizationSupported() ||
             page.Window?.Handler?.PlatformView is not Microsoft.UI.Xaml.Window window ||
             webView?.XamlRoot is null)
+            return WindowChromeMetrics.Unsupported;
+
+        if (window.AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen)
             return WindowChromeMetrics.Unsupported;
 
         var titleBar = window.AppWindow.TitleBar;

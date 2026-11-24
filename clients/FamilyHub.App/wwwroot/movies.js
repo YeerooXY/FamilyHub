@@ -213,29 +213,43 @@ export function openMovies(host, session, app, viewer) {
                 { userId: session.user, fields: "RunTimeTicks", enableUserData: true }).then(page => page?.Items ?? null).catch(() => null));
         return seriesCache.get(item.SeriesId);
     }
-    // The player always covers the whole window. The browser's own fullscreen is tried too, but the Android app's
-    // WebView has none, so the page layout does the work. Entering is asynchronous: drop a late fullscreen if the
-    // viewer already left.
+    // The Android WebView relies on the full-window layout and MovieScreen for landscape and system bars.
+    const nativeFullscreen = host.dataset.nativeFullscreen === "true";
     let fullscreenRequest = null;
+    let windowFullscreen = false, leavingPlayer = false;
+    const isFullscreen = () => nativeFullscreen ? windowFullscreen : document.fullscreenElement === player;
+    function setFullscreen(on) {
+        if (on && leavingPlayer) return Promise.resolve(false);
+        if (fullscreenRequest) return fullscreenRequest;
+        if (on === isFullscreen()) return Promise.resolve(true);
+        fullscreenRequest = (async () => {
+            if (nativeFullscreen) windowFullscreen = await app.invokeMethodAsync("MovieWindowFullscreen", on) === true;
+            else if (on) await player.requestFullscreen?.({ navigationUI: "hide" });
+            else await document.exitFullscreen?.();
+            return isFullscreen() === on;
+        })().catch(() => false).finally(() => { fullscreenRequest = null; });
+        return fullscreenRequest;
+    }
     function enterPlayer() {
+        leavingPlayer = false;
         player.classList.add("movie-expanded");
         document.documentElement.classList.add("movie-expanded-page");
-        if (document.fullscreenElement !== player && !fullscreenRequest)
-            fullscreenRequest = Promise.resolve(player.requestFullscreen?.({ navigationUI: "hide" })).catch(() => {});
+        if (!nativeFullscreen) void setFullscreen(true);
         screen.orientation?.lock?.("landscape").catch(() => {});
         // The Android app turns the screen to landscape and hides the system bars; a browser ignores the call.
         Promise.resolve(app.invokeMethodAsync("MovieScreen", true)).catch(() => {});
     }
     // Resolves once the browser has left fullscreen: elements outside the fullscreen player cannot take focus before.
     async function leavePlayer() {
+        leavingPlayer = true;
+        await fullscreenRequest;
+        await setFullscreen(false);
         player.classList.remove("movie-expanded");
         document.documentElement.classList.remove("movie-expanded-page");
         screen.orientation?.unlock?.();
         Promise.resolve(app.invokeMethodAsync("MovieScreen", false)).catch(() => {});
-        await fullscreenRequest;
-        fullscreenRequest = null;
-        if (document.fullscreenElement === player) await document.exitFullscreen?.().catch(() => {});
     }
+    const subtitleAttempts = new Set();
     let playerLife = null;
     function stop() {
         selection++;
@@ -362,6 +376,8 @@ export function openMovies(host, session, app, viewer) {
                 if (active && closedSelection === selection) await reloadResume();
             });
             const subtitles = (source.MediaStreams || []).filter(s => s.Type === "Subtitle" && s.IsTextSubtitleStream);
+            const deviceLanguage = navigator.language?.split("-")[0].toLowerCase();
+            const subtitleLanguage = languageCodes[prefs.subtitles] ? prefs.subtitles : deviceLanguage === "hu" ? "hu" : "en";
             const controls = el("div");
             controls.className = "movie-track-controls";
             const audioPick = audio.length ? select(controls, "Audio track",
@@ -396,9 +412,9 @@ export function openMovies(host, session, app, viewer) {
             playback.setSubtitles = (index) => {
                 playback.subtitleOverride = index;
                 const language = prefs.subtitles;
-                const preferred = preferredTrack(subtitles, language);
-                const unavailable = index == null && languageCodes[language] && !preferred;
-                const selected = index ?? (language === "default" ? defaultSubtitle : preferred?.Index);
+                const preferred = language === "off" ? null : preferredTrack(subtitles, subtitleLanguage);
+                const selected = index ?? (language === "default" && textTracks.has(defaultSubtitle)
+                    ? defaultSubtitle : preferred?.Index);
                 const activeSubtitle = textTracks.has(selected) ? selected : -1;
                 for (const [trackIndex, track] of textTracks)
                     track.mode = trackIndex === activeSubtitle ? "hidden" : "disabled"; // hidden: the player draws the cues itself
@@ -406,8 +422,7 @@ export function openMovies(host, session, app, viewer) {
                 const audioFallback = audioIndex == null && audioLanguage !== "default" && (!preferredAudio || preferredAudio.Index !== selectedAudio);
                 notice.textContent = [
                     audioFallback ? `${labels[audioLanguage]} audio unavailable. Using the default track.` : "",
-                    audioIndex != null && audioIndex !== selectedAudio ? "Selected audio track unavailable. Using the default track." : "",
-                    unavailable ? `${labels[language]} subtitles unavailable. Subtitles are off.` : ""
+                    audioIndex != null && audioIndex !== selectedAudio ? "Selected audio track unavailable. Using the default track." : ""
                 ].filter(Boolean).join(" ");
             };
             subtitlePick.onchange = () => playback.setSubtitles(Number(subtitlePick.value));
@@ -470,10 +485,15 @@ export function openMovies(host, session, app, viewer) {
             const subtitleItem = /^[a-f\d]{32}$|^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(source.Id) ? source.Id : item.Id;
             const subtitlePath = `Items/${encodeURIComponent(subtitleItem)}`;
             const remote = subtitlePath + "/RemoteSearch/Subtitles/";
+            const subtitleCode = subtitleLanguage === "hu" ? "hun" : "eng";
             const subtitleSearch = {
-                language: prefs.subtitles === "hu" ? "hun" : "eng",
-                find: language => searchLibrary(remote + language, {}, undefined, playerSignal),
-                async add(result, language) {
+                language: subtitleCode,
+                async find(language) {
+                    const results = await searchLibrary(remote + language, {}, undefined, playerSignal);
+                    if (!Array.isArray(results)) throw Error("Invalid subtitle results");
+                    return results.filter(result => typeof result?.Id === "string" && result.Id);
+                },
+                async add(result, language, automatic = false) {
                     const readTracks = async () => {
                         const fresh = await searchLibrary(subtitlePath, {userId: session.user}, undefined, playerSignal);
                         return (fresh.MediaSources?.find(candidate => candidate.Id === source.Id)?.MediaStreams
@@ -491,6 +511,7 @@ export function openMovies(host, session, app, viewer) {
                             .includes(track.Language?.toLowerCase().split(/[-_]/)[0]));
                         const track = matching.length === 1 ? matching[0] : null;
                         if (!track || playerSignal.aborted) continue;
+                        const prior = subtitles.find(stream => stream.Index === playback.subtitleOverride);
                         for (const node of media.querySelectorAll("track")) node.remove();
                         subtitles.splice(0, subtitles.length, ...refreshed);
                         textTracks.clear();
@@ -499,30 +520,54 @@ export function openMovies(host, session, app, viewer) {
                             addSubtitleTrack(stream);
                             subtitlePick.add(new Option(stream.DisplayTitle || stream.Language || "Subtitles", stream.Index));
                         }
-                        playback.setSubtitles(track.Index);
+                        if (automatic && playback.subtitleOverride != null) {
+                            playback.setSubtitles(prior
+                                ? refreshed.find(stream => prior.Path ? stream.Path === prior.Path : stream.Index === prior.Index)?.Index ?? -1
+                                : -1);
+                        } else playback.setSubtitles(track.Index);
+                        ui.syncSubtitles();
                         return;
                     }
                     throw Error("Subtitle track unavailable");
                 }
             };
-            /** No subtitle in the viewer's language: find the most downloaded one and switch it on, once a week per title at most. */
             async function autoSubtitles() {
-                const language = prefs.subtitles;
-                if (options.subtitleIndex != null || !languageCodes[language] || preferredTrack(subtitles, language)) return;
-                const key = preferencesKey(preferenceViewer) + ":autosub:" + item.Id + ":" + language;
+                if (prefs.subtitles === "off") {
+                    ui.subtitleStatus("Automatic search is off in Movies settings. Find subtitles searches manually.");
+                    return;
+                }
+                if (options.subtitleIndex != null || preferredTrack(subtitles, subtitleLanguage)) return;
+                const key = preferencesKey(preferenceViewer) + ":autosub:" + item.Id;
+                let tried = subtitleAttempts.has(key);
                 try {
-                    if (Date.now() - Number(localStorage.getItem(key) ?? 0) < 7 * 864e5) return;
-                    localStorage.setItem(key, String(Date.now()));
-                } catch { return; }
-                const code = language === "hu" ? "hun" : "eng";
+                    tried ||= sessionStorage.getItem(key) === "1";
+                    if (!tried) sessionStorage.setItem(key, "1");
+                } catch { /* The in-memory attempt still covers this Movies view. */ }
+                if (tried) {
+                    ui.subtitleStatus("Automatic search already ran for this title. Use Find subtitles to search again.");
+                    return;
+                }
+                subtitleAttempts.add(key);
+                const name = labels[subtitleLanguage];
+                ui.subtitleStatus(`Searching for ${name} subtitles…`, true);
+                let best;
                 try {
-                    const found = await subtitleSearch.find(code);
-                    const best = (Array.isArray(found) ? found : []).filter(result => typeof result?.Id === "string")
-                        .sort((a, b) => (b.DownloadCount ?? 0) - (a.DownloadCount ?? 0) || (b.CommunityRating ?? 0) - (a.CommunityRating ?? 0))[0];
-                    if (!best || playerSignal.aborted || current !== playback) return;
-                    await subtitleSearch.add(best, code);
-                    if (!playerSignal.aborted && current === playback) ui?.say(`${labels[language]} subtitles added.`);
-                } catch { /* the Subtitles sheet still offers a manual search */ }
+                    const found = await subtitleSearch.find(subtitleCode);
+                    if (playerSignal.aborted) return;
+                    best = found.sort((a, b) => (b.DownloadCount ?? 0) - (a.DownloadCount ?? 0) ||
+                        (b.CommunityRating ?? 0) - (a.CommunityRating ?? 0))[0];
+                    if (!best) {
+                        ui.subtitleStatus(`No ${name} subtitles found. Use Find subtitles to retry. If searches stay empty, ask the server owner to check the Open Subtitles plugin and account in Jellyfin.`);
+                        return;
+                    }
+                    ui.subtitleStatus(`Adding ${name} subtitles…`, true);
+                    await subtitleSearch.add(best, subtitleCode, true);
+                    if (!playerSignal.aborted) ui.subtitleStatus(`${name} subtitles added.`);
+                } catch {
+                    if (!playerSignal.aborted) ui.subtitleStatus(best
+                        ? "Could not add subtitles. Use Find subtitles to retry or ask the server owner to check subtitle permissions and storage."
+                        : "Could not search for subtitles. Use Find subtitles to retry or ask the server owner to check the Jellyfin subtitle provider and your subtitle management permission.");
+                }
             }
             const restartQuality = (dataSaver, sheet) => play(item, opener, {
                 dataSaver, sheet, audioIndex, subtitleIndex: playback.subtitleOverride,
@@ -556,6 +601,7 @@ export function openMovies(host, session, app, viewer) {
                 }
             };
             ui = buildPlayerUi({ media, surface: player, back, signal: playerSignal, subtitleSearch, dataSaver,
+                fullscreenEnabled: nativeFullscreen || document.fullscreenEnabled, isFullscreen, setFullscreen,
                 title: numbered ? `S${item.ParentIndexNumber}:E${item.IndexNumber} “${item.Name}”` : item.Name,
                 kicker: item.SeriesName, audioPick, subtitlePick, audioSync, notice,
                 addAudio: session.downloads_enabled ? trigger => addAudio(item, trigger, player, playerSignal) : null });
@@ -1420,7 +1466,12 @@ export function openMovies(host, session, app, viewer) {
     });
     return { connectionChanged, async close() {
         if (!active) return;
-        leavePlayer(); active = false; life.abort(); stop(); await reports;
+        active = false;
+        const leaving = leavePlayer();
+        life.abort();
+        stop();
+        await leaving;
+        await reports;
         try { await app.invokeMethodAsync("MovieCloseMedia", session.media_ticket); } catch {}
     } };
 }

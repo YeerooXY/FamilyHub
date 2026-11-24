@@ -184,19 +184,12 @@ async function check(browser, options) {
         await page.keyboard.press("Tab");
         await focused(next);
     }
-    // A TV remote has only arrows: they move between controls, and left and right on the seek bar scrub.
-    const press = async (key, next) => { await page.keyboard.press(key); await focused(next); };
+    // Keyboard shortcuts keep the focused control in place.
     await playPause.focus();
-    await press("ArrowRight", page.getByRole("button", { name: "Forward 10 seconds" }));
-    await press("ArrowLeft", playPause);
-    await press("ArrowDown", page.getByRole("slider", { name: "Seek" }));
-    await page.keyboard.press("ArrowDown");
-    await page.waitForFunction(() => document.activeElement.closest(".movie-ui-actions"));
-    await press("ArrowUp", page.getByRole("slider", { name: "Seek" }));
-    await press("ArrowUp", playPause);
-    // Up from play lands on the single Back control.
-    await page.keyboard.press("ArrowUp");
-    await page.waitForFunction(() => document.activeElement.closest(".movie-ui-top"));
+    for (const key of ["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"]) {
+        await page.keyboard.press(key);
+        await focused(playPause);
+    }
     // Escape closes Audio and returns focus to its opener.
     const tracks = page.getByRole("button", { name: "Audio", exact: true });
     await tracks.click();
@@ -237,13 +230,13 @@ async function check(browser, options) {
     await focused(checkedIn("Audio track"));
     assert.equal(await subtitle.inputValue(), "-1");
     assert.deepEqual(await preferences("viewer-a"), { audio: "hu", subtitles: "hu", dataSaver: "auto" });
-    await back.press("Space");
+    await back.press("Enter");
     await focused(two);
     await one.press("Enter");
     await openTracks();
     assert.equal(await group("Audio track").getByRole("radio").count(), 1);
-    await page.getByText("Hungarian audio unavailable. Using the default track. Hungarian subtitles unavailable. Subtitles are off.").waitFor();
-    await back.press("Space");
+    await page.getByText("Hungarian audio unavailable. Using the default track.").waitFor();
+    await back.press("Enter");
     await focused(one);
     assert.deepEqual(requestedTracks, [2, 1]);
     assert.equal(await page.locator("main").evaluate(node => node.scrollWidth <= node.clientWidth), true);
@@ -254,7 +247,7 @@ async function check(browser, options) {
     await back.waitFor();
     await openTracks();
     assert.equal(await subtitle.inputValue(), "4");
-    await back.press("Space");
+    await back.press("Enter");
     await focused(two);
     assert.equal(await preferences("viewer-b", { audio: "default", subtitles: "off" }), true);
     await two.press("Enter");
@@ -331,13 +324,13 @@ async function check(browser, options) {
         await setMedia({ currentTime: 250 }, ["seeked"]);
         await progress;
         await setMedia({ currentTime: 260 }, []);
-        await back.press("Space");
+        await back.press("Enter");
         await focused(two);
 
         await one.press("Enter");
         await page.getByRole("heading", { name: "One language", exact: true }).waitFor();
         await setMedia({ currentTime: 30, paused: false }, ["playing"]);
-        await back.press("Space");
+        await back.press("Enter");
         await focused(one);
         assert.equal(reports.length, reportStart + 2, "playback reports still queue behind the slow write");
 

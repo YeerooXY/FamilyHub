@@ -4,7 +4,7 @@
 @inject IJSRuntime JS
 @using Microsoft.Maui.Networking
 
-<div @ref="host" class="movie-library"></div>
+<div @ref="host" class="movie-library" data-native-fullscreen="@(OperatingSystem.IsWindows() ? "true" : null)"></div>
 @if (message.Length > 0)
 {
     <p role="status">@message</p>
@@ -20,6 +20,9 @@
     private readonly CancellationTokenSource closed = new();
     private string message = "Loading movies…";
     private bool failed, loading;
+#if WINDOWS
+    private bool disposing;
+#endif
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -183,9 +186,24 @@
             await Microsoft.Maui.ApplicationModel.Launcher.Default.OpenAsync(link);
     }
 
-    // The player asks for landscape and hidden system bars while it covers the window.
+    // Mobile uses landscape and system bars. On Windows, leaving playback restores the window.
     [JSInvokable]
-    public void MovieScreen(bool playing) => PlayerScreen.Set(playing);
+    public Task MovieScreen(bool playing)
+    {
+        PlayerScreen.Set(playing);
+        return playing ? Task.CompletedTask : MovieWindowFullscreen(false);
+    }
+
+    [JSInvokable]
+    public Task<bool> MovieWindowFullscreen(bool on)
+    {
+#if WINDOWS
+        return Microsoft.Maui.ApplicationModel.MainThread.InvokeOnMainThreadAsync(() =>
+            WindowsWindowChrome.SetMovieFullscreen(on && !disposing && PlayerScreen.Playing));
+#else
+        return Task.FromResult(false);
+#endif
+    }
 
     [JSInvokable]
     public string MovieConnectionKind() => ConnectionKind.Current;
@@ -207,9 +225,12 @@
     public async ValueTask DisposeAsync()
     {
         Connectivity.Current.ConnectivityChanged -= MovieConnectionChanged;
-        PlayerScreen.Set(false);
+#if WINDOWS
+        disposing = true;
+#endif
         try
         {
+            await MovieScreen(false);
             if (shelf is not null) { await shelf.InvokeVoidAsync("close"); await shelf.DisposeAsync(); }
             if (module is not null) await module.DisposeAsync();
         }

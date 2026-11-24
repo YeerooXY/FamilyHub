@@ -1,4 +1,4 @@
-// Automatic subtitles: a title with no subtitle in the viewer's language gets the most downloaded one, once a week at most.
+// Each title gets one automatic search per session. The sheet keeps a manual retry available.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -6,13 +6,16 @@ const { jellyfin, cors, moviePage, verifyMovieProfiles } = require("./movies_fix
 
 const clip = fs.readFileSync(path.join(__dirname, "fixtures/movie-subtitles.mp4"));
 
-async function verify(browser, profile, options) {
-    const page = await browser.newPage(options);
+async function run(browser, options, scenario) {
+    const { preference, locale, language, code, firstResponse, nativeFullscreen = false } = scenario;
+    const page = await browser.newPage({ ...options, locale });
     page.setDefaultTimeout(7000);
     const decodeVideo = browser.browserType().name() === "chromium";
     let searches = 0, saves = [], saved = false, mediaReads = 0;
-    const addedTrack = {Type: "Subtitle", IsTextSubtitleStream: true, IsExternal: true, Language: "hun",
-        DisplayTitle: "Hungarian (external)", Index: 3, Path: "/internal/trinity.hun.srt"};
+    let releaseSearch;
+    const pendingSearch = new Promise(resolve => { releaseSearch = resolve; });
+    const addedTrack = {Type: "Subtitle", IsTextSubtitleStream: true, IsExternal: true, Language: code,
+        DisplayTitle: language + " (external)", Index: 3, Path: "/internal/trinity.srt"};
     try {
         if (!decodeVideo) await page.addInitScript(() => {
             HTMLMediaElement.prototype.play = () => Promise.resolve();
@@ -35,11 +38,14 @@ async function verify(browser, profile, options) {
                 const key = decodeURIComponent(url.pathname.split("/").pop());
                 if (req.method() === "POST") { saves.push(key); saved = true; return reply({status: 204}); }
                 searches++;
-                assert.equal(key, "hun");
+                assert.equal(key, code);
+                if (searches === 1) await pendingSearch;
+                if (searches === 1 && firstResponse === "error") return reply({status: 503});
+                if (searches === 1 && firstResponse === "empty") return reply({json: []});
                 return reply({json: [
-                    {Id: "provider_srt-hun-7", Name: "Trinity rare", DownloadCount: 7, CommunityRating: 9},
-                    {Id: "provider_srt-hun-420", Name: "Trinity popular", DownloadCount: 420, CommunityRating: 7},
-                    {Id: "provider_srt-hun-99", Name: "Trinity middle", DownloadCount: 99, CommunityRating: 8}]});
+                    {Id: "provider_srt-7", Name: "Trinity rare", DownloadCount: 7, CommunityRating: 9},
+                    {Id: "provider_srt-420", Name: "Trinity popular", DownloadCount: 420, CommunityRating: 7},
+                    {Id: "provider_srt-99", Name: "Trinity middle", DownloadCount: 99, CommunityRating: 8}]});
             }
             if (url.pathname === "/Videos/trinity/source/Subtitles/3/Stream.vtt")
                 return reply({contentType: "text/vtt", body: "WEBVTT\n\n00:00:00.000 --> 00:00:10.000\nHungarian fixture cue\n"});
@@ -57,28 +63,90 @@ async function verify(browser, profile, options) {
             return reply({status: 204});
         });
         await moviePage(page);
-        await page.evaluate(async jellyfin => {
+        await page.evaluate(async ({ jellyfin, preference, nativeFullscreen }) => {
             const { openMovies, saveMoviePreferences } = await import("/movies.js");
             const viewer = {server: jellyfin + "/", profile: "fixture"};
-            saveMoviePreferences(viewer, {subtitles: "hu"});
-            window.openMovieFixture(openMovies, document.querySelector("main"), {url: jellyfin, user: "fixture", token: "fixture", device: "fixture"},
-                {invokeMethodAsync: async () => "{}"}, viewer);
-        }, jellyfin);
-        await page.getByRole("button", {name: "They Call Me Trinity", exact: true}).first().press("Enter");
+            if (preference) saveMoviePreferences(viewer, {subtitles: preference});
+            window.fullscreenCalls = [];
+            const host = document.querySelector("main");
+            if (nativeFullscreen) host.dataset.nativeFullscreen = "true";
+            window.openMovieFixture(openMovies, host,
+                {url: jellyfin, user: "fixture", token: "fixture", device: "fixture"},
+                {invokeMethodAsync: async (method, on) => {
+                    if (method !== "MovieWindowFullscreen") return "{}";
+                    window.fullscreenCalls.push(on);
+                    return on;
+                }}, viewer);
+        }, { jellyfin, preference, nativeFullscreen });
+        const open = () => page.getByRole("button", {name: "They Call Me Trinity", exact: true}).first().press("Enter");
+        await open();
         const video = page.locator("video");
         await video.waitFor();
-        await page.getByText("Hungarian subtitles added.").first().waitFor();
-        assert.equal(searches, 1);
-        assert.deepEqual(saves, ["provider_srt-hun-420"]);
-        assert.equal(await video.evaluate(node => node.textTracks.length), 1);
-        // The attempt is remembered for the week, so playing the title again does not search again.
-        const remembered = await page.evaluate(() => Object.keys(localStorage).filter(key => key.endsWith(":autosub:trinity:hu")));
-        assert.equal(remembered.length, 1);
-        assert.ok(Date.now() - Number(await page.evaluate(key => localStorage.getItem(key), remembered[0])) < 60000);
+        if (nativeFullscreen) {
+            const fullscreen = page.getByRole("button", {name: "Full screen", exact: true});
+            const exit = page.getByRole("button", {name: "Exit full screen", exact: true});
+            await fullscreen.press("F11");
+            await exit.waitFor();
+            await page.keyboard.press("Escape");
+            await fullscreen.waitFor();
+            assert.deepEqual(await page.evaluate(() => window.fullscreenCalls), [true, false]);
+        }
+        const openSheet = async () => {
+            await page.getByRole("button", {name: "Subtitles", exact: true}).press("Enter");
+            return page.getByRole("dialog", {name: "Subtitles"});
+        };
+        const sheet = await openSheet();
+        const retry = sheet.getByRole("button", {name: "Find subtitles", exact: true});
+        const off = sheet.getByRole("radio", {name: "Off", exact: true});
+        if (preference !== "off") {
+            await sheet.getByText(`Searching for ${language} subtitles…`).waitFor();
+            assert.equal(await retry.getAttribute("aria-disabled"), "true");
+            if (!firstResponse) await off.focus();
+            releaseSearch();
+        }
+        if (preference === "off") {
+            await sheet.getByText(/Automatic search is off in Movies settings/).waitFor();
+            assert.equal(searches, 0);
+        } else if (firstResponse) {
+            await sheet.getByText(firstResponse === "error" ? /check the Jellyfin subtitle provider/ :
+                new RegExp(`No ${language} subtitles found`)).waitFor();
+            assert.equal(await sheet.getByText("503", {exact: false}).count(), 0);
+            assert.equal(searches, 1);
+            assert.equal(await retry.getAttribute("aria-disabled"), "false");
+            await retry.press("Enter");
+            await sheet.getByRole("button", {name: /Trinity popular/}).waitFor();
+            assert.equal(searches, 2);
+        } else {
+            await sheet.getByText(`${language} subtitles added.`).waitFor();
+            assert.equal(searches, 1);
+            assert.deepEqual(saves, ["provider_srt-420"]);
+            assert.equal(await video.evaluate(node => node.textTracks[0]?.mode), "hidden");
+            assert.equal(await off.evaluate(row => row === document.activeElement), true);
+            assert.equal(await sheet.getByRole("radio", {name: language + " (external)"}).getAttribute("aria-checked"), "true");
+            await sheet.getByRole("button", {name: "Close subtitles"}).press("Enter");
+            if (nativeFullscreen) {
+                await page.getByRole("button", {name: "Full screen", exact: true}).press("Enter");
+                await page.getByRole("button", {name: "Exit full screen", exact: true}).waitFor();
+            }
+            await page.getByRole("button", {name: "Back to movies"}).press("Enter");
+            await video.waitFor({state: "detached"});
+            if (nativeFullscreen) assert.deepEqual(await page.evaluate(() => window.fullscreenCalls), [true, false, true, false]);
+            await open();
+            await (await openSheet()).getByText(/Automatic search already ran/).waitFor();
+            assert.equal(searches, 1);
+        }
     } finally {
+        releaseSearch();
         await page.close();
     }
 }
 
-verifyMovieProfiles(verify).then(() => console.log("Automatic subtitles passed in eight browser profiles."))
+verifyMovieProfiles(async (browser, profile, options) => {
+    await run(browser, options, {locale: "hu-HU", language: "Hungarian", code: "hun",
+        nativeFullscreen: profile === "chromium-1280"});
+    await run(browser, options, {preference: "hu", locale: "en-US", language: "Hungarian", code: "hun"});
+    await run(browser, options, {preference: "off", locale: "en-US"});
+    for (const firstResponse of ["error", "empty"])
+        await run(browser, options, {locale: "en-US", language: "English", code: "eng", firstResponse});
+}).then(() => console.log("Automatic subtitle search, language, retry, and session limit passed."))
     .catch(error => { console.error(error); process.exitCode = 1; });
