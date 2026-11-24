@@ -40,6 +40,15 @@ Task 8 covers `codex-downloads`, app version 1.1.0. The review used local source
 3. Store the hash in the protected JSON loaded through `FAMILYHUB_MUSIC_CONFIG`, for example `"PROFILE_PASSWORD_HASHES": {"profile-id": "<generated hash>"}`. The server owner and service account need read access. The client asks for the passphrase when selecting this profile.
 4. Roll out the server and native apps together. Earlier apps cannot send profile passwords or use the new movie gateway. Verify admin sign-in, ordinary profile selection and private-file access after restart. Revoke Jellyfin tokens issued to older clients if their URLs may have been retained in logs.
 
+### Requiring a password for every profile
+
+Set `"REQUIRE_PROFILE_PASSWORDS": true` in `FAMILYHUB_MUSIC_CONFIG` (default `false`) to require a password on every family profile, including newly created profiles. Profiles that already have a hash in `PROFILE_PASSWORD_HASHES` or `.profile-passwords.json` keep signing in with their existing password. Profiles without a stored hash show the create-password screen and must choose a password of at least 8 characters before starting a session.
+
+Rollout notes:
+
+- Set the server owner and administrator passwords first, either in `PROFILE_PASSWORD_HASHES` before restarting or by signing in to those profiles immediately after enabling the flag.
+- Turning `REQUIRE_PROFILE_PASSWORDS` on signs everyone out until they sign in with or create a password. Existing browser and app cookies for profiles without a password hash stop working on restart, so each client returns to the profile list and the create-password card.
+
 ## Route authentication and CSRF
 
 The host check applies to every request. Unsafe methods require a matching `Origin` or same-origin `Referer`, followed by Flask-WTF CSRF validation. `POST /api/share/<secret>/download` uses the share credential, optional password and origin check because recipients have no FamilyHub session. Cookies use `Secure`, `HttpOnly` and `SameSite=Lax`. Profile selection rotates the session ID and CSRF token. Ordinary passwordless family profiles can be restored after a restart under the trusted-network model. Legacy Navidrome sign-in requires a password and also rotates the session.

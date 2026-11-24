@@ -12,3 +12,8 @@ Run `node tests/files_view.cjs` to reproduce the captures. The harness loads the
 The suite also runs desktop WebKit at 1280 × 800. It checks the two phone columns, tile width, keyboard and touch menus, focus moves, dialog validation, stale listings, upload progress, reduced motion, and horizontal overflow in the page and Files workspace. The 2000 px profile checks 60 px targets and a 4 px focus ring.
 
 Physical devices, the operating system’s picker and share sheet, screen readers, and enlarged text remain unverified.
+
+## 24 November 2026: cards, previews and selection
+
+`node tests/files_view.cjs` now also covers the grid and list views, search, the fixed selection bar, photo thumbnails and the preview viewer. New captures: `*-selection.png` (the bar fixed to the window's bottom edge), `*-list.png`, `*-photo-card.png` and `*-preview.png`. Thumbnails and previews use the bytes the app fetches through the signed-in session; the test stands in a one-pixel picture, so a real photo on a real device is still to be checked. Drag-and-drop upload is not part of this screen, because the native upload goes through the file picker.
+

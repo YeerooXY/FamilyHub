@@ -31,8 +31,8 @@ async function dailyPlay(name, engine, options) {
         const keyboard = panel.getByRole('group', {name: 'On-screen keyboard'});
         const theme = panel.getByRole('button', {name: 'Dark theme'});
         const statsButton = panel.getByRole('button', {name: 'Statistics', exact: true});
-        const stats = panel.getByRole('dialog', {name: 'Statistics'});
-        const juneDetails = stats.locator('details').filter({has: page.locator('summary').filter({hasText: 'June'})});
+        const stats = panel.locator('.dw-stats-page');
+        const junePlayer = stats.getByRole('article', {name: /^June statistics/});
         const status = panel.locator('.dw-message');
         const row = number => panel.locator('.dw-row').nth(number - 1);
         const typed = async word => {
@@ -85,12 +85,15 @@ async function dailyPlay(name, engine, options) {
         assert(await theme.evaluate(node => node === document.activeElement));
         await checkKeyboard();
         if (capture) await panel.screenshot({path: path.join(capture, name + '-dark.png')});
+        // The statistics sit below the puzzle: the button scrolls there and focuses the heading.
         await statsButton.press('Enter');
-        await juneDetails.locator('summary').press('Enter');
-        await juneDetails.getByText('2 guesses', {exact: true}).waitFor();
-        assert.equal(await juneDetails.getByRole('heading', {name: 'Today’s guesses'}).count(), 0);
-        await page.keyboard.press('Escape');
-        await stats.waitFor({state: 'hidden'});
+        await stats.getByRole('heading', {name: 'Statistics', exact: true}).waitFor();
+        await page.waitForFunction(() => document.activeElement?.id === 'dw-stats-title');
+        await junePlayer.locator('.dw-favorites').waitFor();
+        assert.match(await junePlayer.locator('.dw-favorites').innerText(), /Favorite guesses\s+GRAPE/);
+        assert.equal(await junePlayer.getByText('Today’s guesses').count(), 0);
+        await stats.getByRole('button', {name: 'Back to puzzle'}).press('Enter');
+        await page.waitForFunction(() => document.activeElement?.classList.contains('daily-wordle'));
 
         if (options.isMobile) {
             for (const letter of 'SLATE') await keyboard.getByRole('button', {name: letter, exact: true}).tap();
@@ -105,7 +108,8 @@ async function dailyPlay(name, engine, options) {
         }
         await row(1).getByText('S').waitFor();
         await row(1).locator('.dw-reveal').first().waitFor();
-        assert.doesNotMatch(await panel.locator('.dw-context').innerText(), /\/6 guesses/);
+        const dayText = await panel.locator('.dw-context').boundingBox();
+        assert(!dayText || (dayText.width <= 1 && dayText.height <= 1), `${name} the day text is not drawn`);
         assert.match(await row(1).getAttribute('aria-label'), /S, absent.*A, right spot/);
         assert.deepEqual(await row(1).locator('.dw-tile span').evaluateAll(letters =>
             letters.map(letter => getComputedStyle(letter).color)), Array(5).fill('rgb(255, 255, 255)'));
@@ -126,7 +130,7 @@ async function dailyPlay(name, engine, options) {
         await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Statistics');
         assert.equal(await panel.getByText('Solved in 3 guesses', {exact: true}).isVisible(), false);
         assert.equal(await panel.getByRole('button', {name: 'View results'}).count(), 0);
-        if (!options.isMobile) await panel.getByRole('complementary', {name: 'Family statistics'}).getByText('4 puzzles', {exact: false}).waitFor();
+        await stats.getByText('in 4 puzzles played').waitFor();
         await page.request.post(origin + '/fixture/wordle-member/-1/true');
         await panel.getByRole('button', {name: /^June, 2 of 6 guesses/}).press('Enter');
         await member.locator('.dw-inspect li[aria-label*="G, absent"]').waitFor();
@@ -145,17 +149,27 @@ async function dailyPlay(name, engine, options) {
         await page.waitForFunction(() => document.activeElement?.id === 'dw-board-june');
         await theme.press('Enter');
         await statsButton.press('Enter');
-        await stats.getByText('Solved in 3 guesses', {exact: true}).waitFor();
-        await stats.getByText('3 wins in 4 puzzles').waitFor();
-        await stats.getByText('2 of 2 finished · 2 solved').waitFor();
-        assert(await stats.getByRole('button', {name: 'Close statistics'}).evaluate(node => node === document.activeElement));
-        await juneDetails.getByRole('heading', {name: 'Today’s guesses'}).waitFor();
-        assert.match(await juneDetails.locator('.dw-inspect li').first().getAttribute('aria-label'), /G, absent.*R, right spot/);
-        await juneDetails.getByText('3 guesses', {exact: true}).waitFor();
+        await stats.getByText('3 wins', {exact: true}).waitFor();
+        await stats.getByText('2 of 2 finished').waitFor();
+        await stats.getByText('4 days').first().waitFor();
+        await stats.getByRole('heading', {name: 'Rounds won'}).waitFor();
+        await junePlayer.getByText('Average guesses to solve').waitFor();
+        await junePlayer.getByText('2.5', {exact: true}).waitFor();
+        await junePlayer.getByText('Slowest word').waitFor();
+        await junePlayer.getByText('Today’s guesses').waitFor();
+        await junePlayer.locator('summary').press('Enter');
+        assert.match(await junePlayer.locator('.dw-inspect li').first().getAttribute('aria-label'), /G, absent.*R, right spot/);
+        // Grade icons and times keep one column each, however long the "(N left)" text is.
+        const inspectRows = junePlayer.locator('.dw-inspect-meta');
+        const columns = await inspectRows.evaluateAll(rows => rows.map(row => ({
+            icon: Math.round(row.querySelector('.dw-grade-icon')?.getBoundingClientRect().left ?? -1),
+            time: Math.round(row.querySelector('.dw-guess-time')?.getBoundingClientRect().right ?? -1)})));
+        assert(columns.length > 1 && new Set(columns.map(column => column.icon)).size === 1, `${name} grade icons share a column: ${JSON.stringify(columns)}`);
+        assert(new Set(columns.map(column => column.time)).size === 1, `${name} guess times share a column`);
+        assert(await stats.evaluate(node => node.scrollWidth <= node.clientWidth), `${name} statistics fit the width`);
         if (capture) await stats.screenshot({path: path.join(capture, name + '-stats.png')});
-        await page.keyboard.press('Escape');
-        await stats.waitFor({state: 'hidden'});
-        await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Statistics');
+        await stats.getByRole('button', {name: 'Back to puzzle'}).press('Enter');
+        await page.waitForFunction(() => document.activeElement?.classList.contains('daily-wordle'));
         assert.deepEqual(errors, []);
         console.log(name + ' Wordle board, guesses, conflict, results, theme and focus passed');
     } finally { await browser.close(); }
@@ -179,6 +193,34 @@ async function preferences() {
         await page.waitForFunction(() => document.querySelector('.daily-wordle')?.dataset.playing === 'true');
         assert.equal(await page.getByRole('button', {name: /^June,/}).count(), 0);
         console.log('Wordle spoiler setting saved and hid family boards');
+    } finally { await browser.close(); }
+}
+
+async function recapOnce() {
+    const browser = await chromium.launch();
+    try {
+        const page = await browser.newPage({reducedMotion: 'reduce'});
+        await page.request.post(origin + '/fixture/startup/wordle-recap');
+        await page.request.post(origin + '/fixture/wordle-reset/86400');
+        await page.request.post(origin + '/fixture/wordle-member/-1/false');
+        const panel = await openWordle(page);
+        const recap = page.getByRole('dialog', {name: 'Yesterday’s results'});
+        await recap.waitFor();
+        await recap.getByText('GRAPE', {exact: true}).waitFor();
+        await recap.getByText('Hard Mode rules', {exact: true}).waitFor();
+        assert.match(await recap.getByRole('listitem').first().getAttribute('aria-label'), /^1\. June, solved in 3 guesses, 0:41 active time, Hard Mode rules, won the round/);
+        await recap.getByText('Did not play: Sam').waitFor();
+        await page.keyboard.press('Escape');
+        await recap.waitFor({state: 'hidden'});
+        assert(await page.evaluate(() => document.activeElement !== document.body), 'closing the recap keeps focus on the page');
+        // The same day shows it once: leaving and coming back does not open it again.
+        await page.locator('#open-hub').click();
+        await page.getByRole('button', {name: /^Daily Wordle\b/}).click();
+        await page.getByRole('heading', {name: 'Wordle', exact: true}).waitFor();
+        await page.waitForFunction(() => document.querySelector('.daily-wordle')?.dataset.playing === 'true');
+        await page.waitForTimeout(600);
+        assert.equal(await recap.isVisible(), false);
+        console.log('Yesterday’s results opened once and returned focus');
     } finally { await browser.close(); }
 }
 
@@ -292,9 +334,7 @@ async function liveFamily() {
         await page.keyboard.press('Enter');
         await panel.locator('.dw-row').nth(2).locator('.dw-win').last().waitFor();
         assert.equal(await panel.locator('.dw-family-card').first().getAttribute('id'), 'dw-board-june');
-        await panel.getByRole('complementary', {name: 'Family statistics'}).getByRole('heading', {name: 'Winning guesses'}).waitFor();
-        const [center, aside] = await Promise.all([panel.locator('.dw-shell').boundingBox(), panel.locator('.dw-server-stats').boundingBox()]);
-        assert(aside.x >= center.x + center.width);
+        await panel.locator('.dw-stats-page').getByRole('heading', {name: 'Winning guesses'}).waitFor();
         console.log('Live family presence, draft deletion, committed tiles, focus and flip timing passed');
     } finally {
         await member(-1);
@@ -446,6 +486,7 @@ async function boardFit() {
     }
     if (process.env.WORDLE_ONLY === 'grades') return;
     await boardFit();
+    await recapOnce();
     await rollover();
     await localScoring();
     await liveFamily();

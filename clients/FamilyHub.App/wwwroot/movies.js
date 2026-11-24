@@ -739,7 +739,7 @@ export function openMovies(host, session, app, viewer) {
                 if (reset) { offset = 0; rows.replaceChildren(); }
                 const wasFocused = document.activeElement === more;
                 let first;
-                for (const item of page.Items) {
+                for (const item of extra.accept ? page.Items.filter(extra.accept) : page.Items) {
                     const b = card(item, wide, grid);
                     rows.append(b); first ??= b;
                     if (item.Id === focusedCard?.dataset.itemId) successor ??= b;
@@ -748,6 +748,8 @@ export function openMovies(host, session, app, viewer) {
                 hasMore = !(offset >= page.TotalRecordCount || page.Items.length < 40);
                 more.hidden = !grid || !hasMore;
                 more.textContent = "Show more";
+                // A shelf whose titles all belong to an earlier shelf has nothing left to show.
+                if (extra.hideEmpty && !term && !rows.childElementCount && !hasMore) section.hidden = true;
                 if (status.textContent === "Could not load " + title.toLowerCase() + ".") status.textContent = "";
                 if (!offset && !term) {
                     if (extra.hideEmpty) section.hidden = true;
@@ -1381,9 +1383,14 @@ export function openMovies(host, session, app, viewer) {
         { params: { sortBy: "DateCreated", sortOrder: "Descending", limit: 20 }, hideEmpty: true, hideWhenAtMost: 8 });
     request("Genres", { userId: session.user, includeItemTypes: "Movie", sortBy: "SortName" }).then(genres => {
         if (!active) return;
-        for (const genre of (genres.Items ?? []).slice(0, 6))
-            shelf(genre.Name, "Movie", false, browse, "", life.signal,
-                { params: { genres: genre.Name }, lazy: true, hideEmpty: true });
+        // A film sits on one genre shelf only: the first of these shelves that lists one of its genres.
+        const shelves = (genres.Items ?? []).slice(0, 6).map(genre => genre.Name);
+        for (const [position, name] of shelves.entries()) {
+            const earlier = shelves.slice(0, position);
+            shelf(name, "Movie", false, browse, "", life.signal,
+                { params: { genres: name, fields: "Genres" }, lazy: true, hideEmpty: true,
+                    accept: item => !earlier.some(other => item.Genres?.includes(other)) });
+        }
     }).catch(() => {});
     shelf("Movies", "Movie"); shelf("TV episodes", "Episode");
     // Arrow keys (and a TV remote's directional pad) move between cards, rows and the billboard.

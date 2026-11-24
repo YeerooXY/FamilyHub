@@ -12,7 +12,7 @@ The iPhone source and build workflow are included. No Mac is available locally, 
 
 Enter the HTTPS FamilyHub server address, connect, then choose a profile. Use **Switch profile** to change profiles. The app keeps a protected profile's password in memory until you switch profiles or close the app. On the next launch, sign in again to use that profile online.
 
-The native profile flow requires `FAMILY_PROFILES: true`. Keep the service on the private family network. Set `PROFILE_PASSWORD_HASHES` before enabling administrator access, linking a profile to Jellyfin, or opening **Your files**. Ordinary shared profiles can keep one-tap selection. Legacy Navidrome web sign-in remains available with `FAMILY_PROFILES: false`. See [profile password setup](SECURITY_REVIEW.md#profile-password-setup).
+The native profile flow requires `FAMILY_PROFILES: true`. Keep the service on the private family network. Set `PROFILE_PASSWORD_HASHES` before enabling administrator access, linking a profile to Jellyfin, or opening **Your files**. Ordinary shared profiles can keep one-tap selection, or set `REQUIRE_PROFILE_PASSWORDS: true` to require a password on every family profile. Legacy Navidrome web sign-in remains available with `FAMILY_PROFILES: false`. See [profile password setup](SECURITY_REVIEW.md#profile-password-setup).
 
 On first enablement, `ALLOWED_USERS` seeds profiles with the exact existing usernames as IDs, preserving their playlists. New profiles receive stable generated IDs, with up to 12 profiles in total. Profiles and playback preferences are stored in `WORKSPACE/.family-profiles.json`. Every profile uses the same existing server music catalogue; profile selection does not copy or replace recordings.
 

@@ -154,6 +154,34 @@
         catch (Exception) { return $"Could not download {name}. Check the connection and try again."; }
     }
 
+    // Previews and thumbnails: the bytes come through the signed-in session and reach the page as a data address.
+    // A file over the limit, or one that cannot be read, returns an empty string and the page keeps its type tile.
+    [JSInvokable]
+    public async Task<string> FilesRead(string space, string path, long limit)
+    {
+        if (Session.Api is not { } api || limit <= 0 || limit > 32 * 1024 * 1024) return "";
+        try
+        {
+            using var response = await api.OpenFileAsync(space, path, closed.Token);
+            if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength is { } length && length > limit) return "";
+            var bytes = await response.Content.ReadAsByteArrayAsync(closed.Token);
+            if (bytes.LongLength > limit) return "";
+            return "data:" + MimeFor(path) + ";base64," + Convert.ToBase64String(bytes);
+        }
+        catch (Exception) { return ""; }
+    }
+
+    private static string MimeFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".png" => "image/png",
+        ".gif" => "image/gif",
+        ".webp" => "image/webp",
+        ".bmp" => "image/bmp",
+        ".avif" => "image/avif",
+        _ => "text/plain",
+    };
+
     [JSInvokable]
     public async Task<bool> FilesCopy(string text)
     {

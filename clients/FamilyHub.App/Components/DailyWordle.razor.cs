@@ -228,8 +228,7 @@ public partial class DailyWordle
             if (!disposed)
             {
                 Preferences.Default.Remove(SaveKey);
-                if (module != null && await module.InvokeAsync<bool>("isOpen", statsDialog))
-                    await Task.WhenAll(RefreshFamily(), LoadStats());
+                if (stats is not null) await Task.WhenAll(RefreshFamily(), LoadStats());
             }
         }
         catch (FamilyHubApiException error) when (error.StatusCode is 400 or 409 or 422)

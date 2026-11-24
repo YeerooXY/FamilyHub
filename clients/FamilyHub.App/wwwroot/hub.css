@@ -14,10 +14,11 @@ body:has(.workspace:is([data-app-view="Hub"], [data-app-view="Wordle"], [data-ap
 .workspace[data-app-view="Hub"] > main { padding:0; overflow:auto; }
 .hub-apps {
     --art:clamp(96px, min(26vw, 30vh), 380px); --hub-pad:clamp(14px, 2.4vw, 44px);
-    box-sizing:border-box; display:grid; grid-template-rows:auto minmax(0,1fr); gap:clamp(12px, 2.2vh, 30px);
+    box-sizing:border-box; display:grid; grid-template-rows:minmax(0,1fr);
     width:100%; min-height:calc(100dvh - var(--caption-height,56px)); margin:0; padding:var(--hub-pad);
 }
-.hub-apps #view-title { margin:0; font-size:clamp(30px,4.6vw,64px); letter-spacing:-.045em; line-height:1; }
+/* The page keeps its name for screen readers; the heading is not drawn. */
+.hub-apps .hub-title { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
 .hub-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-auto-rows:minmax(150px,1fr); gap:clamp(12px,1.8vw,28px); min-height:0; }
 .hub-grid .hub-card {
     position:relative; isolation:isolate; overflow:hidden; display:flex; align-items:flex-end; text-align:start;
@@ -67,3 +68,16 @@ body:has(.workspace:is([data-app-view="Hub"], [data-app-view="Wordle"], [data-ap
     }
     .sidebar #music-navigation .nav-button > .icon { width: 22px; flex: none; }
 }
+
+/* The Wordle tile: a live board of a game in progress. It carries no letters, so it stays text-free artwork. */
+.hub-board { position:absolute; right:4%; top:6%; height:86%; aspect-ratio:5 / 6; display:grid; grid-template-columns:repeat(5,1fr); grid-template-rows:repeat(6,1fr); gap:calc(var(--art) * .035);
+    padding:calc(var(--art) * .05); border-radius:calc(var(--art) * .08); background:linear-gradient(160deg,#2b2d33,#17181c); box-shadow:0 calc(var(--art) * .08) calc(var(--art) * .1) #000a, inset 0 1px #ffffff26;
+    transform:perspective(900px) rotateY(-14deg) rotateX(6deg) rotate(5deg); transition:transform .3s cubic-bezier(.2,.7,.2,1); }
+.hub-board i { border-radius:18%; box-shadow:inset 0 2px 0 #ffffff44, 0 calc(var(--art) * .018) 0 #0007; }
+.hub-board .correct { background:linear-gradient(150deg,#78c47d,#3f8a4a); }
+.hub-board .present { background:linear-gradient(150deg,#ecd35f,#b8942a); }
+.hub-board .absent { background:linear-gradient(150deg,#63666d,#3b3d42); }
+.hub-board .empty { background:#ffffff0d; box-shadow:inset 0 0 0 2px #ffffff3d; }
+@media (hover:hover) { .hub-card:hover .hub-board { transform:perspective(900px) rotateY(-10deg) rotateX(4deg) rotate(3deg) translateY(-6px) scale(1.04); } }
+@media (max-width:650px) { .hub-board { right:calc(var(--art) * .04); top:calc(var(--art) * .06); height:calc(var(--art) * 1.5); } }
+@media (prefers-reduced-motion:reduce) { .hub-board, .hub-card:hover .hub-board { transition:none; } }

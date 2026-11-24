@@ -278,6 +278,77 @@ def summarize(results, today):
                 best_streak=best, distribution=distribution)
 
 
+def followed_hard_rules(guesses, answer):
+    """True when every guess reused all greens and yellows revealed so far, as Hard Mode requires."""
+    clues = EMPTY_CLUES
+    for guess in guesses:
+        if not keep_clues(guess, clues):
+            return False
+        clues = add_clues(clues, guess, marks_for(guess, answer))
+    return True
+
+
+@dataclass(frozen=True)
+class Finished:
+    day: str
+    status: str
+    guesses: tuple
+    answer: str
+    active_ms: int | None
+    times: tuple
+    hard: bool
+
+
+def round_key(result):
+    """Lower wins: fewer guesses, then a game played by Hard Mode rules, then less active time.
+
+    Breaking the Hard Mode rules only loses a tie on guesses. Counting it as an extra guess instead would let a
+    five-guess Hard Mode game beat a four-guess game, which the ordinary rules allow.
+    """
+    return (len(result.guesses), 0 if result.hard else 1,
+            result.active_ms if result.active_ms is not None else float("inf"))
+
+
+def rank_round(results):
+    """Rank one day's finished games: solved games by round_key, then unsolved games level at the bottom."""
+    keys = {owner: (0, *round_key(result)) if result.status == "won" else (1,) for owner, result in results.items()}
+    return {owner: 1 + sum(other < key for other in keys.values()) for owner, key in keys.items()}
+
+
+def average(values, digits=1):
+    return round(sum(values) / len(values), digits) if values else None
+
+
+def member_insights(games, rounds_won, rounds_played):
+    won = [game for game in games if game.status == "won"]
+    guess_times = []
+    slowest = None
+    for game in games:
+        known = [(ms, word) for ms, word in zip(game.times, game.guesses) if isinstance(ms, (int, float)) and ms >= 0]
+        if known:
+            guess_times.extend(ms for ms, _ in known)
+            longest_guess = max(known)
+            if slowest is None or longest_guess[0] > slowest["ms"]:
+                slowest = dict(word=longest_guess[1], ms=int(longest_guess[0]), date=game.day)
+        elif game.active_ms and game.guesses:
+            guess_times.extend([game.active_ms / len(game.guesses)] * len(game.guesses))
+    timed = [game for game in games if game.active_ms]
+    hard = [game for game in games if game.hard]
+    hard_won = sum(game.status == "won" for game in hard)
+    longest = max(timed, key=lambda game: game.active_ms, default=None)
+    fastest_win = min((game for game in won if game.active_ms), key=lambda game: game.active_ms, default=None)
+    return dict(
+        win_percent=round(100 * len(won) / len(games)) if games else None,
+        average_guesses=average([len(game.guesses) for game in won]),
+        hard_played=len(hard), hard_won=hard_won,
+        hard_clear_percent=round(100 * hard_won / len(hard)) if hard else None,
+        average_ms_per_guess=round(sum(guess_times) / len(guess_times)) if guess_times else None,
+        average_ms_per_game=round(sum(game.active_ms for game in timed) / len(timed)) if timed else None,
+        longest_game=dict(ms=longest.active_ms, date=longest.day) if longest else None,
+        shortest_game=dict(ms=fastest_win.active_ms, date=fastest_win.day) if fastest_win else None,
+        slowest_word=slowest, rounds_won=rounds_won, rounds_played=rounds_played)
+
+
 class WordPuzzles:
     def __init__(self, workspace, answer_for, error, writer=None):
         self.database = state_path(workspace, ".word-puzzles.sqlite3")
@@ -519,17 +590,24 @@ class WordPuzzles:
     def stats(self, profile, day, profiles):
         key = day.isoformat()
         results = defaultdict(list)
+        finished = defaultdict(list)
         favorites = defaultdict(list)
-        with self.activity_lock:
-            db = self.memory
+        with closing(self.connect()) as db:
             reveal = self.finished(db, profile, key)
             hide = not reveal and self.hides_family(db, profile)
-            for owner, result_day, status, guesses in db.execute("""
-                SELECT profile, day, status, guess_count FROM progress
-                WHERE status != 'playing' AND day <= ? ORDER BY day
+            for owner, result_day, status, guesses, answer, active_ms, raw_times in db.execute("""
+                SELECT progress.profile, progress.day, progress.status, progress.guesses, puzzle.answer,
+                       progress.active_ms, progress.guess_times_ms
+                FROM progress JOIN puzzle USING(day)
+                WHERE progress.status != 'playing' AND progress.day <= ? ORDER BY progress.day
                 """, (key,)):
-                if not hide or owner == profile or result_day != key:
-                    results[owner].append((result_day, status, guesses))
+                if hide and owner != profile and result_day == key:
+                    continue
+                words = tuple(json.loads(guesses))
+                results[owner].append((result_day, status, len(words)))
+                finished[owner].append(Finished(result_day, status, words, answer, active_ms,
+                                                tuple(json.loads(raw_times)) if raw_times else (),
+                                                followed_hard_rules(words, answer)))
             for owner, word, count in db.execute("""
                 SELECT progress.profile, value, count(*) FROM progress, json_each(progress.guesses)
                 WHERE day < ? OR (day = ? AND (progress.profile = ? OR ?))
@@ -551,7 +629,51 @@ class WordPuzzles:
                              today=None if hide else dict(completed=len(today_results), won=today_results.count("won"),
                                                           members=len(family)))
         return dict(personal=summarize(results[profile], day), family=family,
-                    family_totals=family_totals, history=history)
+                    family_totals=family_totals, history=history,
+                    insights=self.insights(day, profiles, finished))
+
+    @staticmethod
+    def insights(day, profiles, finished):
+        """Round results, streaks and averages. A round is a finished day with at least two players. Today is left
+        out until the day ends, so nobody wins a round by finishing first."""
+        today = day.isoformat()
+        by_day = defaultdict(dict)
+        for person in profiles:
+            for game in finished[person["id"]]:
+                by_day[game.day][person["id"]] = game
+        rounds_won, rounds_played = Counter(), Counter()
+        for round_day, games in by_day.items():
+            if round_day >= today or len(games) < 2:
+                continue
+            ranks = rank_round(games)
+            for owner in games:
+                rounds_played[owner] += 1
+                rounds_won[owner] += ranks[owner] == 1 and games[owner].status == "won"
+        members = {person["id"]: member_insights(finished[person["id"]], rounds_won[person["id"]],
+                                                 rounds_played[person["id"]]) for person in profiles}
+        names = {person["id"]: person["name"] for person in profiles}
+        solved_days = sorted(round_day for round_day, games in by_day.items()
+                             if any(game.status == "won" for game in games.values()))
+        streak = summarize([(round_day, "won", 1) for round_day in solved_days], day)
+        recap = None
+        yesterday = (day - ONE_DAY).isoformat()
+        if yesterday in by_day:
+            games = by_day[yesterday]
+            ranks = rank_round(games)
+            order = sorted(games, key=lambda owner: (ranks[owner], names[owner].casefold()))
+            recap = dict(
+                date=yesterday, answer=next(iter(games.values())).answer,
+                missed=[names[person["id"]] for person in profiles if person["id"] not in games],
+                results=[dict(profile_id=owner, name=names[owner], status=games[owner].status,
+                              guesses=len(games[owner].guesses), active_ms=games[owner].active_ms,
+                              hard=games[owner].hard, rank=ranks[owner],
+                              winner=ranks[owner] == 1 and games[owner].status == "won" and len(games) > 1)
+                         for owner in order])
+        return dict(members=members,
+                    family=dict(current_streak=streak["current_streak"], best_streak=streak["best_streak"],
+                                rounds=sum(1 for round_day, games in by_day.items()
+                                           if round_day < today and len(games) > 1)),
+                    recap=recap)
 
 
 def register(app, workspace, require_family, profiles, body, api_error, daily_answer=None, *, writer=None):

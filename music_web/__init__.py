@@ -115,6 +115,7 @@ DEFAULTS = {
     "BROWSER_PLAYER": True,
     "ADMIN_USERS": [],
     "PROFILE_PASSWORD_HASHES": {},
+    "REQUIRE_PROFILE_PASSWORDS": False,
     "AUTO_RESOLUTIONS_PER_HOUR": DEFAULT_AUTO_RESOLUTIONS_PER_HOUR,
     "SECRET_FILE": "/etc/familyhub/music-web.secret",
     "MAX_UPLOAD": MAX_UPLOAD,
@@ -198,6 +199,7 @@ def create_app(test_config=None):
     state_writer = StateWriter()
     allowed = set(cfg["ALLOWED_USERS"])
     family_mode = cfg.get("FAMILY_PROFILES") is True
+    require_profile_passwords = family_mode and cfg.get("REQUIRE_PROFILE_PASSWORDS") is True
     profile_store = ProfileStore(cfg, allowed, writer=state_writer) if family_mode else None
     password_file = state_path(cfg, ".profile-passwords.json")
     password_hashes = dict(cfg["PROFILE_PASSWORD_HASHES"])
@@ -208,6 +210,9 @@ def create_app(test_config=None):
         pass
     password_lock = threading.Lock()
     protected_profiles = set(password_hashes) | set(cfg["ADMIN_USERS"]) | set(cfg.get("JELLYFIN_PROFILES", {}))
+
+    def is_protected_profile(user):
+        return require_profile_passwords or user in protected_profiles
     max_upload = cfg["MAX_UPLOAD"]
 
     app = Flask(__name__)
@@ -336,10 +341,10 @@ def create_app(test_config=None):
         sid = session.get("sid")
         with session_lock:
             s = sessions.get(sid) if isinstance(sid, str) else None
-            if s and s["expiry"] > time.time():
+            if s and s["expiry"] > time.time() and (not require_profile_passwords or s["user"] in password_hashes):
                 return s["user"]
             sessions.pop(sid, None)
-            if family_mode and session.get("family_profile") and session["family_profile"] not in protected_profiles:
+            if family_mode and session.get("family_profile") and not is_protected_profile(session["family_profile"]):
                 try:
                     profile = profile_store.get(session["family_profile"])
                 except ProfileError:
@@ -399,7 +404,8 @@ def create_app(test_config=None):
     def stream_ticket_user():
         user, expires, ticket = (request.args.get(k, "") for k in ("user", "expires", "ticket"))
         if (not user or not re.fullmatch(r'[0-9]{1,12}', expires) or not re.fullmatch(r'[a-f0-9]{64}', ticket)
-                or int(expires) < time.time() or int(expires) > time.time() + STREAM_SECONDS + 60):
+                or int(expires) < time.time() or int(expires) > time.time() + STREAM_SECONDS + 60
+                or require_profile_passwords and user not in password_hashes):
             return None
         return user if hmac.compare_digest(stream_signature(user, request.path, expires), ticket) else None
 
@@ -517,20 +523,21 @@ def create_app(test_config=None):
             sessions[sid] = {"user": user, "expiry": now + hours * 3600, "activity_header": activity_header}
         session.permanent = remember
         session["sid"] = sid
-        if family_mode and user not in protected_profiles:
+        if family_mode and not is_protected_profile(user):
             session["family_profile"] = user
 
+    def profile_entry(profile):
+        if is_protected_profile(profile["id"]):
+            profile = dict(profile, requires_password=True)
+            if profile["id"] not in password_hashes:
+                profile["needs_password_setup"] = True
+        return profile
+
     def family_profile_list():
-        profiles = profile_store.list()
-        for profile in profiles:
-            if profile["id"] in protected_profiles:
-                profile["requires_password"] = True
-                if profile["id"] not in password_hashes:
-                    profile["needs_password_setup"] = True
-        return profiles
+        return [profile_entry(profile) for profile in profile_store.list()]
 
     def verify_profile_password(user, password):
-        if user not in protected_profiles:
+        if not is_protected_profile(user):
             return
         if not (allow("profile-login", 30, 300) and allow("profile-login:" + user, 8, 300)):
             raise ApiError("Too many attempts. Wait a few minutes.", 429)
@@ -555,7 +562,7 @@ def create_app(test_config=None):
             raise ApiError("Too many profiles created. Try again later.", 429)
         with catalogue_lock:
             profile = profile_store.create(body().get("name"))
-        return jsonify(profile=profile), 201
+        return jsonify(profile=profile_entry(profile)), 201
 
     @app.patch("/api/profile/name")
     def rename_family_profile():
@@ -573,7 +580,7 @@ def create_app(test_config=None):
         data = body()
         profile = profile_store.get(data.get("profile_id"))
         password = data.get("password")
-        if profile["id"] not in protected_profiles:
+        if not is_protected_profile(profile["id"]):
             raise ApiError("This profile does not use a password.", 400)
         if not isinstance(password, str) or not 8 <= len(password) <= 256:
             raise ApiError("Use a password of 8 to 256 characters.", 400)
@@ -3495,7 +3502,8 @@ def create_app(test_config=None):
     def session_is_live(sid, user):
         with session_lock:
             active = sessions.get(sid)
-            return bool(active and active['user'] == user and active['expiry'] > time.time())
+            return bool(active and active['user'] == user and active['expiry'] > time.time()
+                        and (not require_profile_passwords or user in password_hashes))
 
     register_movies(app, cfg, body, allow, session_is_live)
     from .files import register_files

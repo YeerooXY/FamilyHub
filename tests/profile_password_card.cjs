@@ -55,6 +55,9 @@ const disabled = (page, value, message) => page.waitForFunction(v => (document.q
                     assert.equal(animation.timing.duration, 280);
                 }
                 await page.screenshot({path: path.join(output, `${name}-${label}-empty.png`)});
+                // No browser bubble: the form skips native validation, and the disabled button already says what is missing.
+                assert.equal(await card.evaluate(form => form.noValidate), true, name + ': native validation bubble is off');
+                assert.equal(await submit.getAttribute('aria-disabled'), 'true', name + ': the button shows it is not ready');
                 // Eye toggle
                 await typeIs(page, '#profile-password', 'password');
                 await card.locator('.password-eye').click();

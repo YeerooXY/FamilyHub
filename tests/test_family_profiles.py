@@ -1,10 +1,12 @@
 """Passwordless profiles are available only on an explicitly enabled family server."""
 import json
+import logging
+import time
 import unittest
 from unittest import mock
 
-from test_music_web import Base, ORIGIN
-from music_web import create_app
+from test_music_web import Base, ORIGIN, PASSWORD, PROFILE_HASH
+from music_web import DEFAULTS, create_app
 from music_web.playlists import PlaylistStore
 from music_web.profiles import ProfileStore
 
@@ -305,6 +307,230 @@ class FamilyProfiles(Base):
         self.assertEqual(response.status_code, 302)
         self.ping.assert_not_called()
         self.assertEqual(self.go(client, 'GET', '/api/playlists').json['playlists'][0]['name'], 'Legacy')
+
+
+class RequireProfilePasswords(Base):
+    extra = {'FAMILY_PROFILES': True, 'REQUIRE_PROFILE_PASSWORDS': True,
+             'PROFILE_PASSWORD_HASHES': {'sample-a': PROFILE_HASH}}
+
+    def make_app(self, **overrides):
+        app = create_app({**self.settings, **overrides})
+        self.addCleanup(app.extensions['music'].close_state)
+        return app
+
+    def test_flag_defaults_false_and_keeps_ordinary_profiles_passwordless(self):
+        self.assertFalse(DEFAULTS['REQUIRE_PROFILE_PASSWORDS'])
+        app = self.make_app(REQUIRE_PROFILE_PASSWORDS=False, PROFILE_PASSWORD_HASHES={})
+        client = app.test_client()
+        boot = self.go(client, 'GET', '/api/connect').json
+        for profile in boot['profiles']:
+            self.assertNotIn('requires_password', profile)
+            self.assertNotIn('needs_password_setup', profile)
+        selected = self.post(client, boot['csrf_token'], '/api/profile/select', json={'profile_id': 'sample-b'})
+        self.assertEqual(selected.status_code, 200, selected.json)
+        self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 200)
+        setup = self.post(client, selected.json['csrf_token'], '/api/profile/password-setup',
+                          json={'profile_id': 'sample-b', 'password': 'long enough pass'})
+        self.assertEqual(setup.status_code, 400)
+        created = self.post(client, selected.json['csrf_token'], '/api/profiles', json={'name': 'Ordinary'})
+        self.assertEqual(created.status_code, 201, created.json)
+        self.assertNotIn('requires_password', created.json['profile'])
+        self.assertNotIn('needs_password_setup', created.json['profile'])
+
+    def test_flag_on_requires_passwords_for_all_profiles_and_guides_unset_setup(self):
+        client = self.app.test_client()
+        boot = self.go(client, 'GET', '/api/connect').json
+        profiles = {p['id']: p for p in boot['profiles']}
+        self.assertTrue(profiles['sample-a']['requires_password'])
+        self.assertNotIn('needs_password_setup', profiles['sample-a'])
+        self.assertTrue(profiles['sample-b']['requires_password'])
+        self.assertTrue(profiles['sample-b']['needs_password_setup'])
+
+        for payload in ({'profile_id': 'sample-b'}, {'profile_id': 'sample-b', 'password': 'long enough pass'}):
+            blocked = self.post(client, boot['csrf_token'], '/api/profile/select', json=payload)
+            self.assertEqual(blocked.status_code, 403)
+            self.assertEqual(blocked.json['error'], 'Ask the server owner to set a password for this profile.')
+            self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 401)
+
+        browser_token = self.token(client, '/login')
+        browser_blocked = self.go(client, 'POST', '/login', data={'profile_id': 'sample-b', 'csrf_token': browser_token})
+        self.assertEqual(browser_blocked.status_code, 403)
+        self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 401)
+
+        short = self.post(client, boot['csrf_token'], '/api/profile/password-setup',
+                          json={'profile_id': 'sample-b', 'password': 'short'})
+        self.assertEqual(short.status_code, 400)
+        self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 401)
+
+        made = self.post(client, boot['csrf_token'], '/api/profile/password-setup',
+                         json={'profile_id': 'sample-b', 'password': 'family member pass'})
+        self.assertEqual(made.status_code, 200, made.json)
+        self.assertEqual(self.go(client, 'GET', '/api/profile/preferences').status_code, 200)
+        with client.session_transaction(base_url=ORIGIN) as cookie:
+            self.assertNotIn('family_profile', cookie)
+
+        other = self.app.test_client()
+        refreshed = self.go(other, 'GET', '/api/connect').json
+        sample_b = next(p for p in refreshed['profiles'] if p['id'] == 'sample-b')
+        self.assertTrue(sample_b['requires_password'])
+        self.assertNotIn('needs_password_setup', sample_b)
+        again = self.post(other, refreshed['csrf_token'], '/api/profile/password-setup',
+                          json={'profile_id': 'sample-b', 'password': 'another long pass'})
+        self.assertEqual(again.status_code, 409)
+        signed = self.post(other, refreshed['csrf_token'], '/api/profile/select',
+                           json={'profile_id': 'sample-b', 'password': 'family member pass'})
+        self.assertEqual(signed.status_code, 200, signed.json)
+
+        restarted = self.make_app()
+        after = restarted.test_client()
+        boot_after = self.go(after, 'GET', '/api/connect').json
+        saved = next(p for p in boot_after['profiles'] if p['id'] == 'sample-b')
+        self.assertTrue(saved['requires_password'])
+        self.assertNotIn('needs_password_setup', saved)
+        signed_after = self.post(after, boot_after['csrf_token'], '/api/profile/select',
+                                 json={'profile_id': 'sample-b', 'password': 'family member pass'})
+        self.assertEqual(signed_after.status_code, 200, signed_after.json)
+
+    def test_profile_with_hash_signs_in_and_wrong_password_message_is_unchanged(self):
+        client = self.app.test_client()
+        token = self.go(client, 'GET', '/api/connect').json['csrf_token']
+        missing = self.post(client, token, '/api/profile/select', json={'profile_id': 'sample-a'})
+        self.assertEqual(missing.status_code, 403)
+        self.assertEqual(missing.json['error'], 'Enter the password for this profile.')
+        wrong = self.post(client, token, '/api/profile/select', json={'profile_id': 'sample-a', 'password': 'wrong pass'})
+        self.assertEqual(wrong.status_code, 403)
+        self.assertEqual(wrong.json['error'], 'Incorrect password. Try again.')
+        ok = self.post(client, token, '/api/profile/select', json=self.profile_credentials('sample-a'))
+        self.assertEqual(ok.status_code, 200, ok.json)
+        self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 200)
+        with client.session_transaction(base_url=ORIGIN) as cookie:
+            self.assertNotIn('family_profile', cookie)
+        browser = self.app.test_client()
+        login_reply = self.go(browser, 'POST', '/login', data={
+            'profile_id': 'sample-a', 'password': PASSWORD, 'csrf_token': self.token(browser, '/login')})
+        self.assertEqual(login_reply.status_code, 302)
+        self.assertEqual(self.go(browser, 'GET', '/api/library').status_code, 200)
+
+    def test_stale_session_cookie_for_unset_profile_is_rejected(self):
+        old_app = self.make_app(REQUIRE_PROFILE_PASSWORDS=False, PROFILE_PASSWORD_HASHES={})
+        old_client = old_app.test_client()
+        old_boot = self.go(old_client, 'GET', '/api/connect').json
+        selected = self.post(old_client, old_boot['csrf_token'], '/api/profile/select', json={'profile_id': 'sample-b'})
+        self.assertEqual(selected.status_code, 200, selected.json)
+        cookie = old_client.get_cookie('familyhub_music', domain='music.test')
+
+        client = self.app.test_client()
+        client.set_cookie('familyhub_music', cookie.value, domain='music.test')
+        self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 401)
+        self.assertEqual(self.go(client, 'GET', '/api/profile/preferences').status_code, 401)
+        home = self.go(client, 'GET', '/')
+        self.assertEqual((home.status_code, home.headers['Location']), (302, '/login'))
+
+        # Even an existing in-memory session for an unset profile is rejected once passwords are required.
+        live = self.app.test_client()
+        self.state.sessions['stale-unset-sid'] = {'user': 'sample-b', 'expiry': time.time() + 3600}
+        with live.session_transaction(base_url=ORIGIN) as session:
+            session['sid'] = 'stale-unset-sid'
+            session['family_profile'] = 'sample-b'
+        self.assertEqual(self.go(live, 'GET', '/api/library').status_code, 401)
+        self.assertNotIn('stale-unset-sid', self.state.sessions)
+
+    def test_creating_profile_forces_password_setup_before_session(self):
+        client = self.app.test_client()
+        token = self.go(client, 'GET', '/api/connect').json['csrf_token']
+        created = self.post(client, token, '/api/profiles', json={'name': 'New member'})
+        self.assertEqual(created.status_code, 201, created.json)
+        profile = created.json['profile']
+        self.assertTrue(profile['requires_password'])
+        self.assertTrue(profile['needs_password_setup'])
+        self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 401)
+
+        listed = next(p for p in self.go(client, 'GET', '/api/connect').json['profiles'] if p['id'] == profile['id'])
+        self.assertTrue(listed['requires_password'])
+        self.assertTrue(listed['needs_password_setup'])
+
+        blocked = self.post(client, token, '/api/profile/select', json={'profile_id': profile['id']})
+        self.assertEqual(blocked.status_code, 403)
+        self.assertEqual(blocked.json['error'], 'Ask the server owner to set a password for this profile.')
+        self.assertEqual(self.go(client, 'GET', '/api/library').status_code, 401)
+
+        browser = self.app.test_client()
+        browser_create = self.go(browser, 'POST', '/login', data={
+            'action': 'create', 'name': 'Browser member', 'csrf_token': self.token(browser, '/login')})
+        self.assertEqual(browser_create.status_code, 403)
+        self.assertEqual(self.go(browser, 'GET', '/api/library').status_code, 401)
+
+        setup = self.post(client, token, '/api/profile/password-setup',
+                          json={'profile_id': profile['id'], 'password': 'new member pass'})
+        self.assertEqual(setup.status_code, 200, setup.json)
+        self.assertEqual(self.go(client, 'GET', '/api/profile/preferences').status_code, 200)
+
+        fresh = self.app.test_client()
+        fresh_boot = self.go(fresh, 'GET', '/api/connect').json
+        after = next(p for p in fresh_boot['profiles'] if p['id'] == profile['id'])
+        self.assertTrue(after['requires_password'])
+        self.assertNotIn('needs_password_setup', after)
+        signed = self.post(fresh, fresh_boot['csrf_token'], '/api/profile/select',
+                           json={'profile_id': profile['id'], 'password': 'new member pass'})
+        self.assertEqual(signed.status_code, 200, signed.json)
+
+    def test_passwords_never_appear_in_responses_or_logs(self):
+        captured = []
+
+        class Capture(logging.Handler):
+            def emit(self, record):
+                captured.append(self.format(record))
+
+        handler = Capture(logging.DEBUG)
+        root = logging.getLogger()
+        previous_level = root.level
+        root.addHandler(handler)
+        root.setLevel(logging.DEBUG)
+        self.addCleanup(lambda: (root.removeHandler(handler), root.setLevel(previous_level)))
+
+        secrets_used = (
+            PASSWORD,
+            'wrong-secret-alpha',
+            'unset-secret-beta',
+            'tiny777',
+            'valid-secret-gamma',
+            'dup-secret-delta',
+            'login-wrong-epsilon',
+            PROFILE_HASH,
+        )
+        client = self.app.test_client()
+        responses = []
+        connect = self.go(client, 'GET', '/api/connect')
+        responses.append(connect)
+        token = connect.json['csrf_token']
+        responses.append(self.post(client, token, '/api/profile/select',
+                                   json={'profile_id': 'sample-a', 'password': 'wrong-secret-alpha'}))
+        responses.append(self.post(client, token, '/api/profile/select',
+                                   json={'profile_id': 'sample-b', 'password': 'unset-secret-beta'}))
+        responses.append(self.post(client, token, '/api/profile/password-setup',
+                                   json={'profile_id': 'sample-b', 'password': 'tiny777'}))
+        responses.append(self.post(client, token, '/api/profile/password-setup',
+                                   json={'profile_id': 'sample-b', 'password': 'valid-secret-gamma'}))
+        other = self.app.test_client()
+        other_token = self.go(other, 'GET', '/api/connect').json['csrf_token']
+        responses.append(self.post(other, other_token, '/api/profile/password-setup',
+                                   json={'profile_id': 'sample-b', 'password': 'dup-secret-delta'}))
+        responses.append(self.post(other, other_token, '/api/profile/select',
+                                   json={'profile_id': 'sample-a', 'password': PASSWORD}))
+        browser = self.app.test_client()
+        responses.append(self.go(browser, 'POST', '/login', data={
+            'profile_id': 'sample-a', 'password': 'login-wrong-epsilon', 'csrf_token': self.token(browser, '/login')}))
+        responses.append(self.go(other, 'GET', '/api/connect'))
+
+        output = '\n'.join(captured)
+        for response in responses:
+            body_text = response.get_data(as_text=True)
+            cookies = '\n'.join(response.headers.getlist('Set-Cookie'))
+            for secret in secrets_used:
+                self.assertNotIn(secret, body_text)
+                self.assertNotIn(secret, cookies)
+        for secret in secrets_used:
+            self.assertNotIn(secret, output)
 
 
 if __name__ == '__main__':

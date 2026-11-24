@@ -61,7 +61,7 @@
     height: 100%;
     margin-inline: auto;
     display: grid;
-    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 .daily-wordle .dw-play-area {
     overflow-y: auto;
@@ -96,14 +96,6 @@
 }
 .daily-wordle .dw-sun, .daily-wordle[data-theme="dark"] .dw-moon { display: none; }
 .daily-wordle[data-theme="dark"] .dw-sun { display: block; }
-.daily-wordle .dw-context {
-    display: flex;
-    align-items: center;
-    padding: 7px 3px 0;
-    color: var(--dw-muted);
-    font-size: 12px;
-    min-height: 26px;
-}
 .daily-wordle .dw-message {
     display: grid;
     place-items: center;
@@ -372,19 +364,6 @@
     background: var(--dw-paper);
 }
 .daily-wordle .dw-family-card:hover { border-color: var(--dw-muted); }
-.daily-wordle .dw-server-stats {
-    position: absolute;
-    top: 9px;
-    right: 11px;
-    width: min(208px, calc((100% - 480px) / 2 - 20px));
-    padding: 12px;
-    border: 1px solid var(--dw-line);
-    border-radius: 8px;
-}
-.daily-wordle .dw-server-stats h2 { margin: 0 0 10px; font-size: 15px; }
-.daily-wordle .dw-server-stats p { margin: 8px 0 0; font-size: 13px; color: var(--dw-muted); }
-.daily-wordle .dw-server-stats strong { display: block; color: var(--dw-ink); }
-.daily-wordle .dw-server-stats h3 { margin: 14px 0 6px; font-size: 13px; }
 .daily-wordle .dw-playing-dot {
     position: absolute;
     inset-block-end: 5px;
@@ -406,14 +385,10 @@
 .dw-mini .correct { background: var(--dw-green); border-color: var(--dw-green); }
 .dw-mini .present { background: var(--dw-yellow); border-color: var(--dw-yellow); }
 .dw-mini .absent { background: var(--dw-gray); border-color: var(--dw-gray); }
-@media (max-width: 800px) {
-    .daily-wordle .dw-server-stats { display: none; }
-}
 @media (max-width: 720px) {
-    .daily-wordle { display: flex; flex-direction: column; padding-bottom: max(6px, env(safe-area-inset-bottom)); }
+    .daily-wordle { padding-bottom: max(6px, env(safe-area-inset-bottom)); }
     .daily-wordle .dw-header { min-height: 44px; grid-template-columns: 96px 1fr 96px; }
     .daily-wordle .dw-header h1 { font-size: 28px; }
-    .daily-wordle .dw-context { padding-top: 2px; min-height: 20px; }
     .daily-wordle .dw-message { min-height: 22px; }
     .daily-wordle .dw-play-area { padding-block: 2px; }
     .daily-wordle .dw-board { --dw-gap: 4px; --dw-board-pad: 6px; }
@@ -432,4 +407,66 @@
     .daily-wordle .dw-family-card .profile-avatar { width: 28px; height: 28px; }
     .daily-wordle .dw-playing-dot { inset-block-end: 3px; inset-inline-start: 24px; }
     .daily-wordle .dw-mini { grid-template-columns: repeat(5, 4px); grid-auto-rows: 4px; }
+}
+
+/* Statistics page: sits below the puzzle on the same scrolling surface. */
+.daily-wordle { overflow-y: auto; overflow-x: hidden; }
+.daily-wordle .dw-screen { position: relative; height: 100%; min-height: 0; }
+.daily-wordle .dw-stats-page { border-top: 1px solid var(--dw-line); padding: 20px 0 48px; }
+.daily-wordle .dw-stats-inner { width: min(100%, 960px); margin-inline: auto; display: grid; gap: 28px; }
+.daily-wordle .dw-stats-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.daily-wordle .dw-stats-head h2 { font: bold 28px Georgia, 'Times New Roman', serif; }
+.daily-wordle .dw-stats-page h3 { font-size: 18px; margin-bottom: 12px; }
+.daily-wordle .dw-stats-page h4 { font-size: 16px; margin-bottom: 10px; }
+.daily-wordle .dw-stats-page h4 small, .daily-wordle .dw-facts small, .daily-wordle .dw-leaders small { margin-inline-start: .35em; color: var(--dw-muted); font-weight: 400; font-size: 12px; }
+.daily-wordle .dw-note { color: var(--dw-muted); font-size: 13px; line-height: 1.5; margin-bottom: 12px; }
+.daily-wordle .dw-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.daily-wordle .dw-card { display: grid; gap: 4px; align-content: start; padding: 14px; border: 1px solid var(--dw-line); border-radius: 10px; background: var(--dw-soft); }
+.daily-wordle .dw-card dt { color: var(--dw-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.daily-wordle .dw-card dd:not(.dw-card-note) { font-size: 24px; font-weight: 700; }
+.daily-wordle .dw-card .dw-card-note { color: var(--dw-muted); font-size: 12px; line-height: 1.4; }
+.daily-wordle .dw-leaders { display: grid; gap: 10px; }
+.daily-wordle .dw-leaders li { display: grid; grid-template-columns: minmax(80px, 160px) minmax(0, 1fr) 76px; align-items: center; gap: 12px; }
+.daily-wordle .dw-leader-name { overflow-wrap: anywhere; }
+.daily-wordle .dw-leader-bar { height: 14px; border-radius: 7px; background: var(--dw-soft); overflow: hidden; }
+.daily-wordle .dw-leader-bar span { display: block; height: 100%; min-width: 4px; background: var(--dw-green); border-radius: 7px; }
+.daily-wordle .dw-leaders strong { text-align: end; font-variant-numeric: tabular-nums; }
+.daily-wordle .dw-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.daily-wordle .dw-player { padding: 16px; border: 1px solid var(--dw-line); border-radius: 10px; }
+.daily-wordle .dw-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
+.daily-wordle .dw-facts > div { display: grid; gap: 2px; align-content: start; }
+.daily-wordle .dw-facts dt { color: var(--dw-muted); font-size: 12px; }
+.daily-wordle .dw-facts dd { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.daily-wordle .dw-favorites { margin-top: 12px; font-size: 13px; color: var(--dw-muted); }
+.daily-wordle .dw-favorites span { margin-inline-end: 4px; font-weight: 700; color: var(--dw-ink); }
+.daily-wordle .dw-player details { margin-top: 12px; border-top: 1px solid var(--dw-line); }
+.daily-wordle .dw-player summary { min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+.daily-wordle .dw-player summary::-webkit-details-marker { display: none; }
+.daily-wordle .dw-player summary::before { content: "▸"; }
+.daily-wordle .dw-player [open] > summary::before { content: "▾"; }
+.daily-wordle .dw-distribution-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+.daily-wordle .dw-stats-group .dw-family { max-width: 420px; }
+
+/* Yesterday's results */
+.daily-wordle .dw-recap { display: grid; gap: 6px; margin-block: 14px; }
+.daily-wordle .dw-recap li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto 52px; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; background: var(--dw-soft); }
+.daily-wordle .dw-recap-winner { outline: 2px solid var(--dw-green); outline-offset: -2px; }
+.daily-wordle .dw-rank { font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
+.daily-wordle .dw-recap-name { overflow-wrap: anywhere; }
+.daily-wordle .dw-recap-name small { display: block; color: var(--dw-muted); font-size: 12px; }
+.daily-wordle .dw-recap-time { color: var(--dw-muted); text-align: end; font-variant-numeric: tabular-nums; }
+
+/* One column per kind of detail, so the grade icons and the times line up down the list. */
+.daily-wordle .dw-inspect-meta {
+    display: grid; grid-template-columns: minmax(0, 1fr) 32px 3.6em; align-items: center; gap: 0 4px;
+}
+.daily-wordle .dw-inspect-count { grid-column: 1; justify-self: end; white-space: nowrap; }
+.daily-wordle .dw-inspect-meta .dw-grade, .daily-wordle .dw-inspect-meta .dw-grade-icon { grid-column: 2; justify-self: center; }
+.daily-wordle .dw-inspect-meta .dw-guess-time { grid-column: 3; justify-self: end; margin-inline-start: 0; }
+
+@media (max-width: 720px) {
+    .daily-wordle .dw-screen { display: flex; flex-direction: column; }
+    .daily-wordle .dw-stats-page { padding-inline: 2px; }
+    .daily-wordle .dw-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .daily-wordle .dw-leaders li { grid-template-columns: minmax(70px, 110px) minmax(0, 1fr) 64px; }
 }

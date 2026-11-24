@@ -45,7 +45,7 @@ else if (EntryScreen)
                     @if (protectedProfile is { } selected)
                     {
                         var creating = selected.NeedsPasswordSetup;
-                        <form class="profile-password-card" @onsubmit="SignInToProfile" @onsubmit:preventDefault aria-labelledby="profile-password-title" aria-busy="@Aria(busy)">
+                        <form class="profile-password-card" novalidate @onsubmit="SignInToProfile" @onsubmit:preventDefault aria-labelledby="profile-password-title" aria-busy="@Aria(busy)">
                             <header class="profile-sign-in-identity">
                                 <ProfileAvatar Profile="selected" Size="128" />
                                 <h1 id="profile-password-title">@selected.Name</h1>
@@ -148,8 +148,8 @@ else
 <div class="workspace" data-app-view="@view"><main id="content" tabindex="-1">
     @if (view is not ("Playlists" or "Home" or "Album" or "Hub" or "Wordle")) { <h1 id="view-title" tabindex="-1">@(view == "Preferences" ? "Settings" : NavLabel(view))</h1> }
     <Notice Id="feedback" Level="@(error is not null ? "error" : radioProgress is not null ? "info" : Session.MessageLevel)"
-        Message="@(error ?? radioProgress ?? (Session.DownloadingId is null && Session.MessageLevel != "success" ? Session.Message : ""))"
-        ActionLabel="@RecoveryLabel" Action="RetryNotice" FocusTarget="@(searchFailed ? "#view-title" : "#play")" />
+        Message="@(error ?? radioProgress ?? (ConnectionLost && reconnectFailed ? ReconnectFailedText : Session.DownloadingId is null && Session.MessageLevel != "success" ? Session.Message : ""))"
+        ActionLabel="@RecoveryLabel" Action="RetryNotice" Busy="reconnecting" FocusTarget="@(searchFailed ? "#view-title" : ConnectionLost ? "#content" : "#play")" />
     @if (error is not null && playbackRetry is not null)
     { <button id="report-playback-problem" class="quiet" type="button" aria-haspopup="dialog" @onclick="OpenPlaybackFeedback">Report this problem</button> }
     @if (Session.DownloadingId is not null) { <DeviceDownloadProgress Status="@Session.DownloadStatus" /> }
@@ -925,9 +925,25 @@ else
     private string? RecoveryLabel => error is not null
         ? playbackRetry is not null && !Player.FollowingHost ? "Retry playback"
             : searchFailed ? "Retry search" : null
+        : ConnectionLost ? reconnecting ? "Reconnecting…" : "Reconnect"
         : Session.MessageLevel == "error" && Session.PlaybackMessage && Player.Current is not null && !Player.FollowingHost ? "Retry current song" : null;
     private Task RetryNotice() => error is not null && playbackRetry is { } retry ? RunPlayback(retry)
-        : searchFailed ? Search() : TogglePlayback();
+        : searchFailed ? Search() : error is null && ConnectionLost ? Reconnect() : TogglePlayback();
+
+    // The quiet retries give up after about half a minute. From then on the notice carries a Reconnect button that
+    // tries again at once and says so if the server is still out of reach.
+    private const string ReconnectFailedText = "Still can't reach the server. Check your connection, or turn on Tailscale if you are away from home, then try again.";
+    private bool reconnecting, reconnectFailed;
+    private bool ConnectionLost => error is null && !Session.Connected && !Session.NeedsProfileSelection && Session.Api is not null
+        && !string.IsNullOrEmpty(Session.User) && Session.DownloadingId is null && Session.MessageLevel == "warning";
+    private async Task Reconnect()
+    {
+        if (reconnecting) return;
+        reconnecting = true; reconnectFailed = false;
+        try { await Session.ReconnectAsync(); }
+        catch (Exception) { /* The session reports the failure; the notice below says what to do next. */ }
+        finally { reconnecting = false; reconnectFailed = !Session.Connected; }
+    }
     private async Task ResetLibraryNotice()
     {
         if (LibrarySource().Count > 0)

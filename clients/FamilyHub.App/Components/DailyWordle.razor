@@ -7,6 +7,7 @@
 
 <section class="daily-wordle" aria-labelledby="daily-wordle-title" @ref="surface" tabindex="-1"
          data-playing="@((puzzle?.Status == "playing").ToString().ToLowerInvariant())">
+    <div class="dw-screen">
     <aside class="dw-family-rail" aria-label="Family boards">
         @foreach (var (board, rows) in familyBoards.Select(board => (Board: board, Rows: BoardRows(board)))
             .OrderBy(entry => IsSolved(entry.Rows) ? entry.Rows.Length : 7)
@@ -40,7 +41,7 @@
             </button>
             <h1 id="daily-wordle-title">Wordle</h1>
             <div class="dw-actions">
-                <button class="dw-icon" type="button" aria-label="Statistics" title="Statistics" @ref="statsButton" @onclick="OpenStats">
+                <button class="dw-icon" type="button" aria-label="Statistics" title="Statistics" @ref="statsButton" @onclick="ShowStats">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16M6 20v-6h3v6m3 0V9h3v11m3 0V4h3v16"/></svg>
                 </button>
                 <button class="dw-icon dw-theme" type="button" aria-label="Dark theme" title="Dark theme" aria-pressed="false">
@@ -49,7 +50,7 @@
                 </button>
             </div>
         </header>
-        <div class="dw-context">
+        <div class="dw-context dw-visually-hidden">
             <span>@DayLabel</span>
         </div>
         <div class="dw-message" role="status" aria-atomic="true">
@@ -125,37 +126,134 @@
         </div>
     </div>
 
-    @if (Finished)
-    {
-        <aside class="dw-server-stats" aria-labelledby="dw-server-stats-title">
-            <h2 id="dw-server-stats-title">Family statistics</h2>
+    </div>
+
+    <section class="dw-stats-page" aria-labelledby="dw-stats-title" @ref="statsPage">
+        <div class="dw-stats-inner">
+            <header class="dw-stats-head">
+                <h2 id="dw-stats-title" tabindex="-1" @ref="statsHeading">Statistics</h2>
+                <button class="dw-text" type="button" @onclick="BackToPuzzle">Back to puzzle</button>
+            </header>
             <div role="status">
-                @if (stats?.FamilyTotals is { } totals)
-                {
-                    @if (totals.Today is { } today)
-                    {
-                        <p><strong>Today</strong> @today.Won solved, @today.Completed of @today.Members finished</p>
-                    }
-                    <p><strong>All time</strong> @totals.Won wins in @totals.Played puzzles</p>
-                    @if (totals.Distribution is { Length: 6 } distribution)
-                    {
-                        <h3>Winning guesses</h3>
-                        <ol class="dw-distribution">
-                            @for (var i = 0; i < distribution.Length; i++)
+                @if (loadingStats && stats is null) { <p>Loading statistics…</p> }
+                @if (statsError) { <p>Statistics are unavailable. <button class="dw-text" type="button" aria-disabled="@(loadingStats ? "true" : "false")" @onclick="RetryStats">Try again</button></p> }
+            </div>
+            @if (stats is { } data)
+            {
+                var insights = data.Insights;
+                <section class="dw-stats-group" aria-labelledby="dw-family-title">
+                    <h3 id="dw-family-title">Family</h3>
+                    <dl class="dw-cards">
+                        @if (insights?.Family is { } familyInsight)
+                        {
+                            <div class="dw-card"><dt>Family streak</dt><dd>@familyInsight.CurrentStreak @(familyInsight.CurrentStreak == 1 ? "day" : "days")</dd>
+                                <dd class="dw-card-note">Best @familyInsight.BestStreak @(familyInsight.BestStreak == 1 ? "day" : "days"). A day counts when someone solves the word.</dd></div>
+                        }
+                        @if (data.FamilyTotals is { } totals)
+                        {
+                            @if (totals.Today is { } today)
                             {
-                                <li aria-label="@($"{i + 1} guesses, {distribution[i]} wins")">
-                                    <span aria-hidden="true">@(i + 1)</span>
-                                    <span class="dw-bar" style="--dw-bar:@BarWidth(distribution[i], distribution)%" aria-hidden="true">@distribution[i]</span>
+                                <div class="dw-card"><dt>Today</dt><dd>@today.Completed of @today.Members finished</dd>
+                                    <dd class="dw-card-note">@today.Won @(today.Won == 1 ? "solve" : "solves") so far</dd></div>
+                            }
+                            <div class="dw-card"><dt>All time</dt><dd>@totals.Won wins</dd><dd class="dw-card-note">in @totals.Played puzzles played</dd></div>
+                        }
+                        @if (insights?.Family is { } rounds)
+                        {
+                            <div class="dw-card"><dt>Rounds played</dt><dd>@rounds.Rounds</dd><dd class="dw-card-note">Finished days with two or more players</dd></div>
+                        }
+                    </dl>
+                </section>
+                @if (insights is not null && data.Family.Length > 0)
+                {
+                    var leaders = data.Family.OrderByDescending(member => RoundsWonOf(member)).ThenBy(member => member.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+                    var most = Math.Max(1, leaders.Max(member => RoundsWonOf(member)));
+                    <section class="dw-stats-group" aria-labelledby="dw-rounds-title">
+                        <h3 id="dw-rounds-title">Rounds won</h3>
+                        <p class="dw-note">Fewest guesses wins the day. A tie goes to the game that followed Hard Mode rules, then to the faster time.</p>
+                        <ol class="dw-leaders">
+                            @foreach (var member in leaders)
+                            {
+                                var won = RoundsWonOf(member);
+                                var own = member.Id == Session.User;
+                                <li aria-label="@($"{member.Name}{(own ? " (you)" : "")}, {won} rounds won of {RoundsPlayedOf(member)}")">
+                                    <span class="dw-leader-name" aria-hidden="true">@member.Name@(own ? " (you)" : "")</span>
+                                    <span class="dw-leader-bar" aria-hidden="true"><span style="width:@(100 * won / most)%"></span></span>
+                                    <strong aria-hidden="true">@won<small> of @RoundsPlayedOf(member)</small></strong>
                                 </li>
                             }
                         </ol>
-                    }
+                    </section>
                 }
-                else if (statsError) { <p>Statistics are unavailable.</p> }
-                else { <p>@(syncFailed ? "Sync your result to see family totals." : "Loading statistics…")</p> }
-            </div>
-        </aside>
-    }
+                <section class="dw-stats-group" aria-labelledby="dw-players-title">
+                    <h3 id="dw-players-title">Players</h3>
+                    @if (data.Family.Length == 0) { <p>No family results yet.</p> }
+                    <div class="dw-players">
+                        @foreach (var member in data.Family.OrderByDescending(member => member.Id == Session.User).ThenByDescending(member => member.Won))
+                        {
+                            var facts = member.Id is { } memberId && insights?.Members is { } all && all.TryGetValue(memberId, out var found) ? found : null;
+                            var board = familyBoards.FirstOrDefault(candidate => candidate.Id == member.Id);
+                            <article class="dw-player" @key="member.Id ?? member.Name" aria-label="@($"{member.Name}{(member.Id == Session.User ? " (you)" : "")} statistics")">
+                                <h4>@member.Name @if (member.Id == Session.User) { <small>(you)</small> }</h4>
+                                <dl class="dw-facts">
+                                    <div><dt>Played</dt><dd>@member.Played</dd></div>
+                                    <div><dt>Win rate</dt><dd>@(facts?.WinPercent is { } win ? $"{win}%" : "–")</dd></div>
+                                    <div><dt>Streak</dt><dd>@member.CurrentStreak <small>best @member.BestStreak</small></dd></div>
+                                    <div><dt>Average guesses to solve</dt><dd>@(facts?.AverageGuesses is { } guesses ? guesses.ToString("0.0", CultureInfo.CurrentCulture) : "–")</dd></div>
+                                    <div><dt>Hard Mode clear rate</dt><dd>@(facts is { HardPlayed: > 0 } ? $"{facts.HardClearPercent}%" : "–")@if (facts is { HardPlayed: > 0 }) { <small> @facts.HardWon of @facts.HardPlayed</small> }</dd></div>
+                                    <div><dt>Time per guess</dt><dd>@TimeOrDash(facts?.AverageMsPerGuess)</dd></div>
+                                    <div><dt>Time per game</dt><dd>@TimeOrDash(facts?.AverageMsPerGame)</dd></div>
+                                    <div><dt>Longest game</dt><dd>@TimeOrDash(facts?.LongestGame?.Ms)</dd></div>
+                                    <div><dt>Shortest solve</dt><dd>@TimeOrDash(facts?.ShortestGame?.Ms)</dd></div>
+                                    <div><dt>Slowest word</dt><dd>@if (facts?.SlowestWord is { } slow) { <span>@slow.Word.ToUpperInvariant() <small>@FormatActiveTime(slow.Ms)</small></span> } else { <span>–</span> }</dd></div>
+                                    <div><dt>Rounds won</dt><dd>@(facts?.RoundsWon ?? 0) <small>of @(facts?.RoundsPlayed ?? 0)</small></dd></div>
+                                </dl>
+                                @if (member.Favorites is { Length: > 0 } favorites)
+                                {
+                                    <p class="dw-favorites"><span>Favorite guesses</span> @string.Join(", ", favorites.Take(5).Select(favorite => favorite.Word.ToUpperInvariant()))</p>
+                                }
+                                @if (Finished && board?.Guesses is { Length: > 0 } lines)
+                                {
+                                    <details>
+                                        <summary>Today’s guesses</summary>
+                                        @InspectRows(board.Rows, lines, board.Review)
+                                    </details>
+                                }
+                            </article>
+                        }
+                    </div>
+                </section>
+                <section class="dw-stats-group dw-distributions" aria-labelledby="dw-distribution-title">
+                    <h3 id="dw-distribution-title">Winning guesses</h3>
+                    <div class="dw-distribution-pair">
+                        <div>
+                            <h4>You</h4>
+                            @DistributionList(data.Personal.Distribution)
+                        </div>
+                        @if (data.FamilyTotals?.Distribution is { Length: 6 } together)
+                        {
+                            <div>
+                                <h4>Family</h4>
+                                @DistributionList(together)
+                            </div>
+                        }
+                    </div>
+                </section>
+                @if (data.History.Length > 0)
+                {
+                    <section class="dw-stats-group" aria-labelledby="dw-history-title">
+                        <h3 id="dw-history-title">Your recent puzzles</h3>
+                        <ul class="dw-family">
+                            @foreach (var item in data.History.Take(14))
+                            {
+                                <li><span>@FormatDay(item.Date)</span><strong>@(item.Status == "won" ? $"{item.Guesses}/6" : "Unsolved")</strong></li>
+                            }
+                        </ul>
+                    </section>
+                }
+            }
+        </div>
+    </section>
 
     <dialog class="dw-dialog" aria-labelledby="dw-help-title" @ref="help">
         <div class="dw-dialog-content">
@@ -211,104 +309,31 @@
             </div>
         </div>
     </dialog>
-    <dialog class="dw-dialog" aria-labelledby="dw-stats-title" @ref="statsDialog">
+    <dialog class="dw-dialog dw-recap-dialog" aria-labelledby="dw-recap-title" @ref="recapDialog" data-dismiss-backdrop>
         <div class="dw-dialog-content">
             <header class="dw-dialog-header">
-                <h2 id="dw-stats-title">Statistics</h2>
-                <form method="dialog"><button class="dw-icon" type="submit" aria-label="Close statistics" @ref="closeStats"><MusicIcon Name="close" /></button></form>
+                <h2 id="dw-recap-title">Yesterday’s results</h2>
+                <form method="dialog"><button class="dw-icon" type="submit" aria-label="Close yesterday’s results"><MusicIcon Name="close" /></button></form>
             </header>
-            @if (puzzle?.Status == "won")
+            @if (recap is { } yesterday)
             {
-                <p>Solved in @puzzle.Guesses.Length @(puzzle.Guesses.Length == 1 ? "guess" : "guesses")</p>
-            }
-            else if (puzzle?.Status == "lost")
-            {
-                <p>The word was <strong>@puzzle.Answer?.ToUpperInvariant()</strong></p>
-            }
-            <div role="status">
-                @if (loadingStats) { <p>Loading statistics…</p> }
-                @if (statsError) { <p>Statistics are unavailable. <button class="dw-text" type="button" aria-disabled="@(loadingStats ? "true" : "false")" @onclick="RetryStats">Try again</button></p> }
-            </div>
-            @if (stats is { } data)
-            {
-                <dl class="dw-stats">
-                    <div><dt>Played</dt><dd>@data.Personal.Played</dd></div>
-                    <div><dt>Win rate</dt><dd>@WinRate(data.Personal.Won, data.Personal.Played)%</dd></div>
-                    <div><dt>Streak</dt><dd>@data.Personal.CurrentStreak</dd></div>
-                    <div><dt>Best streak</dt><dd>@data.Personal.BestStreak</dd></div>
-                </dl>
-                <h3>Guess distribution</h3>
-                <ol class="dw-distribution">
-                    @for (var i = 0; i < 6; i++)
+                <p class="dw-recap-word">The word on @FormatDay(yesterday.Date) was <strong>@yesterday.Answer.ToUpperInvariant()</strong>.</p>
+                <ol class="dw-recap">
+                    @foreach (var row in yesterday.Results)
                     {
-                        var count = data.Personal.Distribution.ElementAtOrDefault(i);
-                        <li aria-label="@($"{i + 1} guesses, {count} wins")">
-                            <span aria-hidden="true">@(i + 1)</span>
-                            <span class="dw-bar" style="--dw-bar:@BarWidth(count, data.Personal.Distribution)%"
-                                  aria-hidden="true">@count</span>
+                        var own = row.Id == Session.User;
+                        var result = row.Status == "won" ? $"{row.Guesses}/6" : "Unsolved";
+                        <li class="@(row.Winner ? "dw-recap-winner" : "")"
+                            aria-label="@($"{row.Rank}. {row.Name}{(own ? " (you)" : "")}, {(row.Status == "won" ? $"solved in {row.Guesses} guesses" : "did not solve it")}{(row.ActiveMs is { } spent ? $", {FormatActiveTime(spent)} active time" : "")}{(row.Hard ? ", Hard Mode rules" : "")}{(row.Winner ? ", won the round" : "")}")">
+                            <span class="dw-rank" aria-hidden="true">@row.Rank</span>
+                            <span class="dw-recap-name" aria-hidden="true">@row.Name@(own ? " (you)" : "")@if (row.Hard) { <small>Hard Mode rules</small> }</span>
+                            <strong aria-hidden="true">@result</strong>
+                            <span class="dw-recap-time" aria-hidden="true">@(row.ActiveMs is { } time ? FormatActiveTime(time) : "")</span>
                         </li>
                     }
                 </ol>
-                <h3>Family</h3>
-                @if (data.FamilyTotals is { } totals)
-                {
-                    @if (totals.Today is { } today)
-                    {
-                        <p class="dw-family-totals"><strong>Today</strong> @today.Completed of @today.Members finished · @today.Won solved</p>
-                    }
-                    <p class="dw-family-totals"><strong>All time</strong> @totals.Won wins in @totals.Played puzzles</p>
-                }
-                @if (data.Family.Length == 0)
-                {
-                    <p>No family results yet.</p>
-                }
-                else
-                {
-                    <div class="dw-family-details">
-                        @foreach (var member in data.Family.OrderByDescending(member => member.Won))
-                        {
-                            var board = familyBoards.FirstOrDefault(candidate => candidate.Id == member.Id);
-                            <details @key="member.Id ?? member.Name">
-                                <summary><strong>@member.Name</strong><span>@member.Won / @member.Played won</span></summary>
-                                @if (Finished && board?.Guesses is { Length: > 0 } lines)
-                                {
-                                    <h4>Today’s guesses</h4>
-                                    @InspectRows(board.Rows, lines, board.Review)
-                                }
-                                <h4>Favorite guesses</h4>
-                                @if (member.Favorites is { Length: > 0 } favorites)
-                                {
-                                    <ul class="dw-family">
-                                        @for (var i = 0; i < favorites.Length; i++)
-                                        {
-                                            var favorite = favorites[i];
-                                            <li>
-                                                <span><strong>@favorite.Word.ToUpperInvariant()</strong>@if (i == 0) { <small>Most guessed</small> }</span>
-                                                <span>@favorite.Count @(favorite.Count == 1 ? "guess" : "guesses")</span>
-                                            </li>
-                                        }
-                                    </ul>
-                                }
-                                else
-                                {
-                                    <p>No recorded guesses yet.</p>
-                                }
-                            </details>
-                        }
-                    </div>
-                }
-                @if (data.History.Length > 0)
-                {
-                    <details class="dw-history">
-                        <summary>Recent puzzles</summary>
-                        <ul class="dw-family">
-                            @foreach (var item in data.History)
-                            {
-                                <li><span>@FormatDay(item.Date)</span><strong>@(item.Status == "won" ? $"{item.Guesses}/6" : "Unsolved")</strong></li>
-                            }
-                        </ul>
-                    </details>
-                }
+                @if (yesterday.Missed.Length > 0) { <p class="dw-note">Did not play: @string.Join(", ", yesterday.Missed)</p> }
+                <p class="dw-note">Fewest guesses wins. A tie goes to the game that followed Hard Mode rules, then to the faster time.</p>
             }
         </div>
     </dialog>
@@ -342,24 +367,91 @@
         [property: JsonPropertyName("best_streak")] int BestStreak, int[] Distribution);
     private sealed record Favorite(string Word, int Count);
     private sealed record FamilyStats([property: JsonPropertyName("profile_id")] string? Id, string Name, int Played, int Won,
-        [property: JsonPropertyName("favorite_guesses")] Favorite[]? Favorites);
+        [property: JsonPropertyName("favorite_guesses")] Favorite[]? Favorites,
+        [property: JsonPropertyName("current_streak")] int CurrentStreak = 0,
+        [property: JsonPropertyName("best_streak")] int BestStreak = 0);
     private sealed record History(string Date, string Status, int Guesses);
     private sealed record TodayTotal(int Completed, int Won, int Members);
     private sealed record FamilyTotals(int Played, int Won, TodayTotal? Today, int[]? Distribution);
+    private sealed record Moment(long Ms, string Date);
+    private sealed record SlowWord(string Word, long Ms, string Date);
+    private sealed record MemberInsights(
+        [property: JsonPropertyName("win_percent")] int? WinPercent,
+        [property: JsonPropertyName("average_guesses")] double? AverageGuesses,
+        [property: JsonPropertyName("hard_played")] int HardPlayed,
+        [property: JsonPropertyName("hard_won")] int HardWon,
+        [property: JsonPropertyName("hard_clear_percent")] int? HardClearPercent,
+        [property: JsonPropertyName("average_ms_per_guess")] long? AverageMsPerGuess,
+        [property: JsonPropertyName("average_ms_per_game")] long? AverageMsPerGame,
+        [property: JsonPropertyName("longest_game")] Moment? LongestGame,
+        [property: JsonPropertyName("shortest_game")] Moment? ShortestGame,
+        [property: JsonPropertyName("slowest_word")] SlowWord? SlowestWord,
+        [property: JsonPropertyName("rounds_won")] int RoundsWon,
+        [property: JsonPropertyName("rounds_played")] int RoundsPlayed);
+    private sealed record FamilyInsight(
+        [property: JsonPropertyName("current_streak")] int CurrentStreak,
+        [property: JsonPropertyName("best_streak")] int BestStreak, int Rounds);
+    private sealed record RecapRow(
+        [property: JsonPropertyName("profile_id")] string Id, string Name, string Status, int Guesses,
+        [property: JsonPropertyName("active_ms")] long? ActiveMs, bool Hard, int Rank, bool Winner);
+    private sealed record Recap(string Date, string Answer, string[] Missed, RecapRow[] Results);
+    private sealed record Insights(Dictionary<string, MemberInsights>? Members, FamilyInsight? Family, Recap? Recap);
     private sealed record Statistics(PersonalStats Personal, FamilyStats[] Family, History[] History,
-        [property: JsonPropertyName("family_totals")] FamilyTotals? FamilyTotals);
+        [property: JsonPropertyName("family_totals")] FamilyTotals? FamilyTotals, Insights? Insights = null);
+    private ElementReference recapDialog, statsPage, statsHeading;
+    private Recap? recap;
+    private string RecapKey => $"wordle.recap:{Session.Server}:{Session.User}";
+    private int RoundsWonOf(FamilyStats member) => member.Id is { } id && stats?.Insights?.Members?.GetValueOrDefault(id) is { } facts ? facts.RoundsWon : 0;
+    private int RoundsPlayedOf(FamilyStats member) => member.Id is { } id && stats?.Insights?.Members?.GetValueOrDefault(id) is { } facts ? facts.RoundsPlayed : 0;
+    private static string TimeOrDash(long? milliseconds) => milliseconds is { } value ? FormatActiveTime(value) : "–";
+
+    private RenderFragment DistributionList(int[] distribution) => @<ol class="dw-distribution">
+        @for (var i = 0; i < 6; i++)
+        {
+            var count = distribution.ElementAtOrDefault(i);
+            <li aria-label="@($"{i + 1} guesses, {count} wins")">
+                <span aria-hidden="true">@(i + 1)</span>
+                <span class="dw-bar" style="--dw-bar:@BarWidth(count, distribution)%" aria-hidden="true">@count</span>
+            </li>
+        }
+    </ol>;
+
+    private async Task ShowStats()
+    {
+        if (module is null) return;
+        await module.InvokeVoidAsync("showStats", statsPage, statsHeading);
+        if (stats is null || statsError) await LoadStats();
+        else _ = RefreshFamily();
+    }
+
+    private async Task BackToPuzzle()
+    {
+        if (module is not null) await module.InvokeVoidAsync("showBoard", surface);
+    }
+
+    // Yesterday's results open once per day, after the statistics load and before the first letter is typed.
+    private async Task ShowRecap()
+    {
+        if (module is null || disposed || stats?.Insights?.Recap is not { Results.Length: > 0 } found) return;
+        if (Preferences.Default.Get(RecapKey, "") == found.Date || draft.Length > 0) return;
+        Preferences.Default.Set(RecapKey, found.Date);
+        recap = found;
+        StateHasChanged();
+        await Task.Yield();
+        await module.InvokeVoidAsync("open", recapDialog);
+    }
     private static readonly string[] KeyboardRows = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
     private static readonly string[] Marks = ["absent", "present", "correct"];
     private readonly CancellationTokenSource lifetime = new();
     private readonly Dictionary<char, string> keyboard = new();
     private IJSObjectReference? module;
     private DotNetObjectReference<DailyWordle>? keyboardReference;
-    private ElementReference surface, help, statsDialog, statsButton, closeStats, memberDialog;
+    private ElementReference surface, help, statsButton, memberDialog;
     private Puzzle? puzzle;
     private Statistics? stats;
     private bool loading, loadAttempted, submitting, loadingStats, statsError, shake, focusBoard, focusResult, focusStats, refreshAfterSubmit, disposed;
     private string draft = "", announcement = "";
-    private string? message, scheduledReset, inspectedBoardId, memberOpenerId, familyFocus, statsRequestedDate;
+    private string? message, scheduledReset, inspectedBoardId, memberOpenerId, familyFocus, statsRequestedKey;
     private bool showMemberBoard;
     private int? expandedGrade;
     private FamilyBoard? InspectedBoard => familyBoards.FirstOrDefault(board => board.Id == inspectedBoardId)
@@ -398,7 +490,7 @@
         }
         if (focusBoard) { focusBoard = false; await module!.InvokeVoidAsync("restoreBoard", surface); }
         if (focusResult && Finished && statsButton.Context is not null) { focusResult = false; await statsButton.FocusAsync(preventScroll: true); }
-        if (focusStats) { focusStats = false; await module!.InvokeVoidAsync("restoreInside", statsDialog, closeStats); }
+        if (focusStats) { focusStats = false; await statsHeading.FocusAsync(preventScroll: true); }
         if (familyFocus is { } target)
         {
             familyFocus = null;
@@ -414,10 +506,10 @@
             scheduledReset = puzzle?.NextReset;
             await module.InvokeVoidAsync("updateReset", surface, scheduledReset);
         }
-        if (Finished && puzzle is { } completed && !loadingStats && statsRequestedDate != completed.Date &&
-            (completed.LocalSolution is null || confirmed >= completed.Guesses.Length))
+        if (puzzle is { } current && !loadingStats && statsRequestedKey != current.Date + current.Status &&
+            (!Finished || current.LocalSolution is null || confirmed >= current.Guesses.Length))
         {
-            statsRequestedDate = completed.Date;
+            statsRequestedKey = current.Date + current.Status;
             await LoadStats();
         }
     }
@@ -617,8 +709,7 @@
             }
             RestoreLocalProgress(updated);
             _ = SyncGuesses();
-            if (module is not null && await module.InvokeAsync<bool>("isOpen", statsDialog))
-                await LoadStats();
+            if (stats is not null) await LoadStats();
             return true;
         }
         catch (Exception error) when (IsRequestError(error))
@@ -790,13 +881,6 @@
         if (module is not null) await module.InvokeVoidAsync("open", help);
     }
 
-    private async Task OpenStats()
-    {
-        if (module is null) return;
-        await module.InvokeVoidAsync("open", statsDialog);
-        await Task.WhenAll(RefreshFamily(), LoadStats());
-    }
-
     private async Task LoadStats()
     {
         if (loadingStats) return;
@@ -819,6 +903,8 @@
                 }).ToArray()
             };
             statsError = false;
+            loadingStats = false;
+            await ShowRecap();
         }
         catch (Exception error) when (IsRequestError(error)) { statsError = !disposed; }
         finally { loadingStats = false; if (!disposed) StateHasChanged(); }

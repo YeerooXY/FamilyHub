@@ -465,7 +465,31 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
                             favorite_guesses = new object[] { new { word = "grape", count = finished ? 3 : 2 } } } },
                     family_totals = new { played = 4, won = 3, distribution = new[] { 0, 1, 2, 0, 0, 0 },
                         today = !hideWordleFamily || finished ? new { completed = 2, won = 2, members = 2 } : null },
-                    history = new[] { new { date = day, status = "won", guesses = 3 } }
+                    history = new[] { new { date = day, status = "won", guesses = 3 } },
+                    insights = new
+                    {
+                        members = new Dictionary<string, object>
+                        {
+                            ["fixture"] = new { win_percent = 100, average_guesses = 3.0, hard_played = 1, hard_won = 1, hard_clear_percent = 100,
+                                average_ms_per_guess = 9000, average_ms_per_game = 27000, longest_game = new { ms = 27000, date = day },
+                                shortest_game = new { ms = 27000, date = day }, slowest_word = new { word = "crate", ms = 18600, date = day },
+                                rounds_won = 1, rounds_played = 2 },
+                            ["june"] = new { win_percent = 67, average_guesses = 2.5, hard_played = 2, hard_won = 1, hard_clear_percent = 50,
+                                average_ms_per_guess = 7000, average_ms_per_game = 21000, longest_game = new { ms = 40000, date = day },
+                                shortest_game = new { ms = 11000, date = day }, slowest_word = new { word = "grape", ms = 18600, date = day },
+                                rounds_won = 1, rounds_played = 2 },
+                        },
+                        family = new { current_streak = 4, best_streak = 6, rounds = 2 },
+                        recap = Startup == "wordle-recap" ? new
+                        {
+                            date = day, answer = "grape", missed = new[] { "Sam" },
+                            results = new object[]
+                            {
+                                new { profile_id = "june", name = "June", status = "won", guesses = 3, active_ms = 41000, hard = true, rank = 1, winner = true },
+                                new { profile_id = "fixture", name = "Alex", status = "won", guesses = 3, active_ms = 52000, hard = false, rank = 2, winner = false },
+                            }
+                        } : null,
+                    }
                 });
             }
             if (path == "/api/wordle/guess")

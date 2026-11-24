@@ -26,7 +26,7 @@ async function check(browser, label, profile, capture = true) {
     await page.goto(app + "/");
     await page.evaluate(async () => {
         const now = Date.UTC(2026, 10, 23, 12) / 1000;
-        const tree = { mine: { "": [["Trips", "dir"], ["notes.txt", "file", 1200], ["report.pdf", "file", 3400000], ["Travel itinerary and booking confirmations.pdf", "file", 920000]], Trips: [["Receipts", "dir"], ["plan.txt", "file", 80]] }, family: { "": [["Photos", "dir"], ["recipes.doc", "file", 5000]] } };
+        const tree = { mine: { "": [["Trips", "dir"], ["notes.txt", "file", 1200], ["report.pdf", "file", 3400000], ["Travel itinerary and booking confirmations.pdf", "file", 920000]], Trips: [["Receipts", "dir"], ["plan.txt", "file", 80], ["photo.jpg", "file", 2000000]] }, family: { "": [["Photos", "dir"], ["recipes.doc", "file", 5000]] } };
         const links = [];
         const heldListings = new Map();
         window.holdListing = (key) => {
@@ -85,6 +85,10 @@ async function check(browser, label, profile, capture = true) {
                 tree[args[0]][args[1]].push(["big.iso", "file", 9e9]);
                 return JSON.stringify({ uploaded: ["big.iso"], errors: [] });
             }
+            if (name === "FilesRead") {
+                const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+                return /\.jpg$/.test(args[1]) ? "data:image/png;base64," + png : "data:text/plain;base64," + btoa("Hello from " + args[1]);
+            }
             if (name === "FilesDownload") return `Saved ${args[2]} to your Downloads folder.`;
             if (name === "FilesCopy") return true;
             return null;
@@ -103,14 +107,14 @@ async function check(browser, label, profile, capture = true) {
     assert.match(await page.locator(".files-tile").first().innerText(), /Trips/);
     assert.equal(await page.getByRole("button", { name: "Download Travel itinerary and booking confirmations.pdf" }).getAttribute("title"), "Travel itinerary and booking confirmations.pdf");
     await page.getByRole("button", { name: "Open folder Trips" }).click();
-    await page.getByRole("button", { name: "Download plan.txt" }).waitFor();
+    await page.getByRole("button", { name: "Preview plan.txt" }).waitFor();
     assert.equal(await page.locator(".files-crumb", { hasText: "Trips" }).getAttribute("aria-current"), "page");
     await page.locator(".files-crumb", { hasText: "My files" }).click();
-    await page.getByRole("button", { name: "Download notes.txt" }).waitFor();
+    await page.getByRole("button", { name: "Preview notes.txt" }).waitFor();
     await page.getByRole("tab", { name: "Family" }).click();
     await page.getByRole("button", { name: "Download recipes.doc" }).waitFor();
     await page.getByRole("tab", { name: "My files" }).click();
-    await page.getByRole("button", { name: "Download notes.txt" }).waitFor();
+    await page.getByRole("button", { name: "Preview notes.txt" }).waitFor();
 
     // A slow Family response cannot redraw My files or take focus back to Family.
     await page.evaluate(() => window.holdListing("family/"));
@@ -124,11 +128,11 @@ async function check(browser, label, profile, capture = true) {
     await page.keyboard.press("Shift+Tab");
     assert.equal(await active(), "Family");
     await page.keyboard.press("ArrowLeft");
-    await page.getByRole("button", { name: "Download notes.txt" }).waitFor();
+    await page.getByRole("button", { name: "Preview notes.txt" }).waitFor();
     await page.keyboard.press("Tab");
     assert.equal(await active(), "Upload files");
     await page.evaluate(() => window.releaseListing(["family/"]));
-    assert.equal(await page.getByRole("button", { name: "Download notes.txt" }).count(), 1);
+    assert.equal(await page.getByRole("button", { name: "Preview notes.txt" }).count(), 1);
     assert.equal(await page.getByRole("button", { name: "Download recipes.doc" }).count(), 0);
     assert.equal(await page.locator(".files-status").innerText(), "");
     assert.equal(await active(), "Upload files");
@@ -145,15 +149,15 @@ async function check(browser, label, profile, capture = true) {
     assert.equal(await page.locator(".files-status").innerText(), "Loading…");
     await page.getByRole("button", { name: "Trips", exact: true }).focus();
     await page.keyboard.press("Enter");
-    await page.getByRole("button", { name: "Download plan.txt" }).waitFor();
+    await page.getByRole("button", { name: "Preview plan.txt" }).waitFor();
     await page.getByRole("button", { name: "New folder" }).focus();
     await page.evaluate(() => window.releaseListing(["mine/Trips/Receipts", "The folder was removed."]));
-    assert.equal(await page.getByRole("button", { name: "Download plan.txt" }).count(), 1);
+    assert.equal(await page.getByRole("button", { name: "Preview plan.txt" }).count(), 1);
     assert.equal(await page.locator(".files-crumb[aria-current]").innerText(), "Trips");
     assert.equal(await page.locator(".files-status").innerText(), "");
     assert.equal(await active(), "New folder");
     await page.getByRole("button", { name: "My files", exact: true }).click();
-    await page.getByRole("button", { name: "Download notes.txt" }).waitFor();
+    await page.getByRole("button", { name: "Preview notes.txt" }).waitFor();
 
     await noScroll("listing");
     const progressFill = page.locator(".files-progress-fill");
@@ -163,11 +167,13 @@ async function check(browser, label, profile, capture = true) {
     assert.notEqual(await progressTransition(), "0s");
     await page.emulateMedia({ reducedMotion: "reduce" });
     const tile = page.locator(".files-tile").first();
-    assert.ok((await tile.boundingBox()).width <= 192);
+    const fileTile = page.locator(".files-list .files-tile").first();
+    const rem = await fileTile.evaluate((n) => parseFloat(getComputedStyle(n).fontSize));
+    assert.ok((await fileTile.boundingBox()).width <= rem * 15 + 1, `${label}: a file card keeps its maximum width`);
     const first = page.getByRole("button", { name: "Open folder Trips" });
     await first.focus();
     await page.keyboard.press("ArrowRight");
-    assert.equal(await active(), "Download notes.txt");
+    assert.equal(await active(), "Preview notes.txt");
     await page.keyboard.press("ArrowLeft");
     assert.equal(await active(), "Open folder Trips");
     if (profile.viewport.width <= 600) {
@@ -176,7 +182,7 @@ async function check(browser, label, profile, capture = true) {
         const actionRows = await page.locator(".files-actions button").evaluateAll((nodes) => new Set(nodes.map((n) => n.offsetTop)).size);
         assert.equal(actionRows, 1);
         await page.keyboard.press("ArrowDown");
-        assert.equal(await active(), "Download report.pdf");
+        assert.equal(await active(), "Preview notes.txt");
         await page.keyboard.press("ArrowUp");
         assert.equal(await active(), "Open folder Trips");
     }
@@ -197,6 +203,75 @@ async function check(browser, label, profile, capture = true) {
     assert.equal(await active(), "Actions for report.pdf");
     await page.getByRole("button", { name: "Download report.pdf" }).press("Enter");
     await page.getByRole("status").filter({ hasText: "Saved report.pdf" }).waitFor();
+
+    // Selection bar: fixed to the bottom of the window, counts the choice and hands focus back when cleared.
+    const selectBar = page.locator(".files-selbar");
+    assert.equal(await selectBar.isHidden(), true);
+    await page.getByRole("checkbox", { name: "Select report.pdf" }).click();
+    await selectBar.waitFor();
+    assert.equal(await page.getByRole("checkbox", { name: "Select report.pdf" }).getAttribute("aria-checked"), "true");
+    assert.equal(await selectBar.locator(".files-count").innerText(), "1 selected");
+    assert.equal(await selectBar.evaluate((n) => getComputedStyle(n).position), "fixed", `${label}: the selection bar is fixed`);
+    const barBox = await selectBar.boundingBox(), viewportHeight = page.viewportSize().height;
+    assert.ok(barBox.y + barBox.height <= viewportHeight && viewportHeight - (barBox.y + barBox.height) < 100, `${label}: the selection bar sits at the bottom of the window ${JSON.stringify(barBox)} of ${viewportHeight}`);
+    assert.equal(await selectBar.getByRole("button", { name: "Download selected files" }).getAttribute("title"), "Download");
+    await page.getByRole("checkbox", { name: "Select notes.txt" }).click();
+    assert.equal(await selectBar.locator(".files-count").innerText(), "2 selected");
+    assert.equal(await selectBar.getByRole("button", { name: "Share link" }).isHidden(), true);
+    await noScroll("selection bar");
+    await screenshot("selection");
+    await selectBar.getByRole("button", { name: "Clear selection" }).click();
+    await selectBar.waitFor({ state: "hidden" });
+    assert.notEqual(await page.evaluate(() => document.activeElement.tagName), "BODY", `${label}: clearing the selection keeps focus on a control`);
+
+    // Search filters this folder and announces an empty result once.
+    const searchBox = page.getByRole("searchbox", { name: "Search this folder" });
+    await searchBox.fill("rep");
+    await page.getByRole("button", { name: "Preview notes.txt" }).waitFor({ state: "detached" });
+    assert.equal(await page.getByRole("button", { name: "Download report.pdf" }).count(), 1);
+    await searchBox.fill("zzz");
+    await page.getByRole("status").filter({ hasText: "Nothing in this folder matches" }).waitFor();
+    assert.equal(await page.locator(".files-empty").isHidden(), true);
+    await searchBox.fill("");
+    await page.getByRole("button", { name: "Preview notes.txt" }).waitFor();
+
+    // List view keeps the same controls and persists the choice.
+    await page.getByRole("button", { name: "List view" }).click();
+    assert.equal(await page.getByRole("button", { name: "List view" }).getAttribute("aria-pressed"), "true");
+    assert.equal(await page.locator(".files-list").evaluate((n) => getComputedStyle(n).gridTemplateColumns.split(" ").length), 1);
+    await noScroll("list view");
+    await page.mouse.move(0, 0);
+    await screenshot("list");
+    await page.getByRole("button", { name: "Grid view" }).click();
+
+    // Preview: text opens in the app, Escape returns focus to the card.
+    await page.getByRole("button", { name: "Preview notes.txt" }).click();
+    const viewer = page.getByRole("dialog", { name: "notes.txt" });
+    await viewer.waitFor();
+    await viewer.getByText("Hello from notes.txt").waitFor();
+    assert.equal(await viewer.getByRole("button", { name: "Download", exact: true }).count(), 1);
+    await noScroll("text preview");
+    await page.keyboard.press("Escape");
+    await viewer.waitFor({ state: "hidden" });
+    assert.equal(await active(), "Preview notes.txt", `${label}: closing the preview returns focus to its card`);
+
+    // Pictures: a thumbnail appears on the card, the preview shows the picture and arrows step through files.
+    await page.getByRole("button", { name: "Open folder Trips" }).click();
+    await page.getByRole("button", { name: "Preview photo.jpg" }).waitFor();
+    await page.locator(".files-tile .files-photo").waitFor();
+    await screenshot("photo-card");
+    await page.getByRole("button", { name: "Preview photo.jpg" }).click();
+    const picture = page.getByRole("dialog", { name: "photo.jpg" });
+    await picture.locator("img.files-large").waitFor();
+    assert.equal(await picture.getByRole("button", { name: "Next file" }).getAttribute("aria-disabled"), "false");
+    await noScroll("picture preview");
+    await screenshot("preview");
+    await page.keyboard.press("ArrowRight");
+    await page.getByRole("dialog", { name: "plan.txt" }).getByText("Hello from Trips/plan.txt").waitFor();
+    await page.keyboard.press("Escape");
+    await page.getByRole("dialog").waitFor({ state: "hidden" });
+    await page.getByRole("button", { name: "My files", exact: true }).click();
+    await page.getByRole("button", { name: "Preview notes.txt" }).waitFor();
 
     // New folder: Escape closes the sheet and returns focus to its opener.
     await page.getByRole("button", { name: "New folder" }).click();
@@ -238,14 +313,14 @@ async function check(browser, label, profile, capture = true) {
     await page.getByRole("alert").filter({ hasText: "Something with that name already exists." }).waitFor();
     await page.getByRole("textbox", { name: "Name" }).fill("diary.txt");
     await page.getByRole("button", { name: "Rename", exact: true }).click();
-    await page.getByRole("button", { name: "Download diary.txt" }).waitFor();
+    await page.getByRole("button", { name: "Preview diary.txt" }).waitFor();
     assert.equal(await page.evaluate(() => document.activeElement.dataset.name), "diary.txt");
 
     // Delete: focus moves to a neighbouring row, never to the page.
     await page.getByRole("button", { name: "Actions for diary.txt" }).click();
     await page.getByRole("menuitem", { name: "Delete" }).click();
     await page.getByRole("button", { name: "Delete", exact: true }).click();
-    await page.getByRole("button", { name: "Download diary.txt" }).waitFor({ state: "detached" });
+    await page.getByRole("button", { name: "Preview diary.txt" }).waitFor({ state: "detached" });
     assert.notEqual(await page.evaluate(() => document.activeElement.tagName), "BODY", `${label}: focus did not fall to the page`);
     assert.match(await page.evaluate(() => document.activeElement.dataset.name || ""), /report\.pdf|Taxes|Trips/);
 

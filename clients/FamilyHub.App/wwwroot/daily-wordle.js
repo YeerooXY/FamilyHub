@@ -43,7 +43,7 @@ export function bind(surface, receiver) {
 
     surface.addEventListener('keydown', event => {
         if (surface.dataset.playing !== 'true' || event.defaultPrevented || event.isComposing ||
-            event.altKey || event.ctrlKey || event.metaKey || event.target.closest('dialog,input,textarea,select,[contenteditable=true]')) return;
+            event.altKey || event.ctrlKey || event.metaKey || event.target.closest('dialog,input,textarea,select,[contenteditable=true],.dw-stats-page')) return;
         const key = event.key;
         if (key === 'Enter' && event.target.closest('button,a')) return;
         if (!(key === 'Enter' || key === 'Backspace' || /^[a-z]$/i.test(key))) return;
@@ -115,6 +115,20 @@ export async function afterReveal(surface, remaining, won) {
     const active = document.activeElement;
     return surface.isConnected && !handle.abort.signal.aborted && !document.hidden &&
         (active === document.body || surface.contains(active)) && !document.querySelector('dialog[open]');
+}
+
+const scrollMode = () => matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+
+// The statistics sit below the puzzle on the same page. The heading takes focus so a keyboard or screen reader
+// lands on them; the Back to puzzle button returns focus to the board.
+export function showStats(page, heading) {
+    page.scrollIntoView({behavior: scrollMode(), block: 'start'});
+    heading.focus({preventScroll: true});
+}
+
+export function showBoard(surface) {
+    surface.scrollTo({top: 0, behavior: scrollMode()});
+    surface.focus({preventScroll: true});
 }
 
 export function restoreInside(dialog, successor) {
