@@ -191,13 +191,19 @@ def safe_name(name):
 def opened(path, directory=False):
     """Walk from the root with no-follow directory descriptors, then pin the requested inode."""
     flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
-    handle = os.open(path.anchor, flags | os.O_DIRECTORY)
+    # Folders on the way are only passed through (O_PATH needs search permission, not read permission): the service
+    # may cross /srv/familyhub without being allowed to list it. The last component is opened for reading.
+    walk = os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_DIRECTORY
+    handle = os.open(path.anchor, walk)
     try:
         for index, part in enumerate(path.parts[1:], 2):
             if not safe_name(part):
                 raise ValueError('Invalid media name.')
-            is_dir = directory or index < len(path.parts)
-            child = os.open(part, flags | (os.O_DIRECTORY if is_dir else os.O_NONBLOCK), dir_fd=handle)
+            last = index == len(path.parts)
+            if last:
+                child = os.open(part, flags | (os.O_DIRECTORY if directory else os.O_NONBLOCK), dir_fd=handle)
+            else:
+                child = os.open(part, walk, dir_fd=handle)
             os.close(handle)
             handle = child
         if not directory and not stat.S_ISREG(os.fstat(handle).st_mode):

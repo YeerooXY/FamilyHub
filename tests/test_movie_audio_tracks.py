@@ -202,3 +202,23 @@ class AudioGatewayTests(Base):
             self.assertEqual(self.post(owner, csrf, delete, json={'result': result['id']}).status_code, 200)
             self.assertFalse(source.exists())
             self.assertTrue(sidecar.is_file())
+
+
+class SearchOnlyParents(unittest.TestCase):
+    """The service account may cross /srv/familyhub without being allowed to list it."""
+
+    def test_files_open_through_folders_that_only_allow_passing_through(self):
+        with TemporaryDirectory() as base:
+            parent = Path(base) / 'parent'
+            child = parent / 'complete'
+            child.mkdir(parents=True)
+            media = child / 'dub.mkv'
+            media.write_bytes(b'x')
+            os.chmod(parent, 0o311)
+            try:
+                with audio.opened(media) as handle:
+                    self.assertEqual(os.fstat(handle).st_size, 1)
+                with audio.opened(child, directory=True) as handle:
+                    self.assertEqual(os.listdir(handle), ['dub.mkv'])
+            finally:
+                os.chmod(parent, 0o755)
