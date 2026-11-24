@@ -20,7 +20,10 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 def parse(reply, limit=6):
     """Reduce a TMDB multi-search reply to movie and series matches."""
     matches = []
-    for item in reply.get('results', []) if isinstance(reply, dict) else []:
+    rows = reply.get('results') if isinstance(reply, dict) else None
+    for item in rows if isinstance(rows, list) else []:
+        if not isinstance(item, dict):
+            continue
         kind = item.get('media_type')
         ident = item.get('id')
         if kind not in ('movie', 'tv') or type(ident) is not int:
