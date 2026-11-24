@@ -244,16 +244,16 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             const length = formatMinutes(row.length);
             if (length) stat("Length", row.lengthEstimated ? "About " + length : length);
             stat("Download time", row.seeders === 0 ? "May never finish" : downloadTime(row.size, row.seeders) || "Unknown",
-                row.seeders === 0 ? "none" : undefined);
+                row.seeders === 0 ? "none" : undefined).title = "An estimate from the file size and how many people share it, assuming a 100 Mbps connection.";
             const detail = stat("Availability", words, level);
             if (row.seeders !== null) detail.title = `${row.seeders} ${row.seeders === 1 ? "person shares" : "people share"} this file`;
 
             const note = document.createElement("p");
             note.className = "movie-release-note";
-            note.textContent = ["Estimate based on how many people share it",
-                row.mismatch ? "This file is unusually small for a 1080p video of this length" : "",
+            note.textContent = [row.mismatch ? "This file is unusually small for a 1080p video of this length" : "",
                 row.size > 40 * gib ? "This file uses over 40 GB of server space" : ""]
                 .filter(Boolean).join(". ") + ".";
+            note.hidden = note.textContent === ".";
 
             const name = document.createElement("strong");
             name.className = "movie-release-name";
@@ -366,7 +366,7 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             const name = episodes ? `${title} · Season ${item.number}` : displayTitle(title);
             const row = { title, name, height, size, length, lengthEstimated, mismatch, kind, audio, episodes, quality,
                 seeders: number(item.seeders), guid: item.guid, indexerId: item.indexerId, site: item.site, url: item.url };
-            const key = row.site ? `${row.site}\n${row.url}` : `${row.title.toLowerCase()}\n${row.size}`;
+            const key = row.site ? `${row.site}\n${row.url}` : `${row.title.toLowerCase().replace(/[^a-z0-9]+/g, "")}\n${Math.round((row.size || 0) / 1e8)}`;
             const previous = matches.get(key);
             const preferReference = canDownload && previous && Boolean(row.guid) !== Boolean(previous.guid);
             if (!previous || (preferReference ? row.guid : (row.seeders ?? -1) > (previous.seeders ?? -1)))

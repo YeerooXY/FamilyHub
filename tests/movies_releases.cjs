@@ -132,7 +132,7 @@ async function verify(browser, name, options) {
         assert.match(text, /Size\s+16\.1 GB/);
         assert.match(text, /Length\s+7 h 20 min/);
         assert.match(text, /Download time\s+about 23 min/);
-        assert.match(text, /Estimate based on how many people share it/);
+        assert.doesNotMatch(text, /Estimate based on how many people share it/);
         assert.match(text, /Availability\s+Very easy to get/);
         assert.doesNotMatch(text, /seeder|leecher|Upload|The Pirate Bay|Knaben/);
         assert.equal(await first.locator(".movie-release-quality").getAttribute("data-level"), "web");
