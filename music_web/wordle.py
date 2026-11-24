@@ -592,7 +592,8 @@ class WordPuzzles:
         results = defaultdict(list)
         finished = defaultdict(list)
         favorites = defaultdict(list)
-        with closing(self.connect()) as db:
+        with self.activity_lock:
+            db = self.memory
             reveal = self.finished(db, profile, key)
             hide = not reveal and self.hides_family(db, profile)
             for owner, result_day, status, guesses, answer, active_ms, raw_times in db.execute("""

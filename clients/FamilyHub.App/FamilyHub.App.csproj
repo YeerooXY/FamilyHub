@@ -13,8 +13,8 @@
     <MauiXamlInflator>SourceGen</MauiXamlInflator>
     <ApplicationTitle>FamilyHub</ApplicationTitle>
     <ApplicationId>org.familyhub.music</ApplicationId>
-    <ApplicationDisplayVersion>1.2.4</ApplicationDisplayVersion>
-    <ApplicationVersion>107</ApplicationVersion>
+    <ApplicationDisplayVersion>1.3.0</ApplicationDisplayVersion>
+    <ApplicationVersion>108</ApplicationVersion>
     <Version>$(ApplicationDisplayVersion)</Version>
     <WindowsPackageType>None</WindowsPackageType>
     <DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>

@@ -51,6 +51,14 @@ async function check(browser, profileName, profile, engineName) {
         const tableToggle = ethernet.getByRole('button', {name: 'Network · enp3s0 data'});
         const historyRefresh = history.getByRole('button', {name: 'Refresh history'});
         await current.getByText('38 GiB used', {exact: true}).waitFor();
+        // Seeding: every torrent against the 2.0 goal, loaded on its own.
+        const seeding = page.getByRole('region', {name: 'Seeding', exact: true});
+        await seeding.getByText('Peaky.Blinders.S01.1080p.BluRay.x264 [Season One]').waitFor();
+        assert.equal(await seeding.getByRole('progressbar', {name: /^Share ratio for Peaky/}).getAttribute('aria-valuetext'), '0.003 / 2.0');
+        assert.equal(await seeding.getByRole('progressbar', {name: /^Share ratio for Debian/}).getAttribute('aria-valuetext'), '2.4 / 2.0');
+        await seeding.getByText('Pending').waitFor();
+        assert(await seeding.evaluate(node => node.scrollWidth <= node.clientWidth), name + ' seeding fits the width');
+        if (profile.isMobile === false || profileName.includes('desktop') || profileName.includes('windows')) await seeding.screenshot({path: path.join(process.env.SEEDING_CAPTURE || require('node:os').tmpdir(), name + '-seeding.png')});
         await current.getByText('Whole machine · Not measured', {exact: true}).first().waitFor();
         assert.equal(await current.locator('meter').first().evaluate(el => el.getBoundingClientRect().height), 8);
         assert(await current.getByText('CPU warm at 70 °C · hot at 85 °C').isVisible());

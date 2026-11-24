@@ -193,6 +193,7 @@ GET /api/movies/downloads
 POST /api/movies/find
 GET /api/movies/health
 POST /api/movies/library
+POST /api/movies/matches
 GET /api/movies/media/<ticket>/<path:resource>
 POST /api/movies/media/close
 POST /api/movies/releases
@@ -200,6 +201,8 @@ POST /api/movies/report
 POST /api/movies/request
 POST /api/movies/request-search
 POST /api/movies/session
+POST /api/movies/videa-download
+POST /api/movies/videa-search
 POST /api/movies/youtube-download
 POST /api/movies/youtube-metadata
 POST /api/playback/activity
@@ -224,6 +227,7 @@ POST /api/playlists/spotify
 POST /api/playlists/youtube
 GET /api/profile-images/<owner_key>/<digest>.jpg
 POST /api/profile/image
+POST /api/profile/password-setup
 PATCH /api/profile/name
 GET,PATCH,PUT /api/profile/playback
 GET,PATCH /api/profile/preferences
@@ -233,6 +237,7 @@ POST /api/queue
 POST /api/radio
 POST /api/recommendations
 POST /api/search
+GET /api/server/seeding
 GET /api/server/stats
 GET /api/server/stats/now
 GET /api/share/<secret>

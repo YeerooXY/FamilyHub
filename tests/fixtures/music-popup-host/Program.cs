@@ -269,6 +269,19 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
                     : new(HttpStatusCode.Forbidden) { Content = System.Net.Http.Json.JsonContent.Create(new { error = "Incorrect password. Try again." }) };
             }
         }
+        if (path == "/api/server/seeding")
+        {
+            if (HealthState == "seeding-error") return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            return new(HttpStatusCode.OK) { Content = System.Net.Http.Json.JsonContent.Create(new
+            {
+                goal = 2.0, last_sample_at = DateTimeOffset.UtcNow.AddSeconds(-20), stale = false,
+                items = new object[]
+                {
+                    new { hash = new string('a', 40), name = "Peaky.Blinders.S01.1080p.BluRay.x264 [Season One]", state = "Seeding, no peers", ratio = 0.003, uploaded = 83436764L, downloaded = 25610367882L, reached_goal_at = (DateTimeOffset?)null },
+                    new { hash = new string('b', 40), name = "Debian installer", state = "Seeding", ratio = 2.4, uploaded = 1902000000L, downloaded = 792723456L, reached_goal_at = (DateTimeOffset?)DateTimeOffset.UtcNow.AddDays(-2) },
+                }
+            }) };
+        }
         if (path == "/api/server/stats/now" || path == "/api/server/stats" && request.RequestUri.Query.StartsWith("?range=", StringComparison.Ordinal))
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
