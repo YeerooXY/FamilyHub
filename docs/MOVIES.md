@@ -2,6 +2,18 @@
 
 FamilyHub provides the profile picker, catalogue and player controls. Jellyfin owns the media library, playback negotiation, watched state and resume position. The apps request movie data and streaming media through FamilyHub. A Jellyfin outage can affect Movies independently of music.
 
+## Add audio track
+
+Administrators on the movie downloads allowlist can open **Add audio track** from a title’s details or the player’s **Audio** menu. Select an audio stream from a completed download or a file in `/srv/familyhub/data/imports`. Hungarian is selected by default. For a season, choose a folder with files named using `SxxEyy`. **On the server** shows the batch and each episode’s result.
+
+The matcher samples the English tracks at five points and reports the timing adjustment, speed and confidence. For a source without English audio, it compares changes in volume and reports lower confidence. The worker uses NumPy FFT when available and a standard-library FFT otherwise. It requires FFmpeg and FFprobe on the server.
+
+The worker writes an audio-only Matroska sidecar in the movie or TV folder with a name such as `In Time.hu.mka` and the language tag `hun`. Jellyfin 12 detected the sidecar as an external stream after a single-item refresh in the owner’s 23 November test. FamilyHub requests that refresh through the active Jellyfin viewer session. If the request is refused or the session ends, the job shows that the track was saved and needs a refresh in Jellyfin.
+
+The player lists external tracks as **Hungarian, added** and applies the saved audio language preference. **Sync** changes the timing of an active external track by 100 ms and remembers the adjustment for the title on this device. The adjustment uses a second media clock and may use additional bandwidth. Listen to the result before choosing **Delete source file**. FamilyHub probes the sidecar again before deleting the original source.
+
+The web service needs `STATE_DIR` and writer access to the movie and TV folders. Use the media writer UID and group so the web service can create sidecars with the same owner and group as the video. Source deletion requires write access to the source folder. For systemd units running with `ProtectSystem=strict`, allow writes to those specific folders through `ReadWritePaths=`. Jellyfin uses its existing read-only library mounts.
+
 ## Release scope (22 November 2026)
 
 This release ships **playback only**: browsing, playback, resume, audio and subtitle switching, and a separate Jellyfin account per profile. Titles come from files the administrator places in the movie and TV libraries. Requests, automatic acquisition, scheduling, subtitle downloads, recommendations, statistics and comments are not part of it.
@@ -16,7 +28,7 @@ This release ships **playback only**: browsing, playback, resume, audio and subt
 
 Resource limits are also not enforced. The priority rules in [New server](NEW_SERVER.md) are a proposal, so a large upload or import can compete with a movie for the disk. Run that document's acceptance run before opening Movies to simultaneous viewers.
 
-**Two languages (23 November 2026, live on the development VM, Chromium).** "Tears of Steel (2012)", a Blender Foundation film under CC BY 3.0, sits in the movie library as an MKV with an English audio track, a second audio track tagged Hungarian, an embedded English subtitle and a Hungarian sidecar `.hu.srt`. The second audio track is the film's music-and-effects mix with no speech, a stand-in that tests switching and not a real dub. Verified: both audio tracks list with their titles; switching audio at 2:00 keeps the position; each subtitle language shows its own 78 or 76 cues, one track at a time; Off shows none; no HTML entities appear in the Hungarian text (the downloaded file had `&#369;` and similar, decoded before install). Not verified: a real Hungarian dub, image subtitles, and a phone. The VM disk is 93% full (15 GB free), so keep test files small.
+**Two languages (23 November 2026, live on the development VM, Chromium).** "Tears of Steel (2012)", a Blender Foundation film under CC BY 3.0, sits in the movie library as an MKV with an English audio track, a second audio track tagged Hungarian, an embedded English subtitle and a Hungarian sidecar `.hu.srt`. The second audio track uses the film's music-and-effects mix to test audio switching. Both audio tracks list with their titles. Switching at 2:00 keeps the position. Each subtitle language shows its own 78 or 76 cues. Turning subtitles off clears the cues. The Hungarian cues show decoded characters. Real Hungarian dubs, image subtitles and phone playback remained unverified in that test. The VM had 15 GB free.
 
 The next release-gating checks are one real feature film on a phone and on the projector, with Direct Play first and Quick Sync second.
 

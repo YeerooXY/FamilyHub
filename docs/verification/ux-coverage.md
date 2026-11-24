@@ -1,5 +1,15 @@
 # Interface verification
 
+## 24 November 2026 · Add audio track
+
+| Screen | Layout and visual | Motion | Focus and keyboard | Accessibility | Wording and states |
+| --- | --- | --- | --- | --- | --- |
+| Title details and Add audio track | Chromium and WebKit at 1280 px, Pixel 7 and iPhone 13 | Reduced motion checked. Normal motion pending. | Open, submit, close and return to the opener | Dialog names and form labels checked. Screen-reader speech pending. | Loading, source metadata, Hungarian default and success checked. Empty and server error states pending browser verification. |
+| Player Audio and Subtitles | Same browser profiles | Reduced motion checked. Normal motion pending. | Track switch reapplies playback position and focuses the active radio. Keyboard and touch keep focus on Sync. | Dialog, radio and Sync control names checked. Screen-reader speech pending. | External language, one-track list and both directions of adjustment checked. Actual HLS timing pending. |
+| On the server audio jobs | Same browser profiles | Reduced motion checked. Normal motion pending. | Delete confirmation, cancellation and success checked | Status role and confirmation labels checked. Screen-reader speech pending. | Completed job and source deletion checked. Live progress and server error states pending browser verification. |
+
+[Audio track screenshots and fixture details](audio-tracks-2026-11-23/README.md)
+
 ## 24 November 2026 · Data saver
 
 | Screen | Layout and visual | Motion | Focus and keyboard | Accessibility | Wording and states |

@@ -114,6 +114,18 @@
     public Task<string> MovieDownloads() => SendMovieRequest("/api/movies/downloads");
 
     [JSInvokable]
+    public Task<string> MovieAudioSources(string item, int offset) =>
+        SendMovieRequest("/api/movies/audio-sources?item=" + Uri.EscapeDataString(item) + "&offset=" + offset);
+
+    [JSInvokable]
+    public Task<string> MovieAddAudio(string item, string source, int streamIndex, string language, string title) =>
+        SendMovieRequest("/api/movies/audio-track", new { item, source, stream_index = streamIndex, language, title, ticket = mediaTicket });
+
+    [JSInvokable]
+    public Task<string> MovieDeleteAudioSource(string job, string result) =>
+        SendMovieRequest("/api/movies/audio-track/" + Uri.EscapeDataString(job) + "/delete-source", new { result });
+
+    [JSInvokable]
     public async Task<string> MovieLibrary(string path, string query, System.Text.Json.JsonElement? payload)
     {
         if (closed.IsCancellationRequested || movieApi is not { } api || !ReferenceEquals(api, Session.Api)) return "{}";

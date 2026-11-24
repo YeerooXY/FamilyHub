@@ -15,7 +15,7 @@ from time import monotonic
 
 from flask import g, jsonify, session
 
-from . import feedback, movie_media, movie_search
+from . import audio_tracks, feedback, movie_media, movie_search
 from .movie_youtube_downloads import DEFAULT_DIR, YouTubeDownloads
 
 
@@ -108,7 +108,7 @@ def read_downloads(qb):
 def register_movies(app, cfg, body, allow, session_is_live):
     base = service_url(cfg.get('JELLYFIN_INTERNAL_URL', 'http://127.0.0.1:8096'))
     public = service_url(cfg.get('JELLYFIN_PUBLIC_URL'), ('https',))
-    issue_media = movie_media.register(app, base, body, allow, session_is_live)
+    issue_media, audio_library = movie_media.register(app, base, body, allow, session_is_live)
     releases = cfg.get('MOVIE_RELEASE_SEARCH') or {}
     prowlarr = service_url(releases.get('url', 'http://127.0.0.1:9696'))
     indexers = tuple(dict.fromkeys(i for i in releases.get('indexer_ids', []) if type(i) is int and i > 0))[:4]
@@ -138,6 +138,8 @@ def register_movies(app, cfg, body, allow, session_is_live):
     def download_access():
         return (g.user in cfg['ADMIN_USERS'] and g.user in downloads.get('profiles', [])
                 and g.user in cfg.get('JELLYFIN_PROFILES', {}))
+
+    audio_items = audio_tracks.register(app, cfg, body, allow, download_access, audio_library)
 
     def cached_search(key, ttl, fetch):
         with search_lock:
@@ -177,7 +179,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
                 queue_cache = read_downloads(downloads.get('qbittorrent') or {})
                 queue_expires = monotonic() + 3
             snapshot = queue_cache
-        jobs = youtube.items()
+        jobs = [*audio_items(g.user), *youtube.items()]
         if jobs:
             snapshot = dict(available=True, items=[*jobs, *snapshot.get('items', [])])
         response = jsonify(snapshot)

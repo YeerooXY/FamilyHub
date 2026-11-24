@@ -88,9 +88,9 @@ async function verify(browser, profile, options) {
             node.muted = true;
             await node.play();
         });
-        const tracks = page.getByRole("button", {name: "Audio and subtitles", exact: true});
+        const tracks = page.getByRole("button", {name: "Subtitles", exact: true});
         await tracks.press("Space");
-        const close = page.getByRole("button", {name: "Close audio and subtitles"});
+        const close = page.getByRole("button", {name: "Close subtitles"});
         const focused = locator => locator.evaluate(node => node === document.activeElement);
         assert.equal(await focused(close), true);
         await page.getByRole("heading", {name: "Subtitles", exact: true}).waitFor();

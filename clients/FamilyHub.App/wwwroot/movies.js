@@ -1,4 +1,6 @@
 import { buildPlayerUi } from "./movie-player-ui.js";
+import { addAudioDialog, audioJobResults, audioJobRunning, audioLanguage as audioLanguageName, movieDialog } from "./movie-audio-ui.js";
+import { movieAudioSync } from "./movie-audio-sync.js";
 import { buildReleaseSearch, cleanResultTitle, formatMinutes, videoQualityTier } from "./movie-releases.js";
 
 // AbortSignal.timeout needs Chromium 103; older televisions (webOS) need this form.
@@ -151,6 +153,9 @@ export function openMovies(host, session, app, viewer) {
     connection?.addEventListener?.("change", connectionChanged, { signal: life.signal });
     host.replaceChildren(status, player, library);
     const call = async (method, ...args) => JSON.parse(await app.invokeMethodAsync(method, ...args));
+    function addAudio(item, opener, parent, signal) {
+        addAudioDialog({parent, opener, item, signal, call, onJob: () => scheduleDownloads(0)});
+    }
     function select(container, name, options) {
         const label = el("label", name), pick = el("select");
         for (const [value, text] of options) pick.add(new Option(text, value));
@@ -317,7 +322,7 @@ export function openMovies(host, session, app, viewer) {
             let selectedAudio = defaultAudio;
             let direct = !limit && source.SupportsDirectPlay;
             // A static stream leaves audio selection to the browser. Ask Jellyfin to select the track on multi-audio files.
-            const customAudio = audio.length > 1 ? requestedAudio : undefined;
+            const customAudio = audio.length > 1 || audio[0]?.IsExternal ? requestedAudio : undefined;
             if (customAudio != null || (!direct && defaultSubtitle >= 0)) {
                 const playback = await playbackInfo(source.Id, customAudio).catch(() => null);
                 if (!active || rev !== selection) return;
@@ -359,11 +364,12 @@ export function openMovies(host, session, app, viewer) {
             const subtitles = (source.MediaStreams || []).filter(s => s.Type === "Subtitle" && s.IsTextSubtitleStream);
             const controls = el("div");
             controls.className = "movie-track-controls";
-            const audioPick = audio.length > 1 ? select(controls, "Audio track",
-                audio.map(track => [track.Index, track.DisplayTitle || track.Language || "Audio"])) : null;
+            const audioPick = audio.length ? select(controls, "Audio track",
+                audio.map(track => [track.Index, track.IsExternal ? audioLanguageName(track.Language) + ", added"
+                    : track.DisplayTitle || audioLanguageName(track.Language)])) : null;
             if (audioPick) {
                 audioPick.value = String(selectedAudio);
-                audioPick.onchange = () => play(item, opener, { sheet: "tracks", audioIndex: Number(audioPick.value),
+                audioPick.onchange = () => play(item, opener, { sheet: "audio", audioIndex: Number(audioPick.value),
                     position: metadataLoaded ? media.currentTime : resume, paused: media.paused,
                     subtitleIndex: playback.subtitleOverride, dataSaver: playback.dataSaver });
             }
@@ -456,6 +462,11 @@ export function openMovies(host, session, app, viewer) {
             const numbered = item.ParentIndexNumber != null && item.IndexNumber != null;
             playerLife = new AbortController();
             const playerSignal = playerLife.signal;
+            const audioSync = audio.some(track => track.Index === selectedAudio && track.IsExternal) ?
+                movieAudioSync(media, {signal: playerSignal, stream: stream.href,
+                    Hls: playback.hls ? Hls : null, report: message => ui?.say(message),
+                    useAudioElement: element => ui?.useAudioElement(element),
+                    key: preferencesKey(preferenceViewer) + ":sync:" + item.Id}) : null;
             const subtitleItem = /^[a-f\d]{32}$|^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(source.Id) ? source.Id : item.Id;
             const subtitlePath = `Items/${encodeURIComponent(subtitleItem)}`;
             const remote = subtitlePath + "/RemoteSearch/Subtitles/";
@@ -527,7 +538,8 @@ export function openMovies(host, session, app, viewer) {
             };
             ui = buildPlayerUi({ media, surface: player, back, signal: playerSignal, subtitleSearch, dataSaver,
                 title: numbered ? `S${item.ParentIndexNumber}:E${item.IndexNumber} “${item.Name}”` : item.Name,
-                kicker: item.SeriesName, trackControls: [controls], notice });
+                kicker: item.SeriesName, audioPick, subtitlePick, audioSync, notice,
+                addAudio: session.downloads_enabled ? trigger => addAudio(item, trigger, player, playerSignal) : null });
             player.replaceChildren(media, ui.root);
             enterPlayer();
             playback.setSubtitles(options.subtitleIndex);
@@ -541,9 +553,9 @@ export function openMovies(host, session, app, viewer) {
                     ui.setNext(after, next => play(next, opener));
                 });
             }
+            ui.playButton.focus();
             if (options.sheet === "settings") ui.openSettingsAt();
-            else if (options.sheet === "tracks") ui.openTracksAt();
-            else ui.playButton.focus();
+            else ui.reopenSheet(options.sheet);
             if (quality === "saver" && prefs.dataSaver === "auto" && !autoHintShown) {
                 autoHintShown = true;
                 const key = preferencesKey(preferenceViewer) + ":data-saver-hint";
@@ -631,7 +643,21 @@ export function openMovies(host, session, app, viewer) {
             caption.append(action);
         }
         b.append(artwork, caption);
-        return b;
+        if (!session.downloads_enabled || !["Movie", "Episode", "Season"].includes(item.Type)) return b;
+        const wrapper = el("div");
+        wrapper.className = "movie-card-with-details";
+        const details = button("Details", () => {
+            const dialog = movieDialog(library, details, item.Name, life.signal);
+            if (item.Overview) dialog.append(el("p", item.Overview));
+            dialog.append(button("Play", () => {
+                dialog.close();
+                play(item, b);
+            }));
+            dialog.append(button("Add audio track", event => addAudio(item, event.currentTarget, dialog, life.signal)));
+        });
+        details.setAttribute("aria-label", "Details for " + name);
+        wrapper.append(b, details);
+        return wrapper;
     }
     // A shelf is a horizontal row (Netflix style); `grid` lays search results out as a wrapping grid instead.
     // `extra` may set `params` (more query values), `lazy` (load when scrolled into view) and `hideEmpty`.
@@ -1135,6 +1161,10 @@ export function openMovies(host, session, app, viewer) {
         try { reply = await call("MovieDownloads"); } catch {}
         checkingQueue = false;
         if (!queueVisible()) return;
+        if (queue.contains(document.activeElement)) {
+            scheduleDownloads(5000);
+            return;
+        }
         const itemsAvailable = reply?.available && Array.isArray(reply.items);
         if (!itemsAvailable) {
             queue.replaceChildren(el("p", reply?.reason || "The download server is unavailable."));
@@ -1154,13 +1184,17 @@ export function openMovies(host, session, app, viewer) {
                 const eta = item.eta != null && ["Downloading", "Almost done"].includes(item.state)
                     ? ` · about ${Math.max(1, Math.ceil(item.eta / 60))} min left` : "";
                 tile.append(el("strong", item.name), bar, el("p", item.state + eta));
+                if (Array.isArray(item.results)) tile.append(audioJobResults(item, async (...args) => {
+                    try { return await call(...args); }
+                    catch { return {error: "The server did not respond. Try again."}; }
+                }));
                 items.append(tile);
             }
             queue.replaceChildren(items);
         }
         if (refreshAfterGrabAt) scheduleDownloads(Math.max(0, refreshAfterGrabAt - Date.now()));
         else if (itemsAvailable && reply.items.some(item =>
-            ["Waiting", "Downloading", "Almost done", "Stalled"].includes(item.state))) scheduleDownloads(5000);
+            audioJobRunning(item) || ["Downloading", "Almost done", "Stalled"].includes(item.state))) scheduleDownloads(5000);
     }
     const queueVisibility = () => scheduleDownloads(0);
     const queueObserver = new MutationObserver(queueVisibility);

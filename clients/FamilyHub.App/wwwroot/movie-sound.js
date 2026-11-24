@@ -45,15 +45,22 @@ export function soundPanelWanted(win = globalThis) {
 export function attachSound(media, { signal, storage, AudioContextClass = globalThis.AudioContext ?? globalThis.webkitAudioContext } = {}) {
     let state = readSound(storage);
     let context = null, source = null, master = null, nodes = null;
+    let output = media;
+    const sources = new WeakMap();
     const listeners = new Set();
     const canRoute = typeof AudioContextClass === "function";
-    const canPickOutput = () => typeof (context?.setSinkId ?? media.setSinkId) === "function";
+    const canPickOutput = () => typeof (context?.setSinkId ?? output.setSinkId) === "function";
+
+    function mediaSource() {
+        if (!sources.has(output)) sources.set(output, context.createMediaElementSource(output));
+        return sources.get(output);
+    }
 
     function ensureGraph() {
         if (context || !canRoute) return !!context;
         try {
             context = new AudioContextClass({ latencyHint: "playback" });
-            source = context.createMediaElementSource(media);
+            source = mediaSource();
             master = context.createGain();
             master.connect(context.destination);
             nodes = {
@@ -96,18 +103,18 @@ export function attachSound(media, { signal, storage, AudioContextClass = global
         if (needsGraph && !context) ensureGraph();
         if (context) {
             // Once the element is in the graph its own volume stays at full and the gain node does the work.
-            media.volume = 1; media.muted = false;
+            output.volume = 1; output.muted = false;
             master.gain.value = state.muted ? 0 : state.volume;
             route();
             if (context.state === "suspended") context.resume().catch(() => {});
         } else {
-            media.volume = Math.min(1, state.volume);
-            media.muted = state.muted;
+            output.volume = Math.min(1, state.volume);
+            output.muted = state.muted;
         }
     }
 
     async function applyDevice() {
-        const target = context?.setSinkId ? context : media.setSinkId ? media : null;
+        const target = context?.setSinkId ? context : output.setSinkId ? output : null;
         if (!target) return true;
         try { await target.setSinkId(state.device || ""); return true; } catch { return false; }
     }
@@ -121,6 +128,18 @@ export function attachSound(media, { signal, storage, AudioContextClass = global
         get state() { return { ...state }; },
         get canRoute() { return canRoute; },
         get canPickOutput() { return canPickOutput(); },
+        useAudioElement(element) {
+            const next = element ?? media;
+            if (output === next) return;
+            output.muted = true;
+            output = next;
+            if (context) {
+                source.disconnect();
+                source = mediaSource();
+            }
+            apply();
+            if (state.device) applyDevice();
+        },
         onChange(listener) { listeners.add(listener); return () => listeners.delete(listener); },
         set(patch) {
             const before = state;

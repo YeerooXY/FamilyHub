@@ -9,7 +9,7 @@ const app = "http://familyhub.test";
 const jellyfin = "https://jellyfin.test";
 const streams = [
     { Type: "Audio", Index: 1, Language: "eng", DisplayTitle: "English stereo" },
-    { Type: "Audio", Index: 2, Language: "hun", DisplayTitle: "Hungarian stereo" },
+    { Type: "Audio", Index: 2, Language: "hun", DisplayTitle: "Hungarian stereo", IsExternal: true },
     { Type: "Subtitle", Index: 3, Language: "hu-HU", DisplayTitle: "Hungarian", IsTextSubtitleStream: true },
     { Type: "Subtitle", Index: 4, Language: "eng", DisplayTitle: "English", IsTextSubtitleStream: true }
 ];
@@ -112,9 +112,9 @@ async function check(browser, options) {
     const focused = async node => page.waitForFunction(el => el === document.activeElement, await node.elementHandle());
     // "Recently added" repeats titles from the library shelves, so look cards up outside it.
     const moviesShelf = page.locator(".movie-shelf").filter({ hasNot: page.getByRole("heading", { name: "Recently added" }) });
-    const openTracks = () => page.getByRole("button", { name: "Audio and subtitles" }).click();
+    const openTracks = () => page.getByRole("button", { name: "Audio", exact: true }).click();
     const select = name => page.locator("label", { hasText: name }).locator("select");
-    // Audio & Subtitles is one popover with a radio list per kind; the hidden selects keep the values.
+    // Each popover has a radio list. The hidden selects keep the values.
     const group = name => page.getByRole("radiogroup", { name, exact: true });
     const checkedIn = name => group(name).getByRole("radio", { checked: true });
     const preferences = (profile, values) => page.evaluate(async ({ profile, values, jellyfin }) => {
@@ -174,7 +174,7 @@ async function check(browser, options) {
     assert.deepEqual(await box(), ["fixed", true]);
     const playPause = page.getByRole("button", { name: /^(Play|Pause)$/ });
     await focused(playPause);
-    for (const name of ["Back 10 seconds", "Forward 10 seconds", "Audio and subtitles"]) await page.getByRole("button", { name }).waitFor();
+    for (const name of ["Back 10 seconds", "Forward 10 seconds", "Audio"]) await page.getByRole("button", { name }).waitFor();
     assert.equal(await page.getByRole("button", { name: "Episodes" }).count(), 0, "a film has no Episodes button");
     assert.equal(await page.getByRole("button", { name: /^Next episode/ }).count(), 0, "a film has no Next Episode button");
     await page.getByRole("slider", { name: "Seek" }).waitFor();
@@ -197,13 +197,13 @@ async function check(browser, options) {
     // Up from play lands on the single Back control.
     await page.keyboard.press("ArrowUp");
     await page.waitForFunction(() => document.activeElement.closest(".movie-ui-top"));
-    // Audio & Subtitles opens a sheet with one named close control and Escape returns focus to its opener.
-    const tracks = page.getByRole("button", { name: "Audio and subtitles" });
+    // Escape closes Audio and returns focus to its opener.
+    const tracks = page.getByRole("button", { name: "Audio", exact: true });
     await tracks.click();
-    await page.getByRole("button", { name: "Close audio and subtitles" }).waitFor();
+    await page.getByRole("button", { name: "Close audio" }).waitFor();
     await group("Audio track").waitFor();
     // A browser in fullscreen spends the first Escape on leaving fullscreen, so allow a second press.
-    const closer = page.getByRole("button", { name: "Close audio and subtitles" });
+    const closer = page.getByRole("button", { name: "Close audio" });
     for (let press = 0; press < 2 && await closer.isVisible(); press++) {
         await page.keyboard.press("Escape");
         await page.waitForTimeout(300);
@@ -226,7 +226,11 @@ async function check(browser, options) {
     assert.deepEqual(await page.locator(".movie-ui-sub").allInnerTexts(), ["Hello & welcome", "Second line"]);
     if (browser.browserType() === chromium)
         await page.waitForFunction(() => document.querySelector("video").textTracks[0].cues?.length === 1);
+    const subtitles = page.getByRole("button", { name: "Subtitles", exact: true });
+    assert.equal(await checkedIn("Audio track").innerText(), "Hungarian, added");
+    await subtitles.click();
     await group("Subtitle track").getByRole("radio", { name: "Off", exact: true }).click();
+    await openTracks();
     await group("Audio track").getByRole("radio", { name: "English stereo", exact: true }).click();
     await back.waitFor();
     await group("Audio track").waitFor();
@@ -236,6 +240,8 @@ async function check(browser, options) {
     await back.press("Space");
     await focused(two);
     await one.press("Enter");
+    await openTracks();
+    assert.equal(await group("Audio track").getByRole("radio").count(), 1);
     await page.getByText("Hungarian audio unavailable. Using the default track. Hungarian subtitles unavailable. Subtitles are off.").waitFor();
     await back.press("Space");
     await focused(one);
@@ -373,7 +379,7 @@ async function check(browser, options) {
 (async () => {
     for (const [engine, desktop, phone] of [
         [chromium, { width: 1280, height: 800 }, "Pixel 7"],
-        [webkit, { width: 768, height: 1024 }, "iPhone 13"]
+        [webkit, { width: 1280, height: 800 }, "iPhone 13"]
     ]) {
         const browser = await engine.launch();
         try {

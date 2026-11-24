@@ -3,11 +3,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { jellyfin, cors, moviePage, verifyMovieProfiles } = require("./movies_fixture.cjs");
 
-const output = path.join(__dirname, "../docs/verification/data-saver-2026-11-23");
+const output = process.argv[2] || path.join(__dirname, "../docs/verification/data-saver-2026-11-23");
 const item = { Id: "in-time", Name: "In Time", Type: "Movie" };
 const streams = [
     { Type: "Audio", Index: 1, DisplayTitle: "English" },
-    { Type: "Audio", Index: 2, DisplayTitle: "Hungarian", IsExternal: true },
+    { Type: "Audio", Index: 2, Language: "hun", DisplayTitle: "Hungarian", IsExternal: true },
     { Type: "Subtitle", Index: 3, DisplayTitle: "English", IsTextSubtitleStream: true }
 ];
 
@@ -177,10 +177,12 @@ async function check(browser, name, options) {
 
         await page.keyboard.press("Escape");
         assert(await focused(settings));
-        const tracks = page.getByRole("button", { name: "Audio and subtitles" });
+        const tracks = page.getByRole("button", { name: "Audio", exact: true });
         await tracks.press("Enter");
-        await page.getByRole("radio", { name: "Hungarian", exact: true }).press("Enter");
-        await page.getByRole("radio", { name: "Hungarian", checked: true }).waitFor();
+        await page.getByRole("radio", { name: "Hungarian, added", exact: true }).press("Enter");
+        await page.getByRole("radio", { name: "Hungarian, added", checked: true }).waitFor();
+        const subtitles = page.getByRole("button", { name: "Subtitles", exact: true });
+        await subtitles.press("Enter");
         const subtitle = page.getByRole("radiogroup", { name: "Subtitle track" });
         await subtitle.getByRole("radio", { name: "English" }).press("Enter");
         await page.keyboard.press("Escape");
@@ -195,7 +197,8 @@ async function check(browser, name, options) {
         await page.screenshot({ path: path.join(output, name + "-lowest.png") });
         await page.keyboard.press("Escape");
         await tracks.press("Enter");
-        assert(await page.getByRole("radio", { name: "Hungarian", checked: true }).isVisible());
+        assert(await page.getByRole("radio", { name: "Hungarian, added", checked: true }).isVisible());
+        await subtitles.press("Enter");
         assert(await subtitle.getByRole("radio", { name: "English", checked: true }).isVisible());
         assert.equal(await page.evaluate(() => {
             clearInterval(window.focusWatch);

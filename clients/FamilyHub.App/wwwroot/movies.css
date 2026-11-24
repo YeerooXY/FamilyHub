@@ -27,8 +27,11 @@
     scrollbar-width: none;
 }
 .movie-row::-webkit-scrollbar { display: none; }
-.movie-row > .movie-card { flex: 0 0 var(--art-width); scroll-snap-align: start; }
-.movie-row > :not(.movie-card) { padding: .5rem 0; }
+.movie-row > :is(.movie-card, .movie-card-with-details) { flex: 0 0 var(--art-width); scroll-snap-align: start; }
+.movie-row > :not(.movie-card, .movie-card-with-details) { padding: .5rem 0; }
+.movie-card-with-details { min-width: 0; display: grid; align-content: start; gap: .35rem; }
+.movie-card-with-details > .movie-card { width: 100%; }
+.movie-card-with-details > button:last-child { justify-self: start; min-height: 44px; }
 
 .movie-library .movie-card {
     display: grid;
@@ -434,8 +437,36 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-library .movie-shelf > h2 { padding-inline: .35rem; }
 
 /* Audio & Subtitles: one popover, a list per kind, the current choice marked. */
-.movie-sheet.movie-sheet-tracks { width: min(36rem, calc(100% - 2rem)); }
-.movie-sheet-tracks .movie-track-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr)); gap: 1rem 1.25rem; }
+.movie-audio-dialog {
+    color-scheme: dark;
+    color: #fff;
+    background: #171920;
+    border: 1px solid #ffffff3d;
+    border-radius: .9rem;
+    padding: 1rem;
+    width: min(34rem, calc(100% - 2rem));
+    max-height: calc(100% - 2rem);
+    overflow: auto;
+}
+.movie-audio-dialog::backdrop { background: #000a; }
+.movie-audio-dialog header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.movie-audio-dialog h2 { margin: 0; font-size: 1.2rem; }
+.movie-audio-dialog form, .movie-audio-dialog label { display: grid; gap: .45rem; }
+.movie-audio-dialog form { margin-block: .75rem; }
+.movie-audio-dialog :is(select, input, button), .movie-audio-results button { min-height: 44px; }
+.movie-audio-dialog :is(select, input) {
+    min-width: 0; width: 100%; padding-inline: .55rem; color: inherit; background: #242630;
+    border: 1px solid #ffffff55; border-radius: .4rem;
+}
+.movie-audio-dialog p:empty, .movie-audio-dialog [hidden], .movie-audio-results [hidden] { display: none; }
+.movie-audio-source-name { overflow-wrap: anywhere; }
+.movie-audio-source-name:empty { display: none; }
+.movie-audio-results p { margin-block: .4rem; }
+.movie-audio-results section + section { border-top: 1px solid #ffffff33; margin-top: .6rem; }
+.movie-audio-confirm button { margin-inline-end: .4rem; }
+.movie-audio-sync { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; }
+.movie-audio-sync button.movie-track-option { width: 44px; padding: 0; text-align: center; }
+.movie-audio-sync output { text-align: center; min-width: 7rem; font-variant-numeric: tabular-nums; }
 .movie-track-col h4 { margin: 0 0 .4rem; font-size: .95rem; color: #ffffffb3; font-weight: 600; }
 .movie-track-list { display: grid; gap: .1rem; max-height: 14rem; overflow: auto; }
 .movie-subtitle-finder { display: grid; gap: .6rem; padding-top: .7rem; border-top: 1px solid #ffffff26; }

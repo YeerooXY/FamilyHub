@@ -1,5 +1,5 @@
 // Full-window player controls for Movies & TV: title and close at the top, 10-second skips around a large
-// play button, a seek bar with the remaining time, and Episodes / Audio & Subtitles / Next Episode below.
+// play button, a seek bar with the remaining time, and Episodes / Audio / Subtitles / Next Episode below.
 // The module owns only the controls. movies.js owns the video element, Jellyfin and progress reporting.
 
 import { attachSound, soundPanelWanted, SOUND_MODES, MAX_VOLUME } from "./movie-sound.js";
@@ -13,7 +13,8 @@ const paths = {
     skip: ["M9 3L6 6l3 3", "M6 6a8 8 0 1 1-2 5"],
     next: ["M5 5v14l10-7z", "M19 5v14"],
     episodes: ["M8 4h12v12H8z", "M4 8v12h12"],
-    tracks: ["M4 5h16v11h-9l-4 4v-4H4z", "M7 9h10M7 12h6"],
+    audio: ["M4 9v6h4l5 4V5L8 9z", "M16.5 9a4.5 4.5 0 0 1 0 6"],
+    subtitles: ["M4 5h16v11h-9l-4 4v-4H4z", "M7 9h10M7 12h6"],
     settings: ["M4 7h16M4 17h16", "M9 4v6M15 14v6"],
     sound: ["M4 9v6h4l5 4V5L8 9z", "M16.5 9a4.5 4.5 0 0 1 0 6"],
     soundOff: ["M4 9v6h4l5 4V5L8 9z", "M17 9.5l4 5M21 9.5l-4 5"],
@@ -82,7 +83,7 @@ export function subtitleBottom({ width, height, videoWidth, videoHeight, barTop 
  * @param {HTMLElement} ctx.surface  element that goes fullscreen (the player section)
  * @param {HTMLButtonElement} ctx.back  the close control, named "Back to movies"
  * @param {string} ctx.title @param {string} [ctx.kicker]
- * @param {HTMLElement[]} ctx.trackControls  labelled selects for audio and subtitles
+ * @param {HTMLSelectElement} ctx.subtitlePick  labelled subtitle select
  * @param {HTMLElement} ctx.notice  status line for track fallbacks
  * @param {AbortSignal} ctx.signal  aborts every listener
  */
@@ -154,8 +155,11 @@ export function buildPlayerUi(ctx) {
     const episodesButton = button("movie-ui-action", "Episodes", paths.episodes, {}, () => toggleSheet("episodes"));
     episodesButton.append(make("span", "", "Episodes"));
     episodesButton.hidden = true;
-    const tracksButton = button("movie-ui-action", "Audio and subtitles", paths.tracks, {}, () => toggleSheet("tracks"));
-    tracksButton.append(make("span", "", "Audio & Subtitles"));
+    const audioButton = button("movie-ui-action", "Audio", paths.audio, {}, () => toggleSheet("audio"));
+    audioButton.append(make("span", "", "Audio"));
+    audioButton.hidden = !ctx.audioPick && !ctx.addAudio;
+    const subtitlesButton = button("movie-ui-action", "Subtitles", paths.subtitles, {}, () => toggleSheet("subtitles"));
+    subtitlesButton.append(make("span", "", "Subtitles"));
     const settingsButton = button("movie-ui-action", "Settings", paths.settings, {}, () => openSettingsAt());
     settingsButton.append(make("span", "", "Settings"));
     // Sound settings for a PC: phones and televisions have hardware volume, so nothing is offered there.
@@ -167,7 +171,7 @@ export function buildPlayerUi(ctx) {
     nextButton.append(make("span", "", "Next Episode"));
     nextButton.hidden = true;
     const actions = make("div", "movie-ui-actions");
-    actions.append(fullscreen, episodesButton, tracksButton, settingsButton, soundButton, nextButton);
+    actions.append(fullscreen, episodesButton, audioButton, subtitlesButton, settingsButton, soundButton, nextButton);
     const bottom = make("div", "movie-ui-bottom");
     bottom.append(seekRow, actions);
 
@@ -186,7 +190,8 @@ export function buildPlayerUi(ctx) {
         sheets[name] = { node: sheet, body, close, opener };
         return sheet;
     }
-    const tracksSheet = makeSheet("tracks", "Audio & Subtitles", "Close audio and subtitles", tracksButton);
+    const audioSheet = makeSheet("audio", "Audio", "Close audio", audioButton);
+    const subtitlesSheet = makeSheet("subtitles", "Subtitles", "Close subtitles", subtitlesButton);
     const settingsSheet = makeSheet("settings", "Settings", "Close settings", settingsButton);
     const settingsBody = sheets.settings.body;
     const qualityLabel = make("p", "movie-quality-label", ctx.dataSaver.quality);
@@ -270,44 +275,66 @@ export function buildPlayerUi(ctx) {
     }
     // Audio & Subtitles is one popover with a list per kind, like Netflix. The labelled selects stay in the document,
     // hidden, as the single source of truth: choosing a row sets its select and fires the select's change event.
-    tracksSheet.classList.add("movie-sheet-tracks");
-    const syncTracks = [];
-    for (const control of ctx.trackControls) {
-        for (const label of control.querySelectorAll("label")) {
-            const pick = label.querySelector("select");
-            if (!pick) continue;
-            label.hidden = true;
-            const name = (label.firstChild?.textContent ?? "").trim();
-            const column = make("div", "movie-track-col");
-            const list = make("div", "movie-track-list");
-            list.setAttribute("role", "radiogroup");
-            list.setAttribute("aria-label", name);
-            column.append(make("h4", "", /^audio/i.test(name) ? "Audio" : "Subtitles"), list);
-            let options = [];
-            const sync = () => {
-                const next = [...pick.options];
-                if (next.length !== options.length || next.some((option, index) => option !== options[index])) {
-                    options = next;
-                    list.replaceChildren(...options.map(option => {
-                        const row = make("button", "movie-track-option", option.text);
-                        row.type = "button";
-                        row.setAttribute("role", "radio");
-                        row.addEventListener("click", () => {
-                            pick.value = option.value;
-                            pick.dispatchEvent(new Event("change"));
-                            sync();
-                        }, { signal });
-                        return row;
-                    }));
-                }
-                options.forEach((option, index) =>
-                    list.children[index].setAttribute("aria-checked", String(pick.value === option.value)));
-            };
-            sync();
-            syncTracks.push(sync);
-            control.append(column);
+    function trackList(sheet, pick, name) {
+        if (!pick) return () => {};
+        pick.closest("label").hidden = true;
+        const list = make("div", "movie-track-list");
+        list.setAttribute("role", "radiogroup");
+        list.setAttribute("aria-label", name);
+        sheet.append(pick.closest("label"), list);
+        let options = [];
+        function sync() {
+            const next = [...pick.options];
+            if (next.length !== options.length || next.some((option, index) => option !== options[index])) {
+                options = next;
+                list.replaceChildren(...options.map(option => {
+                    const row = make("button", "movie-track-option", option.text);
+                    row.type = "button";
+                    row.setAttribute("role", "radio");
+                    row.addEventListener("click", () => {
+                        if (pick.value === option.value) return;
+                        pick.value = option.value;
+                        pick.dispatchEvent(new Event("change"));
+                        sync();
+                    }, { signal });
+                    return row;
+                }));
+            }
+            options.forEach((option, index) =>
+                list.children[index].setAttribute("aria-checked", String(pick.value === option.value)));
         }
-        sheets.tracks.body.append(control);
+        sync();
+        return sync;
+    }
+    const syncAudio = trackList(sheets.audio.body, ctx.audioPick, "Audio track");
+    const syncSubtitles = trackList(sheets.subtitles.body, ctx.subtitlePick, "Subtitle track");
+    if (ctx.audioSync) {
+        const sync = make("div", "movie-audio-sync");
+        sync.setAttribute("role", "group");
+        sync.setAttribute("aria-label", "Sync");
+        const output = make("output");
+        function update() {
+            const ms = ctx.audioSync.value;
+            output.textContent = ms === 0 ? "0 ms" : `${Math.abs(ms)} ms ${ms < 0 ? "earlier" : "later"}`;
+        }
+        const adjust = (step, label, text) => {
+            const action = button("movie-track-option", label, null, {}, () => {
+                action.focus({preventScroll: true});
+                ctx.audioSync.step(step);
+                update();
+            });
+            action.textContent = text;
+            return action;
+        };
+        update();
+        sync.append(make("span", "", "Sync"), adjust(-100, "Play audio 100 ms earlier", "\u2212"), output,
+            adjust(100, "Play audio 100 ms later", "+"));
+        sheets.audio.body.append(sync);
+    }
+    if (ctx.addAudio) {
+        const add = button("movie-track-option", "Add audio track", null, {}, () => ctx.addAudio(add));
+        add.textContent = "Add audio track";
+        sheets.audio.body.append(add);
     }
     if (ctx.subtitleSearch) {
         const finder = make("div", "movie-subtitle-finder");
@@ -326,7 +353,7 @@ export function buildPlayerUi(ctx) {
         results.setAttribute("aria-label", "Subtitle results");
         form.append(languageLabel, find);
         finder.append(form, feedback, results);
-        sheets.tracks.body.append(finder);
+        sheets.subtitles.body.append(finder);
         let busy = false;
         function setBusy(value) {
             busy = value;
@@ -362,7 +389,7 @@ export function buildPlayerUi(ctx) {
                         try {
                             await ctx.subtitleSearch.add(result, selectedLanguage);
                             if (signal.aborted) return;
-                            if (openSheet === "tracks") closeSheet();
+                            if (openSheet === "subtitles") closeSheet();
                             results.replaceChildren();
                             feedback.textContent = "";
                             failure.textContent = "Subtitles added.";
@@ -389,7 +416,8 @@ export function buildPlayerUi(ctx) {
         const previous = openSheet && sheets[openSheet];
         openSheet = name;
         sheets[name].node.hidden = false;
-        if (name === "tracks") for (const sync of syncTracks) sync();
+        if (name === "audio") syncAudio();
+        if (name === "subtitles") syncSubtitles();
         if (name === "sound") refreshOutputs();
         sheets[name].opener.setAttribute("aria-expanded", "true");
         show();
@@ -443,7 +471,7 @@ export function buildPlayerUi(ctx) {
     spinnerRoot.append(spinner);
     const subs = make("div", "movie-ui-subs");
     subs.setAttribute("aria-hidden", "true");
-    root.append(surfaceLayer, subs, spinnerRoot, message, top, mid, bottom, tracksSheet, episodesSheet, soundSheet, settingsSheet);
+    root.append(surfaceLayer, subs, spinnerRoot, message, top, mid, bottom, audioSheet, subtitlesSheet, episodesSheet, soundSheet, settingsSheet);
 
     // Controls hide a few seconds after the last touch, playing or paused. Reduced motion only removes the fade, not the hiding.
     // A keyboard or remote focus ring keeps them up so the focused control stays visible.
@@ -543,7 +571,7 @@ export function buildPlayerUi(ctx) {
     // Keyboard and TV remote. With a control focused, the arrow keys move between controls (a TV remote has no pointer):
     // left and right inside a row, up and down between rows. The seek bar scrubs with left and right. With nothing
     // focused, left and right skip 10 seconds. Space, K or Enter toggles play, Escape closes a sheet, Back closes the player.
-    const rows = () => [[back], [rewind, playPause, forward], [seek], [fullscreen, episodesButton, tracksButton, settingsButton, soundButton, nextButton].filter(b => !b.hidden)];
+    const rows = () => [[back], [rewind, playPause, forward], [seek], [fullscreen, episodesButton, audioButton, subtitlesButton, settingsButton, soundButton, nextButton].filter(b => !b.hidden)];
     function moveFocus(target, key) {
         const sheetNode = openSheet && sheets[openSheet].node;
         if (sheetNode?.contains(target)) {
@@ -567,10 +595,16 @@ export function buildPlayerUi(ctx) {
         return true;
     }
     // The Android Back button arrives here (familyhub.closeTopLayer): close a sheet first, then the player.
-    root.addEventListener("movie-back", () => { if (openSheet) closeSheet(); else back.click(); });
+    root.addEventListener("movie-back", () => {
+        const dialog = [...ctx.surface.querySelectorAll("dialog[open]")].at(-1);
+        if (dialog) dialog.close();
+        else if (openSheet) closeSheet();
+        else back.click();
+    });
     document.addEventListener("keydown", event => {
         if (event.altKey || event.ctrlKey || event.metaKey) return;
         const target = event.target;
+        if (target.closest?.("dialog")) return;
         if (event.key === "Escape" && openSheet) { event.preventDefault(); closeSheet(); return; }
         if (event.keyCode === 461 || event.key === "BrowserBack") { event.preventDefault(); back.click(); return; }
         const arrow = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key);
@@ -598,7 +632,6 @@ export function buildPlayerUi(ctx) {
     return {
         root,
         playButton: playPause,
-        openTracks: () => toggleSheet("tracks"),
         /** Episodes of the current season, or null when the title is not part of a series. */
         setEpisodes(list, currentId, play) {
             episodesButton.hidden = !list?.length;
@@ -639,9 +672,16 @@ export function buildPlayerUi(ctx) {
                 qualityOptions.children[index].setAttribute("aria-checked", String(choice === id)));
         },
         openSettingsAt,
+        useAudioElement(element) {
+            if (!sound) return false;
+            sound.useAudioElement(element);
+            return true;
+        },
         openSheetName: () => openSheet,
-        /** Reopens Audio & Subtitles with the audio list focused, after an audio change rebuilt the player. */
-        openTracksAt: () => toggleSheet("tracks", sheets.tracks.body.querySelector("[aria-checked='true']")),
+        reopenSheet(name) {
+            if (name && sheets[name]) toggleSheet(name, name === "audio"
+                ? sheets.audio.body.querySelector("[aria-checked='true']") : null);
+        },
         dispose() { root.remove(); }
     };
 }

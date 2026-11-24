@@ -110,6 +110,26 @@ def register(app, base, body, allow, session_is_live):
         if grant and grant.expires > time.monotonic() and session_is_live(grant.sid, grant.profile):
             return grant
 
+    def audio_library(ticket):
+        grant = live_grant(ticket)
+        if not grant or (grant.profile, grant.sid) != (g.user, session.get('sid')):
+            abort(404)
+
+        def call(resource, params=None, refresh=False):
+            if live_grant(ticket) is not grant:
+                raise PermissionError('Movie session ended')
+            query = urllib.parse.urlencode(dict(params or {}, userId=grant.viewer))
+            req = urllib.request.Request(base + '/' + resource + '?' + query,
+                                         data=b'' if refresh else None,
+                                         headers={'Authorization': grant.authorization, 'Accept': 'application/json'})
+            with urllib.request.build_opener(NoRedirect).open(req, timeout=8) as upstream:
+                raw = upstream.read((4 << 20) + 1)
+            if len(raw) > 4 << 20:
+                raise ValueError('Movie library response is too large')
+            return json.loads(raw) if raw else None
+
+        return call
+
     @app.post('/api/movies/library')
     def movie_library():
         data = body(32768)
@@ -220,4 +240,4 @@ def register(app, base, body, allow, session_is_live):
         response.call_on_close(upstream.close)
         return response
 
-    return issue
+    return issue, audio_library

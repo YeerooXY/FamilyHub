@@ -59,6 +59,8 @@ The host check applies to every request. Unsafe methods require a matching `Orig
 
 Administrator checks also apply to catalogue edits, undo, bulk resolutions, report management and source-quality administration, artist mappings, feedback inbox and status, and listening history for other profiles. Files scope access to the profile, the uploader or an administrator as appropriate. Playlist access follows ownership, co-author and share rules. Movie search, requests and releases apply their Jellyfin, Seerr and release mappings and allowlists.
 
+Movie audio routes require an active FamilyHub session, administrator membership and a profile on the movie downloads allowlist. Mutations use bounded JSON and CSRF. Starting a job also checks the media grant against the issuing session. Server-side source IDs resolve within the completed downloads and imports roots. Jellyfin supplies the destination through the server-side movie session. The worker opens media through no-follow descriptors, restricts FFmpeg and FFprobe to local files and known formats, and runs one batch at a time. Job history stays in `STATE_DIR`. Source deletion checks both stored file identities and probes the published audio again.
+
 Read-only searches and stream preparation can populate caches and start bounded server work. Share download uses GET for passwordless recipients and consumes its allowance on redemption. GET and HEAD on the share landing page preserve that allowance. The inventory below lists Flask rules with GET's implicit HEAD and default OPTIONS omitted.
 
 ## Implementation checks
@@ -93,7 +95,7 @@ Use `systemd-analyze verify` and `systemd-analyze security` on the disposable un
 - Decide how to isolate server-side acquisition egress and where to cap upload spool usage. Validate the systemd drop-in and Compose startup on disposable Debian.
 - Verify Android installer handoff, native iOS playback and SideStore source on physical devices. Decide whether to add Windows package signing and broader screenshot protection.
 
-Existing wording flagged during the review. The introduction in `docs/FILES.md` called Files “FamilyHub's own take on a family cloud drive, in the spirit of Nextcloud.” It now states the two storage options and how sharing works. The historical fixture note in `docs/MOVIES.md` still uses “stand-in that tests switching and not a real dub.”
+Existing wording flagged during the review. The introduction in `docs/FILES.md` called Files “FamilyHub's own take on a family cloud drive, in the spirit of Nextcloud.” It now states the two storage options and how sharing works. The historical fixture note in `docs/MOVIES.md` identifies the track as the film's music-and-effects mix.
 
 ## Local verification
 
@@ -174,6 +176,9 @@ DELETE,GET,PUT /api/listening/rooms/<key>
 POST /api/listening/rooms/<key>/join
 GET /api/listening/summary
 GET /api/listening/wrapped
+GET /api/movies/audio-sources
+POST /api/movies/audio-track
+POST /api/movies/audio-track/<job_id>/delete-source
 POST /api/movies/download
 GET /api/movies/downloads
 POST /api/movies/find
