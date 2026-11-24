@@ -616,3 +616,16 @@ li.movie-release[data-tier="4k-bluray"] { border-color: #ba7bcb66; }
     .movie-source-note.is-checking, .movie-source-note.is-checking::before,
     .movie-search-results .movie-card-with-details, .movie-search-results .movie-card, .movie-releases .movie-release, .movie-external .movie-release { animation: none; }
 }
+
+/* Billboard layout: the title sits left in the pinned band and the search pill sits right, widening when used. */
+.movie-library .movie-toolbar { max-width: none; display: flex; flex-wrap: nowrap; align-items: center; gap: 1rem; padding: .7rem 1.2rem .6rem; margin-bottom: 1rem; }
+.movie-library .movie-toolbar::before { content: "Movies"; margin-right: auto; font-size: 1.4rem; font-weight: 800; letter-spacing: -.01em; }
+.movie-library .movie-toolbar .movie-search { flex: 0 1 20rem; width: auto; margin: 0; transition: flex-basis .3s cubic-bezier(.2, .7, .2, 1); }
+.movie-library .movie-toolbar .movie-search:is(:focus-within, :has(input:not(:placeholder-shown))) { flex-basis: 34rem; }
+.movie-library .movie-hero { min-height: clamp(22rem, 62vh, 44rem); }
+.movie-hero-title { font-size: clamp(2.2rem, 5.2vw, 4.4rem); letter-spacing: -.01em; }
+@media (max-width: 640px) {
+    .movie-library .movie-toolbar::before { display: none; }
+    .movie-library .movie-toolbar .movie-search { flex: 1 1 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .movie-library .movie-toolbar .movie-search { transition: none; } }
