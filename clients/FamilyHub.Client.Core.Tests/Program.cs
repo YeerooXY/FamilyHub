@@ -571,6 +571,12 @@ using (var http = new HttpClient(new Handler(_ => Task.FromResult(Json(releaseJs
     await Throws<InvalidDataException>(() => releases.RequireInstallableAsync(publishedUpdate,
         "windows-x64", new Version(1, 2, 4), default), "An installed app cannot downgrade");
 }
+var notes = PublicAppReleases.ParseNotes("## FamilyHub 1.5.0\n\nIntro text is skipped.\n- **Movies:** a new [home screen](https://example.test/x) with `shelves`\n* Player controls hide when idle\n-no space is skipped\n- " + new string('w', 30) + " " + new string('x', 200) + "\n- three\n- four\n- five\n- six");
+Check(notes.Count == PublicAppReleases.MaxNotes, "Notes keep at most five bullet lines");
+Check(notes[0] == "Movies: a new home screen with shelves", "Notes drop markdown marks and link targets: " + notes[0]);
+Check(notes[1] == "Player controls hide when idle", "Both bullet styles are read");
+Check(notes.All(n => n.Length <= PublicAppReleases.MaxNoteLength), "Notes stay short");
+Check(PublicAppReleases.ParseNotes(null).Count == 0 && PublicAppReleases.ParseNotes("No bullets").Count == 0, "Missing notes give an empty list");
 Check(!PublicAppReleases.MatchesMirror(publishedUpdate, mirrorUpdate with { Size = 1 }, "windows-x64"), "Mirror size must match GitHub");
 Check(!PublicAppReleases.MatchesMirror(publishedUpdate, mirrorUpdate with { Sha256 = new string('a', 64) }, "windows-x64"), "Mirror digest must match GitHub");
 foreach (var redirect in new[] { "http://release-assets.githubusercontent.com/package", "https://untrusted.test/package" })

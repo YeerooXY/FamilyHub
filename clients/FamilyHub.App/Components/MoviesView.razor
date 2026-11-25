@@ -5,6 +5,10 @@
 @using Microsoft.Maui.Networking
 
 <div @ref="host" class="movie-library" data-native-fullscreen="@(OperatingSystem.IsWindows() ? "true" : null)"></div>
+@if (loading || !failed && shelf is null)
+{
+    <div class="movie-home-skeleton movie-session-skeleton" aria-hidden="true"><span></span><span></span></div>
+}
 @if (message.Length > 0)
 {
     <p role="status">@message</p>
@@ -18,7 +22,7 @@
     private FamilyHub.Client.Core.FamilyHubApi? movieApi;
     private string? mediaTicket;
     private readonly CancellationTokenSource closed = new();
-    private string message = "Loading movies…";
+    private string message = "";
     private bool failed, loading;
 #if WINDOWS
     private bool disposing;
@@ -35,6 +39,8 @@
     {
         if (loading || closed.IsCancellationRequested) return;
         loading = true;
+        message = "";
+        var started = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             var api = Session.Api ?? throw new InvalidOperationException();
@@ -42,11 +48,14 @@
             var viewer = new { server = Session.Server, profile = Session.User };
             module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./movies.js");
             callback ??= DotNetObjectReference.Create(this);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(closed.Token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
             var connection = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/movies/session",
-                new { device = Guid.NewGuid().ToString("N") }, cancellationToken: closed.Token);
+                new { device = Guid.NewGuid().ToString("N") }, cancellationToken: timeout.Token);
             mediaTicket = connection.GetProperty("media_ticket").GetString();
             if (closed.IsCancellationRequested) return;
-            shelf = await module.InvokeAsync<IJSObjectReference>("openMovies", host, connection, callback, viewer);
+            var remaining = Math.Max(1, 10000 - (int)started.ElapsedMilliseconds);
+            shelf = await module.InvokeAsync<IJSObjectReference>("openMovies", host, connection, callback, viewer, remaining);
             if (closed.IsCancellationRequested) { await shelf.InvokeVoidAsync("close"); return; }
             Connectivity.Current.ConnectivityChanged += MovieConnectionChanged;
             message = "";

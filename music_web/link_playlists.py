@@ -3,11 +3,13 @@
 Both give title, artist and length only; matching then finds each song on YouTube like a
 Spotify import. No account, cookie or credential is used.
 """
+import functools
 import hashlib
 import json
 import re
+import urllib.error
 import urllib.request
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 from .playlists import PlaylistError
 from .resources import PROVIDERS
@@ -33,7 +35,7 @@ def detect(url):
     if host == "open.spotify.com": return "spotify"
     if host in ("www.youtube.com", "youtube.com", "music.youtube.com", "youtu.be"): return "youtube"
     if host in ("soundcloud.com", "www.soundcloud.com", "m.soundcloud.com"): return "soundcloud"
-    if host in ("www.deezer.com", "deezer.com"): return "deezer"
+    if host in ("www.deezer.com", "deezer.com", "link.deezer.com"): return "deezer"
     return None
 
 
@@ -81,7 +83,44 @@ def fetch_soundcloud_playlist(url, intake, progress=None):
             "url": canonical, "tracks": tracks, "notice": ""}
 
 
-def deezer_link(url):
+class _Redirect(Exception):
+    def __init__(self, target):
+        super().__init__(target)
+        self.target = target
+
+
+class _CaptureRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise _Redirect(newurl)
+
+
+@functools.lru_cache(maxsize=128)
+def resolve_deezer_share(url):
+    """The deezer.com playlist or album address behind a link.deezer.com share link.
+
+    Redirects are read, never followed: every hop must stay on https Deezer hosts, and at most three are read.
+    """
+    for _ in range(3):
+        host = (urlsplit(url).hostname or "").lower()
+        if host in ("www.deezer.com", "deezer.com"): return url
+        if host != "link.deezer.com" or urlsplit(url).scheme != "https": break
+        request = urllib.request.Request(url, headers={"User-Agent": "FamilyHubMusic/0.1"})
+        try:
+            with PROVIDERS["deezer"].request(max_wait=8), urllib.request.build_opener(_CaptureRedirect).open(request, timeout=10):
+                break
+        except _Redirect as moved:
+            target = urljoin(url, moved.target)
+            destination = parse_qs(urlsplit(target).query).get("dest", [""])[0]
+            url = destination or target
+        except (OSError, urllib.error.URLError):
+            break
+    host = (urlsplit(url).hostname or "").lower()
+    if host in ("www.deezer.com", "deezer.com") and urlsplit(url).scheme == "https": return url
+    raise PlaylistError("Could not open this Deezer share link. Paste the playlist's full deezer.com link instead.")
+
+
+def deezer_link(url, resolve=resolve_deezer_share):
+    if (urlsplit(url).hostname or "").lower() == "link.deezer.com" and detect(url) == "deezer": url = resolve(url)
     parsed = urlsplit(url)
     match = re.fullmatch(r"/(?:[a-z]{2}/)?(playlist|album)/(\d{1,20})/?", parsed.path)
     if detect(url) != "deezer" or not match:

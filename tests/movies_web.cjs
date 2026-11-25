@@ -1,4 +1,4 @@
-const { useMovieBridge } = require("./movies_fixture.cjs");
+const { useMovieBridge, homeOutput } = require("./movies_fixture.cjs");
 // Movie search offers web results and, for linked profiles, Seerr requests.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -258,8 +258,8 @@ async function checkVidea(browser, name, options, screenshots) {
 }
 
 (async () => {
-    const screenshots = process.argv[2];
-    if (screenshots) fs.mkdirSync(screenshots, { recursive: true });
+    const screenshots = process.argv[2] || homeOutput;
+    fs.mkdirSync(screenshots, { recursive: true });
     for (const [engine, profiles] of [
         [chromium, [["windows-chromium", { viewport: { width: 1280, height: 800 } }], ["android-chrome", devices["Pixel 7"]]]],
         [webkit, [["mac-safari", { viewport: { width: 1280, height: 800 } }], ["iphone-safari", { ...devices["iPhone 13"], reducedMotion: "reduce" }]]]

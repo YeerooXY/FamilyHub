@@ -1,0 +1,228 @@
+.movie-ui {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    color-scheme: dark;
+    font-size: 1rem;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.movie-ui > .movie-ui-bottom {
+    grid-row: 3;
+    padding: clamp(1rem, 5vh, 3rem) clamp(.55rem, 3vw, 2.75rem) max(.45rem, env(safe-area-inset-bottom));
+    background: linear-gradient(to bottom, transparent, #000e 44%, #000 90%);
+}
+
+.movie-ui .movie-ui-transport,
+.movie-ui .movie-ui-mid,
+.movie-ui .movie-ui-actions {
+    display: flex;
+    align-items: center;
+    gap: clamp(0px, 1vw, .7rem);
+}
+
+.movie-ui .movie-ui-transport { justify-content: space-between; flex-wrap: wrap; }
+.movie-ui .movie-ui-actions { justify-content: flex-end; margin: 0 0 0 auto; }
+.movie-ui .movie-ui-mid { justify-content: flex-start; }
+.movie-library .movie-ui :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play, .movie-sheet-close) {
+    display: inline-grid;
+    place-items: center;
+    grid-auto-flow: column;
+    width: auto;
+    min-width: 44px;
+    height: 44px;
+    padding: 0 .4rem;
+    border-radius: .35rem;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    box-shadow: none;
+}
+.movie-library .movie-ui :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play, .movie-sheet-close)[hidden] { display: none; }
+.movie-ui .movie-ui-transport .movie-icon { width: 1.65rem; height: 1.65rem; }
+.movie-ui :is(.movie-ui-play, .movie-ui-skip) .movie-icon { overflow: visible; }
+.movie-ui .movie-ui-play .movie-icon { fill: currentColor; }
+.movie-ui .movie-icon-number { -webkit-user-select: none; user-select: none; }
+@media (hover: hover) {
+    .movie-library .movie-ui :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play, .movie-sheet-close):hover {
+        background: #ffffff1a;
+    }
+}
+
+.movie-ui .movie-ui-seekrow { gap: clamp(.35rem, 1.35vw, 1.25rem); }
+.movie-ui .movie-ui-seekrow :is(.movie-ui-elapsed, .movie-ui-remaining) {
+    min-width: 3ch;
+    color: #fff;
+    font-size: .875rem;
+    font-variant-numeric: tabular-nums;
+}
+.movie-library .movie-ui :is(.movie-seek, .movie-sound-slider) {
+    display: block;
+    width: 100%;
+    height: 36px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+}
+.movie-ui .movie-seek { --range-color: var(--movie-accent, #e5484d); --thumb: 14px; }
+.movie-ui .movie-sound-slider { --range-color: #fff; --thumb: 12px; }
+.movie-ui :is(.movie-seek, .movie-sound-slider)::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to right, var(--range-color) var(--pct, 0%), #ffffff59 var(--pct, 0%));
+}
+.movie-ui :is(.movie-seek, .movie-sound-slider)::-moz-range-track { height: 4px; border-radius: 2px; background: #ffffff59; }
+.movie-ui :is(.movie-seek, .movie-sound-slider)::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--range-color); }
+.movie-ui :is(.movie-seek, .movie-sound-slider)::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: var(--thumb);
+    height: var(--thumb);
+    margin-top: calc((4px - var(--thumb)) / 2);
+    border: 0;
+    border-radius: 50%;
+    background: var(--range-color);
+}
+.movie-ui :is(.movie-seek, .movie-sound-slider)::-moz-range-thumb {
+    width: var(--thumb);
+    height: var(--thumb);
+    border: 0;
+    border-radius: 50%;
+    background: var(--range-color);
+}
+.movie-ui :is(.movie-seek-tip, .movie-volume-tip) {
+    position: absolute;
+    z-index: 2;
+    bottom: calc(50% + 7px);
+    transform: translateX(-50%);
+    padding: .2rem .45rem;
+    border-radius: .3rem;
+    background: #111;
+    color: white;
+    font-size: .8rem;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+}
+
+.movie-volume { position: relative; pointer-events: auto; }
+.movie-volume-track {
+    position: absolute;
+    top: 50%;
+    left: 100%;
+    z-index: 1;
+    transform: translateY(-50%);
+    width: 6rem;
+    box-sizing: content-box;
+    padding-inline: .3rem;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity .16s ease;
+}
+.movie-volume-tip { margin-left: .3rem; }
+.movie-volume-track .movie-sound-hint {
+    position: absolute;
+    bottom: calc(50% + 2.5rem);
+    left: .3rem;
+    width: max-content;
+    max-width: 12rem;
+    margin: 0;
+    padding: .25rem .45rem;
+    border-radius: .3rem;
+    background: #111;
+    color: #fff;
+    pointer-events: none;
+}
+.movie-volume:hover > .movie-volume-track,
+.movie-ui:not(.movie-pointer) .movie-volume:focus-within > .movie-volume-track,
+.movie-volume-track:focus-within { visibility: visible; opacity: 1; }
+.movie-ui.movie-idle .movie-volume { pointer-events: none; }
+.movie-ui.movie-idle,
+.movie-ui.movie-idle .movie-ui-surface { cursor: none; }
+
+.movie-ui .movie-sheet {
+    left: auto;
+    right: clamp(.55rem, 3vw, 2.75rem);
+    bottom: calc(100% - clamp(.75rem, 4vh, 2rem));
+    width: min(26rem, calc(100% - 1.1rem));
+    max-height: min(58vh, calc(100vh - 8rem));
+    margin: 0;
+    background: #171717;
+    box-shadow: 0 .5rem 2rem #0009;
+    pointer-events: auto;
+}
+.movie-sheet-tracks .movie-sheet-head { margin-bottom: .35rem; }
+.movie-sheet-tracks .movie-sheet-body { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; }
+.movie-library .movie-sheet-tracks .movie-track-col { min-width: 0; margin: 0; }
+.movie-sheet-tracks .movie-track-col h4 { color: #fff; }
+.movie-sheet-tracks .movie-track-col > p { margin: .55rem 0; color: #ddd; }
+.movie-sheet-tracks .movie-track-list { max-height: 11rem; }
+.movie-sheet-tracks .movie-track-option { min-height: 36px; }
+.movie-sheet-tracks .movie-subtitle-form { gap: .35rem; }
+.movie-sheet-tracks .movie-subtitle-form label { flex-basis: 7rem; }
+.movie-sheet-tracks .movie-subtitle-finder { gap: .4rem; padding-top: .45rem; }
+.movie-sheet-tracks .movie-subtitle-size {
+    display: grid;
+    gap: .25rem;
+    margin: .5rem 0;
+}
+.movie-sheet-tracks .movie-subtitle-size select {
+    min-height: 36px;
+    min-width: 0;
+    padding-inline: .5rem;
+    border: 1px solid #ffffff36;
+    border-radius: .5rem;
+    background: #23252c;
+    color: #fff;
+    font: inherit;
+}
+.movie-sheet-tracks .movie-sound-options { margin-block: .25rem; }
+.movie-sheet-tracks .movie-sound-options summary {
+    width: fit-content;
+    max-width: 100%;
+    padding-block: .5rem;
+    cursor: pointer;
+}
+.movie-sheet-tracks .movie-sound-options summary:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+
+.movie-ui .movie-ui-sub {
+    max-width: min(54rem, 100%);
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #fff;
+    font: 500 clamp(1.05rem, 3vmin, 2.1rem)/1.25 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    overflow-wrap: anywhere;
+    text-shadow: 0 1px 3px #000, 0 2px 7px #000, 0 0 2px #000;
+}
+.movie-ui[data-subtitle-size="small"] .movie-ui-sub { font-size: clamp(.9rem, 2.35vmin, 1.6rem); }
+.movie-ui[data-subtitle-size="large"] .movie-ui-sub { font-size: clamp(1.3rem, 3.7vmin, 2.65rem); }
+.movie-player-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+@media (max-width: 650px) {
+    .movie-ui .movie-ui-transport, .movie-ui .movie-ui-mid, .movie-ui .movie-ui-actions { gap: 0; }
+    .movie-ui .movie-ui-actions .movie-ui-action > span { display: none; }
+    .movie-volume-track { top: auto; bottom: 100%; left: 0; transform: none; background: #111; border-radius: .35rem; }
+}
+@media (max-width: 340px) {
+    .movie-ui .movie-sheet-tracks .movie-sheet-body { grid-template-columns: minmax(0, 1fr); }
+}
+@media (pointer: coarse), (pointer: none) {
+    .movie-sheet-tracks :is(.movie-track-option, .movie-subtitle-size select) { min-height: 44px; }
+}
+@media (max-height: 460px) {
+    .movie-ui > .movie-ui-bottom { padding-top: .75rem; }
+    .movie-ui .movie-sheet { bottom: calc(100% - .25rem); }
+}
+@media (min-width: 1600px) {
+    .movie-ui.movie-hardware-volume { font-size: 1.3rem; }
+    .movie-library .movie-ui.movie-hardware-volume select {
+        min-width: var(--movie-target);
+        min-height: var(--movie-target);
+    }
+    .movie-ui.movie-hardware-volume .movie-ui-transport .movie-icon { width: 2rem; height: 2rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .movie-volume-track { transition: none; }
+}

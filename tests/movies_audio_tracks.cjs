@@ -85,7 +85,12 @@ verifyMovieProfiles(async (browser, profile, options) => {
     }, {jellyfin, movie});
     const focused = async node => page.waitForFunction(el => el === document.activeElement, await node.elementHandle());
     const library = page.getByRole("region", {name: "Audio tracks"});
-    const add = page.getByRole("button", {name: "Add audio track for In Time", exact: true}).first();
+    const card = page.locator("button.movie-card").filter({hasText: "In Time"}).first();
+    await card.waitFor();
+    assert.equal(await page.getByRole("button", {name: "Add audio track for In Time", exact: true}).count(), 0);
+    await card.press("Enter");
+    const details = page.getByRole("region", {name: "In Time", exact: true});
+    const add = details.getByRole("button", {name: "Add audio track for In Time", exact: true});
     await add.press("Enter");
     const sheet = page.getByRole("dialog", {name: "Add audio track"});
     const close = sheet.getByRole("button", {name: "Close", exact: true});
@@ -112,8 +117,8 @@ verifyMovieProfiles(async (browser, profile, options) => {
     await library.getByText("Source file deleted.").waitFor();
     assert.equal(await page.evaluate(() => window.removedAudio), true);
 
-    await page.getByRole("button", {name: "In Time", exact: true}).first().press("Enter");
-    const audio = page.getByRole("button", {name: "Audio", exact: true});
+    await details.getByRole("button", {name: "Play", exact: true}).press("Enter");
+    const audio = page.getByRole("button", {name: "Audio & Subtitles", exact: true});
     await audio.press("Enter");
     const source = page.getByRole("radio", {name: "Hungarian, added"});
     function simulateVideo() {

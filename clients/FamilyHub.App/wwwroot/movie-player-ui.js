@@ -1,21 +1,20 @@
-// Full-window player controls for Movies & TV: title and close at the top, 10-second skips around a large
-// play button, a seek bar with the remaining time, and Episodes / Audio / Subtitles / Next Episode below.
-// The module owns only the controls. movies.js owns the video element, Jellyfin and progress reporting.
+// Player controls. movies.js owns the video, Jellyfin and progress reporting.
 
 import { attachSound, soundPanelWanted, SOUND_MODES, MAX_VOLUME } from "./movie-sound.js";
 
 const SVG = "http://www.w3.org/2000/svg";
+const subtitleSizeKey = "familyhub.movie.subtitle-size";
+const subtitleSizes = ["Small", "Medium", "Large"];
+const subtitleSearches = new Set();
 const paths = {
     back: "M15 5l-7 7 7 7",
     close: "M6 6l12 12M18 6L6 18",
     play: "M8 4.5v15l12-7.5z",
     pause: "M7 4h4v16H7zM13 4h4v16h-4z",
-    skip: ["M5 12.5a7 7 0 1 0 7-7", "M15 2.5l-3 3 3 3"],
+    skip: ["M12 5a8 8 0 1 1-7.4 5", "M14.5 2.5L12 5l2.5 2.5"],
     next: ["M5 5v14l10-7z", "M19 5v14"],
     episodes: ["M8 4h12v12H8z", "M4 8v12h12"],
-    audio: ["M4 9v6h4l5 4V5L8 9z", "M16.5 9a4.5 4.5 0 0 1 0 6"],
     subtitles: ["M4 5h16v11h-9l-4 4v-4H4z", "M7 9h10M7 12h6"],
-    settings: ["M4 7h16M4 17h16", "M9 4v6M15 14v6"],
     sound: ["M4 9v6h4l5 4V5L8 9z", "M16.5 9a4.5 4.5 0 0 1 0 6"],
     soundOff: ["M4 9v6h4l5 4V5L8 9z", "M17 9.5l4 5M21 9.5l-4 5"],
     expand: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
@@ -47,7 +46,7 @@ function icon(shape, { flip = false, label = "" } = {}) {
     if (label) {
         const text = document.createElementNS(SVG, "text");
         text.setAttribute("x", "12");
-        text.setAttribute("y", "15.5");
+        text.setAttribute("y", "16");
         text.setAttribute("text-anchor", "middle");
         text.setAttribute("class", "movie-icon-number");
         text.textContent = label;
@@ -60,6 +59,13 @@ function clock(seconds) {
     if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
     const total = Math.floor(seconds), h = Math.floor(total / 3600), m = Math.floor(total % 3600 / 60), s = total % 60;
     return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function placeRangeTip(range, tip, fraction, thumbWidth) {
+    const width = range.getBoundingClientRect().width;
+    const half = tip.offsetWidth / 2;
+    const center = thumbWidth / 2 + fraction * (width - thumbWidth);
+    tip.style.left = Math.min(Math.max(center, half), Math.max(half, width - half)) + "px";
 }
 
 // Subtitles are drawn here, not by the browser: the browser puts them at the bottom of the whole video box, which is far
@@ -89,6 +95,14 @@ export function subtitleBottom({ width, height, videoWidth, videoHeight, barTop 
  */
 export function buildPlayerUi(ctx) {
     const { media, surface, back, signal } = ctx;
+    const stylesheet = new URL("./movie-player.css", import.meta.url).href;
+    if (![...document.styleSheets].some(sheet => sheet.href === stylesheet) &&
+        !document.head.querySelector("link[data-movie-player]")) {
+        const link = make("link");
+        Object.assign(link, { rel: "stylesheet", href: stylesheet });
+        link.dataset.moviePlayer = "";
+        document.head.append(link);
+    }
     const root = make("div", "movie-ui");
     let idleTimer, dragging = false, openSheet = null, nextEpisode = null;
 
@@ -111,7 +125,6 @@ export function buildPlayerUi(ctx) {
     back.replaceChildren(icon(paths.back));
     top.append(back, heading);
 
-    // Middle: skip back, play or pause, skip forward.
     const skip = (seconds) => {
         const end = Number.isFinite(media.duration) ? media.duration : Infinity;
         media.currentTime = Math.min(Math.max(0, media.currentTime + seconds), end);
@@ -122,13 +135,14 @@ export function buildPlayerUi(ctx) {
     const forward = button("movie-ui-skip", "Forward 10 seconds", paths.skip, { flip: true, label: "10" }, () => skip(10));
     const playPause = button("movie-ui-play", "Play", paths.play, {}, toggle);
     const spinner = make("div", "movie-ui-spinner");
-    spinner.hidden = true;
+    spinner.hidden = media.readyState >= 3;
     spinner.setAttribute("role", "status");
-    spinner.setAttribute("aria-label", "Loading");
+    const spinnerLabel = make("span", "movie-player-sr", "Loading");
+    spinner.append(spinnerLabel);
     const mid = make("div", "movie-ui-mid");
-    mid.append(rewind, playPause, forward);
+    mid.append(playPause, rewind, forward);
 
-    // Bottom: seek bar and remaining time, then the three actions.
+    const elapsed = make("span", "movie-ui-elapsed", "0:00");
     const seek = make("input", "movie-seek");
     seek.type = "range";
     seek.min = "0";
@@ -144,15 +158,29 @@ export function buildPlayerUi(ctx) {
     const seekWrap = make("div", "movie-seek-wrap");
     seekWrap.append(seek, tip);
     const seekRow = make("div", "movie-ui-seekrow");
-    seekRow.append(seekWrap, remaining);
+    seekRow.append(elapsed, seekWrap, remaining);
 
-    const isFullscreen = () => ctx.isFullscreen?.() ?? document.fullscreenElement === surface;
+    const fullscreenElement = () => document.fullscreenElement ?? document.webkitFullscreenElement;
+    const isFullscreen = () => ctx.isFullscreen?.() ?? fullscreenElement() === surface;
+    let fullscreenPending = false;
     async function toggleFullscreen() {
-        if (fullscreen.hidden) return;
+        if (fullscreen.hidden || fullscreenPending) return;
         const focused = document.activeElement;
         const on = !isFullscreen();
-        if (ctx.setFullscreen && !await ctx.setFullscreen(on) && !signal.aborted)
-            failure.textContent = on ? "Could not enter full screen. Try again." : "Could not exit full screen. Try again.";
+        fullscreenPending = true;
+        try {
+            if (ctx.setFullscreen) {
+                if (!await ctx.setFullscreen(on)) throw Error();
+            } else if (on) {
+                await (surface.requestFullscreen ?? surface.webkitRequestFullscreen).call(surface, { navigationUI: "hide" });
+            } else {
+                await (document.exitFullscreen ?? document.webkitExitFullscreen).call(document);
+            }
+        } catch {
+            if (!signal.aborted) failure.textContent = on ? "Could not enter full screen. Try again." : "Could not exit full screen. Try again.";
+        } finally {
+            fullscreenPending = false;
+        }
         if (signal.aborted) return;
         syncFullscreen();
         if (document.activeElement === document.body)
@@ -160,29 +188,23 @@ export function buildPlayerUi(ctx) {
         show();
     }
     const fullscreen = button("movie-ui-action", "Full screen", paths.expand, {}, toggleFullscreen);
-    fullscreen.hidden = !(ctx.fullscreenEnabled ?? document.fullscreenEnabled);
+    fullscreen.hidden = /iPhone|iPod/.test(navigator.userAgent) ||
+        !(ctx.fullscreenEnabled || document.fullscreenEnabled || document.webkitFullscreenEnabled);
     const episodesButton = button("movie-ui-action", "Episodes", paths.episodes, {}, () => toggleSheet("episodes"));
     episodesButton.append(make("span", "", "Episodes"));
     episodesButton.hidden = true;
-    const audioButton = button("movie-ui-action", "Audio", paths.audio, {}, () => toggleSheet("audio"));
-    audioButton.append(make("span", "", "Audio"));
-    audioButton.hidden = !ctx.audioPick && !ctx.addAudio;
-    const subtitlesButton = button("movie-ui-action", "Subtitles", paths.subtitles, {}, () => toggleSheet("subtitles"));
-    subtitlesButton.append(make("span", "", "Subtitles"));
-    const settingsButton = button("movie-ui-action", "Settings", paths.settings, {}, () => openSettingsAt());
-    settingsButton.append(make("span", "", "Settings"));
-    // Sound settings for a PC: phones and televisions have hardware volume, so nothing is offered there.
+    const tracksButton = button("movie-ui-action", "Audio & Subtitles", paths.subtitles, {}, () => toggleSheet("audio"));
     const sound = soundPanelWanted() ? attachSound(media, { signal }) : null;
-    const soundButton = button("movie-ui-action", "Sound", paths.sound, {}, () => toggleSheet("sound"));
-    soundButton.append(make("span", "", "Sound"));
-    soundButton.hidden = !sound;
+    root.classList.toggle("movie-hardware-volume", !sound);
     const nextButton = button("movie-ui-action", "Next episode", paths.next, {}, () => nextEpisode?.play());
-    nextButton.append(make("span", "", "Next Episode"));
+    nextButton.append(make("span", "", "Next episode"));
     nextButton.hidden = true;
     const actions = make("div", "movie-ui-actions");
-    actions.append(fullscreen, episodesButton, audioButton, subtitlesButton, settingsButton, soundButton, nextButton);
+    actions.append(episodesButton, nextButton, tracksButton, fullscreen);
+    const transport = make("div", "movie-ui-transport");
+    transport.append(mid, actions);
     const bottom = make("div", "movie-ui-bottom");
-    bottom.append(seekRow, actions);
+    bottom.append(seekRow, transport);
 
     // Sheets: Audio & Subtitles and Episodes. One is open at a time; each has one named close control.
     const sheets = {};
@@ -191,6 +213,7 @@ export function buildPlayerUi(ctx) {
         sheet.hidden = true;
         sheet.setAttribute("role", "dialog");
         sheet.setAttribute("aria-label", heading);
+        sheet.setAttribute("aria-modal", "true");
         const head = make("div", "movie-sheet-head");
         const close = button("movie-sheet-close", closeLabel, paths.close, {}, closeSheet);
         head.append(make("h3", "", heading), close);
@@ -199,39 +222,29 @@ export function buildPlayerUi(ctx) {
         sheets[name] = { node: sheet, body, close, opener };
         return sheet;
     }
-    const audioSheet = makeSheet("audio", "Audio", "Close audio", audioButton);
-    const subtitlesSheet = makeSheet("subtitles", "Subtitles", "Close subtitles", subtitlesButton);
-    const settingsSheet = makeSheet("settings", "Settings", "Close settings", settingsButton);
-    const settingsBody = sheets.settings.body;
-    const qualityLabel = make("p", "movie-quality-label", ctx.dataSaver.quality);
-    const qualityOptions = make("div", "movie-quality-options");
-    qualityOptions.setAttribute("role", "radiogroup");
-    qualityOptions.setAttribute("aria-label", "Data saver");
-    for (const [id, label, estimate] of ctx.dataSaver.choices) {
-        const row = button("movie-track-option", label + ", " + estimate, null, {}, () => ctx.dataSaver.change(id));
-        row.setAttribute("role", "radio");
-        row.setAttribute("aria-checked", String(ctx.dataSaver.selected === id));
-        row.append(make("span", "", label), make("small", "", estimate));
-        qualityOptions.append(row);
-    }
-    settingsBody.append(qualityLabel, make("h4", "movie-quality-label", "Data saver"), qualityOptions);
-    function openSettingsAt() {
-        toggleSheet("settings", qualityOptions.querySelector('[aria-checked="true"]'));
-    }
+    const audioSheet = makeSheet("audio", "Audio & Subtitles", "Close audio and subtitles", tracksButton);
+    audioSheet.classList.add("movie-sheet-tracks");
+    const audio = make("section", "movie-track-col");
+    const subtitles = make("section", "movie-track-col");
+    audio.append(make("h4", "", "Audio"));
+    subtitles.append(make("h4", "", "Subtitles"));
+    sheets.audio.body.append(audio, subtitles);
     const episodesSheet = makeSheet("episodes", "Episodes", "Close episodes", episodesButton);
-    const soundSheet = makeSheet("sound", "Sound", "Close sound", soundButton);
-    let refreshOutputs = async () => {};
+    bottom.append(audioSheet, episodesSheet);
     if (sound) {
-        soundSheet.classList.add("movie-sheet-sound");
-        const volumeRow = make("div", "movie-sound-volume");
-        const mute = make("button", "movie-sound-mute");
-        mute.type = "button";
+        const volumeRow = make("div", "movie-volume");
+        const mute = button("movie-ui-action", "Mute", paths.sound, {}, () => sound.toggleMute());
+        const volumeWrap = make("div", "movie-volume-track");
         const volume = make("input", "movie-sound-slider");
-        Object.assign(volume, { type: "range", min: 0, max: MAX_VOLUME * 100, step: 5 });
+        Object.assign(volume, { type: "range", min: 0, max: MAX_VOLUME * 100, step: 1 });
         volume.setAttribute("aria-label", "Volume");
-        const readout = make("output", "movie-sound-readout");
-        const hint = make("p", "movie-sound-hint", "Above 100% is louder than the original and can distort.");
-        volumeRow.append(mute, volume, readout);
+        const readout = make("span", "movie-volume-tip");
+        readout.setAttribute("aria-hidden", "true");
+        const hint = make("p", "movie-sound-hint", "Volume above 100% can distort.");
+        hint.id = "movie-volume-boost-hint";
+        volumeWrap.append(volume, readout, hint);
+        volumeRow.append(mute, volumeWrap);
+        mid.append(volumeRow);
         const options = (heading, label) => {
             const column = make("div", "movie-track-col");
             const list = make("div", "movie-track-list");
@@ -250,22 +263,36 @@ export function buildPlayerUi(ctx) {
             modes.list.append(row);
             return row;
         });
+        function placeVolumeTip() {
+            placeRangeTip(volume, readout, Number(volume.value) / Number(volume.max), 12);
+        }
         const paint = state => {
             volume.value = state.muted ? 0 : Math.round(state.volume * 100);
             readout.textContent = (state.muted ? 0 : Math.round(state.volume * 100)) + "%";
             volume.setAttribute("aria-valuetext", readout.textContent);
+            volume.style.setProperty("--pct", Number(volume.value) / Number(volume.max) * 100 + "%");
+            placeVolumeTip();
             mute.setAttribute("aria-label", state.muted ? "Unmute" : "Mute");
             mute.setAttribute("aria-pressed", String(state.muted));
             mute.replaceChildren(icon(state.muted || state.volume === 0 ? paths.soundOff : paths.sound));
             hint.hidden = state.muted || state.volume <= 1;
+            if (hint.hidden) volume.removeAttribute("aria-describedby");
+            else volume.setAttribute("aria-describedby", hint.id);
             for (const row of modeRows) row.setAttribute("aria-checked", String(row.dataset.value === state.mode));
             for (const row of outputs.list.children) row.setAttribute("aria-checked", String(row.dataset.value === state.device));
         };
-        mute.addEventListener("click", () => sound.toggleMute(), { signal });
         volume.addEventListener("input", () => sound.set({ volume: Number(volume.value) / 100 }), { signal });
+        for (const type of ["pointerenter", "focusin"])
+            volumeRow.addEventListener(type, () => requestAnimationFrame(placeVolumeTip), { signal });
+        window.addEventListener("resize", placeVolumeTip, { signal });
         sound.onChange(paint);
-        refreshOutputs = async () => {
+        const details = make("details", "movie-sound-options");
+        details.append(make("summary", "", "Sound options"), modes.column, outputs.column);
+        outputs.column.hidden = true;
+        details.addEventListener("toggle", async () => {
+            if (!details.open || outputs.list.childElementCount) return;
             const found = sound.canPickOutput ? await sound.outputs() : [];
+            if (signal.aborted) return;
             outputs.column.hidden = found.length < 2;
             outputs.list.replaceChildren(...found.map(({ id, label }) => {
                 const row = make("button", "movie-track-option", label);
@@ -276,10 +303,8 @@ export function buildPlayerUi(ctx) {
                 return row;
             }));
             paint(sound.state);
-        };
-        const body = sheets.sound.body;
-        body.classList.add("movie-sound-body");
-        body.append(volumeRow, hint, modes.column, outputs.column);
+        }, { signal });
+        audio.append(details);
         paint(sound.state);
     }
     // Audio & Subtitles is one popover with a list per kind, like Netflix. The labelled selects stay in the document,
@@ -314,8 +339,8 @@ export function buildPlayerUi(ctx) {
                 if (focusedIndex < 0) list.replaceChildren(...nextRows);
                 else {
                     list.append(...nextRows);
-                    (nextRows[next.findIndex(option => option.value === focusedValue)] ?? nextRows[0])
-                        ?.focus({ preventScroll: true });
+                    (nextRows[next.findIndex(option => option.value === focusedValue)] ?? nextRows[0] ?? sheets.audio.close)
+                        .focus({ preventScroll: true });
                     previousRows.forEach(row => row.remove());
                 }
             }
@@ -325,8 +350,24 @@ export function buildPlayerUi(ctx) {
         sync();
         return sync;
     }
-    const syncAudio = trackList(sheets.audio.body, ctx.audioPick, "Audio track");
-    const syncSubtitles = trackList(sheets.subtitles.body, ctx.subtitlePick, "Subtitle track");
+    const syncAudio = trackList(audio, ctx.audioPick, "Audio track");
+    if (!ctx.audioPick) audio.append(make("p", "", "Default audio"));
+    const soundOptions = audio.querySelector(".movie-sound-options");
+    if (soundOptions) audio.append(soundOptions);
+    const syncSubtitles = trackList(subtitles, ctx.subtitlePick, "Subtitle track");
+    const sizeLabel = make("label", "movie-subtitle-size", "Subtitle size");
+    const size = make("select");
+    for (const label of subtitleSizes) size.add(new Option(label, label.toLowerCase()));
+    let savedSize;
+    try { savedSize = localStorage.getItem(subtitleSizeKey); } catch {}
+    size.value = [...size.options].some(option => option.value === savedSize) ? savedSize : "medium";
+    root.dataset.subtitleSize = size.value;
+    size.addEventListener("change", () => {
+        root.dataset.subtitleSize = size.value;
+        try { localStorage.setItem(subtitleSizeKey, size.value); } catch {}
+    }, { signal });
+    sizeLabel.append(size);
+    subtitles.append(sizeLabel);
     if (ctx.audioSync) {
         const sync = make("div", "movie-audio-sync");
         sync.setAttribute("role", "group");
@@ -348,12 +389,12 @@ export function buildPlayerUi(ctx) {
         update();
         sync.append(make("span", "", "Sync"), adjust(-100, "Play audio 100 ms earlier", "\u2212"), output,
             adjust(100, "Play audio 100 ms later", "+"));
-        sheets.audio.body.append(sync);
+        audio.append(sync);
     }
     if (ctx.addAudio) {
         const add = button("movie-track-option", "Add audio track", null, {}, () => ctx.addAudio(add));
         add.textContent = "Add audio track";
-        sheets.audio.body.append(add);
+        audio.append(add);
     }
     let subtitleStatus = () => {};
     if (ctx.subtitleSearch) {
@@ -373,27 +414,51 @@ export function buildPlayerUi(ctx) {
         results.setAttribute("aria-label", "Subtitle results");
         form.append(languageLabel, find);
         finder.append(form, feedback, results);
-        sheets.subtitles.body.append(finder);
+        subtitles.append(finder);
         let busy = false;
         function setBusy(value) {
             busy = value;
             find.setAttribute("aria-disabled", String(value));
             for (const row of results.querySelectorAll("button")) row.setAttribute("aria-disabled", String(value));
         }
-        subtitleStatus = (text, working = false) => {
+        function reportStatus(text, working = false) {
+            if (working) text = text.startsWith("Adding") ? "Adding subtitles…" : "Searching…";
+            else if (text.startsWith("Could not")) text = text.startsWith("Could not add")
+                ? "Could not add subtitles." : "Subtitle search failed.";
+            else if (text.startsWith("No ")) text = "No subtitles found.";
+            else if (text.startsWith("Automatic search")) text = "";
             feedback.textContent = text;
+            find.textContent = /failed|^No subtitles/.test(text) ? "Retry" : "Find subtitles";
             setBusy(working);
-        };
-        find.addEventListener("click", async () => {
+        }
+        const streamItem = /\/Videos\/([^/?#]+)\//i.exec(media.getAttribute("src") ?? "")?.[1];
+        const attemptsKey = ctx.subtitleSearch.itemId ?? streamItem ?? JSON.stringify([ctx.kicker, ctx.title]);
+        const searchedLanguage = () => JSON.stringify([attemptsKey, language.value]);
+        function searchMissingLanguage() {
             if (busy) return;
-            find.focus();
             results.replaceChildren();
-            subtitleStatus("Searching for subtitles…", true);
+            reportStatus("");
+            const aliases = language.value === "hun" ? ["hu", "hun"] : ["en", "eng"];
+            if ([...media.querySelectorAll("track")].some(track =>
+                aliases.includes(track.srclang.toLowerCase().split(/[-_]/)[0]))) return;
+            const key = searchedLanguage();
+            if (subtitleSearches.has(key)) return;
+            subtitleSearches.add(key);
+            void search();
+        }
+        function finish(languageUsed) {
+            setBusy(false);
+            if (languageUsed !== language.value) searchMissingLanguage();
+        }
+        async function search() {
+            if (busy) return;
+            results.replaceChildren();
+            reportStatus("Searching…", true);
             const selectedLanguage = language.value;
             const languageName = language.selectedOptions[0].text;
             try {
                 const matches = await ctx.subtitleSearch.find(selectedLanguage);
-                if (signal.aborted) return;
+                if (signal.aborted || selectedLanguage !== language.value) return;
                 for (const result of matches) {
                     const entry = make("li");
                     const add = make("button", "movie-subtitle-action");
@@ -407,40 +472,54 @@ export function buildPlayerUi(ctx) {
                     add.addEventListener("click", async () => {
                         if (busy) return;
                         add.focus();
-                        subtitleStatus("Adding subtitles…", true);
+                        reportStatus("Adding subtitles…", true);
                         try {
                             await ctx.subtitleSearch.add(result, selectedLanguage);
                             if (signal.aborted) return;
-                            if (openSheet === "subtitles") closeSheet();
+                            if (openSheet === "audio") closeSheet();
                             results.replaceChildren();
                             feedback.textContent = "";
                             failure.textContent = "Subtitles added.";
                             show();
                         } catch {
-                            if (!signal.aborted) feedback.textContent = "Could not add the subtitles. Try again or check with the server owner.";
+                            if (!signal.aborted) {
+                                feedback.textContent = "Could not add subtitles.";
+                                add.replaceChildren(make("strong", "", "Retry"), make("span", "", result.Name || "Subtitle"));
+                            }
                         } finally {
-                            if (!signal.aborted) setBusy(false);
+                            if (!signal.aborted) finish(selectedLanguage);
                         }
                     }, { signal });
                     entry.append(add);
                     results.append(entry);
                 }
-                feedback.textContent = results.childElementCount ? "" : "No subtitles found.";
+                reportStatus(results.childElementCount ? "" : "No subtitles found.");
             } catch {
-                if (!signal.aborted) feedback.textContent = "Could not search for subtitles. Try again or ask the server owner to check the Jellyfin subtitle provider and your subtitle management permission.";
+                if (!signal.aborted && selectedLanguage === language.value) reportStatus("Could not search for subtitles.");
             } finally {
-                if (!signal.aborted) setBusy(false);
+                if (!signal.aborted) finish(selectedLanguage);
             }
+        }
+        const defaultLanguage = language.value;
+        subtitleStatus = (text, working = false) => {
+            if (text.startsWith("Searching") || text.startsWith("Automatic search already"))
+                subtitleSearches.add(JSON.stringify([attemptsKey, defaultLanguage]));
+            reportStatus(text, working);
+            if (!working && language.value !== defaultLanguage) searchMissingLanguage();
+        };
+        find.addEventListener("click", () => {
+            if (busy) return;
+            subtitleSearches.add(searchedLanguage());
+            void search();
         }, { signal });
+        language.addEventListener("change", searchMissingLanguage, { signal });
     }
     function toggleSheet(name, focusTarget) {
         if (openSheet === name) return closeSheet();
         const previous = openSheet && sheets[openSheet];
         openSheet = name;
         sheets[name].node.hidden = false;
-        if (name === "audio") syncAudio();
-        if (name === "subtitles") syncSubtitles();
-        if (name === "sound") refreshOutputs();
+        if (name === "audio") { syncAudio(); syncSubtitles(); }
         sheets[name].opener.setAttribute("aria-expanded", "true");
         show();
         // Focus starts on the close control (or the current episode), so Escape and Enter work the same everywhere.
@@ -455,11 +534,14 @@ export function buildPlayerUi(ctx) {
         const sheet = sheets[openSheet];
         openSheet = null;
         sheet.opener.setAttribute("aria-expanded", "false");
-        sheet.opener.focus();
+        (sheet.opener.hidden ? tracksButton : sheet.opener).focus({ preventScroll: true });
         sheet.node.hidden = true;
         show();
     }
-    for (const sheet of Object.values(sheets)) sheet.opener.setAttribute("aria-expanded", "false");
+    for (const sheet of Object.values(sheets)) {
+        sheet.opener.setAttribute("aria-expanded", "false");
+        sheet.opener.setAttribute("aria-haspopup", "dialog");
+    }
 
     // Surface: a tap or click on the picture. Touch toggles the controls, a mouse toggles play, double click goes fullscreen.
     const surfaceLayer = make("div", "movie-ui-surface");
@@ -468,13 +550,11 @@ export function buildPlayerUi(ctx) {
     root.addEventListener("pointerdown", () => { hiddenAtTouch = root.classList.contains("movie-idle"); }, { capture: true, signal });
     surfaceLayer.addEventListener("mousedown", event => event.preventDefault(), { signal });
     surfaceLayer.addEventListener("click", event => {
-        if (openSheet) { closeSheet(); return; }
         if (document.activeElement === document.body) playPause.focus({ preventScroll: true });
-        const pointer = matchMedia("(hover: hover) and (pointer: fine)").matches;
-        if (!pointer) {
+        if (event.pointerType === "touch" || !matchMedia("(hover: hover) and (pointer: fine)").matches) {
             // Like YouTube: a tap on the picture hides visible controls at once and brings hidden ones back.
             if (hiddenAtTouch) show();
-            else { clearTimeout(idleTimer); root.classList.add("movie-idle"); }
+            else hide();
             return;
         }
         if (event.detail > 1) { clearTimeout(tapTimer); void toggleFullscreen(); return; }
@@ -503,23 +583,37 @@ export function buildPlayerUi(ctx) {
         clearTimeout(shortcutTimer);
         shortcutTimer = setTimeout(() => { shortcutStatus.textContent = ""; }, 1200);
     }
-    root.append(surfaceLayer, subs, spinnerRoot, message, top, mid, bottom, shortcutStatus,
-        audioSheet, subtitlesSheet, episodesSheet, soundSheet, settingsSheet);
+    root.append(surfaceLayer, subs, spinnerRoot, message, top, bottom, shortcutStatus);
 
     // Controls hide a few seconds after the last touch, playing or paused. Reduced motion only removes the fade, not the hiding.
     // A keyboard or remote focus ring keeps them up so the focused control stays visible.
-    root.addEventListener("pointerdown", () => root.classList.add("movie-pointer"), { capture: true, signal });
+    root.addEventListener("pointerdown", event => {
+        root.classList.add("movie-pointer");
+        const sheet = openSheet && sheets[openSheet];
+        if (sheet && !sheet.node.contains(event.target) && !sheet.opener.contains(event.target))
+            event.preventDefault();
+    }, { capture: true, signal });
     root.addEventListener("click", event => {
+        const sheet = openSheet && sheets[openSheet];
+        if (sheet && !sheet.node.contains(event.target) && !sheet.opener.contains(event.target)) {
+            event.preventDefault();
+            event.stopPropagation();
+            closeSheet();
+            return;
+        }
         const button = event.target.closest("button");
         if (button && event.detail > 0) button.focus({ preventScroll: true });
     }, { capture: true, signal });
+    function hide() {
+        if (dragging || openSheet || root.querySelector(".movie-ui-top :focus-visible, .movie-ui-bottom :focus-visible") &&
+            !root.classList.contains("movie-pointer")) return;
+        clearTimeout(idleTimer);
+        root.classList.add("movie-idle");
+    }
     function show() {
         root.classList.remove("movie-idle");
         clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => {
-            if (!dragging && !openSheet && !root.querySelector(
-                root.classList.contains("movie-pointer") ? "select:focus-visible" : ":focus-visible")) root.classList.add("movie-idle");
-        }, 3500);
+        idleTimer = setTimeout(hide, 3000);
     }
     // Subtitles: draw the active cues just above the bottom of the picture, and above the seek row while the controls show.
     const entities = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&nbsp;": " " };
@@ -546,25 +640,27 @@ export function buildPlayerUi(ctx) {
     media.textTracks.addEventListener("addtrack", watchTracks, { signal });
     for (const type of ["loadedmetadata", "resize"]) media.addEventListener(type, placeSubs, { signal });
     window.addEventListener("resize", placeSubs, { signal });
-    document.addEventListener("fullscreenchange", placeSubs, { signal });
+    for (const type of ["fullscreenchange", "webkitfullscreenchange"])
+        document.addEventListener(type, placeSubs, { signal });
     const classWatcher = new MutationObserver(placeSubs);
     classWatcher.observe(root, { attributes: true, attributeFilter: ["class"] });
     signal.addEventListener("abort", () => { classWatcher.disconnect(); for (const track of watched) track.removeEventListener("cuechange", drawCues); });
 
-    for (const type of ["pointermove", "pointerdown", "touchstart", "focusin"])
-        root.addEventListener(type, event => { if (!root.classList.contains("movie-idle") || type !== "pointermove" || event.pointerType === "mouse") show(); }, { passive: true, signal });
+    for (const type of ["pointermove", "pointerdown", "touchstart", "focusin", "focusout"])
+        root.addEventListener(type, show, { passive: true, signal });
     signal.addEventListener("abort", () => { clearTimeout(idleTimer); clearTimeout(tapTimer); clearTimeout(shortcutTimer); });
 
     // Seek bar.
     const duration = () => Number.isFinite(media.duration) && media.duration > 0 ? media.duration : 0;
     function paint() {
         const total = duration(), at = Number.isFinite(media.currentTime) ? media.currentTime : 0;
-        if (!dragging) seek.value = String(total ? Math.min(at, total) : 0);
         seek.max = String(total || 1);
+        if (!dragging) seek.value = String(total ? Math.min(at, total) : 0);
         const fraction = total ? Math.min(1, (dragging ? Number(seek.value) : at) / total) : 0;
         seek.style.setProperty("--pct", (fraction * 100).toFixed(2) + "%");
         const left = total ? Math.max(0, total - (dragging ? Number(seek.value) : at)) : 0;
         remaining.textContent = clock(left);
+        elapsed.textContent = clock(dragging ? Number(seek.value) : at);
         seek.setAttribute("aria-valuetext", `${clock(dragging ? Number(seek.value) : at)} of ${clock(total)}`);
     }
     function showTip() {
@@ -572,9 +668,7 @@ export function buildPlayerUi(ctx) {
         const fraction = total ? Number(seek.value) / total : 0;
         tip.textContent = clock(Number(seek.value));
         tip.hidden = false;
-        // Anchor to the painted track and keep the whole tooltip inside it.
-        const width = seek.getBoundingClientRect().width, half = tip.offsetWidth / 2;
-        tip.style.left = Math.min(Math.max(fraction * width, half), Math.max(half, width - half)) + "px";
+        placeRangeTip(seek, tip, fraction, 14);
     }
     seek.addEventListener("input", () => { dragging = true; paint(); showTip(); show(); }, { signal });
     seek.addEventListener("change", () => {
@@ -582,36 +676,47 @@ export function buildPlayerUi(ctx) {
         dragging = false;
         tip.hidden = true;
         paint();
+        show();
     }, { signal });
-    seek.addEventListener("blur", () => { tip.hidden = true; }, { signal });
+    for (const type of ["blur", "pointercancel"])
+        seek.addEventListener(type, () => {
+            dragging = false;
+            tip.hidden = true;
+            paint();
+        }, { signal });
 
     // Media state.
     const sync = () => {
-        const paused = media.paused;
+        const paused = media.paused || media.ended;
         playPause.setAttribute("aria-label", paused ? "Play" : "Pause");
         playPause.replaceChildren(icon(paused ? paths.play : paths.pause));
         root.classList.toggle("movie-paused", paused);
         show();
     };
-    const busy = on => { spinner.hidden = !on; };
+    const busy = (on, label = "Buffering") => {
+        spinner.hidden = !on;
+        if (on && spinnerLabel.textContent !== label) spinnerLabel.textContent = label;
+    };
     for (const [type, run] of [["play", sync], ["pause", sync], ["playing", () => { busy(false); failure.textContent = ""; sync(); }],
-        ["waiting", () => busy(true)], ["seeking", () => busy(true)], ["seeked", () => busy(false)],
+        ["waiting", () => busy(true, media.readyState < 1 ? "Loading" : "Buffering")],
+        ["seeking", () => busy(true)], ["seeked", () => busy(false)], ["ended", () => { busy(false); sync(); }],
         ["canplay", () => busy(false)], ["timeupdate", paint], ["durationchange", paint], ["loadedmetadata", paint]])
         media.addEventListener(type, run, { signal });
     function syncFullscreen() {
         const label = isFullscreen() ? "Exit full screen" : "Full screen";
-        fullscreen.replaceChildren(icon(isFullscreen() ? paths.collapse : paths.expand), make("span", "", label));
+        fullscreen.replaceChildren(icon(isFullscreen() ? paths.collapse : paths.expand));
         fullscreen.setAttribute("aria-label", label);
     }
-    document.addEventListener("fullscreenchange", syncFullscreen, { signal });
+    for (const type of ["fullscreenchange", "webkitfullscreenchange"])
+        document.addEventListener(type, syncFullscreen, { signal });
     syncFullscreen();
 
     // TV remotes use the arrows to move between controls and scrub on the seek bar.
-    const rows = () => [[back], [rewind, playPause, forward], [seek], [fullscreen, episodesButton, audioButton, subtitlesButton, settingsButton, soundButton, nextButton].filter(b => !b.hidden)];
+    const rows = () => [[back], [seek], [playPause, rewind, forward, episodesButton, nextButton, tracksButton, fullscreen].filter(b => !b.hidden)];
     function moveFocus(target, key) {
         const sheetNode = openSheet && sheets[openSheet].node;
         if (sheetNode?.contains(target)) {
-            const items = [...sheetNode.querySelectorAll("button, select, input")].filter(node => !node.closest("[hidden]"));
+            const items = focusable(sheetNode);
             const at = items.indexOf(target) + (key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : 0);
             if (at !== items.indexOf(target) && items[at]) items[at].focus();
             return true;
@@ -635,28 +740,36 @@ export function buildPlayerUi(ctx) {
         const dialog = [...ctx.surface.querySelectorAll("dialog[open]")].at(-1);
         if (dialog) dialog.close();
         else if (openSheet) closeSheet();
+        else if (isFullscreen()) void toggleFullscreen();
         else back.click();
-    });
+    }, { signal });
     function seekBy(seconds) {
         const before = media.currentTime;
         skip(seconds);
         const moved = Math.round(media.currentTime - before);
         showShortcut(moved ? `${moved > 0 ? "+" : "−"}${Math.abs(moved)} s` : clock(media.currentTime));
     }
+    function focusable(container) {
+        return [...container.querySelectorAll("button, input, select, summary")].filter(control =>
+            !control.disabled && control.tabIndex >= 0 && control.getClientRects().length &&
+            getComputedStyle(control).visibility === "visible" &&
+            (!control.closest("details:not([open])") || control.matches("summary")));
+    }
     document.addEventListener("keydown", event => {
         const target = event.target, key = event.key.toLowerCase();
         if (!(target instanceof HTMLElement) || (!surface.contains(target) && target !== document.body) || target.closest("dialog") ||
             event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey) return;
         const arrow = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key);
-        const inSheet = openSheet && sheets[openSheet].node.contains(target);
-        const tv = innerWidth >= 1600 && !matchMedia("(hover: hover) and (pointer: fine)").matches;
+        const sheet = openSheet && sheets[openSheet].node;
+        const inSheet = sheet && sheet.contains(target);
+        const tv = innerWidth >= 1600 && !sound;
+        show();
         if (key === "tab" || key === "enter" && !event.altKey || arrow && (tv || inSheet))
             root.classList.remove("movie-pointer");
         if (key === "tab" && !event.altKey) {
-            const controls = [...root.querySelectorAll("button, input, select")].filter(control =>
-                !control.disabled && control.tabIndex >= 0 && control.getClientRects().length);
+            const controls = focusable(sheet || root);
             const edge = event.shiftKey ? controls[0] : controls.at(-1);
-            if (target === edge || target === document.body) {
+            if (target === edge || !controls.includes(target)) {
                 event.preventDefault();
                 (event.shiftKey ? controls.at(-1) : controls[0])?.focus();
             }
@@ -664,11 +777,14 @@ export function buildPlayerUi(ctx) {
         }
         if (target.isContentEditable || target.matches("textarea, input:not([type=range])")) return;
         if (key === "escape" && !event.altKey) {
-            if (isFullscreen()) { event.preventDefault(); void toggleFullscreen(); }
-            else if (openSheet) { event.preventDefault(); closeSheet(); }
+            event.preventDefault();
+            if (event.repeat || fullscreenPending) return;
+            if (openSheet) closeSheet();
+            else if (isFullscreen()) void toggleFullscreen();
+            else back.click();
             return;
         }
-        if (target.matches("select") || target !== seek && target.matches("input")) return;
+        if (target.matches("select")) return;
         if ((!event.altKey && (key === "f11" || key === "f")) || event.altKey && key === "enter") {
             if (fullscreen.hidden) return;
             event.preventDefault();
@@ -676,38 +792,40 @@ export function buildPlayerUi(ctx) {
             return;
         }
         if (event.altKey) return;
-        if (event.keyCode === 461 || key === "browserback") { event.preventDefault(); back.click(); return; }
+        if (event.keyCode === 461 || key === "browserback") {
+            event.preventDefault();
+            root.dispatchEvent(new Event("movie-back"));
+            return;
+        }
         if (inSheet) {
-            if (arrow && moveFocus(target, event.key)) event.preventDefault();
+            if (tv && arrow && moveFocus(target, event.key)) event.preventDefault();
             return;
         }
         if (key === " " || key === "spacebar" || key === "k" || key === "enter" && !target.closest("button")) {
             event.preventDefault();
             if (!event.repeat) toggle();
         } else if (arrow) {
+            if (target.matches(".movie-sound-slider") && (key === "arrowleft" || key === "arrowright")) return;
             event.preventDefault();
-            show();
             if (tv && !(event.shiftKey && target === seek) && moveFocus(target, event.key)) return;
             if (key === "arrowleft" || key === "arrowright") {
                 seekBy((key === "arrowright" ? 1 : -1) * (event.shiftKey ? 30 : 10));
-            } else {
+            } else if (sound) {
                 const step = key === "arrowup" ? .05 : -.05;
-                const volume = sound?.state.volume ?? media.volume;
-                const next = Math.round(Math.min(Math.max(1, volume), Math.max(0, volume + step)) * 100) / 100;
-                if (sound) sound.set({ volume: next });
-                else { media.volume = next; if (next > 0) media.muted = false; }
+                const { muted, volume } = sound.state;
+                const next = Math.round(Math.min(MAX_VOLUME, Math.max(0, (muted ? 0 : volume) + step)) * 100) / 100;
+                sound.set({ volume: next });
                 showShortcut(volumeLabel());
             }
-        } else if (key === "m") {
+        } else if (key === "m" && sound) {
             event.preventDefault();
             if (event.repeat) return;
-            if (sound) sound.toggleMute();
-            else media.muted = !media.muted;
+            sound.toggleMute();
             showShortcut(volumeLabel());
         }
     }, { signal, capture: true });
     function volumeLabel() {
-        const { muted, volume } = sound?.state ?? media;
+        const { muted, volume } = sound.state;
         return muted ? "Muted" : `Volume ${Math.round(volume * 100)}%`;
     }
 
@@ -720,8 +838,14 @@ export function buildPlayerUi(ctx) {
         playButton: playPause,
         /** Episodes of the current season, or null when the title is not part of a series. */
         setEpisodes(list, currentId, play) {
-            episodesButton.hidden = !list?.length;
             const body = sheets.episodes.body;
+            if (!list?.length) {
+                if (openSheet === "episodes") closeSheet();
+                if (episodesButton === document.activeElement) tracksButton.focus({ preventScroll: true });
+            } else if (body.contains(document.activeElement)) {
+                sheets.episodes.close.focus({ preventScroll: true });
+            }
+            episodesButton.hidden = !list?.length;
             body.replaceChildren();
             for (const episode of list ?? []) {
                 const row = make("button", "movie-episode");
@@ -743,6 +867,7 @@ export function buildPlayerUi(ctx) {
         },
         setNext(episode, play) {
             nextEpisode = episode ? { play: () => play(episode), name: episode.Name } : null;
+            if (!episode && nextButton === document.activeElement) tracksButton.focus({ preventScroll: true });
             nextButton.hidden = !episode;
             if (episode) nextButton.setAttribute("aria-label", "Next episode: " + episode.Name);
         },
@@ -755,11 +880,7 @@ export function buildPlayerUi(ctx) {
             const timer = setTimeout(() => { hint.textContent = ""; }, 6000);
             signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
         },
-        setDataSaver(id) {
-            ctx.dataSaver.choices.forEach(([choice], index) =>
-                qualityOptions.children[index].setAttribute("aria-checked", String(choice === id)));
-        },
-        openSettingsAt,
+        openSettingsAt() { tracksButton.focus({ preventScroll: true }); },
         useAudioElement(element) {
             if (!sound) return false;
             sound.useAudioElement(element);
@@ -767,6 +888,7 @@ export function buildPlayerUi(ctx) {
         },
         openSheetName: () => openSheet,
         reopenSheet(name) {
+            if (name === "subtitles") name = "audio";
             if (name && sheets[name]) toggleSheet(name, name === "audio"
                 ? sheets.audio.body.querySelector("[aria-checked='true']") : null);
         },

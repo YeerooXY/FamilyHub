@@ -13,6 +13,41 @@ public sealed class PublicAppReleases(HttpClient http)
 
     private sealed record Release([property: JsonPropertyName("tag_name")] string Tag, Asset[] Assets);
     private sealed record Asset(string Name, string State, long Size, string? Digest);
+    private sealed record ReleaseNotes([property: JsonPropertyName("tag_name")] string Tag, string? Body);
+
+    public const int MaxNotes = 5;
+    public const int MaxNoteLength = 110;
+
+    /// <summary>The bullet lines of the GitHub release notes for one version, for the update screen. Empty when unavailable.</summary>
+    public async Task<IReadOnlyList<string>> NotesAsync(string version, CancellationToken token)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, LatestUrl);
+        request.Headers.UserAgent.ParseAdd("FamilyHub");
+        request.Headers.Accept.ParseAdd("application/vnd.github+json");
+        using var response = await http.SendAsync(request, token);
+        if (!response.IsSuccessStatusCode) return [];
+        var release = await response.Content.ReadFromJsonAsync<ReleaseNotes>(cancellationToken: token);
+        return release?.Tag == "v" + version ? ParseNotes(release.Body) : [];
+    }
+
+    /// <summary>Bullet lines only ("- " or "* "), without markdown marks or links, at most five and 110 characters each.</summary>
+    public static IReadOnlyList<string> ParseNotes(string? body)
+    {
+        var notes = new List<string>();
+        foreach (var raw in (body ?? "").Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length < 3 || (line[0] != '-' && line[0] != '*') || line[1] != ' ') continue;
+            line = Regex.Replace(line[2..], @"\[([^\]]*)\]\([^)]*\)", "$1");
+            line = Regex.Replace(line, @"[`*_]|<[^>]*>", "");
+            line = Regex.Replace(line, @"\s+", " ").Trim();
+            if (line.Length == 0) continue;
+            if (line.Length > MaxNoteLength) line = line[..(line.LastIndexOf(' ', MaxNoteLength - 1) is > 40 and var cut ? cut : MaxNoteLength - 1)].TrimEnd(' ', ',', ';', ':') + "…";
+            notes.Add(line);
+            if (notes.Count == MaxNotes) break;
+        }
+        return notes;
+    }
 
     public async Task<AppRelease?> CheckAsync(string platform, CancellationToken token)
     {

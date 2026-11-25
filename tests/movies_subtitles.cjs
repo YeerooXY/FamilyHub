@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { jellyfin, cors, output, moviePage, verifyMovieProfiles } = require("./movies_fixture.cjs");
+const { jellyfin, cors, output, moviePage, playMovieDetails, verifyMovieProfiles } = require("./movies_fixture.cjs");
 
 const clip = fs.readFileSync(path.join(__dirname, "fixtures/movie-subtitles.mp4"));
 
@@ -79,8 +79,8 @@ async function verify(browser, profile, options) {
             window.openMovieFixture(openMovies, document.querySelector("main"), {url: jellyfin, user: "fixture", token: "fixture", device: "fixture"},
                 {invokeMethodAsync: async () => "{}"}, viewer);
         }, jellyfin);
-        const movie = page.getByRole("button", {name: "They Call Me Trinity", exact: true}).first();
-        await movie.press("Enter");
+        const title = "They Call Me Trinity";
+        await playMovieDetails(page, page.getByRole("button", {name: title, exact: true}).first(), title);
         const video = page.locator("video");
         await video.waitFor();
         await video.evaluate(async node => {
@@ -89,32 +89,37 @@ async function verify(browser, profile, options) {
             node.muted = true;
             await node.play();
         });
-        const tracks = page.getByRole("button", {name: "Subtitles", exact: true});
+        const tracks = page.getByRole("button", {name: "Audio & Subtitles", exact: true});
         await tracks.press("Enter");
-        const close = page.getByRole("button", {name: "Close subtitles"});
+        const close = page.getByRole("button", {name: "Close audio and subtitles"});
         const focused = locator => locator.evaluate(node => node === document.activeElement);
         assert.equal(await focused(close), true);
         await page.getByRole("heading", {name: "Subtitles", exact: true}).waitFor();
         const language = page.getByRole("combobox", {name: "Subtitle language"});
         assert.equal(await language.inputValue(), "hun");
         await language.selectOption("eng");
-        const find = page.getByRole("button", {name: "Find subtitles"});
+        const find = page.getByRole("button", {name: /^(Find subtitles|Retry)$/});
         await find.focus();
         await page.keyboard.press("Shift+Tab");
         assert.equal(await focused(language), true);
         await page.keyboard.press("Tab");
         assert.equal(await focused(find), true);
-        await page.keyboard.press("Enter");
-        await page.getByRole("status").filter({hasText: "Could not search for subtitles."}).waitFor();
+        await page.getByRole("status").filter({hasText: "Subtitle search failed."}).waitFor();
+        const retry = page.getByRole("button", {name: "Retry", exact: true});
         assert.equal(await page.getByText("HTTP 503").count(), 0);
-        assert.equal(await focused(find), true);
+        assert.equal(await focused(retry), true);
         await page.keyboard.press("Enter");
         await page.getByRole("status").filter({hasText: "No subtitles found."}).waitFor();
         assert.equal(lastLanguage, "eng");
-        assert.equal(await focused(find), true);
+        assert.equal(await focused(retry), true);
+        await language.focus();
         await language.selectOption("hun");
-        await find.press("Space");
-        await page.getByRole("status").filter({hasText: "Searching for subtitles…"}).waitFor();
+        assert.equal(await focused(language), true);
+        assert.equal(lastLanguage, "eng", "returning to a previously searched language waits for Find subtitles");
+        await page.keyboard.press("Tab");
+        assert.equal(await focused(find), true);
+        await page.keyboard.press("Enter");
+        await page.getByRole("status").filter({hasText: "Searching…"}).waitFor();
         assert.equal(await focused(find), true);
         finishSearch();
         const result = page.getByRole("button", {name: /Trinity \(1970\).*Hungarian.*Rating.*42 downloads/});

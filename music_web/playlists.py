@@ -74,22 +74,22 @@ def parse_page(page, pid):
 
 def spotify_source(url):
     if not isinstance(url, str) or len(url) > 300:
-        raise PlaylistError("Enter a Spotify playlist or artist link.")
+        raise PlaylistError("Enter a Spotify playlist, album or artist link.")
     try:
         parsed = urlsplit(url)
-        match = re.fullmatch(r"/(?:intl-[a-z]+/)?(playlist|artist)/([A-Za-z0-9]{22})/?", parsed.path)
+        match = re.fullmatch(r"/(?:intl-[a-z]+/)?(playlist|artist|album)/([A-Za-z0-9]{22})/?", parsed.path)
         valid = parsed.scheme == "https" and parsed.hostname == "open.spotify.com" and parsed.port in (None, 443) and not parsed.username and not parsed.password
     except ValueError:
         valid, match = False, None
     if not valid or not match:
-        raise PlaylistError("Use a public open.spotify.com playlist or artist link.")
+        raise PlaylistError("Use a public open.spotify.com playlist, album or artist link.")
     return match.groups()
 
 
 def fetch_playlist(url, progress=None):
-    from .public_playlists import fetch_public_playlist, fetch_public_artist
+    from .public_playlists import fetch_public_playlist, fetch_public_artist, fetch_public_album
     kind, _ = spotify_source(url)
-    return (fetch_public_artist if kind == "artist" else fetch_public_playlist)(url, progress=progress)
+    return {"artist": fetch_public_artist, "album": fetch_public_album}.get(kind, fetch_public_playlist)(url, progress=progress)
 
 def normalized(value):
     return re.sub(r"[^\w]+"," ",unicodedata.normalize("NFKD",value).encode("ascii","ignore").decode().lower()).strip()

@@ -1,4 +1,4 @@
-const { useMovieBridge } = require("./movies_fixture.cjs");
+const { useMovieBridge, playMovieDetails, dismissPlayerTracks } = require("./movies_fixture.cjs");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { chromium, webkit, devices } = require(require.resolve("playwright", {
@@ -7,6 +7,10 @@ const { chromium, webkit, devices } = require(require.resolve("playwright", {
 
 const app = "http://familyhub.test";
 const jellyfin = "https://jellyfin.test";
+const show = { Id: "series", Type: "Series", Name: "Show", ImageTags: { Thumb: "inherited" } };
+const pilot = { Id: "ep", Type: "Episode", Name: "Pilot", SeriesName: "Show", SeriesId: show.Id,
+    ImageTags: { Thumb: "missing" }, BackdropImageTags: ["missing"], SeriesThumbImageTag: "inherited" };
+const finale = { Id: "ep2", Type: "Episode", Name: "Finale", SeriesName: "Far Shore", SeriesId: "far-shore" };
 const streams = [
     { Type: "Audio", Index: 1, Language: "eng", DisplayTitle: "English stereo" },
     { Type: "Audio", Index: 2, Language: "hun", DisplayTitle: "Hungarian stereo", IsExternal: true },
@@ -68,21 +72,19 @@ async function check(browser, options) {
                 const Items = url.searchParams.get("searchTerm") === "Pilot" ? [{ Id: "ep", Name: "Pilot", Type: "Episode" }] : [];
                 return route.fulfill({ headers, json: { Items, TotalRecordCount: Items.length } });
             }
-            const movies = url.searchParams.get("includeItemTypes") === "Movie";
+            const types = url.searchParams.get("includeItemTypes");
             assert.equal(url.searchParams.get("enableImageTypes"), "Primary,Thumb,Backdrop");
-            const Items = movies ? [
+            const films = [
                 { Id: "full", Name: "Two languages", ImageTags: { Primary: "poster" } },
                 { Id: "limited", Name: "One language", ImageTags: { Primary: "missing" } },
                 { Id: "sample1080", Name: "FamilyHub Sample 1080p" },
                 { Id: "sample4k", Name: "FamilyHub Sample 4K HEVC" }
-            ] : [
-                { Id: "ep", Type: "Episode", Name: "Pilot", SeriesName: "Show", SeriesId: "series",
-                    ImageTags: { Thumb: "missing" }, BackdropImageTags: ["missing"], SeriesThumbImageTag: "inherited" },
-                { Id: "ep2", Type: "Episode", Name: "Finale", SeriesName: "Show" }
             ];
+            const Items = types === "Movie" ? films : types === "Series" ? [show] : [...films, show];
             return route.fulfill({ headers, json: { Items, TotalRecordCount: Items.length } });
         }
-        if (url.pathname === "/UserItems/Resume") return route.fulfill({ headers, json: { Items: [], TotalRecordCount: 0 } });
+        if (url.pathname === "/UserItems/Resume")
+            return route.fulfill({headers, json: {Items: [pilot, finale], TotalRecordCount: 2}});
         if (url.pathname === "/Items/full")
             return route.fulfill({ headers, json: { UserData: { PlaybackPositionTicks: savedPosition * 1e7 } } });
         if (url.pathname.startsWith("/Sessions/Playing")) {
@@ -110,10 +112,15 @@ async function check(browser, options) {
             { server: jellyfin + "/", profile });
     }, { profile, jellyfin });
     const focused = async node => page.waitForFunction(el => el === document.activeElement, await node.elementHandle());
-    const moviesShelf = page.locator(".movie-shelf:not([hidden])");
-    const openTracks = () => page.getByRole("button", { name: "Audio", exact: true }).click();
+    const shelf = name => page.locator(".movie-shelf:not([hidden])").filter({
+        has: page.getByRole("heading", {name, exact: true})
+    });
+    const moviesShelf = shelf("Movies");
+    const resumeShelf = shelf("Continue watching");
+    const tracks = page.getByRole("button", { name: "Audio & Subtitles", exact: true });
+    const openTracks = () => tracks.press("Enter");
     const select = name => page.locator("label", { hasText: name }).locator("select");
-    // Each popover has a radio list. The hidden selects keep the values.
+    // Both track lists share one popover and keep their values in the hidden selects.
     const group = name => page.getByRole("radiogroup", { name, exact: true });
     const checkedIn = name => group(name).getByRole("radio", { checked: true });
     const preferences = (profile, values) => page.evaluate(async ({ profile, values, jellyfin }) => {
@@ -121,13 +128,11 @@ async function check(browser, options) {
         const viewer = { server: jellyfin + "/", profile };
         return values ? saveMoviePreferences(viewer, values) : readMoviePreferences(viewer);
     }, { profile, values, jellyfin });
-    const image = async (name, expectedSource, ratio) => {
-        const card = moviesShelf.getByRole("button", { name, exact: true });
+    const image = async (card, expectedSource, ratio) => {
         await card.scrollIntoViewIfNeeded();
-        await page.waitForFunction(({ selector, expectedSource }) =>
-            Array.from(document.querySelectorAll(selector)).some(img => img.currentSrc.includes(expectedSource)
-                && img.complete && img.naturalWidth > 0), { selector: ".movie-card img", expectedSource });
         const art = card.locator("img");
+        await page.waitForFunction(({img, expectedSource}) => img.currentSrc.includes(expectedSource) &&
+            img.complete && img.naturalWidth > 0, {img: await art.elementHandle(), expectedSource});
         assert.ok((await art.getAttribute("src")).includes(expectedSource));
         assert.equal(await art.getAttribute("alt"), "");
         const box = await art.boundingBox();
@@ -135,8 +140,21 @@ async function check(browser, options) {
     };
     const audio = select("Audio track"), subtitle = select("Subtitle track");
     const back = page.getByRole("button", { name: "Back to movies" });
+    const closer = page.getByRole("button", { name: "Close audio and subtitles" });
     const two = moviesShelf.getByRole("button", { name: "Two languages" });
     const one = moviesShelf.getByRole("button", { name: "One language" });
+    const closePlayer = async (play, card) => {
+        if (await closer.isVisible()) {
+            await closer.press("Enter");
+            await closer.waitFor({state: "hidden"});
+            await focused(tracks);
+        }
+        await back.press("Enter");
+        await back.waitFor({state: "hidden"});
+        await focused(play);
+        await page.getByRole("button", { name: "Back to titles", exact: true }).press("Enter");
+        await focused(card);
+    };
 
     await open("viewer-a");
     const search = page.getByRole("searchbox");
@@ -152,34 +170,35 @@ async function check(browser, options) {
     await two.waitFor();
     assert.equal(await page.getByRole("combobox").count(), 0);
     assert.equal(await preferences("viewer-a", { audio: "hu", subtitles: "hu" }), true);
-    await image("Two languages", "/Items/full/Images/Primary", 2 / 3);
+    await image(two, "/Items/full/Images/Primary", 2 / 3);
     // A title without artwork gets its own colour and initial, never a shared stock image.
-    const bare = async (name, initial) => {
-        const art = moviesShelf.getByRole("button", { name, exact: true }).locator(".movie-art");
+    const bare = async (card, initial) => {
+        const art = card.locator(".movie-art");
         await art.waitFor();
         await page.waitForFunction(node => !node.querySelector("img[src]"), await art.elementHandle());
         assert.equal(await art.getAttribute("data-initial"), initial);
         assert.ok(await art.evaluate(node => node.style.getPropertyValue("--art-hue") !== ""));
     };
-    await bare("One language", "O");
-    await bare("FamilyHub Sample 1080p", "F");
-    await bare("FamilyHub Sample 4K HEVC", "F");
-    await image("Show", "/Items/series/Images/Thumb", 16 / 9);
-    await bare("Show, Finale", "S");
-    await two.press("Enter");
+    await bare(one, "O");
+    await bare(moviesShelf.getByRole("button", {name: "FamilyHub Sample 1080p", exact: true}), "F");
+    await bare(moviesShelf.getByRole("button", {name: "FamilyHub Sample 4K HEVC", exact: true}), "F");
+    await image(shelf("TV series").getByRole("button", {name: "Show", exact: true}), "/Items/series/Images/Thumb", 2 / 3);
+    await image(resumeShelf.getByRole("button", {name: "Show, Pilot", exact: true}), "/Items/series/Images/Thumb", 2 / 3);
+    await bare(resumeShelf.getByRole("button", {name: "Far Shore, Finale", exact: true}), "F");
+    const twoPlay = await playMovieDetails(page, two, "Two languages");
     await back.waitFor();
     // The player fills the window; controls follow the Netflix-style layout and start on Play.
     const box = () => page.locator(".movie-player").evaluate(node => [getComputedStyle(node).position, node.getBoundingClientRect().width === innerWidth]);
     assert.deepEqual(await box(), ["fixed", true]);
     const playPause = page.getByRole("button", { name: /^(Play|Pause)$/ });
     await focused(playPause);
-    for (const name of ["Back 10 seconds", "Forward 10 seconds", "Audio"]) await page.getByRole("button", { name }).waitFor();
+    for (const name of ["Back 10 seconds", "Forward 10 seconds", "Audio & Subtitles"]) await page.getByRole("button", { name }).waitFor();
     assert.equal(await page.getByRole("button", { name: "Episodes" }).count(), 0, "a film has no Episodes button");
     assert.equal(await page.getByRole("button", { name: /^Next episode/ }).count(), 0, "a film has no Next Episode button");
     await page.getByRole("slider", { name: "Seek" }).waitFor();
-    // Tab order: close, 10 s back, play, 10 s forward, seek bar.
+    // Tab order follows the seek row, then play and the skip controls.
     await back.focus();
-    for (const next of [page.getByRole("button", { name: "Back 10 seconds" }), playPause, page.getByRole("button", { name: "Forward 10 seconds" }), page.getByRole("slider", { name: "Seek" })]) {
+    for (const next of [page.getByRole("slider", { name: "Seek" }), playPause, page.getByRole("button", { name: "Back 10 seconds" }), page.getByRole("button", { name: "Forward 10 seconds" })]) {
         await page.keyboard.press("Tab");
         await focused(next);
     }
@@ -190,18 +209,10 @@ async function check(browser, options) {
         await focused(playPause);
     }
     // Escape closes Audio and returns focus to its opener.
-    const tracks = page.getByRole("button", { name: "Audio", exact: true });
     await tracks.click();
-    await page.getByRole("button", { name: "Close audio" }).waitFor();
+    await closer.waitFor();
     await group("Audio track").waitFor();
-    // A browser in fullscreen spends the first Escape on leaving fullscreen, so allow a second press.
-    const closer = page.getByRole("button", { name: "Close audio" });
-    for (let press = 0; press < 2 && await closer.isVisible(); press++) {
-        await page.keyboard.press("Escape");
-        await page.waitForTimeout(300);
-    }
-    await closer.waitFor({ state: "hidden" });
-    await focused(tracks);
+    await dismissPlayerTracks(page);
     await tracks.click();
     assert.equal(await audio.inputValue(), "2");
     assert.equal(await subtitle.inputValue(), "3");
@@ -218,38 +229,32 @@ async function check(browser, options) {
     assert.deepEqual(await page.locator(".movie-ui-sub").allInnerTexts(), ["Hello & welcome", "Second line"]);
     if (browser.browserType() === chromium)
         await page.waitForFunction(() => document.querySelector("video").textTracks[0].cues?.length === 1);
-    const subtitles = page.getByRole("button", { name: "Subtitles", exact: true });
     assert.equal(await checkedIn("Audio track").innerText(), "Hungarian, added");
-    await subtitles.click();
     await group("Subtitle track").getByRole("radio", { name: "Off", exact: true }).click();
-    await openTracks();
     await group("Audio track").getByRole("radio", { name: "English stereo", exact: true }).click();
     await back.waitFor();
     await group("Audio track").waitFor();
     await focused(checkedIn("Audio track"));
     assert.equal(await subtitle.inputValue(), "-1");
     assert.deepEqual(await preferences("viewer-a"), { audio: "hu", subtitles: "hu", dataSaver: "auto" });
-    await back.press("Enter");
-    await focused(two);
-    await one.press("Enter");
+    await closePlayer(twoPlay, two);
+    const onePlay = await playMovieDetails(page, one, "One language");
     await openTracks();
     assert.equal(await group("Audio track").getByRole("radio").count(), 1);
     await page.getByText("Hungarian audio unavailable. Using the default track.").waitFor();
-    await back.press("Enter");
-    await focused(one);
+    await closePlayer(onePlay, one);
     assert.deepEqual(requestedTracks, [2, 1]);
     assert.equal(await page.locator("main").evaluate(node => node.scrollWidth <= node.clientWidth), true);
 
     await open("viewer-b");
     assert.deepEqual(await preferences("viewer-b"), { audio: "default", subtitles: "default", dataSaver: "auto" });
-    await two.press("Enter");
+    await playMovieDetails(page, two, "Two languages");
     await back.waitFor();
     await openTracks();
     assert.equal(await subtitle.inputValue(), "4");
-    await back.press("Enter");
-    await focused(two);
+    await closePlayer(twoPlay, two);
     assert.equal(await preferences("viewer-b", { audio: "default", subtitles: "off" }), true);
-    await two.press("Enter");
+    await playMovieDetails(page, two, "Two languages");
     await back.waitFor();
     await openTracks();
     assert.equal(await subtitle.inputValue(), "-1");
@@ -259,7 +264,7 @@ async function check(browser, options) {
 
     // The library card predates the position saved on another device.
     savedPosition = 180;
-    await two.press("Enter");
+    await playMovieDetails(page, two, "Two languages");
     await back.waitFor();
     const video = page.locator("video");
     const setMedia = (values, events) => video.evaluate((media, { values, events }) => {
@@ -286,7 +291,7 @@ async function check(browser, options) {
     assert.notEqual(reports[3][1].PlaySessionId, reports[4][1].PlaySessionId);
 
     await open("viewer-a");
-    await two.press("Enter");
+    await playMovieDetails(page, two, "Two languages");
     await back.waitFor();
     await video.evaluate(async media => {
         Object.defineProperties(media, {
@@ -302,7 +307,7 @@ async function check(browser, options) {
 
     // Block the first title's progress write while opening a second title and then resuming the first.
     await open("viewer-b");
-    await two.press("Enter");
+    await playMovieDetails(page, two, "Two languages");
     await back.waitFor();
     await page.evaluate(() => {
         const fetch = window.fetch;
@@ -323,19 +328,17 @@ async function check(browser, options) {
         await setMedia({ currentTime: 250 }, ["seeked"]);
         await progress;
         await setMedia({ currentTime: 260 }, []);
-        await back.press("Enter");
-        await focused(two);
+        await closePlayer(twoPlay, two);
 
-        await one.press("Enter");
-        await page.getByRole("heading", { name: "One language", exact: true }).waitFor();
+        await playMovieDetails(page, one, "One language");
+        await page.getByRole("region", { name: "Movie player" }).getByRole("heading", { name: "One language", exact: true }).waitFor();
         await setMedia({ currentTime: 30, paused: false }, ["playing"]);
-        await back.press("Enter");
-        await focused(one);
+        await closePlayer(onePlay, one);
         assert.equal(reports.length, reportStart + 2, "playback reports still queue behind the slow write");
 
         const reopening = page.waitForResponse(response => response.request().method() === "POST"
             && new URL(response.url()).pathname === "/Items/full/PlaybackInfo");
-        await two.press("Enter");
+        await playMovieDetails(page, two, "Two languages");
         await reopening;
         assert.deepEqual(await page.evaluate(() => window.resumeReads), ["/Items/limited"],
             "same-title startup waits to fetch the saved position");
@@ -361,9 +364,9 @@ async function check(browser, options) {
     });
     const reportCount = reports.length;
     await open("viewer-a");
-    await two.press("Enter");
+    await playMovieDetails(page, two, "Two languages");
     await page.getByText("This device cannot resume this video. Continue on another device.").waitFor();
-    await focused(two);
+    await focused(twoPlay);
     assert.equal(reports.length, reportCount);
     await page.close();
 }

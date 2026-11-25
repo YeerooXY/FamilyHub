@@ -1,9 +1,11 @@
 """Short-lived playback timings keyed by random client action IDs."""
+import logging
 import re
 import threading
 import time
 from collections import OrderedDict
 
+log = logging.getLogger("music_web.playback")
 
 CLIENT_STAGES = frozenset({
     "kept_download", "cache_hit", "cache_miss",
@@ -79,6 +81,10 @@ class PlaybackDiagnostics:
                 event["server_ms"] = round((now - started) * 1000)
             else:
                 event["client_ms"] = client_ms
+            # One line per stage in the server log, so slow starts can be read without the phone's screenshots.
+            # Only the random action id (first 8 characters), the stage and the timing: no profile or song names.
+            log.info("playback action=%s stage=%s %s", action[:8], stage,
+                     f"server_ms={event['server_ms']}" if "server_ms" in event else f"client_ms={client_ms}")
             if observation is not None:
                 recent_observations = [key for key in events if isinstance(key, tuple)]
                 event.update(observation)

@@ -122,7 +122,9 @@ FamilyHub checks qBittorrent's `familyhub` category on startup and every two
 minutes. It takes the main video from a film release and the numbered videos
 from a season release. A film goes into `movies/Title (Year)/Title (Year).mkv`
 when the release supplies a year. An episode goes into
-`tv/Series/Season 01/Series - S01E01.mkv`. The importer preserves the video
+`tv/Series/Season 01/Series - S01E01.mkv`. The importer reuses an existing
+series folder even when its name includes a year. Check the folder names if
+more than one series matches. The importer preserves the video
 extension and embedded tracks. Archives, extras and external sidecar files
 stay in the download directory. Season videos need a season and episode
 number in their filenames.
@@ -150,9 +152,10 @@ has stopped before removing an interrupted staging file.
    intended Jellyfin libraries. Use the existing reader ACL for UID/GID
    2001 on media and completed downloads. Hardlinks keep the source ACL.
 3. In `/etc/familyhub-music-web/config.json`, retain
-   `MOVIE_DOWNLOADS.qbittorrent` and `STATE_DIR`. Set `JELLYFIN_API_KEY` to
-   the existing Jellyfin server key. `JELLYFIN_INTERNAL_URL` defaults to
-   `http://127.0.0.1:8096`. Merge the following into `MOVIE_DOWNLOADS`.
+   `MOVIE_DOWNLOADS.qbittorrent` and `STATE_DIR`. Enable real-time monitoring
+   for both Jellyfin libraries or set `JELLYFIN_API_KEY` for scan requests.
+   `JELLYFIN_INTERNAL_URL` defaults to `http://127.0.0.1:8096`.
+   Merge the following into `MOVIE_DOWNLOADS`.
 
    ```json
    "import": {
@@ -169,13 +172,20 @@ has stopped before removing an interrupted staging file.
    `sudo systemctl restart familyhub-music-web.service`. Read the planned
    paths with `sudo journalctl -u familyhub-music-web.service -n 100`. Dry-run
    validates sources and paths and writes no media or import records. Set
-   `dry_run` to `false`, then restart the service to enable imports and
-   Jellyfin refreshes. Set `enabled` to `false` and restart to pause import.
+   `dry_run` to `false`, then restart the service to enable imports.
+   Jellyfin detects new files via real-time monitoring or a scan request when
+   a key is configured. Set `enabled` to `false` and restart to pause import.
 5. Verify one authorized movie or season. Check the destination and
    `2000:2000` ownership with mode `0660`, confirm Jellyfin can play it, and
    check that qBittorrent still sees the original files. Restart the web
    service and check that the library still has a single copy. Compare
    **Server work > Seeding** with qBittorrent and the recorder.
+
+In Jellyfin, set both libraries to download English and Hungarian subtitles.
+Turn off the setting that skips downloads when the audio matches the subtitle
+language. Keep subtitle files in Jellyfin's metadata directory while the media
+mounts are read-only. Jellyfin's **Download Missing Subtitles** task runs the
+searches through the configured Open Subtitles account.
 
 ### Torrent ratio recorder
 

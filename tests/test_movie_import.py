@@ -1,7 +1,9 @@
 """Exercise torrent hand-off with temporary media and fake upstreams."""
+from contextlib import closing
 import errno
 import os
 from pathlib import Path
+import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
@@ -72,6 +74,31 @@ class MovieImportTests(unittest.TestCase):
         self.assertFalse(target.samefile(source))
         self.assertEqual(list(target.parent.iterdir()), [target])
         self.refresh.assert_called_once()
+
+    def test_existing_series_uses_its_year_tagged_folder_and_realtime_monitor(self):
+        self.row['name'] = 'Peaky.Blinders.S02.1080p.BluRay'
+        source = self.video('pack/Peaky.Blinders.S02E01.mkv')
+        shows = self.roots[2]
+        series = shows / 'Peaky Blinders (2013)'
+        series.mkdir()
+        importer = movie_import.MovieImport(self.database, self.roots, self.torrents, self.files, None)
+        importer.poll()
+        imported = series / 'Season 02' / 'Peaky Blinders (2013) - S02E01.mkv'
+        self.assertTrue(imported.samefile(source))
+        self.assertEqual(list(shows.iterdir()), [series])
+        with closing(sqlite3.connect(self.database)) as journal:
+            self.assertEqual(journal.execute('SELECT refresh_pending FROM imported').fetchone(), (0,))
+
+    def test_ambiguous_series_stays_in_downloads(self):
+        self.row['name'] = 'Fixture.Series.S02.1080p'
+        self.video('Fixture.Series.S02E01.mkv')
+        for year in (2012, 2022):
+            (self.roots[2] / f'Fixture Series ({year})').mkdir()
+        with self.assertLogs('music_web.movie_import', level='WARNING') as log:
+            self.importer().poll()
+        self.assertIn('Multiple library folders match the series.', log.output[0])
+        self.assertFalse(list(self.roots[2].glob('*/Season 02')))
+        self.refresh.assert_not_called()
 
     def test_copy_does_not_replace_a_concurrent_library_write(self):
         source = self.video('Tears.of.Steel.2012.mkv')

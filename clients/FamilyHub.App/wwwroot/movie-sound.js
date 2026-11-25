@@ -1,6 +1,6 @@
-// Sound settings for the movie player on a PC: volume with an extra-loud range, mute, a sound mode and the output device.
+// Sound settings for the movie player on a PC or Mac.
 // Settings belong to the device (one speaker setup), not to a profile, so they live under one storage key.
-// Phones and televisions have hardware volume, so the panel is only offered where a mouse and keyboard are.
+// Phones and televisions use hardware volume.
 
 export const SOUND_MODES = [
     ["original", "Original"],
@@ -30,10 +30,11 @@ export function saveSound(sound, storage = globalThis.localStorage) {
     try { storage.setItem(KEY, JSON.stringify(normalizeSound(sound))); return true; } catch { return false; }
 }
 
-/** Whether to offer the panel: a fine pointer with hover, and a window narrower than a television. */
 export function soundPanelWanted(win = globalThis) {
     try {
-        return win.matchMedia("(hover: hover) and (pointer: fine)").matches && win.innerWidth < 1600;
+        const agent = win.navigator?.userAgent ?? "";
+        return !/Android|iPhone|iPad|iPod|Mobile|SmartTV|TV Safari|webOS|Tizen|HbbTV|NetCast|BRAVIA/i.test(agent) &&
+            win.matchMedia("(hover: hover) and (pointer: fine)").matches;
     } catch { return false; }
 }
 

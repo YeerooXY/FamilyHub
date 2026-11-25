@@ -128,13 +128,22 @@ def plan(row, files, roots):
         title = f'{title} ({year})' if year else title
         video, size = videos[0]
         return [(downloads.joinpath(*save.parts, *video.parts), movies / title / (title + video.suffix.lower()), size, None)]
+    show = shows / title
+    if not show.is_dir():
+        pattern = re.compile(re.escape(title) + r' \((\d{4})\)', re.I)
+        matches = [folder for folder in shows.iterdir() if folder.is_dir()
+                   and (match := pattern.fullmatch(folder.name)) and (not year or match[1] == year)]
+        if len(matches) > 1:
+            raise ValueError('Multiple library folders match the series.')
+        if matches:
+            show = matches[0]
     episodes = {}
     for video, size in videos:
         code = episode_code(video.name)
         if code is None:
             raise ValueError('An episode filename has no season and episode number.')
         season, number = code
-        target = shows / title / f'Season {season:02d}' / f'{title} - S{season:02d}E{number:02d}{video.suffix.lower()}'
+        target = show / f'Season {season:02d}' / f'{show.name} - S{season:02d}E{number:02d}{video.suffix.lower()}'
         episodes.setdefault(code, (downloads.joinpath(*save.parts, *video.parts), target, size, code))
     return list(episodes.values())
 
@@ -259,14 +268,14 @@ class MovieImport:
                         entries = plan(row, self.files(ident), self.roots)
                         import_plan(entries, dry_run)
                         if not dry_run:
-                            db.execute('INSERT INTO imported VALUES (?, 1)', (ident,))
+                            db.execute('INSERT INTO imported VALUES (?, ?)', (ident, int(self.refresh is not None)))
                     if not dry_run:
                         log.info('Movie import recorded %s with %d library entries.', ident, len(entries))
                 except TORRENT_ERRORS as error:
                     if isinstance(error, urllib.error.HTTPError):
                         error.close()
                     log.warning('Movie import %s will retry: %s', ident, error)
-            if not dry_run:
+            if not dry_run and self.refresh is not None:
                 with db:
                     db.execute('BEGIN IMMEDIATE')
                     if db.execute('SELECT 1 FROM imported WHERE refresh_pending = 1 LIMIT 1').fetchone():
@@ -283,8 +292,11 @@ def start(config, qb_url, jellyfin_url):
     qb = downloads.get('qbittorrent') or {}
     key = config.get('JELLYFIN_API_KEY')
     valid_key = isinstance(key, str) and bool(key) and not any(c.isspace() for c in key)
-    if not (qb_url and qb.get('user') and qb.get('password') and (dry_run or jellyfin_url and valid_key)):
-        log.error('Movie import needs qBittorrent credentials and a Jellyfin URL and API key for live imports.')
+    if not (qb_url and qb.get('user') and qb.get('password') and (dry_run or jellyfin_url)):
+        log.error('Movie import needs qBittorrent credentials and a Jellyfin URL for live imports.')
+        return
+    if not dry_run and key and not valid_key:
+        log.error('Movie import has an invalid Jellyfin refresh key.')
         return
     data = Path('/srv/familyhub/data')
     try:
@@ -299,6 +311,8 @@ def start(config, qb_url, jellyfin_url):
         log.error('Movie import needs three separate existing folders for downloads, movies and shows.')
         return
     database = state_path(config, DATABASE).absolute()
+    if not dry_run and not valid_key:
+        log.info('Movie import uses Jellyfin real-time monitoring for library updates.')
 
     def watch():
         lower_background_priority()
@@ -321,7 +335,7 @@ def start(config, qb_url, jellyfin_url):
                 importer = MovieImport(database, roots,
                     lambda: read('info?category=' + CATEGORY),
                     lambda ident: read('files?hash=' + ident),
-                    refresh)
+                    refresh if valid_key else None)
                 importer.poll(dry_run)
             except urllib.error.HTTPError as error:
                 error.close()

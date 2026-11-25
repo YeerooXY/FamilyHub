@@ -5,7 +5,9 @@ const { chromium, webkit, devices } = require(require.resolve("playwright", {
 }));
 
 const root = path.resolve(__dirname, "..");
-const output = path.resolve(process.argv[2] || path.join(root, ".local/downloads-preview"));
+const homeOutput = path.join(root, "docs/verification/movies-home-2026-11-24");
+const playerOutput = path.join(root, "docs/verification/movie-player-2026-11-24");
+const output = path.resolve(process.argv[2] || playerOutput);
 const app = "http://familyhub.test", jellyfin = "https://jellyfin.test";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization,content-type" };
 
@@ -13,9 +15,13 @@ async function useMovieBridge(page) {
     await page.addInitScript(() => {
         window.openMovieFixture = (openMovies, host, session, app, viewer = {}) => {
             const base = session.url.replace(/\/$/, "") + "/";
+            const {origin, hostname} = new URL(base);
+            if (!hostname.endsWith(".test") && !["localhost", "127.0.0.1", "[::1]"].includes(hostname))
+                throw Error("Use a local movie fixture");
             const headers = {Authorization: `MediaBrowser Token="${session.token}"`, "Content-Type": "application/json"};
             const send = (resource, query, payload) => {
                 const url = new URL(resource, base);
+                if (url.origin !== origin) throw Error("Movie fixture request escaped its local stub");
                 url.search = query;
                 return fetch(url, {method: payload === null ? "GET" : "POST", headers,
                     body: payload === null ? undefined : JSON.stringify(payload)});
@@ -50,6 +56,29 @@ async function moviePage(page) {
             <main class="movie-library"></main>`});
     });
     await page.goto(app);
+}
+
+async function playMovieDetails(page, card, title) {
+    await card.press("Enter");
+    const details = page.getByRole("region", {name: title, exact: true});
+    const play = details.getByRole("button", {name: /^(Play|Resume)$/});
+    await play.press("Enter");
+    return play;
+}
+
+async function dismissPlayerTracks(page) {
+    const close = page.getByRole("button", {name: "Close audio and subtitles"});
+    const opener = page.getByRole("button", {name: "Audio & Subtitles", exact: true});
+    const fullscreen = await page.evaluate(() => Boolean(document.fullscreenElement ?? document.webkitFullscreenElement));
+    await page.keyboard.press("Escape");
+    if (fullscreen) {
+        await page.waitForFunction(button => button.getAttribute("aria-expanded") === "false" ||
+            !(document.fullscreenElement ?? document.webkitFullscreenElement), await opener.elementHandle());
+        // The browser can consume Escape before the player receives it.
+        if (await close.isVisible()) await page.keyboard.press("Escape");
+    }
+    await close.waitFor({state: "hidden"});
+    await page.waitForFunction(button => button === document.activeElement, await opener.elementHandle());
 }
 
 async function verifyMovieProfiles(verify) {
@@ -94,4 +123,5 @@ async function reviewMovieProfiles(verify) {
     }
 }
 
-module.exports = { app, jellyfin, cors, output, moviePage, useMovieBridge, verifyMovieProfiles, reviewMovieProfiles };
+module.exports = { app, jellyfin, cors, output, homeOutput, playerOutput, moviePage, playMovieDetails,
+    dismissPlayerTracks, useMovieBridge, verifyMovieProfiles, reviewMovieProfiles };

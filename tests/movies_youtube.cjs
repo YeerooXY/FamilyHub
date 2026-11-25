@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { jellyfin, cors, output, moviePage, verifyMovieProfiles } = require("./movies_fixture.cjs");
+const { jellyfin, cors, homeOutput, moviePage, verifyMovieProfiles } = require("./movies_fixture.cjs");
 
 const videos = [
     ["film0000001", "A Train Through the Alps", 2160, "movie.jpg"],
@@ -73,7 +73,7 @@ async function verify(browser, profile, options) {
         const download = card.getByRole("button", {name: `Download ${title}`});
         await watch.focus();
         await page.evaluate(results => window.sendMetadata(results), metadata);
-        await card.getByText("Alpine Film Archive · 1 h 29 min · 34,182 views", {exact: true}).waitFor();
+        await card.getByText("Alpine Film Archive, 1 h 29 min, 34,182 views", {exact: true}).waitFor();
         await card.getByText("Same length", {exact:true}).waitFor();
         await cards.nth(1).getByText("Longer than the film", {exact:true}).waitFor();
         await cards.nth(2).getByText("Shorter than the film", {exact:true}).waitFor();
@@ -97,7 +97,7 @@ async function verify(browser, profile, options) {
         assert.equal(await watch.getAttribute("href"), url(videos[0][0]));
         assert.equal(await watch.getAttribute("target"), "_blank");
         await list.scrollIntoViewIfNeeded();
-        await page.screenshot({path: path.join(output, profile + "-youtube.png"), fullPage: true, scale: "css"});
+        await page.screenshot({path: path.join(process.argv[2] || homeOutput, profile + "-youtube.png"), fullPage: true, scale: "css"});
 
         await watch.press("Enter");
         assert.equal(await focused(watch), true);

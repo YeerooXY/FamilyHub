@@ -202,9 +202,16 @@ def probe(path, tags=False):
     return result
 
 
-def decode_check(path):
-    rc, out, err = run([tool("ffmpeg"), "-nostdin", "-v", "error", "-xerror", *SAFE_INPUT, "-i", path, "-map", "0:a:0",
+def decode_check(path, glitch_tolerance_for=None):
+    """Fully decode the audio. With glitch_tolerance_for (the probed duration) set, a few damaged frames are accepted
+    when at least 98% of the timeline decodes; old MP3 rips often carry one bad frame that no listener hears."""
+    tolerant = glitch_tolerance_for is not None and os.environ.get("FAMILYHUB_TOLERATE_DECODE_GLITCHES") == "1"
+    rc, out, err = run([tool("ffmpeg"), "-nostdin", "-v", "error", *([] if tolerant else ["-xerror"]), *SAFE_INPUT, "-i", path, "-map", "0:a:0",
                         "-progress", "pipe:1", "-nostats", "-f", "null", "-"], 900, "ffmpeg decode check", True)
+    if tolerant and rc == 0:
+        times = re.findall(rb"out_time_us=(\d+)", out)
+        if times and int(times[-1]) / 1_000_000 >= 0.98 * glitch_tolerance_for:
+            return int(times[-1]) / 1_000_000
     if rc or err:
         raise IntakeError(f"audio does not decode cleanly (corrupt or truncated): {err or f'exit {rc}'}")
     times = re.findall(rb"out_time_us=(\d+)", out)
@@ -237,7 +244,7 @@ def tag_copy(audio, out, tags):
         raise IntakeError(f"this container cannot carry the tags ({', '.join(wrong)}); use a FLAC, MP3, M4A or Ogg item")
     if packet_hash(out) != packet_hash(audio):
         raise IntakeError("the audio changed while tags were written; nothing was published")
-    decode_check(out)
+    decode_check(out, probe(out)["duration"])
 
 
 # ---- manifest ----
@@ -334,7 +341,7 @@ def finish(workspace, tmp, audio, sha, item_id, source, edit, expect_duration=No
     if found:
         return found
     info = probe(audio)
-    decoded_duration = decode_check(audio)
+    decoded_duration = decode_check(audio, info["duration"])
     if source_duration is not None and abs(decoded_duration - source_duration) > max(2, source_duration * .02):
         raise IntakeError("decoded duration does not match extraction metadata")
     if expect_duration is not None and abs(info["duration"] - expect_duration) > 0.1:

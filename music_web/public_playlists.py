@@ -117,6 +117,82 @@ def fetch_public_artist(url, *, progress=None):
         raise PlaylistError('Spotify artist reading could not finish. Try again.') from None
 
 
+def read_album(aid, fetch_page, progress=None):
+    """Read every page of one album's track list, in album order, and check that the list did not change."""
+    tracks, offset, expected, name = [], 0, None, ''
+    while True:
+        album = fetch_page(offset)
+        if album.get('uri') != 'spotify:album:' + aid: raise PlaylistError('Spotify returned a different album.')
+        page = album['tracksV2']
+        total, rows = page['totalCount'], page['items']
+        if type(total) is not int or not 0 <= total <= 10000 or not isinstance(rows, list):
+            raise PlaylistError('Invalid album track list.')
+        if expected is None: expected, name = total, album.get('name')
+        if not isinstance(name, str) or not name: raise PlaylistError('Spotify returned an album without a name.')
+        if total != expected or len(rows) > total - offset or (not rows and offset < total):
+            raise PlaylistError('The album track list changed or is incomplete. Try again.')
+        for row in rows:
+            track = row['track']
+            converted = _track({'itemV2': {'data': dict(track, __typename='Track', trackDuration=track['duration'])}}, len(tracks))
+            converted['album'] = name[:300]
+            if not re.fullmatch(r'spotify:track:[A-Za-z0-9]{22}', converted['spotify_uri']): raise PlaylistError('Invalid album track.')
+            tracks.append(converted)
+        offset += len(rows)
+        if progress: progress(offset, total)
+        if offset == total: break
+    return dict(id=aid, name=name[:200], url='https://open.spotify.com/album/' + aid, tracks=tracks,
+                notice=f'{len(tracks)} tracks imported in album order.',
+                source=dict(reader='spotify-public-album', total=len(tracks), complete=True))
+
+
+def fetch_public_album(url, *, progress=None):
+    """Read a public album through a signed-out web player session, like the artist reader."""
+    from .playlists import spotify_source
+    kind, aid = spotify_source(url)
+    if kind != 'album': raise PlaylistError('Enter a Spotify album link.')
+    try:
+        from playwright.sync_api import sync_playwright, Error
+    except ImportError:
+        raise PlaylistError('The Spotify public reader is unavailable.') from None
+    deadline = time.monotonic() + 300
+    def timeout():
+        left = int((deadline - time.monotonic()) * 1000)
+        if left <= 0: raise PlaylistError('Album import timed out. No partial album was imported.')
+        return min(left, 60000)
+    try:
+        with sync_playwright() as runtime:
+            browser = runtime.chromium.launch(headless=True)
+            try:
+                context = browser.new_context(); page = context.new_page(); captured = {}
+                def capture(response):
+                    if response.url == ENDPOINT and response.request.method == 'POST':
+                        body = response.request.post_data_json
+                        if isinstance(body, dict): captured[body.get('operationName')] = response.request
+                page.on('response', capture)
+                with _spotify.request():
+                    page.goto('https://open.spotify.com/album/' + aid, wait_until='domcontentloaded', timeout=timeout())
+                while 'getAlbum' not in captured: page.wait_for_timeout(min(250, timeout()))
+                def fetch_page(offset):
+                    request = captured['getAlbum']; body = copy.deepcopy(request.post_data_json)
+                    body['variables'].update(offset=offset, limit=300)
+                    headers = {k: v for k, v in request.all_headers().items() if k in ('authorization', 'client-token', 'app-platform', 'spotify-app-version', 'accept', 'accept-language', 'content-type', 'origin', 'referer', 'user-agent')}
+                    with _spotify.request():
+                        response = context.request.post(ENDPOINT, data=body, headers=headers, timeout=timeout(), max_redirects=0)
+                    try:
+                        if response.status != 200: raise PlaylistError(f'Spotify album reader returned HTTP {response.status}. Try again.')
+                        result = response.json()
+                        if result.get('errors'): raise PlaylistError('Spotify could not read this album.')
+                        return result['data']['albumUnion']
+                    finally: response.dispose()
+                return read_album(aid, fetch_page, progress)
+            finally: browser.close()
+    except (KeyError, TypeError, ValueError) as error:
+        if isinstance(error, PlaylistError): raise
+        raise PlaylistError('Spotify returned incomplete album metadata. No partial album was imported.') from None
+    except Error:
+        raise PlaylistError('Spotify album reading could not finish. Try again.') from None
+
+
 def _page(payload, pid, offset):
     try:
         if payload.get("errors"):

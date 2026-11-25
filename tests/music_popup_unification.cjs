@@ -1,9 +1,13 @@
 const assert = require('node:assert/strict');
+const {spawn} = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const {setTimeout: delay} = require('node:timers/promises');
 const root = path.resolve(__dirname, '..');
 const {chromium, webkit, devices} = require(require.resolve('playwright', {paths: [root, path.resolve(root, '../agent-dock')]}));
-const origin = process.env.POPUP_URL || 'http://127.0.0.1:38869';
+const fixtureAddress = new URL(process.env.POPUP_URL || 'http://127.0.0.1:38869');
+assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(fixtureAddress.hostname), 'Use a loopback popup fixture');
+const origin = fixtureAddress.origin;
 const before = process.env.POPUP_BASELINE === '1';
 const output = process.env.POPUP_CAPTURE;
 const profiles = [
@@ -167,10 +171,11 @@ async function audit(name, engine, options) {
         return surface;
     };
     const nav = async label => {
-        if (phone && ['Server work', 'Leaderboard'].includes(label)) await open(target('profile-toggle'), 'profile-menu');
+        if (phone && ['Server work', 'Server', 'Leaderboard'].includes(label)) await open(target('profile-toggle'), 'profile-menu');
         await select(page.getByRole('button', {name: label, exact: true}).first());
         await heading(label).waitFor();
-        await page.waitForFunction(view => document.body.dataset.view === view, label === 'Server work' ? 'stats' : label.toLowerCase());
+        await page.waitForFunction(view => document.body.dataset.view === view,
+            ['Server work', 'Server'].includes(label) ? 'stats' : label.toLowerCase());
     };
     const capture = async (state, surface, menu = false) => {
         const scene = surface || page.locator('main#content');
@@ -205,11 +210,15 @@ async function audit(name, engine, options) {
     try {
         page.setDefaultTimeout(10000);
         page.on('pageerror', error => pageErrors.push(error.message));
+        await page.route('**/*', route =>
+            new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
         for (const pattern of ['**/fh-art/**', '**/test/**', 'https://art.fixture.test/**']) {
             await page.route(pattern, route => route.fulfill({contentType: 'image/svg+xml', body: artwork(route.request().url())}));
         }
+        if (!before) assert.ok((await page.request.post(origin + '/fixture/startup/health-admin')).ok());
         await page.goto(origin);
-        if (!before) await page.getByRole('button', {name: 'Music', exact: true}).click();
+        if (!before) await select(page.getByRole('navigation', {name: 'Apps', exact: true})
+            .getByRole('button', {name: /^Music\b/}));
         await page.locator('#discovery-shelf .home-card').nth(7).waitFor();
         if (!before) {
             const icon = await target('home-radio-0').locator('.radio-shortcut-title .icon').boundingBox();
@@ -500,15 +509,16 @@ async function audit(name, engine, options) {
         await target('play-album').waitFor();
         await capture('album');
 
-        await nav('Server work');
+        await nav(before ? 'Server work' : 'Server');
         await page.locator('.server-page[aria-busy=false]').waitFor();
         if (!before) await target('catalogue-filter-metadata').waitFor();
         await capture('server-work');
         if (!before) {
             assert.equal(await target('catalogue-category-panel').count(), 0);
-            assert.equal(await page.locator('.srv-automatic details').getAttribute('open'), null);
+            const automatic = page.getByRole('region', {name: 'Automatic work', exact: true});
+            assert.equal(await automatic.locator('details').getAttribute('open'), null);
             assert.equal(await page.locator('.srv-review-links button').count(), 8);
-            const workers = page.locator('.srv-automatic summary');
+            const workers = automatic.locator('summary');
             await workers.focus();
             await workers.press('Space');
             assert(await workers.evaluate(node => node.parentElement.open && document.activeElement === node));
@@ -641,6 +651,17 @@ async function audit(name, engine, options) {
             await page.keyboard.press('Tab');
             await focused('settings-movies');
             await page.keyboard.press('Space');
+            const quality = page.getByRole('combobox', {name: 'Streaming quality'});
+            await quality.and(page.locator(':enabled')).waitFor();
+            assert.deepEqual(await quality.locator('option').evaluateAll(options => options.map(option => option.value)),
+                ['auto', 'full', 'good', 'saver', 'lowest']);
+            await quality.focus();
+            await quality.selectOption('good');
+            assert.equal(await quality.evaluate(node => node === document.activeElement), true);
+            await page.waitForFunction(() => JSON.parse(localStorage.getItem(
+                'familyhub:movie-tracks:' + JSON.stringify({server: 'https://music.fixture.test/', profile: 'fixture'})))?.dataSaver === 'good');
+            await page.screenshot({path: path.join(root, 'docs/verification/movie-player-2026-11-24',
+                name + '-movie-settings.png'), scale: 'css', animations: 'disabled'});
             const audio = target('movie-preferred-audio');
             await audio.selectOption('hu');
             await page.waitForFunction(() => JSON.parse(localStorage.getItem(
@@ -658,6 +679,7 @@ async function audit(name, engine, options) {
             await target('settings-movies').press('Enter');
             await page.waitForFunction(() => document.getElementById('movie-preferred-audio')?.value === 'hu');
             assert.equal(await subtitles.inputValue(), 'off');
+            assert.equal(await quality.inputValue(), 'good');
             await target('settings-music').press('Enter');
             const diagnostics = page.getByRole('region', {name: 'Playback diagnostics'});
             await diagnostics.getByRole('button', {name: 'Load attempts'}).press('Enter');
@@ -750,11 +772,41 @@ async function audit(name, engine, options) {
         }
         throw error;
     } finally {
-        await browser.close();
+        try {
+            if (!before) await page.request.post(origin + '/fixture/startup/none');
+        } finally {
+            await browser.close();
+        }
     }
 }
 
-(async () => {
+async function runWithFixture(run) {
+    const ready = () => fetch(origin + '/fixture/update-check', {signal: AbortSignal.timeout(500), redirect: 'error'})
+        .then(response => response.ok, () => false);
+    if (await ready()) return run();
+    assert.ok(!process.env.POPUP_URL, `Popup fixture did not respond at ${origin}`);
+    const executable = path.join(__dirname, 'fixtures/music-popup-host/bin/Debug/net10.0-windows10.0.19041.0/MusicPopupHost.exe');
+    assert.ok(fs.existsSync(executable), 'Build the existing Windows music popup fixture before running its browser checks');
+    const host = spawn(executable, {
+        cwd: root, windowsHide: true, stdio: 'inherit', env: {...process.env, POPUP_URL: origin}
+    });
+    let startupError;
+    host.on('error', error => { startupError = error; });
+    try {
+        const deadline = Date.now() + 15000;
+        while (!await ready()) {
+            if (startupError) throw startupError;
+            if (host.exitCode !== null || Date.now() >= deadline)
+                throw Error(`MusicPopupHost did not start at ${origin}`);
+            await delay(200);
+        }
+        await run();
+    } finally {
+        host.kill();
+    }
+}
+
+runWithFixture(async () => {
     const requested = process.env.POPUP_PROFILES?.split(',');
     for (const profile of profiles.filter(([name]) => !requested || requested.includes(name))) await audit(...profile);
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}).catch(error => { console.error(error); process.exitCode = 1; });

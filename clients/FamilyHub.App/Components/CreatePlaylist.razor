@@ -71,14 +71,14 @@
                 "open.spotify.com" => "spotify",
                 "www.youtube.com" or "youtube.com" or "music.youtube.com" or "youtu.be" => "youtube",
                 "soundcloud.com" or "www.soundcloud.com" or "m.soundcloud.com" => "soundcloud",
-                "www.deezer.com" or "deezer.com" => "deezer",
+                "www.deezer.com" or "deezer.com" or "link.deezer.com" => "deezer",
                 _ => null
             };
         }
     }
 
     private string LinkStatus => link.Length == 0 || Source is not null ? ""
-        : "This site isn't supported. Use a Spotify, YouTube, SoundCloud or Deezer playlist link.";
+        : "This site isn't supported. Use a Spotify, YouTube, SoundCloud or Deezer playlist or album link.";
     private string NamePlaceholder => Source is { } site ? findingName ? "Finding the name on " + MusicProviders.SiteName(site) + "..." : "Name from " + MusicProviders.SiteName(site)
         : uploader?.FolderName is { Length: > 0 } folder ? folder : "My playlist";
 
@@ -155,21 +155,35 @@
             return;
         }
         busy = true; error = null;
+        MusicPlaylist? fresh = null;
+        var importStarted = false;
         try
         {
             var source = Source;
             var typed = name.Trim();
             await Session.CreatePlaylistAsync(typed.Length > 0 ? typed : "New playlist");
-            var playlist = Session.Playlists.Last();
+            var playlist = fresh = Session.Playlists.Last();
             if (!shared) { await Session.EditPlaylistAsync(playlist, new { shared = false }); playlist = Session.Playlists.FirstOrDefault(p => p.Id == playlist.Id && p.OwnerId == playlist.OwnerId) ?? playlist; }
             if (source is not null)
+            {
                 await Session.Api!.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/playlists/" + playlist.Id + "/import",
                     new { provider = source, url = link.Trim(), revision = playlist.Revision, download, name = typed.Length > 0 ? typed : null });
+                importStarted = true;
+            }
             await JS.InvokeVoidAsync("familyhub.closeDialog", "create-playlist-dialog", "content");
             await Created.InvokeAsync(playlist);
             await JS.InvokeVoidAsync("FamilyHubNotices.toast", source is null ? "Playlist created." : "Playlist import started.");
         }
-        catch (Exception exception) when (exception is not OperationCanceledException) { error = NoticeText.Error(exception); }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            error = NoticeText.Error(exception);
+            // A failed import must not leave an empty playlist behind, or every retry adds another one.
+            if (fresh is not null && !importStarted && fresh.Tracks.Count == 0)
+            {
+                try { await Session.DeletePlaylistAsync(Session.Playlists.FirstOrDefault(p => p.Id == fresh.Id && p.OwnerId == fresh.OwnerId) ?? fresh); }
+                catch (Exception) { error += " An empty playlist named \"" + fresh.Name + "\" was created; delete it from Playlists."; }
+            }
+        }
         finally { busy = false; }
     }
 }

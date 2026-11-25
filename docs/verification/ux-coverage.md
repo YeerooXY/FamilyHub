@@ -1,5 +1,17 @@
 # Interface verification
 
+## 25 November 2026 Movies browser suite
+
+Round 3 passed 15 of 16 fixture tests across Movies Home, episodes, search, Downloading, player controls, volume, audio jobs, subtitles and quality negotiation. The popup test reached Leaderboard, where the fixture lacked the annual listening response on `/api/activity/stats`. The fixture source now serves that response. The rerun returned `spawnSync ... node.exe EPERM` before starting any browser tests. The rebuilt fixture still needs rendered Movies Settings checks for layout, visuals, motion, focus and keyboard, accessibility, wording and states. [Movies Home checks](movies-home-2026-11-24/README.md) and [player checks](movie-player-2026-11-24/README.md).
+
+## 24 November 2026 · Movie fullscreen header
+
+| Screen | Layout and visual | Motion | Focus and keyboard | Accessibility | Wording and states |
+| --- | --- | --- | --- | --- | --- |
+| Expanded movie player and return to Movies | Six browser profiles. Video covers the viewport and the shell header is hidden. | Idle and wake with standard and reduced motion | Tab, Shift+Tab, Enter, Space, Back and touch checked. Focus returns to the title. | Shell header and skip link leave the focus order. Screen-reader output pending. | Idle, controls awake, and exit checked. Native fullscreen and physical-device behavior pending. |
+
+[Fullscreen screenshots and checks](movie-fullscreen-2026-11-24/README.md)
+
 ## 24 November 2026 · FamilyHub 1.4.0 Movies and admin
 
 | Screen | Layout and visual | Motion | Focus and keyboard | Accessibility | Wording and states |

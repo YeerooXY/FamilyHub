@@ -494,7 +494,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
                 return jsonify(error='Wait a minute before opening the season list again.'), 429
             if not isinstance(key, str):
                 key = None
-            if not key and (not tmdb_token or season_title):
+            if not key and not tmdb_token:
                 return jsonify(error='The full season list is unavailable.'), 503
             ident = int(season_id[1]) if season_id else cached_search(
                 ('tmdb-tv-title', season_title[1], season_title[2].casefold()), 3600,
@@ -539,17 +539,23 @@ def register_movies(app, cfg, body, allow, session_is_live):
         rows = detail.get('episodes') if isinstance(detail, dict) else None
         if not isinstance(rows, list):
             return jsonify(error='Episode pictures are unavailable.'), 503
-        episodes, deadline = [], time.monotonic() + 8
-        for row in rows[:100]:
-            number = row.get('episode_number') if isinstance(row, dict) else None
-            if type(number) is not int or not 0 <= number <= 9999:
-                continue
+        rows = [row for row in rows[:100] if isinstance(row, dict)
+                and type(row.get('episode_number')) is int and 0 <= row['episode_number'] <= 9999]
+        deadline = time.monotonic() + 2
+
+        def episode(row):
+            number = row['episode_number']
             picture = stills.read(series, season, number)
             if picture is None and time.monotonic() < deadline:
                 picture = stills.fetch(series, season, number, row.get('still_path'))
             name = row.get('name')
-            episodes.append(dict(number=number, name=name[:200] if isinstance(name, str) else '',
-                                 still=stills.data_url(picture)))
+            runtime = row.get('runtime')
+            return dict(number=number, name=name[:200] if isinstance(name, str) else '',
+                        runtime=runtime if type(runtime) is int and 0 < runtime < 1000 else None,
+                        still=stills.data_url(picture))
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            episodes = list(pool.map(episode, rows))
         return jsonify(episodes=episodes)
 
     def seerr_call(path, user, payload=None):
@@ -590,7 +596,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
         except (OSError, ValueError):
             return {}
 
-    def tmdb_season(path, api_key=None):
+    def tmdb_season(path, api_key=None, params=None):
         if not tmdb_token and not api_key:
             return {}
         try:
@@ -599,7 +605,9 @@ def register_movies(app, cfg, body, allow, session_is_live):
             if tmdb_token:
                 headers['Authorization'] = 'Bearer ' + tmdb_token
             else:
-                target += '?' + urllib.parse.urlencode({'api_key': api_key})
+                params = {**(params or {}), 'api_key': api_key}
+            if params:
+                target += '?' + urllib.parse.urlencode(params)
             req = urllib.request.Request(target, headers=headers)
             with urllib.request.build_opener(NoRedirect).open(req, timeout=4) as reply:
                 result = json.loads(reply.read(1024 * 1024))
@@ -617,7 +625,9 @@ def register_movies(app, cfg, body, allow, session_is_live):
                 and row['episode_count'] >= 0]
 
     def catalogue_series_id(key, year, title):
-        exact = [match['id'] for match in tmdb.search(key, title) or []
+        rows = (tmdb.parse(tmdb_season('search/multi', params={
+            'query': title, 'include_adult': 'false', 'language': 'en-US'})) if tmdb_token else tmdb.search(key, title))
+        exact = [match['id'] for match in rows or []
                  if match['kind'] == 'tv' and movie_search.plain(match['title']) == movie_search.plain(title)
                  and (not year or match['year'] == int(year))]
         return exact[0] if len(exact) == 1 else None

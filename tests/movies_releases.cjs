@@ -2,12 +2,12 @@ const { useMovieBridge } = require("./movies_fixture.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const {output: verification, verifyMovieProfiles} = require("./movies_fixture.cjs");
+const {homeOutput, verifyMovieProfiles} = require("./movies_fixture.cjs");
 
 const app = "http://familyhub.test", jellyfin = "https://jellyfin.test";
 const root = path.resolve(__dirname, "..");
 const assets = path.join(root, "clients/FamilyHub.App/wwwroot");
-const output = path.join(root, ".local/release-search-preview");
+const output = process.argv[2] || homeOutput;
 const title = "The Gentlemen S2";
 const pack = "The.Gentlemen.S02.1080p.NF.WEB-DL.DDP5.1.ENG.Atmos.ITA.H265-TBK";
 const fixture = [
@@ -117,7 +117,7 @@ async function verify(browser, name, options) {
         assert.equal(await page.getByRole("heading", {name:"In your library", exact:true}).isVisible(), false);
         assert.equal(await focus(submit), true);
         assert.deepEqual((await page.evaluate(() => calls)).filter(([method]) => method === "MovieReleaseSearch"), [["MovieReleaseSearch", title]]);
-        await page.screenshot({path:path.join(output, name + ".png"), fullPage:true});
+        await page.screenshot({path:path.join(output, name + "-release-request.png"), fullPage:true});
         const heading = page.getByRole("heading", {name:"Releases", exact:true});
         await heading.waitFor();
         await page.getByRole("status").filter({hasText:"9 releases found."}).waitFor();
@@ -168,7 +168,7 @@ async function verify(browser, name, options) {
         await page.getByRole("heading", {name:"YouTube", exact:true}).waitFor();
         await page.getByRole("heading", {name:"The Gentlemen trailer"}).waitFor();
         await page.getByText("Shorter than the season", {exact:true}).waitFor();
-        await page.screenshot({path:path.join(verification, name + "-release.png"), fullPage:true, scale:"css"});
+        await page.screenshot({path:path.join(output, name + "-release.png"), fullPage:true, scale:"css"});
         assert.deepEqual((await page.evaluate(() => calls)).filter(([method]) => method === "MovieFind"), [["MovieFind", title]]);
         assert.equal(await first.locator("strong").textContent(), pack);
         await download.press("Space");
@@ -184,7 +184,7 @@ async function verify(browser, name, options) {
         await result.getByText("R&D's copy 1080p", {exact:true}).waitFor();
         await result.getByText(/unusually small for a 1080p video/).waitFor();
         if (name === "chromium-1280" || name === "webkit-iphone13") {
-            await page.screenshot({path:path.join(verification, name + "-estimated.png"), fullPage:true, scale:"css"});
+            await page.screenshot({path:path.join(output, name + "-estimated.png"), fullPage:true, scale:"css"});
         }
         await search("Nothing matching");
         await page.getByRole("status").filter({hasText:"No watch or download options found"}).waitFor();

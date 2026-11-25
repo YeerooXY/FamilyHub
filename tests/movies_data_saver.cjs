@@ -1,9 +1,9 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { jellyfin, cors, moviePage, verifyMovieProfiles } = require("./movies_fixture.cjs");
+const { jellyfin, cors, playerOutput, moviePage, playMovieDetails, verifyMovieProfiles } = require("./movies_fixture.cjs");
 
-const output = process.argv[2] || path.join(__dirname, "../docs/verification/data-saver-2026-11-23");
+const output = process.argv[2] || playerOutput;
 const item = { Id: "in-time", Name: "In Time", Type: "Movie" };
 const streams = [
     { Type: "Audio", Index: 1, DisplayTitle: "English" },
@@ -12,6 +12,7 @@ const streams = [
 ];
 
 async function checkAppSettings(page, name, origin) {
+    assert.ok(["localhost", "127.0.0.1", "[::1]"].includes(new URL(origin).hostname), "Use a local Razor stub");
     const openSettings = async () => {
         await page.goto(origin);
         await page.getByRole("button", { name: /^Music\b/ }).click();
@@ -21,7 +22,7 @@ async function checkAppSettings(page, name, origin) {
     };
     await openSettings();
     await page.locator("#settings-movies").click();
-    const movies = page.getByRole("combobox", { name: "Data saver" });
+    const movies = page.getByRole("combobox", { name: "Streaming quality" });
     await page.locator("#movie-data-saver:enabled").waitFor();
     await movies.focus();
     await movies.selectOption("good");
@@ -45,6 +46,7 @@ async function check(browser, name, options) {
     page.setDefaultTimeout(7000);
     const requests = [];
     const errors = [];
+    let heldPlayback;
     page.on("pageerror", error => errors.push(error.message));
     try {
         await page.addInitScript(() => {
@@ -80,6 +82,7 @@ async function check(browser, name, options) {
             if (url.pathname.endsWith("/PlaybackInfo")) {
                 const body = request.postDataJSON();
                 requests.push(body);
+                await heldPlayback;
                 await new Promise(resolve => setTimeout(resolve, 80));
                 return json({ PlaySessionId: String(requests.length), MediaSources: [{
                     Id: "source", Bitrate: 10700000, SupportsDirectPlay: body.EnableDirectPlay,
@@ -104,14 +107,10 @@ async function check(browser, name, options) {
                 { invokeMethodAsync: async method => method === "MovieConnectionKind" ? window.nativeConnection : undefined },
                 { server: jellyfin + "/", profile });
         }, { jellyfin, profile });
-        const start = () => page.getByRole("button", { name: item.Name, exact: true }).last().press("Enter");
-        const settings = page.getByRole("button", { name: "Settings", exact: true });
-        const sheet = page.getByRole("dialog", { name: "Settings", exact: true });
-        const radio = label => sheet.getByRole("radio", { name: label });
+        const start = () => playMovieDetails(page, page.getByRole("button", { name: item.Name, exact: true }).last(), item.Name);
         const video = page.locator(".movie-video");
         const position = time => page.waitForFunction(time => document.querySelector("video")?.currentTime === time, time);
         const focused = locator => locator.evaluate(el => el === document.activeElement);
-        const quality = text => sheet.locator("p.movie-quality-label").filter({ hasText: text }).waitFor();
         const hint = page.getByRole("status").filter({ hasText: "Switched to Saver on mobile data." });
 
         function capped(bitrate, height, audio = false) {
@@ -138,91 +137,96 @@ async function check(browser, name, options) {
             }
         }
 
+        const tracks = page.getByRole("button", { name: "Audio & Subtitles", exact: true });
+        const audio = page.getByRole("radiogroup", { name: "Audio track" });
+        const subtitle = page.getByRole("radiogroup", { name: "Subtitle track" });
+        const hungarian = audio.getByRole("radio", { name: "Hungarian, added", exact: true });
+        const english = subtitle.getByRole("radio", { name: "English", exact: true });
+        const setQuality = (dataSaver, profile = "alex") => page.evaluate(async ({ jellyfin, profile, dataSaver }) => {
+            const { readMoviePreferences, saveMoviePreferences } = await import("/movies.js");
+            const viewer = { server: jellyfin + "/", profile };
+            return saveMoviePreferences(viewer, { ...readMoviePreferences(viewer), dataSaver });
+        }, { jellyfin, profile, dataSaver });
+
         await open();
         await start();
         await position(125);
         assert.equal(requests.at(-1).MaxStreamingBitrate, undefined);
         assert.equal(requests.at(-1).DeviceProfile.MaxStreamingBitrate, undefined);
         assert.match(await video.evaluate(el => el.src), /\/stream\?.*static=true/);
+        assert.equal(await page.getByRole("button", { name: "Settings", exact: true }).count(), 0);
         await video.evaluate(el => { el.currentTime = 387; el.pause(); });
-        await settings.press("Enter");
-        await quality("Full quality");
-        assert(await radio("Full quality, about 4.8 GB an hour").isVisible());
-        assert(await focused(radio(/^Auto,/)));
+        await tracks.press("Enter");
+        await hungarian.press("Enter");
+        await audio.getByRole("radio", { name: "Hungarian, added", checked: true }).waitFor();
+        await english.press("Enter");
+        await position(387);
         await page.evaluate(() => {
             window.focusLost = false;
             window.focusWatch = setInterval(() => { window.focusLost ||= document.activeElement === document.body; }, 5);
         });
-        await page.evaluate(() => window.changeConnection("cellular"));
-        await quality("480p, saving data");
+        let releasePlayback;
+        heldPlayback = new Promise(resolve => { releasePlayback = resolve; });
+        try {
+            await page.evaluate(() => window.changeConnection("cellular"));
+            const opening = page.getByRole("status").filter({hasText: "Opening In Time"});
+            await opening.waitFor();
+            assert.equal(await opening.count(), 1);
+            assert(await opening.evaluate(node => node.closest(".movie-expanded") !== null));
+        } finally {
+            heldPlayback = undefined;
+            releasePlayback();
+        }
         await hint.waitFor();
         await position(387);
         capped(1_000_000, 480, true);
         assert.match(await video.evaluate(el => el.src), /master\.m3u8/);
         assert(await video.evaluate(el => el.paused));
-        assert(await focused(radio(/^Auto,/)));
-        await page.screenshot({ path: path.join(output, name + "-auto.png") });
-
-        await radio(/^Good,/).press("Enter");
-        await quality("720p, saving data");
-        await position(387);
-        assert(await focused(radio(/^Good,/)));
-        capped(2_500_000, 720);
-        await radio(/^Full quality,/).press("Enter");
-        await quality("Full quality");
-        await position(387);
-        assert(await focused(radio(/^Full quality,/)));
-        assert.equal(requests.at(-1).MaxStreamingBitrate, undefined);
-        assert.equal(requests.at(-1).DeviceProfile.MaxStreamingBitrate, undefined);
-
-        await page.keyboard.press("Escape");
-        assert(await focused(settings));
-        const tracks = page.getByRole("button", { name: "Audio", exact: true });
-        await tracks.press("Enter");
-        await page.getByRole("radio", { name: "Hungarian, added", exact: true }).press("Enter");
-        await page.getByRole("radio", { name: "Hungarian, added", checked: true }).waitFor();
-        const subtitles = page.getByRole("button", { name: "Subtitles", exact: true });
-        await subtitles.press("Enter");
-        const subtitle = page.getByRole("radiogroup", { name: "Subtitle track" });
-        await subtitle.getByRole("radio", { name: "English" }).press("Enter");
-        await page.keyboard.press("Escape");
-        await settings.press("Enter");
-        await radio(/^Lowest,/).press("Enter");
-        await quality("360p, saving data");
-        await position(387);
-        capped(500_000, 360, true);
         assert.equal(requests.at(-1).AudioStreamIndex, 2);
         assert.equal(requests.at(-1).SubtitleStreamIndex, -1);
-        assert(await focused(radio(/^Lowest,/)));
-        await page.screenshot({ path: path.join(output, name + "-lowest.png") });
-        await page.keyboard.press("Escape");
-        await tracks.press("Enter");
-        assert(await page.getByRole("radio", { name: "Hungarian, added", checked: true }).isVisible());
-        await subtitles.press("Enter");
-        assert(await subtitle.getByRole("radio", { name: "English", checked: true }).isVisible());
+        assert.equal(await hungarian.getAttribute("aria-checked"), "true");
+        assert.equal(await english.getAttribute("aria-checked"), "true");
+        assert(await focused(hungarian));
         assert.equal(await page.evaluate(() => {
             clearInterval(window.focusWatch);
             return window.focusLost;
         }), false, "keyboard focus fell to the body");
+        await page.screenshot({ path: path.join(output, name + "-auto.png") });
 
+        for (const [choice, bitrate, height, limitAudio] of [
+            ["good", 2_500_000, 720, false], ["saver", 1_000_000, 480, true],
+            ["lowest", 500_000, 360, true], ["full"]
+        ]) {
+            assert(await setQuality(choice));
+            await open();
+            await start();
+            await position(125);
+            if (bitrate) capped(bitrate, height, limitAudio);
+            else {
+                assert.equal(requests.at(-1).MaxStreamingBitrate, undefined);
+                assert.equal(requests.at(-1).DeviceProfile.MaxStreamingBitrate, undefined);
+            }
+            if (choice === "lowest") await page.screenshot({ path: path.join(output, name + "-lowest.png") });
+        }
+
+        assert(await setQuality("lowest"));
         await page.reload();
         await open();
         await start();
-        await settings.press("Enter");
-        await quality("360p, saving data");
-        assert(await focused(radio(/^Lowest,/)));
+        await position(125);
+        capped(500_000, 360, true);
+
         await open("june");
         await page.evaluate(() => { window.nativeConnection = "cellular"; });
         await start();
-        await settings.press("Enter");
-        await quality("480p, saving data");
-        assert(await focused(radio(/^Auto,/)));
+        await position(125);
         capped(1_000_000, 480, true);
         await hint.waitFor();
         await page.getByRole("button", { name: "Back to movies" }).press("Enter");
-        await start();
-        await settings.press("Enter");
-        await quality("480p, saving data");
+        await page.getByRole("region", { name: item.Name, exact: true })
+            .getByRole("button", { name: /^(Play|Resume)$/ }).press("Enter");
+        await position(125);
+        capped(1_000_000, 480, true);
         assert.equal(await hint.count(), 0, "Auto should show its hint once per profile");
         if (process.env.DATA_SAVER_SHELL_URL) await checkAppSettings(page, name, process.env.DATA_SAVER_SHELL_URL);
         assert.deepEqual(errors, []);

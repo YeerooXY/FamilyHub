@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { jellyfin, cors, output, moviePage, verifyMovieProfiles } = require("./movies_fixture.cjs");
+const { jellyfin, cors, homeOutput, moviePage, verifyMovieProfiles } = require("./movies_fixture.cjs");
 
 async function verify(browser, profile, options) {
     const page = await browser.newPage(options);
@@ -15,7 +15,7 @@ async function verify(browser, profile, options) {
             const { openMovies } = await import("/movies.js");
             window.queueReads = 0;
             window.queueResponse = {available: true, items: [
-                {name: "Trinity — restored edition", progress: .64, size: 12345, state: "Downloading", eta: 125, speed: 9143},
+                {name: "Trinity restored edition", progress: .64, size: 12345, state: "Downloading", eta: 125, speed: 9143},
                 {name: "The General", progress: 1, size: 54321, state: "Finished", eta: null, speed: 0}
             ]};
             window.movies = window.openMovieFixture(openMovies, document.querySelector("main"),
@@ -29,7 +29,7 @@ async function verify(browser, profile, options) {
                 }});
         }, jellyfin);
         const panel = page.getByRole("region", {name: "Downloading"});
-        await panel.getByText("Downloading · about 3 min left").waitFor();
+        await panel.getByText("Downloading, about 3 min left").waitFor();
         assert.equal(await panel.getByText("The General").count(), 0);
         assert.equal(await panel.getByRole("progressbar").first().getAttribute("aria-valuenow"), "64");
         assert.equal(await panel.getByRole("progressbar").first().locator("span").evaluate(el => el.style.transform), "scaleX(0.64)");
@@ -41,13 +41,13 @@ async function verify(browser, profile, options) {
             return wide ? panel.left > catalogue.right : panel.bottom < catalogue.top;
         }, wide), true);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-        await page.screenshot({path: path.join(output, profile + "-downloads.png")});
+        await page.screenshot({path: path.join(process.argv[2] || homeOutput, profile + "-downloads.png")});
 
         await page.evaluate(() => {
             window.queueResponse.items[0] = {...window.queueResponse.items[0], progress: .97, state: "Almost done", eta: 18};
         });
         await page.clock.fastForward(5000);
-        await panel.getByText("Almost done · about 1 min left").waitFor();
+        await panel.getByText("Almost done, about 1 min left").waitFor();
         assert.equal(await page.evaluate(() => queueReads), 2);
 
         const setLibraryHidden = hidden => page.locator(".movie-library-columns").evaluate((node, hidden) => {

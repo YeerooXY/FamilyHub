@@ -687,7 +687,7 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
                 """,
             "/api/playlists/mix7/match" => """{"revision":0,"track":{"candidates":[{"id":"Station0001","title":"Station Lights","channel":"North Atlas","duration":192}]}}""",
             "/api/admin/discovery" => """{"artists":[{"name":"North Atlas","deezer_id":345912,"status":"verified"},{"name":"June Echo","status":"quarantined"},{"name":"Glass Harbor","status":"pending"}]}""",
-            "/api/server/stats" => """
+            "/api/server/stats" or "/api/activity/stats" => """
                 {"total_seconds":10800,"storage_total_bytes":107374182400,"storage_free_bytes":64424509440,
                  "wrapped_year":2026,"daily":[{"day":"2026-11-17","seconds":3600},{"day":"2026-11-18","seconds":7200}],
                  "profiles":[{"id":"fixture","name":"Alex","online":true,"seconds":7000,"qualified_plays":41,"active_months":3,

@@ -7,6 +7,8 @@ body:has(.workspace:is([data-app-view="Hub"], [data-app-view="Wordle"], [data-ap
 }
 body:has(.workspace:is([data-app-view="Hub"], [data-app-view="Wordle"], [data-app-view="Movies & TV"], [data-app-view="Files"])) :is(.sidebar, .player-bar, .remote-mini, .header-search, .device-strip) { display:none; }
 body:has(.workspace:is([data-app-view="Hub"], [data-app-view="Wordle"], [data-app-view="Movies & TV"], [data-app-view="Files"])) .sidebar-account { grid-column: -2; }
+.movie-expanded-page body:has(.workspace[data-app-view="Movies & TV"]) { grid-template-rows: 0 minmax(0,1fr); }
+.movie-expanded-page body :is(.app-header, .skip) { display:none; }
 .workspace[data-app-view="Wordle"] { margin:0; border-radius:0; }
 .workspace[data-app-view="Wordle"] > main { padding:0; }
 /* The four apps fill the screen: a two-by-two grid of big tiles on every device. Art sizes follow the viewport

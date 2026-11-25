@@ -96,6 +96,54 @@ class MovieSessions(Base):
         self.assertEqual(send(kind='started', title='x' * 201).status_code, 400)
         self.assertEqual(send(kind='stopped', minutes=-3).status_code, 400)
 
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_episode_lookup_accepts_old_fields_and_keeps_profile_scoped(self, opener):
+        client, selection = self.select('sample-a')
+        show = 'a' * 32
+        episode = dict(Id='b' * 32, Name='Across the bay', ParentIndexNumber=2, IndexNumber=1,
+                       RunTimeTicks=42 * 600000000)
+        opener.return_value.open.side_effect = [
+            upstream_json(dict(User={'Id': 'viewer-id', 'Name': 'viewer', 'Policy': {'IsAdministrator': False}},
+                               AccessToken='test-token')),
+            upstream_json(dict(Items=[episode], TotalRecordCount=1))]
+        ticket = self.launch(client, selection).json['media_ticket']
+        response = self.post(client, selection['csrf_token'], '/api/movies/library', json={
+            'ticket': ticket, 'path': f'Shows/{show}/Episodes',
+            'query': 'userId=other&fields=RunTimeTicks,Overview&isMissing=false', 'payload': None})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['result']['Items'], [episode])
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(opener.return_value.open.call_args.args[0].full_url).query)
+        self.assertEqual(query, {'userId': ['viewer-id'], 'fields': ['Overview'], 'isMissing': ['false']})
+
+
+class MovieSeasons(Base):
+    extra = {**MovieSessions.extra, 'MOVIE_REQUESTS': {'tmdb_read_token': 'fixture-bearer'}}
+    select = MovieSessions.select
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_token_only_title_lookup_returns_real_seasons_and_episode_details(self, opener):
+        client, selection = self.select('sample-a')
+        opener.return_value.open.side_effect = [
+            upstream_json({'results': [{'media_type': 'tv', 'id': 42, 'name': 'Harbour Town',
+                                        'first_air_date': '2019-01-01'}]}),
+            upstream_json({'seasons': [{'season_number': n, 'episode_count': 3} for n in range(1, 7)]}),
+            upstream_json({'episodes': [{'episode_number': 1, 'name': 'Across the bay', 'runtime': 42},
+                                        {'episode_number': 2, 'name': 'The bridge', 'runtime': True}]})]
+        results = self.post(client, selection['csrf_token'], '/api/movies/matches',
+                            json={'query': 'tmdb:tv:title:2019:Harbour Town'})
+        self.assertEqual(results.status_code, 200)
+        self.assertEqual(results.json['series_id'], 42)
+        self.assertEqual([season['number'] for season in results.json['seasons']], list(range(1, 7)))
+        req = opener.return_value.open.call_args_list[0].args[0]
+        self.assertEqual(req.get_header('Authorization'), 'Bearer fixture-bearer')
+        self.assertEqual(urllib.parse.parse_qs(urllib.parse.urlsplit(req.full_url).query)['query'], ['Harbour Town'])
+        episodes = self.post(client, selection['csrf_token'], '/api/movies/season-episodes',
+                             json={'series': 42, 'season': 2})
+        self.assertEqual(episodes.status_code, 200)
+        self.assertEqual(episodes.json['episodes'], [
+            dict(number=1, name='Across the bay', runtime=42, still=None),
+            dict(number=2, name='The bridge', runtime=None, still=None)])
+
 
 class MovieRequests(Base):
     extra = {**MovieSessions.extra, 'MOVIE_REQUESTS': {

@@ -35,6 +35,25 @@ With a free Apple account, signing expires after **seven days**. Refresh before 
 
 If pairing stops working after an iOS update, reset, or other change, repeat the installer's computer pairing steps. Update the existing FamilyHub app using the same app identity/account to retain its local data; avoid deleting it during recovery, because uninstalling removes downloaded songs. Compatibility with the supplied iOS 26.6.2 device must be checked against the current installer's requirements during setup.
 
+## One-tap updates and automatic refresh (Shortcuts)
+
+Status: implemented in the app; the Shortcuts below have **not** been tested on a device. Verify each step on the supplied iPhone before relying on it.
+
+Add the SideStore source once: `https://github.com/YeerooXY/FamilyHub/releases/latest/download/sidestore.json`. Each release that carries an iPhone build publishes this file with its IPA.
+
+**Shortcut "Update FamilyHub"** (receives the IPA link as text input):
+
+1. Set VPN → LocalDevVPN → Connect.
+2. Wait 2 seconds.
+3. Open URL → `sidestore://install?url=` followed by Shortcut Input (URL-encode the input first).
+4. Wait until SideStore reports the install, then Set VPN → LocalDevVPN → Disconnect.
+
+In FamilyHub, tick **I added the "Update FamilyHub" Shortcut** under the update button. The button then reads **Update FamilyHub** and runs the Shortcut with the release's IPA link, so the person taps once in FamilyHub and confirms once in SideStore. Without the tick, the button opens SideStore as before.
+
+**Shortcut "Refresh FamilyHub signing"**: Set VPN → Connect, SideStore "Refresh All Apps", Set VPN → Disconnect. Create a Personal Automation (home Wi-Fi joined, or charger connected, daily) that runs it with **Run Immediately**. Several daily triggers give a failed run retries before the 7-day expiry.
+
+Checks to record: the `sidestore://install?url=` link is accepted by the installed SideStore version; the Shortcut runs without extra prompts; the VPN is off afterwards; downloads and settings persist after the in-place update; a failed run leaves the old app working.
+
 ## First-device acceptance checks
 
 - Install and open the signed app on the supplied iPhone.

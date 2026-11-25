@@ -154,6 +154,11 @@ def register(app, base, body, allow, session_is_live):
         try:
             params = [('userId', grant.viewer) if key.casefold() == 'userid' else (key, val)
                       for key, val in urllib.parse.parse_qsl(query, max_num_fields=100) if not QUERY_SECRET.fullmatch(key)]
+            if payload is None and resource.startswith('Shows/'):
+                # RunTimeTicks is returned by default and is not a valid Jellyfin ItemFields value.
+                params = [(key, ','.join(field for field in val.split(',') if field.strip().casefold() != 'runtimeticks')
+                           if key.casefold() == 'fields' else val) for key, val in params]
+                params = [(key, val) for key, val in params if key.casefold() != 'fields' or val]
             req = urllib.request.Request(base + '/' + resource + '?' + urllib.parse.urlencode(params), headers=headers,
                                          data=json.dumps(payload).encode() if payload is not None else None)
             with urllib.request.build_opener(NoRedirect).open(req, timeout=8) as upstream:

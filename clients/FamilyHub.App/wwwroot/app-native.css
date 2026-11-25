@@ -853,3 +853,8 @@ body::before { content:""; position:fixed; inset:0 0 auto; z-index:1000; height:
 
 /* No pinch or double-tap zoom: the layout is already sized for touch, and a stray zoom leaves the app stuck enlarged. */
 html, body { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+.app-update .one-tap-option { display:flex; align-items:center; gap:10px; min-height:44px; margin-top:8px; font-size:.9rem; cursor:pointer; }
+.app-update .one-tap-option input { width:20px; height:20px; flex-shrink:0; margin:0; }
+.whats-new { margin:12px 0 0; padding:12px 14px; max-width:420px; border-radius:12px; background:#ffffff0d; text-align:left; }
+.whats-new h3 { margin:0 0 6px; font-size:.95rem; }
+.whats-new ul { margin:0; padding-left:18px; display:grid; gap:4px; font-size:.9rem; color:#ffffffd9; }

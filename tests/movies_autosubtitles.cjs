@@ -2,7 +2,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { jellyfin, cors, moviePage, verifyMovieProfiles } = require("./movies_fixture.cjs");
+const { jellyfin, cors, moviePage, playMovieDetails, verifyMovieProfiles } = require("./movies_fixture.cjs");
 
 const clip = fs.readFileSync(path.join(__dirname, "fixtures/movie-subtitles.mp4"));
 
@@ -78,7 +78,8 @@ async function run(browser, options, scenario) {
                     return on;
                 }}, viewer);
         }, { jellyfin, preference, nativeFullscreen });
-        const open = () => page.getByRole("button", {name: "They Call Me Trinity", exact: true}).first().press("Enter");
+        const title = "They Call Me Trinity";
+        const open = () => playMovieDetails(page, page.getByRole("button", {name: title, exact: true}).first(), title);
         await open();
         const video = page.locator("video");
         await video.waitFor();
@@ -92,24 +93,26 @@ async function run(browser, options, scenario) {
             assert.deepEqual(await page.evaluate(() => window.fullscreenCalls), [true, false]);
         }
         const openSheet = async () => {
-            await page.getByRole("button", {name: "Subtitles", exact: true}).press("Enter");
-            return page.getByRole("dialog", {name: "Subtitles"});
+            await page.getByRole("button", {name: "Audio & Subtitles", exact: true}).press("Enter");
+            return page.getByRole("dialog", {name: "Audio & Subtitles"});
         };
         const sheet = await openSheet();
-        const retry = sheet.getByRole("button", {name: "Find subtitles", exact: true});
+        const find = sheet.getByRole("button", {name: "Find subtitles", exact: true});
         const off = sheet.getByRole("radio", {name: "Off", exact: true});
         if (preference !== "off") {
-            await sheet.getByText(`Searching for ${language} subtitles…`).waitFor();
-            assert.equal(await retry.getAttribute("aria-disabled"), "true");
+            await sheet.getByText("Searching…", {exact: true}).waitFor();
+            assert.equal(await find.getAttribute("aria-disabled"), "true");
+            assert.equal(await sheet.getByRole("combobox", {name: "Subtitle language"}).inputValue(), code);
             if (!firstResponse) await off.focus();
             releaseSearch();
         }
         if (preference === "off") {
-            await sheet.getByText(/Automatic search is off in Movies settings/).waitFor();
+            assert.equal(await find.getAttribute("aria-disabled"), "false");
             assert.equal(searches, 0);
         } else if (firstResponse) {
-            await sheet.getByText(firstResponse === "error" ? /check the Jellyfin subtitle provider/ :
-                new RegExp(`No ${language} subtitles found`)).waitFor();
+            await sheet.getByText(firstResponse === "error" ? "Subtitle search failed." : "No subtitles found.",
+                {exact: true}).waitFor();
+            const retry = sheet.getByRole("button", {name: "Retry", exact: true});
             assert.equal(await sheet.getByText("503", {exact: false}).count(), 0);
             assert.equal(searches, 1);
             assert.equal(await retry.getAttribute("aria-disabled"), "false");
@@ -123,7 +126,7 @@ async function run(browser, options, scenario) {
             assert.equal(await video.evaluate(node => node.textTracks[0]?.mode), "hidden");
             assert.equal(await off.evaluate(row => row === document.activeElement), true);
             assert.equal(await sheet.getByRole("radio", {name: language + " (external)"}).getAttribute("aria-checked"), "true");
-            await sheet.getByRole("button", {name: "Close subtitles"}).press("Enter");
+            await sheet.getByRole("button", {name: "Close audio and subtitles"}).press("Enter");
             if (nativeFullscreen) {
                 await page.getByRole("button", {name: "Full screen", exact: true}).press("Enter");
                 await page.getByRole("button", {name: "Exit full screen", exact: true}).waitFor();
@@ -131,8 +134,11 @@ async function run(browser, options, scenario) {
             await page.getByRole("button", {name: "Back to movies"}).press("Enter");
             await video.waitFor({state: "detached"});
             if (nativeFullscreen) assert.deepEqual(await page.evaluate(() => window.fullscreenCalls), [true, false, true, false]);
-            await open();
-            await (await openSheet()).getByText(/Automatic search already ran/).waitFor();
+            await page.getByRole("region", {name: title, exact: true})
+                .getByRole("button", {name: /^(Play|Resume)$/}).press("Enter");
+            await video.waitFor();
+            await openSheet();
+            assert.equal(await find.getAttribute("aria-disabled"), "false");
             assert.equal(searches, 1);
         }
     } finally {

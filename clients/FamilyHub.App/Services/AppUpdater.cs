@@ -23,6 +23,15 @@ public static class AppUpdater
     };
     // iPhone builds are installed and re-signed by SideStore; the app only opens it.
     public static bool UpdatesInSideStore => Platform == "ios";
+    public const string ShortcutName = "Update FamilyHub";
+    private const string OneTapKey = "familyhub.ios-one-tap-update";
+    // True once the person has built the "Update FamilyHub" Shortcut (docs/IOS_PRIVATE_INSTALL.md).
+    // iOS cannot tell whether a Shortcut exists, so this is the person's own confirmation.
+    public static bool OneTapUpdate
+    {
+        get => Preferences.Default.Get(OneTapKey, false);
+        set => Preferences.Default.Set(OneTapKey, value);
+    }
 
     public static async Task<AppRelease?> CheckAsync(FamilyHubApi? api, PublicAppReleases publicReleases)
     {
@@ -112,6 +121,19 @@ public static class AppUpdater
         }
         catch { File.Delete(package); throw; }
 #elif IOS
+        if (OneTapUpdate)
+        {
+            // The Shortcut turns LocalDevVPN on, opens SideStore's install link for this IPA, then turns it off.
+            var ipa = PublicAppReleases.IsPublic(release, platform) ? release.DownloadUrl
+                : (api ?? throw new InvalidOperationException("Connect to your FamilyHub server or open Release history.")).ResolveUri(release.DownloadUrl).ToString();
+            var run = "shortcuts://x-callback-url/run-shortcut?name=" + Uri.EscapeDataString(ShortcutName)
+                + "&input=text&text=" + Uri.EscapeDataString(ipa)
+                + "&x-success=" + Uri.EscapeDataString("familyhub://update-started")
+                + "&x-error=" + Uri.EscapeDataString("familyhub://update-failed");
+            if (!await Launcher.Default.TryOpenAsync(new Uri(run)))
+                throw new InvalidOperationException("Shortcuts could not open. Open SideStore, then tap Update next to FamilyHub in My Apps.");
+            return;
+        }
         if (!await Launcher.Default.TryOpenAsync(new Uri("sidestore://")))
             throw new InvalidOperationException("Open SideStore, then tap Update next to FamilyHub in My Apps.");
 #endif

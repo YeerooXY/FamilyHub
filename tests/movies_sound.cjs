@@ -1,4 +1,4 @@
-// Sound panel on a PC: volume, mute, sound mode and persistence. Phones get no panel (hardware volume).
+// Desktop volume, mute, sound mode and persistence. Phones and televisions use hardware volume.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { chromium } = require(require.resolve("playwright", { paths: [process.cwd(), path.resolve(__dirname, "../../agent-dock")] }));
@@ -14,44 +14,66 @@ const app = "http://t.test";
     assert.equal(unit.readSound(storage).volume, 1.5);
 
     const browser = await chromium.launch();
-    for (const [name, options, expectPanel] of [["pc", { viewport: { width: 1280, height: 800 } }, true],
-        ["phone", { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }, false]]) {
+    for (const [name, options, expectVolume] of [["pc", { viewport: { width: 1280, height: 800 } }, true],
+        ["phone", { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }, false],
+        ["tv", { viewport: { width: 1920, height: 1080 }, userAgent: "Mozilla/5.0 (SmartTV; Tizen)" }, false]]) {
         const page = await browser.newPage(options);
         await page.route(app + "/**", route => {
             const n = new URL(route.request().url()).pathname.slice(1);
             return n ? route.fulfill({ path: path.join(wwwroot, n) })
-                : route.fulfill({ contentType: "text/html", body: '<link rel="stylesheet" href="/movies.css"><main class="movie-library"><section class="movie-player movie-expanded"><video></video></section></main>' });
+                : route.fulfill({ contentType: "text/html", body: '<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/movies.css"><main class="movie-library"><section class="movie-player movie-expanded"><video></video></section></main>' });
         });
         await page.goto(app + "/");
-        const result = await page.evaluate(async () => {
+        await page.evaluate(async () => {
             const { buildPlayerUi } = await import("/movie-player-ui.js");
             const media = document.querySelector("video"), surface = document.querySelector(".movie-player");
             const back = document.createElement("button");
             const ui = buildPlayerUi({ media, surface, back, signal: new AbortController().signal, title: "Test", trackControls: [],
-                notice: document.createElement("p"), dataSaver: { quality: "Full quality", choices: [] } });
+                notice: document.createElement("p") });
             surface.append(ui.root);
-            return { hasButton: !![...ui.root.querySelectorAll(".movie-ui-action")].find(b => b.getAttribute("aria-label") === "Sound" && !b.hidden) };
         });
-        assert.equal(result.hasButton, expectPanel, `${name}: Sound button`);
-        if (expectPanel) {
-            await page.getByRole("button", { name: "Sound", exact: true }).click();
-            const slider = page.getByRole("slider", { name: "Volume" });
+        const mute = page.getByRole("button", { name: "Mute", exact: true });
+        const tracks = page.getByRole("button", { name: "Audio & Subtitles", exact: true });
+        const slider = page.getByRole("slider", { name: "Volume" });
+        assert.equal(await mute.count(), Number(expectVolume), `${name}: desktop mute control`);
+        assert.equal(await slider.count(), 0, `${name}: the slider starts collapsed`);
+        if (expectVolume) {
+            await mute.hover();
             await slider.waitFor();
             await slider.fill("50");
             assert.equal(await page.evaluate(() => document.querySelector("video").volume), .5);
-            await page.getByRole("button", { name: "Mute" }).click();
+            await mute.click();
             assert.equal(await page.evaluate(() => document.querySelector("video").muted), true);
             await page.getByRole("button", { name: "Unmute" }).click();
             await slider.fill("150");
-            await page.getByText("Above 100%").waitFor();
+            await page.getByText("Volume above 100% can distort.").waitFor();
+            for (const value of ["0", "200"]) {
+                await slider.fill(value);
+                assert.equal(await slider.getAttribute("aria-valuetext"), value + "%");
+                assert.equal(await page.locator(".movie-volume-tip").textContent(), value + "%");
+            }
+            await slider.fill("150");
+            await tracks.press("Enter");
+            await page.getByText("Sound options", {exact: true}).click();
             await page.getByRole("radio", { name: "Night mode" }).click();
             assert.equal(await page.getByRole("radio", { name: "Night mode" }).getAttribute("aria-checked"), "true");
             assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("familyhub.movie.sound.v1"))), { volume: 1.5, muted: false, mode: "night", device: "" });
-            await page.getByRole("button", { name: "Close sound" }).click();
-            await page.getByRole("button", { name: "Sound", exact: true }).waitFor();
+            await page.getByRole("button", { name: "Close audio and subtitles" }).press("Enter");
+            assert.equal(await tracks.evaluate(node => node === document.activeElement), true);
+        } else {
+            await tracks.press("Enter");
+            assert.equal(await page.getByText("Sound options", {exact: true}).count(), 0);
+            if (name === "tv") {
+                const controls = page.locator(".movie-ui").locator("button:visible, select:visible, input:visible");
+                assert.ok(await controls.count() > 0);
+                assert.equal(await controls.evaluateAll(nodes => nodes.every(node => {
+                    const {width, height} = node.getBoundingClientRect();
+                    return width >= 60 && height >= 60;
+                })), true);
+            }
         }
         await page.close();
     }
     await browser.close();
-    console.log("Sound panel: PC has volume, mute, modes and saved settings; phones have none.");
+    console.log("Desktop volume, mute, modes and persistence passed. Phone and television profiles use hardware volume.");
 })().catch(e => { console.error(e); process.exit(1); });

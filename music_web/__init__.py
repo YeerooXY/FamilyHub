@@ -31,7 +31,7 @@ from . import profile_artwork
 from . import feedback, wordle
 from .wordle_source import published_answer
 from .listening_versions import ListeningVersions
-from .catalogue_review import CatalogueReview, register as register_catalogue_review
+from .catalogue_review import CatalogueReview, lookup as lookup_catalogue_metadata, register as register_catalogue_review
 from .review_confidence import DEFAULT_AUTO_RESOLUTIONS_PER_HOUR, normal, presentation_title, recording_labels
 from .source_quality import register as register_source_quality
 from .song_analysis import register as register_song_analysis
@@ -45,6 +45,7 @@ from .resources import (ResourceGovernor, TransferResources, PROVIDERS, backgrou
 from . import link_playlists
 from . import radio
 from .http_limits import body_limit
+from .library_index import LibraryIndex, SOURCE_ID, file_stamp, library_folders, matches, search_words, source_id as folder_source_id
 
 MAX_UPLOAD = 512 << 20
 SESSION_HOURS = 12
@@ -245,6 +246,7 @@ def create_app(test_config=None):
     selections = {}
     saved_cache = OrderedDict()
     saved_lock = threading.RLock()
+    library_index = None
     searches = {}
     search_cache = OrderedDict()
     radio_sources = OrderedDict()
@@ -449,6 +451,10 @@ def create_app(test_config=None):
 
     @app.after_request
     def headers(resp):
+        if (library_index is not None and resp.status_code == 200
+                and request.endpoint in ('edit_metadata', 'undo_metadata')):
+            identifier = request.view_args['identifier']
+            library_index.update({identifier: ()})
         resp.headers.update({
             "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
                                        "connect-src 'self'; form-action 'self'; frame-ancestors 'none'; "
@@ -899,6 +905,8 @@ def create_app(test_config=None):
                 if saved_cache.get(key) is cached:
                     del saved_cache[key]
         # Hashing a cold song must not hold the library-wide cache mutex.
+        if candidates is None and imported and library_index is not None:
+            candidates = library_index.candidates(source_id)
         entry = validate_source(source_id, imported, candidates)
         with saved_lock:
             if entry:
@@ -1432,13 +1440,17 @@ def create_app(test_config=None):
                             addition_checked = None
             job["committed"] = True
             job["temporary_item"] = False
+            refresh_library_item(item['item'])
             step = "prepare"
             job["phase"] = step
             settle(job, "running", STEP_TEXT[step])
             resource_changed()
             job_playback_stage(job, "purification_started")
-            prepare_record(finished_audio, listening_versions, lib, item["item"],
-                            background=lambda: analyzing_job(job))
+            try:
+                prepare_record(finished_audio, listening_versions, lib, item["item"],
+                               background=lambda: analyzing_job(job))
+            finally:
+                refresh_library_item(item['item'])
             job_playback_stage(job, "purification_finished")
             if can_analyze and not job.get("analysis"):
                 job.update(analysis_state="pending", analysis_queued_at=time.monotonic())
@@ -2209,13 +2221,19 @@ def create_app(test_config=None):
                               catalogue_review, listening_stats, app.intake,
                               length=lambda saved: library_record(saved)[0]['duration'], automatic=automatic,
                               expected_digest=expected_digest, verified_digest=manifest['audio']['sha256'], explicit=explicit)
+                if library_index is not None:
+                    library_index.update({identifier: (), candidate['id']: (os.path.basename(new['item']),)})
 
     def undo_source(identifier, records):
         from .source_quality import undo_saved
         with app.extensions['music'].source_quality.scan_lock, catalogue_lock, catalogue_review.lock:
             if replacement_busy(identifier) or records.get(identifier, {}).get('state') == 'done' and saved_source(identifier):
                 raise ValueError('The original recording already exists or is being prepared.')
-            return undo_saved(ws, lib, identifier, records, playlist_store, catalogue_review)
+            digest = undo_saved(ws, lib, identifier, records, playlist_store, catalogue_review)
+            if library_index is not None:
+                entry = records[identifier]
+                library_index.update({identifier: (os.path.basename(entry['item']),), entry['new_id']: ()})
+            return digest
 
     def background_idle():
         return bool(resources.background_slots(1))
@@ -2327,7 +2345,16 @@ def create_app(test_config=None):
                 try:
                     if not background_idle(): auto_stop.wait(30); continue
                     apply_metadata_votes()
-                    if not catalogue_review.process_one(background_idle): auto_stop.wait(30)
+                    updated = {}
+
+                    def resolve(row):
+                        updated[row['id']] = ()
+                        return lookup_catalogue_metadata(row)
+
+                    processed = catalogue_review.process_one(background_idle, resolver=resolve)
+                    if library_index is not None and updated:
+                        library_index.update(updated)
+                    if not processed: auto_stop.wait(30)
                 except Exception as error:
                     log.warning("song tagging: %s", type(error).__name__); auto_stop.wait(30)
         if metadata_lookup:
@@ -3187,8 +3214,58 @@ def create_app(test_config=None):
     scan_lock = threading.Lock()
     pending_scan = None
 
+    def library_dependencies(folders):
+        found = []
+        for folder in folders:
+            try:
+                _, manifest = app.intake.read_manifest(os.path.join(ws, folder))
+                record = manifest.get('import')
+                if record and manifest['edit'] is None and manifest['source']['kind'] in ('youtube', 'local'):
+                    found.append([folder, manifest['audio']['file'], record['path'], record['library_sha256'],
+                                  artist_name(manifest['source'], record)])
+            except (OSError, ValueError, app.intake.IntakeError):
+                continue
+        return found
+
+    def library_dependency_stamp(identifier, dependencies):
+        stamps = []
+        for folder, audio, path, digest, artist in dependencies:
+            overrides = catalogue_review.overrides(identifier, digest)
+            genre = genre_labels.cache.get((overrides.get('artist') or artist).casefold(), {}).get('genre')
+            edition = listening_versions.versions.get(identifier, {})
+            if edition.get('source_sha256') != digest:
+                edition = {}
+            selected = edition.get('sha256', digest)
+            finished = os.path.join(finished_audio.directory, finished_audio.key(selected))
+            stamps.append([file_stamp(os.path.join(ws, folder, audio)), file_stamp(os.path.join(lib, path)),
+                           file_stamp(os.path.join(ws, edition['file'])) if edition else None,
+                           file_stamp(finished + '.json'), file_stamp(finished + '.flac'),
+                           file_stamp(os.path.join(ws, '.playback-' + selected + '.json')),
+                           overrides, genre, edition, song_analysis.rows.get(identifier + ':' + digest)])
+        return stamps
+
+    def project_library_record(identifier, candidates):
+        try:
+            result = saved_source(identifier, candidates=candidates)
+            if result:
+                manifest = result['manifest']
+                record, source = manifest['import'], manifest['source']
+                track, _ = library_record(result)
+                digest = record['library_sha256']
+                return track, record.get('added_at'), digest, source['kind'], catalogue_review.overrides(identifier, digest)
+        except (OSError, ValueError, ApiError, app.intake.IntakeError):
+            pass
+
+    def refresh_library_item(path):
+        if library_index is not None:
+            folder = os.path.basename(path)
+            if app.intake.ID_RE.fullmatch(folder) and (identifier := folder_source_id(folder)):
+                library_index.update({identifier: (folder,)})
+
     def library_tracks(keep_going=None):
         nonlocal pending_scan
+        if library_index is not None and (tracks := library_index.query()) is not None:
+            return tracks
         if keep_going is not None:
             return scan_library(keep_going, background=True)
         with scan_lock:
@@ -3208,28 +3285,14 @@ def create_app(test_config=None):
 
     def scan_library(keep_going, *, background=False):
         rows = []
-        sources = defaultdict(list)
-        for name in os.listdir(ws):
-            if not app.intake.ID_RE.fullmatch(name) or not name.startswith(("yt-", "local-")):
-                continue
-            identifier = name if name.startswith("local-") else name[3:14]
-            sources[identifier].append(name)
-        for identifier, candidates in sources.items():
+        sources = library_folders(ws, app.intake.ID_RE)
+        for identifier, candidates in sorted(sources.items()):
             if background:
                 resources.yield_to_requests(lambda: not keep_going())
             if not keep_going():
                 break
-            try:
-                result = saved_source(identifier, candidates=candidates)
-                if not result:
-                    continue
-                manifest = result["manifest"]
-                record, source = manifest.get("import"), manifest["source"]
-                if record and source["kind"] in ("youtube", "local") and not manifest["edit"]:
-                    track, _ = library_record(result)
-                    rows.append(track)
-            except (OSError, ValueError, ApiError, app.intake.IntakeError):
-                continue
+            if projected := project_library_record(identifier, sorted(candidates)):
+                rows.append(projected[0])
         return rows
 
     def history_metadata(ids):
@@ -3253,19 +3316,50 @@ def create_app(test_config=None):
 
     @app.get("/api/library")
     def library():
-        tracks = library_tracks()
+        query, artist, album, genre, after, identifier = (request.args.get(key, '').strip()
+            for key in ('q', 'artist', 'album', 'genre', 'after', 'id'))
+        if (any(len(value) > 200 or any(ord(c) < 32 for c in value) for value in (query, artist, album, genre))
+                or any(value and not SOURCE_ID.fullmatch(value) for value in (after, identifier))):
+            raise ApiError('Invalid library filter.')
+        paged = bool(query) or 'limit' in request.args or 'after' in request.args
+        raw_limit = request.args.get('limit', '50')
+        if paged and (not re.fullmatch(r'[0-9]{1,3}', raw_limit) or not 1 <= int(raw_limit) <= 200):
+            raise ApiError('Choose a page size from 1 to 200.')
+        limit = int(raw_limit) if paged else None
+        genre = genre_key(genre) if genre else ''
+        words = search_words(query)
+        if query and not words:
+            raise ApiError('Enter a title, artist, or album to search.')
+        criteria = dict(words=words, artist=artist, album=album, genre=genre, after=after, identifier=identifier)
+        tracks = (library_index.query(**criteria, limit=limit + 1 if paged else None)
+                  if library_index is not None else None)
+        all_tracks = None
+        if tracks is None:
+            all_tracks = library_tracks()
+            tracks = [track for track in all_tracks if matches(track, **criteria)] if any(criteria.values()) else all_tracks
+        payload = dict(results=tracks[:limit] if paged else tracks)
+        if paged:
+            payload['next_after'] = tracks[limit - 1]['id'] if len(tracks) > limit else None
         if request.args.get("genre_filters") != "1":
-            return jsonify(results=tracks)
+            return jsonify(payload)
+        counts = library_index.genres() if library_index is not None and all_tracks is None else None
+        metadata = None
+        if counts is not None:
+            ids = {event['recording_id'] for event in listening_history.events(g.user)}
+            metadata = library_index.history_metadata(ids)
+        if metadata is None:
+            all_tracks = library_tracks() if all_tracks is None else all_tracks
+            counts = Counter(track.get('genre') or '' for track in all_tracks).items()
+            metadata = {t['id']: {'genre': t.get('genre'), 'channel': t.get('channel', '')} for t in all_tracks}
         keys, votes = {}, defaultdict(Counter)
-        for raw, count in Counter(track.get("genre") or "" for track in tracks).items():
+        for raw, count in sorted(counts):
             key = keys[raw] = genre_key(raw)
             votes[key][genre_label(raw)] += count
-        history = listening_history.summary(g.user, {t["id"]: {"genre": t.get("genre"), "channel": t.get("channel", "")}
-                                                     for t in tracks})
+        history = listening_history.summary(g.user, metadata)
         plays = {genre_key(label): row["plays"] for label, row in history["genres"].items()}
         genres = [dict(key=key, label=most_common_genre(group), plays=plays.get(key, 0))
                   for key, group in votes.items()]
-        return jsonify(results=tracks, genre_keys=keys, genres=genres)
+        return jsonify(**payload, genre_keys=keys, genres=genres)
 
     @app.post("/api/queue")
     def prepare_queue():
@@ -3545,7 +3639,42 @@ def create_app(test_config=None):
             if 'GET' in rule.methods and rule.rule in ('/api/catalogue/review', '/api/catalogue/source-quality', '/api/catalogue/reports'):
                 app.view_functions[rule.endpoint] = bounded_snapshot(app.view_functions[rule.endpoint])
 
+    index_stop = threading.Event()
+    index_thread = None
+    if cfg.get('LIBRARY_INDEX_WORKER', cfg['PUBLIC_ORIGIN'] != 'https://music.test'):
+        library_index = LibraryIndex(state_path(cfg, '.library-index.sqlite3'), ws, app.intake.ID_RE,
+                                     [ws, lib, cfg['REQUIRE_FINISHED_AUDIO']], library_dependencies,
+                                     library_dependency_stamp, project_library_record)
+        app.extensions['music'].library_index = library_index
+
+        def reconcile_library():
+            lower_background_priority()
+            background_request.set(True)
+
+            def proceed():
+                resources.yield_to_requests(index_stop.is_set)
+                return not index_stop.is_set()
+
+            while not index_stop.is_set():
+                library_index.wake.clear()
+                if background_idle():
+                    with app.app_context():
+                        complete = library_index.reconcile(proceed)
+                        if complete:
+                            with suppress(OSError):
+                                catalogue_review.flush()
+                else:
+                    complete = False
+                library_index.wake.wait(30 if complete else 2)
+
+        index_thread = threading.Thread(target=reconcile_library, name='library-index', daemon=True)
+        index_thread.start()
+
     def close_state():
+        index_stop.set()
+        if index_thread is not None:
+            library_index.wake.set()
+            index_thread.join(2)
         listening_stats.flush()
         state_writer.close()
 

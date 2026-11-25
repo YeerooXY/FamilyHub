@@ -24,7 +24,7 @@ async function verify(browser, profile, options) {
             let fullscreen = false;
             const ui = buildPlayerUi({
                 media, surface, back: document.createElement("button"), signal: new AbortController().signal,
-                title: "The movie", notice: document.createElement("p"), dataSaver: {quality: "Full quality", choices: []},
+                title: "The movie", notice: document.createElement("p"),
                 fullscreenEnabled: true, isFullscreen: () => fullscreen,
                 setFullscreen: async on => { fullscreen = on; return true; }
             });
@@ -50,7 +50,7 @@ async function verify(browser, profile, options) {
         assert.equal(await forward.locator("text").evaluate(node => getComputedStyle(node).userSelect), "none");
         await (options.hasTouch ? rewind.tap() : rewind.click());
         assert.equal(await position(), 20);
-        const controls = await page.locator(".movie-ui-mid button").evaluateAll(nodes => nodes.map(node => {
+        const controls = await page.locator(".movie-ui-mid > button").evaluateAll(nodes => nodes.map(node => {
             const button = node.getBoundingClientRect();
             const icon = node.querySelector("svg");
             return {
@@ -66,13 +66,18 @@ async function verify(browser, profile, options) {
             assert.equal(control.stroke, "2px");
         }
         const gradient = await page.locator(".movie-ui-bottom").evaluate(node => getComputedStyle(node).backgroundImage);
-        assert.match(gradient, /rgba\(0, 0, 0, 0\.93\d*\)/);
+        assert.match(gradient, /rgba\(0, 0, 0, 0\.93\d*\).*rgb\(0, 0, 0\) 90%/);
 
+        await page.getByRole("slider", {name: "Seek"}).focus();
         await page.keyboard.press("Tab");
         assert.equal(await focused(button("Play")), true);
-        await page.keyboard.press("Shift+Tab");
+        await page.keyboard.press("Tab");
         assert.equal(await focused(rewind), true);
         assert.equal(await rewind.evaluate(node => getComputedStyle(node).outlineStyle), "solid");
+        await page.keyboard.press("Shift+Tab");
+        assert.equal(await focused(button("Play")), true);
+        await page.keyboard.press("Shift+Tab");
+        assert.equal(await focused(page.getByRole("slider", {name: "Seek"})), true);
         await page.keyboard.press("Shift+Tab");
         assert.equal(await focused(button("Back to movies")), true);
         await page.keyboard.press("Shift+Tab");
@@ -80,14 +85,16 @@ async function verify(browser, profile, options) {
         await page.keyboard.press("Tab");
         assert.equal(await focused(button("Back to movies")), true);
 
-        const settings = button("Settings");
-        await (options.hasTouch ? settings.tap() : settings.click());
-        await button("Close settings").press("Enter");
-        assert.equal(await focused(settings), true);
+        const tracks = button("Audio & Subtitles");
+        const sheet = page.getByRole("dialog", {name: "Audio & Subtitles"});
+        await (options.hasTouch ? tracks.tap() : tracks.click());
+        await button("Close audio and subtitles").press("Enter");
+        assert.equal(await focused(tracks), true);
         await page.keyboard.press("Space");
         await button("Pause").waitFor();
-        assert.equal(await page.getByRole("dialog", {name: "Settings"}).count(), 0);
-        assert.equal(await focused(settings), true);
+        assert.equal(await sheet.count(), 0);
+        assert.equal(await button("Settings").count(), 0);
+        assert.equal(await focused(tracks), true);
         await page.keyboard.press("k");
         await button("Play").waitFor();
 
@@ -99,21 +106,28 @@ async function verify(browser, profile, options) {
             assert.equal(await position(), expected);
             assert.equal(await shortcut.textContent(), label);
         }
-        await page.keyboard.press("ArrowDown");
-        assert.equal(await shortcut.textContent(), "Volume 95%");
-        await page.keyboard.press("ArrowUp");
-        assert.equal(await shortcut.textContent(), "Volume 100%");
-        await page.keyboard.press("m");
-        assert.equal(await shortcut.textContent(), "Muted");
-        await page.keyboard.press("m");
-        assert.equal(await shortcut.textContent(), "Volume 100%");
+        if (!options.hasTouch) {
+            await page.keyboard.press("ArrowDown");
+            assert.equal(await shortcut.textContent(), "Volume 95%");
+            await page.keyboard.press("ArrowUp");
+            assert.equal(await shortcut.textContent(), "Volume 100%");
+            await page.keyboard.press("m");
+            assert.equal(await shortcut.textContent(), "Muted");
+            await page.keyboard.press("m");
+            assert.equal(await shortcut.textContent(), "Volume 100%");
+        } else {
+            assert.equal(await button("Mute").count(), 0);
+            await page.keyboard.press("m");
+            assert.equal(await page.locator("video").evaluate(video => video.muted), false);
+        }
 
-        for (const key of ["F11", "Alt+Enter", "f"]) {
+        const canFullscreen = !/iphone/.test(profile);
+        for (const key of canFullscreen ? ["F11", "Alt+Enter", "f"] : []) {
             await page.keyboard.press(key);
             await button("Exit full screen").waitFor();
             await page.keyboard.press("Escape");
             await button("Full screen").waitFor();
-            assert.equal(await focused(settings), true);
+            assert.equal(await focused(tracks), true);
         }
         const input = page.getByRole("textbox", {name: "Player test input"});
         await input.press("f");
@@ -127,7 +141,7 @@ async function verify(browser, profile, options) {
         assert.equal(await input.inputValue(), "fk m");
         assert.equal(await position(), 20);
         assert.equal(await button("Play").count(), 1);
-        assert.equal(await button("Full screen").count(), 1);
+        assert.equal(await button("Full screen").count(), Number(canFullscreen));
         assert.equal(await focused(input), true);
 
         await page.waitForFunction(() => !document.querySelector(".movie-ui-shortcut").textContent);
