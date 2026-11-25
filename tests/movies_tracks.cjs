@@ -77,12 +77,12 @@ async function check(browser, options) {
                 return route.fulfill({ headers, json: { Items, TotalRecordCount: Items.length } });
             }
             const types = url.searchParams.get("includeItemTypes");
-            assert.equal(url.searchParams.get("enableImageTypes"), "Primary,Thumb,Backdrop");
+            assert.equal(url.searchParams.get("enableImageTypes"), "Primary,Thumb,Backdrop,Logo");
             const films = [
-                { Id: "full", Name: "Two languages", ImageTags: { Primary: "poster" } },
-                { Id: "limited", Name: "One language", ImageTags: { Primary: "missing" } },
-                { Id: "sample1080", Name: "FamilyHub Sample 1080p" },
-                { Id: "sample4k", Name: "FamilyHub Sample 4K HEVC" }
+                { Id: "full", Name: "Two languages", Type: "Movie", ImageTags: { Primary: "poster" } },
+                { Id: "limited", Name: "One language", Type: "Movie", ImageTags: { Primary: "missing" } },
+                { Id: "sample1080", Name: "FamilyHub Sample 1080p", Type: "Movie" },
+                { Id: "sample4k", Name: "FamilyHub Sample 4K HEVC", Type: "Movie" }
             ];
             const Items = types === "Movie" ? films : types === "Series" ? [show] : [...films, show];
             return route.fulfill({ headers, json: { Items, TotalRecordCount: Items.length } });
@@ -145,7 +145,7 @@ async function check(browser, options) {
     const audio = select("Audio track"), subtitle = select("Subtitle track");
     const back = page.getByRole("button", { name: "Back to movies" });
     const closer = page.getByRole("button", { name: "Close audio and subtitles" });
-    const two = moviesShelf.getByRole("button", { name: "Two languages" });
+    const two = page.locator(".movie-shelf:not([hidden])").getByRole("button", { name: "Two languages" }).first();
     const one = moviesShelf.getByRole("button", { name: "One language" });
     const closePlayer = async (play, card) => {
         if (await closer.isVisible()) {
@@ -165,7 +165,7 @@ async function check(browser, options) {
     await search.fill("Pilot");
     await search.press("Enter");
     await page.getByRole("button", { name: "Pilot", exact: true }).waitFor();
-    await page.getByText("1 in your library").waitFor();
+    await page.getByRole("status").filter({hasText: "1 title found."}).waitFor({state: "attached"});
     await search.fill("Éjfél");
     await search.press("Enter");
     await page.getByText("No watch or download options found. Try another title.").waitFor();
@@ -186,8 +186,8 @@ async function check(browser, options) {
     await bare(one, "O");
     await bare(moviesShelf.getByRole("button", {name: "FamilyHub Sample 1080p", exact: true}), "F");
     await bare(moviesShelf.getByRole("button", {name: "FamilyHub Sample 4K HEVC", exact: true}), "F");
-    await image(shelf("TV series").getByRole("button", {name: "Show", exact: true}), "/Items/series/Images/Thumb", 2 / 3);
-    await image(resumeShelf.getByRole("button", {name: "Show, Pilot", exact: true}), "/Items/series/Images/Thumb", 2 / 3);
+    await image(shelf("Series").getByRole("button", {name: "Show", exact: true}), "/Items/series/Images/Thumb", 2 / 3);
+    await image(resumeShelf.getByRole("button", {name: "Show, Pilot", exact: true}), "/Items/series/Images/Thumb", 16 / 9);
     await bare(resumeShelf.getByRole("button", {name: "Far Shore, Finale", exact: true}), "F");
     const twoPlay = await playMovieDetails(page, two, "Two languages");
     await back.waitFor();

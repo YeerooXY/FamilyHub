@@ -28,6 +28,7 @@ export function releaseKind(title) {
 }
 
 const TIERS = [
+    ["8k", "8K", "Eight times HD picture; most are upscaled from 4K or less"],
     ["4k-remux", "4K Remux", "Original 4K disc video"],
     ["4k-bluray", "4K Blu-ray", "Compressed 4K disc video"],
     ["4k-web", "4K Web", "4K streaming copy"],
@@ -48,6 +49,7 @@ export function cleanResultTitle(value) {
 }
 
 function pictureTier(height) {
+    if (height >= 4320) return "8k";
     if (height >= 2160) return "4k-web";
     if (height >= 1080) return "web";
     if (height >= 720) return "hd";
@@ -64,7 +66,7 @@ function releaseQuality(title, height, size, length) {
     let tier = pictureTier(height);
     if (camera) tier = "poor";
     else if (tv) tier = "tv";
-    else if (source && (!height || height >= 1080)) {
+    else if (source && (!height || height >= 1080) && height < 4320) {
         tier = (height >= 2160 ? "4k-" : "") + (remux ? "remux" : bluray ? "bluray" : "web");
     }
     if (tier === "unknown" && length > 0 && size > 0) {
@@ -74,7 +76,7 @@ function releaseQuality(title, height, size, length) {
             ?? (mbps <= 30 ? "high-quality 1080p" : "4K or untouched disc");
         return {tier: "estimated", label: `Estimated: ${estimate} (from size and length)`, rank: -1};
     }
-    const picture = height >= 2160 ? "4K" : height ? `${height}p` : "";
+    const picture = height >= 4320 ? "8K" : height >= 2160 ? "4K" : height ? `${height}p` : "";
     const label = camera ? "Camera copy" : tv ? "TV or DVD" : [picture, tier === "hd" ? "" : source].filter(Boolean).join(" ")
         || (length > 0 ? "Size needed to estimate quality" : "Quality unknown");
     const rank = TIERS.findIndex(([id]) => id === tier);

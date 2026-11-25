@@ -1,6 +1,7 @@
 """Movie sessions use the selected FamilyHub profile and ordinary Jellyfin accounts."""
 import io
 import json
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 import urllib.error
@@ -378,7 +379,8 @@ class MovieLocalizedSearch(Base):
 
 
 class MovieDownloads(Base):
-    extra = {**MovieReleaseSearch.extra, 'BROWSER_PLAYER': False, 'ADMIN_USERS': ['sample-a'], 'MOVIE_DOWNLOADS': {
+    extra = {**MovieReleaseSearch.extra, 'BROWSER_PLAYER': False, 'ADMIN_USERS': ['sample-a'],
+             'TMDB_API_KEY': 'fixture-poster-key', 'MOVIE_DOWNLOADS': {
         'profiles': ['sample-a'],
         'qbittorrent': {'url': 'http://downloads.test', 'user': 'fixture-user', 'password': 'fixture-password'}}}
     select = MovieSessions.select
@@ -405,14 +407,28 @@ class MovieDownloads(Base):
         row = dict(hash='a' * 40, name='Fixture season', category='other', state='uploading',
                    ratio=2.01, uploaded=2010, downloaded=1000, progress=1)
         sample(path, [row, dict(row, hash='b' * 40)], old)
+        with sqlite3.connect(path) as db:
+            for column in ('progress', 'size', 'dl_speed', 'up_speed'):
+                db.execute(f'ALTER TABLE last_seen DROP COLUMN {column}')
+        db.close()
         self.assertTrue(self.go(client, 'GET', route).json['stale'])
-        sample(path, [dict(row, state='stalledUP', ratio=0.003, uploaded=3)], now)
+        self.assertIsNone(self.go(client, 'GET', route).json['items'][0]['progress'])
+        sample(path, [dict(row, state='stalledUP', ratio=0.003, uploaded=3, size=1000, dlspeed=0, upspeed=0)], now)
         response = self.go(client, 'GET', route)
         self.assertEqual(response.headers['Cache-Control'], 'no-store')
         self.assertEqual(response.json, dict(available=True, goal=2.0, stale=False, last_sample_at=now,
-            items=[dict(hash=row['hash'], name=row['name'], state='Stalled seeding', ratio=0.003,
-                        uploaded=3, downloaded=1000, reached_goal_at=old)],
-            total_uploaded=3, total_downloaded=1000, global_ratio=0.003))
+            items=[dict(hash=row['hash'], name=row['name'], title=row['name'], state='Stalled seeding', ratio=0.003,
+                        uploaded=3, downloaded=1000, reached_goal_at=old, complete=1, progress=1,
+                        dl_speed=0, up_speed=0, size=1000)],
+            total_uploaded=3, total_downloaded=1000, global_ratio=0.003, posters_enabled=True))
+        poster_route = route + '?poster=' + row['hash']
+        poster = 'https://image.tmdb.org/t/p/w342/fixture.jpg'
+        with patch('music_web.movies.tmdb.search', return_value=[
+                dict(title='Fixture: season', kind='tv', year=2026, poster=poster)]) as search:
+            self.assertEqual(self.go(other, 'GET', poster_route).status_code, 403)
+            self.assertEqual(self.go(client, 'GET', poster_route).json, {'poster': poster})
+            self.assertEqual(self.go(client, 'GET', route + '?poster=missing').json, {'poster': None})
+            search.assert_called_once_with('fixture-poster-key', 'Fixture season')
         sample(path, [], '2099-01-01T00:00:00+00:00')
         self.assertEqual(self.go(client, 'GET', route).json['items'], [])
 

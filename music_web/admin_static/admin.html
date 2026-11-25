@@ -22,17 +22,27 @@
     </form>
     <div id="signin-outage"></div>
   </section>
-  <section id="seeding" aria-label="Torrent seeding" hidden>
-    <div class="global" id="global" hidden>
-      <h2 id="global-title" tabindex="-1">All torrents</h2>
-      <p class="figure"><span id="global-ratio">0.00</span>× <small>of <span id="goal">2.0</span>× goal</small></p>
-      <div class="meter" role="progressbar" aria-labelledby="global-title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="global-meter"><i></i></div>
-      <p id="global-detail" class="muted"></p>
-    </div>
+  <section id="seeding" aria-label="Torrents" hidden>
     <p id="status" class="muted" role="status"></p>
+    <p id="sample-time" class="muted"></p>
     <div id="seeding-outage"></div>
-    <h2 id="files-title" hidden>Files</h2>
-    <ul id="items" aria-labelledby="files-title" hidden></ul>
+    <div class="boards" id="boards" hidden>
+      <section class="board downloads" aria-labelledby="downloads-title">
+        <h2 id="downloads-title" tabindex="-1">Downloads</h2>
+        <p id="downloads-empty" class="muted" hidden>No downloads in the queue.</p>
+        <ul id="download-items" aria-labelledby="downloads-title"></ul>
+      </section>
+      <section class="board" aria-labelledby="global-title">
+        <h2 id="global-title">Seeding</h2>
+        <div class="global">
+          <p class="figure"><span id="global-ratio"></span>× <small>of <span id="goal"></span>× goal</small></p>
+          <div class="meter" role="progressbar" aria-label="Share ratio of current torrents" aria-valuemin="0" aria-valuemax="100" id="global-meter"><i></i></div>
+          <p id="global-detail" class="muted"></p>
+        </div>
+        <p id="seeds-empty" class="muted" hidden>No torrents ready to seed.</p>
+        <ul id="seed-items" aria-labelledby="global-title"></ul>
+      </section>
+    </div>
   </section>
 </main>
 <script type="module" src="/admin/admin.js"></script>

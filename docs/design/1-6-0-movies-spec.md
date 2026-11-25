@@ -51,3 +51,11 @@ Hero, then Continue watching (landscape, progress), My list (hearts), Recently a
 - Reduced motion: the field appears without the slide. The result count is announced once.
 
 Concept: `docs/design/1-6-0-concepts/round2/home-search-open.png`.
+
+## Release search and browsing (owner notes, 25 Nov)
+
+- The release search results and the "browse the options" view follow the new theme (same cards, hover, outline, motion and five-per-row geometry where results are cards; list rows keep the quality chip row).
+- Quality tiers: add 8K (4320p) above 4K Remux; badge says "8K" and notes that most are upscales (done in `movie-releases.js`, 25 Nov).
+- Sound: show the audio format on every release and on the film screen when known (5.1, 7.1, Atmos, codec such as DDP, DTS-HD MA, TrueHD) as a chip next to quality. Releases: parse the name (`DDP5.1`, `DTS-HD.MA.7.1`, `TrueHD.Atmos`, `AAC 2.0`); library titles: Jellyfin `MediaStreams` (Channels, Codec). Never invent a value; show nothing when unknown.
+- Big-file playback (4K remux, about 60 GB, 80 Mbit/s): the server reads the file once at about 10 MB/s, so a wired client and two music streams are fine. Pre-buffer option: for direct plays above about 40 Mbit/s the player buffers about 30 s before it starts and says so ("Getting ready"), then starts. Needs a measured trial before it ships.
+- Storage: downloads land in `/srv/familyhub/data/downloads` and the library in `/srv/familyhub/data/media`, both on the 9.1 TB data disk (7.1 TB free on 25 Nov). The 216 GB system disk holds only the apps.

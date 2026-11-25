@@ -1,4 +1,4 @@
-const { useMovieBridge, reviewMovieProfiles, dismissPlayerTracks } = require("./movies_fixture.cjs");
+const { useMovieBridge, reviewMovieProfiles, dismissPlayerTracks, movieFixtureHeader } = require("./movies_fixture.cjs");
 // Renders the Movies & TV library from a dense mocked Jellyfin and saves screenshots for review.
 // Usage: node tests/movies_visual.cjs [output-dir]   (emulated engines and device profiles, not real devices)
 const assert = require("node:assert/strict");
@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const wwwroot = path.join(__dirname, "../clients/FamilyHub.App/wwwroot");
-const out = path.resolve(process.argv[2] || path.join(__dirname, "../docs/verification/movies-1-5-2-2026-11-25"));
+const out = path.resolve(process.argv[2] || path.join(__dirname, "../.local/movies-1-6-0-visual"));
 const app = "http://familyhub.test", jellyfin = "https://jellyfin.test";
 const titles = ["Harbour Lights", "The Long Way Home", "Paper Moons", "Northern Rail", "Quiet Orchard", "Glass Season",
     "Summer of Wires", "Low Tide", "The Last Ferry", "Copper Hills", "Night Market", "A Small Revolution",
@@ -16,7 +16,8 @@ const movies = titles.map((Name, i) => ({ Id: "m" + i, Name, Type: "Movie", Prod
     RunTimeTicks: (80 + i * 4) * 6e8, Genres: i === 0 ? ["Drama", "Comedy"] : [["Drama", "Comedy", "Thriller"][i % 3]],
     Overview: "A quiet town gets a visitor with a map nobody has seen, and one evening decides what everyone does next.",
     BackdropImageTags: i < 2 ? ["b"] : undefined, ImageTags: i < 6 ? { Primary: "p" } : undefined,
-    UserData: i === 1 ? { PlaybackPositionTicks: 40 * 6e8, PlayedPercentage: 42 } : {} }));
+    DateCreated: i === 6 ? new Date().toISOString() : undefined,
+    UserData: i === 1 ? { PlaybackPositionTicks: 40 * 6e8, PlayedPercentage: 42 } : i === 2 ? {IsFavorite: true} : {} }));
 const episodes = ["Episode 1", "The Move", "Visitors", "Episode 4", "Finale", "Reunion"].map((Name, i) => ({
     Id: "e" + i, Name, Type: "Episode", SeriesName: "Harbour Town", SeriesId: "s", ParentIndexNumber: i < 4 ? 1 : 2,
     IndexNumber: i < 4 ? i + 1 : i - 3, RunTimeTicks: (36 + i) * 6e8,
@@ -34,6 +35,7 @@ async function verifyRazorShell(browser, url) {
         await page.goto(url);
         await page.getByRole("button", {name: "Switch apps"}).click();
         await page.getByRole("button", {name: /Movies & TV/}).click();
+        await page.locator(".app-header .movie-search").waitFor();
         await page.getByRole("button", {name: /^Harbour Town/}).press("Enter");
         await page.getByRole("button", {name: "Season 1", exact: true}).press("Enter");
         const still = page.locator('[data-season="1"] img').first();
@@ -90,7 +92,7 @@ async function render(browser, label, options) {
         if (name === "notices.css" || name === "notices.js")
             return route.fulfill({path: path.join(wwwroot, "../../../music_web/static", name)});
         return name ? route.fulfill({ path: path.join(wwwroot, name) })
-            : route.fulfill({ contentType: "text/html", body: '<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/movies.css"><link rel="stylesheet" href="/service-status.css"><link rel="stylesheet" href="/notices.css"><style>html,body{height:auto;min-height:100dvh;overflow:auto}body{display:block;padding:1rem;background:#0b0d12}</style><main id="content"><div class="shell-status"><div id="feedback" hidden></div></div><div class="movie-library"></div></main><script src="/notices.js"></script>' });
+            : route.fulfill({ contentType: "text/html", body: `<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/app-native.css"><link rel="stylesheet" href="/movies.css"><link rel="stylesheet" href="/service-status.css"><link rel="stylesheet" href="/notices.css"><style>html,body{height:auto;min-height:100dvh;overflow:auto}body{display:block;padding:1rem;background:#0b0d12}</style>${movieFixtureHeader}<main id="content"><div class="shell-status"><div id="feedback" hidden></div></div><div class="movie-library"></div></main><script src="/notices.js"></script>` });
     });
     await page.route(jellyfin + "/**", async route => {
         const req = route.request(), url = new URL(req.url());
@@ -127,9 +129,12 @@ async function render(browser, label, options) {
             if (empty) return list([]);
             const types = url.searchParams.get("includeItemTypes");
             const genre = url.searchParams.get("genres");
+            if (genre) return list([]);
             if (types === "Series") return list([series]);
-            if (types === "Movie,Series") return list([movies[1], movies[6], series], 19);
-            return list(genre ? movies.filter(m => m.Genres.includes(genre)) : movies);
+            if (types === "BoxSet") return list([{Id: "c1", Name: "Harbour Collection", Type: "BoxSet"}]);
+            if (url.searchParams.has("isFavorite")) return list([movies[2]]);
+            if (url.searchParams.get("sortBy") === "DateCreated") return list([movies[6]]);
+            return list(movies);
         }
         return route.fulfill({ headers, status: 404 });
     });
@@ -191,9 +196,8 @@ async function render(browser, label, options) {
         return [width, height];
     };
     const billboardSize = await loading.locator(".movie-hero").evaluate(geometry);
-    const posterSizes = await loading.locator(".movie-art").evaluateAll(nodes =>
-        nodes.map(node => [node.offsetWidth, node.offsetHeight]));
-    assert.equal(new Set(posterSizes.map(String)).size, 1);
+    assert.equal(await loading.locator(".movie-loading-landscape .movie-art").count(), 6);
+    assert.equal(await loading.locator(".movie-loading-portrait .movie-art").count(), 6);
     const pulse = loading.locator(".movie-loading-heading");
     assert.equal(await pulse.evaluate(node => getComputedStyle(node).animationName),
         options.reducedMotion === "reduce" ? "none" : "service-status-pulse");
@@ -213,7 +217,8 @@ async function render(browser, label, options) {
     const moviesCards = movieShelf.locator(".movie-card");
     await moviesCards.last().waitFor();
     assert.equal(await shelves.locator('[data-item-id="s"]').count(), 1, label + " has one card for the series");
-    await shelves.filter({has:page.getByRole("heading", {name:"TV series", exact:true})}).locator('[data-item-id="s"]').waitFor();
+    await shelves.filter({has:page.getByRole("heading", {name:"Series", exact:true})}).locator('[data-item-id="s"]').waitFor();
+    assert.deepEqual(await shelves.locator("h2").allTextContents(), ["Continue watching", "My list", "Recently added", "Series", "Movies", "Collections"]);
     const regularIds = await shelves.locator(".movie-card").evaluateAll(cards => cards
         .filter(card => card.closest("section").querySelector("h2").textContent !== "Continue watching")
         .map(card => card.dataset.titleKey));
@@ -226,9 +231,20 @@ async function render(browser, label, options) {
                 row: [row.scrollWidth, row.clientWidth]}] : [];
     }));
     assert.deepEqual(overflow, [], label + " shelves fit outside their dedicated scroll viewport");
+    if (options.viewport.width <= 600) {
+        const visible = await movieShelf.locator(".movie-shelf-scroll").evaluate(node => {
+            const frame = node.getBoundingClientRect();
+            return [...node.querySelectorAll(".movie-card")].map(card => {
+                const rect = card.getBoundingClientRect();
+                return (Math.min(rect.right, frame.right) - Math.max(rect.left, frame.left)) / rect.width;
+            }).filter(fraction => fraction > 0);
+        });
+        assert.equal(visible.filter(fraction => fraction >= .99).length, 2);
+        assert.ok(visible[2] >= .10 && visible[2] <= .20, "phone shows a peek of the third card");
+    }
     const art = await shelves.locator(".movie-card .movie-art").evaluateAll(nodes =>
         nodes.map(node => [node.offsetWidth, node.offsetHeight, node.style.getPropertyValue("--art-hue")]));
-    assert.equal(new Set(art.map(([width, height]) => [width, height].join(","))).size, 1);
+    assert.ok(new Set(art.map(([width, height]) => [width, height].join(","))).size > 1);
     assert.ok(new Set(art.map(([, , hue]) => hue)).size > 1);
     assert.equal(await shelves.getByRole("button", {name:/Add audio track/}).count(), 0);
     assert.equal(await page.getByRole("region", {name:"Audio tracks"}).count(), 0);
@@ -237,9 +253,9 @@ async function render(browser, label, options) {
     await strip.waitFor();
     assert.equal(await page.evaluate(() => {
         const width = selector => document.querySelector(selector).getBoundingClientRect().width;
-        const toolbar = document.querySelector(".movie-toolbar");
-        return width(".movie-downloads") === width(".movie-hero") && width(".movie-toolbar") === width(".movie-hero") &&
-            getComputedStyle(toolbar).boxShadow === "none" && getComputedStyle(toolbar).clipPath === "none";
+        const toolbar = document.querySelector(".app-header .movie-toolbar");
+        return width(".movie-downloads") === width(".movie-hero") && width(".movie-toolbar") > 0 &&
+            width(".movie-toolbar") <= width(".header-search") && getComputedStyle(toolbar).boxShadow === "none";
     }), true);
     if (options.viewport.width === 390) {
         const card = moviesCards.filter({hasText: titles.at(-1)});
@@ -264,8 +280,7 @@ async function render(browser, label, options) {
     await capture("home");
     const focus = locator => locator.evaluate(node => node === document.activeElement);
     const hero = page.locator(".movie-hero-play");
-    assert.deepEqual(await page.locator(".movie-hero").evaluate(geometry), billboardSize);
-    assert.deepEqual(art[0].slice(0, 2), posterSizes[0]);
+    assert.equal((await page.locator(".movie-hero").evaluate(geometry))[0], billboardSize[0]);
     await hero.focus();
     await page.keyboard.press("ArrowDown");
     assert.equal(await page.evaluate(() => document.activeElement.classList.contains("movie-card")), true);
@@ -273,13 +288,16 @@ async function render(browser, label, options) {
     await page.keyboard.press("ArrowUp");
     assert.equal(await page.evaluate(() => document.activeElement.closest(".movie-hero-actions") !== null), true);
     const shelfNext = movieShelf.getByRole("button", {name:"Next movies"});
-    await shelfNext.focus();
     const minTarget = options.viewport.width >= 1600 ? 60 : 44;
-    assert.ok((await shelfNext.boundingBox()).height >= minTarget);
     const viewport = movieShelf.locator(".movie-shelf-scroll");
     await viewport.evaluate(node => { node.scrollLeft = 0; });
-    await shelfNext.press("Enter");
-    await page.waitForFunction(node => node.scrollLeft > 0, await viewport.elementHandle());
+    if (options.hasTouch || options.viewport.width <= 600) assert.equal(await shelfNext.count(), 0);
+    else {
+        await shelfNext.focus();
+        assert.ok((await shelfNext.boundingBox()).height >= minTarget);
+        await shelfNext.press("Enter");
+        await page.waitForFunction(node => node.scrollLeft > 0, await viewport.elementHandle());
+    }
 
     const filmLoading = moviesCards.filter({hasText:"Harbour Lights"});
     await filmLoading.press("Enter");

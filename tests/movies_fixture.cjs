@@ -10,6 +10,11 @@ const playerOutput = path.join(root, "docs/verification/movie-player-2026-11-24"
 const output = path.resolve(process.argv[2] || playerOutput);
 const app = "http://familyhub.test", jellyfin = "https://jellyfin.test";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization,content-type" };
+const movieFixtureHeader = `<header class="app-header">
+    <div class="header-start"><button id="open-hub">Switch apps</button><button id="header-back">Go back</button></div>
+    <div class="header-search"><form id="search-form"><input id="q" type="search" aria-label="Search songs"></form></div>
+    <div class="sidebar-account"><button id="profile-toggle" aria-label="Profile menu">P</button></div>
+</header>`;
 
 async function useMovieBridge(page) {
     await page.addInitScript(() => {
@@ -43,7 +48,7 @@ async function useMovieBridge(page) {
     });
 }
 
-async function moviePage(page) {
+async function moviePage(page, {shell = false} = {}) {
     await useMovieBridge(page);
     await page.route("**/*", route => {
         const {hostname} = new URL(route.request().url());
@@ -58,9 +63,66 @@ async function moviePage(page) {
             <meta name="viewport" content="width=device-width,initial-scale=1">
             <link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/movies.css"><link rel="stylesheet" href="/service-status.css">
             <style>html,body{height:auto;min-height:100dvh;overflow:auto}body{display:block;padding:1rem;background:#0b0d12}</style>
+            ${shell ? '<link rel="stylesheet" href="/app-native.css">' + movieFixtureHeader : ''}
             <main class="movie-library"></main>`});
     });
     await page.goto(app);
+}
+
+async function movieHomeFixture(page, {preview = false, matches = []} = {}) {
+    await moviePage(page, {shell: true});
+    const library = await page.evaluate(async () => (await import("/movies.js")).moviePreviewLibrary());
+    const favoriteWrites = [];
+    await page.route(jellyfin + "/**", route => {
+        const url = new URL(route.request().url()), params = url.searchParams;
+        const headers = cors;
+        if (route.request().method() === "OPTIONS") return route.fulfill({status: 204, headers});
+        if (url.pathname.includes("/Images/")) {
+            const pathName = url.pathname.endsWith("/Logo") ? "movie-alt.jpg" : "movie.jpg";
+            return route.fulfill({headers, path: path.join(root, "clients/FamilyHub.App/wwwroot/movie-art", pathName)});
+        }
+        if (url.pathname.startsWith("/UserFavoriteItems/")) {
+            const item = library.find(item => url.pathname.endsWith("/" + item.Id));
+            const {favorite} = route.request().postDataJSON();
+            favoriteWrites.push({item: item.Id, favorite});
+            item.UserData.IsFavorite = favorite;
+            return route.fulfill({status: 204, headers});
+        }
+        if (url.pathname === "/Genres") {
+            const Items = [...new Set(library.flatMap(item => item.Genres))].map(Name => ({Name}));
+            return route.fulfill({headers, json: {Items, TotalRecordCount: Items.length}});
+        }
+        if (url.pathname === "/Items" || url.pathname === "/UserItems/Resume") {
+            const group = library.find(item => item.Id === params.get("parentId"))?.ChildIds;
+            const types = params.get("includeItemTypes")?.split(",");
+            const term = params.get("searchTerm")?.toLowerCase();
+            const genre = params.get("genres");
+            const items = library.filter(item => (!types || types.includes(item.Type)) && (!group || group.includes(item.Id)) &&
+                (!term || item.Name.toLowerCase().includes(term)) && (!genre || item.Genres.includes(genre)) &&
+                (!params.has("isFavorite") || item.UserData.IsFavorite) &&
+                (url.pathname !== "/UserItems/Resume" || item.UserData.PlayedPercentage));
+            if (params.get("sortBy") === "DateCreated") items.sort((a, b) => b.DateCreated.localeCompare(a.DateCreated));
+            const start = Number(params.get("startIndex") ?? 0), limit = Number(params.get("limit") ?? items.length);
+            return route.fulfill({headers, json: {Items: items.slice(start, start + limit), TotalRecordCount: items.length}});
+        }
+        return route.fulfill({headers, status: 404});
+    });
+    library[0].ImageTags.Logo = "logo";
+    library.slice(0, 18).forEach((item, i) => { item.UserData.PlayedPercentage = 10 + i; });
+    await page.evaluate(async ({preview, jellyfin, matches}) => {
+        const {openMovies} = await import("/movies.js");
+        const host = document.querySelector(".movie-library");
+        const viewer = {server: jellyfin, profile: "fixture"};
+        window.movieCalls = [];
+        const bridge = {invokeMethodAsync: async (method, ...args) => {
+            window.movieCalls.push([method, ...args]);
+            return JSON.stringify(method === "MovieMatches" ? {matches} : {results: []});
+        }};
+        window.movies = preview ? openMovies(host, null, bridge, viewer) :
+            window.openMovieFixture(openMovies, host, {url: jellyfin, user: "u", token: "t", release_search_enabled: matches.length > 0}, bridge, viewer);
+    }, {preview, jellyfin, matches});
+    await page.locator(".app-header .movie-search input:enabled").waitFor();
+    return {library, favoriteWrites};
 }
 
 async function playMovieDetails(page, card, title) {
@@ -129,4 +191,4 @@ async function reviewMovieProfiles(verify) {
 }
 
 module.exports = { app, jellyfin, cors, output, homeOutput, playerOutput, moviePage, playMovieDetails,
-    dismissPlayerTracks, useMovieBridge, verifyMovieProfiles, reviewMovieProfiles };
+    dismissPlayerTracks, useMovieBridge, verifyMovieProfiles, reviewMovieProfiles, movieFixtureHeader, movieHomeFixture };

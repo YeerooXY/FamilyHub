@@ -14,7 +14,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from threading import Lock
 from time import monotonic
 
-from flask import g, jsonify, session
+from flask import g, jsonify, request, session
 
 from . import audio_tracks, feedback, movie_import, movie_media, movie_search, tmdb, tmdb_stills, torrent_seeding
 from .catalog_search import NoRedirect
@@ -201,6 +201,8 @@ def register_movies(app, cfg, body, allow, session_is_live):
     seerr = service_url(requests.get('url'))
     seerr_key = requests.get('api_key', '')
     tmdb_token = requests.get('tmdb_read_token')
+    poster_key = cfg.get('TMDB_API_KEY')
+    posters_enabled = bool(tmdb_token or isinstance(poster_key, str) and poster_key)
     search_cache, search_pending = {}, {}
     search_lock = Lock()
     def request_user():
@@ -271,6 +273,35 @@ def register_movies(app, cfg, body, allow, session_is_live):
         if g.user not in cfg['ADMIN_USERS']:
             return jsonify(error='Only an admin can view seeding.'), 403
         result = torrent_seeding.snapshot(cfg)
+        if 'poster' in request.args:
+            ident = request.args['poster']
+            item = next((item for item in result.get('items', ()) if item['hash'] == ident), None)
+            if not item or not posters_enabled:
+                return jsonify(poster=None)
+            title, year = movie_import.release_title(item['name'])
+            title = movie_search.clean_query(title)
+            if title is None:
+                return jsonify(poster=None)
+            series = bool(movie_import.SEASON.search(item['name']) or movie_import.EPISODE.search(item['name']))
+            matches = cached_search(('torrent-poster', title.casefold()), 3600, lambda: (
+                tmdb.parse(tmdb_season('search/multi', params={'query': title, 'include_adult': 'false'}))
+                if tmdb_token else tmdb.search(poster_key, title)))
+            def words(value):
+                return re.findall(r'[^\W_]+', movie_search.plain(value))
+
+            exact = [match for match in matches or () if words(match['title']) == words(title)
+                     and (not year or match['year'] == int(year)) and (not series or match['kind'] == 'tv')]
+            return jsonify(poster=exact[0]['poster'] if len(exact) == 1 else None)
+        if result.get('available'):
+            result['posters_enabled'] = posters_enabled
+            for item in result['items']:
+                title, year = movie_import.release_title(item['name'])
+                season = movie_import.SEASON.search(item['name'])
+                item['title'] = title or item['name']
+                if season:
+                    item['subtitle'] = 'Season ' + str(int(re.search(r'\d+', season[0])[0]))
+                elif year:
+                    item['subtitle'] = year
         response = jsonify(result)
         response.status_code = 200 if result['available'] else 503
         response.headers['Cache-Control'] = 'no-store'

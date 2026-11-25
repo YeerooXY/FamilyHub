@@ -3,9 +3,11 @@ import { createServiceStatus } from './service-status.js';
 const $ = id => document.getElementById(id);
 const REFRESH_MS = 30000;
 let csrf = '', timer = 0, refreshing = false;
+const posters = new Map();
+let posterRequest = Promise.resolve();
 const outage = createServiceStatus({
-  detail: 'Reconnect to load seeding records.', label: 'Retry seeding', retry: refresh,
-  focus: () => $('global').hidden ? $('page-title') : $('global-title'), automatic: true, fullSection: true
+  detail: 'Reconnect to load torrent activity.', label: 'Retry torrent activity', retry: refresh,
+  focus: () => $('boards').hidden ? $('page-title') : $('downloads-title'), automatic: true, fullSection: true
 });
 $('seeding-outage').append(outage.card);
 const signInOutage = createServiceStatus({
@@ -27,10 +29,9 @@ const gb = bytes => ((Number(bytes) || 0) / 1073741824).toFixed(bytes >= 1073741
 const fixed = value => (Number(value) || 0).toFixed(2);
 
 function meter(node, fraction) {
-  const percent = Math.round(Math.max(0, Math.min(1, fraction)) * 100);
+  const percent = Math.floor(Math.max(0, Math.min(1, fraction)) * 100);
   node.setAttribute('aria-valuenow', percent);
   node.firstElementChild.style.width = percent + '%';
-  node.classList.toggle('done', percent >= 100);
 }
 
 function show(which) {
@@ -66,41 +67,105 @@ function part(label, value) {
   return span;
 }
 
+function artwork(item, enabled) {
+  const tile = document.createElement('div');
+  tile.className = 'poster';
+  tile.setAttribute('aria-hidden', 'true');
+  tile.textContent = (item.title || item.name).trim().charAt(0).toUpperCase();
+  const color = Number.parseInt(item.hash?.slice(0, 6), 16) % 360 || 0;
+  tile.style.setProperty('--poster-hue', color);
+  if (enabled && item.hash) {
+    if (!posters.has(item.hash)) {
+      const lookup = posterRequest.then(async () => {
+        const {data} = await api('/api/server/seeding?poster=' + encodeURIComponent(item.hash)).catch(() => ({}));
+        return data?.poster;
+      });
+      posters.set(item.hash, lookup);
+      posterRequest = lookup;
+    }
+    posters.get(item.hash).then(url => {
+      if (!url || !tile.isConnected) return;
+      const img = new Image();
+      img.alt = '';
+      img.loading = 'lazy';
+      img.referrerPolicy = 'no-referrer';
+      img.addEventListener('error', () => img.remove(), {once: true});
+      img.src = url;
+      tile.append(img);
+    });
+  }
+  return tile;
+}
+
+function torrentRow(item, download, goal, snapshot) {
+  const node = document.createElement('li'), content = document.createElement('div');
+  const title = document.createElement('h3'), tag = document.createElement('span');
+  const header = document.createElement('div'), detail = document.createElement('p');
+  header.className = 'torrent-header';
+  title.textContent = item.subtitle ? `${item.title} · ${item.subtitle}` : item.title || item.name;
+  title.title = item.name;
+  const speed = snapshot.stale ? 0 : download ? item.dl_speed : item.up_speed;
+  const idle = item.state === 'Stalled seeding';
+  tag.className = 'tag';
+  tag.textContent = download ? item.state : idle ? 'Seeding idle' :
+    !item.complete ? speed > 0 ? 'Uploading' : 'Waiting to seed' : item.state;
+  header.append(title, tag);
+  content.append(header);
+  node.append(artwork(item, snapshot.posters_enabled), content);
+  if (download && item.progress === 0 && !item.size && !item.downloaded) return node;
+  const fraction = download ? item.progress : item.ratio / goal;
+  const value = download ? `${Math.min(99.9, Math.floor(item.progress * 1000) / 10)}%`
+    : `${fixed(item.ratio)}× of ${goal.toFixed(1)}×`;
+  detail.className = 'row';
+  detail.append(download ? part('Downloaded', item.size ? `${gb(item.progress * item.size)} of ${gb(item.size)}`
+    : gb(item.downloaded)) : part('Uploaded', gb(item.uploaded)));
+  if (speed > 0) {
+    const mb = speed / 1048576;
+    detail.append(part(download ? 'Down' : 'Up', mb >= 1 ? `${mb.toFixed(1)} MB/s` : `${Math.ceil(speed / 1024)} KB/s`));
+  }
+  if (fraction != null) {
+    const bar = document.createElement('div'), fill = document.createElement('i');
+    bar.className = 'meter';
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-label', `${title.textContent} ${download ? 'download' : 'share ratio'}`);
+    bar.setAttribute('aria-valuemin', '0');
+    bar.setAttribute('aria-valuemax', '100');
+    bar.setAttribute('aria-valuetext', value);
+    bar.append(fill);
+    meter(bar, fraction);
+    detail.prepend(part(download ? 'Progress' : 'Ratio', value));
+    content.append(bar);
+  } else {
+    detail.prepend('Progress unavailable');
+  }
+  content.append(detail);
+  return node;
+}
+
 function render(snapshot) {
   const goal = Number(snapshot.goal) || 2;
   $('goal').textContent = goal.toFixed(1);
   $('global-ratio').textContent = fixed(snapshot.global_ratio);
   meter($('global-meter'), (Number(snapshot.global_ratio) || 0) / goal);
+  $('global-meter').setAttribute('aria-valuetext', `${fixed(snapshot.global_ratio)}× of ${goal.toFixed(1)}×`);
   const need = Math.max(0, goal * snapshot.total_downloaded - snapshot.total_uploaded);
   const detail = need ? `${gb(need)} more to reach ${goal.toFixed(1)}×`
     : snapshot.global_ratio >= goal ? `${goal.toFixed(1)}× goal reached` : 'No downloads recorded.';
   $('global-detail').textContent = `${gb(snapshot.total_uploaded)} uploaded · ${gb(snapshot.total_downloaded)} downloaded · ${detail}`;
-  const items = snapshot.items.map(item => {
-    const node = document.createElement('li'), title = document.createElement('h3'), tag = document.createElement('span');
-    title.textContent = item.name;
-    tag.className = 'tag';
-    tag.textContent = item.state;
-    title.append(tag);
-    const bar = document.createElement('div'), fill = document.createElement('i');
-    bar.className = 'meter';
-    bar.setAttribute('role', 'progressbar');
-    bar.setAttribute('aria-label', `${item.name} share ratio`);
-    bar.setAttribute('aria-valuemin', '0');
-    bar.setAttribute('aria-valuemax', '100');
-    bar.append(fill);
-    meter(bar, item.ratio / goal);
-    const row = document.createElement('p');
-    row.className = 'row';
-    row.append(part('Ratio', `${fixed(item.ratio)}× of ${goal.toFixed(1)}×`), part('Uploaded', gb(item.uploaded)),
-      part('Downloaded', gb(item.downloaded)));
-    node.append(title, bar, row);
-    return node;
-  });
-  $('items').replaceChildren(...items);
-  $('items').hidden = $('files-title').hidden = !items.length;
-  $('global').hidden = false;
-  $('status').textContent = snapshot.stale ? 'The latest reading is more than two minutes old.'
-    : items.length ? '' : 'No torrents on the server.';
+  const downloads = snapshot.items.filter(item => !item.complete);
+  const seeds = snapshot.items.filter(item => item.complete || item.uploaded > 0);
+  $('download-items').replaceChildren(...downloads.map(item => torrentRow(item, true, goal, snapshot)));
+  $('seed-items').replaceChildren(...seeds.map(item => torrentRow(item, false, goal, snapshot)));
+  $('downloads-empty').hidden = downloads.length > 0;
+  $('seeds-empty').hidden = seeds.length > 0;
+  $('boards').hidden = false;
+  const sampleTime = new Date(snapshot.last_sample_at);
+  $('sample-time').textContent = Number.isNaN(+sampleTime) ? '' : `Last sampled ${sampleTime.toLocaleTimeString()}`;
+  const activeDownloads = downloads.filter(item => item.state === 'Downloading').length;
+  const activeSeeds = seeds.filter(item => item.state === 'Seeding' || item.up_speed > 0).length;
+  const status = snapshot.stale ? 'Showing a reading from more than two minutes ago.'
+    : `${downloads.length} unfinished · ${activeDownloads} downloading · ${activeSeeds} uploading`;
+  if ($('status').textContent !== status) $('status').textContent = status;
 }
 
 function showUnavailable() {
@@ -108,9 +173,9 @@ function showUnavailable() {
   show('seeding');
   $('status').textContent = '';
   if (outage.card.hidden) outage.card.querySelector('.service-status-announcement p').textContent =
-    $('global').hidden ? 'Reconnect to load seeding records.' : 'Showing the last reading.';
+    $('boards').hidden ? 'Reconnect to load torrent activity.' : 'Showing the last reading.';
   outage.show();
-  if (wasSigningIn) outage.card.querySelector('button').focus();
+  if (wasSigningIn || document.activeElement === document.body) outage.card.querySelector('button').focus();
 }
 
 async function refresh() {
@@ -119,7 +184,8 @@ async function refresh() {
   clearTimeout(timer);
   const {status, data} = await api('/api/server/seeding').catch(() => ({status: 0, data: null}));
   if (status === 401 || status === 403) {
-    $('global').hidden = $('items').hidden = $('files-title').hidden = true;
+    $('boards').hidden = true;
+    $('sample-time').textContent = '';
     await showSignIn(status === 403 ? 'Choose an administrator profile.' : '');
     refreshing = false;
     return;
@@ -128,7 +194,7 @@ async function refresh() {
     const moveFocus = $('signin').contains(document.activeElement);
     render(data);
     show('seeding');
-    if (moveFocus) $('global-title').focus();
+    if (moveFocus) $('downloads-title').focus();
     outage.clear();
   } else {
     showUnavailable();

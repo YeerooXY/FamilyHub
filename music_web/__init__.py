@@ -466,6 +466,9 @@ def create_app(test_config=None):
             "X-Content-Type-Options": "nosniff",
             "Permissions-Policy": "camera=(), microphone=(), geolocation=()", "Cache-Control": "no-store",
             "Strict-Transport-Security": "max-age=31536000"})
+        if request.endpoint == "admin_page":
+            resp.headers["Content-Security-Policy"] = resp.headers["Content-Security-Policy"].replace(
+                "img-src 'self';", "img-src 'self' https://image.tmdb.org;")
         resp.headers.setdefault("Referrer-Policy", "no-referrer" if request.endpoint == "movie_media" else "same-origin")
         # The apps refresh these lists every few minutes. An unchanged list answers 304 with
         # no body, and a changed one is gzip-compressed (about a fifth of the size).

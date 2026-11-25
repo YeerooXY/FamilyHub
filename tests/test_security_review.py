@@ -187,6 +187,23 @@ class MovieGrants(Base):
         opener.assert_not_called()
 
     @patch('music_web.movies.urllib.request.build_opener')
+    def test_movie_favorite_changes_only_the_granted_viewers_state(self, opener):
+        client, csrf = self.select()
+        movie = self.grant(client, csrf, opener)
+        data = dict(ticket=movie['media_ticket'], path=f'UserFavoriteItems/{self.item}', query='')
+        for favorite, method in [(True, 'POST'), (False, 'DELETE')]:
+            opener.return_value.open.return_value = io.BytesIO(b'{"IsFavorite":' + json.dumps(favorite).encode() + b'}')
+            reply = self.post(client, csrf, '/api/movies/library', json={**data, 'payload': {'favorite': favorite}})
+            self.assertEqual(reply.json, {'result': {'IsFavorite': favorite}})
+            req = opener.return_value.open.call_args.args[0]
+            self.assertTrue(req.full_url.endswith(f'/Users/viewer-id/FavoriteItems/{self.item}'))
+            self.assertEqual(req.get_method(), method)
+        opener.reset_mock()
+        for invalid in [{'query': 'userId=other', 'payload': {'favorite': True}}, {'payload': {'favorite': 'false'}}, {'payload': None}]:
+            self.assertEqual(self.post(client, csrf, '/api/movies/library', json={**data, **invalid}).status_code, 400)
+        opener.assert_not_called()
+
+    @patch('music_web.movies.urllib.request.build_opener')
     def test_media_rewrites_playlist_and_revokes_ticket(self, opener):
         client, csrf = self.select()
         movie = self.grant(client, csrf, opener)

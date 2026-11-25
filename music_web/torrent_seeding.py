@@ -35,8 +35,11 @@ def snapshot(config):
             latest = db.execute('SELECT observed_at FROM last_sample WHERE id=1').fetchone()
             if latest is None:
                 return unavailable
-            rows = db.execute('''
-                SELECT s.hash, s.name, s.state, s.ratio, s.uploaded, s.downloaded,
+            columns = {row[1] for row in db.execute('PRAGMA table_info(last_seen)')}
+            rows = db.execute(f'''
+                SELECT s.hash, s.name, s.state, s.ratio, s.uploaded, s.downloaded, s.complete,
+                       {', '.join(column if column in columns else f'NULL AS {column}'
+                                  for column in ('progress', 'size', 'dl_speed', 'up_speed'))},
                        r.observed_at AS reached_goal_at
                 FROM last_seen s LEFT JOIN reached_goal r ON s.hash = r.hash
                 WHERE s.present = 1 ORDER BY s.name COLLATE NOCASE, s.hash

@@ -1,5 +1,24 @@
 # Interface verification
 
+## 25 November 2026 Admin torrent activity
+
+| Screen and states | Layout and visual | Motion | Focus and keyboard | Accessibility | Wording and states |
+| --- | --- | --- | --- | --- | --- |
+| Admin sign-in, Downloads and Seeding | Six browser profiles. Inspected Windows Chromium, macOS Safari via WebKit, Pixel 7 and iPhone 13 profiles. | Summary meter transition plus reduced motion | Tab, Shift+Tab, Enter and Space. Sign-in and retry land on Downloads. | Named progress bars and live activity status checked. Screen-reader speech pending. | Active downloads, metadata, idle seeding, poster fallback, stale, empty and retry checked. Signed-in live browser and physical-device checks pending. |
+
+[Screenshots](admin-torrents-2026-11-25). Run `node tests/admin_page.cjs docs/verification/admin-torrents-2026-11-25` from the repository. The live sampler recorded current percentages, transfer speeds and both seasons uploading. The deployed page and signed-out access checks passed.
+
+## 25 November 2026 Movies & TV 1.6.0 Home
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Home, loading, empty library and retry | never | never | never | never | never | Source check, 25 Nov 2026 | never |
+| Home title search, empty results and release handoff | never | never | never | never | never | Source check, 25 Nov 2026 | never |
+| Movies settings, Layout preview and fallback background | never | never | never | never | never | Source check, 25 Nov 2026 | never |
+| Preview library and collection titles | never | never | never | never | never | Source check, 25 Nov 2026 | never |
+
+`tests/movies_home_layout.cjs` measures five widths and covers normal motion, reduced motion and effects off. The visual fixture covers Chromium and WebKit profiles. Rendered checks and real-device verification are pending.
+
 ## 25 November 2026 Movies & TV 1.5.2
 
 | Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |

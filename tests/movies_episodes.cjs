@@ -66,7 +66,7 @@ async function check(browser, profile, options) {
                 seasons: [{number:1, episode_count:3}, {number:2, episode_count:1}, {number:3, episode_count:8}]
             }) : undefined }, { server: location.origin, profile: "viewer" });
     }, jellyfin);
-    const shelf = page.locator(".movie-shelf").filter({ has: page.getByRole("heading", { name: "TV series" }) });
+    const shelf = page.locator(".movie-shelf").filter({ has: page.getByRole("heading", { name: "Series", exact: true }) });
     const back = page.getByRole("button", { name: "Back to movies" });
     const shell = page.locator(".app-header");
     const filmCard = page.locator(".movie-shelf").filter({ has: page.getByRole("heading", { name: "Movies", exact: true }) })

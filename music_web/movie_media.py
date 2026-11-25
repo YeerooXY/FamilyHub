@@ -25,6 +25,7 @@ URI_ATTRIBUTE = re.compile(r'\bURI="([^"\r\n]+)"')
 WEBVIEW_ORIGINS = {'https://0.0.0.1', 'http://0.0.0.1', 'app://0.0.0.1', 'https://app.localhost', 'null'}
 LIBRARY_READ = re.compile(rf'(?:Items(?:/{ITEM})?|UserItems/Resume|Genres|Shows/{ITEM}/Episodes|Items/{ITEM}/RemoteSearch/Subtitles/[a-z]{{3}})')
 LIBRARY_WRITE = re.compile(rf'(?:Items/{ITEM}/PlaybackInfo|Sessions/Playing(?:/Progress|/Stopped)?|Items/{ITEM}/RemoteSearch/Subtitles/[A-Za-z0-9._~%+-]{{1,500}})')
+FAVORITE = re.compile(rf'UserFavoriteItems/({ITEM})')
 LIBRARY_PRIVATE_FIELDS = {'path', 'encoderpath', 'directstreamurl', 'password', 'pw'}
 
 
@@ -138,9 +139,12 @@ def register(app, base, body, allow, session_is_live):
             abort(404)
         resource, query, payload = (data.get(key) for key in ('path', 'query', 'payload'))
         rule = LIBRARY_READ if payload is None else LIBRARY_WRITE
-        if not isinstance(resource, str) or not rule.fullmatch(resource) or not isinstance(query, str):
+        favorite = FAVORITE.fullmatch(resource) if isinstance(resource, str) else None
+        if not isinstance(resource, str) or not (favorite or rule.fullmatch(resource)) or not isinstance(query, str):
             abort(400)
         if payload is not None and not isinstance(payload, dict):
+            abort(400)
+        if favorite and (query or not isinstance(payload, dict) or set(payload) != {'favorite'} or type(payload['favorite']) is not bool):
             abort(400)
         if '/RemoteSearch/Subtitles/' in resource:
             subtitle = urllib.parse.unquote(resource.rsplit('/', 1)[1])
@@ -159,8 +163,14 @@ def register(app, base, body, allow, session_is_live):
                 params = [(key, ','.join(field for field in val.split(',') if field.strip().casefold() != 'runtimeticks')
                            if key.casefold() == 'fields' else val) for key, val in params]
                 params = [(key, val) for key, val in params if key.casefold() != 'fields' or val]
-            req = urllib.request.Request(base + '/' + resource + '?' + urllib.parse.urlencode(params), headers=headers,
-                                         data=json.dumps(payload).encode() if payload is not None else None)
+            if favorite:
+                # The grant supplies the viewer. The client supplies only an item ID and the desired state.
+                viewer = urllib.parse.quote(grant.viewer, safe='')
+                req = urllib.request.Request(f'{base}/Users/{viewer}/FavoriteItems/{favorite[1]}', headers=headers,
+                                             method='POST' if payload['favorite'] else 'DELETE')
+            else:
+                req = urllib.request.Request(base + '/' + resource + '?' + urllib.parse.urlencode(params), headers=headers,
+                                             data=json.dumps(payload).encode() if payload is not None else None)
             with urllib.request.build_opener(NoRedirect).open(req, timeout=8) as upstream:
                 raw = upstream.read((4 << 20) + 1)
             if len(raw) > 4 << 20:

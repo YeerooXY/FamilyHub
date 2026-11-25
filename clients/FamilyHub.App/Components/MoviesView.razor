@@ -44,6 +44,15 @@
             module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./movies.js");
             await module.InvokeVoidAsync("showMovieLoading", host);
             callback ??= DotNetObjectReference.Create(this);
+            var preferences = await module.InvokeAsync<System.Text.Json.JsonElement>("readMoviePreferences", viewer);
+            if (closed.IsCancellationRequested) return;
+            if (preferences.TryGetProperty("layoutPreview", out var preview) && preview.ValueKind == System.Text.Json.JsonValueKind.True)
+            {
+                shelf = await module.InvokeAsync<IJSObjectReference>("openMovies", host, null, callback, viewer);
+                if (closed.IsCancellationRequested) { await shelf.InvokeVoidAsync("close"); return; }
+                failed = false;
+                return;
+            }
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(closed.Token);
             timeout.CancelAfter(TimeSpan.FromSeconds(10));
             var connection = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/movies/session",

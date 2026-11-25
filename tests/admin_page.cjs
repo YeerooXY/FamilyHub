@@ -9,9 +9,17 @@ const out = process.argv[2];
 const gb = 1024 ** 3;
 const snapshot = {
     available: true, goal: 2, global_ratio: 1.5, total_uploaded: 30 * gb, total_downloaded: 20 * gb,
+    last_sample_at: "2026-11-25T22:45:00Z", posters_enabled: true,
     items: [
-        {name: "Debian installer", state: "Seeding", ratio: 2.5, uploaded: 25 * gb, downloaded: 10 * gb},
-        {name: "Archive of public domain films", state: "Stalled seeding", ratio: .5, uploaded: 5 * gb, downloaded: 10 * gb}
+        {hash: "a".repeat(40), name: "Debian installer", complete: 1, state: "Seeding", ratio: 2.5,
+            uploaded: 25 * gb, downloaded: 10 * gb, up_speed: 3 * 1024 ** 2},
+        {hash: "b".repeat(40), name: "Archive of public domain films", complete: 1, state: "Stalled seeding",
+            ratio: .5, uploaded: 5 * gb, downloaded: 10 * gb},
+        {hash: "c".repeat(40), name: "An archive of restored public domain films – winter collection",
+            complete: 0, state: "Downloading", ratio: 0, progress: .4, size: 5 * gb, downloaded: 2 * gb,
+            dl_speed: 1024 * 600},
+        {hash: "d".repeat(40), name: "Film preservation project", complete: 0, state: "Fetching metadata",
+            ratio: 0, progress: 0, downloaded: 0}
     ]
 };
 
@@ -21,7 +29,7 @@ async function verify(browser, profile, options) {
         page.setDefaultTimeout(8000);
         const errors = [];
         page.on("pageerror", error => errors.push(error.message));
-        let signedIn, unavailable = false;
+        let signedIn, unavailable = false, sample = snapshot;
         await page.route(app + "/**", async route => {
             const resource = new URL(route.request().url()).pathname;
             if (resource === "/api/connect") return route.fulfill({json: {csrf_token: "fixture", profiles: [
@@ -38,8 +46,12 @@ async function verify(browser, profile, options) {
                 if (!signedIn) return route.fulfill({status: 401, json: {}});
                 if (signedIn !== "admin") return route.fulfill({status: 403, json: {}});
                 if (unavailable) return route.fulfill({status: 503, json: {}});
-                return route.fulfill({json: snapshot});
+                const poster = new URL(route.request().url()).searchParams.get("poster");
+                if (poster) return route.fulfill({json: {poster: poster === "c".repeat(40) ? app + "/fixture-poster.svg" : null}});
+                return route.fulfill({json: sample});
             }
+            if (resource === "/fixture-poster.svg") return route.fulfill({contentType: "image/svg+xml", body:
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 60"><path fill="#94534a" d="M0 0h40v60H0z"/><circle fill="#ffcd8b" cx="26" cy="20" r="9"/><path fill="#2d465a" d="M0 50 15 23 40 50v10H0z"/></svg>'});
             const asset = resource === "/admin" ? "admin.html" : path.basename(resource);
             return route.fulfill({path: path.join(asset.startsWith("service-status.") ? shared : assets, asset), headers: {
                 "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'"
@@ -70,25 +82,42 @@ async function verify(browser, profile, options) {
         await profileSelect.selectOption("admin");
         await password.fill("fixture-password");
         await password.press("Enter");
-        const heading = page.getByRole("heading", {name: "All torrents"});
+        const heading = page.getByRole("heading", {name: "Downloads", exact: true});
         await heading.waitFor();
         assert.equal(await focused(heading), true);
-        const meter = page.getByRole("progressbar", {name: "All torrents"});
+        const meter = page.getByRole("progressbar", {name: "Share ratio of current torrents"});
         assert.equal(await meter.getAttribute("aria-valuenow"), "75");
         assert.equal(await meter.locator("i").evaluate(node => node.style.width), "75%");
         assert.equal(await page.getByRole("progressbar", {name: "Debian installer share ratio"}).getAttribute("aria-valuenow"), "100");
         assert.equal(await page.getByRole("progressbar", {name: "Archive of public domain films share ratio"}).getAttribute("aria-valuenow"), "25");
+        const downloads = page.getByRole("region", {name: "Downloads"});
+        assert.equal(await downloads.getByRole("progressbar", {name: /winter collection download/}).getAttribute("aria-valuetext"), "40%");
+        assert.equal(await page.getByText("Seeding idle", {exact: true}).count(), 1);
+        await downloads.locator(".poster img").scrollIntoViewIfNeeded();
+        await page.waitForFunction(() => document.querySelector(".poster img")?.naturalWidth > 0);
+        await heading.scrollIntoViewIfNeeded();
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-        if (out) await page.screenshot({path: path.join(out, profile + "-admin-seeding.png")});
+        if (out) await page.screenshot({path: path.join(out, profile + "-admin-seeding.png"), fullPage: true});
         unavailable = true;
         await page.clock.fastForward(31000);
-        const retry = page.getByRole("button", {name: "Retry seeding"});
+        const retry = page.getByRole("button", {name: "Retry torrent activity"});
         await retry.waitFor();
         await page.getByRole("status").filter({hasText: "Showing the last reading"}).waitFor();
         assert.equal(await meter.isVisible(), true);
         unavailable = false;
         await retry.press("Enter");
         await retry.waitFor({state: "hidden"});
+        assert.equal(await focused(heading), true);
+        const transition = await meter.locator("i").evaluate(node => getComputedStyle(node).transitionDuration);
+        assert.equal(transition, options.reducedMotion === "reduce" ? "0s" : "0.4s");
+        sample = {...snapshot, stale: true};
+        await page.clock.fastForward(31000);
+        await page.getByRole("status").filter({hasText: "Showing a reading"}).waitFor();
+        assert.equal(await page.getByText("3.0 MB/s").count(), 0);
+        sample = {...snapshot, items: [], global_ratio: 0, total_uploaded: 0, total_downloaded: 0};
+        await page.clock.fastForward(31000);
+        await page.getByText("No downloads in the queue.").waitFor();
+        await page.getByText("No torrents ready to seed.").waitFor();
         assert.equal(await focused(heading), true);
         assert.deepEqual(errors, []);
     } finally {

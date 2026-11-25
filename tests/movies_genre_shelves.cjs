@@ -7,7 +7,9 @@ const { chromium, webkit, devices } = require(require.resolve("playwright", { pa
 const app = "http://familyhub.test", jellyfin = "https://jellyfin.test";
 const wwwroot = path.join(__dirname, "../clients/FamilyHub.App/wwwroot");
 const film = (id, name, genres) => ({ Id: id, Name: name, Type: "Movie", ProductionYear: 2011, Genres: genres, ImageTags: {}, UserData: {} });
-const library = [film("a1", "In Time", ["Science Fiction", "Thriller"]), film("a2", "Heat", ["Thriller", "Crime"]), film("a3", "Alien", ["Science Fiction"])];
+const library = [film("a1", "In Time", ["Science Fiction", "Thriller"]), film("a2", "Heat", ["Thriller", "Crime"]), film("a3", "Alien", ["Science Fiction"]),
+    ...["Arrival", "Contact"].map((name, i) => film(`science${i}`, name, ["Science Fiction"])),
+    ...["Vertigo", "Rear Window", "North by Northwest"].map((name, i) => film(`thriller${i}`, name, ["Thriller"]))];
 
 async function check(browser, label, options) {
     const page = await browser.newPage(options);
@@ -44,7 +46,7 @@ async function check(browser, label, options) {
     for (const name of ["Thriller", "Crime"]) await shelf(name).scrollIntoViewIfNeeded().catch(() => {});
     await shelf("Thriller").locator("[data-item-id=a2]").waitFor();
     assert.equal(await shelf("Thriller").locator("[data-item-id=a1]").count(), 0, `${label}: In Time stays off the Thriller shelf`);
-    // Heat already sits on Thriller, so Crime has nothing left and is not drawn.
+    // Crime has fewer than four titles after the preceding genres claim their cards.
     await page.waitForFunction(() => [...document.querySelectorAll(".movie-shelf")].find(s => s.querySelector("h2")?.textContent === "Crime")?.hidden !== false);
     const total = await page.locator(".movie-shelf").evaluateAll(shelves => shelves.filter(s => !s.hidden && ["Science Fiction", "Thriller", "Crime"].includes(s.querySelector("h2")?.textContent))
         .flatMap(s => [...s.querySelectorAll(".movie-card, [data-item-id]")].map(card => card.dataset.itemId)));

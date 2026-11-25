@@ -18,13 +18,13 @@ async function verify(browser, profile, options) {
     const page = await browser.newPage(options);
     page.setDefaultTimeout(6000);
     try {
+        await moviePage(page);
         await page.route(jellyfin + "/**", route => route.request().method() === "OPTIONS"
             ? route.fulfill({status: 204, headers: cors})
             : route.fulfill({headers: cors, json: {Items: [], TotalRecordCount: 0}}));
         await page.route("https://i.ytimg.com/**", route => route.fulfill({
             path: path.join(__dirname, "../clients/FamilyHub.App/wwwroot/movie-art", new URL(route.request().url()).pathname.slice(1))
         }));
-        await moviePage(page);
         await page.clock.install();
         const candidates = videos.map(([id, title, height], index) => ({
             id, title: index === 2 ? "<b>Rail &amp; Snow&#39;s Trailer</b>" : title, url: url(id),
@@ -68,7 +68,7 @@ async function verify(browser, profile, options) {
         assert.equal(await cards.count(), 5);
         assert.equal(await list.locator("details").count(), 0);
         assert.equal(await focused(page.getByRole("button", {name: "Search", exact: true})), true);
-        await page.getByRole("status").filter({hasText: "5 videos found."}).waitFor();
+        await page.getByRole("status").filter({hasText: "5 titles found."}).waitFor();
         const watch = card.getByRole("link", {name: "Watch on YouTube"});
         const download = card.getByRole("button", {name: `Download ${title}`});
         await watch.focus();

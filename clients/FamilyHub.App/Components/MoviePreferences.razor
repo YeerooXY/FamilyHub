@@ -32,6 +32,24 @@
             <option value="en">English</option>
         </select>
     </div>
+    <div class="setting-row">
+        <label for="movie-home-background">Home fallback background</label>
+        <select id="movie-home-background" @bind="preferences.HomeBackground" @bind:after="Save" disabled="@(!ready)">
+            <option value="auto">Match genre</option>
+            <option value="violet">Violet</option>
+            <option value="blue">Blue</option>
+            <option value="green">Green</option>
+            <option value="amber">Amber</option>
+            <option value="red">Red</option>
+            <option value="slate">Slate</option>
+        </select>
+    </div>
+    <div class="setting-row">
+        <label for="movie-layout-preview">Layout preview</label>
+        <input id="movie-layout-preview" type="checkbox" role="switch" @bind="preferences.LayoutPreview" @bind:after="Save"
+               disabled="@(!ready)" aria-describedby="movie-layout-preview-help" />
+    </div>
+    <p class="setting-help" id="movie-layout-preview-help">Show demo titles in Movies Home. Playback and downloads are unavailable in preview.</p>
     <p class="setting-help">Saved on this device for your profile.</p>
     <p class="setting-help" role="status">@message</p>
 </section>
@@ -43,6 +61,8 @@
         public string Audio { get; set; } = "default";
         public string Subtitles { get; set; } = "default";
         public string DataSaver { get; set; } = "auto";
+        public string HomeBackground { get; set; } = "auto";
+        public bool LayoutPreview { get; set; }
     }
 
     private Preferences preferences = new();
