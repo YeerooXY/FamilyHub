@@ -1,8 +1,8 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { jellyfin, cors, moviePage, output, playMovieDetails, verifyMovieProfiles } = require("./movies_fixture.cjs");
-const polishOutput = process.argv[2] || path.join(__dirname, "../docs/verification/movies-polish-2026-11-25");
+const { jellyfin, cors, moviePage, playMovieDetails, verifyMovieProfiles } = require("./movies_fixture.cjs");
+const output = process.argv[2] || path.join(__dirname, "../docs/verification/movies-1-5-2-2026-11-25");
 
 async function verify(browser, profile, options) {
     const page = await browser.newPage(options);
@@ -177,9 +177,20 @@ async function verifyTranscodeFallback(browser, profile, options) {
             });
             window.Hls = class {
                 static isSupported() { return true; }
-                static Events = {ERROR: "error"};
+                static Events = {ERROR: "error", MANIFEST_PARSED: "manifestParsed"};
+                static ErrorTypes = {NETWORK_ERROR: "networkError"};
+                static ErrorDetails = {MANIFEST_LOAD_ERROR: "manifestLoadError"};
+                static DefaultConfig = {loader: class {
+                    async load(context, _settings, callbacks) {
+                        const response = await fetch(context.url);
+                        callbacks.onError({code: response.status}, context, response);
+                        window.manifestStatus = response.status;
+                    }
+                }};
+                constructor(config) { this.loader = new config.loader(); }
                 on(_name, fail) { window.hlsFailure = fail; }
-                loadSource(url) { fetch(url).catch(() => {}); }
+                once() {}
+                loadSource(url) { this.loader.load({type: "manifest", url}, {}, {onError() {}}); }
                 attachMedia() {}
                 destroy() {}
             };
@@ -206,7 +217,10 @@ async function verifyTranscodeFallback(browser, profile, options) {
             const {openMovies} = await import("/movies.js");
             window.movies = window.openMovieFixture(openMovies, document.querySelector("main"),
                 {url: jellyfin, user: "test", token: "fixture", device: "fixture"},
-                {invokeMethodAsync: async method => method === "MovieConnectionKind" ? "wifi" : undefined});
+                {invokeMethodAsync: async (method, ...args) => {
+                    if (method === "MovieEvent") (window.movieEvents ??= []).push(args);
+                    if (method === "MovieConnectionKind") return "wifi";
+                }});
         }, jellyfin);
         await playMovieDetails(page, page.getByRole("button", {name: item.Name, exact: true}), item.Name);
         const video = page.locator("video");
@@ -215,23 +229,51 @@ async function verifyTranscodeFallback(browser, profile, options) {
         const manifest = () => page.waitForResponse(response => new URL(response.url()).pathname.endsWith("/master.m3u8"));
         const fallback = manifest();
         await video.evaluate(node => {
-            Object.defineProperty(node, "error", {value: {code: 4}});
+            Object.defineProperty(node, "error", {value: {
+                code: 4, message: "PIPELINE_ERROR_DECODE: Could not decode https://private.test/stream?token=secret"
+            }});
             node.dispatchEvent(new Event("error"));
         });
         await fallback;
+        await page.waitForFunction(() => window.manifestStatus === 503);
         assert.equal(requests.length, 2);
         const transcode = requests[1];
         assert.equal(transcode.MediaSourceId, "source");
         assert.equal(transcode.DeviceProfile.TranscodingProfiles[0].Protocol, "hls");
         for (const key of ["EnableDirectPlay", "EnableDirectStream", "AllowVideoStreamCopy", "AllowAudioStreamCopy"])
             assert.equal(transcode[key], false);
-        await page.evaluate(() => window.hlsFailure("error", {fatal: true, type: "networkError", response: {code: 503}}));
+        await page.evaluate(() => window.hlsFailure("error", {
+            fatal: true, type: "networkError", details: "manifestLoadError"
+        }));
         const message = page.getByText("The video stream stopped responding.", {exact: true});
         const retry = page.getByRole("button", {name: "Try again", exact: true});
         await retry.waitFor();
         assert.equal(await message.getAttribute("role"), "status");
         assert.doesNotMatch(await page.locator(".movie-ui-message").innerText(), /503/);
-        await page.screenshot({path: path.join(polishOutput, profile + "-player-error.png"), animations: "disabled"});
+        const errors = await page.evaluate(() => window.movieEvents.filter(([kind]) => kind === "playback-error"));
+        assert.equal(errors.length, 2);
+        assert.equal(errors[0][1], "DirectPlay");
+        assert.equal(errors[0][4].mediaCode, 4);
+        assert.equal(errors[0][4].mediaMessage, "PIPELINE_ERROR_DECODE Could not decode");
+        assert.equal(errors[1][1], "Transcode");
+        assert.deepEqual(errors[1][4], {mediaCode:null, mediaMessage:"", hlsType:"networkError",
+            hlsDetails:"manifestLoadError", hlsFatal:true, audioIndex:null, hlsLoaded:true, httpStatus:503, forced:true});
+        await page.evaluate(() => { document.body.dataset.effects = "off"; });
+        await page.waitForFunction(() => {
+            const player = document.querySelector(".movie-expanded");
+            return [player, ...player.querySelectorAll("video, .movie-ui, .movie-ui-message, .movie-ui-retry")]
+                .every(node => getComputedStyle(node).cursor === "none");
+        });
+        assert.equal(await retry.isVisible(), true);
+        assert.equal(await retry.evaluate(node => node.tabIndex), 0);
+        assert.equal(await retry.evaluate(node => getComputedStyle(node).pointerEvents), "auto");
+        const cursor = () => video.evaluate(node => getComputedStyle(node).cursor);
+        await video.dispatchEvent(options.hasTouch ? "touchstart" : "pointermove");
+        assert.notEqual(await cursor(), "none");
+        await page.waitForFunction(() => getComputedStyle(document.querySelector("video")).cursor === "none");
+        await page.keyboard.press("Tab");
+        assert.notEqual(await cursor(), "none");
+        await page.screenshot({path: path.join(output, profile + "-player-error.png"), animations: "disabled"});
         const retried = manifest();
         await retry.press("Enter");
         await retried;
@@ -243,7 +285,7 @@ async function verifyTranscodeFallback(browser, profile, options) {
     }
 }
 
-fs.mkdirSync(polishOutput, {recursive: true});
+fs.mkdirSync(output, {recursive: true});
 verifyMovieProfiles(async (browser, profile, options) => {
     await verify(browser, profile, options);
     await verifyTranscodeFallback(browser, profile, options);

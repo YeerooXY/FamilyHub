@@ -33,8 +33,8 @@ verifyMovieProfiles(async (browser, profile, options) => {
         };
     });
     const movie = {Id: "a".repeat(32), Name: "In Time", Type: "Movie", Overview: "A man races against the clock."};
-    const tracks = [{Type: "Audio", Index: 1, Language: "eng", DisplayTitle: "English"},
-        {Type: "Audio", Index: 7, Language: "hun", IsExternal: true}];
+    const tracks = [{Type: "Audio", Index: 1, Language: "eng", Codec: "eac3", DisplayTitle: "English"},
+        {Type: "Audio", Index: 7, Language: "hun", Codec: "dts", IsExternal: true, IsDefault: true}];
     const requested = [];
     await page.route(jellyfin + "/**", route => {
         const req = route.request(), url = new URL(req.url());
@@ -46,10 +46,10 @@ verifyMovieProfiles(async (browser, profile, options) => {
             json = {Items: [movie], TotalRecordCount: 1};
         if (url.pathname === "/Items/" + movie.Id) json = movie;
         if (url.pathname.endsWith("/PlaybackInfo")) {
-            const index = req.postDataJSON().AudioStreamIndex;
-            if (index != null) requested.push(index);
+            const body = req.postDataJSON(), index = body.AudioStreamIndex;
+            if (index != null) requested.push(body);
             json = {PlaySessionId: "fixture", MediaSources: [{Id: movie.Id, SupportsDirectPlay: index == null,
-                DefaultAudioStreamIndex: index ?? 1, DefaultSubtitleStreamIndex: -1, MediaStreams: tracks,
+                DefaultAudioStreamIndex: index ?? 7, DefaultSubtitleStreamIndex: -1, MediaStreams: tracks,
                 TranscodingUrl: "/Videos/" + movie.Id + "/stream"}]};
         }
         return route.fulfill({headers: cors, json});
@@ -142,7 +142,9 @@ verifyMovieProfiles(async (browser, profile, options) => {
     await source.press("Enter");
     await focused(source);
     assert.equal(await simulateVideo(), 5);
-    assert.deepEqual(requested, [7]);
+    assert.deepEqual(requested.map(request => request.AudioStreamIndex), [1, 7]);
+    for (const flag of ["EnableDirectPlay", "EnableDirectStream", "AllowAudioStreamCopy", "AllowVideoStreamCopy"])
+        assert.equal(requested[1][flag], false);
     const plus = page.getByRole("button", {name: "Play audio 100 ms later"});
     await plus.press("Enter");
     await focused(plus);

@@ -22,10 +22,28 @@ from .movie_youtube_downloads import DEFAULT_DIR, MAX_PENDING, YouTubeDownloads
 
 
 log = logging.getLogger('music_web.movies')
-# Client reports use fixed labels plus a title and a minute count; URLs and tokens are never accepted.
+# Playback diagnostics use fixed labels and a restricted media-error vocabulary.
 REPORT_KINDS = {'playback-error', 'open-failed', 'progress-save-failed', 'cannot-resume', 'started', 'stopped'}
 PROBLEMS = REPORT_KINDS - {'started', 'stopped'}
 REPORT_METHODS = {'', 'DirectPlay', 'DirectStream', 'Transcode'}
+HLS_ERROR_TYPES = {'networkError', 'mediaError', 'keySystemError', 'muxError', 'otherError'}
+HLS_ERROR_DETAILS = set("""
+manifestLoadError manifestLoadTimeOut manifestParsingError manifestIncompatibleCodecsError
+levelEmptyError levelLoadError levelLoadTimeOut levelParsingError levelSwitchError
+audioTrackLoadError audioTrackLoadTimeOut subtitleTrackLoadError subtitleTrackLoadTimeOut
+fragLoadError fragLoadTimeOut fragDecryptError fragParsingError fragGapError remuxAllocError
+keyLoadError keyLoadTimeOut bufferAddCodecError bufferIncompatibleCodecsError bufferAppendError
+bufferAppendingError bufferStalledError bufferFullError bufferSeekOverHole bufferNudgeOnStall
+assetListLoadError assetListLoadTimeout assetListParsingError interstitialAssetItemError
+internalException internalAborted attachMediaError unknown
+""".split())
+MEDIA_ERROR_WORDS = set("""
+media_err_aborted media_err_network media_err_decode media_err_src_not_supported
+pipeline_error_decode pipeline_error_network pipeline_error_initialization_failed
+demuxer_error_could_not_open demuxer_error_could_not_parse demuxer_error_no_supported_streams
+decode decoder decoding demuxer pipeline media video audio error failed failure format unsupported
+supported stream network aborted source invalid could not no to open parse initialize
+""".split())
 SEASON_QUERY = re.compile(r'(.+?)\s+(?:season\s+|s)(\d{1,3})$', re.I)
 SEASON_MARKER = re.compile(r'\b(?:season[\s._-]+|s)(\d{1,3})(?!\d)', re.I)
 VIDEA_LINK = re.compile(r'https://videa\.hu/videok/(?:[^/\s?#"<>]+/)+[^/\s?#"<>]+-([A-Za-z0-9]{16})')
@@ -785,13 +803,37 @@ def register_movies(app, cfg, body, allow, session_is_live):
             return jsonify(error='Too many reports.'), 429
         data = body()
         kind, method = data.get('kind'), data.get('method', '')
-        if kind not in REPORT_KINDS or method not in REPORT_METHODS:
+        if not isinstance(kind, str) or kind not in REPORT_KINDS or not isinstance(method, str) or method not in REPORT_METHODS:
             return jsonify(error='Unknown report.'), 400
         title, minutes = data.get('title', ''), data.get('minutes')
         if not isinstance(title, str) or len(title) > 200 or (minutes is not None and (type(minutes) is not int or not 0 <= minutes <= 1000)):
             return jsonify(error='Unknown report.'), 400
         feedback.note(movie_event=kind, method=method, title=title, minutes=minutes if minutes is not None else '')
-        (log.warning if kind in PROBLEMS else log.info)('movie client %s profile=%s method=%s', kind, g.user, method or '-')
+        report_log = log.warning if kind in PROBLEMS else log.info
+        diagnostics = data.get('diagnostics')
+        if kind in {'playback-error', 'open-failed'} and isinstance(diagnostics, dict):
+            def number(key, low, high):
+                value = diagnostics.get(key)
+                return value if type(value) is int and low <= value <= high else None
+
+            def flag(key):
+                value = diagnostics.get(key)
+                return value if type(value) is bool else None
+
+            def label(key, allowed):
+                value = diagnostics.get(key)
+                return value if isinstance(value, str) and value in allowed else '-'
+
+            message = diagnostics.get('mediaMessage')
+            words = message[:160].split() if isinstance(message, str) else []
+            message = ' '.join(word for word in words if word.lower() in MEDIA_ERROR_WORDS)
+            report_log('movie client %s profile=%s method=%s media_code=%s media_message=%r '
+                       'hls_type=%s hls_details=%s hls_fatal=%s audio_index=%s hls_loaded=%s http_status=%s forced=%s',
+                       kind, g.user, method or '-', number('mediaCode', 1, 4), message,
+                       label('hlsType', HLS_ERROR_TYPES), label('hlsDetails', HLS_ERROR_DETAILS), flag('hlsFatal'),
+                       number('audioIndex', -1, 65535), flag('hlsLoaded'), number('httpStatus', 100, 599), flag('forced'))
+        else:
+            report_log('movie client %s profile=%s method=%s', kind, g.user, method or '-')
         return '', 204
 
     @app.post('/api/movies/find')

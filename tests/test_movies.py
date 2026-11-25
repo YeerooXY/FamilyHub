@@ -65,13 +65,27 @@ class MovieSessions(Base):
                 self.assertEqual(reply.headers['Cache-Control'], 'no-store')
                 self.assertNotIn('password', reply.json)
 
-    def test_client_reports_are_logged_with_fixed_labels_only(self):
+    def test_client_reports_log_bounded_diagnostics(self):
         client, selection = self.select('sample-a')
         send = lambda **data: self.post(client, selection['csrf_token'], '/api/movies/report', json=data)
         with self.assertLogs('music_web.movies', 'WARNING') as logs:
-            self.assertEqual(send(kind='playback-error', method='Transcode').status_code, 204)
+            self.assertEqual(send(kind='playback-error', method='Transcode', diagnostics={
+                'mediaCode': 3, 'mediaMessage': 'PIPELINE_ERROR_DECODE https://private.test?token=secret\n forged',
+                'hlsType': 'mediaError', 'hlsDetails': 'bufferAppendError', 'hlsFatal': True,
+                'audioIndex': 7, 'hlsLoaded': True, 'httpStatus': 206, 'forced': True,
+            }).status_code, 204)
         self.assertIn('playback-error profile=sample-a method=Transcode', logs.output[0])
-        # Free text, titles or URLs are rejected, so they cannot reach the log.
+        for field in ('media_code=3', "media_message='PIPELINE_ERROR_DECODE'", 'hls_type=mediaError',
+                      'hls_details=bufferAppendError', 'hls_fatal=True', 'audio_index=7', 'hls_loaded=True',
+                      'http_status=206', 'forced=True'):
+            self.assertIn(field, logs.output[0])
+        self.assertNotRegex(logs.output[0], r'private\.test|secret|forged')
+        with self.assertLogs('music_web.movies', 'WARNING') as invalid:
+            self.assertEqual(send(kind='open-failed', diagnostics={
+                'hlsType': ['mediaError'], 'hlsDetails': 'unknownToken', 'httpStatus': 999, 'mediaCode': True,
+            }).status_code, 204)
+        self.assertIn('hls_type=- hls_details=-', invalid.output[0])
+        self.assertIn('http_status=None', invalid.output[0])
         self.assertEqual(send(kind='Two Languages https://x?token=abc').status_code, 400)
         self.assertEqual(send(kind='open-failed', method='file:///secret').status_code, 400)
         other, other_selection = self.select('sample-b')

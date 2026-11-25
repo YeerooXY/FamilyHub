@@ -10,8 +10,6 @@
     gap: clamp(.65rem, 1.6vw, 1rem);
     padding: .35rem;
 }
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, clamp(9rem, 32vw, 14rem)), 1fr));
-}
 
 
 .movie-library .movie-card {
@@ -161,7 +159,7 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-ui :is(button, input, select, .movie-seek-wrap) { pointer-events: auto; }
 .movie-ui.movie-idle :is(button, input, select, .movie-seek-wrap) { pointer-events: none; }
 .movie-ui.movie-idle :is(.movie-ui-top, .movie-ui-mid, .movie-ui-bottom) { opacity: 0; pointer-events: none; }
-.movie-ui.movie-idle .movie-ui-surface { cursor: none; }
+.movie-library .movie-ui.movie-idle .movie-ui-retry { pointer-events: auto; }
 .movie-library .movie-ui button { font: inherit; color: inherit; }
 .movie-library .movie-ui :is(button, input, select):focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .movie-library .movie-ui :is(button, input):focus:not(:focus-visible),
@@ -625,10 +623,22 @@ li.movie-release[data-tier="4k-bluray"] { border-color: #ba7bcb66; }
     clip-path: inset(50%);
     white-space: nowrap;
 }
-.movie-library:not(:empty) + .movie-session-skeleton { display: none; }
-.movie-home-skeleton { display: grid; gap: 1.5rem; padding-bottom: 1.5rem; }
-.movie-home-skeleton span { display: block; min-height: clamp(18rem, 52vh, 36rem); border-radius: 1rem; background: #1a1e28; }
-.movie-home-skeleton span + span { min-height: 11rem; background: repeating-linear-gradient(90deg, #1a1e28 0 8.75rem, transparent 8.75rem 9.5rem); }
+.movie-loading[hidden] { display: none; }
+.movie-loading .movie-shelf-scroll, .movie-loading .movie-season-pills { overflow: hidden; }
+.movie-loading-block {
+    border-radius: .35rem;
+    background: #31394a;
+    animation: service-status-pulse 1.5s ease-in-out infinite alternate;
+}
+.movie-loading .movie-art { border-radius: .7rem .7rem 0 0; }
+.movie-loading .movie-episode-still { border-radius: .5rem; }
+.movie-loading .movie-loading-heading { width: min(23rem, 100%); min-height: clamp(2.2rem, 5.2vw, 4.4rem); }
+.movie-loading .movie-loading-line { width: 90%; min-height: 1rem; }
+.movie-loading .movie-loading-label { width: 6rem; max-width: 70%; min-height: 1rem; }
+.movie-loading > .movie-shelf > .movie-loading-label { margin: .25rem .35rem; }
+.movie-loading .movie-loading-action { width: 7rem; min-height: var(--movie-target); }
+.movie-loading .movie-loading-pill { flex: 0 0 6rem; min-height: var(--movie-target); border-radius: 999px; }
+.movie-loading-card { border: 1px solid var(--border, #ffffff24); border-radius: .75rem; background: var(--panel-bg, #17191f); }
 .movie-library :is(.movie-toolbar, .movie-series, .movie-season-list, .movie-season, .movie-hero, .movie-shelf, .movie-library-empty)[hidden] { display: none; }
 .movie-library .movie-hero { background: linear-gradient(135deg, hsl(var(--art-hue) 40% 26%), #131723); }
 .movie-hero-title { overflow-wrap: anywhere; color: #fff; }
@@ -646,7 +656,7 @@ li.movie-release[data-tier="4k-bluray"] { border-color: #ba7bcb66; }
     gap: clamp(.65rem, 1.3vw, 1.15rem);
     padding: .55rem;
 }
-.movie-shelf-scroll .movie-card { flex: 0 0 clamp(8.25rem, 12.5vw, 13rem); width: clamp(8.25rem, 12.5vw, 13rem); }
+.movie-shelf-scroll :is(.movie-card, .movie-loading-card) { flex: 0 0 clamp(8.25rem, 12.5vw, 13rem); width: clamp(8.25rem, 12.5vw, 13rem); }
 .movie-shelf-scroll .movie-card:hover { transform: none; }
 .movie-library .movie-shelf-arrow {
     position: absolute;
@@ -713,6 +723,15 @@ body[data-effects="off"] .movie-library .movie-toolbar .movie-search { transitio
     background: linear-gradient(0deg, #0b0d12 2%, #0b0d12e8 34%, #0b0d125c 100%);
 }
 .movie-film-detail .movie-hero-art { border-radius: inherit; }
+.movie-film-detail .movie-series-header:has(.movie-hero-art[data-loading])::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    border-radius: inherit;
+    background: #31394a;
+    animation: service-status-pulse 1.5s ease-in-out infinite alternate;
+}
 .movie-film-detail .movie-title-intro {
     grid-template-columns: clamp(7rem, 18vw, 16rem) minmax(0, 1fr);
     gap: .65rem clamp(1rem, 3vw, 2.5rem);
@@ -767,7 +786,10 @@ body[data-effects="off"] .movie-library .movie-toolbar .movie-search { transitio
 }
 @media (prefers-reduced-motion: reduce) {
     .movie-library .movie-shelf-arrow { transition: none; }
+    .movie-loading-block, .movie-film-detail .movie-series-header:has(.movie-hero-art[data-loading])::before { animation: none; }
 }
+body[data-effects="off"] .movie-loading-block,
+body[data-effects="off"] .movie-film-detail .movie-series-header:has(.movie-hero-art[data-loading])::before { animation: none; }
 @media (min-width: 1600px) {
     .movie-library .movie-ui :is(button, input[type="range"]) { min-height: var(--movie-target); min-width: var(--movie-target); }
 }

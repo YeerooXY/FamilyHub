@@ -138,8 +138,8 @@
 .movie-ui:not(.movie-pointer) .movie-volume:focus-within > .movie-volume-track,
 .movie-volume-track:focus-within { visibility: visible; opacity: 1; }
 .movie-ui.movie-idle .movie-volume { pointer-events: none; }
-.movie-ui.movie-idle,
-.movie-ui.movie-idle .movie-ui-surface { cursor: none; }
+.movie-player.movie-expanded.movie-cursor-idle,
+.movie-player.movie-expanded.movie-cursor-idle * { cursor: none !important; }
 
 .movie-ui .movie-sheet {
     left: auto;

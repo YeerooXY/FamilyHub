@@ -184,13 +184,17 @@ window.familyhub.syncChrome = () => {
         } catch { chromeSignature = null; }
     });
 };
+window.familyhub.refreshChrome = () => {
+    chromeSignature = null;
+    window.familyhub.syncChrome();
+};
 window.addEventListener('resize', () => window.familyhub.syncChrome());
 // Leaving movie full screen resizes the window before the native title bar is back; the first update then reports
 // "unsupported" and the same size is not asked again, which left a duplicate caption strip above the header.
 let chromeSettle;
 window.addEventListener('resize', () => {
     clearTimeout(chromeSettle);
-    chromeSettle = setTimeout(() => { chromeSignature = null; window.familyhub.syncChrome(); }, 300);
+    chromeSettle = setTimeout(window.familyhub.refreshChrome, 300);
 });
 document.addEventListener('focusin', () => window.familyhub.syncChrome());
 

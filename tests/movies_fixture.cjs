@@ -35,7 +35,7 @@ async function useMovieBridge(page) {
                     return JSON.stringify({result: body ? JSON.parse(body) : null});
                 }
             }, {...viewer, server: base});
-            return {async close() {
+            return {restoreNavigation: movie.restoreNavigation, async close() {
                 await movie.close();
                 try { await send("Sessions/Logout", "", {}); } catch {}
             }};
@@ -45,6 +45,11 @@ async function useMovieBridge(page) {
 
 async function moviePage(page) {
     await useMovieBridge(page);
+    await page.route("**/*", route => {
+        const {hostname} = new URL(route.request().url());
+        return hostname.endsWith(".test") || ["localhost", "127.0.0.1", "[::1]"].includes(hostname)
+            ? route.fallback() : route.abort();
+    });
     await page.route(app + "/**", route => {
         const name = new URL(route.request().url()).pathname.slice(1);
         if (name === "shell.css") return route.fulfill({path: path.join(root, "music_web/static/shell.css")});

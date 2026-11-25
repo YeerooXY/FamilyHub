@@ -6,15 +6,15 @@
 
 <div class="service-status-stage">
     <div @ref="host" id="movie-service-content" class="movie-library" data-native-fullscreen="@(OperatingSystem.IsWindows() ? "true" : null)"></div>
-    @if (!failed && (loading || shelf is null))
-    {
-        <div class="movie-home-skeleton movie-session-skeleton" aria-hidden="true"><span></span><span></span></div>
-    }
     <ServiceStatus Active="failed" FullSection="true" Detail="Check the Jellyfin connection for this profile."
                    RetryLabel="Retry movies" Retry="Load" Busy="loading" AutoRetry="true" RecoveryTarget="#movie-service-content" />
 </div>
 
 @code {
+    [Parameter] public string? InitialRoute { get; set; }
+    [Parameter] public bool KeepInitialFocus { get; set; }
+    [Parameter] public EventCallback<(string? Route, string Action)> NavigationChanged { get; set; }
+
     private ElementReference host;
     private IJSObjectReference? module, shelf;
     private DotNetObjectReference<MoviesView>? callback;
@@ -42,6 +42,7 @@
             movieApi = api;
             var viewer = new { server = Session.Server, profile = Session.User };
             module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./movies.js");
+            await module.InvokeVoidAsync("showMovieLoading", host);
             callback ??= DotNetObjectReference.Create(this);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(closed.Token);
             timeout.CancelAfter(TimeSpan.FromSeconds(10));
@@ -54,10 +55,17 @@
             if (closed.IsCancellationRequested) { await shelf.InvokeVoidAsync("close"); return; }
             Connectivity.Current.ConnectivityChanged += MovieConnectionChanged;
             failed = false;
+            if (InitialRoute is not null) await RestoreNavigation(InitialRoute, KeepInitialFocus);
         }
         catch (Exception) when (!closed.IsCancellationRequested)
         {
             failed = true;
+            if (module is not null)
+            {
+                try { await module.InvokeVoidAsync("showMovieLoading", host, false); }
+                catch (JSDisconnectedException) { }
+                catch (JSException) { }
+            }
         }
         catch (OperationCanceledException) { }
         finally
@@ -67,15 +75,26 @@
         }
     }
 
-    // Playback problems are reported with fixed labels only; the server writes them to its log.
+    public async Task RestoreNavigation(string? route, bool keepFocus)
+    {
+        if (shelf is null || closed.IsCancellationRequested) return;
+        try { await shelf.InvokeVoidAsync("restoreNavigation", route, keepFocus); }
+        catch (JSDisconnectedException) { }
+    }
+
     [JSInvokable]
-    public async Task MovieEvent(string kind, string method, string title, int? minutes)
+    public Task MovieNavigationChanged(string? route, string action) =>
+        closed.IsCancellationRequested ? Task.CompletedTask : NavigationChanged.InvokeAsync((route, action));
+
+    // The server validates the bounded playback diagnostics before logging them.
+    [JSInvokable]
+    public async Task MovieEvent(string kind, string method, string title, int? minutes, System.Text.Json.JsonElement? diagnostics)
     {
         try
         {
-            if (Session.Api is { } api && !closed.IsCancellationRequested)
+            if (movieApi is { } api && ReferenceEquals(api, Session.Api) && !closed.IsCancellationRequested)
                 await api.RequestJsonAsync<System.Text.Json.JsonElement?>(HttpMethod.Post, "/api/movies/report",
-                    new { kind, method, title, minutes }, cancellationToken: closed.Token);
+                    new { kind, method, title, minutes, diagnostics }, cancellationToken: closed.Token);
         }
         catch (Exception) { }
     }
@@ -199,15 +218,17 @@
     }
 
     [JSInvokable]
-    public Task<bool> MovieWindowFullscreen(bool on)
-    {
 #if WINDOWS
-        return Microsoft.Maui.ApplicationModel.MainThread.InvokeOnMainThreadAsync(() =>
+    public async Task<bool> MovieWindowFullscreen(bool on)
+    {
+        var fullscreen = await Microsoft.Maui.ApplicationModel.MainThread.InvokeOnMainThreadAsync(() =>
             WindowsWindowChrome.SetMovieFullscreen(on && !disposing && PlayerScreen.Playing));
-#else
-        return Task.FromResult(false);
-#endif
+        if (!on) await JS.InvokeVoidAsync("familyhub.refreshChrome");
+        return fullscreen;
     }
+#else
+    public Task<bool> MovieWindowFullscreen(bool on) => Task.FromResult(false);
+#endif
 
     [JSInvokable]
     public string MovieConnectionKind() => ConnectionKind.Current;

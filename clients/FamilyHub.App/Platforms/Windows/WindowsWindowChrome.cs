@@ -52,6 +52,8 @@ internal static class WindowsWindowChrome
         {
             previous.Window.SetPresenter(previous.Presenter);
             SetWindowPlacement(previous.Handle, previous.Placement);
+            if (AppWindowTitleBar.IsCustomizationSupported())
+                ConfigureTitleBar(previous.Window.TitleBar);
             movieWindow = null;
         }
         return false;
@@ -75,12 +77,7 @@ internal static class WindowsWindowChrome
             return WindowChromeMetrics.Unsupported;
 
         var titleBar = window.AppWindow.TitleBar;
-        titleBar.ExtendsContentIntoTitleBar = true;
-        titleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
-        titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
-        titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
-        titleBar.ButtonForegroundColor = NativeColor.FromArgb(255, 223, 232, 240);
-        titleBar.ButtonInactiveForegroundColor = NativeColor.FromArgb(255, 140, 155, 170);
+        ConfigureTitleBar(titleBar);
 
         // Public MAUI visibility mapping also clears the navigation root's title inset.
         if (page.Window.TitleBar is Microsoft.Maui.Controls.TitleBar { IsVisible: true } mauiTitleBar)
@@ -115,6 +112,16 @@ internal static class WindowsWindowChrome
         titleBar.SetDragRectangles(captions.Where(rect => rect.Width > 0 && rect.Height > 0).ToArray());
         source.SetRegionRects(NonClientRegionKind.Passthrough, regions.ToArray());
         return new(true, left / cssScale, right / cssScale, titleBar.Height / cssScale);
+    }
+
+    private static void ConfigureTitleBar(AppWindowTitleBar titleBar)
+    {
+        titleBar.ExtendsContentIntoTitleBar = true;
+        titleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+        titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
+        titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
+        titleBar.ButtonForegroundColor = NativeColor.FromArgb(255, 223, 232, 240);
+        titleBar.ButtonInactiveForegroundColor = NativeColor.FromArgb(255, 140, 155, 170);
     }
 
     private static IEnumerable<RectInt32> Subtract(RectInt32 area, RectInt32 hole)

@@ -108,8 +108,8 @@ else
     <div class="header-start">
         <button id="open-hub" class="brand hub-launcher" @onclick='() => Navigate("Hub")' aria-label="Switch apps" title="Switch apps"><MusicIcon Name="apps" /></button>
         <nav class="view-history" aria-label="View history">
-            <button class="header-icon" @onclick="GoBack" aria-label="Go back" title="Go back" aria-disabled="@Aria(backViews.Count == 0)"><MusicIcon Name="back" /></button>
-            <button class="header-icon" @onclick="GoForward" aria-label="Go forward" title="Go forward" aria-disabled="@Aria(forwardViews.Count == 0)"><MusicIcon Name="forward" /></button>
+            <button id="header-back" class="header-icon header-history" @onclick="() => StepHistory(false, true)" aria-label="Go back" title="Go back" aria-disabled="@Aria(!viewHistory.CanBack)"><MusicIcon Name="back" /></button>
+            <button id="header-forward" class="header-icon header-history" @onclick="() => StepHistory(true, true)" aria-label="Go forward" title="Go forward" aria-disabled="@Aria(!viewHistory.CanForward)"><MusicIcon Name="forward" /></button>
         </nav>
     </div>
     <div class="header-search">
@@ -189,7 +189,7 @@ else
     }
     else if (view == "Movies & TV")
     {
-        <MoviesView @key="AppearanceKey" />
+        <MoviesView @key="AppearanceKey" @ref="moviesView" InitialRoute="@movieRoute" KeepInitialFocus="@keepMovieInitialFocus" NavigationChanged="MovieNavigationChanged" />
     }
     else if (view == "Files")
     {
@@ -1103,7 +1103,9 @@ else
     {
         var previous = selectedId;
         await JS.InvokeVoidAsync("familyhub.beginPlaylistTransition", previous, false);
+        var current = CurrentRoute;
         selectedId = ""; playlistTransitionPending = true;
+        viewHistory.LeaveDetail(current, CurrentRoute);
         pendingFocus = FilteredPlaylists().Any(p => PlaylistKey(p) == previous) ? "playlist-card-" + previous : "view-title";
     }
     private async Task ChoosePlaylistImage(InputFileChangeEventArgs args)
@@ -1138,6 +1140,7 @@ else
 
     private async Task OpenAlbum((string Name, string Artist, List<MusicTrack> Tracks, string Opener) album)
     {
+        if (view == "Album") viewHistory.Visit(CurrentRoute, new("Album", Album: album));
         selectedAlbum = album;
         fullAlbum = preparedAlbum = null;
         albumFailed = false; albumWaiting = null;
@@ -1214,7 +1217,9 @@ else
     private async Task OpenPlaylist(MusicPlaylist playlist)
     {
         await JS.InvokeVoidAsync("familyhub.beginPlaylistTransition", PlaylistKey(playlist), true);
-        await Navigate("Playlists"); selectedId = PlaylistKey(playlist); playlistTransitionPending = true;
+        if (view != "Playlists") await Navigate("Playlists");
+        viewHistory.Visit(CurrentRoute, new("Playlists", PlaylistKey(playlist)));
+        selectedId = PlaylistKey(playlist); playlistTransitionPending = true;
         playlistLimit = ListPage; songDescending = false; songSearch = ""; songSort = "Custom order"; songSearchOpen = false; mixesOnly = false;
         await RememberPlaylist(playlist);
         pendingFocus = "view-title";
@@ -1335,7 +1340,14 @@ else
     private int? nextSearchOffset;
     private bool loadingMore, moreSearchFailed, hadSearchMore;
     private string? searchObserverKey;
-    private readonly Stack<string> backViews = new(), forwardViews = new();
+    private sealed record ViewRoute(string Tab, string Playlist = "",
+        (string Name, string Artist, List<MusicTrack> Tracks, string Opener)? Album = null, string? Movie = null);
+    private readonly ViewHistory<ViewRoute> viewHistory = new();
+    private MoviesView? moviesView;
+    private string? movieRoute;
+    private bool steppingHistory, keepMovieInitialFocus;
+    private ViewRoute CurrentRoute => new(view, view == "Playlists" && Selected is not null ? selectedId : "",
+        view == "Album" ? selectedAlbum : null, view == "Movies & TV" ? movieRoute : null);
     private string? pendingFocus, appearanceProfile;
     private string theme = "classic";
     private bool themeEffects = true;
@@ -1513,7 +1525,7 @@ else
         recommendationLookup?.Cancel();
         recommendationLookup = null;
         recommendationError = null;
-        backViews.Clear(); forwardViews.Clear();
+        viewHistory.Clear(); movieRoute = null;
         CancelAlbumLookup(); fullAlbum = preparedAlbum = null; albumWaiting = null;
         view = "Hub"; profileMenu = false; addingProfile = false; selectedId = ""; selectedAlbum = null;
         searchResults = []; recommendations = null; filter = ""; genre = ""; showPlaybackCache = false;
@@ -1745,7 +1757,7 @@ else
         else if (playerExpanded) CollapsePlayer();
         else if (profileMenu) { profileMenu = false; pendingFocus = "profile-toggle"; }
         else if (view == "Playlists" && Selected is not null) await AllPlaylists();
-        else if (backViews.Count > 0) GoBack();
+        else if (viewHistory.CanBack) await StepHistory(false);
         else if (view != "Hub") await Navigate("Hub");
         else return false;
         StateHasChanged();
@@ -1755,34 +1767,74 @@ else
     private void RememberView(string tab)
     {
         if (view == tab) return;
-        backViews.Push(view); forwardViews.Clear(); view = tab;
+        viewHistory.Visit(CurrentRoute, new(tab));
+        view = tab;
+        movieRoute = null;
+        keepMovieInitialFocus = false;
     }
     private async Task Navigate(string tab)
     {
         if (tab != "Album") CancelAlbumLookup();
         if (tab != "Search") CancelSearch();
         initialPlaylistReviewIndex = null;
-        if (tab == "Playlists") selectedId = "";
+        if (tab == "Playlists" && view == tab && Selected is not null) await AllPlaylists();
         if (tab == "Preferences") settingsSection = view switch { "Wordle" => "Wordle", "Movies & TV" => "Movies", _ => "General" };
-        RememberView(tab); profileMenu = false; error = null; playbackRetry = null; genre = "";
+        RememberView(tab);
+        if (tab == "Playlists") selectedId = "";
+        profileMenu = false; error = null; playbackRetry = null; genre = "";
         if (tab == "Settings") server = Session.Server;
         pendingFocus = tab == "Stats" ? "view-title" : "content";
         await Task.CompletedTask;
     }
-    private void GoBack()
+    private Task GoBack() => StepHistory(false);
+
+    private void MovieNavigationChanged((string? Route, string Action) change)
     {
-        if (!backViews.TryPop(out var tab)) return;
-        initialPlaylistReviewIndex = null;
-        var albumOpener = view == "Album" && tab == "Home" ? selectedAlbum?.Opener : null;
-        CancelAlbumLookup();
-        CancelSearch(); forwardViews.Push(view); view = tab; profileMenu = false; error = null; playbackRetry = null; pendingFocus = albumOpener ?? "content";
+        if (view != "Movies & TV") return;
+        var current = CurrentRoute;
+        movieRoute = change.Route;
+        if (change.Action == "back") viewHistory.LeaveDetail(current, CurrentRoute);
+        else if (change.Action == "open") viewHistory.Visit(current, CurrentRoute);
     }
-    private void GoForward()
+
+    private async Task StepHistory(bool forward, bool header = false)
     {
-        if (!forwardViews.TryPop(out var tab)) return;
-        initialPlaylistReviewIndex = null;
-        CancelSearch(); backViews.Push(view); view = tab; profileMenu = false; error = null; playbackRetry = null; pendingFocus = "content";
-        if (view == "Album" && fullAlbum is null) _ = LoadAlbum();
+        if (steppingHistory) return;
+        var current = CurrentRoute;
+        ViewRoute destination;
+        if (!(forward ? viewHistory.TryForward(current, out destination) : viewHistory.TryBack(current, out destination))) return;
+        steppingHistory = true;
+        try
+        {
+            initialPlaylistReviewIndex = null;
+            CancelSearch();
+            CancelAlbumLookup();
+            if (destination.Album is { } album && selectedAlbum != destination.Album)
+            {
+                selectedAlbum = album;
+                fullAlbum = preparedAlbum = null;
+                albumFailed = false; albumWaiting = null;
+            }
+            view = destination.Tab;
+            movieRoute = destination.Movie;
+            if (view == "Playlists") selectedId = destination.Playlist;
+            profileMenu = false; error = null; playbackRetry = null;
+            var arrow = header && !(forward ? viewHistory.CanForward : viewHistory.CanBack)
+                ? (forward ? "header-forward" : "header-back") : null;
+            keepMovieInitialFocus = view == "Movies & TV" && arrow is not null;
+            if (view == "Movies & TV" && current.Tab == view && moviesView is not null)
+            {
+                await moviesView.RestoreNavigation(movieRoute, arrow is not null);
+                if (arrow is not null && view == destination.Tab && movieRoute == destination.Movie) pendingFocus = arrow;
+            }
+            else
+                pendingFocus = arrow ?? (view == "Home" && current.Album is { } previousAlbum ? previousAlbum.Opener :
+                    view == "Playlists" && Selected is null && current.Playlist.Length > 0 &&
+                    FilteredPlaylists().Any(playlist => PlaylistKey(playlist) == current.Playlist) ? "playlist-card-" + current.Playlist :
+                    view is "Album" or "Playlists" ? "view-title" : "content");
+            if (view == "Album" && fullAlbum is null) _ = LoadAlbum();
+        }
+        finally { steppingHistory = false; }
     }
     private async Task Run(Func<Task> action)
     {
@@ -2111,6 +2163,7 @@ else
     }
     private async Task PlaylistCreated(MusicPlaylist playlist)
     {
+        if (view == "Playlists") viewHistory.Visit(CurrentRoute, new("Playlists", PlaylistKey(playlist)));
         selectedId = PlaylistKey(playlist);
         pendingFocus = "view-title";
         await RememberPlaylist(playlist);

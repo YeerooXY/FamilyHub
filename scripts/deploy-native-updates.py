@@ -14,6 +14,7 @@ def main():
     parser.add_argument('release', type=Path)
     parser.add_argument('--platforms', default='windows-x64,android', help='comma-separated: windows-x64, android, ios')
     parser.add_argument('--assets-only', action='store_true', help='Mirror native packages without updating server code')
+    parser.add_argument('--allow-busy', action='store_true', help='Restart even while downloads or analysis run; the server retries interrupted jobs')
     args = parser.parse_args()
     platforms = [p for p in args.platforms.split(',') if p]
     if not platforms or any(p not in ('windows-x64', 'android', 'ios') for p in platforms):
@@ -55,7 +56,7 @@ def main():
     subprocess.run(['scp', *options, *map(str, files), host + ':' + incoming + '/'], check=True, cwd=ROOT)
     remote = (
         f'incoming = {incoming!r}\nplatforms = {platforms!r}\n'
-        f'web_files = {web_files!r}\nassets_only = {args.assets_only!r}\n' + r'''
+        f'web_files = {web_files!r}\nassets_only = {args.assets_only!r}\nallow_busy = {args.allow_busy!r}\n' + r'''
 import hashlib,json,os,pathlib,shutil,subprocess,time,urllib.request
 incoming=pathlib.Path(incoming)
 config=json.loads(pathlib.Path('/etc/familyhub-music-web/config.json').read_text())
@@ -70,7 +71,7 @@ if not assets_only:
     code_changed=any(not target.exists() or hashlib.sha256(source.read_bytes()).digest()!=hashlib.sha256(target.read_bytes()).digest() for source,target in code_targets)
     if code_changed:
         pid=subprocess.check_output(['systemctl','show',service,'-p','MainPID','--value'],text=True).strip()
-        if pid!='0' and subprocess.run(['pgrep','-P',pid],capture_output=True).returncode==0:
+        if not allow_busy and pid!='0' and subprocess.run(['pgrep','-P',pid],capture_output=True).returncode==0:
             raise RuntimeError('An acquisition or analysis is active. Retry deployment after it finishes.')
 backup=pathlib.Path('/usr/local/lib/familyhub')/('before-native-updates-'+str(time.time_ns()))
 backup.mkdir(mode=0o700)

@@ -83,6 +83,32 @@ export function subtitleBottom({ width, height, videoWidth, videoHeight, barTop 
     return Math.max(8, Math.round(height - edge));
 }
 
+export function watchPlayerIdle(surface, signal, onIdle, onWake) {
+    let timer;
+    function hide() {
+        clearTimeout(timer);
+        surface.classList.add("movie-cursor-idle");
+        onIdle?.();
+    }
+    function show() {
+        surface.classList.remove("movie-cursor-idle");
+        onWake?.();
+        clearTimeout(timer);
+        timer = setTimeout(hide, 3000);
+    }
+    for (const type of ["pointermove", "pointerdown", "touchstart", "focusin", "focusout"])
+        surface.addEventListener(type, show, {passive: true, signal});
+    document.addEventListener("keydown", event => {
+        if (surface.contains(event.target) || event.target === document.body) show();
+    }, {capture: true, signal});
+    signal.addEventListener("abort", () => {
+        clearTimeout(timer);
+        surface.classList.remove("movie-cursor-idle");
+    }, {once: true});
+    show();
+    return {hide, show};
+}
+
 /**
  * @param {object} ctx
  * @param {HTMLVideoElement} ctx.media
@@ -104,7 +130,7 @@ export function buildPlayerUi(ctx) {
         document.head.append(link);
     }
     const root = make("div", "movie-ui");
-    let idleTimer, dragging = false, openSheet = null, nextEpisode = null;
+    let dragging = false, openSheet = null, nextEpisode = null;
 
     const button = (className, label, shape, options, run) => {
         const b = make("button", className);
@@ -565,9 +591,11 @@ export function buildPlayerUi(ctx) {
     // The caller's status line doubles as the on-picture message, so track fallbacks are visible without opening the sheet.
     const notice = ctx.notice;
     const failure = make("p", "movie-ui-line");
+    failure.id = "movie-playback-error";
     failure.setAttribute("role", "status");
     const retry = make("button", "movie-ui-retry", "Try again");
     retry.type = "button";
+    retry.setAttribute("aria-describedby", failure.id);
     retry.hidden = true;
     const hint = make("p", "movie-ui-line");
     hint.setAttribute("role", "status");
@@ -607,17 +635,13 @@ export function buildPlayerUi(ctx) {
         const button = event.target.closest("button");
         if (button && event.detail > 0) button.focus({ preventScroll: true });
     }, { capture: true, signal });
-    function hide() {
-        if (!retry.hidden || dragging || openSheet || root.querySelector(".movie-ui-top :focus-visible, .movie-ui-bottom :focus-visible") &&
-            !root.classList.contains("movie-pointer")) return;
-        clearTimeout(idleTimer);
+    const {hide, show} = watchPlayerIdle(surface, signal, () => {
+        if (dragging || openSheet || retry.hidden && !root.classList.contains("movie-pointer") &&
+            root.querySelector(".movie-ui-top :focus-visible, .movie-ui-mid :focus-visible, .movie-ui-bottom :focus-visible")) return;
         root.classList.add("movie-idle");
-    }
-    function show() {
+    }, () => {
         root.classList.remove("movie-idle");
-        clearTimeout(idleTimer);
-        idleTimer = setTimeout(hide, 3000);
-    }
+    });
     // Subtitles: draw the active cues just above the bottom of the picture, and above the seek row while the controls show.
     const entities = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&nbsp;": " " };
     let watched = [];
@@ -649,9 +673,7 @@ export function buildPlayerUi(ctx) {
     classWatcher.observe(root, { attributes: true, attributeFilter: ["class"] });
     signal.addEventListener("abort", () => { classWatcher.disconnect(); for (const track of watched) track.removeEventListener("cuechange", drawCues); });
 
-    for (const type of ["pointermove", "pointerdown", "touchstart", "focusin", "focusout"])
-        root.addEventListener(type, show, { passive: true, signal });
-    signal.addEventListener("abort", () => { clearTimeout(idleTimer); clearTimeout(tapTimer); clearTimeout(shortcutTimer); });
+    signal.addEventListener("abort", () => { clearTimeout(tapTimer); clearTimeout(shortcutTimer); });
 
     // Seek bar.
     const duration = () => Number.isFinite(media.duration) && media.duration > 0 ? media.duration : 0;
@@ -772,7 +794,6 @@ export function buildPlayerUi(ctx) {
         const sheet = openSheet && sheets[openSheet].node;
         const inSheet = sheet && sheet.contains(target);
         const tv = innerWidth >= 1600 && !sound;
-        show();
         if (key === "tab" || key === "enter" && !event.altKey || arrow && (tv || inSheet))
             root.classList.remove("movie-pointer");
         if (key === "tab" && !event.altKey) {
@@ -884,7 +905,9 @@ export function buildPlayerUi(ctx) {
         showFailure(reason, run) {
             failure.textContent = reason;
             retry.onclick = run;
+            const reveal = retry.hidden;
             retry.hidden = false;
+            if (reveal && !openSheet && root.contains(document.activeElement)) retry.focus({preventScroll: true});
             busy(false);
             show();
         },

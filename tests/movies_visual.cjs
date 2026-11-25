@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const wwwroot = path.join(__dirname, "../clients/FamilyHub.App/wwwroot");
-const out = path.resolve(process.argv[2] || path.join(__dirname, "../docs/verification/movies-polish-2026-11-25"));
+const out = path.resolve(process.argv[2] || path.join(__dirname, "../docs/verification/movies-1-5-2-2026-11-25"));
 const app = "http://familyhub.test", jellyfin = "https://jellyfin.test";
 const titles = ["Harbour Lights", "The Long Way Home", "Paper Moons", "Northern Rail", "Quiet Orchard", "Glass Season",
     "Summer of Wires", "Low Tide", "The Last Ferry", "Copper Hills", "Night Market", "A Small Revolution",
@@ -28,6 +28,8 @@ async function verifyRazorShell(browser, url) {
     const page = await browser.newPage();
     try {
         page.setDefaultTimeout(8000);
+        await page.route("**/*", route => new URL(route.request().url()).origin === new URL(url).origin
+            ? route.continue() : route.abort());
         assert.ok((await page.request.post(new URL("/fixture/startup/movies-polish", url).href)).ok());
         await page.goto(url);
         await page.getByRole("button", {name: "Switch apps"}).click();
@@ -38,6 +40,25 @@ async function verifyRazorShell(browser, url) {
         await still.waitFor();
         await page.waitForFunction(image => image.naturalWidth > 0, await still.elementHandle());
         assert.equal(await page.getByRole("heading", {name: "Movies & TV", exact: true}).count(), 1);
+        const back = page.getByRole("button", {name:"Go back", exact:true});
+        const forward = page.getByRole("button", {name:"Go forward", exact:true});
+        const series = page.getByRole("region", {name:"Harbour Town", exact:true});
+        assert.equal(await back.getAttribute("aria-disabled"), "false");
+        assert.equal(await forward.getAttribute("aria-disabled"), "true");
+        await back.press("Enter");
+        await series.waitFor({state:"hidden"});
+        await page.getByRole("button", {name:"Harbour Town", exact:true}).waitFor();
+        await back.press("Enter");
+        await page.waitForFunction(() => document.activeElement?.id === "header-back" &&
+            document.activeElement.getAttribute("aria-disabled") === "true");
+        await forward.press("Enter");
+        await page.getByRole("button", {name:"Harbour Town", exact:true}).waitFor();
+        await forward.press("Enter");
+        await series.waitFor();
+        await page.waitForFunction(() => document.activeElement?.id === "header-forward" &&
+            document.activeElement.getAttribute("aria-disabled") === "true");
+        await forward.press("Space");
+        assert.equal(await series.isVisible(), true);
     } finally {
         await page.close();
     }
@@ -57,14 +78,19 @@ async function render(browser, label, options) {
         HTMLMediaElement.prototype.play = function () { return Promise.resolve(nativePlay.call(this)).catch(() => {}); };
     });
     let empty = false, failEpisodes = true, failResume = false, holdResume, imported = false;
+    let holdEpisodes, holdFilm;
     const gate = new Promise(resolve => { holdResume = resolve; });
+    const filmGate = new Promise(resolve => { holdFilm = resolve; });
+    const episodesGate = new Promise(resolve => { holdEpisodes = resolve; });
+    await page.route("**/*", route => [app, jellyfin].includes(new URL(route.request().url()).origin)
+        ? route.fallback() : route.abort());
     await page.route(app + "/**", route => {
         const name = new URL(route.request().url()).pathname.slice(1);
         if (name === "shell.css") return route.fulfill({path: path.join(wwwroot, "../../../music_web/static/shell.css")});
         if (name === "notices.css" || name === "notices.js")
             return route.fulfill({path: path.join(wwwroot, "../../../music_web/static", name)});
         return name ? route.fulfill({ path: path.join(wwwroot, name) })
-            : route.fulfill({ contentType: "text/html", body: '<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/movies.css"><link rel="stylesheet" href="/notices.css"><style>html,body{height:auto;min-height:100dvh;overflow:auto}body{display:block;padding:1rem;background:#0b0d12}</style><main id="content"><div class="shell-status"><div id="feedback" hidden></div></div><div class="movie-library"></div></main><script src="/notices.js"></script>' });
+            : route.fulfill({ contentType: "text/html", body: '<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/movies.css"><link rel="stylesheet" href="/service-status.css"><link rel="stylesheet" href="/notices.css"><style>html,body{height:auto;min-height:100dvh;overflow:auto}body{display:block;padding:1rem;background:#0b0d12}</style><main id="content"><div class="shell-status"><div id="feedback" hidden></div></div><div class="movie-library"></div></main><script src="/notices.js"></script>' });
     });
     await page.route(jellyfin + "/**", async route => {
         const req = route.request(), url = new URL(req.url());
@@ -78,6 +104,8 @@ async function render(browser, label, options) {
             return route.fulfill({headers, path:path.join(__dirname, "fixtures/movie-subtitles.mp4"), contentType:"video/mp4"});
         if (url.pathname.startsWith("/Sessions/")) return route.fulfill({headers, status:204});
         if (url.pathname.includes("/Images/")) {
+            if (url.pathname === "/Items/m0/Images/Backdrop" && Number(url.searchParams.get("maxWidth")) > 480)
+                await filmGate;
             const art = url.pathname.endsWith("/Backdrop") ? "movie.jpg" : url.pathname.includes("/Items/e") ? "episode.jpg" : "movie-alt.jpg";
             return route.fulfill({ headers, path: path.join(wwwroot, "movie-art", art) });
         }
@@ -88,6 +116,7 @@ async function render(browser, label, options) {
             return list(empty ? [] : [movies[1], episodes[1], episodes[2]]);
         }
         if (url.pathname === "/Shows/s/Episodes") {
+            await episodesGate;
             assert.equal(url.searchParams.has("fields"), false, "default DTO includes runtime");
             if (failEpisodes) return route.fulfill({headers, status: 502});
             return list(imported ? [...episodes, {...episodes[4], Id: "new", Name: "Return to port", ParentIndexNumber: 3}] : episodes);
@@ -114,10 +143,11 @@ async function render(browser, label, options) {
         window.openMovieHome = () => window.openMovieFixture(openMovies, host,
             { url: jellyfin, user: "u", token: "t", device: "0123456789abcdef0123456789abcdef", downloads_enabled: true, release_search_enabled: true },
             { invokeMethodAsync: async (method, query, season) => {
+                if (method === "MovieNavigationChanged") (window.movieRoutes ??= []).push([query, season]);
                 if (method === "MovieConnectionKind") return "wifi";
                 if (method === "MovieWindowFullscreen") {
                     (window.fullscreenCalls ??= []).push(query);
-                    return true;
+                    return query;
                 }
                 if (method === "MovieMatches" && query === "tmdb:tv:42") {
                     return JSON.stringify({series_id: 42, seasons: Array.from({length: 6}, (_, i) => ({number: i + 1, episode_count: 4}))});
@@ -154,7 +184,22 @@ async function render(browser, label, options) {
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, label + " " + state);
         await page.screenshot({path: path.join(out, label + "-" + state + ".png"), animations: "disabled", fullPage: true});
     };
-    await page.locator(".movie-home-skeleton").waitFor();
+    const loading = page.locator(".movie-home-skeleton");
+    await loading.waitFor();
+    const geometry = node => {
+        const {width, height} = node.getBoundingClientRect();
+        return [width, height];
+    };
+    const billboardSize = await loading.locator(".movie-hero").evaluate(geometry);
+    const posterSizes = await loading.locator(".movie-art").evaluateAll(nodes =>
+        nodes.map(node => [node.offsetWidth, node.offsetHeight]));
+    assert.equal(new Set(posterSizes.map(String)).size, 1);
+    const pulse = loading.locator(".movie-loading-heading");
+    assert.equal(await pulse.evaluate(node => getComputedStyle(node).animationName),
+        options.reducedMotion === "reduce" ? "none" : "service-status-pulse");
+    await page.evaluate(() => { document.body.dataset.effects = "off"; });
+    assert.equal(await pulse.evaluate(node => getComputedStyle(node).animationName), "none");
+    await page.evaluate(() => { delete document.body.dataset.effects; });
     assert.equal(await page.getByRole("heading", {name:"Movies", exact:true}).isVisible(), false);
     await capture("loading");
     holdResume();
@@ -219,6 +264,8 @@ async function render(browser, label, options) {
     await capture("home");
     const focus = locator => locator.evaluate(node => node === document.activeElement);
     const hero = page.locator(".movie-hero-play");
+    assert.deepEqual(await page.locator(".movie-hero").evaluate(geometry), billboardSize);
+    assert.deepEqual(art[0].slice(0, 2), posterSizes[0]);
     await hero.focus();
     await page.keyboard.press("ArrowDown");
     assert.equal(await page.evaluate(() => document.activeElement.classList.contains("movie-card")), true);
@@ -233,6 +280,20 @@ async function render(browser, label, options) {
     await viewport.evaluate(node => { node.scrollLeft = 0; });
     await shelfNext.press("Enter");
     await page.waitForFunction(node => node.scrollLeft > 0, await viewport.elementHandle());
+
+    const filmLoading = moviesCards.filter({hasText:"Harbour Lights"});
+    await filmLoading.press("Enter");
+    const loadingDetail = page.getByRole("region", {name:"Harbour Lights", exact:true});
+    const loadingHero = loadingDetail.locator(".movie-series-header");
+    await loadingHero.locator(".movie-hero-art[data-loading]").waitFor({state:"attached"});
+    const loadingDetailSize = await loadingHero.evaluate(geometry);
+    assert.equal(await loadingHero.evaluate(node => getComputedStyle(node, "::before").animationName),
+        options.reducedMotion === "reduce" ? "none" : "service-status-pulse");
+    await capture("film-loading");
+    holdFilm();
+    await loadingHero.locator(".movie-hero-art[data-loading]").waitFor({state:"detached"});
+    assert.deepEqual(await loadingHero.evaluate(geometry), loadingDetailSize);
+    await loadingDetail.getByRole("button", {name:"Back to titles"}).press("Enter");
 
     const film = moviesCards.filter({hasText:"The Long Way Home"});
     await film.press("Enter");
@@ -271,6 +332,19 @@ async function render(browser, label, options) {
     assert.equal(await focus(resume), true);
     await details.getByRole("button", {name:"Back to titles"}).press("Enter");
     assert.equal(await focus(film), true);
+    const [detailEntry, playerEntry] = await page.evaluate(() => {
+        return window.movieRoutes.filter(([route, action]) => action === "open" && JSON.parse(route).detail?.Id === "m1")
+            .map(([route]) => route);
+    });
+    await page.evaluate(route => window.movies.restoreNavigation(route), detailEntry);
+    await details.waitFor();
+    await page.evaluate(route => window.movies.restoreNavigation(route), playerEntry);
+    await playerBack.waitFor();
+    await page.evaluate(route => window.movies.restoreNavigation(route), detailEntry);
+    await details.waitFor();
+    assert.equal(await focus(resume), true);
+    await page.evaluate(() => window.movies.restoreNavigation(null));
+    assert.equal(await page.locator(".movie-series").count(), 0);
 
     const show = shelves.locator('[data-item-id="s"]');
     await page.evaluate(() => document.addEventListener("animationstart", event => {
@@ -278,6 +352,11 @@ async function render(browser, label, options) {
     }));
     await show.press("Space");
     const seriesView = page.getByRole("region", {name:"Harbour Town", exact:true});
+    await seriesView.locator(".movie-loading-pill").first().waitFor();
+    const placeholderStill = seriesView.locator(".movie-loading .movie-episode-still").first();
+    const stillSize = await placeholderStill.evaluate(geometry);
+    await capture("series-loading");
+    holdEpisodes();
     const retry = seriesView.getByRole("button", {name:"Retry library check"});
     await retry.waitFor();
     if (options.reducedMotion === "reduce")
@@ -306,6 +385,8 @@ async function render(browser, label, options) {
     await seriesView.locator('[data-episode="2"]').getByRole("button", {name:"Delete source file"}).waitFor();
     const image = seriesView.locator(".movie-episode-still img").first();
     await image.waitFor();
+    (await seriesView.locator(".movie-episode-still").first().evaluate(geometry)).forEach((size, axis) =>
+        assert.ok(Math.abs(size - stillSize[axis]) <= .5, label + " loading and loaded episode stills differ"));
     await page.waitForFunction(img => img.naturalWidth > 0, await image.elementHandle());
     await seriesView.getByRole("button", {name:"Resume", exact:true}).waitFor();
     await capture("series");

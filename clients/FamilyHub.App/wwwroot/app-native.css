@@ -94,6 +94,8 @@ main.entry-screen { grid-column:1 / -1; grid-row:1 / -1; display:grid; place-ite
 .app-header .brand img { width:30px; height:30px; }
 .header-icon { display:grid; place-items:center; width:36px; height:44px; padding:0; border:0; flex-shrink:0; }
 .header-icon .icon { width:22px; height:22px; }
+.header-history[aria-disabled="true"] .icon { opacity:.42; }
+.app-header .header-history[aria-disabled="true"] { cursor:default; }
 .home-button { width:48px; height:48px; background:#ffffff0d; border-radius:50%; }
 .home-button .icon { width:25px; height:25px; }
 .header-search #search-form { max-width:none; margin:0; align-self:center; }

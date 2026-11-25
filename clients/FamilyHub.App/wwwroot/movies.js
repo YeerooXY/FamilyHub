@@ -1,4 +1,4 @@
-import { buildPlayerUi } from "./movie-player-ui.js";
+import { buildPlayerUi, watchPlayerIdle } from "./movie-player-ui.js";
 import { addAudioDialog, audioJobResults, audioJobRunning, audioLanguage as audioLanguageName } from "./movie-audio-ui.js";
 import { movieAudioSync } from "./movie-audio-sync.js";
 import { buildReleaseSearch, cleanResultTitle, formatMinutes, videoQualityTier } from "./movie-releases.js";
@@ -17,6 +17,52 @@ function el(tag, text) {
     return node;
 }
 
+function loadingShape(className, ...children) {
+    const node = el("div");
+    node.className = className;
+    node.append(...children);
+    return node;
+}
+
+function movieLoading(kind) {
+    const block = (className = "") => loadingShape("movie-loading-block " + className);
+    const repeated = (count, make) => Array.from({length: count}, make);
+    let parts;
+    if (kind === "home") {
+        const hero = loadingShape("movie-hero", loadingShape("movie-hero-body",
+            block("movie-loading-heading"), block("movie-loading-line"), block("movie-loading-action")));
+        const cards = () => loadingShape("movie-shelf", block("movie-loading-label"),
+            loadingShape("movie-shelf-scroll", loadingShape("movie-cards", ...repeated(10, () =>
+                loadingShape("movie-loading-card", block("movie-art"), loadingShape("movie-caption", block("movie-loading-line")))))));
+        parts = [loadingShape("movie-toolbar", block("movie-search movie-loading-action")), hero, cards(), cards()];
+    } else if (kind === "seasons") {
+        parts = [loadingShape("movie-season-picker", loadingShape("movie-season-pills",
+            ...repeated(3, () => block("movie-loading-pill"))))];
+    } else {
+        const list = el("ol");
+        list.append(...repeated(3, () => {
+            const row = el("li");
+            row.append(loadingShape("movie-episode-body", block("movie-episode-still"),
+                loadingShape("movie-episode-text", block("movie-loading-line"), block("movie-loading-label"))));
+            return row;
+        }));
+        parts = [loadingShape("movie-season", loadingShape("movie-season-header",
+            block("movie-loading-label"), block("movie-loading-action")), list)];
+    }
+    const node = loadingShape(kind === "home" ? "movie-loading movie-home-skeleton" : "movie-loading", ...parts);
+    node.setAttribute("aria-hidden", "true");
+    return node;
+}
+
+export function showMovieLoading(host, show = true) {
+    if (show) {
+        const status = el("p", "Loading movies and TV…");
+        status.className = "movie-visually-hidden";
+        status.setAttribute("role", "status");
+        host.replaceChildren(loadingShape("movie-session-loading", status, movieLoading("home")));
+    } else host.querySelector(":scope > .movie-session-loading")?.remove();
+}
+
 function searchTitle(text) {
     return text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase()
         .replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -31,6 +77,15 @@ function preferredTrack(tracks, language) {
     const matches = tracks.filter(track => languageCodes[language]?.includes(track.Language?.toLowerCase().split(/[-_]/)[0]));
     return matches.find(track => track.IsDefault) ?? matches[0];
 }
+
+// Browser errors can include the stream URL. Keep only known media diagnostic words.
+const mediaErrorWords = /\b(?:media_err_(?:aborted|network|decode|src_not_supported)|pipeline_error_(?:decode|network|initialization_failed)|demuxer_error_(?:could_not_open|could_not_parse|no_supported_streams)|decode|decoder|decoding|demuxer|pipeline|media|video|audio|error|failed|failure|format|unsupported|supported|stream|network|aborted|source|invalid|could|not|no|to|open|parse|initialize)\b/gi;
+function mediaErrorMessage(message) {
+    return (String(message ?? "").slice(0, 512).replace(/\S*[/=?&#@%\\]\S*|\S*:\S+/g, " ").match(mediaErrorWords) ?? [])
+        .join(" ").slice(0, 160);
+}
+
+const externalDts = track => track?.IsExternal && /^(?:dts|dca)(?:$|[-_])/i.test(track.Codec ?? "");
 
 const labels = { default: "Default", hu: "Hungarian", en: "English", off: "Off" };
 const preferencesKey = viewer => "familyhub:movie-tracks:" + JSON.stringify(viewer);
@@ -119,14 +174,15 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }
     const searchLibrary = (path, params, body, signal) =>
         withinMovieLoad(bounded => request(path, params, body, bounded), signal);
-    // Report a playback problem once a minute per kind; the server keeps the cause in its log.
+    // Limit repeated reports while keeping the initial and forced attempts distinct.
     const lastNote = new Map();
-    const send = (kind, method, title, minutes) =>
-        Promise.resolve(app.invokeMethodAsync("MovieEvent", kind, method ?? "", title ?? "", minutes ?? null)).catch(() => {});
-    const note = (kind, method = "") => {
-        if (!active || performance.now() - (lastNote.get(kind) ?? -6e4) < 6e4) return;
-        lastNote.set(kind, performance.now());
-        send(kind, method);
+    const send = (kind, method, title, minutes, diagnostics = null) =>
+        Promise.resolve(app.invokeMethodAsync("MovieEvent", kind, method ?? "", title ?? "", minutes ?? null, diagnostics)).catch(() => {});
+    const note = (kind, method = "", diagnostics = null) => {
+        const key = kind + ":" + method + ":" + (diagnostics?.forced ?? "");
+        if (!active || performance.now() - (lastNote.get(key) ?? -6e4) < 6e4) return;
+        lastNote.set(key, performance.now());
+        send(kind, method, "", null, diagnostics);
     };
     const status = el("p");
     status.setAttribute("role", "status");
@@ -181,11 +237,15 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         return b;
     }
     // Try each artwork URL in turn; leave the element empty when none loads.
-    function chainImages(img, urls) {
+    function chainImages(img, urls, onExhausted) {
         const next = urls[Symbol.iterator]();
         const advance = () => {
             const image = next.next();
-            if (image.done) { img.removeAttribute("src"); img.onerror = null; } else img.src = image.value;
+            if (image.done) {
+                img.removeAttribute("src");
+                img.onerror = null;
+                onExhausted?.();
+            } else img.src = image.value;
         };
         img.onerror = advance;
         advance();
@@ -272,6 +332,26 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }
     const subtitleAttempts = new Set();
     let playerLife = null;
+    let playerItem, playerOpener;
+    async function closePlayback(keepFocus = false, fromHistory = false) {
+        if (!playerItem) return;
+        const opener = playerOpener;
+        playerItem = playerOpener = undefined;
+        const closing = ++selection;
+        await leavePlayer();
+        if (!active || closing !== selection) return;
+        library.hidden = false;
+        if (!keepFocus) {
+            const replacement = opener?.isConnected && !opener.closest("[hidden]") ? opener :
+                seriesView?.section.querySelector("[data-episode-id], .movie-hero-play") ?? browse;
+            replacement.focus({preventScroll: true});
+        }
+        stop();
+        if (!fromHistory) publishNavigation("back");
+        const closedSelection = selection;
+        await reports;
+        if (active && closedSelection === selection) void reloadResume();
+    }
     function stop() {
         selection++;
         if (current?.started) {
@@ -288,6 +368,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }
     async function play(item, opener, options = {}) {
         if (!active) return;
+        const previous = playerItem;
+        playerItem = item;
+        playerOpener = opener;
+        if (!options.fromHistory && previous?.Id !== item.Id) publishNavigation(previous ? "replace" : "open");
         const { audioIndex, position, paused, forceTranscode, sourceId } = options;
         if (player.contains(document.activeElement)) player.focus({ preventScroll: true });
         stop();
@@ -301,10 +385,23 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             loading.className = "movie-ui-message movie-ui-line";
             loading.setAttribute("role", "status");
             player.append(loading);
+            playerLife = new AbortController();
+            watchPlayerIdle(player, playerLife.signal);
         } else status.textContent = opening;
         const media = el("video");
         const nativeHls = !!media.canPlayType("application/vnd.apple.mpegurl");
         let failure = "The server did not return playback information.";
+        let method = forceTranscode ? "Transcode" : "", selectedAudio, httpStatus, hlsError;
+        const diagnostics = () => ({
+            mediaCode: media.error?.code ?? null, mediaMessage: mediaErrorMessage(media.error?.message),
+            hlsType: hlsError?.type ?? "", hlsDetails: hlsError?.details ?? "", hlsFatal: hlsError?.fatal ?? null,
+            audioIndex: selectedAudio ?? audioIndex ?? null, hlsLoaded: !!globalThis.Hls,
+            httpStatus: httpStatus ?? null, forced: !!forceTranscode
+        });
+        const captureStatus = (context, status) => {
+            if ((context?.type === "manifest" || context?.type === "level" || context?.type === "audioTrack" || context?.frag)
+                && status >= 100 && status <= 599) httpStatus = status;
+        };
         try {
             if (!nativeHls && !globalThis.Hls && (globalThis.MediaSource || globalThis.ManagedMediaSource))
                 await import("./vendor/hls.light.min.js").catch(() => {});
@@ -361,28 +458,35 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const preferredAudio = preferredTrack(audio, audioLanguage);
             const defaultAudio = source.DefaultAudioStreamIndex ?? audio.find(s => s.IsDefault)?.Index ?? audio[0]?.Index;
             const defaultSubtitle = source.DefaultSubtitleStreamIndex;
-            const requestedAudio = audioIndex ?? preferredAudio?.Index;
-            let selectedAudio = defaultAudio;
+            const internalAudio = audio.filter(track => !track.IsExternal);
+            const fallbackAudio = externalDts(audio.find(track => track.Index === defaultAudio))
+                ? (internalAudio.find(track => track.IsDefault) ?? internalAudio[0])?.Index : undefined;
+            const requestedAudio = audioIndex ?? preferredAudio?.Index ?? fallbackAudio;
+            selectedAudio = forceTranscode ? audioIndex ?? defaultAudio : defaultAudio;
             let direct = !forceTranscode && !limit && source.SupportsDirectPlay;
             // A static stream leaves audio selection to the browser. Ask Jellyfin to select the track on multi-audio files.
             const customAudio = audio.length > 1 || audio[0]?.IsExternal ? requestedAudio : undefined;
+            const selectedTrack = audio.find(track => track.Index === (requestedAudio ?? defaultAudio));
+            if (!forceTranscode && externalDts(selectedTrack))
+                return play(item, opener, {...options, audioIndex: selectedTrack.Index, sourceId: source.Id, forceTranscode: true, position: resume});
             if ((!forceTranscode && customAudio != null) || (!sourceId && !direct && defaultSubtitle >= 0)) {
                 const playback = await withinMovieLoad(signal => playbackInfo(source.Id, customAudio, signal), life.signal).catch(() => null);
                 if (!active || rev !== selection) return;
                 const configured = playback?.MediaSources?.[0];
                 if (configured?.TranscodingUrl || (!forceTranscode && !limit && configured?.SupportsDirectPlay && customAudio == null)) {
-                    selectedAudio = configured.DefaultAudioStreamIndex ?? requestedAudio ?? defaultAudio;
+                    selectedAudio = customAudio ?? configured.DefaultAudioStreamIndex ?? defaultAudio;
                     direct = !forceTranscode && !limit && configured.SupportsDirectPlay && customAudio == null;
                     result = playback;
                     source = configured;
-                } else if (!direct && defaultSubtitle >= 0) {
+                } else if (customAudio != null || !direct && defaultSubtitle >= 0) {
                     if (forceTranscode) throw Error();
-                    return play(item, opener, {...options, sourceId: source.Id, forceTranscode: true, position: resume});
+                    return play(item, opener, {...options, audioIndex: requestedAudio ?? defaultAudio, sourceId: source.Id, forceTranscode: true, position: resume});
                 }
             }
+            method = direct ? "DirectPlay" : forceTranscode || limit || source.TranscodeReasons?.length ? "Transcode" : "DirectStream";
             const path = direct ? "Videos/" + item.Id + "/stream" : source.TranscodingUrl;
             if (!path && !forceTranscode)
-                return play(item, opener, {...options, sourceId: source.Id, forceTranscode: true, position: resume});
+                return play(item, opener, {...options, audioIndex: requestedAudio ?? defaultAudio, sourceId: source.Id, forceTranscode: true, position: resume});
             if (!path) throw Error();
             const stream = mediaUrl(path, {mediaSourceId: source.Id, playSessionId: result.PlaySessionId});
             if (direct) stream.searchParams.set("static", "true");
@@ -392,21 +496,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 status.textContent = "This device cannot resume this video. Continue on another device.";
                 note("cannot-resume");
                 library.hidden = false;
-                opener.focus();
+                opener?.focus();
                 stop();
+                playerItem = playerOpener = undefined;
+                publishNavigation("back");
                 return;
             }
-            const back = button("Back to movies", async () => {
-                if (!active || rev !== selection) return;
-                await leavePlayer();
-                if (!active || rev !== selection) return;
-                library.hidden = false;
-                opener.focus();
-                stop();
-                const closedSelection = selection;
-                await reports;
-                if (active && closedSelection === selection) await reloadResume();
-            });
+            const back = button("Back to movies", () => closePlayback());
             const subtitles = (source.MediaStreams || []).filter(s => s.Type === "Subtitle" && s.IsTextSubtitleStream);
             const deviceLanguage = navigator.language?.split("-")[0].toLowerCase();
             const subtitleLanguage = languageCodes[prefs.subtitles] ? prefs.subtitles : deviceLanguage === "hu" ? "hu" : "en";
@@ -437,8 +533,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 textTracks.set(s.Index, track.track);
             }
             for (const subtitle of subtitles) addSubtitleTrack(subtitle);
-            const playback = { item, source, id: result.PlaySessionId, dataSaver: prefs.dataSaver,
-                method: direct ? "DirectPlay" : forceTranscode || limit || source.TranscodeReasons?.length ? "Transcode" : "DirectStream" };
+            const playback = { item, source, id: result.PlaySessionId, dataSaver: prefs.dataSaver, method };
             playback.setSubtitles = (index) => {
                 playback.subtitleOverride = index;
                 const language = prefs.subtitles;
@@ -493,31 +588,54 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 if (playback.next) play(playback.next, opener);
             };
             let ui, recovering = false;
-            const failed = (hlsError = null) => {
+            const failed = (type = hlsError?.type) => {
                 if (current !== playback || recovering) return;
-                note("playback-error", playback.method);
+                note("playback-error", playback.method, diagnostics());
                 const retry = {audioIndex: selectedAudio, subtitleIndex: playback.subtitleOverride, dataSaver: playback.dataSaver,
                     position: metadataLoaded ? media.currentTime : resume, paused: playback.started && media.paused,
                     sourceId: source.Id, forceTranscode: true};
                 const code = media.error?.code;
-                if (!forceTranscode && (direct || playback.method === "DirectStream" || code === 3 || code === 4 || hlsError === "mediaError")) {
+                if (!forceTranscode && (direct || playback.method === "DirectStream" || code === 3 || code === 4 || type === "mediaError")) {
                     recovering = true;
                     void play(item, opener, retry);
                     return;
                 }
-                const reason = code === 2 || hlsError === "networkError" ? "The video stream stopped responding." :
-                    code === 3 || code === 4 || hlsError === "mediaError" ? "The video stream could not be decoded." :
+                const reason = code === 2 || type === "networkError" ? "The video stream stopped responding." :
+                    code === 3 || code === 4 || type === "mediaError" ? "The video stream could not be decoded." :
                     "The server stream could not start.";
                 ui?.showFailure(reason, () => play(item, opener, retry));
             };
-            media.onerror = () => failed();
+            media.onerror = () => failed(null);
             if (!direct && !nativeHls && hls) {
-                playback.hls = new Hls({ startPosition: resume, enableWorker: false });
+                const Loader = Hls.DefaultConfig?.loader;
+                const config = {startPosition: resume, enableWorker: false};
+                if (Loader) config.loader = class extends Loader {
+                    load(context, settings, callbacks) {
+                        const {onSuccess, onError} = callbacks;
+                        super.load(context, settings, {...callbacks,
+                            onSuccess(response, stats, request, network) {
+                                captureStatus(request, network?.status ?? response.code ?? 200);
+                                onSuccess(response, stats, request, network);
+                            },
+                            onError(response, request, network, stats) {
+                                captureStatus(request, network?.status || response.code);
+                                onError(response, request, network, stats);
+                            }
+                        });
+                    }
+                };
+                playback.hls = new Hls(config);
                 playback.hls.on(Hls.Events.ERROR, (_event, data) => {
+                    const type = Object.values(Hls.ErrorTypes ?? {}).includes(data.type) ? data.type : "";
+                    const details = Object.values(Hls.ErrorDetails ?? {}).includes(data.details) ? data.details : "";
+                    hlsError = {type, details, fatal: !!data.fatal};
+                    const status = data.response?.code ?? data.networkDetails?.status;
+                    if (status >= 100 && status <= 599) httpStatus = status;
                     if (data.fatal) failed(data.type);
                 });
             }
             const numbered = item.ParentIndexNumber != null && item.IndexNumber != null;
+            playerLife?.abort();
             playerLife = new AbortController();
             const playerSignal = playerLife.signal;
             const audioSync = audio.some(track => track.Index === selectedAudio && track.IsExternal) ?
@@ -658,25 +776,34 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 if (!seen) ui.hint("Switched to Saver on mobile data.");
             }
             status.textContent = "";
+            const startMedia = () => {
+                if (paused || current !== playback || recovering) return;
+                media.play().catch(error => {
+                    if (current !== playback || recovering) return;
+                    if (error?.name === "NotSupportedError") failed("mediaError");
+                    else if (!media.error) ui.say("Press play to start.");
+                });
+            };
             if (playback.hls) {
+                playback.hls.once(Hls.Events.MANIFEST_PARSED, startMedia);
                 playback.hls.loadSource(stream.href);
                 playback.hls.attachMedia(media);
-            } else media.src = stream;
-            if (!paused) media.play().catch(error => {
-                if (current !== playback || recovering) return;
-                if (error?.name === "NotSupportedError") failed("mediaError");
-                else if (!media.error) ui.say("Press play to start.");
-            });
+            } else {
+                media.src = stream;
+                startMedia();
+            }
             if (network !== connectionRevision) void playback.refreshQuality();
         } catch {
             if (active && rev === selection) {
                 await leavePlayer();
                 if (!active || rev !== selection) return;
                 status.textContent = failure + " Try again using the play button.";
-                note("open-failed");
+                note("open-failed", method, diagnostics());
                 library.hidden = false;
-                opener.focus();
+                opener?.focus();
                 stop();
+                playerItem = playerOpener = undefined;
+                publishNavigation("back");
             }
         }
     }
@@ -708,7 +835,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }
 
     let seriesView;
-    function closeSeries(focus) {
+    function publishNavigation(action) {
+        const route = seriesView || playerItem ? JSON.stringify({detail: seriesView?.item,
+            season: seriesView?.historySeason, player: playerItem}) : null;
+        Promise.resolve(app.invokeMethodAsync("MovieNavigationChanged", route, action)).catch(() => {});
+    }
+    function closeSeries(focus, fromHistory = false, keepFocus = false) {
         if (!seriesView) return;
         const { section, opener, controller, fromResults, searchStatus } = seriesView;
         seriesView = undefined;
@@ -721,10 +853,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const replacement = opener.isConnected && !opener.closest("[hidden]") ? opener :
             [...(fromResults ? results : browse).querySelectorAll(".movie-card, .movie-hero-details")]
                 .find(card => card.dataset.itemId === opener.dataset.itemId && !card.closest("[hidden]"));
-        (focus || replacement || submit).focus({preventScroll: !!focus});
+        if (!keepFocus) (focus || replacement || (fromResults ? submit : browse)).focus({preventScroll: !!focus});
         section.remove();
+        if (!fromHistory) publishNavigation("back");
     }
-    function openSeries(item, opener, preferredSeason) {
+    function openSeries(item, opener, preferredSeason, fromHistory = false, keepFocus = false) {
         const section = el("section"), heading = el("h2", item.Name), summary = el("p"), list = el("div");
         const credit = el("p", "Season data from TMDB. " + tmdbAttribution);
         const back = button("", () => closeSeries());
@@ -753,10 +886,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         section.addEventListener("keydown", event => {
             if (event.key === "Escape" && !event.target.closest("dialog, select")) { event.stopPropagation(); closeSeries(); }
         });
-        seriesView = { section, opener, controller, fromResults, searchStatus: fromResults ? status.textContent : "" };
+        seriesView = { item, historySeason: preferredSeason, section, opener, controller, fromResults, searchStatus: fromResults ? status.textContent : "" };
+        if (!fromHistory) publishNavigation("open");
         status.textContent = "";
         catalogue.append(section);
-        heading.focus({preventScroll: true});
+        if (!keepFocus) heading.focus({preventScroll: true});
         browse.classList.remove("movie-screen-entry");
         results.classList.remove("movie-screen-entry");
         toolbar.hidden = true;
@@ -836,6 +970,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             retry: () => choose(selectedSeason), focus: seasonFocus, automatic: true
         });
         list.after(libraryOutage.card, metadataOutage.card, episodeOutage.card);
+        const seasonLoading = movieLoading("seasons");
+        seasonLoading.hidden = true;
+        seasons.after(seasonLoading);
         const local = bounded => localEpisodes(item.Id, bounded);
         const tmdb = async bounded => {
             const show = item.ProviderIds?.Tmdb ? item : await request(`Items/${encodeURIComponent(item.Id)}`,
@@ -877,7 +1014,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const waiting = !pictures.has(number) && tmdbId;
             if (waiting) {
                 if (list.contains(document.activeElement)) seasonFocus().focus({preventScroll: true});
-                list.hidden = true;
+                list.replaceChildren(movieLoading("episodes"));
                 summary.textContent = "Loading episodes…";
                 await withinMovieLoad(bounded => loadSeason(number, bounded), signal);
             }
@@ -895,9 +1032,15 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         async function load(quiet) {
             if (busy || signal.aborted) return;
             busy = true;
+            let episodeLoading;
             if (!quiet) {
                 summary.textContent = "Loading seasons…";
                 list.setAttribute("aria-busy", "true");
+                if (seasons.hidden) seasonLoading.hidden = false;
+                if (!list.firstChild) {
+                    episodeLoading = movieLoading("episodes");
+                    list.append(episodeLoading);
+                }
             }
             try {
                 await withinMovieLoad(async bounded => {
@@ -944,7 +1087,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     for (const n of numbers) {
                         if (!pills.has(n)) pills.set(n, button(n ? `Season ${n}` : "Specials", () => {
                             pills.get(n).focus({preventScroll: true});
-                            if (selectedSeason !== n) void choose(n);
+                            if (selectedSeason !== n) {
+                                seriesView.historySeason = n;
+                                publishNavigation("replace");
+                                void choose(n);
+                            }
                         }));
                         const pill = pills.get(n);
                         if (pill !== next) lane.insertBefore(pill, next);
@@ -962,6 +1109,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 }, signal);
             } finally {
                 busy = false;
+                seasonLoading.hidden = true;
+                episodeLoading?.remove();
                 list.removeAttribute("aria-busy");
             }
         }
@@ -1182,8 +1331,14 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         art.referrerPolicy = "no-referrer";
         art.className = "movie-hero-art";
         const width = innerWidth > 1700 ? 2560 : 1600;
-        chainImages(art, backdropSources(item).map(([id, type, tag]) =>
-            url(`Items/${encodeURIComponent(id)}/Images/${type}`, {tag, maxWidth: width}).href));
+        const sources = backdropSources(item);
+        const settle = () => delete art.dataset.loading;
+        if (sources.length) {
+            art.dataset.loading = "";
+            art.addEventListener("load", settle, {once: true});
+        }
+        chainImages(art, sources.map(([id, type, tag]) =>
+            url(`Items/${encodeURIComponent(id)}/Images/${type}`, {tag, maxWidth: width}).href), settle);
         return art;
     }
     function card(item, searchResult, resume) {
@@ -1959,14 +2114,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     queueObserver.observe(library, {attributes: true, attributeFilter: ["hidden"]});
     document.addEventListener("visibilitychange", queueVisibility, {signal: life.signal});
     life.signal.addEventListener("abort", () => { clearTimeout(queueTimer); queueObserver.disconnect(); });
-    const skeleton = movieSkeleton();
-    function movieSkeleton() {
-        const node = el("div");
-        node.className = "movie-home-skeleton";
-        node.setAttribute("aria-hidden", "true");
-        node.append(el("span"), el("span"));
-        return node;
-    }
+    const skeleton = movieLoading("home");
     const empty = el("section"), homeStatus = el("p"), entryFocus = document.activeElement;
     homeStatus.className = "movie-visually-hidden";
     homeStatus.setAttribute("role", "status");
@@ -2107,7 +2255,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 skeleton.remove();
                 browse.hidden = toolbar.hidden = false;
                 homeStatus.textContent = browseShelves.some(shelf => shelf.failed) || !genreRetry.hidden ? "" : "Movies and TV loaded.";
-                if (document.activeElement === entryFocus || document.activeElement === document.body || host.contains(document.activeElement))
+                if (!document.activeElement?.matches(".header-history[aria-disabled=true]") &&
+                    (document.activeElement === entryFocus || document.activeElement === document.body || host.contains(document.activeElement)))
                     browse.focus({preventScroll: true});
                 placeBrowseCards();
             }
@@ -2119,7 +2268,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         refreshOnFocus();
     }, {signal: life.signal});
     document.addEventListener("visibilitychange", refreshOnFocus, {signal: life.signal});
-    void refreshHome();
+    const homeLoad = refreshHome();
     // Arrow keys (and a TV remote's directional pad) move between cards, rows and the billboard.
     library.addEventListener("keydown", event => {
         const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
@@ -2151,7 +2300,24 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         target.focus({ preventScroll: true });
         target.scrollIntoView({ block: arrows[1] ? "center" : "nearest", inline: "nearest", behavior: quietMotion() ? "auto" : "smooth" });
     });
-    return { connectionChanged, async close() {
+    return { connectionChanged, async restoreNavigation(value, keepFocus = false) {
+        await homeLoad;
+        if (!active) return;
+        const route = value ? JSON.parse(value) : {};
+        if (playerItem && playerItem.Id !== route.player?.Id) await closePlayback(keepFocus, true);
+        if (!active) return;
+        if (seriesView && seriesView.item.Id !== route.detail?.Id) closeSeries(undefined, true, keepFocus);
+        if (route.detail && !seriesView) {
+            const opener = [...library.querySelectorAll("[data-item-id]")].find(node =>
+                node.dataset.itemId === route.detail.Id && !node.closest("[hidden]")) ?? browse;
+            openSeries(route.detail, opener, route.season, true, keepFocus);
+        }
+        if (route.player && !playerItem) {
+            const opener = seriesView?.section.querySelector(".movie-hero-play") ??
+                seriesView?.section.querySelector("h2") ?? browse;
+            void play(route.player, opener, {fromHistory: true});
+        }
+    }, async close() {
         if (!active) return;
         active = false;
         const leaving = leavePlayer();

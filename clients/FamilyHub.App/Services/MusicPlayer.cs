@@ -1241,7 +1241,7 @@ public sealed class MusicPlayer(MusicSession session)
         if (Current?.PlaybackVersion is not ("preview-hls" or "preview-source") && preparedTrack?.PlaybackVersion is not ("preview-hls" or "preview-source")
             && AutoDj && !blending && IncomingReady && Playing && Duration - Position > .15) return BlendAsync();
         var sequence = queue;
-        if (Shuffle && !preserveHandoffOrder && !FollowingHost && !manualQueue.Contains(queue[next]) && !nextChosen)
+        if (Shuffle && !preserveHandoffOrder && !FollowingHost && !manualQueue.Contains(queue[next]) && !nextChosen && !ReferenceEquals(preparedTrack, queue[next]))
         {
             var chosen = Random.Shared.Next(next, queue.Count);
             if (chosen != next)

@@ -1,5 +1,15 @@
 # Interface verification
 
+## 25 November 2026 Movies & TV 1.5.2
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Movies Home, series and film loading | never | never | never | never | never | Source check, 25 Nov 2026 | never |
+| Movie player, fullscreen and retry | never | never | never | never | never | Source check, 25 Nov 2026 | never |
+| Header history, including film, series, album and playlist details | never | never | never | never | never | Source check, 25 Nov 2026 | never |
+
+[Fixture profiles and pending checks](movies-1-5-2-2026-11-25/README.md)
+
 ## 25 November 2026 Music loudness
 
 | Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
