@@ -237,8 +237,12 @@ GET,PATCH /api/profile/preferences
 POST /api/profile/select
 POST /api/profiles
 POST /api/queue
+GET /api/home/radio
+POST /api/home/album
+POST /api/home/album/play
 POST /api/radio
 POST /api/recommendations
+POST /api/recommendations/match
 POST /api/search
 GET /api/server/seeding
 GET /api/server/stats

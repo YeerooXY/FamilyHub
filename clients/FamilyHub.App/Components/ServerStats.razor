@@ -14,13 +14,16 @@
         }
         else
         {
-            <div class="stats-server-status"><i class="stats-online-dot @(!Offline ? "is-online" : "")" aria-hidden="true"></i><span>@(Offline ? "Server offline" : "Server online")</span></div>
+            <div class="stats-server-status" hidden="@Offline"><i class="stats-online-dot is-online" aria-hidden="true"></i><span>Server online</span></div>
         }
         <button id="server-stats-refresh" class="quiet stats-refresh @(Refreshing ? "is-refreshing" : "")" aria-label="@(Leaderboard ? "Refresh leaderboard" : "Refresh server work")" title="Refresh" @onclick="RefreshPage" aria-disabled="@Aria(Refreshing)"><MusicIcon Name="refresh" /></button>
     </div>
-    <Notice Message="@StatusText" Level="@(error is not null && !Offline ? "error" : Offline ? "warning" : "info")"
-        ActionLabel="@(error is not null && !Offline ? Leaderboard ? "Retry leaderboard" : "Retry server work" : null)"
-        Action="RefreshNow" Busy="@Refreshing" FocusTarget="#server-stats-refresh" />
+    <ServiceStatus Active="@(Offline || error is not null || Refreshing && reconnecting)"
+                   Title="@(needsSignIn ? "Session expired" : "Can't reach your server")"
+                   Detail="@(data is null ? "Reconnect to load server statistics." : "Showing the last loaded statistics.")"
+                   RetryLabel="@(Leaderboard ? "Retry leaderboard" : "Retry server work")"
+                   Retry="RefreshNow" Busy="Refreshing" AutoRetry="@(!needsSignIn)" FocusTarget="#server-stats-refresh" />
+    <Notice Message="@(fetching && data is null && !Offline && error is null ? "Loading server statistics…" : null)" />
     @if (Leaderboard && SnapshotStale) { <small class="catalogue-timestamp">Server updated @snapshotAt.ToLocalTime().ToString("t")</small> }
     @if (data is { } stats && Leaderboard)
     {
@@ -156,7 +159,12 @@
                         <p>Listening time and streaks use recorded daily playback. Favourites and replays use song history.</p>
                         <p>Night owl is the share of completed plays that started from 00:00 to 05:59 UTC. Replays count each time you listen to a song again this year.</p>
                         <p>Mainstream score is the share of your top 10 artists and top 10 songs that appear in Deezer’s chart. Early listener marks artists you played before FamilyHub observed them enter the chart.</p>
-                        <p>@(chartDate is null ? "Deezer chart unavailable. Refresh the leaderboard to check again." : $"Deezer chart checked {ExactDay(chartDate)}.")</p>
+                        @if (chartDate is null)
+                        {
+                            <ServiceStatus Title="Deezer chart unavailable" Detail="Retry to check for the latest chart."
+                                           RetryLabel="Retry Deezer chart" Retry="RefreshNow" Busy="Refreshing" FocusTarget="#server-stats-refresh" />
+                        }
+                        else { <p>Deezer chart checked @ExactDay(chartDate).</p> }
                     </details>
                 }
             </section>
@@ -247,12 +255,16 @@
             <section class="srv-seeding srv-automatic glass-panel" aria-labelledby="srv-seeding-title">
                 <div class="stats-section-heading">
                     <h2 id="srv-seeding-title">Seeding</h2>
-                    <button type="button" class="quiet" @onclick="RefreshSeedingFromButton" aria-disabled="@Aria(seedingFetching)">
-                        @(seedingProblem is not null || seeding?.Stale == true ? "Retry seeding" : "Refresh seeding")
+                    <button id="seeding-refresh" type="button" class="quiet" @onclick="RefreshSeedingFromButton" aria-disabled="@Aria(seedingFetching)">
+                        Refresh seeding
                     </button>
                 </div>
-                <Notice Level="@(seedingFetching ? "info" : seedingProblem is not null ? "error" : seeding?.Stale == true ? "warning" : "info")"
-                        Message="@(seedingFetching ? "Loading seeding records…" : seedingProblem ?? (seeding?.Stale == true ? "The ratio recorder is behind." : null))" />
+                <ServiceStatus Active="@(seedingProblem is not null || seeding?.Stale == true)"
+                    Title="@(seedingNeedsSignIn ? "Session expired" : seedingProblem is null ? "Seeding records are out of date" : "Can't reach your server")"
+                    Detail="@(seeding is null ? "Reconnect to load seeding records." : "Showing the last recorded ratios.")"
+                    RetryLabel="Retry seeding" Retry="RefreshSeedingFromButton" Busy="seedingFetching"
+                    AutoRetry="@(!Offline && !seedingNeedsSignIn)" FocusTarget="#seeding-refresh" />
+                @if (seedingFetching && seedingProblem is null && seeding?.Stale != true) { <Notice Message="Loading seeding records…" /> }
                 @if (seeding is not null)
                 {
                     <p class="srv-seeding-sample">@(seeding.Stale || seedingProblem is not null || seedingFetching ? "Last snapshot" : "Sampled") <time datetime="@seeding.LastSampleAt.ToString("o", Inv)">@seeding.LastSampleAt.ToLocalTime().ToString("g")</time></p>
@@ -459,9 +471,6 @@
 
     private bool Offline => !Session.Connected || Session.Api is null;
     private bool Refreshing => fetching || reconnecting;
-    private string StatusText => reconnecting ? "Reconnecting to the server…"
-        : Offline ? data is null ? "Server offline. Use Refresh to reconnect." : "Showing the last loaded statistics. Use Refresh to reconnect."
-        : error ?? (fetching && data is null ? "Loading server statistics…" : "");
 
     protected override void OnInitialized()
     {
@@ -559,8 +568,6 @@
         followingUp = false;
         var identity = requestedIdentity = Identity;
         fetching = true;
-        needsSignIn = false;
-        error = null;
         StateHasChanged();
         try
         {
@@ -582,6 +589,8 @@
             if (Leaderboard) await JS.InvokeVoidAsync("familyhub.captureLeaderboard").AsTask().WaitAsync(request.Token);
             await JS.InvokeVoidAsync("familyhub.captureStatsFocus").AsTask().WaitAsync(request.Token);
             data = result; Session.UpdateTopListener(result);
+            needsSignIn = false;
+            error = null;
             snapshotAt = DateTimeOffset.UtcNow.AddSeconds(-Math.Max(0, result.SnapshotAgeSeconds));
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { return; }

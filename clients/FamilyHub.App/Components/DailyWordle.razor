@@ -62,10 +62,6 @@
             {
                 <span class="dw-error">@message</span>
             }
-            else if (syncFailed)
-            {
-                <button type="button" class="dw-text" @onclick="SyncGuesses">Saved on this device · Retry sync</button>
-            }
             else if (submitting)
             {
                 <span>Checking guess…</span>
@@ -76,6 +72,8 @@
             }
         </div>
         <div class="dw-play-area">
+        <ServiceStatus Active="syncFailed" Detail="Your guesses are saved on this device."
+                       RetryLabel="Retry guess sync" Retry="SyncGuesses" Busy="syncing" AutoRetry="true" FocusTarget=".daily-wordle" />
         <div class="dw-board" role="group" aria-label="Five-letter puzzle">
             @for (var row = 0; row < 6; row++)
             {
@@ -93,10 +91,8 @@
                 </div>
             }
         </div>
-        @if (puzzle is null && loadAttempted)
-        {
-            <button class="dw-primary" type="button" aria-disabled="@(loading ? "true" : "false")" @onclick="RetryPuzzle">Retry puzzle</button>
-        }
+        <ServiceStatus Active="@(puzzle is null && loadAttempted)" Detail="Reconnect to load today's puzzle."
+                       RetryLabel="Retry puzzle" Retry="Reload" Busy="loading" AutoRetry="true" FocusTarget=".daily-wordle" />
         </div>
         <div class="dw-keyboard" role="group" aria-label="On-screen keyboard">
             @for (var row = 0; row < KeyboardRows.Length; row++)
@@ -136,8 +132,9 @@
             </header>
             <div role="status">
                 @if (loadingStats && stats is null) { <p>Loading statistics…</p> }
-                @if (statsError) { <p>Statistics are unavailable. <button class="dw-text" type="button" aria-disabled="@(loadingStats ? "true" : "false")" @onclick="RetryStats">Try again</button></p> }
             </div>
+            <ServiceStatus Active="statsError" Detail="Reconnect to update Wordle statistics."
+                           RetryLabel="Retry Wordle statistics" Retry="LoadStats" Busy="loadingStats" AutoRetry="true" FocusTarget="#dw-stats-title" />
             @if (stats is { } data)
             {
                 var insights = data.Insights;
@@ -449,7 +446,7 @@
     private ElementReference surface, help, statsButton, memberDialog;
     private Puzzle? puzzle;
     private Statistics? stats;
-    private bool loading, loadAttempted, submitting, loadingStats, statsError, shake, focusBoard, focusResult, focusStats, refreshAfterSubmit, disposed;
+    private bool loading, loadAttempted, submitting, loadingStats, statsError, shake, focusBoard, focusResult, refreshAfterSubmit, disposed;
     private string draft = "", announcement = "";
     private string? message, scheduledReset, inspectedBoardId, memberOpenerId, familyFocus, statsRequestedKey;
     private bool showMemberBoard;
@@ -490,7 +487,6 @@
         }
         if (focusBoard) { focusBoard = false; await module!.InvokeVoidAsync("restoreBoard", surface); }
         if (focusResult && Finished && statsButton.Context is not null) { focusResult = false; await statsButton.FocusAsync(preventScroll: true); }
-        if (focusStats) { focusStats = false; await statsHeading.FocusAsync(preventScroll: true); }
         if (familyFocus is { } target)
         {
             familyFocus = null;
@@ -514,12 +510,6 @@
         }
     }
 
-    private async Task RetryPuzzle()
-    {
-        await Reload();
-        focusBoard = puzzle is not null;
-    }
-
     private async Task Reload()
     {
         if (loading) return;
@@ -533,7 +523,7 @@
         }
         catch (Exception error) when (IsRequestError(error))
         {
-            if (!disposed) message = "Today’s puzzle is unavailable. Try again.";
+            if (!disposed && puzzle is not null) message = "The puzzle could not update.";
         }
         finally { loading = false; loadAttempted = true; }
     }
@@ -908,12 +898,6 @@
         }
         catch (Exception error) when (IsRequestError(error)) { statsError = !disposed; }
         finally { loadingStats = false; if (!disposed) StateHasChanged(); }
-    }
-
-    private async Task RetryStats()
-    {
-        await LoadStats();
-        focusStats = !statsError;
     }
 
     private static bool IsRequestError(Exception error) => error is FamilyHubApiException or HttpRequestException

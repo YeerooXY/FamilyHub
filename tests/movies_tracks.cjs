@@ -29,6 +29,10 @@ async function check(browser, options) {
         // These checks cover negotiation and track controls independently of the media stream.
         HTMLMediaElement.prototype.play = () => Promise.resolve();
         HTMLMediaElement.prototype.canPlayType = () => "probably";
+        Object.defineProperty(HTMLMediaElement.prototype, "src", {
+            get() { return this.fixtureSource ?? ""; },
+            set(url) { this.fixtureSource = String(url); }
+        });
     });
     await page.route(app + "/**", route => {
         const name = new URL(route.request().url()).pathname.slice(1);

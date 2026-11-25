@@ -2,6 +2,8 @@
 // This module owns the screen. The .NET side owns the network, the file picker and the clipboard: it answers
 // `FilesCall` (JSON endpoints), `FilesUpload`, `FilesDownload`, `FilesCopy` and `FilesShare`.
 
+import { createServiceStatus } from "./service-status.js";
+
 function el(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -117,11 +119,11 @@ export function openFiles(host, app, viewer) {
     async function call(method, url, json) {
         let reply;
         try { reply = JSON.parse(await app.invokeMethodAsync("FilesCall", method, url, json === undefined ? null : JSON.stringify(json))); }
-        catch { return { ok: false, error: "The server did not answer. Check the connection and try again." }; }
+        catch { return { ok: false, unavailable: true, error: "The server did not answer. Check the connection and try again." }; }
         let body = null;
         try { body = reply.body ? JSON.parse(reply.body) : null; } catch { /* a non-JSON body */ }
         if (reply.status >= 200 && reply.status < 300) return { ok: true, body };
-        return { ok: false, error: errorText(body?.error) };
+        return { ok: false, unavailable: reply.status === 0 || reply.status >= 500, error: errorText(body?.error) };
     }
     const q = (p) => encodeURIComponent(p);
     const here = (name) => (path ? path + "/" : "") + name;
@@ -167,6 +169,10 @@ export function openFiles(host, app, viewer) {
     tools.append(searchBox, sort, views);
     finder.append(crumbs, tools);
     const status = el("p", "files-status"); status.setAttribute("role", "status");
+    const outage = createServiceStatus({
+        detail: "Reconnect to load this folder.", label: "Retry folder listing", retry: () => load(),
+        focus: () => currentCrumb() || tabButtons[space], automatic: true, fullSection: true
+    });
     const progress = el("div", "files-progress"); progress.hidden = true;
     progress.setAttribute("role", "progressbar"); progress.setAttribute("aria-valuemin", "0"); progress.setAttribute("aria-valuemax", "100");
     const bar = el("span", "files-progress-fill"), thumb = el("span", "files-progress-thumb");
@@ -198,7 +204,7 @@ export function openFiles(host, app, viewer) {
     emptyText.setAttribute("role", "status");
     const emptyUpload = button("files-primary", "Upload to this folder", UPLOAD);
     empty.append(illustration, emptyText, emptyUpload);
-    root.append(toolbar, finder, status, progress, noMatch, folderHeading, folders, fileHeading, list, empty, selbar);
+    root.append(toolbar, finder, status, outage.card, progress, noMatch, folderHeading, folders, fileHeading, list, empty, selbar);
     const currentCrumb = () => crumbs.querySelector("[aria-current]");
 
     // ---- listing ----
@@ -390,6 +396,7 @@ export function openFiles(host, app, viewer) {
             folderHeading.hidden = fileHeading.hidden = true;
             drawSelection();
             (focusTarget || currentCrumb()).focus();
+            outage.clear();
             empty.hidden = true;
         }
         load({ focusTarget });
@@ -398,9 +405,15 @@ export function openFiles(host, app, viewer) {
         const request = ++listing;
         closeMenu(true);
         const previousFocus = document.activeElement;
-        status.textContent = "Loading…";
+        if (outage.card.hidden) status.textContent = "Loading…";
         const r = await call("GET", `/api/files/list?space=${space}&path=${q(path)}`);
         if (life.signal.aborted || request !== listing) return;
+        if (r.unavailable) {
+            status.textContent = notice;
+            outage.show();
+            return;
+        }
+        outage.clear();
         entries = r.ok ? r.body.entries : [];
         status.textContent = r.ok ? notice : [r.error, notice].filter(Boolean).join(" ");
         const isEmpty = r.ok && !entries.length;
@@ -784,38 +797,52 @@ export function openFiles(host, app, viewer) {
         const note = el("p", "files-note", "Loading…");
         note.setAttribute("role", "status");
         body.append(note);
-        const r = await call("GET", "/api/files/links");
-        if (!card.open) return;
-        if (!r.ok) { note.textContent = r.error; return; }
-        note.textContent = r.body.links.length ? "The link address is available when you create it." : "You have not made any links yet.";
-        const ul = el("ul", "files-links");
-        for (const link of r.body.links) {
-            const li = el("li", "files-link");
-            const details = el("div", "files-link-details");
-            const expiration = el("span", "", `${link.name} · ${link.active ? "works until " + stamp.format(new Date(link.expires * 1000)) : "no longer works"}`);
-            const count = el("span", "files-chip", `${link.downloads}${link.max_downloads ? " of " + link.max_downloads : ""} ${link.downloads === 1 ? "download" : "downloads"}`);
-            details.append(expiration, count);
-            if (link.protected) details.append(el("span", "files-chip", "Password"));
-            li.append(details);
-            if (link.active) {
-                const revoke = el("button", "files-quiet", "Revoke"); revoke.type = "button"; revoke.setAttribute("aria-label", `Revoke link to ${link.name}`);
-                revoke.onclick = async () => {
-                    if (revoke.hasAttribute("aria-disabled")) return;
-                    revoke.setAttribute("aria-disabled", "true");
-                    const done = await call("DELETE", `/api/files/links/${link.id}`);
-                    if (!card.open) return;
-                    if (!done.ok) { revoke.removeAttribute("aria-disabled"); note.textContent = done.error; return; }
-                    const hadFocus = document.activeElement === revoke;
-                    expiration.textContent = `${link.name} · no longer works`;
-                    revoke.remove();
-                    note.textContent = `Revoked the link to ${link.name}.`;
-                    if (hadFocus || document.activeElement === document.body) (ul.querySelector(".files-quiet:not([aria-disabled])") ?? close).focus();
-                };
-                li.append(revoke);
+        const unavailable = createServiceStatus({
+            detail: "Reconnect to load your share links.", label: "Retry share links",
+            retry: loadLinks, focus: () => close, automatic: true
+        });
+        body.append(unavailable.card);
+        async function loadLinks() {
+            const r = await call("GET", "/api/files/links");
+            if (!card.open) return;
+            if (r.unavailable) {
+                note.textContent = "";
+                unavailable.show();
+                return;
             }
-            ul.append(li);
+            unavailable.clear();
+            if (!r.ok) { note.textContent = r.error; return; }
+            note.textContent = r.body.links.length ? "Copy the address when you create a link." : "You have not made any links yet.";
+            const ul = el("ul", "files-links");
+            for (const link of r.body.links) {
+                const li = el("li", "files-link");
+                const details = el("div", "files-link-details");
+                const expiration = el("span", "", `${link.name} · ${link.active ? "works until " + stamp.format(new Date(link.expires * 1000)) : "no longer works"}`);
+                const count = el("span", "files-chip", `${link.downloads}${link.max_downloads ? " of " + link.max_downloads : ""} ${link.downloads === 1 ? "download" : "downloads"}`);
+                details.append(expiration, count);
+                if (link.protected) details.append(el("span", "files-chip", "Password"));
+                li.append(details);
+                if (link.active) {
+                    const revoke = el("button", "files-quiet", "Revoke"); revoke.type = "button"; revoke.setAttribute("aria-label", `Revoke link to ${link.name}`);
+                    revoke.onclick = async () => {
+                        if (revoke.hasAttribute("aria-disabled")) return;
+                        revoke.setAttribute("aria-disabled", "true");
+                        const done = await call("DELETE", `/api/files/links/${link.id}`);
+                        if (!card.open) return;
+                        if (!done.ok) { revoke.removeAttribute("aria-disabled"); note.textContent = done.error; return; }
+                        const hadFocus = document.activeElement === revoke;
+                        expiration.textContent = `${link.name} · no longer works`;
+                        revoke.remove();
+                        note.textContent = `Revoked the link to ${link.name}.`;
+                        if (hadFocus || document.activeElement === document.body) (ul.querySelector(".files-quiet:not([aria-disabled])") ?? close).focus();
+                    };
+                    li.append(revoke);
+                }
+                ul.append(li);
+            }
+            body.append(ul);
         }
-        body.append(ul);
+        await loadLinks();
     };
 
     tabs.addEventListener("keydown", (event) => {

@@ -69,18 +69,21 @@ public sealed class ListenTogether(MusicSession session, MusicPlayer player)
     }
     private object State(bool includeQueue)
     {
-        var hasSong = player.Current is not null && player.QueueIndex >= 0;
+        var hasSong = player.Current is { IsDeezerSuggestion: false } && player.QueueIndex >= 0;
         var playing = hasSong && player.PlaybackRequested && !player.Preparing;
         var data = new Dictionary<string, object>
         {
-            ["index"] = hasSong ? player.QueueIndex : -1, ["position"] = hasSong ? player.Position + (playing ? HostTransit : 0) : 0,
+            ["index"] = hasSong ? player.Queue.Take(player.QueueIndex).Count(t => !t.IsDeezerSuggestion) : -1,
+            ["position"] = hasSong ? player.Position + (playing ? HostTransit : 0) : 0,
             ["playing"] = playing, ["auto_dj"] = player.AutoDj, ["control_revision"] = player.ControlRevision,
             ["crossfading"] = hasSong && player.Crossfading, ["fade_position"] = player.FadePosition,
             ["fade_elapsed"] = player.FadeElapsed, ["fade_duration"] = player.FadeDuration
         };
-        if (includeQueue) data["queue"] = player.Queue.Select(t => new { id = t.Id, title = t.Title, channel = t.Channel }).ToArray();
+        if (includeQueue) data["queue"] = RoomQueue().Select(t => new { id = t.Id, title = t.Title, channel = t.Channel }).ToArray();
         return data;
     }
+    private IEnumerable<MusicTrack> RoomQueue() => player.Current is { IsDeezerSuggestion: false } && player.QueueIndex >= 0
+        ? player.Queue.Where(t => !t.IsDeezerSuggestion) : [];
     public async Task StartAsync()
     {
         pendingPoke = null;
@@ -92,7 +95,7 @@ public sealed class ListenTogether(MusicSession session, MusicPlayer player)
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
             var identity = ProfileIdentity;
             var state = State(true);
-            sentQueue = string.Join('|', player.Queue.Select(t => t.Id));
+            sentQueue = string.Join('|', RoomQueue().Select(t => t.Id));
             var created = await connection.RequestJsonAsync<ListeningRoomResponse>(HttpMethod.Post, "/api/listening/rooms", state, timeout.Token);
             if (!ReferenceEquals(connection, session.Api) || identity != ProfileIdentity) return;
             api = connection; Room = created.Room;
@@ -103,7 +106,7 @@ public sealed class ListenTogether(MusicSession session, MusicPlayer player)
                 try { await player.SynchronizeHostAsync(restored, Room.Index, Room.Position, Room.Playing, Room.AutoDj, Room.Crossfading, Room.FadePosition, Room.FadeElapsed, Room.FadeDuration, Room.ControlRevision); }
                 finally { player.FollowingHost = false; }
             }
-            sentQueue = string.Join('|', player.Queue.Select(t => t.Id));
+            sentQueue = string.Join('|', RoomQueue().Select(t => t.Id));
             Begin();
         }
         catch { Room = null; throw; }
@@ -184,7 +187,7 @@ public sealed class ListenTogether(MusicSession session, MusicPlayer player)
                 ListeningRoom result;
                 if (room.IsHost)
                 {
-                    var key = string.Join('|', player.Queue.Select(t => t.Id));
+                    var key = string.Join('|', RoomQueue().Select(t => t.Id));
                     var revision = player.UserPlaybackRevision;
                     result = (await api!.RequestJsonAsync<ListeningRoomResponse>(HttpMethod.Put, "/api/listening/rooms/" + room.Id,
                         await MainThread.InvokeOnMainThreadAsync(() => State(key != sentQueue)), timeout.Token, background: revision == userRevision)).Room;

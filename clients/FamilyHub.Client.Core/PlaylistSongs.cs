@@ -4,6 +4,36 @@ namespace FamilyHub.Client.Core;
 
 public static class PlaylistSongs
 {
+    public static bool PreparationActive(System.Text.Json.JsonElement status) =>
+        status.ValueKind == System.Text.Json.JsonValueKind.Object &&
+        status.TryGetProperty("state", out var state) && state.ValueKind == System.Text.Json.JsonValueKind.String &&
+        (state.GetString() == "running" || (state.GetString() is "done" or "idle" &&
+            status.TryGetProperty("download_after_matching", out var next) && next.ValueKind == System.Text.Json.JsonValueKind.True));
+
+    public static string EntryKey(PlaylistTrack entry) => entry.SpotifyUri.Length > 0 ? entry.SpotifyUri
+        : entry.RecordingId ?? entry.Artist + "\n" + entry.Title;
+
+    public static MusicTrack CatalogueTrack(PlaylistTrack entry) => new()
+    {
+        Id = entry.SpotifyUri, Title = entry.Title, Channel = entry.Artist,
+        LibraryAlbum = entry.Album, Duration = entry.Duration
+    };
+
+    public static IEnumerable<MusicTrack> NewlyPrepared(MusicPlaylist playlist, Func<PlaylistTrack, MusicTrack?> resolve,
+        HashSet<string>? included, HashSet<string> queued, bool active)
+    {
+        foreach (var entry in playlist.Tracks)
+        {
+            if (included is not null && !included.Contains(EntryKey(entry))) continue;
+            if (resolve(entry) is { } track)
+            {
+                if (queued.Add(track.Id)) yield return track;
+            }
+            else if (active && entry.State is not ("error" or "review" or "cancelled" or "saved"))
+                yield break;
+        }
+    }
+
     public static string Album(PlaylistTrack entry, MusicTrack? track) =>
         !string.IsNullOrWhiteSpace(entry.Album) && entry.Album is not ("Selected recordings" or "Unknown album")
             ? entry.Album : track?.LibraryAlbum is { Length: > 0 } album && album != "Selected recordings" ? album : "";

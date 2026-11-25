@@ -1,4 +1,7 @@
 @page "/"
+@page "/outage/{Screen}"
+@using Microsoft.AspNetCore.Components
+@inject NavigationManager Navigation
 @using Microsoft.AspNetCore.Components.Web
 @using FamilyHub.App.Components.Pages
 <!doctype html>
@@ -7,14 +10,28 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <base href="/" />
-    @foreach (var css in new[] { "shell", "app-native", "startup", "profile-images", "playlist-transfer", "server-stats", "player-native", "paddock-theme", "home-mobile", "movies", "stats-pages", "create-playlist", "music-admin", "popup-native", "notices", "hub", "daily-wordle", "feedback" })
+    @foreach (var css in new[] { "shell", "app-native", "startup", "profile-images", "playlist-transfer", "server-stats", "player-native", "paddock-theme", "home-mobile", "movies", "stats-pages", "create-playlist", "music-admin", "popup-native", "notices", "hub", "daily-wordle", "feedback", "files", "service-status" })
     { <link rel="stylesheet" href="/@(css).css" /> }
 </head>
 <body>
-    <div id="app"><Music @rendermode="new InteractiveServerRenderMode(prerender: false)" /></div>
+    <div id="app">
+        @if (Screen is null || Screen == "app") { <Music @rendermode="new InteractiveServerRenderMode(prerender: false)" /> }
+        else { <OutageFixture Screen="@Screen" @rendermode="new InteractiveServerRenderMode(prerender: false)" /> }
+    </div>
     <script src="/paddock-theme.js"></script>
     <script src="/notices.js"></script>
     <script src="/app.js"></script>
     <script src="/_framework/blazor.web.js"></script>
 </body>
 </html>
+
+@code {
+    [Parameter] public string? Screen { get; set; }
+
+    // The route value is not always bound on the static page, so the path is read directly.
+    protected override void OnInitialized()
+    {
+        var path = new Uri(Navigation.Uri).AbsolutePath;
+        if (Screen is null && path.StartsWith("/outage/", StringComparison.Ordinal)) Screen = path["/outage/".Length..].Trim('/');
+    }
+}

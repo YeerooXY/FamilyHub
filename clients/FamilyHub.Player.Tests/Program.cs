@@ -109,6 +109,34 @@ for (var run = 0; run < 100; run++)
     Check(player.Playing && player.PlaybackRequested, "Explicit row selection did not play");
 }
 {
+    var (session, player) = Setup(); session.Delay = true;
+    var loading = player.PlayAsync(tracks[0], tracks);
+    var revision = player.UserPlaybackRevision;
+    Check(player.Preparing && player.ReplaceUpcoming(tracks[0].Id, [tracks[1]]),
+        "A preparing seed must accept immediate local matches");
+    player.AddToQueue(tracks[3], manual: false);
+    Check(player.UserPlaybackRevision == revision && player.Queue.SequenceEqual([tracks[0], tracks[1], tracks[3]]),
+        "Background additions must extend the queue without changing its user revision");
+    session.Complete(0);
+    await loading;
+    Check(player.Queue.SequenceEqual([tracks[0], tracks[1], tracks[3]]), "Preparation erased the updated queue");
+}
+{
+    var (_, player) = Setup();
+    await player.PlayAsync(tracks[0]);
+    var revision = player.UserPlaybackRevision;
+    WindowsAudioPlayer.Last!.RaiseEnded();
+    player.AddToQueue(tracks[1], manual: false);
+    await player.ContinueQueueAsync(revision);
+    Check(player.Current == tracks[1] && player.PlaybackRequested && player.UserPlaybackRevision == revision,
+        "A completed playlist song should advance when preparation adds the next track");
+    WindowsAudioPlayer.Last!.RaiseEnded();
+    await player.StopAsync();
+    player.AddToQueue(tracks[2], manual: false);
+    await player.ContinueQueueAsync(revision);
+    Check(player.Current is null && !player.PlaybackRequested, "A stopped playlist resumed from an old follower");
+}
+{
     var (session, player) = Setup(); await player.PlayAsync(tracks[0], tracks); session.Delay = true;
     var next1 = player.NextAsync(); var next2 = player.NextAsync(); var previous = player.PreviousAsync();
     Check(player.QueueIndex == 1 && player.Current == tracks[1], "Rapid navigation was dropped");
@@ -177,6 +205,66 @@ for (var run = 0; run < 100; run++)
     Check(!session.Stages.Contains((action, "fallback_position_advanced")), "A restored playhead was counted as fallback startup");
     primary.Tick(.25);
     Check(session.Stages.Contains((action, "fallback_position_advanced")), "Real progress after restoring the playhead was missed");
+}
+{
+    var session = new MusicSession { Stream = true, HomeConnection = true };
+    var primary = new WindowsAudioPlayer { StreamDuration = 40 };
+    var standby = new WindowsAudioPlayer();
+    var player = new MusicPlayer(session) { AutoDj = false };
+    player.AttachDecks(primary, standby);
+    var unsaved = tracks[1];
+    await player.PlayAsync(tracks[0], [tracks[0], unsaved]);
+    primary.Tick(14);
+    Check(session.UpcomingDownloads.Count == 0, "Unsaved audio was requested before 15 seconds");
+    primary.Tick(1);
+    Check(session.PrefetchRequests == 1 && session.UpcomingDownloads.Single().Track.Id == unsaved.Id
+        && standby.Path == "upcoming-cache" && !standby.Playing, "Home playback did not cache the unsaved next song at 15 seconds");
+    Check(session.Observations.Any(row => row.Stage == "next_warmup_start")
+        && session.Observations.Any(row => row.Stage == "next_warmup_finish"), "Warm-up timing was missed");
+    await player.NextAsync();
+    Check(player.Playing && standby.Path == "upcoming-cache" && session.StreamRequests == 1,
+        "Starting the ready next song opened another stream");
+}
+{
+    var session = new MusicSession { Stream = true, HomeConnection = true, DataSaver = true, DelayUpcoming = true };
+    var primary = new WindowsAudioPlayer { StreamDuration = 120 };
+    var standby = new WindowsAudioPlayer();
+    var player = new MusicPlayer(session) { AutoDj = false };
+    player.AttachDecks(primary, standby);
+    var saved = tracks[1] with { Saved = true };
+    var replacement = tracks[3] with { Saved = true };
+    await player.PlayAsync(tracks[0], [tracks[0], saved]);
+    primary.Tick(15);
+    Check(session.UpcomingDownloads.Count == 0, "Data saver allowed a full warm-up download on Wi-Fi");
+    session.DataSaver = false;
+    session.HomeConnection = false;
+    player.PlaybackNetworkChanged();
+    primary.Tick(10);
+    Check(session.UpcomingDownloads.Count == 0, "Cellular playback downloaded the next song");
+    session.HomeConnection = true;
+    player.PlaybackNetworkChanged();
+    var old = session.UpcomingDownloads.Single();
+    Check(old.Track == saved && session.PrefetchRequests == 0, "Saved audio started acquisition");
+    Check(player.ReplaceUpcoming(tracks[0].Id, [replacement]), "The replacement queue was rejected");
+    Check(old.Token.IsCancellationRequested && session.UpcomingDownloads.Count == 2
+        && session.UpcomingDownloads[1].Track == replacement, "Changing the queue kept downloading the old song");
+    var pending = session.UpcomingDownloads[1];
+    await player.ToggleAsync();
+    Check(pending.Token.IsCancellationRequested && standby.Path is null, "Pausing left a speculative download active");
+}
+{
+    var session = new MusicSession { Stream = true, HomeConnection = true, CanWarmPlayback = true, CacheFreeBytes = 0 };
+    var primary = new WindowsAudioPlayer { StreamDuration = 120 };
+    var standby = new WindowsAudioPlayer();
+    var player = new MusicPlayer(session) { AutoDj = false };
+    player.AttachDecks(primary, standby);
+    var saved = tracks[1] with { Saved = true };
+    await player.PlayAsync(tracks[0], [tracks[0], saved]);
+    Check(session.UpcomingDownloads.Single().Track == saved && standby.Path is null
+        && session.Observations.Any(row => row.Stage == "next_warmup_failed"), "A saved song bypassed the cache limit");
+    primary.Tick(113);
+    Check(session.UpcomingDownloads.Count == 1 && standby.Path?.StartsWith("https://") == true,
+        "A full cache prevented conservative stream preparation");
 }
 {
     var session = new MusicSession { Stream = true };
@@ -337,6 +425,11 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
     Check(MusicPlayer.NormalizationGainDb(tracks[0] with { Lufs = -8, TruePeak = -1 }, "normal") == -6, "Loud master target incorrect");
     Check(MusicPlayer.NormalizationGainDb(tracks[0] with { Lufs = -30, TruePeak = -20 }, "normal") == 6, "Quiet gain exceeded +6 dB");
     Check(MusicPlayer.NormalizationGainDb(tracks[0] with { Lufs = -24, TruePeak = -3 }, "normal") == 2, "Quiet gain exceeded peak limit");
+    var hot = tracks[0] with { Lufs = -14, TruePeak = 4 };
+    Check(MusicPlayer.NormalizationGainDb(hot, "normal") == -5, "Hot peak must reach -1 dBFS even at target loudness");
+    Check(MusicPlayer.NormalizationGainDb(tracks[0] with { PlaybackGainDb = -8 }, "normal") == 0, "Unknown loudness must use unity gain");
+    Check(MusicPlayer.NormalizationGainDb(hot with { TruePeak = double.NaN }, "normal") == 0, "Invalid peak must use unity gain");
+    Check(MusicPlayer.NormalizationGainDb(hot, "normal", enabled: false) == 0, "Disabled normalization must use unity gain");
     Check(MusicPlayer.NormalizationGainDb(tracks[0] with { Lufs = -14, TruePeak = -8 }, "quiet") == -5, "Quiet target incorrect");
     Check(MusicPlayer.NormalizationGainDb(tracks[0] with { Lufs = -14, TruePeak = -8 }, "loud") == 3, "Loud target incorrect");
     var loud = tracks[0] with { Lufs = -8, TruePeak = -1 };
@@ -352,14 +445,17 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
     Check(player.Queue.SequenceEqual(retained) && player.Current == current && player.Playing,
         "Empty or seed-only recommendations changed playback or cleared the queue");
     await player.NextAsync(); Check(WindowsAudioPlayer.Last.Volume == 1, "Loudness gain leaked between songs");
-    await player.PlayAsync(tracks[0] with { PlaybackGainDb = 12 }); Check(WindowsAudioPlayer.Last.Volume == 1, "Native gain exceeded unity");
     await player.PlayAsync(tracks[0] with { Lufs = -30, TruePeak = -20 });
+    Check(WindowsAudioPlayer.Last.Volume == 1, "Native gain exceeded unity");
     await player.SetVolumeAsync(.5);
-    Check(WindowsAudioPlayer.Last.Volume == .5, "Native player boosted a quiet track");
+    Check(Math.Abs(WindowsAudioPlayer.Last.Volume - .5 * Math.Pow(10, .3)) < .00001, "Quiet song did not use available gain");
     session.PlaybackPreferences = new() { VolumeLevel = "quiet" };
     var quiet = tracks[1] with { Lufs = -14, TruePeak = -8 };
     await player.PlayAsync(quiet, [quiet, tracks[3]]);
     Check(Math.Abs(WindowsAudioPlayer.Last.Volume - .5 * Math.Pow(10, -.25)) < .00001, "Volume level ignored");
+    await player.SetEvenSongVolumeAsync(false);
+    Check(WindowsAudioPlayer.Last.Volume == .5, "Device toggle did not restore the current deck volume");
+    await player.SetEvenSongVolumeAsync(true);
     await player.NextAsync();
     Check(WindowsAudioPlayer.Last.Volume == .5, "Measured gain leaked between songs");
     await player.SetVolumeAsync(0); Check(WindowsAudioPlayer.Last.Volume == 0, "Normalization overrode mute");
@@ -367,7 +463,7 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
 {
     var session = new MusicSession(); var primary = new WindowsAudioPlayer(); var secondary = new WindowsAudioPlayer();
     var player = new MusicPlayer(session); player.AttachDecks(primary, secondary);
-    var a = tracks[1] with { PlaybackGainDb = -13.24 }; var b = tracks[3] with { PlaybackGainDb = -2.06 };
+    var a = tracks[1] with { Lufs = -5, TruePeak = 4 }; var b = tracks[3] with { Lufs = -12, TruePeak = -3 };
     player.UiActive = false;
     var notifications = new List<string?>();
     player.Changed += () => notifications.Add(player.NotificationPlayback.Track?.Id);
@@ -378,9 +474,12 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
     Check(player.Crossfading && shown.Track?.Id == b.Id && shown.Position == secondary.Position
         && shown.Duration == secondary.Duration && shown.Playing && notifications.Last() == b.Id,
         "Background crossfade retained the outgoing notification or mixed positions across songs");
-    var left = Math.Pow(10, -13.24 / 20); var right = Math.Pow(10, -2.06 / 20);
+    var left = Math.Pow(10, -9.0 / 20); var right = Math.Pow(10, -2.0 / 20);
     Check(primary.Volume < left && secondary.Volume > 0 && secondary.Volume <= right, "Crossfade ignored each song's normalization");
     Check(Math.Abs(primary.Volume / left + secondary.Volume / right - 1) < .00001, "Normalization changed linear fade envelope");
+    await player.SetEvenSongVolumeAsync(false);
+    Check(Math.Abs(primary.Volume + secondary.Volume - 1) < .00001, "Device toggle did not update both crossfading decks");
+    await player.SetEvenSongVolumeAsync(true);
     secondary.Tick(4); await Task.Delay(90);
     Check(player.Current?.Id == b.Id && Math.Abs(secondary.Volume - right) < .00001, "Normalization lost at deck handoff");
     Check(player.NotificationPlayback.Track?.Id == b.Id && player.NotificationPlayback.CanSeek,
@@ -416,11 +515,13 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
 }
 {
     var (_, player) = Setup(); player.FollowingHost = true;
-    var sequence = new[] { tracks[1], tracks[3] };
+    var sequence = new[] { tracks[1] with { Lufs = -14, TruePeak = 4 }, tracks[3] with { Lufs = -8, TruePeak = -1 } };
     await player.SynchronizeHostAsync(sequence, 0, 12, true, false, false);
     Check(!player.Playing, "Guest started before receiving a fresh position after preparation");
     await player.SynchronizeHostAsync(sequence, 0, 14, true, false, false);
     Check(player.Position == 14 && player.Playing && !player.AutoDj, "Guest did not synchronize position or Auto DJ");
+    Check(Math.Abs(WindowsAudioPlayer.Last!.Volume - Math.Pow(10, -.25)) < .00001, "Guest deck ignored peak protection");
+    await player.SetEvenSongVolumeAsync(false);
     await player.PauseLocallyAsync();
     Check(!player.Playing && player.FollowingHost && player.Current is not null, "Local pause left or cleared the session");
     await player.SynchronizeHostAsync(sequence, 0, 15, true, false, false);
@@ -432,6 +533,7 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
     await player.SynchronizeHostAsync(sequence, 1, 2, true, true, false);
     await player.SynchronizeHostAsync(sequence, 1, 3, true, true, false);
     Check(player.QueueIndex == 1 && player.Position == 3 && player.AutoDj, "Host skip did not reach guest");
+    Check(WindowsAudioPlayer.Last!.Volume == 1, "Guest's local toggle did not survive a host track change");
 }
 {
     var (_, player) = Setup(); player.FollowingHost = true;
@@ -706,7 +808,7 @@ public static class MainThread
 namespace CommunityToolkit.Maui.Views { public sealed class MediaElement { } }
 namespace FamilyHub.Client.Core
 {
-    public sealed record MusicTrack(string Id = "", string Title = "", string Channel = "") { public string Url { get; init; } = ""; public double? PlaybackGainDb { get; init; } public double? Lufs { get; init; } public double? TruePeak { get; init; } public string PlaybackVersion { get; init; } = ""; public double Duration { get; init; } = 30; public bool Saved { get; init; } }
+    public sealed record MusicTrack(string Id = "", string Title = "", string Channel = "") { public string Url { get; init; } = ""; public double? PlaybackGainDb { get; init; } public double? Lufs { get; init; } public double? TruePeak { get; init; } public string PlaybackVersion { get; init; } = ""; public double Duration { get; init; } = 30; public bool Saved { get; init; } public long DownloadSize { get; init; } = 1024; public bool IsDeezerSuggestion => Id.StartsWith("deezer:", StringComparison.Ordinal); }
     public sealed record ListenerPreferences { public string VolumeLevel { get; init; } = "normal"; public bool ListeningHistoryPaused { get; init; } }
     public sealed record PlaybackResume
     {
@@ -723,6 +825,8 @@ namespace FamilyHub.App.Services
     public sealed class MusicSession
     {
         public ListenerPreferences PlaybackPreferences { get; set; } = new();
+        public bool EvenSongVolume { get; private set; } = true;
+        public void SetEvenSongVolume(bool enabled) => EvenSongVolume = enabled;
         public MusicTrack CurrentRecording(MusicTrack track) => track;
         public MusicTrack PlaybackRecording(MusicTrack track, string path) => track;
         public List<string> Listened { get; } = [];
@@ -742,6 +846,14 @@ namespace FamilyHub.App.Services
         public int DownloadRequests => requests.Count;
         public bool Stream { get; set; }
         public bool CanWarmPlayback { get; set; }
+        public bool HomeConnection { get; set; }
+        public bool DataSaver { get; set; }
+        public bool CanCacheUpcoming => HomeConnection && !DataSaver;
+        public long CacheFreeBytes { get; set; } = long.MaxValue;
+        public bool DelayUpcoming { get; set; }
+        public int StreamRequests { get; private set; }
+        public int PrefetchRequests { get; private set; }
+        public List<(MusicTrack Track, CancellationToken Token)> UpcomingDownloads { get; } = [];
         public List<(string Action, string Stage)> Stages { get; } = [];
         public List<(string Action, string Stage, double Position)> Observations { get; } = [];
         public Dictionary<(string Action, string Stage), long> StageTimes { get; } = [];
@@ -756,13 +868,30 @@ namespace FamilyHub.App.Services
         public string? LocalPath(MusicTrack track) => Delay || Stream ? null : FailPlayback ? "fail" : "fixture";
         public Task<string?> GetCachedPlaybackPathAsync(MusicTrack track, CancellationToken token) => Task.FromResult<string?>(null);
         public Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken token, bool allowPreview = false,
-            bool background = false, bool prefetch = false, string? action = null, bool fallback = false) => Task.FromResult(track);
+            bool background = false, bool prefetch = false, string? action = null, bool fallback = false)
+        {
+            if (!prefetch) return Task.FromResult(track);
+            if (!background || allowPreview) throw new Exception("Next-song acquisition must request a saved copy at low priority");
+            PrefetchRequests++;
+            return Task.FromResult(track with { Saved = true });
+        }
         public bool CanStream => Stream;
         public static bool IsStream(string source) => source.StartsWith("https://", StringComparison.Ordinal);
-        public Task<string> StreamPlaybackAsync(MusicTrack track, double lead, CancellationToken token, bool background = false, string? action = null) =>
-            Task.FromResult("https://music.test/stream");
-        public Task<string> CachePlaybackAsync(MusicTrack track, CancellationToken token, double lead = 0, bool background = false)
+        public Task<string> StreamPlaybackAsync(MusicTrack track, double lead, CancellationToken token, bool background = false, string? action = null)
         {
+            StreamRequests++;
+            return Task.FromResult("https://music.test/stream");
+        }
+        public Task<string> CachePlaybackAsync(MusicTrack track, CancellationToken token, double lead = 0, bool background = false, bool upcoming = false)
+        {
+            if (upcoming)
+            {
+                if (!background || !track.Saved) throw new Exception("Next-song downloads must be saved audio at low priority");
+                UpcomingDownloads.Add((track, token));
+                if (track.DownloadSize > CacheFreeBytes) throw new IOException("Fixture cache is full");
+                if (DelayUpcoming) return new TaskCompletionSource<string>().Task.WaitAsync(token);
+                return Task.FromResult("upcoming-cache");
+            }
             if (Stream) return Task.FromResult("fixture");
             var request = new TaskCompletionSource<string>(); requests.Add(request); return request.Task;
         }
@@ -796,7 +925,8 @@ namespace FamilyHub.App.Services
         public double Position { get; private set; }
         public double? StartedAt { get; private set; }
         public double LocalDuration { get; set; } = 30;
-        public double Duration => Title is null ? 0 : Path?.StartsWith("https://") == true ? 30 : LocalDuration;
+        public double StreamDuration { get; set; } = 30;
+        public double Duration => Title is null ? 0 : Path?.StartsWith("https://") == true ? StreamDuration : LocalDuration;
         public double Volume { get; set; }
         public bool SupportsPlaybackRate => true;
         public double PlaybackRate { get; set; } = 1;

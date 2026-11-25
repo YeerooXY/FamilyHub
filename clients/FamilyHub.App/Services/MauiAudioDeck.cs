@@ -25,6 +25,7 @@ internal sealed class MauiAudioDeck : IAudioDeck
     public bool Playing => media.CurrentState == MediaElementState.Playing;
     public double Position => media.Position.TotalSeconds;
 #if ANDROID
+    internal bool ReachedEnd => AudioRouting.Player(media)?.PlaybackState == NativeEnded;
     public double SeekPosition => AudioRouting.Player(media)?.CurrentPosition is >= 0 and var milliseconds
         ? milliseconds / 1000d : Position;
 #endif
@@ -115,7 +116,7 @@ internal sealed class MauiAudioDeck : IAudioDeck
 #endif
         media.Source = pendingSource;
 #if ANDROID
-        AudioRouting.Apply(media, streaming);
+        AudioRouting.Apply(media);
 #endif
         positionTimer.Start();
     }

@@ -157,6 +157,129 @@ public sealed class FamilyHubApi : IDisposable
     public async Task<List<MusicTrack>> GetLibraryAsync(CancellationToken cancellationToken = default) =>
         (await RequestJsonAsync<LibraryResponse>(HttpMethod.Get, "/api/library", null, cancellationToken)).Results;
 
+    public async Task<MusicTrack?> GetLibraryRecordingAsync(string id, CancellationToken cancellationToken = default)
+    {
+        if (!Regex.IsMatch(id, @"\A(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})\z"))
+            throw new ArgumentException("Invalid recording identifier.", nameof(id));
+        var response = await RequestJsonAsync<LibraryResponse>(HttpMethod.Get, "/api/library?id=" + id,
+            cancellationToken: cancellationToken, background: true);
+        if (response.Results.Count == 0) return null;
+        if (response.Results.Count != 1 || response.Results[0].Id != id)
+            throw new InvalidDataException("The library record does not match this recording.");
+        return response.Results[0];
+    }
+
+    private readonly Dictionary<(string? Profile, string Video), (DateTimeOffset Started, Task<RecordingJob> Request)> recordingRequests = [];
+
+    public async Task<MusicTrack> MatchRecommendationAsync(MusicTrack track, CancellationToken token, bool background = false)
+    {
+        if (!track.IsDeezerSuggestion) return track;
+        var match = await RequestJsonAsync<MusicTrack>(HttpMethod.Post, "/api/recommendations/match",
+            new { id = track.Id }, token, background);
+        if (!Regex.IsMatch(match.Id, @"\A(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})\z") ||
+            string.IsNullOrEmpty(match.Url) && (!match.Saved || string.IsNullOrEmpty(match.DownloadUrl)))
+            throw new InvalidDataException("The server returned an invalid recording.");
+        return match;
+    }
+
+    public async Task<RecordingJob> GetOrCreateRecordingJobAsync(MusicTrack track, CancellationToken token,
+        bool background = false, bool prefetch = false, string? action = null, bool retry = false)
+    {
+        token.ThrowIfCancellationRequested();
+        var key = (UserName, track.Id);
+        Task<RecordingJob> request;
+        bool reused;
+        lock (recordingRequests)
+        {
+            if (recordingRequests.TryGetValue(key, out var existing) && !existing.Request.IsFaulted && !existing.Request.IsCanceled)
+            {
+                request = existing.Request;
+                reused = request.IsCompletedSuccessfully;
+            }
+            else
+            {
+                if (retry) throw new FamilyHubApiException("The preparation job is unavailable.", 404);
+                var now = DateTimeOffset.UtcNow;
+                foreach (var expired in recordingRequests.Where(row => now - row.Value.Started > TimeSpan.FromHours(2)).Select(row => row.Key).ToArray())
+                    recordingRequests.Remove(expired);
+                request = StartRecordingJobAsync(track, background, prefetch, action);
+                recordingRequests[key] = (now, request);
+                reused = false;
+            }
+        }
+
+        var job = await request.WaitAsync(token);
+        if (!reused) return job;
+        try
+        {
+            job = await GetRecordingJobAsync(job.Id, token);
+            if (job.Active || job.State == "done" || retry || job.PlayableStream(track, OperatingSystem.IsWindows(), retry: false) is not null)
+                return job;
+        }
+        catch (FamilyHubApiException error) when (error.StatusCode == 404 && !retry) { }
+
+        token.ThrowIfCancellationRequested();
+        lock (recordingRequests)
+        {
+            if (!recordingRequests.TryGetValue(key, out var latest) || latest.Request == request)
+            {
+                latest = (DateTimeOffset.UtcNow, StartRecordingJobAsync(track, background, prefetch, action));
+                recordingRequests[key] = latest;
+            }
+            request = latest.Request;
+        }
+        return await request.WaitAsync(token);
+    }
+
+    private async Task<RecordingJob> StartRecordingJobAsync(MusicTrack track, bool background, bool prefetch, string? action)
+    {
+        // Individual playback attempts can stop waiting while the shared POST completes.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        return (await RequestJsonAsync<RecordingJobResponse>(HttpMethod.Post, "/api/jobs",
+            new { url = track.Url, title = track.Title, channel = track.Channel, allow_new = true, prefetch, play_action = action },
+            timeout.Token, background)).Job;
+    }
+
+    public async Task<RecordingJob> GetRecordingJobAsync(string id, CancellationToken token)
+    {
+        if (!Regex.IsMatch(id, @"\A[A-Za-z0-9_-]{1,64}\z")) throw new InvalidDataException("Invalid preparation job.");
+        return (await RequestJsonAsync<RecordingJobResponse>(HttpMethod.Get, "/api/jobs/" + id,
+            cancellationToken: token, background: true)).Job;
+    }
+
+    public async Task WaitForRecordingStreamAsync(string path, CancellationToken cancellationToken, Action? waiting = null)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(8));
+        var delay = TimeSpan.FromMilliseconds(250);
+        try
+        {
+            while (true)
+            {
+                TimeSpan wait;
+                using (var response = await SendAsync(HttpMethod.Head, path, null, timeout.Token, background: true))
+                {
+                    if (response.IsSuccessStatusCode) return;
+                    var retry = response.Headers.RetryAfter;
+                    if (response.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.ServiceUnavailable) || retry is null)
+                    {
+                        await EnsureSuccessAsync(response, timeout.Token);
+                        return;
+                    }
+                    var suggested = retry.Delta ?? (retry.Date is { } retryAt ? retryAt - DateTimeOffset.UtcNow : TimeSpan.Zero);
+                    wait = TimeSpan.FromMilliseconds(Math.Clamp(suggested.TotalMilliseconds, delay.TotalMilliseconds, 2000));
+                }
+                waiting?.Invoke();
+                await Task.Delay(wait, timeout.Token);
+                delay = TimeSpan.FromMilliseconds(Math.Min(delay.TotalMilliseconds * 2, 2000));
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new HttpRequestException("The recording stream is still being prepared.");
+        }
+    }
+
     // Background refreshes: null when the list has not changed since this connection last read it.
     public async Task<List<MusicTrack>?> GetLibraryIfChangedAsync(CancellationToken cancellationToken = default, bool background = false) =>
         (await GetIfChangedAsync<LibraryResponse>("/api/library", cancellationToken, background))?.Results;

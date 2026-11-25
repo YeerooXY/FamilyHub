@@ -9,6 +9,9 @@ DEFAULT_AUTO_RESOLUTIONS_PER_HOUR = 130
 
 _PRESENTATION = r'(?:(?:official\s+)?(?:(?:music )?(?:audio|video)|visualizer|lyrics?(?: video)?)|hq|hd|4k)'
 _TITLE_SUFFIX = re.compile(r'(?:\s*(?:\[\s*'+_PRESENTATION+r'\s*\]|\(\s*'+_PRESENTATION+r'\s*\)|\s+-\s+'+_PRESENTATION+r'))+\s*$', re.I)
+_EQUIVALENT_SUFFIX = re.compile(r'\(([^()]*)\)\s*$|\[([^\[\]]*)\]\s*$')
+_EDITION_WORDS = re.compile(r'\b(?:mix|remix|live|acoustic|instrumental|extended|sped(?:up)?|'
+                            r'slowed|cover|karaoke|8\s*d|nightcore|edit|version|mashup|rework|demo)\b')
 
 
 def normal(value):
@@ -60,3 +63,41 @@ def close_duration(expected, actual):
     return (all(type(value) in (int, float) and math.isfinite(value) and value > 0
                 for value in (expected, actual))
             and abs(expected - actual) <= MATCH_DURATION_SECONDS)
+
+
+def _equivalent_title(title, artist):
+    title = presentation_title(title, artist)
+    while suffix := _EQUIVALENT_SUFFIX.search(title):
+        label = normal(suffix[1] or suffix[2])
+        if not label.startswith(('from ', 'feat ', 'ft ', 'featuring ')) or _EDITION_WORDS.search(label):
+            break
+        title = presentation_title(title[:suffix.start()].rstrip(), artist)
+    return normal(title)
+
+
+def pick_equivalent(track, candidates):
+    """Choose a trusted title and length match when all plausible lengths agree."""
+    artist = track.get('artist') or ''
+    title = track.get('title') or ''
+    wanted = _equivalent_title(title, artist)
+    if not wanted:
+        return None
+    credits = {normal(artist), normal(artist.split(',')[0])} - {''}
+    exact_titles = {normal(title), wanted}
+    expected = track.get('duration')
+    plausible = []
+    for row in candidates:
+        channel = normal(row.get('channel'))
+        artist_channel = channel.removesuffix(' topic') in credits
+        topic = row.get('kind') == 'topic'
+        actual = row.get('duration')
+        raw_title = row.get('title') or ''
+        if ((topic or artist_channel) and close_duration(expected, actual)
+                and abs(expected - actual) <= 2 and _equivalent_title(raw_title, artist) == wanted):
+            exact = normal(raw_title) in exact_titles
+            priority = (not (exact and (channel == 'release topic' or artist_channel)),
+                        not exact, not topic, row.get('id') or '', raw_title, channel)
+            plausible.append((priority, row))
+    if len({row['duration'] for _, row in plausible}) != 1:
+        return None
+    return min(plausible, key=lambda option: option[0])[1]

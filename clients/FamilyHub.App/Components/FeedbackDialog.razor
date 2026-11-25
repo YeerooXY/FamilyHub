@@ -58,7 +58,7 @@
             <div class="feedback-toolbar">
                 <button type="button" @onclick="Edit">Write feedback</button>
                 @if (canManage) { <button type="button" aria-disabled="@Aria(busy)" @onclick="() => LoadList(!inbox)">@(inbox ? "My feedback" : "Developer inbox")</button> }
-                <button type="button" aria-disabled="@Aria(busy)" @onclick="() => LoadList(inbox)">Refresh</button>
+                <button id="feedback-refresh" type="button" aria-disabled="@Aria(busy)" @onclick="() => LoadList(inbox)">Refresh</button>
             </div>
             @if (inbox)
             {
@@ -69,8 +69,10 @@
             }
             <Notice Level="success" Message="@confirmation" />
             <Notice Level="error" Message="@error" />
-            @if (busy) { <p role="status">Loading feedback…</p> }
-            else if (error is null && !VisibleReports.Any()) { <p>@(inbox ? "No reports with this status." : "No feedback yet.")</p> }
+            <ServiceStatus Active="listUnavailable" Detail="Reconnect to load feedback reports."
+                           RetryLabel="Retry feedback list" Retry="FetchList" Busy="busy" AutoRetry="true" FocusTarget="#feedback-refresh" />
+            @if (busy && !listUnavailable) { <p role="status">Loading feedback…</p> }
+            else if (!listUnavailable && error is null && !VisibleReports.Any()) { <p>@(inbox ? "No reports with this status." : "No feedback yet.")</p> }
             <ul class="feedback-rows">
                 @foreach (var report in VisibleReports)
                 {
@@ -156,7 +158,7 @@
     private View view;
     private string kind = "problem", description = "", reply = "", draftId = Guid.NewGuid().ToString("N"), statusFilter = "new";
     private string? error, confirmation, pendingFocus, previewFrom, draftProfile, draftScope;
-    private bool busy, readingImages, canManage, inbox, draftLoaded;
+    private bool busy, readingImages, canManage, inbox, draftLoaded, listUnavailable;
     private readonly List<Screenshot> screenshots = [];
     private Screenshot? preview;
     private ReportSummary[] reports = [];
@@ -314,9 +316,17 @@
 
     private Task FetchList() => Run(async () =>
     {
-        var list = await Request<Inbox>(HttpMethod.Get, inbox ? "?inbox=1" : "");
-        reports = list.Reports;
-        canManage = list.CanManage;
+        try
+        {
+            var list = await Request<Inbox>(HttpMethod.Get, inbox ? "?inbox=1" : "");
+            reports = list.Reports;
+            canManage = list.CanManage;
+            listUnavailable = false;
+        }
+        catch (Exception failure) when (!Session.Connected ||
+            failure is HttpRequestException or OperationCanceledException or FamilyHubApiException { StatusCode: >= 500 })
+        { listUnavailable = true; }
+        catch { listUnavailable = false; throw; }
     }, "Could not load feedback. Try Refresh.");
 
     private Task OpenThread(string id) => Run(async () =>

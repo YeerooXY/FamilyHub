@@ -75,6 +75,8 @@ public sealed class MusicSession
     public string StreamingQualityMobile { get; private set; } = "high";
     public string DownloadQuality { get; private set; } = "max";
     public bool DataSaver { get; private set; }
+    private const string EvenSongVolumeKey = "music:even-song-volume";
+    public bool EvenSongVolume { get; private set; } = Preferences.Default.Get(EvenSongVolumeKey, true);
     private bool SavingMobileData => DataSaver && ConnectionKind.Current == "cellular";
     public string ActiveStreamingQuality => SavingMobileData ? "low" : HomeConnection ? StreamingQualityWifi : StreamingQualityMobile;
     public int CacheLimitGb { get; private set; } = 3;
@@ -85,6 +87,12 @@ public sealed class MusicSession
         get => canWarmPlayback && !SavingMobileData;
         set => canWarmPlayback = value;
     }
+    internal bool CanCacheUpcoming =>
+#if ANDROID
+        HomeConnection && !DataSaver;
+#else
+        false;
+#endif
     private static bool HomeConnection => Microsoft.Maui.Networking.Connectivity.Current.ConnectionProfiles.Any(
         p => p is Microsoft.Maui.Networking.ConnectionProfile.WiFi or Microsoft.Maui.Networking.ConnectionProfile.Ethernet)
         && !Microsoft.Maui.Networking.Connectivity.Current.ConnectionProfiles.Contains(Microsoft.Maui.Networking.ConnectionProfile.Cellular);
@@ -429,6 +437,12 @@ public sealed class MusicSession
         DataSaver = enabled;
         Preferences.Default.Set(PreferenceKey(Server, User) + ":data-saver", enabled ? "true" : "false");
         Changed?.Invoke();
+    }
+
+    internal void SetEvenSongVolume(bool enabled)
+    {
+        Preferences.Default.Set(EvenSongVolumeKey, enabled);
+        EvenSongVolume = enabled;
     }
 
     public void SetStreamingQualityWifi(string quality)
@@ -1062,12 +1076,17 @@ public sealed class MusicSession
     public MusicTrack PlaybackRecording(MusicTrack track, string path)
     {
         if (IsStream(path)) return playbackRecords.TryRemove(path, out var stream) ? stream : track;
-        return Offline?.GetDownloadedPath(track.Id) == path && downloadsById.TryGetValue(track.Id, out var saved) ? saved :
-            playbackRecords.GetValueOrDefault(path, track);
+        var local = !track.IsDeezerSuggestion && Offline?.GetDownloadedPath(track.Id) == path
+            && downloadsById.TryGetValue(track.Id, out var saved) ? saved : playbackRecords.GetValueOrDefault(path, track);
+        if (track.Lufs is not null && track.TruePeak is not null && !string.IsNullOrEmpty(local.DownloadSha256)
+            && local.DownloadSha256 == track.DownloadSha256)
+            return local with { Lufs = track.Lufs, TruePeak = track.TruePeak, OverPeak = track.OverPeak };
+        return local;
     }
 
     public string? LocalPath(MusicTrack track)
     {
+        if (track.IsDeezerSuggestion) return null;
         track = CurrentRecording(track);
         var path = Offline?.GetDownloadedPath(track.Id);
         if (path is null || !Connected || string.IsNullOrEmpty(track.DownloadSha256)) return path;
@@ -1523,6 +1542,25 @@ public sealed class MusicSession
         if (track.PlaybackVersion is "preview-hls" or "preview-source" && track.StreamUrl.Length > 0)
         {
             var preview = api.ResolveUri(track.StreamUrl).AbsoluteUri;
+            long? notice = null;
+            try
+            {
+                await api.WaitForRecordingStreamAsync(preview, cancellationToken, () =>
+                {
+                    if (action is not null && notice is null && !cancellationToken.IsCancellationRequested && version == accountVersion)
+                    {
+                        UpdateMessage("Opening the audio stream", "info", playback: true);
+                        notice = MessageRevision;
+                        Changed?.Invoke();
+                    }
+                });
+            }
+            finally
+            {
+                if (version == accountVersion && notice == MessageRevision) SetMessage("");
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            EnsureCurrent(version);
             playbackRecords[preview] = track;
             return preview;
         }
@@ -1544,7 +1582,8 @@ public sealed class MusicSession
     private static string PlaybackInfoUrl(MusicTrack track, string quality, double lead) =>
         $"{track.PlaybackInfoUrl}?quality={quality}&lead={Math.Clamp(lead, 0, 3600).ToString("0", System.Globalization.CultureInfo.InvariantCulture)}";
 
-    public async Task<string> CachePlaybackAsync(MusicTrack track, CancellationToken cancellationToken, double lead = 0, bool background = false)
+    public async Task<string> CachePlaybackAsync(MusicTrack track, CancellationToken cancellationToken, double lead = 0,
+        bool background = false, bool upcoming = false)
     {
         track = CurrentRecording(track);
         cancellationToken.ThrowIfCancellationRequested();
@@ -1557,7 +1596,30 @@ public sealed class MusicSession
         var cache = playbackCaches[quality];
         track = await PlaybackEditionAsync(track, api, quality, cancellationToken, lead, background);
         EnsureCurrent(version);
-        var path = await cache.DownloadAsync(track, api, cancellationToken, background: background);
+        if (upcoming)
+        {
+            var cachesForAdmission = playbackCaches.Values.ToArray();
+            async Task<bool> FitsAsync()
+            {
+                long used = 0;
+                foreach (var playbackCache in cachesForAdmission)
+                    used += await playbackCache.GetDownloadedBytesAsync(cancellationToken);
+                return track.DownloadSize <= PlaybackCacheLimitBytes - used;
+            }
+
+            if (track.DownloadSize <= 0 || track.DownloadSize > PlaybackCacheLimitBytes)
+                throw new IOException("The upcoming song exceeds the playback cache limit.");
+            if (!await FitsAsync())
+            {
+                await PrunePlaybackCacheAsync(cachesForAdmission, version, track.DownloadSize, cancellationToken);
+                if (!await FitsAsync())
+                    throw new IOException("The upcoming song exceeds the available playback cache space.");
+            }
+            EnsureCurrent(version);
+            if (!CanCacheUpcoming || quality != ActiveStreamingQuality)
+                throw new OperationCanceledException("The upcoming playback download policy changed.");
+        }
+        var path = await cache.DownloadAsync(track, api, cancellationToken, background: background, keepPartial: !upcoming);
         cancellationToken.ThrowIfCancellationRequested();
         EnsureCurrent(version);
         playbackRecords[path] = track;
@@ -1581,26 +1643,30 @@ public sealed class MusicSession
         return compressed;
     }
 
-    private async Task PrunePlaybackCacheAsync(OfflineLibrary[] caches, int version)
+    private long PlaybackCacheLimitBytes => (long)CacheLimitGb * 1024 * 1024 * 1024;
+
+    private async Task PrunePlaybackCacheAsync(OfflineLibrary[] caches, int version, long reserveBytes = 0,
+        CancellationToken cancellationToken = default)
     {
-        if (!await cacheMaintenance.WaitAsync(0)) return;
+        if (!await cacheMaintenance.WaitAsync(0, cancellationToken)) return;
         try
         {
             var entries = new List<(OfflineLibrary Cache, MusicTrack Track, string Path)>();
             foreach (var cache in caches)
-                foreach (var track in await cache.ListDownloadsAsync())
+                foreach (var track in await cache.ListDownloadsAsync(cancellationToken))
                     if (cache.GetDownloadedPath(track.Id) is { } path) entries.Add((cache, track, path));
             long retainedBytes = 0;
             foreach (var item in entries.OrderByDescending(item => File.GetLastAccessTimeUtc(item.Path)))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 retainedBytes += item.Track.DownloadSize;
                 // Recent selections may still be opening; leave them for the next cleanup.
-                if (retainedBytes <= (long)CacheLimitGb * 1024 * 1024 * 1024
+                if (retainedBytes <= PlaybackCacheLimitBytes - reserveBytes
                     || File.GetLastAccessTimeUtc(item.Path!) > DateTime.UtcNow.AddMinutes(-2)) continue;
                 if (PlaybackPinned(item.Track.Id)) continue;
                 try
                 {
-                    await item.Cache.RemoveDownloadAsync(item.Track.Id, canRemove: () => !PlaybackPinned(item.Track.Id));
+                    await item.Cache.RemoveDownloadAsync(item.Track.Id, cancellationToken, canRemove: () => !PlaybackPinned(item.Track.Id));
                     playbackRecords.TryRemove(item.Path, out _);
                     if (version == accountVersion && caches.All(cache => cache.GetDownloadedPath(item.Track.Id) is null))
                         cachedEditions.TryRemove(item.Track.Id, out _);
@@ -1623,6 +1689,40 @@ public sealed class MusicSession
     private void EnsureCurrent(int version)
     { if (version != accountVersion) throw new OperationCanceledException("The server account changed."); }
     private sealed record RadioResponse(MusicPlaylist Playlist);
+    private sealed record HomeRadioResponse(List<HomeRadioShortcut> Shortcuts);
+
+    public async Task<List<HomeRadioShortcut>> HomeRadioAsync(CancellationToken cancellationToken)
+    {
+        var version = accountVersion;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(8));
+        var offset = (int)DateTimeOffset.Now.Offset.TotalMinutes;
+        var result = await OnlineApi().RequestJsonAsync<HomeRadioResponse>(HttpMethod.Get,
+            $"/api/home/radio?offset={offset}", cancellationToken: timeout.Token, background: true);
+        EnsureCurrent(version);
+        return result.Shortcuts;
+    }
+
+    public async Task<MusicPlaylist> HomeAlbumAsync(string recordingId, string? albumId = null, CancellationToken cancellationToken = default)
+    {
+        var version = accountVersion;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(12));
+        var path = albumId is null ? "/api/home/album" : "/api/home/album/play";
+        var response = await OnlineApi().RequestJsonAsync<RadioResponse>(HttpMethod.Post, path,
+            new { recording_id = recordingId, album_id = albumId }, timeout.Token);
+        EnsureCurrent(version);
+        if (albumId is not null)
+        {
+            var playlist = response.Playlist;
+            var index = Playlists.FindIndex(p => p.Id == playlist.Id && p.OwnerId == playlist.OwnerId);
+            if (index < 0) Playlists.Add(playlist);
+            else Playlists[index] = playlist;
+            await SavePlaylistsAsync();
+            EnsureCurrent(version);
+        }
+        return response.Playlist;
+    }
     /// <summary>"Song Radio": a new playlist of similar songs the server finds and downloads.</summary>
     public async Task<MusicPlaylist> StartRadioAsync(string artist, string title = "")
     {
@@ -1787,84 +1887,119 @@ public sealed class MusicSession
         return tracks.Where(t => t.Id != seed.Id && Similarity.IsSimilar(seed, t) && Similarity.SongKey(t) != seedKey)
             .DistinctBy(Similarity.SongKey);
     }
-    public async Task<List<MusicTrack>> SimilarAsync(MusicTrack seed, CancellationToken cancellationToken = default)
+    public async Task SimilarAsync(MusicTrack seed, Action<IEnumerable<MusicTrack>> append, CancellationToken cancellationToken = default)
     {
-        if (!Connected) return KnownSimilar(seed);
+        if (!Connected) return;
         var version = accountVersion;
         var artist = Similarity.Artist(seed);
-        if (artist.Length == 0) return [];
+        if (artist.Length == 0) return;
         artist = artist[..Math.Min(artist.Length, 120)];
-        var candidates = new List<MusicTrack>();
-        var anchor = seed;
-        Exception? lookupFailure = null;
+        var title = Similarity.RadioTitle(seed);
+        title = title[..Math.Min(title.Length, 300)];
         int? offset = 0;
-        try
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(60));
+        for (var page = 0; page < 4 && offset is not null; page++)
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(20));
-            for (var page = 0; page < 4 && offset is not null; page++)
-            {
-                var result = await OnlineApi().RequestJsonAsync<Results>(HttpMethod.Post, "/api/recommendations",
-                    new { query = artist + " official audio", seed_artist = artist, offset = offset.Value }, timeout.Token, background: page > 0);
-                EnsureCurrent(version);
-                if (GenreNames.Key(anchor.Genre) == "unsorted" && GenreNames.Key(result.SeedGenre) != "unsorted")
-                    anchor = seed with { Genre = result.SeedGenre };
-                candidates.AddRange(result.Tracks);
-                offset = result.NextOffset > offset && !MatchingSongs(anchor, Library.Concat(candidates)).Skip(19).Any()
-                    ? result.NextOffset : null;
-            }
+            var result = await OnlineApi().RequestJsonAsync<Results>(HttpMethod.Post, "/api/recommendations",
+                new { query = artist, seed_artist = artist, seed_title = title, offset = offset.Value }, timeout.Token, background: page > 0);
+            EnsureCurrent(version);
+            cancellationToken.ThrowIfCancellationRequested();
+            var anchor = GenreNames.Key(seed.Genre) == "unsorted" ? seed with { Genre = result.SeedGenre } : seed;
+            var fromDeezer = result.Tracks.Any(t => t.IsDeezerSuggestion);
+            var candidates = fromDeezer || result.FromDeezer ? result.Tracks : MatchingSongs(anchor, result.Tracks);
+            append(RankRecommendations(candidates.Where(t => t.Id != seed.Id && Similarity.SongKey(t) != Similarity.SongKey(seed))));
+            offset = result.NextOffset > offset ? result.NextOffset : null;
         }
-        catch (Exception failure) when (failure is HttpRequestException or IOException or JsonException
-            or OperationCanceledException or FamilyHubApiException { RequiresSignIn: false })
-        {
-            lookupFailure = failure;
-        }
-        cancellationToken.ThrowIfCancellationRequested();
-        EnsureCurrent(version);
-        var similar = RankRecommendations(MatchingSongs(anchor, Library.Concat(candidates)));
-        if (similar.Count == 0 && lookupFailure is not null)
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(lookupFailure);
-        return similar;
     }
 
     public async Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken cancellationToken, bool allowPreview = false,
         bool background = false, bool prefetch = false, string? action = null, bool fallback = false)
     {
-        if (!string.IsNullOrEmpty(track.DownloadUrl)) return track;
+        var current = CurrentRecording(track);
+        if (!fallback && !string.IsNullOrEmpty(current.DownloadUrl)) return current;
         var version = accountVersion;
         var api = OnlineApi();
-        var created = await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, "/api/jobs",
-            new { url = track.Url, title = track.Title, channel = track.Channel, allow_new = true, prefetch, play_action = action }, cancellationToken, background);
-        var job = created.GetProperty("job");
-        var id = job.GetProperty("id").GetString();
-        while (true)
+        track = await api.MatchRecommendationAsync(track, cancellationToken, background);
+        EnsureCurrent(version);
+        current = CurrentRecording(track);
+        var previewTrack = track.PlaybackVersion is "preview-hls" or "preview-source";
+        if (!fallback && !string.IsNullOrEmpty(current.DownloadUrl)) return current;
+        async Task<MusicTrack?> ReadRecordingAsync()
         {
-            if (allowPreview && job.TryGetProperty("source_id", out var source) && source.GetString() == track.Id)
+            var fresh = await api.GetLibraryRecordingAsync(track.Id, cancellationToken);
+            EnsureCurrent(version);
+            if (fresh is not { Saved: true, DownloadUrl.Length: > 0 }) return null;
+            if (libraryById.GetValueOrDefault(fresh.Id) != fresh)
+            {
+                var updated = Library.ToList();
+                var index = updated.FindIndex(row => row.Id == fresh.Id);
+                if (index < 0) updated.Add(fresh);
+                else updated[index] = fresh;
+                Library = updated;
+                Changed?.Invoke();
+            }
+            return fresh;
+        }
+        if (fallback && (current.DownloadUrl.Length > 0 || current.Saved && !previewTrack))
+            return await ReadRecordingAsync() ?? current;
+
+        long? notice = null;
+        void Waiting(string step)
+        {
+            if (!allowPreview || action is null || cancellationToken.IsCancellationRequested || version != accountVersion
+                || (notice is not null && (notice != MessageRevision || Message == step))) return;
+            UpdateMessage(step, "info", playback: true);
+            notice = MessageRevision;
+            Changed?.Invoke();
+        }
+        try
+        {
+            RecordingJob job;
+            try
+            {
+                var request = api.GetOrCreateRecordingJobAsync(track, cancellationToken, background, prefetch, action, fallback);
+                if (!request.IsCompleted && !fallback) Waiting("Requesting audio");
+                job = await request;
+            }
+            catch (FamilyHubApiException error) when (fallback && error.StatusCode == 404)
+            {
+                return await ReadRecordingAsync() ?? throw new InvalidOperationException("The recording is unavailable.", error);
+            }
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            while (true)
             {
                 EnsureCurrent(version);
-                // The Windows media engine needs more than one segment in a growing playlist.
-                var previewReady = !OperatingSystem.IsWindows() || !job.TryGetProperty("windows_preview_ready", out var ready)
-                    || ready.ValueKind != JsonValueKind.False;
-                if (!fallback && previewReady && job.TryGetProperty("stream_url", out var preview) && preview.GetString() is { Length: > 0 } url)
-                    return track with { StreamUrl = url, PlaybackVersion = "preview-hls" };
-                if (job.TryGetProperty("fallback_stream_url", out var original) && original.GetString() is { Length: > 0 } originalUrl)
-                    return track with { StreamUrl = originalUrl, PlaybackVersion = "preview-source" };
+                cancellationToken.ThrowIfCancellationRequested();
+                if (job.SourceId != track.Id) throw new InvalidDataException("The preparation job does not match this recording.");
+                var stream = allowPreview ? job.PlayableStream(track, OperatingSystem.IsWindows(), fallback) : null;
+                if (stream is not null && !((fallback || previewTrack) && job.Saved && !job.Active)) return stream;
+                if (!job.Active)
+                {
+                    if (job.State is not "cancelled" || fallback)
+                    {
+                        var fresh = await ReadRecordingAsync();
+                        if (fresh is not null) return fresh;
+                    }
+                    if (stream is not null) return stream;
+                    throw new InvalidOperationException(string.IsNullOrWhiteSpace(job.Message) || job.State == "done"
+                        ? "The server could not prepare this recording." : job.Message);
+                }
+                Waiting(job.State == "queued" ? "Waiting for the server" : job.Phase switch
+                {
+                    "fetch" => "Downloading audio",
+                    "import" => "Opening the original audio",
+                    "prepare" => "Opening the original audio",
+                    _ => "Checking the audio file"
+                });
+                await Task.Delay(elapsed.Elapsed < TimeSpan.FromSeconds(10) ? 1000 : 2500, cancellationToken);
+                job = await api.GetRecordingJobAsync(job.Id, cancellationToken);
             }
-            if (job.GetProperty("state").GetString() is not ("queued" or "running")) break;
-            await Task.Delay(allowPreview ? 300 : 1000, cancellationToken);
-            job = (await api.RequestJsonAsync<JsonElement>(HttpMethod.Get, "/api/jobs/" + id, cancellationToken: cancellationToken, background: true)).GetProperty("job");
         }
-        if (job.GetProperty("state").GetString() != "done")
+        finally
         {
-            var message = job.TryGetProperty("message", out var detail) && detail.ValueKind == JsonValueKind.String
-                ? detail.GetString() : null;
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(message)
-                ? "The server could not prepare this recording." : message);
+            if (version == accountVersion && notice == MessageRevision) SetMessage("");
         }
-        EnsureCurrent(version);
-        await RefreshAsync(background: true);
-        EnsureCurrent(version);
-        return Library.FirstOrDefault(t => t.Id == track.Id) ?? throw new InvalidOperationException("The recording is not in the server library yet. Refresh and try again.");
     }
 
     private sealed record Connection(string Server, string User, string? ProfileName = null);
@@ -1874,5 +2009,6 @@ public sealed class MusicSession
         [JsonPropertyName("results")] public List<MusicTrack> Tracks { get; init; } = [];
         [JsonPropertyName("next_offset")] public int? NextOffset { get; init; }
         [JsonPropertyName("seed_genre")] public string SeedGenre { get; init; } = "";
+        [JsonPropertyName("from_deezer")] public bool FromDeezer { get; init; }
     }
 }

@@ -511,7 +511,8 @@ class SearchTests(Base):
     def test_pages_reuse_search_and_recommendations_keep_the_search_cache(self):
         c, tok = self.signed_in()
         rows = [{"id": str(i).zfill(11), "title": f"Song {i}"} for i in range(30)]
-        with mock.patch.object(self.intake, "cmd_search", return_value={"results": rows}) as search:
+        with mock.patch.object(self.intake, "cmd_search", return_value={"results": rows}) as search, \
+                mock.patch("music_web.similar_songs.suggestions", return_value=[]):
             first = self.post(c, tok, "/api/search", json={"query": "Artist"}).json
             self.assertEqual(first["next_offset"], 8)
             recommendation = self.post(c, tok, "/api/recommendations", json={"query": "Other artist"})
@@ -521,7 +522,7 @@ class SearchTests(Base):
             self.assertEqual(second["results"][0]["id"], rows[8]["id"])
             self.assertEqual(len(last["results"]), 6)
             self.assertEqual(last["next_offset"], 30)
-            self.assertEqual(search.call_count, 2)
+            self.assertEqual(search.call_count, 1)
         for offset in (-1, 1, 32, True, "8"):
             self.assertEqual(self.post(c, tok, "/api/search", json={"query": "Artist", "offset": offset}).status_code, 400)
 
@@ -645,7 +646,7 @@ class JobTests(Base):
             (root / asset).write_bytes(b"audio")
         self.state.jobs[jid] = dict(id=jid, owner="sample-a", state="running", message="Preparing", artist="Artist",
             title="Song", phase="fetch", source_id="abcdefghijk", preview_state="ready",
-            assets={"index.m3u8", "init.mp4", "seg00000.m4s"}, created=time.time())
+            assets={"index.m3u8", "init.mp4", "seg00000.m4s"}, preview_manifest=prefix, created=time.time())
         job = self.go(c, "GET", "/api/jobs/" + jid).json["job"]
         native = self.app.test_client()
         response = self.go(native, "GET", job["stream_url"])
@@ -659,8 +660,13 @@ class JobTests(Base):
             self.assertEqual(self.go(native, "GET", url).data, b"audio")
         stolen = assets[0].replace("seg00000.m4s", "init.mp4")
         self.assertEqual(self.go(native, "GET", stolen).status_code, 401)
-        playlist.write_text(prefix + "#EXTINF:2,\nseg00001.m4s\n#EXT-X-ENDLIST\n")
+        finished = prefix + "#EXTINF:2,\nseg00001.m4s\n#EXT-X-ENDLIST\n"
+        playlist.write_text(finished)
+        unpublished = self.go(native, "GET", job["stream_url"]).get_data(as_text=True)
+        self.assertNotIn("seg00001.m4s", unpublished)
+        self.assertNotIn("#EXT-X-ENDLIST", unpublished)
         self.state.jobs[jid]["assets"].add("seg00001.m4s")
+        self.state.jobs[jid]["preview_manifest"] = finished
         updated = self.go(native, "GET", job["stream_url"]).get_data(as_text=True)
         self.assertIn("seg00001.m4s?", updated)
         self.assertIn("#EXT-X-ENDLIST", updated)

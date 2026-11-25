@@ -30,6 +30,8 @@ builder.Services.AddScoped(service => {
     var player = new MusicPlayer(service.GetRequiredService<MusicSession>());
     typeof(MusicPlayer).GetMethod("AttachDecks", BindingFlags.Instance | BindingFlags.NonPublic)!
         .Invoke(player, new object?[] { new FixtureDeck(), null });
+    if (FixtureApi.Startup == "outage-lyrics")
+        typeof(MusicPlayer).GetProperty("Current")!.SetValue(player, service.GetRequiredService<MusicSession>().Library[0]);
     return player;
 });
 builder.Services.AddScoped<ListenTogether>();
@@ -57,13 +59,18 @@ app.MapPost("/fixture/listening-request/{show:bool}", (bool show) => FixtureApi.
 app.MapPost("/fixture/startup/{scenario}", (string scenario) =>
 {
     FixtureApi.SimilarRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    FixtureApi.PlaylistStep = 0;
+    FixtureApi.PlaylistPaused = false;
+    FixtureApi.AlbumLookups = 0;
     Interlocked.Exchange(ref FixtureApi.UpdateChecks, 0);
     FixtureLauncher.LastAddress = null;
     FixtureApi.Startup = scenario;
 });
 app.MapGet("/fixture/update-check", () => new { Count = Volatile.Read(ref FixtureApi.UpdateChecks), FixtureLauncher.LastAddress });
 app.MapPost("/fixture/server-health/{state}", (string state) => FixtureApi.HealthState = state);
+app.MapPost("/fixture/outage/{state}", (string state) => { FixtureApi.Outage = state; });
 app.MapPost("/fixture/similar-release", () => FixtureApi.SimilarRelease.TrySetResult());
+app.MapPost("/fixture/playlist-step/{step:int}", (int step) => FixtureApi.PlaylistStep = step);
 app.MapPost("/fixture/wordle-reset/{seconds:int}", (int seconds) =>
     FixtureApi.WordleReset = DateTimeOffset.UtcNow.AddSeconds(Math.Max(1, seconds)));
 app.MapPost("/fixture/wordle-member/{count:int}/{submitted:bool}", (int count, bool submitted) =>
@@ -83,11 +90,11 @@ static MusicSession MakeSession(string repo)
     var session = new MusicSession();
     void Set(string name, object value) => typeof(MusicSession).GetProperty(name)!.SetValue(session, value);
     Set("Ready", true);
-    Set("Connected", FixtureApi.Startup != "update-offline");
+    Set("Connected", FixtureApi.Startup is not ("update-offline" or "outage-session" or "outage-files" or "outage-connect"));
     Set("MoviesEnabled", true);
-    Set("ServerHealthAdmin", FixtureApi.Startup == "health-admin");
+    Set("ServerHealthAdmin", FixtureApi.Startup is "health-admin" or "outage-api");
     session.UiActive = true;
-    Set("User", "fixture");
+    Set("User", FixtureApi.Startup == "outage-connect" ? "" : "fixture");
     Set("Profiles", new List<ListenerProfile> { new() { Id = "fixture", Name = "Alex" }, new() { Id = "june", Name = "June" } });
     Set("ProfileName", "Alex");
     if (FixtureApi.Startup is "password-create" or "password-signin")
@@ -99,7 +106,7 @@ static MusicSession MakeSession(string repo)
         typeof(MusicSession).GetProperty("NeedsProfileSelection")!.SetValue(session, true);
     }
     Set("Server", "https://music.fixture.test/");
-    Set("Offline", new OfflineLibrary(Path.Combine(repo, ".local", "popup-fixture-cache"), new Uri(session.Server), session.User));
+    Set("Offline", new OfflineLibrary(Path.Combine(repo, ".local", "popup-fixture-cache"), new Uri(session.Server), "fixture"));
     Set("PlaybackPreferences", new ListenerPreferences { SpotifySubscribed = FixtureApi.Startup == "spotify" ? null : false });
     string[] albums = ["Evening Signals", "Night Windows", "Long Way Home", "Early Hours", "All Along the Water", "Motion Study", "Winter Sessions", "Return to the Coast"];
     var library = albums.SelectMany((album, number) => Enumerable.Range(1, 3).Select(i => new MusicTrack {
@@ -112,6 +119,11 @@ static MusicSession MakeSession(string repo)
         library[0] = library[0] with { Channel = "Fixture Seed", Genre = "Fixture Genre" };
     if (FixtureApi.Startup == "similar-preparing")
         library[1] = library[1] with { Title = "Local Match", Channel = "Fixture Seed", Genre = "Fixture Genre" };
+    if (FixtureApi.Startup == "playlist-follow")
+    {
+        library[1] = library[1] with { Title = "Second Track" };
+        library[2] = library[2] with { Title = "Third Track" };
+    }
     if (FixtureApi.Startup == "library-pages")
         library.AddRange(Enumerable.Range(1, 101).Select(i =>
             library[0] with { Id = $"extra{i:D6}", Title = $"Library page song {i}" }));
@@ -135,9 +147,11 @@ static MusicSession MakeSession(string repo)
     typeof(MusicSession).GetField("cachedBytes", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(session, 1024L * 1024);
     var api = new FamilyHubApi(new Uri(session.Server), new FixtureApi(library));
     typeof(FamilyHubApi).GetField("csrf", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(api, "fixture-csrf");
-    if (FixtureApi.Startup != "update-offline") Set("Api", api);
+    if (FixtureApi.Startup is not ("update-offline" or "outage-files" or "outage-connect")) Set("Api", api);
+    if (FixtureApi.Startup == "outage-session") session.SetMessage("Server unavailable", "warning");
     string[] mixes = ["Late Night Mix", "Quiet Mornings", "Weekend Drive", "After Hours", "On the Road", "House Mix", "November Picks", "First Listen"];
-    Set("Playlists", mixes.Select((name, i) => new MusicPlaylist { Id = "mix" + i, Name = name, OwnerId = "fixture", OwnerName = "Alex", CanEdit = true, CanDelete = true, CanManageAuthors = true, Shared = true, CoverUrl = "/test/mix" + (20 + i),
+    Set("Playlists", mixes.Select((name, i) => i == 0 && FixtureApi.Startup == "playlist-follow" ? FixtureApi.FollowingPlaylist(library)
+        : new MusicPlaylist { Id = "mix" + i, Name = name, OwnerId = "fixture", OwnerName = "Alex", CanEdit = true, CanDelete = true, CanManageAuthors = true, Shared = true, CoverUrl = "/test/mix" + (20 + i),
         Tracks = library.Skip(i * 2).Take(4).Select(t => new PlaylistTrack {
             Title = t.Title, Artist = t.Channel, SourceId = t.Id, State = "saved", Duration = t.Duration, Album = t.LibraryAlbum, AddedBy = "fixture", AddedAt = "2026-11-17T18:00:00Z"
         }).Concat(i == 7 ? [new PlaylistTrack { Title = "Station Lights", Artist = "North Atlas", State = "review" }] : [])
@@ -239,8 +253,34 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
     public static volatile bool ListenRequest;
     public static volatile string Startup = "none";
     public static volatile string HealthState = "ready";
+    public static volatile string Outage = "";
     public static int UpdateChecks;
     public static volatile TaskCompletionSource SimilarRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public static volatile int PlaylistStep;
+    public static volatile bool PlaylistPaused;
+    public static int AlbumLookups;
+    private MusicTrack AlbumFinale => library[0] with { Id = "00100000042", Title = "Album Finale" };
+    private MusicPlaylist HomeAlbum(bool prepared) => new()
+    {
+        Id = prepared ? "home-album-fixture" : "catalogue-album-fixture", Name = library[0].LibraryAlbum,
+        OwnerId = prepared ? "fixture" : "", CanEdit = prepared,
+        Tracks = library.Take(3).Append(AlbumFinale).Select((track, index) => new PlaylistTrack
+        {
+            Title = track.Title, Artist = track.Channel, Album = track.LibraryAlbum, Duration = track.Duration,
+            SpotifyUri = "deezer:" + (index + 39), SourceId = index < 3 || PlaylistStep > 0 ? track.Id : null,
+            State = index < 3 || PlaylistStep > 0 ? "saved" : "unmatched"
+        }).ToList()
+    };
+    public static MusicPlaylist FollowingPlaylist(List<MusicTrack> tracks) => new()
+    {
+        Id = "mix0", Name = "Late Night Mix", OwnerId = "fixture", OwnerName = "Alex",
+        CanEdit = true, CanDelete = true, CanManageAuthors = true, Shared = true,
+        Tracks = tracks.Take(3).Select((t, index) => new PlaylistTrack
+        {
+            Title = t.Title, Artist = t.Channel, Duration = t.Duration, SpotifyUri = $"deezer:{index + 20}",
+            State = index <= PlaylistStep ? "saved" : "queued", SourceId = index <= PlaylistStep ? t.Id : null
+        }).ToList()
+    };
     private bool reportReplacing;
     private bool qualityReplacing;
     private bool unofficialReplacing;
@@ -248,6 +288,14 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
     {
         var path = request.RequestUri!.AbsolutePath;
+        if (Startup == "outage-connect" && path == "/api/connect")
+            throw new HttpRequestException("Fixture server unavailable");
+        if (Outage == "on" && path == "/api/uploads")
+            return new(HttpStatusCode.OK) { Content = System.Net.Http.Json.JsonContent.Create(new {
+                job = new { id = "outage-upload", key = "upload", title = "Fixture song", state = "queued", pending = true }
+            }) };
+        if (Outage == "on" && path.StartsWith("/api/", StringComparison.Ordinal))
+            return new(HttpStatusCode.ServiceUnavailable) { Content = System.Net.Http.Json.JsonContent.Create(new { error = "HTTP 503 fixture" }) };
         if (Startup == "movies-polish" && path.StartsWith("/api/movies/", StringComparison.Ordinal))
         {
             string json;
@@ -429,27 +477,62 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
                 new AppRelease(version, ReleaseHash, 32 * 1024 * 1024, "/api/app-updates/windows-x64/" + ReleaseHash)),
                 Encoding.UTF8, "application/json") };
         }
+        if (path == "/api/home/radio")
+        {
+            HomeRadioShortcut[] shortcuts = [
+                new() { Key = "daily", Label = "Daily mix", TrackIds = [library[3].Id, library[0].Id] },
+                new() { Key = "recent", Label = "Recently added mix", TrackIds = [library[4].Id] },
+                ..(Startup == "home-151" ? new HomeRadioShortcut[] {
+                    new() { Key = "morning", Label = "Morning mix", TrackIds = [library[0].Id] },
+                    new() { Key = "genre:jazz", Label = "Jazz mix", TrackIds = [library[18].Id] },
+                } : [])
+            ];
+            return new(HttpStatusCode.OK) { Content = System.Net.Http.Json.JsonContent.Create(new { shortcuts }) };
+        }
+        if (Startup == "home-151" && (path is "/api/home/album" or "/api/home/album/play"))
+        {
+            if (path == "/api/home/album" && Interlocked.Increment(ref AlbumLookups) == 1)
+                return new(HttpStatusCode.ServiceUnavailable) { Content = System.Net.Http.Json.JsonContent.Create(new { error = "The album is temporarily unavailable." }) };
+            return new(HttpStatusCode.OK) { Content = System.Net.Http.Json.JsonContent.Create(new { playlist = HomeAlbum(path.EndsWith("/play")) }) };
+        }
+        if (Startup == "home-151" && path == "/api/playlists/home-album-fixture/prepare")
+            return new(HttpStatusCode.OK) { Content = System.Net.Http.Json.JsonContent.Create(new { state = PlaylistStep > 0 ? "done" : "running" }) };
+        if (Startup == "home-151" && path == "/api/playlists")
+            return new(HttpStatusCode.OK) { Content = System.Net.Http.Json.JsonContent.Create(new { playlists = new[] { HomeAlbum(true) } }) };
         if (path == "/api/recommendations" && Startup.StartsWith("similar-"))
         {
             using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
             var offset = payload.RootElement.GetProperty("offset").GetInt32();
             await SimilarRelease.Task.WaitAsync(token);
             await Task.Delay(300, token);
-            var failed = Startup == "similar-error" || offset > 0;
+            var failed = Startup == "similar-error";
             var response = failed ? """{"error":"Similar songs are unavailable right now."}"""
                 : Startup == "similar-empty" ? """{"results":[],"state":"empty"}"""
+                : offset > 0 ? """{"results":[],"state":"ready","from_deezer":true}"""
                 : """
                   {"results":[
                     {"id":"fixture-001","title":"First Light (Official Audio)","channel":"Fixture Seed"},
-                    {"id":"fixture-002","title":"Online Match","channel":"Fixture Seed"},
-                    {"id":"fixture-003","title":"Unrelated Song","channel":"Other Artist"}],
-                    "next_offset":8,"state":"ready"}
+                    {"id":"deezer:42","title":"Online Match","channel":"Related Artist","saved":false}],
+                    "next_offset":8,"state":"ready","from_deezer":true}
                   """;
             return new HttpResponseMessage(failed ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK)
             {
                 Content = new StringContent(response, Encoding.UTF8, "application/json")
             };
         }
+        if (Startup == "playlist-follow" && path == "/api/playlists/mix0/prepare")
+        {
+            if (request.Method == HttpMethod.Delete) PlaylistPaused = true;
+            if (request.Method == HttpMethod.Post) PlaylistPaused = false;
+            return new(HttpStatusCode.OK) { Content = System.Net.Http.Json.JsonContent.Create(new
+            {
+                state = PlaylistPaused ? "paused" : PlaylistStep >= 2 ? "done" : "running",
+                mode = "download", total = 3, processed = PlaylistStep + 1, saved = PlaylistStep + 1,
+                active_downloads = new[] { new { index = PlaylistStep + 2, file_phase = "downloading" } }
+            }) };
+        }
+        if (Startup == "playlist-follow" && path == "/api/playlists")
+            return new(HttpStatusCode.OK) { Content = System.Net.Http.Json.JsonContent.Create(new { playlists = new[] { FollowingPlaylist(library) } }) };
         if (path == "/api/feedback" || path.StartsWith("/api/feedback/", StringComparison.Ordinal))
         {
             static HttpResponseMessage Feedback(object value, HttpStatusCode status = HttpStatusCode.OK) => new(status)
@@ -638,7 +721,7 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
         }
         var body = path switch
         {
-            "/api/library" => JsonSerializer.Serialize(new { results = library }),
+            "/api/library" => JsonSerializer.Serialize(new { results = Startup == "home-151" && PlaylistStep > 0 ? library.Append(AlbumFinale) : library }),
             "/api/playback/diagnostics" => """
                 {"actions":[
                     {"action":"fedcba98765432100123456789abcdef","events":[

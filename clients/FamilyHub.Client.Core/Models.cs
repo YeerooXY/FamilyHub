@@ -2,10 +2,39 @@ using System.Text.Json.Serialization;
 
 namespace FamilyHub.Client.Core;
 
+internal sealed record RecordingJobResponse(RecordingJob Job);
+
+public sealed record RecordingJob
+{
+    public string Id { get; init; } = "";
+    [JsonPropertyName("source_id")] public string? SourceId { get; init; }
+    public string State { get; init; } = "";
+    public string Phase { get; init; } = "";
+    public string? Message { get; init; }
+    public bool Saved { get; init; }
+    [JsonPropertyName("stream_url")] public string? StreamUrl { get; init; }
+    [JsonPropertyName("fallback_stream_url")] public string? OriginalStreamUrl { get; init; }
+    [JsonPropertyName("windows_preview_ready")] public bool? WindowsPreviewReady { get; init; }
+    [JsonIgnore] public bool Active => State is "queued" or "running";
+
+    public MusicTrack? PlayableStream(MusicTrack track, bool windows, bool retry)
+    {
+        if (SourceId != track.Id || State == "cancelled") return null;
+        var hls = !windows || WindowsPreviewReady != false ? StreamUrl : null;
+        var original = OriginalStreamUrl;
+        var preferOriginal = retry && track.PlaybackVersion == "preview-hls";
+        if (preferOriginal && !string.IsNullOrEmpty(original))
+            return track with { StreamUrl = original, PlaybackVersion = "preview-source" };
+        if (!string.IsNullOrEmpty(hls)) return track with { StreamUrl = hls, PlaybackVersion = "preview-hls" };
+        return string.IsNullOrEmpty(original) ? null : track with { StreamUrl = original, PlaybackVersion = "preview-source" };
+    }
+}
+
 public sealed record MusicTrack
 {
     [JsonPropertyName("id")] public string Id { get; init; } = "";
     [JsonPropertyName("url")] public string Url { get; init; } = "";
+    [JsonIgnore] public bool IsDeezerSuggestion => Id.StartsWith("deezer:", StringComparison.Ordinal);
     [JsonPropertyName("title")] public string Title { get; init; } = "";
     [JsonIgnore] public string DisplayTitle => CompactTitle(Title);
     private static readonly string[] OriginalMixSuffixes = [" (Original Mix)", " [Original Mix]", " - Original Mix", " – Original Mix", " — Original Mix"];
@@ -24,6 +53,7 @@ public sealed record MusicTrack
     [JsonPropertyName("playback_gain_db")] public double? PlaybackGainDb { get; init; }
     [JsonPropertyName("lufs")] public double? Lufs { get; init; }
     [JsonPropertyName("true_peak")] public double? TruePeak { get; init; }
+    [JsonPropertyName("over_peak")] public bool OverPeak { get; init; }
     [JsonPropertyName("duration")] public double Duration { get; init; }
     [JsonPropertyName("bpm")] public int? Bpm { get; init; }
     [JsonPropertyName("key")] public string? Key { get; init; }
@@ -53,6 +83,13 @@ public sealed record LyricLine
 {
     [JsonPropertyName("t")] public double Time { get; init; }
     [JsonPropertyName("text")] public string Text { get; init; } = "";
+}
+
+public sealed record HomeRadioShortcut
+{
+    [JsonPropertyName("key")] public string Key { get; init; } = "";
+    [JsonPropertyName("label")] public string Label { get; init; } = "";
+    [JsonPropertyName("track_ids")] public List<string> TrackIds { get; init; } = [];
 }
 
 public sealed record MusicPlaylist

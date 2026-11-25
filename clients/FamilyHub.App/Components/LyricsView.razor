@@ -45,6 +45,11 @@
         </button>
     }
 }
+else if (loadFailed)
+{
+    <ServiceStatus Detail="Reconnect to load lyrics for this song." RetryLabel="Retry lyrics"
+                   Retry="Load" Busy="@(requestedFor is not null)" AutoRetry="true" />
+}
 
 @code {
     [Parameter] public bool Expanded { get; set; }
@@ -58,6 +63,7 @@
     private SongLyrics? lyrics;
     private string? loadedFor, requestedFor;
     private DateTime retryAt;
+    private bool loadFailed;
     private int active = -1, revealed = -1;
     private CancellationTokenSource? loading;
 
@@ -110,6 +116,7 @@
 
     private void Load()
     {
+        if (loadedFor != Player.Current?.Id) loadFailed = false;
         loading?.Cancel();
         loadedFor = Player.Current?.Id; requestedFor = null; lyrics = null; active = revealed = -1;
         shift = loadedFor is { } song ? Preferences.Default.Get(ShiftKey(song), 0d) : 0;
@@ -123,10 +130,19 @@
             {
                 var result = await api.GetLyricsAsync(id, cancel.Token, background: true);
                 lock (cache) { if (cache.Count >= 60) cache.Clear(); cache[id] = result; }
-                await InvokeAsync(() => { if (loadedFor != id) return; lyrics = result; active = ActiveLine(); StateHasChanged(); });
+                await InvokeAsync(() => { if (loading != cancel || loadedFor != id) return; lyrics = result; loadFailed = false; active = ActiveLine(); StateHasChanged(); });
             }
-            // No lyrics card while the server cannot answer; try again in half a minute.
-            catch (Exception) when (!cancel.IsCancellationRequested) { await InvokeAsync(() => { if (loadedFor == id) { requestedFor = null; retryAt = DateTime.UtcNow.AddSeconds(30); } }); }
+            catch (Exception error) when (!cancel.IsCancellationRequested)
+            {
+                await InvokeAsync(() =>
+                {
+                    if (loading != cancel || loadedFor != id) return;
+                    requestedFor = null;
+                    retryAt = DateTime.UtcNow.AddSeconds(30);
+                    loadFailed = error is HttpRequestException or OperationCanceledException or FamilyHubApiException { StatusCode: >= 500 };
+                    StateHasChanged();
+                });
+            }
             catch (Exception) { }
         });
         _ = Collapse();

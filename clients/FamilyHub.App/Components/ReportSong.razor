@@ -9,6 +9,8 @@
         <button class="quiet" disabled="@busy" @onclick='() => Send("wrong_source")'><MusicIcon Name="refresh" /><span><strong>Wrong source</strong><small>A different song or version plays. An admin picks a new source.</small></span></button>
         <button class="quiet" disabled="@busy" @onclick='() => Send("trimming")'><MusicIcon Name="scissors" /><span><strong>Needs trimming</strong><small>Silence, talking or an intro should be cut.</small></span></button>
     </div>
+    <ServiceStatus Active="connectionFailed" Detail="Reconnect before sending this report."
+                   RetryLabel="Retry report connection" Retry="Reconnect" Busy="busy" FocusTarget="#report-quality" />
     <Notice Level="error" Message="@status" />
 </dialog>
 
@@ -16,10 +18,10 @@
     private MusicTrack? reportTrack;
     private string? status;
     private string? opener;
-    private bool busy, opening;
+    private bool busy, opening, connectionFailed;
     public void Open(MusicTrack track, string returnFocusId)
     {
-        reportTrack = track; opener = returnFocusId; status = null;
+        reportTrack = track; opener = returnFocusId; status = null; connectionFailed = false;
         opening = true;
         StateHasChanged();
     }
@@ -30,10 +32,22 @@
         await JS.InvokeVoidAsync("familyhub.showDialog", "report-song-dialog", "report-song-close", opener);
     }
     private Task Close() => JS.InvokeVoidAsync("familyhub.closeDialog", "report-song-dialog", opener).AsTask();
+    private async Task Reconnect()
+    {
+        if (busy) return;
+        busy = true;
+        try
+        {
+            if (!Session.Connected) await Session.ReconnectAsync();
+            else await Session.RefreshAsync();
+            connectionFailed = !Session.Connected;
+        }
+        finally { busy = false; }
+    }
     private async Task Send(string reason)
     {
         if (busy || reportTrack is null) return;
-        if (!Session.Connected || Session.Api is null) { status = "Connect to the server to report this song."; return; }
+        if (!Session.Connected || Session.Api is null) { connectionFailed = true; return; }
         busy = true;
         var track = reportTrack;
         try
@@ -43,6 +57,8 @@
             await JS.InvokeVoidAsync("FamilyHubNotices.toast", reason == "trimming" ? "Added to trimming pool." : "Song reported.");
             await Close();
         }
+        catch (Exception error) when (error is HttpRequestException or FamilyHubApiException { StatusCode: >= 500 })
+        { connectionFailed = true; }
         catch (Exception error) { status = NoticeText.Error(error); }
         finally { busy = false; }
     }

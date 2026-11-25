@@ -91,7 +91,10 @@ else if (EntryScreen)
             <form class="connect-form" @onsubmit="Connect" @onsubmit:preventDefault>
                 <img class="connect-mark" src="familyhub-mark.png" alt="FamilyHub" />
                 <div class="connect-fields"><label class="sr" for="server">Server address</label><input id="server" type="url" @bind="server" placeholder="Server address" autocomplete="url" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url" required /><button class="primary" type="submit" aria-disabled="@Aria(busy)">@(busy ? "Connecting..." : "Connect")</button></div>
-                <Notice Level="@(error is null ? Session.MessageLevel : "error")" Message="@(error ?? EntryMessage)" />
+                <ServiceStatus Active="@(connectFailed || ConnectionLost)" FullSection="true"
+                               Detail="Check the server address and your connection." RetryLabel="Retry server connection"
+                               Retry="Connect" Busy="busy" FocusTarget="#server" />
+                <Notice Level="@(error is null ? Session.MessageLevel : "error")" Message="@(connectFailed || ConnectionLost ? null : error ?? EntryMessage)" />
                 @if (!string.IsNullOrEmpty(Session.User)) { <button class="quiet change-server" type="button" @onclick='() => Navigate("Library")'>Back</button> }
                 <AppUpdate @key="Session.Server" InitialRelease="startupUpdate" />
             </form>
@@ -146,16 +149,31 @@ else
     <div id="sidebar-resize" role="separator" tabindex="0" aria-label="Resize library sidebar" aria-orientation="vertical" aria-valuemin="72" aria-valuemax="420" aria-valuenow="@(sidebarCollapsed ? 72 : sidebarWidth)"></div>
 </aside>
 <div class="workspace" data-app-view="@view"><main id="content" tabindex="-1">
-    @if (view is not ("Playlists" or "Home" or "Album" or "Hub" or "Wordle")) { <h1 id="view-title" tabindex="-1">@(view == "Preferences" ? "Settings" : NavLabel(view))</h1> }
+    @{ var searchBanner = view == "Search" && searchFailed && searchUnavailable;
+       var connectionBanner = !searchBanner && error is null && ConnectionLost && view is not ("Stats" or "Leaderboard" or "Movies & TV" or "Files"); }
+    <div class="shell-status">
+    <ServiceStatus Active="@connectionBanner"
+                   Detail="@ConnectionDetail" RetryLabel="Retry server connection" Retry="Reconnect" Busy="reconnecting" AutoRetry="true"
+                   FocusTarget="@(view == "Home" ? "#open-home" : view == "Library" ? "#open-library" : "#open-hub")" />
+    <ServiceStatus Active="@searchBanner" Detail="Reconnect to search for songs."
+                   RetryLabel="Retry search" Retry="RetrySongSearch" Busy="retryingSearch" AutoRetry="true" FocusTarget="#q" />
     <Notice Id="feedback" Level="@(error is not null ? "error" : radioProgress is not null ? "info" : Session.MessageLevel)"
-        Message="@(error ?? radioProgress ?? (ConnectionLost && reconnectFailed ? ReconnectFailedText : Session.DownloadingId is null && Session.MessageLevel != "success" ? Session.Message : ""))"
-        ActionLabel="@RecoveryLabel" Action="RetryNotice" Busy="reconnecting" FocusTarget="@(searchFailed ? "#view-title" : ConnectionLost ? "#content" : "#play")" />
+        Message="@(searchBanner || connectionBanner ? null : error ?? radioProgress ?? (!ConnectionLost && Session.DownloadingId is null && Session.MessageLevel != "success" ? Session.Message : ""))"
+        ActionLabel="@(searchBanner || connectionBanner ? null : RecoveryLabel)" Action="RetryNotice" FocusTarget="@(searchFailed ? "#view-title" : "#play")" />
+    </div>
+    @if (view is not ("Playlists" or "Home" or "Album" or "Hub" or "Wordle")) { <h1 id="view-title" tabindex="-1">@(view == "Preferences" ? "Settings" : NavLabel(view))</h1> }
     @if (error is not null && playbackRetry is not null)
     { <button id="report-playback-problem" class="quiet" type="button" aria-haspopup="dialog" @onclick="OpenPlaybackFeedback">Report this problem</button> }
     @if (Session.DownloadingId is not null) { <DeviceDownloadProgress Status="@Session.DownloadStatus" /> }
     @if (LibraryViews.Contains(view) && (view != "Playlists" || Selected is null))
     {
-        <div class="library-switch" role="group" aria-label="Library sections">@foreach (var (tab, label) in new[] { ("Playlists", "Playlists"), ("Library", "Songs"), ("Downloads", "Downloaded") }) { <button aria-pressed="@Aria(view == tab)" @onclick="() => Navigate(tab)">@label</button> }</div>
+        <div class="library-switch-row @(view == "Playlists" ? "playlist-switch-row" : "")">
+            <div class="library-switch" role="group" aria-label="Library sections">@foreach (var (tab, label) in new[] { ("Playlists", "Playlists"), ("Library", "Songs"), ("Downloads", "Downloaded") }) { <button aria-pressed="@Aria(view == tab)" @onclick="() => Navigate(tab)">@label</button> }</div>
+            @if (view == "Playlists")
+            {
+                <button id="create-playlist" class="quiet round" aria-label="Create playlist" title="Create playlist" aria-haspopup="dialog" aria-controls="create-playlist-dialog" @onclick="NewPlaylist"><MusicIcon Name="plus" /></button>
+            }
+        </div>
     }
     @if (view == "Hub")
     {
@@ -167,7 +185,7 @@ else
     }
     else if (view == "Home")
     {
-        <HomeView OpenPlaylist="OpenPlaylist" OpenAlbum="OpenAlbum" PlayTracks="PlayHomeTracks" StartRadio="StartSongRadio" CurrentTrack="Player.Current" RadioBusy="busy" FollowingHost="Player.FollowingHost" />
+        <HomeView OpenPlaylist="OpenPlaylist" OpenAlbum="OpenAlbum" PlayTracks="PlayHomeTracks" StartRadio="StartHomeRadio" PlayMix="PlayHomeMix" CurrentTrack="Player.Current" RadioBusy="busy" FollowingHost="Player.FollowingHost" />
     }
     else if (view == "Movies & TV")
     {
@@ -179,7 +197,10 @@ else
     }
     else if (view == "Album" && selectedAlbum is { } album)
     {
-        <section class="playlist-hero glass-panel">
+        var entries = AlbumEntries;
+        var tracks = entries is null ? album.Tracks : entries.Tracks.Select(t => Session.Resolve(t) ?? PlaylistSongs.CatalogueTrack(t)).ToList();
+        var count = tracks.Count(t => t.Saved);
+        <section class="playlist-hero glass-panel home-album-hero">
             <div class="playlist-band">
                 <button class="quiet playlist-back" @onclick="GoBack"><MusicIcon Name="back" />Home</button>
                 <div class="playlist-identity">
@@ -187,17 +208,25 @@ else
                     <div class="playlist-heading">
                         <h1 id="view-title" tabindex="-1">@album.Name</h1>
                         <p class="playlist-summary">@album.Artist</p>
+                        <p id="album-library-count" class="playlist-summary" role="status"><span>@(entries is not null ? $"{count} of {tracks.Count} in your library" : albumLoading ? "Loading full album…" : $"{tracks.Count} library songs")</span></p>
                     </div>
                 </div>
             </div>
             <div class="playlist-action-bar">
-                <button id="play-album" class="primary round playlist-play" @onclick="() => PlayPlaylist(album.Tracks)" aria-label="Play album" title="Play album" aria-disabled="@Aria(Player.FollowingHost)"><MusicIcon Name="play" /></button>
+                @{ var playLabel = entries is null && !albumLoading ? "Play library songs" : "Play album"; }
+                @{ var missingSongs = Session.Connected && entries is not null && count < tracks.Count; }
+                <button id="play-album" class="primary round playlist-play" @onclick="() => PlayAlbum()" aria-label="@playLabel" title="@playLabel" aria-describedby="@(missingSongs ? "album-play-detail" : null)" aria-disabled="@Aria(Player.FollowingHost || Player.RemoteActive || albumLoading || albumStarting || albumWaiting is not null)"><MusicIcon Name="play" /></button>
+                @if (missingSongs) { <span id="album-play-detail" class="playlist-summary">Playing downloads missing songs.</span> }
             </div>
         </section>
+        <Notice Id="album-lookup-status" Level="error" Message="@(albumFailed ? "The full album could not load from Deezer." : null)"
+                ActionLabel="Retry album" Action="LoadAlbum" Busy="albumLoading" FocusTarget="#view-title" />
+        <Notice Message="@(albumStarting || albumWaiting is not null ? "Preparing album songs…" : null)" />
         <div class="library-list unified-song-list">
-            @foreach (var track in album.Tracks.Take(Shown(album.Opener))) { @TrackRow(track, album.Tracks, false) }
+            @foreach (var (track, position) in tracks.Take(Shown(album.Opener)).Select((track, position) => (track, position)))
+            { @TrackRow(track, tracks, false, position) }
         </div>
-        @PageEnd(album.Tracks.Count)
+        @PageEnd(tracks.Count)
     }
     else if (view == "Library" || view == "Downloads")
     {
@@ -230,7 +259,7 @@ else
         }
         @if (tracks.Count == 0)
         {
-            <Notice Level="empty" Message="@(source.Count > 0 ? "No songs match these filters." : downloadedView ? showPlaybackCache ? "The playback cache is empty." : "No kept downloads on this device." : Session.Connected ? "No saved songs." : "The server library is unavailable offline.")"
+            <Notice Level="empty" Message="@(source.Count > 0 ? "No songs match these filters." : downloadedView ? showPlaybackCache ? "The playback cache is empty." : "No kept downloads on this device." : Session.Connected ? "No saved songs." : null)"
                     ActionLabel="@(source.Count > 0 ? "Reset song filters" : downloadedView ? "Browse songs" : Session.Connected ? "Find music" : "Change server connection")"
                     Action="ResetLibraryNotice" FocusTarget="#library-filter" />
         }
@@ -282,17 +311,25 @@ else
                         <span class="crossfade-scale" aria-hidden="true">12 s</span>
                     </div>
                     <p class="setting-help">The end of a song fades into the start of the next. At 0 each song plays to the end.</p>
-                    <div class="setting-row"><label for="volume-level">Volume level</label><select id="volume-level" value="@Session.PlaybackPreferences.VolumeLevel" @onchange='args => Session.SavePreferencesAsync(SavedVolume, Session.PlaybackPreferences.Shuffle, volumeLevel: args.Value?.ToString() ?? "normal")'><option value="loud">Loud</option><option value="normal">Normal</option><option value="quiet">Quiet</option></select></div>
-                    <p class="setting-help">Evens out volume between songs. Normal matches Spotify.</p>
-                    <label class="setting-toggle"><input type="checkbox" checked="@Session.DataSaver" @onchange="args => Session.SetDataSaver(args.Value is true)" aria-describedby="music-data-saver-help" /><span>Data saver</span></label>
-                    <p class="setting-help" id="music-data-saver-help">Uses Low quality and skips preloading songs on mobile data.</p>
+                    <label class="setting-toggle"><input type="checkbox" checked="@Session.EvenSongVolume" @onchange="args => Player.SetEvenSongVolumeAsync(args.Value is true)" aria-describedby="even-song-volume-help" /><span>Even out song volume</span></label>
+                    <p class="setting-help" id="even-song-volume-help">Limits loud peaks on this device, including in Listen Together.</p>
+                    <div class="setting-row"><label for="volume-level">Volume level</label><select id="volume-level" disabled="@(!Session.EvenSongVolume)" value="@Session.PlaybackPreferences.VolumeLevel" @onchange='args => Session.SavePreferencesAsync(SavedVolume, Session.PlaybackPreferences.Shuffle, volumeLevel: args.Value?.ToString() ?? "normal")'><option value="loud">Loud</option><option value="normal">Normal</option><option value="quiet">Quiet</option></select></div>
+                    <label class="setting-toggle"><input type="checkbox" checked="@Session.DataSaver" @onchange="SetMusicDataSaver" aria-describedby="music-data-saver-help" /><span>Data saver</span></label>
+                    <p class="setting-help" id="music-data-saver-help">@(OperatingSystem.IsAndroid() ? "Uses Low quality on mobile data and skips early song downloads." : "Uses Low quality and skips preloading songs on mobile data.")</p>
                     <div class="setting-row"><label for="streaming-wifi">Streaming on Wi-Fi</label><select id="streaming-wifi" value="@Session.StreamingQualityWifi" @onchange="SetStreamingQualityWifi" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
                     <div class="setting-row"><label for="streaming-mobile">Streaming on mobile data</label><select id="streaming-mobile" value="@Session.StreamingQualityMobile" @onchange="SetStreamingQualityMobile" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
                     <div class="setting-row"><label for="downloads-quality">Downloads</label><select id="downloads-quality" value="@Session.DownloadQuality" @onchange="SetDownloadQuality" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
                     <p class="setting-help">Max uses the original file, lossless when available. Downloaded songs always play from the device.</p>
-                    <div class="setting-row"><label for="cache-limit">Music cache</label><select id="cache-limit" value="@Session.CacheLimitGb" @onchange='args => Session.SetCacheLimit(int.Parse(args.Value?.ToString() ?? "3"))'><option value="1">1 GB</option><option value="3">3 GB</option><option value="5">5 GB</option><option value="10">10 GB</option></select></div>
-                    <p class="setting-help">Space for complete songs saved during playback recovery. Streaming buffers a short stretch ahead. Songs you choose to download are stored separately.</p>
+                    <div class="setting-row"><label for="cache-limit">Music cache</label><select id="cache-limit" value="@Session.CacheLimitGb" @onchange="SetMusicCacheLimit"><option value="1">1 GB</option><option value="3">3 GB</option><option value="5">5 GB</option><option value="10">10 GB</option></select></div>
+                    <p class="setting-help">Stores songs prepared for playback. Songs you choose to download are stored separately.</p>
                     <label class="setting-toggle"><input type="checkbox" checked="@Session.DownloadsWifiOnly" @onchange="args => Session.SetDownloadsWifiOnly(args.Value is true)" /><span>Wi-Fi-only downloads</span></label>
+                    @if (OperatingSystem.IsAndroid())
+                    {
+                        <div class="setting-row">
+                            <span id="screen-off-playback-help">On Samsung, set FamilyHub’s Battery option to Unrestricted if music stops with the screen off.</span>
+                            <button type="button" aria-describedby="screen-off-playback-help" @onclick="OpenPlaybackAppSettingsAsync"><MusicIcon Name="external-link" /> Open app settings</button>
+                        </div>
+                    }
                     @if (OperatingSystem.IsWindows() && DiscordPresence.ApplicationId.Length > 0)
                     {
                         <label class="setting-toggle"><input type="checkbox" checked="@DiscordPresence.Enabled" @onchange="args => DiscordPresence.SetEnabled(args.Value is true)" /><span>Show what I'm listening to on Discord</span></label>
@@ -328,10 +365,7 @@ else
             var recent = showSections ? playlists.Where(p => playlistCollection.Recent.Contains(PlaylistKey(p)) && !pinned.Contains(p))
                 .OrderBy(p => playlistCollection.Recent.IndexOf(PlaylistKey(p))).ToList() : [];
             var more = playlists.Except(pinned).Except(recent).ToList();
-            <div class="playlist-collection-heading">
-                <h1 id="view-title" tabindex="-1">Playlists</h1>
-                <button id="create-playlist" class="quiet upload-open" aria-haspopup="dialog" aria-controls="create-playlist-dialog" @onclick="NewPlaylist"><MusicIcon Name="plus" />Create playlist</button>
-            </div>
+            <h1 id="view-title" class="sr" tabindex="-1">Playlists</h1>
             <div class="playlist-tools">
                 <div class="genre-pills playlist-filters" role="group" aria-label="Filter playlists">
                     @foreach (var chip in new[] { "All", "Mine", "Shared with me", "Radio & mixes" })
@@ -343,7 +377,7 @@ else
                     @if (playlistSearch.Length > 0)
                     { <button class="quiet collection-search-clear" type="button" aria-label="Clear playlist search" @onclick="ClearPlaylistSearch"><MusicIcon Name="close" /></button> }
                 </div>
-                <button id="playlist-sort" class="quiet" aria-label="@($"Sort playlists: {playlistSort}")" aria-haspopup="dialog" aria-controls="playlist-sort-options" @onclick="OpenPlaylistSort">@playlistSort<MusicIcon Name="chevron-down" /></button>
+                <button id="playlist-sort" class="quiet" aria-label="@($"Sort playlists: {playlistSort}")" title="@($"Sort playlists: {playlistSort}")" aria-haspopup="dialog" aria-controls="playlist-sort-options" @onclick="OpenPlaylistSort"><span>@playlistSort</span><MusicIcon Name="sort" /></button>
                 <dialog id="playlist-sort-options" class="popup-panel popup-menu playlist-options playlist-sort-options" aria-labelledby="playlist-sort-options-heading">
                     <div class="dialog-heading"><h2 id="playlist-sort-options-heading">Sort playlists</h2><button class="quiet" aria-label="Close sort playlists" data-popup-close><MusicIcon Name="close" /></button></div>
                     @foreach (var order in new[] { "Recent", "Alphabetical", "Most songs" })
@@ -588,12 +622,12 @@ else
 
 @if (startupUpdate is not null)
 {
-    <dialog id="update-dialog" class="popup-panel update-dialog night-backdrop" aria-labelledby="update-heading">
+    <dialog id="update-dialog" class="popup-panel update-dialog night-backdrop @(updateFullScreen ? "is-updating" : "")" aria-labelledby="update-heading">
         <div class="dialog-heading">
             <h2 id="update-heading">FamilyHub @startupUpdate.Version is available</h2>
             <button class="quiet" aria-label="Close update" @onclick="LaterUpdate"><MusicIcon Name="close" /></button>
         </div>
-        <AppUpdate Id="dialog-update" Inline="true" InitialRelease="startupUpdate" VersionInHeading="true" />
+        <AppUpdate Id="dialog-update" InitialRelease="startupUpdate" VersionInHeading="true" FullScreenChanged="UpdateFullScreenChanged" />
         <button id="update-later" class="quiet" @onclick="LaterUpdate">Later</button>
     </dialog>
 }
@@ -832,7 +866,8 @@ else
         else { songSort = "Custom order"; songDescending = false; }
     }
     private Task PlayVisiblePlaylist(MusicPlaylist playlist, List<int> positions) =>
-        PlayPlaylist(positions.Select(i => Session.Resolve(playlist.Tracks[i])).OfType<MusicTrack>(), "playlist:" + playlist.Id);
+        PlayPlaylist(positions.Select(i => Session.Resolve(playlist.Tracks[i])).OfType<MusicTrack>(), "playlist:" + playlist.Id,
+            follow: positions.Any(i => !Session.OnServer(playlist.Tracks[i])) ? playlist : null, positions: positions);
     private RenderFragment PlaylistShelf(List<MusicPlaylist> playlists, string? heading) => @<text>
         @if (playlists.Count > 0)
         {
@@ -919,30 +954,33 @@ else
         await JS.InvokeVoidAsync("familyhub.closeDialog", "playlist-sort-options", "playlist-sort");
     }
     private string? error;
-    private bool searchFailed;
+    private bool searchFailed, searchUnavailable, retryingSearch;
     private Func<Task>? playbackRetry;
     private long playbackNoticeVersion, shownConfirmation;
     private string? RecoveryLabel => error is not null
         ? playbackRetry is not null && !Player.FollowingHost ? "Retry playback"
             : searchFailed ? "Retry search" : null
-        : ConnectionLost ? reconnecting ? "Reconnecting…" : "Reconnect"
         : Session.MessageLevel == "error" && Session.PlaybackMessage && Player.Current is not null && !Player.FollowingHost ? "Retry current song" : null;
     private Task RetryNotice() => error is not null && playbackRetry is { } retry ? RunPlayback(retry)
-        : searchFailed ? Search() : error is null && ConnectionLost ? Reconnect() : TogglePlayback();
+        : searchFailed ? Search() : TogglePlayback();
 
-    // The quiet retries give up after about half a minute. From then on the notice carries a Reconnect button that
-    // tries again at once and says so if the server is still out of reach.
-    private const string ReconnectFailedText = "Still can't reach the server. Check your connection, or turn on Tailscale if you are away from home, then try again.";
-    private bool reconnecting, reconnectFailed;
+    private string ConnectionDetail => view switch
+    {
+        "Library" => "Reconnect to load your library.",
+        "Playlists" => "Reconnect to update your playlists.",
+        "Home" => "Reconnect to update Home and use radio.",
+        _ => "Check your connection, or turn on Tailscale if you are away from home."
+    };
+    private bool reconnecting, connectFailed;
     private bool ConnectionLost => error is null && !Session.Connected && !Session.NeedsProfileSelection && Session.Api is not null
         && !string.IsNullOrEmpty(Session.User) && Session.DownloadingId is null && Session.MessageLevel == "warning";
     private async Task Reconnect()
     {
         if (reconnecting) return;
-        reconnecting = true; reconnectFailed = false;
+        reconnecting = true;
         try { await Session.ReconnectAsync(); }
         catch (Exception) { /* The session reports the failure; the notice below says what to do next. */ }
-        finally { reconnecting = false; reconnectFailed = !Session.Connected; }
+        finally { reconnecting = false; }
     }
     private async Task ResetLibraryNotice()
     {
@@ -977,6 +1015,9 @@ else
         return Task.CompletedTask;
     }
     private AppRelease? startupUpdate;
+    private bool updateFullScreen;
+    // While the update downloads, the popup gives the whole window to the updater instead of staying a side panel.
+    private void UpdateFullScreenChanged(bool value) { updateFullScreen = value; StateHasChanged(); }
     private AppRelease? serverRelease;
     private string? updateCheckOrigin, updateStatusError;
     private bool updateNoticeDismissed;
@@ -1088,11 +1129,87 @@ else
     }
     private async Task NewPlaylist() { await Navigate("Playlists"); pendingFocus = "create-playlist"; createPlaylistOpen = true; }
     private (string Name, string Artist, List<MusicTrack> Tracks, string Opener)? selectedAlbum;
+    private MusicPlaylist? fullAlbum, preparedAlbum;
+    private CancellationTokenSource? albumLookup;
+    private bool albumLoading, albumFailed, albumStarting;
+    private long? albumWaiting;
+    private MusicPlaylist? AlbumEntries => preparedAlbum is { } prepared
+        ? Session.Playlists.FirstOrDefault(p => PlaylistKey(p) == PlaylistKey(prepared)) ?? prepared : fullAlbum;
+
     private async Task OpenAlbum((string Name, string Artist, List<MusicTrack> Tracks, string Opener) album)
     {
         selectedAlbum = album;
+        fullAlbum = preparedAlbum = null;
+        albumFailed = false; albumWaiting = null;
         await Navigate("Album");
         pendingFocus = "view-title";
+        await LoadAlbum();
+    }
+
+    private async Task LoadAlbum()
+    {
+        if (!Session.Connected || albumLoading || view != "Album" || selectedAlbum is not { } album) return;
+        albumLookup = new();
+        var token = albumLookup.Token;
+        var identity = AppearanceKey;
+        albumLoading = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var result = await Session.HomeAlbumAsync(album.Tracks[0].Id, cancellationToken: token);
+            if (token.IsCancellationRequested || identity != AppearanceKey || view != "Album") return;
+            await JS.InvokeVoidAsync("familyhub.focusIfWithin", "#album-lookup-status .fh-notice-action, .unified-song-list .song-primary, .unified-song-list .row-action", "view-title");
+            if (token.IsCancellationRequested || view != "Album") return;
+            fullAlbum = result;
+            albumFailed = false;
+        }
+        catch (Exception) { if (!token.IsCancellationRequested && identity == AppearanceKey) albumFailed = true; }
+        finally
+        {
+            if (!token.IsCancellationRequested)
+            {
+                CancelAlbumLookup();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private void CancelAlbumLookup()
+    {
+        albumLookup?.Cancel(); albumLookup?.Dispose(); albumLookup = null;
+        albumLoading = false;
+    }
+
+    private Task PlayAlbum(int? position = null)
+    {
+        if ((albumLoading && position is null) || albumStarting || albumWaiting is not null || Player.FollowingHost || Player.RemoteActive || selectedAlbum is not { } album)
+            return Task.CompletedTask;
+        var start = position ?? 0;
+        if (fullAlbum is not { } full) return PlayPlaylist(album.Tracks.Skip(start), "library");
+        var entries = AlbumEntries ?? full;
+        if (!Session.Connected || entries.Tracks.All(t => Session.Resolve(t) is not null))
+            return PlayPlaylist(entries.Tracks.Skip(start).Select(Session.Resolve).OfType<MusicTrack>(), "library");
+
+        return RunPlaybackAt(async requestedAt =>
+        {
+            if (view != "Album" || selectedAlbum != album || albumStarting) return;
+            albumStarting = true;
+            var identity = AppearanceKey;
+            var revision = Player.UserPlaybackRevision;
+            var request = playbackNoticeVersion;
+            try
+            {
+                var playlist = await Session.HomeAlbumAsync(album.Tracks[0].Id, full.Id);
+                if (identity != AppearanceKey || view != "Album" || selectedAlbum != album || !Session.Connected
+                    || request != playbackNoticeVersion || Player.UserPlaybackRevision != revision || Player.FollowingHost || Player.RemoteActive) return;
+                preparedAlbum = playlist;
+                if (start >= playlist.Tracks.Count) return;
+                var positions = Enumerable.Range(start, playlist.Tracks.Count - start).ToList();
+                albumWaiting = request;
+                _ = FollowPlaylistPreparation(playlist, positions, [], revision, identity, requestedAt, request);
+            }
+            finally { albumStarting = false; }
+        });
     }
     private async Task OpenPlaylist(MusicPlaylist playlist)
     {
@@ -1240,6 +1357,39 @@ else
     {
         if (Player.Preparing) return;
         Session.SetStreamingQualityWifi(args.Value?.ToString() ?? "max");
+        if (OperatingSystem.IsAndroid()) Player.UpcomingCacheSettingsChanged();
+    }
+    private void SetMusicDataSaver(ChangeEventArgs args)
+    {
+        Session.SetDataSaver(args.Value is true);
+        if (OperatingSystem.IsAndroid()) Player.UpcomingCacheSettingsChanged();
+    }
+    private void SetMusicCacheLimit(ChangeEventArgs args)
+    {
+        Session.SetCacheLimit(int.Parse(args.Value?.ToString() ?? "3"));
+        if (OperatingSystem.IsAndroid()) Player.UpcomingCacheSettingsChanged();
+    }
+    private Task OpenPlaybackAppSettingsAsync()
+    {
+#if ANDROID
+        return Microsoft.Maui.ApplicationModel.MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            try
+            {
+                var activity = Microsoft.Maui.ApplicationModel.Platform.CurrentActivity;
+                if (activity is null) throw new InvalidOperationException();
+                using var package = Android.Net.Uri.FromParts("package", activity.PackageName, null);
+                using var intent = new Android.Content.Intent(Android.Provider.Settings.ActionApplicationDetailsSettings, package);
+                activity.StartActivity(intent);
+            }
+            catch (Exception error) when (error is InvalidOperationException or Java.Lang.RuntimeException)
+            {
+                Session.SetMessage("Open Settings on your phone and select Apps, then FamilyHub.", "error");
+            }
+        });
+#else
+        return Task.CompletedTask;
+#endif
     }
     private void SetStreamingQualityMobile(ChangeEventArgs args)
     {
@@ -1364,6 +1514,7 @@ else
         recommendationLookup = null;
         recommendationError = null;
         backViews.Clear(); forwardViews.Clear();
+        CancelAlbumLookup(); fullAlbum = preparedAlbum = null; albumWaiting = null;
         view = "Hub"; profileMenu = false; addingProfile = false; selectedId = ""; selectedAlbum = null;
         searchResults = []; recommendations = null; filter = ""; genre = ""; showPlaybackCache = false;
         playlistFilter = "All"; playlistSearch = ""; playlistSort = "Recent";
@@ -1600,7 +1751,7 @@ else
         StateHasChanged();
         return true;
     }
-    public void Dispose() { if (BackNavigation.Handler is not null) BackNavigation.Handler = null; updateChecksStopped = true; _ = JS.InvokeVoidAsync("familyhub.stopUpdatePolling"); resizeReference?.Dispose(); radioCancellation?.Cancel(); radioCancellation?.Dispose(); recommendationLookup?.Cancel(); CancelSearch(); Session.Changed -= Changed; Player.Changed -= PlayerChanged; }
+    public void Dispose() { musicDisposed = true; if (BackNavigation.Handler is not null) BackNavigation.Handler = null; updateChecksStopped = true; _ = JS.InvokeVoidAsync("familyhub.stopUpdatePolling"); resizeReference?.Dispose(); radioCancellation?.Cancel(); radioCancellation?.Dispose(); recommendationLookup?.Cancel(); CancelAlbumLookup(); CancelSearch(); Session.Changed -= Changed; Player.Changed -= PlayerChanged; }
     private void RememberView(string tab)
     {
         if (view == tab) return;
@@ -1608,6 +1759,7 @@ else
     }
     private async Task Navigate(string tab)
     {
+        if (tab != "Album") CancelAlbumLookup();
         if (tab != "Search") CancelSearch();
         initialPlaylistReviewIndex = null;
         if (tab == "Playlists") selectedId = "";
@@ -1622,6 +1774,7 @@ else
         if (!backViews.TryPop(out var tab)) return;
         initialPlaylistReviewIndex = null;
         var albumOpener = view == "Album" && tab == "Home" ? selectedAlbum?.Opener : null;
+        CancelAlbumLookup();
         CancelSearch(); forwardViews.Push(view); view = tab; profileMenu = false; error = null; playbackRetry = null; pendingFocus = albumOpener ?? "content";
     }
     private void GoForward()
@@ -1629,6 +1782,7 @@ else
         if (!forwardViews.TryPop(out var tab)) return;
         initialPlaylistReviewIndex = null;
         CancelSearch(); backViews.Push(view); view = tab; profileMenu = false; error = null; playbackRetry = null; pendingFocus = "content";
+        if (view == "Album" && fullAlbum is null) _ = LoadAlbum();
     }
     private async Task Run(Func<Task> action)
     {
@@ -1668,12 +1822,22 @@ else
     }
     private Task Connect() => Run(async () =>
     {
-        await Session.ConnectServerAsync(server, async () =>
+        try
         {
-            await Session.SavePlaybackAsync(Player.CaptureResume());
-            await Player.StopAsync();
-        });
-        ResetProfileView();
+            await Session.ConnectServerAsync(server, async () =>
+            {
+                await Session.SavePlaybackAsync(Player.CaptureResume());
+                await Player.StopAsync();
+            });
+            connectFailed = false;
+            ResetProfileView();
+        }
+        catch (Exception failure) when (failure is OperationCanceledException or FamilyHubApiException { StatusCode: >= 500 } ||
+            failure.InnerException is HttpRequestException { HttpRequestError: not HttpRequestError.SecureConnectionError })
+        {
+            connectFailed = true;
+        }
+        catch { connectFailed = false; throw; }
     });
     private void CancelSearch()
     {
@@ -1697,6 +1861,13 @@ else
         if (string.IsNullOrWhiteSpace(query)) { await JS.InvokeVoidAsync("familyhub.focus", "q"); return; }
         searchCancellation = new CancellationTokenSource();
         await SearchResults(searchVersion, searchCancellation.Token, submitted: true);
+    }
+    private async Task RetrySongSearch()
+    {
+        if (retryingSearch || searchCancellation is null) return;
+        retryingSearch = true;
+        try { await SearchResults(searchVersion, searchCancellation.Token); }
+        finally { retryingSearch = false; }
     }
     private async Task SearchResults(int version, CancellationToken cancellationToken, bool submitted = false)
     {
@@ -1725,6 +1896,7 @@ else
                 await InvokeAsync(StateHasChanged);
                 if (!results.Complete) await Task.Delay(500, cancellationToken);
             } while (!results.Complete);
+            searchFailed = searchUnavailable = false;
         }
         catch (OperationCanceledException) { }
         catch (Exception exception)
@@ -1733,6 +1905,7 @@ else
             {
                 error = NoticeText.Error(exception, "Search could not finish.");
                 searchFailed = true;
+                searchUnavailable = !Session.Connected || exception is HttpRequestException or FamilyHubApiException { StatusCode: >= 500 };
             }
         }
         finally { if (version == searchVersion) searching = false; }
@@ -1755,7 +1928,9 @@ else
         catch (Exception ex) { if (version == searchVersion) { error = NoticeText.Error(ex, "More songs could not load. Try again."); moreSearchFailed = true; } }
         finally { if (version == searchVersion) { loadingMore = false; await InvokeAsync(StateHasChanged); } }
     }
-    private Task PlayRow(MusicTrack track, List<MusicTrack> sequence, int? position) => view == "Search" ? PlaySearchResult(track) :
+    private Task PlayRow(MusicTrack track, List<MusicTrack> sequence, int? position) => view == "Album" && position is { } albumPosition
+        ? Session.Connected || Session.LocalPath(track) is not null ? PlayAlbum(albumPosition) : Task.CompletedTask
+        : view == "Search" ? PlaySearchResult(track) :
         RunPlaybackAt(requestedAt => Player.PlayAsync(track, sequence, position, source: view == "Similar songs" ? "auto_dj" : "library", requestedAt: requestedAt));
     private Task PlaySearchResult(MusicTrack track) =>
         RunPlaybackAt(requestedAt => Player.PlayAsync(track, Session.AutoplayQueue(track), source: "search", requestedAt: requestedAt));
@@ -1827,7 +2002,9 @@ else
         catch (Exception) { if (Current()) { error = "Radio preparation was interrupted. Open the playlist to check its progress."; await InvokeAsync(StateHasChanged); } }
         finally { if (!token.IsCancellationRequested && identity == AppearanceKey) { if (!paused || !Current()) radioProgress = null; await InvokeAsync(StateHasChanged); } }
     }
-    private Task StartSongRadio(MusicTrack seed) => !Session.Connected || Player.FollowingHost || busy ? Task.CompletedTask : Run(async () =>
+    private Task StartHomeRadio((MusicTrack Track, bool ArtistOnly) seed) => StartSongRadio(seed.Track, seed.ArtistOnly);
+    private Task PlayHomeMix(List<MusicTrack> tracks) => PlayPlaylist(tracks, "radio");
+    private Task StartSongRadio(MusicTrack seed, bool artistOnly) => !Session.Connected || Player.FollowingHost || busy ? Task.CompletedTask : Run(async () =>
     {
         var requestedAt = MusicPlayer.PlaybackTimestamp();
         radioCancellation?.Cancel(); radioCancellation?.Dispose(); radioProgress = null;
@@ -1842,7 +2019,7 @@ else
 
         MusicPlaylist radio;
         radioProgress = "Finding radio songs...";
-        try { radio = await Session.StartRadioAsync(Similarity.Artist(seed), Similarity.RadioTitle(seed)); }
+        try { radio = await Session.StartRadioAsync(Similarity.Artist(seed), artistOnly ? "" : Similarity.RadioTitle(seed)); }
         catch (Exception)
         {
             if (!RadioIsCurrent()) return;
@@ -1873,31 +2050,51 @@ else
         var revision = Player.UserPlaybackRevision;
         using var lookup = new CancellationTokenSource();
         recommendationLookup = lookup;
-        await Navigate("Similar songs");
-        playerToolsOpen = playerExpanded = lyricsOpen = lyricsReopenSheet = false;
-        pendingFocus = "view-title";
-        recommendationTitle = seed.Title;
-        recommendations = null;
-        recommendationError = null;
         bool IsCurrent() => !lookup.IsCancellationRequested && identity == AppearanceKey;
+        bool CanQueue() => IsCurrent() && revision == Player.UserPlaybackRevision && !Player.FollowingHost && !Player.RemoteActive;
+        var matches = new List<MusicTrack>();
+        var songs = new HashSet<string> { Similarity.SongKey(seed) };
+        var queued = false;
+        void Append(IEnumerable<MusicTrack> found)
+        {
+            if (!IsCurrent()) return;
+            var added = found.Where(t => songs.Add(Similarity.SongKey(t))).ToList();
+            matches.AddRange(added);
+            if (added.Count == 0 || !CanQueue()) return;
+            var changedQueue = !queued && Player.ReplaceUpcoming(seed.Id, added);
+            if (!changedQueue)
+                foreach (var track in added)
+                    if (!Player.Queue.Any(t => t.Id == track.Id || Similarity.SongKey(t) == Similarity.SongKey(track)))
+                    {
+                        Player.AddToQueue(track, manual: false);
+                        changedQueue = true;
+                    }
+            if (!changedQueue) return;
+            if (!queued) Session.SetMessage("Similar songs added to the queue.", "success");
+            queued = true;
+            _ = ContinuePreparedQueue(revision);
+        }
         try
         {
-            var localMatches = Session.KnownSimilar(seed);
-            recommendations = localMatches;
-            var found = await Session.SimilarAsync(seed, lookup.Token);
-            if (!IsCurrent()) return;
-            var matches = localMatches.Concat(found).DistinctBy(Similarity.SongKey).ToList();
             recommendations = matches;
-            if (matches.Count > 0 && view == "Similar songs")
+            recommendationTitle = seed.Title;
+            recommendationError = null;
+            Append(Session.KnownSimilar(seed));
+            await Navigate("Similar songs");
+            playerToolsOpen = playerExpanded = lyricsOpen = lyricsReopenSheet = false;
+            pendingFocus = "view-title";
+            await InvokeAsync(StateHasChanged);
+            await Session.SimilarAsync(seed, found =>
             {
-                if (Player.FollowingHost || Player.RemoteActive)
-                    recommendationError = "Similar songs found. Control playback on this device to update the queue.";
-                else if (revision != Player.UserPlaybackRevision || Player.Current?.Id != seed.Id)
-                    recommendationError = "Playback changed. Try again to queue songs similar to the current song.";
-                else if (!Player.ReplaceUpcoming(seed.Id, matches))
-                    recommendationError = "The current song is preparing. Try again to update the queue.";
-            }
+                Append(found);
+                StateHasChanged();
+            }, lookup.Token);
+            if (IsCurrent() && matches.Count > 0 && !queued && !CanQueue())
+                recommendationError = Player.FollowingHost || Player.RemoteActive
+                    ? "Control playback on this device to update the queue."
+                    : "Playback changed. Try again to queue songs similar to the current song.";
         }
+        catch (OperationCanceledException) when (!IsCurrent()) { }
         catch (FamilyHubApiException failure) when (failure.RequiresSignIn && IsCurrent())
         {
             await Session.ReconnectAsync();
@@ -1926,18 +2123,104 @@ else
         pendingFocus = PlaylistRowOptionsId(to);
     });
     private Task RemoveEntry(MusicPlaylist playlist, int index) => Run(async () => { await JS.InvokeVoidAsync("familyhub.focus", "content"); await Session.EditPlaylistAsync(playlist, new { remove_index = index }); pendingFocus = "view-title"; });
-    private Task PlayPlaylist(List<MusicTrack> tracks) => PlayPlaylist(tracks, "library");
     private Task PlayHomeTracks((IEnumerable<MusicTrack> Tracks, long RequestedAt) play) =>
         PlayPlaylist(play.Tracks, "library", play.RequestedAt);
-    private Task PlayPlaylist(IEnumerable<MusicTrack> tracks, string source, long? originalRequest = null) => RunPlaybackAt(async requestedAt =>
+    private Task PlayPlaylist(IEnumerable<MusicTrack> tracks, string source, long? originalRequest = null,
+        MusicPlaylist? follow = null, List<int>? positions = null) => RunPlaybackAt(async requestedAt =>
     {
         var available = Session.Connected ? tracks as List<MusicTrack> ?? tracks.ToList() : tracks.Where(t => Session.LocalPath(t) is not null).ToList();
         if (available.Count == 0) throw new InvalidOperationException("No playable recordings are available. Download songs while connected.");
         // Shuffle starts at a random song but keeps the list's order; the player picks each next song
         // at random, so turning shuffle off continues in playlist order from the current song.
         if (Player.Shuffle) { var start = Random.Shared.Next(available.Count); available = available.Skip(start).Concat(available.Take(start)).ToList(); }
+        var revision = Player.UserPlaybackRevision + 1;
+        var identity = AppearanceKey;
         await Player.PlayAsync(available[0], available, source: source, requestedAt: requestedAt);
+        if (follow is not null && positions is not null && Session.Connected && Player.UserPlaybackRevision == revision)
+            _ = FollowPlaylistPreparation(follow, positions, available, revision, identity);
     }, originalRequest);
+    private bool musicDisposed;
+    private async Task FollowPlaylistPreparation(MusicPlaylist playlist, List<int> positions, List<MusicTrack> initial,
+        long revision, string identity, long? startAt = null, long? startRequest = null)
+    {
+        var api = Session.Api!;
+        var owner = string.IsNullOrEmpty(playlist.OwnerId) ? "" : "&owner_id=" + Uri.EscapeDataString(playlist.OwnerId);
+        var path = "/api/playlists/" + Uri.EscapeDataString(playlist.Id) + "/prepare?follow=1" + owner;
+        var queued = initial.Select(t => t.Id).ToHashSet();
+        var originalEntries = positions.Count == playlist.Tracks.Count ? null
+            : positions.Select(i => PlaylistSongs.EntryKey(playlist.Tracks[i])).ToHashSet();
+        bool Current() => !musicDisposed && identity == AppearanceKey && Session.Connected
+            && Player.UserPlaybackRevision == revision && !Player.FollowingHost && !Player.RemoteActive
+            && (startAt is null || playbackNoticeVersion == startRequest);
+        try
+        {
+            using var timeout = new CancellationTokenSource();
+            while (Current())
+            {
+                timeout.CancelAfter(TimeSpan.FromSeconds(20));
+                var status = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Get, path,
+                    cancellationToken: timeout.Token, background: true);
+                if (!Current()) return;
+                await Session.RefreshCatalogueAsync(timeout.Token);
+                if (!Current()) return;
+                var updated = Session.Playlists.FirstOrDefault(p => PlaylistKey(p) == PlaylistKey(playlist));
+                if (updated is null) return;
+                var active = PlaylistSongs.PreparationActive(status);
+                var ready = PlaylistSongs.NewlyPrepared(updated, Session.Resolve, originalEntries, queued, active);
+                if (startAt is { } requestedAt)
+                {
+                    var available = ready.ToList();
+                    if (available.Count > 0)
+                    {
+                        await Player.PlayAsync(available[0], available, source: "playlist:" + playlist.Id, requestedAt: requestedAt);
+                        revision++;
+                        startAt = null;
+                        if (albumWaiting == startRequest) { albumWaiting = null; await InvokeAsync(StateHasChanged); }
+                        if (!Current()) return;
+                    }
+                    else if (!active)
+                        Session.SetMessage("No album songs could start. Retry playing the album or check its playlist for recording choices.", "warning");
+                }
+                else
+                {
+                    var appended = false;
+                    foreach (var track in ready)
+                    {
+                        Player.AddToQueue(track, manual: false);
+                        appended = true;
+                    }
+                    if (appended) _ = ContinuePreparedQueue(revision);
+                }
+                if (!active)
+                {
+                    if (startRequest is not null && startAt is null && positions.Any(i => updated.Tracks.ElementAtOrDefault(i) is { } entry && Session.Resolve(entry) is null))
+                        Session.SetMessage("Some album songs are still missing. Play the album again to retry, or open its playlist to choose recordings.", "warning");
+                    return;
+                }
+                timeout.CancelAfter(Timeout.InfiniteTimeSpan);
+                await Task.Delay(TimeSpan.FromSeconds(3));
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or FamilyHubApiException or IOException or OperationCanceledException or System.Text.Json.JsonException or InvalidOperationException)
+        {
+            if (Current()) Session.SetMessage(startRequest is null
+                ? "Playlist progress could not load. Play the playlist again to check for more songs."
+                : "Album progress could not load. Play the album again to check for more songs.", "warning");
+        }
+        finally
+        {
+            if (startRequest is not null && albumWaiting == startRequest)
+            {
+                albumWaiting = null;
+                if (!musicDisposed) await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+    private async Task ContinuePreparedQueue(long revision)
+    {
+        try { await Player.ContinueQueueAsync(revision); }
+        catch (Exception) { if (!musicDisposed && Player.UserPlaybackRevision == revision) Session.SetMessage("The next song could not start. Choose a song from the queue.", "error"); }
+    }
     private ListenerProfile PlaylistOwner(MusicPlaylist playlist) => Session.Profiles.FirstOrDefault(p => p.Id == playlist.OwnerId) ?? new() { Id = playlist.OwnerId, Name = playlist.OwnerName };
     private ListenerProfile PlaylistContributor(MusicPlaylist playlist, PlaylistTrack entry) => string.IsNullOrEmpty(entry.AddedBy)
         ? PlaylistOwner(playlist)
@@ -1978,7 +2261,14 @@ else
     private static bool Matches(MusicTrack track, string text) => (track.Title + " " + track.Channel).Contains(text, StringComparison.OrdinalIgnoreCase);
     private static string Time(double seconds) => TimeSpan.FromSeconds(Math.Max(0, seconds)).ToString(@"m\:ss");
     private static string Size(long bytes) => bytes >= 1L << 30 ? $"{bytes / (double)(1L << 30):0.0} GB" : $"{bytes / (double)(1L << 20):0.0} MB";
-    private RenderFragment TrackRow(MusicTrack track, List<MusicTrack> sequence, bool removable, int? position = null) => @<SongRow @key="(track.Id, position)" Track="track" Current="@(Player.Current?.Id == track.Id && (view != "Queue" || position == Player.QueueIndex))" Playing="ShowPause" Play="() => PlayRow(track, sequence, position)" AddToPlaylist="OpenPlaylistPicker" Report="OpenReportSong" Queue="() => QueueTrack(track)" Keep="() => KeepLibraryTrack(track)" OptionsId="@(view == "Downloads" && showPlaybackCache ? "cache-song-" + track.Id : null)" Remove="@(removable ? EventCallback.Factory.Create(this, () => RemoveDownload(track)) : default)" RemoveLabel="Remove download" />;
+    private RenderFragment TrackRow(MusicTrack track, List<MusicTrack> sequence, bool removable, int? position = null) => @<text>
+        @{ var albumTrack = view == "Album"; }
+        <SongRow @key="(albumTrack ? string.Empty : track.Id, position)" Track="track" AlbumTrack="albumTrack"
+                 PlayDisabled="@(albumTrack && (albumStarting || albumWaiting is not null || Player.FollowingHost || Player.RemoteActive || !Session.Connected && Session.LocalPath(track) is null))"
+                 Current="@(Player.Current?.Id == track.Id && (view != "Queue" || position == Player.QueueIndex))" Playing="ShowPause" Play="() => PlayRow(track, sequence, position)"
+                 AddToPlaylist="OpenPlaylistPicker" Report="OpenReportSong" Queue="() => QueueTrack(track)" Keep="() => KeepLibraryTrack(track)"
+                 OptionsId="@(view == "Downloads" && showPlaybackCache ? "cache-song-" + track.Id : null)" Remove="@(removable ? EventCallback.Factory.Create(this, () => RemoveDownload(track)) : default)" RemoveLabel="Remove download" />
+    </text>;
     private async Task KeepLibraryTrack(MusicTrack track)
     {
         if (view == "Downloads" && showPlaybackCache)

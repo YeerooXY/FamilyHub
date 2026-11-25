@@ -15,6 +15,12 @@ Check(shownSearch.Select(t => t.Id).SequenceEqual(["first", "extra"]), "Search e
 Check(ReferenceEquals(shownSearch[0], originalSearchRow), "Search enrichment preserves existing row identity");
 Check(JsonSerializer.Deserialize<SearchPage>("{}")!.Complete, "Older search responses default to complete");
 Check(!JsonSerializer.Deserialize<SearchPage>("{\"complete\":false}")!.Complete, "Partial search response is recognized");
+var hotMaster = JsonSerializer.Deserialize<MusicTrack>("{\"id\":\"hot-master\",\"lufs\":-7.6,\"true_peak\":4,\"over_peak\":true,\"playback_gain_db\":-8.4}")!;
+var savedMaster = JsonSerializer.Deserialize<MusicTrack>(JsonSerializer.Serialize(hotMaster))!;
+Check(savedMaster is { Lufs: -7.6, TruePeak: 4, OverPeak: true, PlaybackGainDb: -8.4 },
+    "Server loudness and peak flag survive local track serialization");
+Check(JsonSerializer.Deserialize<MusicTrack>("{}") is { Lufs: null, TruePeak: null, OverPeak: false },
+    "Older track records load with unknown loudness");
 Check(JsonSerializer.Deserialize<DiscoveryItem>("{\"source_ids\":{\"album\":302127,\"track\":5}}")!.CoverUrl == "https://api.deezer.com/album/302127/image?size=big", "Discovery cards use the release's Deezer album cover");
 Check(JsonSerializer.Deserialize<DiscoveryItem>("{\"cover\":\"https://cdn.test/c.jpg\",\"source_ids\":{\"album\":1}}")!.CoverUrl == "https://cdn.test/c.jpg", "A server cover address takes precedence");
 Check(JsonSerializer.Deserialize<DiscoveryItem>("{\"cover\":\"http://private/c.jpg\"}")!.CoverUrl is null, "Discovery covers load only over HTTPS");
@@ -42,6 +48,165 @@ async Task Throws<T>(Func<Task> action, string message) where T : Exception
 }
 HttpResponseMessage Html(string text) => new(HttpStatusCode.OK) { Content = new StringContent(text, Encoding.UTF8, "text/html") };
 HttpResponseMessage Json(string text) => new(HttpStatusCode.OK) { Content = new StringContent(text, Encoding.UTF8, "application/json") };
+
+{
+    var seed = new MusicTrack { Id = "abcdefghijk", Title = "Seed", Channel = "Example Artist" };
+    var match = new MusicTrack { Id = "lmnopqrstuv", Title = "Matched", Url = "https://www.youtube.com/watch?v=lmnopqrstuv" };
+    var requestCount = 0;
+    using var api = new FamilyHubApi(origin, new Handler(async request =>
+    {
+        requestCount++;
+        Check(request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath == "/api/recommendations/match",
+            "A Deezer suggestion should use the recording matcher");
+        using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+        Check(payload.RootElement.GetProperty("id").GetString() == "deezer:42", "The matcher must receive the selected catalogue ID");
+        return Json(JsonSerializer.Serialize(match, FamilyHubApi.JsonOptions));
+    }));
+    Check(await api.MatchRecommendationAsync(seed, CancellationToken.None) == seed && requestCount == 0,
+        "Library recordings must bypass catalogue matching");
+    Check(await api.MatchRecommendationAsync(new MusicTrack { Id = "deezer:42" }, CancellationToken.None) == match && requestCount == 1,
+        "Playback must receive the recording returned by the matcher");
+
+    var entries = new MusicPlaylist { Tracks = [
+        new() { Match = seed, State = "saved" }, new() { SpotifyUri = "deezer:1", State = "running" },
+        new() { Match = match, State = "saved" }] };
+    var queued = new HashSet<string> { seed.Id };
+    Check(!PlaylistSongs.NewlyPrepared(entries, t => t.Match, null, queued, active: true).Any(),
+        "Out-of-order completion must wait behind the earlier pending playlist song");
+    var second = new MusicTrack { Id = "12345678901" };
+    entries.Tracks[1] = entries.Tracks[1] with { Match = second, State = "saved" };
+    Check(PlaylistSongs.NewlyPrepared(entries, t => t.Match, null, queued, active: true).SequenceEqual([second, match]) &&
+        !PlaylistSongs.NewlyPrepared(entries, t => t.Match, null, queued, active: true).Any(),
+        "Finished playlist songs must append once in playlist order");
+    using var pausedStatus = JsonDocument.Parse("""{"state":"paused","download_after_matching":true}""");
+    using var queuedStatus = JsonDocument.Parse("""{"state":"done","download_after_matching":true}""");
+    Check(!PlaylistSongs.PreparationActive(pausedStatus.RootElement) && PlaylistSongs.PreparationActive(queuedStatus.RootElement),
+        "Following must stop on pause and continue through the matching-to-download transition");
+}
+
+{
+    var requests = new List<string>();
+    using var api = new FamilyHubApi(origin, new Handler(async request =>
+    {
+        var path = request.RequestUri!.AbsolutePath;
+        requests.Add(path);
+        if (path == "/api/home/radio")
+        {
+            Check(request.Method == HttpMethod.Get && request.RequestUri.Query.StartsWith("?offset="), "Home shortcuts request the device time offset");
+            return Json("""{"shortcuts":[{"key":"daily","label":"Daily mix","track_ids":["abcdefghijk"]}]}""");
+        }
+        using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+        Check(payload.RootElement.GetProperty("recording_id").GetString() == "abcdefghijk", "A Home album is looked up from its library recording");
+        if (path.EndsWith("/play"))
+        {
+            Check(payload.RootElement.GetProperty("album_id").GetString() == "catalogue", "Album preparation must reuse the selected edition");
+            return Json("""{"playlist":{"id":"prepared","owner_id":"listener"}}""");
+        }
+        return Json("""{"playlist":{"id":"catalogue","tracks":[{"title":"New Song","artist":"North Atlas","spotify_uri":"deezer:42","state":"unmatched","duration":203}]}}""");
+    }));
+    var session = new FamilyHub.App.Services.MusicSession();
+    session.GetType().GetProperty("Connected")!.SetValue(session, true);
+    session.GetType().GetProperty("Api")!.SetValue(session, api);
+    var shortcuts = await session.HomeRadioAsync(CancellationToken.None);
+    Check(shortcuts is [{ Key: "daily", TrackIds: ["abcdefghijk"] }], "Home mixes deserialize ordered library track IDs");
+    var album = await session.HomeAlbumAsync("abcdefghijk");
+    Check(PlaylistSongs.CatalogueTrack(album.Tracks.Single()) is { Id: "deezer:42", Saved: false, Title: "New Song" },
+        "The full album exposes an unmatched catalogue entry without marking it saved");
+    Check(session.Playlists.Count == 0, "Looking up an album must leave the playlists alone");
+    await session.HomeAlbumAsync("abcdefghijk", album.Id);
+    await session.HomeAlbumAsync("abcdefghijk", album.Id);
+    Check(session.Playlists is [{ Id: "prepared" }] && requests.SequenceEqual(["/api/home/radio", "/api/home/album", "/api/home/album/play", "/api/home/album/play"]),
+        "Album playback follows one prepared playlist across retries");
+}
+
+{
+    var releaseSecondPage = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var firstPagePublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    using var api = new FamilyHubApi(origin, new Handler(async request =>
+    {
+        Check(request.RequestUri!.AbsolutePath == "/api/recommendations", "Unexpected similar songs request");
+        using var input = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+        if (input.RootElement.GetProperty("offset").GetInt32() == 0)
+            return Json("""{"results":[{"id":"deezer:9","channel":"Related artist","title":"First suggestion","saved":false}],"from_deezer":true,"next_offset":8}""");
+        await releaseSecondPage.Task.WaitAsync(timeout.Token);
+        return Json("""{"results":[{"id":"deezer:10","channel":"Another artist","title":"Second suggestion","saved":false}],"from_deezer":true}""");
+    }));
+    var session = new FamilyHub.App.Services.MusicSession();
+    session.GetType().GetProperty("Connected")!.SetValue(session, true);
+    session.GetType().GetProperty("Api")!.SetValue(session, api);
+    var found = new List<MusicTrack>();
+    var lookup = session.SimilarAsync(new MusicTrack { Id = "01234567890", Title = "Seed", Channel = "Seed artist" }, tracks =>
+    {
+        found.AddRange(tracks);
+        if (found.Count > 0) firstPagePublished.TrySetResult();
+    }, timeout.Token);
+    await firstPagePublished.Task.WaitAsync(timeout.Token);
+    Check(!lookup.IsCompleted && found is [{ Id: "deezer:9", Saved: false }],
+        "The first Deezer page must publish before the second page arrives");
+    releaseSecondPage.SetResult();
+    await lookup;
+    Check(found.Select(track => track.Id).SequenceEqual(["deezer:9", "deezer:10"]),
+        "Related artists must survive filtering and append by page");
+}
+
+{
+    const string id = "abcdefghijk";
+    const string jobPath = "/api/jobs/fixture";
+    const string headPath = jobPath + "/media/source";
+    var posted = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var posts = 0;
+    var probes = 0;
+    var fixtureTrack = new MusicTrack { Id = id, Url = $"https://www.youtube.com/watch?v={id}" };
+    var waiting = """
+        {"job":{"id":"fixture","source_id":"abcdefghijk","state":"queued","phase":"fetch"}}
+        """;
+    var running = """
+        {"job":{"id":"fixture","source_id":"abcdefghijk","state":"running","phase":"prepare",
+        "stream_url":"/api/jobs/fixture/media/index.m3u8","windows_preview_ready":false,"fallback_stream_url":"/api/jobs/fixture/media/source"}}
+        """;
+    using var api = new FamilyHubApi(origin, new Handler(request =>
+    {
+        if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath == "/api/jobs")
+        {
+            posts++;
+            return posted.Task;
+        }
+        if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath == jobPath)
+            return Task.FromResult(Json(running));
+        if (request.Method == HttpMethod.Head && request.RequestUri!.AbsolutePath == headPath)
+        {
+            probes++;
+            var response = new HttpResponseMessage(probes switch
+            {
+                1 => HttpStatusCode.NotFound,
+                2 => HttpStatusCode.ServiceUnavailable,
+                _ => HttpStatusCode.OK
+            });
+            if (probes <= 2) response.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.Zero);
+            return Task.FromResult(response);
+        }
+        throw new Exception("Preparation made an unexpected request");
+    }));
+    using var first = new CancellationTokenSource();
+    var abandoned = api.GetOrCreateRecordingJobAsync(fixtureTrack, first.Token);
+    var joined = api.GetOrCreateRecordingJobAsync(fixtureTrack, CancellationToken.None);
+    first.Cancel();
+    await Throws<OperationCanceledException>(() => abandoned, "A cancelled waiter should stop independently");
+    posted.SetResult(Json(waiting));
+    Check((await joined).Active && posts == 1, "Concurrent preparation must share one POST across cancellation");
+    var job = await api.GetOrCreateRecordingJobAsync(fixtureTrack, CancellationToken.None, retry: true);
+    var preview = job.PlayableStream(fixtureTrack, windows: false, retry: false);
+    var original = job.PlayableStream(preview!, windows: false, retry: true);
+    Check(job.Active && job.Phase == "prepare" && preview?.PlaybackVersion == "preview-hls"
+        && original?.StreamUrl == headPath && posts == 1, "Fallback must offer the existing original during purification");
+    Check((job with { StreamUrl = null }).PlayableStream(fixtureTrack, windows: false, retry: false)?.StreamUrl == headPath,
+        "An available original must start when there is no HLS preview");
+    Check(job.PlayableStream(fixtureTrack, windows: true, retry: false)?.StreamUrl == headPath, "Windows needs a usable preview or the original");
+    var waits = 0;
+    await api.WaitForRecordingStreamAsync(headPath, CancellationToken.None, () => waits++);
+    Check(probes == 3 && waits == 2, "Only readiness responses should wait before trying the stream again");
+}
 
 var loginRequests = new List<string>();
 using (var api = new FamilyHubApi(origin, new Handler(async request =>

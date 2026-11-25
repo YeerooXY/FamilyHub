@@ -17,6 +17,7 @@ NATIVE_STAGES = frozenset({
     "background", "foreground", "early_end", "native_ended", "buffering", "native_buffering",
     "buffer_recovered", "native_ready", "unexpected_pause", "native_paused", "native_suppressed",
     "player_error", "native_error", "interrupted", "resume_seek", "resume_applied", "resume_failed",
+    "screen_off", "screen_on", "next_warmup_start", "next_warmup_finish", "next_warmup_failed",
 })
 
 # AndroidX Media3 1.8 PlaybackException names. Never retain free-form player or network errors.
@@ -59,7 +60,7 @@ class PlaybackDiagnostics:
         while self.actions and next(iter(self.actions.values()))[1] <= now - 1800:
             self.actions.popitem(last=False)
 
-    def record(self, owner, action, stage, *, client_ms=None, begin=False, observation=None):
+    def record(self, owner, action, stage, *, client_ms=None, begin=False, observation=None, once=False):
         if not self.valid(action):
             return
         with self.lock:
@@ -76,6 +77,8 @@ class PlaybackDiagnostics:
                 if len(self.actions) > 256:
                     self.actions.popitem(last=False)
             _, started, events = self.actions[key]
+            if once and stage in events:
+                return
             event = {"stage": stage}
             if client_ms is None:
                 event["server_ms"] = round((now - started) * 1000)

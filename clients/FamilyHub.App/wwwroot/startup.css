@@ -120,3 +120,7 @@
 .popup-panel.update-dialog:has(.is-morphing) .dialog-heading { position:static; justify-content:center; }
 .popup-panel.update-dialog:has(.is-morphing) .dialog-heading > button, .popup-panel.update-dialog:has(.is-morphing) #update-later { display:none; }
 .popup-panel.update-dialog:has(.is-morphing) .app-update { width:min(26rem, 100%); }
+
+/* The update popup becomes the full-window updater while the download runs (PC, tablet and phone). */
+.popup-panel.update-dialog.is-updating:is([open],.is-open) { inset:0; width:auto; max-width:none; height:auto; max-height:none; border-radius:0; padding:0; overflow:hidden; box-shadow:none; animation:none; }
+.update-dialog.is-updating > .dialog-heading, .update-dialog.is-updating > #update-later { display:none; }

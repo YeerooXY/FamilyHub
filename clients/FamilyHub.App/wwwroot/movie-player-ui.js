@@ -566,11 +566,14 @@ export function buildPlayerUi(ctx) {
     const notice = ctx.notice;
     const failure = make("p", "movie-ui-line");
     failure.setAttribute("role", "status");
+    const retry = make("button", "movie-ui-retry", "Try again");
+    retry.type = "button";
+    retry.hidden = true;
     const hint = make("p", "movie-ui-line");
     hint.setAttribute("role", "status");
     notice.classList.add("movie-ui-line");
     const message = make("div", "movie-ui-message");
-    message.append(notice, failure, hint);
+    message.append(notice, failure, retry, hint);
     const spinnerRoot = make("div", "movie-ui-center");
     spinnerRoot.append(spinner);
     const subs = make("div", "movie-ui-subs");
@@ -605,7 +608,7 @@ export function buildPlayerUi(ctx) {
         if (button && event.detail > 0) button.focus({ preventScroll: true });
     }, { capture: true, signal });
     function hide() {
-        if (dragging || openSheet || root.querySelector(".movie-ui-top :focus-visible, .movie-ui-bottom :focus-visible") &&
+        if (!retry.hidden || dragging || openSheet || root.querySelector(".movie-ui-top :focus-visible, .movie-ui-bottom :focus-visible") &&
             !root.classList.contains("movie-pointer")) return;
         clearTimeout(idleTimer);
         root.classList.add("movie-idle");
@@ -697,7 +700,13 @@ export function buildPlayerUi(ctx) {
         spinner.hidden = !on;
         if (on && spinnerLabel.textContent !== label) spinnerLabel.textContent = label;
     };
-    for (const [type, run] of [["play", sync], ["pause", sync], ["playing", () => { busy(false); failure.textContent = ""; sync(); }],
+    for (const [type, run] of [["play", sync], ["pause", sync], ["playing", () => {
+        busy(false);
+        failure.textContent = "";
+        if (document.activeElement === retry) playPause.focus({preventScroll: true});
+        retry.hidden = true;
+        sync();
+    }],
         ["waiting", () => busy(true, media.readyState < 1 ? "Loading" : "Buffering")],
         ["seeking", () => busy(true)], ["seeked", () => busy(false)], ["ended", () => { busy(false); sync(); }],
         ["canplay", () => busy(false)], ["timeupdate", paint], ["durationchange", paint], ["loadedmetadata", paint]])
@@ -871,8 +880,14 @@ export function buildPlayerUi(ctx) {
             nextButton.hidden = !episode;
             if (episode) nextButton.setAttribute("aria-label", "Next episode: " + episode.Name);
         },
-        /** A short line over the picture, for example "This device could not play this version." */
-        say(text) { failure.textContent = text; busy(false); show(); },
+        say(text) { if (retry.hidden) failure.textContent = text; busy(false); show(); },
+        showFailure(reason, run) {
+            failure.textContent = reason;
+            retry.onclick = run;
+            retry.hidden = false;
+            busy(false);
+            show();
+        },
         subtitleStatus,
         syncSubtitles,
         hint(text) {

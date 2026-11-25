@@ -31,10 +31,10 @@ internal sealed class AudioRouting : AudioDeviceCallback
     public static void Clear() => current?.Prefer(null);
 
     /// <summary>Keep playback running with the display off and preserve the preferred output.</summary>
-    public static void Apply(MediaElement player, bool streaming)
+    public static void Apply(MediaElement player)
     {
         if (Player(player) is not { } exo) return;
-        exo.SetWakeMode(streaming ? C.WakeModeNetwork : C.WakeModeLocal);
+        exo.SetWakeMode(C.WakeModeNetwork);
         if (current?.preferred is { } device) SetPreferred(player, device);
     }
 

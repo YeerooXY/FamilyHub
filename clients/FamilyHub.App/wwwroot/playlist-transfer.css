@@ -1,7 +1,8 @@
 .playlist-transfer { margin-top:16px; outline:none; }
 .playlist-server-count { display:inline-block; padding:3px 8px; border-radius:999px; background:#ffffff12; color:var(--ink); white-space:nowrap; font-variant-numeric:tabular-nums; }
-.playlist-action-bar .playlist-download { display:inline-flex; align-items:center; justify-content:center; width:44px; min-width:44px; height:44px; min-height:44px; padding:0; }
-.playlist-action-bar .playlist-download>.icon { width:20px; height:20px; flex:none; }
+.playlist-action-bar .playlist-download { display:inline-flex; align-items:center; justify-content:center; width:48px; min-width:48px; height:48px; min-height:48px; border-radius:50%; padding:0; }
+.playlist-action-bar .playlist-download>.icon { width:24px; height:24px; flex:none; }
+.playlist-action-bar .playlist-download>.download-activity { width:32px; height:32px; }
 .playlist-action-bar .playlist-download.is-active { opacity:1; border-color:color-mix(in srgb,var(--accent-blue) 40%,transparent); }
 .playlist-download.is-active>.icon { color:var(--accent-blue); }
 .playlist-storage { color:var(--muted); transition:color .18s ease; }

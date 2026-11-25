@@ -109,7 +109,8 @@ public sealed class OfflineLibrary
     }
 
     public async Task<string> DownloadAsync(MusicTrack track, FamilyHubApi api, CancellationToken cancellationToken = default,
-        IProgress<DownloadProgress>? progress = null, OfflineLibrary? sourceCache = null, bool background = false)
+        IProgress<DownloadProgress>? progress = null, OfflineLibrary? sourceCache = null, bool background = false,
+        bool keepPartial = true)
     {
         ValidateTrack(track);
         if (api.ServerOrigin != server) throw new ArgumentException("The download belongs to a different server.");
@@ -118,6 +119,7 @@ public sealed class OfflineLibrary
             throw new ArgumentException("The source cache belongs to a different account or is the destination.");
         api.ResolveUri(track.DownloadUrl);
         await gate.WaitAsync(cancellationToken);
+        string? part = null;
         try
         {
             var final = AudioPath(track);
@@ -129,7 +131,7 @@ public sealed class OfflineLibrary
                 return final;
             }
             // Hash-specific partial files cannot be resumed into a newer recording of the same source.
-            var part = Path.Combine(RootDirectory, FileKey(track.Id) + "." + track.DownloadSha256.ToLowerInvariant() + ".part");
+            part = Path.Combine(RootDirectory, FileKey(track.Id) + "." + track.DownloadSha256.ToLowerInvariant() + ".part");
             if (sourceCache is not null && await sourceCache.GetVerifiedDownloadedPathAsync(track, cancellationToken) is { } cached)
             {
                 // The final checksum below also protects against changes during the copy.
@@ -190,12 +192,20 @@ public sealed class OfflineLibrary
             File.Move(part, final, true);
             verified.TryRemove(part, out _);
             RememberVerified(final, track);
-            await WriteJsonAsync(FileKey(track.Id) + ".download.json", track, cancellationToken);
+            await WriteJsonAsync(FileKey(track.Id) + ".download.json", track, keepPartial ? cancellationToken : CancellationToken.None);
             RemoveSupersededAudio(track, final);
             progress?.Report(new(track.DownloadSize, track.DownloadSize));
             return final;
         }
-        finally { gate.Release(); }
+        finally
+        {
+            if (!keepPartial && part is not null)
+            {
+                try { File.Delete(part); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+            }
+            gate.Release();
+        }
     }
 
     public async Task RemoveDownloadAsync(string trackId, CancellationToken cancellationToken = default, Func<bool>? canRemove = null)

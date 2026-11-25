@@ -6,6 +6,7 @@
 <meta name="color-scheme" content="dark">
 <title>FamilyHub admin</title>
 <link rel="stylesheet" href="/admin/admin.css">
+<link rel="stylesheet" href="/admin/service-status.css">
 </head>
 <body>
 <main>
@@ -19,6 +20,7 @@
       <p id="signin-error" role="alert"></p>
       <button type="submit" id="signin-submit">Sign in</button>
     </form>
+    <div id="signin-outage"></div>
   </section>
   <section id="seeding" aria-label="Torrent seeding" hidden>
     <div class="global" id="global" hidden>
@@ -28,11 +30,11 @@
       <p id="global-detail" class="muted"></p>
     </div>
     <p id="status" class="muted" role="status"></p>
-    <button type="button" id="retry" hidden>Retry</button>
+    <div id="seeding-outage"></div>
     <h2 id="files-title" hidden>Files</h2>
     <ul id="items" aria-labelledby="files-title" hidden></ul>
   </section>
 </main>
-<script src="/admin/admin.js" defer></script>
+<script type="module" src="/admin/admin.js"></script>
 </body>
 </html>

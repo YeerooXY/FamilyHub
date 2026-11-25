@@ -107,9 +107,7 @@
     position: absolute;
     inset: 0;
     z-index: -1;
-    background:
-        linear-gradient(90deg, #0b0d12f2 0%, #0b0d12b3 38%, #0b0d1200 72%),
-        linear-gradient(0deg, #0b0d12 0%, #0b0d1200 45%);
+    background: linear-gradient(0deg, #0b0d12 0%, #0b0d12e8 31%, #0b0d1200 100%);
 }
 .movie-hero-body { display: grid; gap: .75rem; max-width: 38rem; padding: clamp(1.1rem, 4vw, 3rem); }
 .movie-hero-title { margin: 0; font-size: clamp(1.8rem, 4.2vw, 3.5rem); line-height: 1.05; text-wrap: balance; text-shadow: 0 .1rem 1rem #000a; }
@@ -194,6 +192,8 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-ui-message { position: absolute !important; left: 50%; top: 18%; transform: translateX(-50%); display: grid; gap: .4rem; width: max-content; max-width: min(32rem, 86%); pointer-events: none; }
 .movie-ui-line { margin: 0; padding: .6rem 1rem; border-radius: .6rem; background: #000d; text-align: center; }
 .movie-ui-line:empty { display: none; }
+.movie-library .movie-ui-message .movie-ui-retry { justify-self: center; min-height: var(--movie-target); background: #252a36; }
+.movie-ui-retry[hidden] { display: none; }
 .movie-ui-shortcut { position: absolute !important; z-index: 2; top: max(4rem, calc(env(safe-area-inset-top) + 3rem)); right: max(1rem, env(safe-area-inset-right)); padding: .35rem .75rem; border-radius: .4rem; background: #000e; pointer-events: none; }
 .movie-ui-shortcut:empty { padding: 0; }
 
@@ -230,26 +230,20 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 }
 .movie-more { margin-top: .85rem; }
 .movie-library p[role="status"]:empty { margin: 0; }
-.movie-library-columns, .movie-catalogue { min-width: 0; }
-.movie-library :is(.movie-downloads, .movie-audio-jobs) {
-    margin: .75rem 0 1.5rem;
-    padding: 1rem;
-    border: 1px solid #ffffff26;
-    border-radius: .85rem;
-    background: #171a22;
+.movie-catalogue { min-width: 0; }
+.movie-library .movie-downloads { margin: 0 0 1rem; padding: .5rem .75rem; border-block: 1px solid #ffffff26; }
+.movie-catalogue:has(> .movie-series) > .movie-downloads { display: none; }
+.movie-downloads h2 { margin: 0; font-size: 1rem; }
+.movie-downloads ul { display: grid; gap: .35rem; margin: .3rem 0 0; padding: 0; list-style: none; }
+.movie-downloads li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(4rem, 20%) auto; align-items: center; gap: .2rem 1rem; overflow-wrap: anywhere; }
+.movie-downloads li .movie-download-progress { margin: 0; }
+.movie-downloads p { margin: 0; color: #ffffffb8; font-size: .9rem; }
+@media (max-width: 640px) {
+    .movie-downloads li { grid-template-columns: minmax(0, 1fr) auto; }
+    .movie-downloads li strong { grid-column: 1 / -1; }
 }
-:is(.movie-downloads, .movie-audio-jobs) h2 { margin: 0 0 .6rem; font-size: 1.1rem; }
-:is(.movie-downloads, .movie-audio-jobs) ul { display: grid; gap: .65rem; margin: 0; padding: 0; list-style: none; }
-:is(.movie-downloads, .movie-audio-jobs) li { padding: .75rem; border-radius: .6rem; background: #ffffff0d; overflow-wrap: anywhere; }
-:is(.movie-downloads, .movie-audio-jobs) p { margin: 0; color: #ffffffb8; font-size: .9rem; }
 .movie-download-progress { height: .3rem; margin: .65rem 0 .5rem; border-radius: 1rem; background: #ffffff26; overflow: hidden; }
 .movie-download-progress span { display: block; height: 100%; transform-origin: left; background: #89b4ff; }
-@media (min-width: 1100px) {
-    .movie-library-columns { display: grid; align-items: start; grid-template-columns: minmax(0, 1fr) minmax(15rem, 22rem); gap: 1.25rem; }
-    .movie-library-columns-full { grid-template-columns: minmax(0, 1fr); }
-    .movie-catalogue { grid-area: 1 / 1; }
-    .movie-work { grid-area: 1 / 2; min-width: 0; }
-}
 }
 .movie-library video { margin-top: .75rem; }
 .movie-library .movie-search {
@@ -453,7 +447,7 @@ html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 
 /* Search at the top, centred, one soft focus ring on the whole bar (not a second ring on the input). */
 .movie-library .movie-toolbar, .movie-library .movie-search-results, .movie-library .movie-releases { max-width: 60rem; margin-inline: auto; }
-.movie-library .movie-toolbar { position: sticky; top: 0; z-index: 6; padding: .6rem 0 .5rem; background: linear-gradient(#0b0d12f2 78%, #0b0d1200); }
+.movie-library .movie-toolbar { position: sticky; top: 0; z-index: 6; padding: .6rem 0 .5rem; background: var(--movie-edge); }
 .movie-library .movie-search { max-width: none; border-radius: 999px; background: #171a22; border-color: #ffffff2e; }
 .movie-library .movie-search:focus-within { border-color: var(--focus, #98abed); box-shadow: 0 0 0 3px #98abed38; }
 .movie-library .movie-search input { padding-inline: 1.3rem .4rem; }
@@ -527,9 +521,8 @@ li.movie-release[data-tier="4k-bluray"] { border-color: #ba7bcb66; }
 @keyframes movie-shine { to { background-position: -220% 0; } }
 @media (prefers-reduced-motion: reduce) { .movie-release-top > .movie-release-quality[data-level="4k-remux"] { animation: none; } }
 
-/* The search pill fills the toolbar, and the sticky band behind it runs the full width of the screen (no floating dark block). */
+/* Keep the sticky background within the same content edges as the billboard. */
 .movie-library .movie-toolbar .movie-search { flex: 1 1 100%; width: 100%; max-width: none; }
-.movie-library .movie-toolbar { background: none; box-shadow: 0 0 0 100vmax #0b0d12eb; clip-path: inset(0 -100vmax); }
 
 /* The Movies page keeps its search bar pinned at the very top, so the content area must not reserve space above focused fields
    (that reserve made the page jump about 49 px on every typed letter). */
@@ -548,11 +541,7 @@ li.movie-release[data-tier="4k-bluray"] { border-color: #ba7bcb66; }
 }
 
 /* Same-size cards: every caption holds two lines, so a one-line title no longer makes a shorter card. */
-.movie-library .movie-caption { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; box-sizing: content-box; min-height: 2.6em; }
-.movie-library .movie-caption:has(.movie-search-play) { display: block; -webkit-line-clamp: none; line-clamp: none; }
-
-/* The pinned search band hides what scrolls beneath it completely (the cards showed through the old 92% tint). */
-.movie-library .movie-toolbar { box-shadow: 0 0 0 100vmax #0b0d12; }
+.movie-card-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; min-height: 2.6em; }
 
 /* Waiting and arriving: a soft moving shimmer while sources are checked, and results ease in. */
 .movie-source-note.is-checking { display: flex; align-items: center; gap: .6rem; }
@@ -645,7 +634,7 @@ li.movie-release[data-tier="4k-bluray"] { border-color: #ba7bcb66; }
 .movie-hero-title { overflow-wrap: anywhere; color: #fff; }
 .movie-hero-body { min-width: 0; }
 .movie-library .movie-hero-details { background: #272c38; color: #fff; }
-.movie-library :is(.movie-hero-play, .movie-hero-details, .movie-series button, .movie-series select, .movie-audio-job button) {
+.movie-library :is(.movie-hero-play, .movie-hero-details, .movie-series button) {
     min-width: var(--movie-target);
     min-height: var(--movie-target);
 }
@@ -688,11 +677,62 @@ li.movie-release[data-tier="4k-bluray"] { border-color: #ba7bcb66; }
 .movie-title-intro { display: grid; grid-template-columns: clamp(4.75rem, 16vw, 8.5rem) minmax(0, 1fr); align-items: center; gap: .6rem 1.15rem; }
 .movie-title-intro .movie-art { width: 100%; grid-row: 1 / span 2; align-self: start; border-radius: .65rem; }
 .movie-title-intro p { max-width: 48ch; overflow-wrap: anywhere; }
-.movie-series select { max-width: 100%; padding: .35rem 1rem; border: 1px solid #ffffff50; border-radius: .55rem; background: #202632; color: #fff; font: inherit; }
+.movie-library .movie-title-back { display: grid; place-items: center; width: var(--movie-target); height: var(--movie-target); padding: 0; }
+.movie-season-picker { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; margin-block: .5rem; }
+.movie-season-picker[hidden], .movie-season-picker:not([data-overflow="true"]) .movie-season-arrow { display: none; }
+.movie-season-picker:not([data-overflow="true"]) { grid-template-columns: minmax(0, 1fr); }
+.movie-season-pills { display: flex; align-items: center; gap: .45rem; padding: .5rem; overflow-x: auto; scrollbar-width: none; }
+.movie-season-pills button { flex: none; white-space: nowrap; }
+.movie-library .movie-season-pills button { border-radius: 999px; }
+.movie-library .movie-season-pills [aria-pressed="true"] { background: #dce6ff; color: #161c29; }
+.movie-library .movie-season-arrow { display: grid; place-items: center; padding: 0; align-self: center; border-radius: 50%; }
+.movie-season-arrow[aria-disabled="true"] { opacity: .45; }
+.movie-episode-number { color: #c4cadd; margin-inline-end: .25em; }
+.movie-library .movie-screen-entry { animation: movie-arrive 200ms ease-out both; }
+body[data-effects="off"] .movie-library .movie-screen-entry { animation: none; }
+body[data-effects="off"] .movie-library .movie-toolbar .movie-search { transition: none; }
+@media (prefers-reduced-motion: reduce) { .movie-library .movie-screen-entry { animation: none; } }
+
+.movie-library .movie-film-detail { max-width: 100rem; }
+.movie-film-detail .movie-series-header {
+    position: relative;
+    isolation: isolate;
+    align-content: space-between;
+    min-height: clamp(24rem, 63vh, 43rem);
+    padding: clamp(1rem, 4vw, 3rem);
+    border-radius: 1rem;
+    background: hsl(var(--art-hue) 30% 17%);
+    color: #fff;
+}
+.movie-film-detail .movie-series-header::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    z-index: -1;
+    background: linear-gradient(0deg, #0b0d12 2%, #0b0d12e8 34%, #0b0d125c 100%);
+}
+.movie-film-detail .movie-hero-art { border-radius: inherit; }
+.movie-film-detail .movie-title-intro {
+    grid-template-columns: clamp(7rem, 18vw, 16rem) minmax(0, 1fr);
+    gap: .65rem clamp(1rem, 3vw, 2.5rem);
+    align-items: start;
+    align-self: end;
+}
+.movie-film-detail .movie-title-intro .movie-art { grid-row: 1 / span 4; }
+.movie-film-detail .movie-title-intro > :not(.movie-art) { grid-column: 2; }
+.movie-film-detail h2 { font-size: clamp(2rem, 5vw, 4.5rem); line-height: 1.06; }
+.movie-film-detail .movie-title-intro p { font-size: clamp(1rem, 1.6vw, 1.25rem); max-width: 58ch; }
+.movie-film-meta { color: #dbe2f0; }
+@media (max-width: 600px) {
+    .movie-film-detail .movie-title-intro { grid-template-columns: minmax(4rem, 27%) minmax(0, 1fr); }
+    .movie-film-detail .movie-title-intro .movie-art { grid-row: 1 / span 2; }
+    .movie-film-detail .movie-title-intro > :is(p:not(.movie-film-meta), .movie-title-actions) { grid-column: 1 / -1; }
+}
 .movie-title-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; }
 .movie-library .movie-season { background: transparent; border: 0; padding: 0; }
 .movie-season-header { margin-bottom: .8rem; }
-.movie-season li { display: flex; align-items: center; gap: .5rem; border-top: 1px solid #ffffff29; padding: .5rem 0; }
+.movie-season li { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; border-top: 1px solid #ffffff29; padding: .5rem 0; }
 .movie-library .movie-season .movie-episode-body {
     flex: 1;
     display: grid;
@@ -715,6 +755,9 @@ li.movie-release[data-tier="4k-bluray"] { border-color: #ba7bcb66; }
 .movie-episode-text progress { width: min(100%, 16rem); height: .4rem; accent-color: #98abed; }
 .movie-season li > button:last-child:not(.movie-episode-body) { flex: none; }
 .movie-library .movie-audio-job { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .7rem; }
+.movie-title-audio { flex: 1 0 100%; min-width: 0; padding: .65rem .85rem; border-inline-start: 2px solid #98abed; overflow-wrap: anywhere; }
+.movie-audio-job + .movie-audio-job { margin-top: .6rem; }
+.movie-audio-job .movie-audio-results { flex-basis: 100%; }
 .movie-audio-job progress { height: .45rem; width: 100%; }
 .movie-audio-job .movie-audio-results section { margin: 0; }
 .movie-library .movie-audio-job button { background: transparent; }

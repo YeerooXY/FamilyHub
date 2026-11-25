@@ -192,7 +192,7 @@ async function verify(browser, name, options) {
         await search("Unavailable");
         const retry = page.getByRole("button", {name:"Retry release lookup"});
         await retry.waitFor();
-        await page.getByRole("status").filter({hasText:"The sources did not respond"}).waitFor();
+        await page.getByRole("status").filter({hasText:"Reconnect to search for releases."}).waitFor();
         await retry.press("Enter");
         await heading.waitFor();
         assert.equal(await focus(heading), true);

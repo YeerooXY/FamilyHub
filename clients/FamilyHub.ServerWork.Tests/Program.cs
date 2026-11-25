@@ -19,6 +19,10 @@ var services = new ServiceCollection().AddLogging().AddSingleton(session).AddSin
     .AddSingleton(new PublicAppReleases(new HttpClient(new FixtureHandler())))
     .AddSingleton<IJSRuntime, NoJs>().AddSingleton<IComponentActivator>(activator).BuildServiceProvider();
 await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+// A status card stays in the markup with the hidden attribute while its screen is healthy, so "shown" means not hidden.
+static bool Shown(string html, string label) => System.Text.RegularExpressions.Regex.Replace(
+    html, @"<div class=""service-status[ ""][^>]*\bhidden\b[^>]*>.*?</button></div></div>", "",
+    System.Text.RegularExpressions.RegexOptions.Singleline).Contains(label, StringComparison.Ordinal);
 await renderer.Dispatcher.InvokeAsync(async () => {
     RenderFragment songReview = builder =>
     {
@@ -36,14 +40,14 @@ await renderer.Dispatcher.InvokeAsync(async () => {
     var watch = System.Diagnostics.Stopwatch.StartNew();
     await Task.WhenAll(Refresh(typeof(ServerStats)), Refresh(typeof(CatalogueReviewPanel)));
     var html = stats.ToHtmlString();
-    if (!html.Contains("Retry server work") || !html.Contains("Retry song review") || html.Contains("aria-busy=\"true\"")) throw new Exception("Timeout did not end loading and expose retries");
+    if (!Shown(html, "Retry server work") || !Shown(html, "Retry song review") || html.Contains("aria-busy=\"true\"")) throw new Exception("Timeout did not end loading and expose retries");
     if (watch.Elapsed.TotalSeconds > 7) throw new Exception("Component timeout exceeded bound");
     Save("error", html);
     FixtureHandler.Block = false;
     await (Task)typeof(ServerStats).GetMethod("RefreshPage", BindingFlags.NonPublic | BindingFlags.Instance)!
         .Invoke(activator.Instances[typeof(ServerStats)], null)!;
     html = stats.ToHtmlString();
-    if (html.Contains("Retry server work") || html.Contains("Retry song review")) throw new Exception("Retry did not recover");
+    if (Shown(html, "Retry server work") || Shown(html, "Retry song review")) throw new Exception("Retry did not recover: server " + Shown(html, "Retry server work") + " review " + Shown(html, "Retry song review") + " connected " + session.Connected + " error=" + typeof(ServerStats).GetField("error", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(activator.Instances[typeof(ServerStats)]) + " snippet=" + html.Substring(html.IndexOf("Retry server work", StringComparison.Ordinal) - 120, 160) + " ## " + html.Substring(html.IndexOf("class=\"service-status", StringComparison.Ordinal) - 10, 260) + " refreshing=" + typeof(ServerStats).GetProperty("Refreshing", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(activator.Instances[typeof(ServerStats)]));
     if (html.Contains("Refresh review") || html.Contains("Songs that need work") || !html.Contains("Refresh server work"))
         throw new Exception("Server work should have one shared refresh control");
     var automatic = html.IndexOf("Automatic work", StringComparison.Ordinal);
@@ -62,7 +66,7 @@ await renderer.Dispatcher.InvokeAsync(async () => {
         await (Task)typeof(ServerStats).GetMethod("RefreshPage", BindingFlags.NonPublic | BindingFlags.Instance)!
             .Invoke(activator.Instances[typeof(ServerStats)], null)!;
         var dashboard = stats.ToHtmlString();
-        if (!dashboard.Contains(expectedRetry) || !dashboard.Contains(healthyContent))
+        if (!Shown(dashboard, expectedRetry) || !dashboard.Contains(healthyContent))
             throw new Exception("The failed section hid its retry or interrupted the healthy section");
     }
     await CheckIndependentFailure("/api/server/stats", "Retry server work", "catalogue-filter-metadata");
@@ -103,18 +107,18 @@ await renderer.Dispatcher.InvokeAsync(async () => {
     FixtureHandler.CatalogueRows = false;
     FixtureHandler.Offline = true;
     await session.RefreshAsync();
-    if (session.Connected || !stats.ToHtmlString().Contains("Use Refresh to reconnect"))
+    if (session.Connected || !Shown(stats.ToHtmlString(), "Retry server work"))
         throw new Exception("Offline server work did not explain how to reconnect");
     FixtureHandler.Offline = false;
     await (Task)typeof(ServerStats).GetMethod("RefreshNow", BindingFlags.NonPublic | BindingFlags.Instance)!
         .Invoke(activator.Instances[typeof(ServerStats)], null)!;
-    if (!session.Connected || stats.ToHtmlString().Contains("Use Refresh to reconnect"))
+    if (!session.Connected || Shown(stats.ToHtmlString(), "Retry server work"))
         throw new Exception("Server work could not reconnect from its own Refresh button");
     var leaderboard = await renderer.RenderComponentAsync<ServerStats>(ParameterView.FromDictionary(
         new Dictionary<string, object?> { [nameof(ServerStats.Leaderboard)] = true }));
     FixtureHandler.Block = true;
     await Refresh(typeof(ServerStats));
-    if (!leaderboard.ToHtmlString().Contains("Retry leaderboard")) throw new Exception("Leaderboard did not name its retry");
+    if (!Shown(leaderboard.ToHtmlString(), "Retry leaderboard")) throw new Exception("Leaderboard did not name its retry");
     FixtureHandler.Block = false;
     await Refresh(typeof(ServerStats));
     var empty = leaderboard.ToHtmlString();
@@ -276,6 +280,8 @@ namespace FamilyHub.App.Services
         public static string CurrentVersion => "1.1.0";
         public static string? Platform { get; set; }
         public static bool UpdatesInSideStore => Platform == "ios";
+        public const string ShortcutName = "Update FamilyHub";
+        public static bool OneTapUpdate { get; set; }
         public static Task InstallAsync(FamilyHubApi? api, PublicAppReleases releases, AppRelease release, Action<int> progress) => Task.CompletedTask;
     }
 }

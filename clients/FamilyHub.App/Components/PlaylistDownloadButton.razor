@@ -4,18 +4,22 @@
     var downloading = Tracks.Any(track => track.Id == Session.DownloadingId);
     var failed = Session.DownloadFailure is { } failure && Tracks.Any(track => track.Id == failure.TrackId);
     var downloaded = Tracks.Count > 0 && Tracks.All(Session.KeptOnDevice);
-    var useServer = !Transfer.AllOnServer;
+    var useServer = !Transfer.AllOnServer || Transfer.ServerDownloading;
     var active = useServer ? Transfer.ServerDownloading : downloading;
     var label = useServer ? Transfer.DownloadLabel : downloading ? "Downloading to this device"
         : downloaded ? "Remove download" : failed ? "Retry device download" : "Download to this device";
     var icon = useServer ? "cloud-download" : downloaded ? "device-check" : failed ? "refresh" : "download";
-    var disabled = Unavailable || (useServer ? Transfer.DownloadUnavailable
+    var disabled = Unavailable || (useServer ? Transfer.DownloadControlUnavailable
         : Session.DownloadingId is not null || Tracks.Count == 0 || (!Session.Connected && !downloaded));
     var hint = useServer && !Transfer.Playlist.CanEdit ? "The owner or a co-author can download songs to the server." : null;
 }
 <button id="keep-playlist" class="playlist-download @(active ? "is-active" : "")" @onclick="() => Activate(disabled, useServer, downloaded)"
         title="@(hint ?? label)" aria-label="@label" aria-disabled="@(disabled ? "true" : "false")" aria-haspopup="@(useServer ? null : "dialog")">
-    @if (active) { <DownloadActivity /> }
+    @if (useServer && (active || Transfer.ServerDownloadPaused))
+    {
+        <DownloadActivity Percent="@(active ? Transfer.ServerDownloadPercent : Transfer.ServerDownloadPercent ?? 0)" Icon="@(active ? "pause" : "play")" />
+    }
+    else if (active) { <DownloadActivity /> }
     else { <MusicIcon Name="@icon" /> }
 </button>
 
@@ -27,6 +31,6 @@
     [Parameter] public EventCallback Remove { get; set; }
 
     private Task Activate(bool disabled, bool useServer, bool downloaded) => disabled ? Task.CompletedTask
-        : useServer ? EventCallback.Factory.Create(Transfer, Transfer.StartDownload).InvokeAsync()
+        : useServer ? EventCallback.Factory.Create(Transfer, Transfer.ToggleDownload).InvokeAsync()
         : downloaded ? Remove.InvokeAsync() : Download.InvokeAsync();
 }

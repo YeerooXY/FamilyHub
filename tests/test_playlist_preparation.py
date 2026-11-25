@@ -4,9 +4,11 @@ import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from music_web.playlist_preparation import PlaylistPreparation, _PlaylistOperation
+from music_web import create_app
+from music_web.playlist_preparation import PlaylistPreparation, _PlaylistOperation, recheck_equivalent_reviews
 from music_web.playlists import PlaylistError, PlaylistStore
 from music_web.resources import ResourceGovernor, background_request
+from music_web.review_confidence import pick_equivalent
 from tests.test_music_web import Base
 
 PID = "p" * 22
@@ -17,6 +19,54 @@ def entry(title="Song"):
 
 def candidate(source="abcdefghijk"):
     return {"id": source, "url": "https://www.youtube.com/watch?v=" + source, "title": "Artist - Song", "channel": "Artist", "duration": 200}
+
+
+def release_twins(title="Sexy Magic", duration=196):
+    release = dict(candidate("lmnopqrstuv"), title=title, channel="Release - Topic", duration=duration, kind="topic")
+    alternate = dict(candidate(), title=title + " (from GTAVI: The Album)",
+                     channel="Album - Topic", duration=duration, kind="topic")
+    return release, alternate
+
+
+class EquivalentTests(unittest.TestCase):
+    def test_album_twins_prefer_the_exact_release_in_either_order(self):
+        cases = (
+            ("Sexy Magic", "CA7RIEL & Paco Amoroso"), ("Sandunguea", "Arca"),
+            ("TRDWFE", "Rina Sawayama"), ("All Again", "Rose Gray"), ("Overtown Lights", "Artist"),
+            ("Burn This Shit Down", "Artist"), ("Interesting", "Artist"), ("RCKSTRL!VING", "Artist"),
+            ("Cookin", "Artist"), ("50 Bands (feat. Flo Milli)", "Artist"),
+            ("Don't Play Around", "Artist"), ("Mutual Death Warrant", "Artist"),
+        )
+        for title, artist in cases:
+            with self.subTest(title=title):
+                track = dict(entry(title), artist=artist, duration=196)
+                release, alternate = release_twins(title)
+                self.assertIs(pick_equivalent(track, [release, alternate]), release)
+                self.assertIs(pick_equivalent(track, [alternate, release]), release)
+        track = dict(entry("50 Bands (feat. Flo Milli)"), duration=196)
+        release, alternate = release_twins("50 Bands")
+        self.assertIs(pick_equivalent(track, [alternate, release]), release)
+
+    def test_other_editions_and_uncertain_durations_do_not_match(self):
+        track = dict(entry("Sexy Magic"), duration=196)
+        release, alternate = release_twins()
+        for label in ("Remix", "Extended Mix", "Original Mix", "Live", "Acoustic", "Instrumental", "Sped Up",
+                      "Slowed", "Cover", "Karaoke", "8D", "Nightcore", "Radio Edit", "from the Live Album"):
+            with self.subTest(label=label):
+                self.assertIsNone(pick_equivalent(track, [dict(release, title=f"Sexy Magic ({label})")]))
+        self.assertIsNone(pick_equivalent(track, [dict(release, duration=201)]))
+        self.assertIsNone(pick_equivalent(track, [release, dict(alternate, duration=198)]))
+        self.assertIsNone(pick_equivalent(track, [dict(release, channel="Artist Fan", kind="other")]))
+        self.assertIsNone(pick_equivalent(track, []))
+
+    def test_accents_punctuation_and_artist_channel(self):
+        track = dict(entry("Árvíztűrő tükörfúrógép"), artist="Előadó")
+        upload = dict(candidate(), title="Arvizturo tukorfurogep!", channel="Eloadó", duration=202)
+        alternate = dict(upload, id="lmnopqrstuv")
+        self.assertIs(pick_equivalent(track, [alternate, upload]), upload)
+        self.assertIsNone(pick_equivalent(track, [dict(upload, title="Árvíztűrő tükörfúró")]))
+        self.assertIsNone(pick_equivalent(track, [dict(upload, title="Árvíztűrő tükörfúrógép (Élő)")]))
+
 
 class CoordinatorTests(unittest.TestCase):
     def setUp(self):
@@ -421,6 +471,82 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(stored["tracks"][2]["source_id"], "lmnopqrstuv")
         self.assertEqual((status["found"], status["review"], status["processed"]), (2, 2, 4))
 
+    def test_recheck_only_binds_unambiguous_unclaimed_reviews_once(self):
+        release, alternate = release_twins()
+        review = dict(entry("Sexy Magic"), duration=196, state="review", candidates=[alternate, release])
+        self.save_tracks("alex", PID, review, dict(review, source_id=alternate["id"], match=alternate),
+                         dict(review, job_id="manual-job"), dict(review, state="unmatched"),
+                         dict(review, candidates=[release, dict(alternate, duration=198)]),
+                         dict(review, candidates=[]), dict(review, candidates=[dict(release, url=alternate["url"])]))
+        data = self.store.read("alex", PID)
+        untouched = self.store.read("alex", PID)["tracks"][1:]
+        with self.assertLogs("music_web.playlist_preparation", "INFO") as logs:
+            self.assertEqual(recheck_equivalent_reviews(self.store, "alex", data), 1)
+            self.assertEqual(recheck_equivalent_reviews(self.store, "alex", self.store.read("alex", PID)), 0)
+        self.assertEqual(logs.output, ["INFO:music_web.playlist_preparation:auto-resolved equivalent recording playlist=pppppppp count=1"])
+        stored = self.store.read("alex", PID)["tracks"]
+        self.assertEqual((stored[0]["state"], stored[0]["source_id"], stored[0]["match"]), ("ready", release["id"], release))
+        self.assertEqual(stored[1:], untouched)
+
+    def test_resumed_download_prepares_review_resolved_before_cursor(self):
+        release, alternate = release_twins()
+        data = self.store.read("alex", PID)
+        data["tracks"] = [dict(entry("Sexy Magic"), duration=196, state="review", candidates=[alternate, release]),
+                          dict(entry("Already downloaded"), state="saved")]
+        data["preparation"] = dict(_PlaylistOperation._status("download", 2), state="paused", cursor=2,
+                                   processed=2, found=1, saved=1, review=1, playlist_revision=1)
+        self.store.save("alex", data)
+        calls = []
+
+        def prepare(user, track, progress):
+            calls.append(track["source_id"])
+            return dict(track["match"], saved=True)
+
+        coordinator = PlaylistPreparation(self.store, self.lock, prepare)
+        coordinator.start("alex", PID)
+        status = self.finish(coordinator)
+        self.assertEqual(calls, [release["id"]])
+        self.assertEqual((status["found"], status["review"], status["processed"], status["saved"]), (2, 0, 2, 2))
+
+    def test_resume_download_with_equivalent_review_in_three_track_playlist(self):
+        release, alternate = release_twins()
+        review = dict(entry("Sexy Magic"), duration=196, state="review", candidates=[alternate, release])
+        first = dict(entry("First saved"), state="saved")
+        second = dict(entry("Second saved"), state="saved")
+        pending_match = candidate()
+        pending = dict(entry(), state="ready", source_id=pending_match["id"], match=pending_match)
+        cases = (
+            ([first, review, second], 3, 2, 1, [release["id"]]),
+            ([first, pending, review], 1, 1, 0, [pending_match["id"], release["id"]]),
+        )
+        for tracks, cursor, saved, reviews, expected_calls in cases:
+            with self.subTest(cursor=cursor):
+                data = self.store.read("alex", PID)
+                data["tracks"] = tracks
+                data["preparation"] = dict(_PlaylistOperation._status("download", 3), state="paused",
+                                           cursor=cursor, processed=cursor, found=saved, saved=saved,
+                                           review=reviews, playlist_revision=data["revision"])
+                self.store.save("alex", data)
+                saved_tracks = {i: track for i, track in enumerate(tracks) if track["state"] == "saved"}
+                calls = []
+
+                def prepare(user, track, progress):
+                    calls.append(track.get("source_id"))
+                    return dict(track["match"], saved=True)
+
+                coordinator = PlaylistPreparation(self.store, self.lock, prepare)
+                coordinator.start("alex", PID)
+                status = self.finish(coordinator)
+                stored = self.store.read("alex", PID)
+                self.assertEqual(calls, expected_calls)
+                for result in (status, stored["preparation"]):
+                    self.assertEqual(result["state"], "done")
+                    self.assertEqual([result[key] for key in ("found", "saved", "review", "failed", "processed", "cursor")],
+                                     [3, 3, 0, 0, 3, 3])
+                    self.assertEqual(result["completed_after"], [])
+                for index, track in saved_tracks.items():
+                    self.assertEqual(stored["tracks"][index], track)
+
     def test_download_can_queue_behind_active_matching_and_runs_serially(self):
         data = self.store.read("alex", PID); data["tracks"] = [entry(str(i)) for i in range(3)]; self.store.save("alex", data)
         entered = [threading.Event() for _ in range(3)]; release = threading.Event()
@@ -533,6 +659,8 @@ class PreparationApiTests(Base):
             self.wait_preparation()
         status = self.go(client, "GET", "/api/playlists/" + target["id"] + "/prepare").get_json()
         self.assertEqual((status["mode"], status["state"], status["total"]), ("download", "done", 1))
+        progress = self.go(client, "GET", "/api/playlists/" + target["id"] + "/prepare?follow=1").get_json()
+        self.assertEqual(progress, {"state": "done", "download_after_matching": False})
         self.assertEqual(search.call_count, 1)
 
     def test_detected_deezer_link_imports_without_downloading_when_asked(self):
@@ -591,6 +719,34 @@ class PreparationApiTests(Base):
         self.assertEqual(stored["tracks"][0]["source_id"], "abcdefghijk")
         self.assertEqual(stored["tracks"][0]["state"], "ready")
         self.assertEqual(self.state.jobs, {})
+
+    def test_new_deezer_import_picks_the_exact_release_from_search(self):
+        client, token = self.signed_in()
+        playlist = self.post(client, token, "/api/playlists", json={"name": "Album"}).json["playlist"]
+        release, alternate = release_twins()
+        imported = {"id": PID, "name": "Album", "tracks": [dict(entry("Sexy Magic"), artist="CA7RIEL & Paco Amoroso", duration=196)]}
+        path = "/api/playlists/" + playlist["id"] + "/import"
+        with patch("music_web.link_playlists.fetch_deezer_playlist", return_value=imported), \
+                patch.object(self.intake, "cmd_search", return_value={"results": [alternate, release]}) as search:
+            response = self.post(client, token, path, json={"provider": "deezer", "url": "https://www.deezer.com/en/album/42",
+                                                           "revision": playlist["revision"], "download": False})
+            self.assertEqual(response.status_code, 202)
+            self.wait_preparation()
+            search.assert_called_once()
+        track = self.state.playlist_preparation.store.read("sample-a", playlist["id"])["tracks"][0]
+        self.assertEqual((track["state"], track["source_id"]), ("ready", release["id"]))
+
+    def test_server_start_binds_stored_review_without_search(self):
+        release, alternate = release_twins()
+        store = self.state.playlist_preparation.store
+        track = dict(entry("Sexy Magic"), duration=196, state="review", candidates=[alternate, release])
+        store.save("sample-b", {"id": PID, "name": "Album", "revision": 1, "tracks": [track]})
+        with patch("music_web.load_intake", return_value=self.intake), patch.object(self.intake, "cmd_search") as search:
+            restarted = create_app(self.settings)
+            self.addCleanup(restarted.extensions["music"].close_state)
+            search.assert_not_called()
+        saved = store.read("sample-b", PID)["tracks"][0]
+        self.assertEqual((saved["state"], saved["source_id"]), ("ready", release["id"]))
 
     def test_matching_uses_all_thirty_search_candidates(self):
         client, token = self.signed_in()

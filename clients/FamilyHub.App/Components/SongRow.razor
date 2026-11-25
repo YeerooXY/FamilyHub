@@ -2,11 +2,11 @@
 @inject MusicSession Session
 @inject IJSRuntime JS
 
-<article data-recording-id="@Track.Id" class="library-record native-song-row song-row @(!FindRecording && !Track.Saved && !PlaylistColumns ? "has-library-add" : "") @(PlaylistColumns ? "has-playlist-columns" : "") @(Current ? "is-current" : "")">
+<article data-recording-id="@Track.Id" class="library-record native-song-row song-row @(!FindRecording && !Track.Saved && !PlaylistColumns && !AlbumTrack ? "has-library-add" : "") @(PlaylistColumns ? "has-playlist-columns" : "") @(Current ? "is-current" : "")">
     @if (PlaylistColumns) { <span class="playlist-track-number">@Number</span> }
-    <button id="@primaryId" class="song-primary @(Current ? "is-current" : "") @(Current && Playing ? "is-playing" : "")" @onclick="Play" aria-label="@((FindRecording ? "Find recording for " : "Play ") + Track.Title)">
+    <button id="@primaryId" class="song-primary @(Current ? "is-current" : "") @(Current && Playing ? "is-playing" : "")" @onclick="Play" aria-label="@((FindRecording ? "Find recording for " : "Play ") + Track.Title)" aria-describedby="@MissingStatusId" aria-disabled="@(PlayDisabled ? "true" : null)">
         <span class="song-artwork"><TrackCover Track="Track" /><span class="artwork-play" aria-hidden="true"><MusicIcon Name="@(FindRecording ? "search" : "play")" /></span></span>
-        <span class="song-text"><strong title="@Track.Title">@Track.DisplayTitle</strong><small>@Track.Channel</small></span>
+        <span class="song-text"><strong title="@Track.Title">@Track.DisplayTitle</strong><small>@Track.Channel</small>@if (MissingStatusId is { } statusId) { <small id="@statusId" class="album-track-status">Missing from library</small> }</span>
     </button>
     @if (PlaylistColumns)
     {
@@ -54,7 +54,7 @@
             <MusicIcon Name="@(InPlaylist ? "check-circle" : "plus-circle")" />
         </button>
     }
-    @if (!FindRecording && !Track.Saved && !PlaylistColumns)
+    @if (!FindRecording && !Track.Saved && !PlaylistColumns && !AlbumTrack)
     {
         <button class="row-action row-reveal" aria-disabled="@SaveDisabled" @onclick="SaveToLibrary" aria-label="@($"{SaveLabel}: {Track.Title}")" title="@SaveLabel"><MusicIcon Name="@(saveState == "Saved" ? "cloud-check" : "cloud-empty")" /><span class="sr" role="status">@saveState</span></button>
     }
@@ -63,7 +63,7 @@
         <div class="dialog-heading"><h2 id="@(menuId + "-heading")">@Track.Title</h2><button id="@(menuId + "-close")" class="quiet" aria-label="Close song options" @onclick="CloseMenu"><MusicIcon Name="close" /></button></div>
         @if (AddToPlaylist.HasDelegate && !FindRecording) { <button id="@(menuId + "-playlist")" @onclick="MenuPlaylist"><MusicIcon Name="plus-circle" />Add to playlist</button> }
         @if (!FindRecording) { <button @onclick="MenuQueue"><MusicIcon Name="queue" />Add to queue</button> }
-        @if (!FindRecording && !Track.Saved) { <button aria-disabled="@SaveDisabled" @onclick="SaveToLibrary"><MusicIcon Name="plus-circle" />@SaveLabel</button> }
+        @if (!FindRecording && !Track.Saved && !AlbumTrack) { <button aria-disabled="@SaveDisabled" @onclick="SaveToLibrary"><MusicIcon Name="plus-circle" />@SaveLabel</button> }
         @if (!FindRecording || MoveEarlier.HasDelegate || MoveLater.HasDelegate)
         {
             <SongMenuActions @key="Track.Id" @ref="menuActions" Track="Track" FindRecording="FindRecording" Keep="Keep" SaveState="@saveState"
@@ -82,6 +82,9 @@
 
 @code {
     [Parameter] public bool PlaylistColumns { get; set; }
+    [Parameter] public bool AlbumTrack { get; set; }
+    [Parameter] public bool PlayDisabled { get; set; }
+    private string? MissingStatusId => AlbumTrack && !Track.Saved ? primaryId + "-status" : null;
     [Parameter] public int Number { get; set; }
     [Parameter] public string Album { get; set; } = "";
     [Parameter] public string? AddedAt { get; set; }
@@ -145,8 +148,11 @@
         using var request = saveLifetime = new CancellationTokenSource();
         try
         {
+            var recording = await api.MatchRecommendationAsync(Track, request.Token);
+            if (request.IsCancellationRequested || !ReferenceEquals(api, Session.Api)) return;
+            if (recording.Saved) { saveState = "Saved"; return; }
             var result = await api.RequestJsonAsync<LibraryAdditionPage>(HttpMethod.Post, "/api/library/additions",
-                new { urls = new[] { "https://www.youtube.com/watch?v=" + Track.Id } }, request.Token);
+                new { urls = new[] { "https://www.youtube.com/watch?v=" + recording.Id } }, request.Token);
             if (request.IsCancellationRequested || !ReferenceEquals(api, Session.Api)) return;
             var job = result.Jobs.FirstOrDefault();
             UpdateSaveState(job);

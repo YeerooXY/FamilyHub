@@ -24,7 +24,7 @@ class PlaylistAppendTests(unittest.TestCase):
         self.original = dict(id=PID, name="Family mix", revision=3, description="Keep this",
                              shared=False, co_authors=["editor"], url="original-link",
                              tracks=[dict(entry("Existing"), state="review",
-                                          candidates=[dict(candidate(), title="Artist - Existing")])])
+                                          candidates=[dict(candidate(), title="Artist - Existing", kind="video", channel="Unrelated uploader")])])  # not auto-resolvable, so the row must stay in review
         self.store.save("owner", self.original)
 
     def finish(self, coordinator):

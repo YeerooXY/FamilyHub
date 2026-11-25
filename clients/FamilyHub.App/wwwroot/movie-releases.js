@@ -1,3 +1,5 @@
+import { createServiceStatus } from "./service-status.js";
+
 const gib = 1024 ** 3;
 // Download times assume this connection; the real speed depends on the server's line and on how many people share the file.
 export const ASSUMED_MBPS = 100;
@@ -133,7 +135,6 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
     panel.hidden = true;
     panel.innerHTML = `
         <p class="movie-source-note" role="status"></p>
-        <button type="button" hidden>Retry release lookup</button>
         <section class="movie-release-results" aria-label="Releases" hidden>
             <h2 tabindex="-1">Releases</h2>
             <div class="movie-release-tools" role="group" aria-label="Sort releases"></div>
@@ -149,7 +150,6 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             <ul class="movie-source-list" aria-label="Release results"></ul>
             <button type="button" class="movie-release-more" hidden>Show all releases</button>
         </section>`;
-    const retry = panel.querySelector("button");
     const options = panel.querySelector(".movie-release-results");
     const heading = options.querySelector("h2");
     const more = panel.querySelector(".movie-release-more");
@@ -159,6 +159,12 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
     options.querySelector("[data-release-availability]").hidden = canDownload;
     const timing = options.querySelector("[data-release-timing]");
     const status = panel.querySelector('[role="status"]');
+    status.tabIndex = -1;
+    const outage = createServiceStatus({
+        detail: "Reconnect to search for releases.", label: "Retry release lookup", retry: load,
+        focus: () => rows.length ? heading : status, automatic: true
+    });
+    status.after(outage.card);
     const list = panel.querySelector(".movie-source-list");
     let rows = [], unavailable = 0, busy = false, complete = false, showAll = false, sortBy = "best", matches = [];
     const squash = text => String(text ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -325,7 +331,7 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
                 if (row.sent) row.showSent();
                 else {
                     row.showError();
-                    status.textContent = reply?.error || "Could not confirm the download. Check the Downloading panel before trying again.";
+                    status.textContent = reply?.error || "Could not confirm the download. Check Downloading before trying again.";
                 }
             });
             item.append(head);
@@ -361,19 +367,17 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
     async function load() {
         if (busy) return true;
         busy = true;
-        retry.setAttribute("aria-disabled", "true");
         complete = false;
         showAll = false;
-        if (!retry.hidden) status.textContent = "Checking releases…";
         let reply;
         try { reply = await search(); }
         catch { reply = { error: "Release search is unavailable. Try again." }; }
         if (signal.aborted || !panel.isConnected) return false;
         busy = false;
-        retry.removeAttribute("aria-disabled");
         if (reply?.error || !Array.isArray(reply?.results)) {
-            status.textContent = reply?.error || "Release search is unavailable. Try again.";
-            panel.hidden = retry.hidden = false;
+            status.textContent = "";
+            panel.hidden = false;
+            outage.show();
             return true;
         }
         const details = reply.title_details || {};
@@ -410,25 +414,20 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
         rows = [...matches.values()];
         unavailable = reply.unavailable;
         complete = true;
-        const focused = document.activeElement === retry;
+        const focused = outage.card.contains(document.activeElement);
         const count = rows.length === 1 ? "1 release found." : rows.length ? `${rows.length} releases found.` : "";
         status.textContent = [count, unavailable ? `${unavailable} ${unavailable === 1 ? "source" : "sources"} did not answer.`
             : !rows.length && focused ? "No releases found." : ""].filter(Boolean).join(" ");
         options.hidden = !rows.length;
         panel.hidden = !rows.length && !unavailable && !focused;
-        if (focused) {
-            const target = rows.length ? heading : status;
-            if (target === status) status.tabIndex = -1;
-            target.focus();
-        }
-        retry.hidden = true;
+        outage.clear();
         render();
         return !panel.hidden;
     }
-    retry.addEventListener("click", () => { retry.focus(); load(); });
     function setMatches(list) {
         matches = Array.isArray(list) ? list : [];
         if (!busy && complete) render();
     }
     return {element: panel, load, setMatches};
 }
+

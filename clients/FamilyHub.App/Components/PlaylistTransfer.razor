@@ -27,9 +27,12 @@
                     }
                     else if (DownloadFailed) { <span role="status">Some songs could not be downloaded to the server.</span> }
                     else if (state.State == "paused") { <span role="status">Server download paused.</span> }
-                    <button id="transfer-progress-action" class="quiet" @onclick="ProgressAction" aria-disabled="@Aria(requesting || watchError is null && state.State == "pausing")">
-                        @(watchError is not null ? "Reconnect to progress" : Working ? state.State == "pausing" ? "Pausing..." : state.Mode == "download" ? "Pause server download" : "Pause matching" : RetryableImport ? "Retry import" : "Close")
-                    </button>
+                    @if (state.Mode != "download" || !Working && state.State != "paused")
+                    {
+                        <button id="transfer-progress-action" class="quiet" @onclick="ProgressAction" aria-disabled="@Aria(requesting || watchError is not null || state.State == "pausing")">
+                            @(Working ? state.State == "pausing" ? "Pausing..." : "Pause matching" : RetryableImport ? "Retry import" : "Close")
+                        </button>
+                    }
                     @if (state.State == "error" && ReportProblem.HasDelegate)
                     { <button id="report-import-problem" class="quiet" type="button" aria-haspopup="dialog" @onclick="ReportProblem">Report this problem</button> }
                 </div>
@@ -56,11 +59,9 @@
             </ul></details>
         }
         <p class="sr" role="status">@(appendImport && Status?.State == "done" ? "Playlist import finished." : "")</p>
-        @if (watchError is not null)
-        {
-            <Notice Level="error" Message="@watchError" />
-            @if (!ShowProgress) { <button id="transfer-reconnect" class="quiet" @onclick="ReconnectProgress" aria-disabled="@Aria(requesting)">Reconnect to progress</button> }
-        }
+        <ServiceStatus Active="@(watchError is not null)" Detail="The server can keep working while progress is unavailable."
+                       RetryLabel="Retry playlist progress" Retry="ReconnectProgress" Busy="requesting"
+                       AutoRetry="true" FocusTarget="#playlist-transfer-progress" />
         @if (!string.IsNullOrEmpty(error)) { <Notice Level="error" Message="@error" /> }
     </section>
     <dialog id="transfer-review-dialog" class="popup-panel transfer-review-dialog" aria-labelledby="transfer-review-heading">
@@ -186,8 +187,8 @@
     public bool AllOnServer => Playlist.Tracks.Count > 0 && OnServerCount == Playlist.Tracks.Count;
     private bool CanMatch => !AllOnServer && !ServerDownloading && Playlist.Tracks.Any(t => t.State is "unmatched" or "review" or "error" or "ready");
     private bool DownloadFailed => !AllOnServer && Status is { Mode: "download", State: "done", Failed: > 0 };
-    private bool ShowProgress => !dismissed && (Working || DownloadFailed || Status is { State: not ("idle" or "done") });
-    private bool hadProgress, hadReconnect;
+    private bool ShowProgress => !dismissed && !ServerDownloading && (Working || DownloadFailed || Status is { State: not ("idle" or "done") });
+    private bool hadProgress;
     private TransferStatus? Status;
     private CancellationTokenSource? lifetime;
     private string key = "", provider = "spotify", url = "";
@@ -199,11 +200,18 @@
     public bool DownloadUnavailable => !Playlist.CanEdit || Playlist.Tracks.Count == 0 || AllOnServer ||
         requesting || !Session.Connected || Working && Status?.DownloadAfterMatching == true || Status?.State == "pausing" || ServerDownloading;
     public bool ServerDownloading => Working && Status?.Mode == "download";
-    public string DownloadLabel => ServerDownloading ? "Downloading to server"
-        : Status?.State == "paused" && (Status.Mode == "download" || Status.DownloadAfterMatching) ? "Resume server download"
+    public bool ServerDownloadPaused => Status is { State: "paused" } state && (state.Mode == "download" || state.DownloadAfterMatching);
+    public double? ServerDownloadPercent => Status is { Total: > 0 } state ? Math.Clamp(ProgressCount * 100d / state.Total, 0, 100) : null;
+    public bool DownloadControlUnavailable => ServerDownloading
+        ? !Playlist.CanEdit || requesting || !Session.Connected || watchError is not null || Status?.State == "pausing"
+        : DownloadUnavailable;
+    public string DownloadLabel => ServerDownloading ? "Pause download"
+        : ServerDownloadPaused ? "Resume download"
         : DownloadFailed ? "Retry server download"
         : Status?.DownloadAfterMatching == true ? "Download queued" : "Download to server";
     public Task StartDownload() => Start("download");
+    public Task ToggleDownload() => DownloadControlUnavailable ? Task.CompletedTask
+        : ServerDownloading ? ProgressAction() : StartDownload();
 
     public (string State, double? Percent) SongDownload(int position)
     {
@@ -266,9 +274,6 @@
         var returnTo = Playlist.Tracks.Count > 0 ? "keep-playlist" : "add-playlist-song";
         if (hadProgress && !ShowProgress)
             await JS.InvokeVoidAsync("familyhub.restoreFocus", "transfer-progress-action", returnTo);
-        if (hadReconnect && (watchError is null || ShowProgress))
-            await JS.InvokeVoidAsync("familyhub.restoreFocus", "transfer-reconnect", ShowProgress ? "transfer-progress-action" : returnTo);
-        hadReconnect = watchError is not null && !ShowProgress;
         hadProgress = ShowProgress;
         var controls = Playlist.Tracks.Select((track, index) => (track, index))
             .Where(row => NeedsAttention(row.track)).Select(row => "review-recording-" + row.index).ToHashSet();
@@ -328,7 +333,7 @@
     private async Task ProgressAction()
     {
         if (requesting) return;
-        if (watchError is not null) { await ReconnectProgress(); return; }
+        if (watchError is not null) return;
         if (RetryableImport && Status is { } failedImport)
         {
             provider = failedImport.Provider;

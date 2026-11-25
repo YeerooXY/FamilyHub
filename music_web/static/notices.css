@@ -31,6 +31,12 @@
   text-align: start;
 }
 .fh-notice[hidden], .fh-notice > .fh-notice-action[hidden] { display: none; }
+.shell-status:not(:has(> :not([hidden]))) { display: none; }
+.shell-status > :is(.fh-notice, .service-status) {
+  width: 100%;
+  max-width: none;
+  margin: 0 0 12px;
+}
 .fh-notice[data-level="success"] { --notice-tint: var(--notice-success); }
 .fh-notice[data-level="warning"] { --notice-tint: var(--notice-warning); }
 .fh-notice[data-level="error"] { --notice-tint: var(--notice-error); }

@@ -221,7 +221,9 @@ async function audit(name, engine, options) {
             .getByRole('button', {name: /^Music\b/}));
         await page.locator('#discovery-shelf .home-card').nth(7).waitFor();
         if (!before) {
-            const icon = await target('home-radio-0').locator('.radio-shortcut-title .icon').boundingBox();
+            const radio = target('home-radio-daily').locator('.radio-shortcut-title .icon');
+            await radio.waitFor();
+            const icon = await radio.boundingBox();
             assert.deepEqual([icon.width, icon.height], [16, 16], name + ' radio icon size');
         }
         await capture('home');
@@ -632,7 +634,7 @@ async function audit(name, engine, options) {
         if (!before) {
             await focused('profile-menu-close');
             await page.keyboard.press('Shift+Tab');
-            await focused('open-settings');
+            await focused('open-feedback'); // Feedback is the last control in the menu, so focus wraps to it.
             await page.keyboard.press('Tab');
             await focused('profile-menu-close');
             await closeByEscape(profile);

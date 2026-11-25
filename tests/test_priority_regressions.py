@@ -86,15 +86,13 @@ class PriorityRoutes(Base):
     def test_empty_recommendation_is_retried_and_provider_error_is_distinct(self):
         client, token = self.signed_in()
         data = dict(query='VALMAR official audio', seed_artist='VALMAR')
-        with mock.patch.object(self.intake, 'cmd_search', return_value={'results': []}) as search, \
-                mock.patch('music_web.radio.seed', side_effect=PlaylistError('No match')):
+        with mock.patch('music_web.similar_songs.suggestions', side_effect=PlaylistError('No match')) as search:
             for _ in range(2):
                 result = self.post(client, token, '/api/recommendations', json=data)
                 self.assertEqual(result.status_code, 200)
                 self.assertEqual(result.json['state'], 'empty')
             self.assertEqual(search.call_count, 2, 'An empty catalogue response was cached')
-        with mock.patch.object(self.intake, 'cmd_search', side_effect=OSError('HTTP 503')), \
-                mock.patch('music_web.radio.seed', side_effect=OSError('HTTP 429')):
+        with mock.patch('music_web.similar_songs.suggestions', side_effect=OSError('HTTP 429')):
             result = self.post(client, token, '/api/recommendations', json=data)
             self.assertEqual(result.status_code, 503)
             self.assertNotIn('HTTP', result.json['error'])
@@ -103,8 +101,7 @@ class PriorityRoutes(Base):
     def test_recommendations_use_library_when_search_fails(self):
         native.NativeMusicApi.recording(self, title='VALMAR - Another song')
         client, token = self.signed_in()
-        with mock.patch.object(self.intake, 'cmd_search', side_effect=OSError('offline')), \
-                mock.patch('music_web.radio.seed', side_effect=AssertionError('Library should be enough')):
+        with mock.patch('music_web.similar_songs.suggestions', side_effect=OSError('offline')):
             result = self.post(client, token, '/api/recommendations', json=dict(query='anything', seed_artist='VALMAR ft. Sofi'))
         self.assertEqual(result.status_code, 200, result.json)
         self.assertEqual(result.json['results'][0]['id'], native.FIRST)

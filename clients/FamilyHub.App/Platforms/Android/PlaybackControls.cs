@@ -4,6 +4,8 @@ using Android.Graphics;
 using Android.Graphics.Drawables;
 using Android.Media;
 using Android.Media.Session;
+using Android.Net;
+using Android.Net.Wifi;
 using Android.OS;
 using FamilyHub.App.Services;
 using FamilyHub.Client.Core;
@@ -60,6 +62,7 @@ internal sealed class PlaybackControls
     {
         if (!MainThread.IsMainThread) { MainThread.BeginInvokeOnMainThread(Update); return; }
         var playback = player.NotificationPlayback;
+        SyncLocks();
         var track = playback.Track;
         if (track is null)
         {
@@ -305,6 +308,9 @@ internal sealed class PlaybackControls
         };
     }
 
+    internal void TraceScreen(bool screenOn) => player.TraceScreen(screenOn);
+    internal void SyncLocks() => PlaybackService.UpdateLocks(player.KeepPlaybackAwake, player.Playing || player.NotificationPlayback.Playing);
+
     private static async Task Run(Func<Task> action)
     {
         try { await action(); }
@@ -333,6 +339,13 @@ internal sealed class PlaybackService : Service
     private static PlaybackService? running;
     private Publication? published;
     private bool foreground;
+    private const long IdleLockTimeoutMs = 15 * 60 * 1000;
+    private readonly Handler lockHandler = new(Looper.MainLooper!);
+    private readonly ScreenReceiver screenReceiver = new();
+    private Action? lockTimeout;
+    private PowerManager.WakeLock? wakeLock;
+    private WifiManager.WifiLock? wifiLock;
+    private bool needsLocks, audioPlaying;
     internal static bool IsStarted => starting || running is not null;
     /// <summary>Why Android refused the last notification or foreground start, for the playback attempt list.</summary>
     internal static string? LastError { get; private set; }
@@ -376,6 +389,7 @@ internal sealed class PlaybackService : Service
     // punishes, so the service stays for a short grace period and only stops if nothing plays again.
     internal static void Clear(Context context)
     {
+        UpdateLocks(false, false);
         if (latest is null && !IsStarted) return;
         latest = null;
         pendingStop?.Cancel();
@@ -393,6 +407,78 @@ internal sealed class PlaybackService : Service
     }
 
     public override IBinder? OnBind(Intent? intent) => null;
+
+    public override void OnCreate()
+    {
+        base.OnCreate();
+        using var filter = new IntentFilter(Intent.ActionScreenOff);
+        filter.AddAction(Intent.ActionScreenOn);
+        if (OperatingSystem.IsAndroidVersionAtLeast(33))
+            RegisterReceiver(screenReceiver, filter, ReceiverFlags.NotExported);
+        else
+            RegisterReceiver(screenReceiver, filter);
+    }
+
+    internal static void UpdateLocks(bool active, bool playing)
+    {
+        if (running is { InForeground: true } service) service.SetLocks(active, playing && active);
+    }
+
+    private void SetLocks(bool active, bool playing)
+    {
+        if (active == needsLocks && playing == audioPlaying) return;
+        if (!active) ReleaseLocks();
+        else if (!needsLocks || playing)
+        {
+            try
+            {
+                if (wakeLock is null && GetSystemService(PowerService) is PowerManager power)
+                {
+                    wakeLock = power.NewWakeLock(WakeLockFlags.Partial, "FamilyHub:Playback");
+                    wakeLock?.SetReferenceCounted(false);
+                }
+                if (wakeLock is { IsHeld: false }) wakeLock.Acquire();
+            }
+            catch (Java.Lang.RuntimeException error) { Android.Util.Log.Warn("FamilyHub", $"Playback wake lock: {Describe(error)}"); }
+            try
+            {
+                if (wifiLock is null && ApplicationContext?.GetSystemService(WifiService) is WifiManager wifi)
+                {
+                    var mode = OperatingSystem.IsAndroidVersionAtLeast(29) ? WifiMode.FullLowLatency : WifiMode.FullHighPerf;
+                    wifiLock = wifi.CreateWifiLock(mode, "FamilyHub:Playback");
+                    wifiLock?.SetReferenceCounted(false);
+                }
+                if (wifiLock is { IsHeld: false }) wifiLock.Acquire();
+            }
+            catch (Java.Lang.RuntimeException error) { Android.Util.Log.Warn("FamilyHub", $"Playback Wi-Fi lock: {Describe(error)}"); }
+        }
+        needsLocks = active;
+        audioPlaying = playing;
+        if (lockTimeout is not null) lockHandler.RemoveCallbacks(lockTimeout);
+        lockTimeout = null;
+        if (active && !playing)
+        {
+            lockTimeout = ReleaseLocks;
+            lockHandler.PostDelayed(lockTimeout, IdleLockTimeoutMs);
+        }
+    }
+
+    private void ReleaseLocks()
+    {
+        try { if (wakeLock?.IsHeld == true) wakeLock.Release(); }
+        catch (Java.Lang.RuntimeException error) { Android.Util.Log.Warn("FamilyHub", $"Playback wake lock release: {Describe(error)}"); }
+        try { if (wifiLock?.IsHeld == true) wifiLock.Release(); }
+        catch (Java.Lang.RuntimeException error) { Android.Util.Log.Warn("FamilyHub", $"Playback Wi-Fi lock release: {Describe(error)}"); }
+    }
+
+    private sealed class ScreenReceiver : BroadcastReceiver
+    {
+        public override void OnReceive(Context? context, Intent? intent)
+        {
+            if (intent?.Action == Intent.ActionScreenOff) PlaybackControls.Current?.TraceScreen(false);
+            else if (intent?.Action == Intent.ActionScreenOn) PlaybackControls.Current?.TraceScreen(true);
+        }
+    }
 
     public override StartCommandResult OnStartCommand(Intent? intent, StartCommandFlags flags, int startId)
     {
@@ -418,6 +504,7 @@ internal sealed class PlaybackService : Service
             {
                 EnterForeground(pending.Notification);
                 foreground = true;
+                PlaybackControls.Current?.SyncLocks();
                 if (pending.Playing)
                 {
                     published = pending;
@@ -437,6 +524,7 @@ internal sealed class PlaybackService : Service
             Android.Util.Log.Warn("FamilyHub", $"Playback notification could not be published: {Describe(error)}");
             if (error is Android.App.ForegroundServiceStartNotAllowedException)
             {
+                SetLocks(false, false);
                 foreground = false;
                 try { (GetSystemService(NotificationService) as NotificationManager)?.Notify(PlaybackControls.NotificationId, pending.Notification); }
                 catch (Java.Lang.RuntimeException) { }
@@ -455,6 +543,13 @@ internal sealed class PlaybackService : Service
 
     public override void OnDestroy()
     {
+        SetLocks(false, false);
+        ReleaseLocks();
+        wakeLock?.Dispose();
+        wifiLock?.Dispose();
+        lockHandler.Dispose();
+        UnregisterReceiver(screenReceiver);
+        screenReceiver.Dispose();
         if (ReferenceEquals(running, this)) running = null;
         base.OnDestroy();
     }

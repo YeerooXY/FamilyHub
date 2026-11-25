@@ -39,7 +39,7 @@ internal static class DownloadStateChecks
         server.WaitingForAutoDownload = false;
         server.ActiveFileIndex = 2;
         await CheckAsync("The playlist stopped watching at the end of matching.",
-            html => Button(html, "Downloading to server") && Row(html, "Next song").Contains("aria-label=\"Downloading to server\"")
+            html => Button(html, "Pause download") && Row(html, "Next song").Contains("aria-label=\"Downloading to server\"")
                 && Row(html, "Next song").Contains("download-arc") && Row(html, "Final song").Contains("Waiting to download to server"));
         var initialRequests = server.PlaylistReads;
         var initialPolls = server.StatusReads;
@@ -51,7 +51,7 @@ internal static class DownloadStateChecks
         await CheckAsync("A completed server recording did not update while the next song was still downloading.",
             html => Row(html, "Next song").Contains("aria-label=\"On server\"") &&
                 Row(html, "Final song").Contains("aria-label=\"Downloading to server\"") &&
-                Button(html, "Downloading to server") && html.Contains("2 of 3 on server"));
+                Button(html, "Pause download") && html.Contains("2 of 3 on server"));
         server.FailServerDownload = true;
         await CheckAsync("A failed server download did not show what happened or offer a retry.",
             html => Button(html, "Retry server download") && html.Contains("Some songs could not be downloaded to the server.")

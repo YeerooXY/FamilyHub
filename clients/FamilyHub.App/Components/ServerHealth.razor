@@ -6,11 +6,14 @@
     <section aria-labelledby="health-current-title" class="health-panel glass-panel">
         <header class="health-header">
             <h2 id="health-current-title">Current readings</h2>
-            <button type="button" class="quiet health-action" @onclick="LoadCurrent" aria-disabled="@Flag(currentLoading)">
-                @(currentError ? "Retry current readings" : "Refresh readings")
+            <button id="health-refresh-current" type="button" class="quiet health-action" @onclick="LoadCurrent" aria-disabled="@Flag(currentLoading)">
+                Refresh readings
             </button>
         </header>
-        <p class="health-status" role="status">@Status(currentLoading, currentError, current?.At, "readings")</p>
+        <ServiceStatus Active="currentError" Detail="@(current is null ? "Current readings did not load." : "Showing the last loaded readings.")"
+                       RetryLabel="Retry current readings" Retry="LoadCurrent" Busy="currentLoading" AutoRetry="true"
+                       Status="@SnapshotTime(current?.At)" FocusTarget="#health-refresh-current" />
+        @if (!currentError) { <p class="health-status" role="status">@Status(currentLoading, current?.At, "readings")</p> }
         @if (current is { } snapshot)
         {
             <div class="health-tiles">
@@ -76,8 +79,8 @@
     <section aria-labelledby="health-history-title" class="health-panel glass-panel" data-range="@shownRange">
         <header class="health-header">
             <h2 id="health-history-title">History</h2>
-            <button type="button" class="quiet health-action" @onclick="() => LoadHistory(range)" aria-disabled="@Flag(historyLoading)">
-                @(historyError ? "Retry history" : "Refresh history")
+            <button id="health-refresh-history" type="button" class="quiet health-action" @onclick="() => LoadHistory(range)" aria-disabled="@Flag(historyLoading)">
+                Refresh history
             </button>
         </header>
         <div role="radiogroup" aria-label="History range" class="health-ranges">
@@ -90,8 +93,11 @@
                 </label>
             }
         </div>
+        <ServiceStatus Active="historyError" Detail="@(history is null ? "History did not load." : "Showing the last loaded history.")"
+                       RetryLabel="Retry history" Retry="() => LoadHistory(range)" Busy="historyLoading" AutoRetry="true"
+                       Status="@SnapshotTime(history?.At)" FocusTarget="#health-refresh-history" />
         <p class="health-status" role="status">
-            @Status(historyLoading, historyError, history?.At, "history")
+            @if (!historyError) { @Status(historyLoading, history?.At, "history") }
             @if (shownRange is not null && shownRange != range) { <span> Showing @Ranges[shownRange].</span> }
         </p>
         @if (history is { } data)
@@ -183,11 +189,11 @@
 
     private static string Flag(bool value) => value ? "true" : "false";
     internal static DateTimeOffset Local(long at) => DateTimeOffset.FromUnixTimeSeconds(at).ToLocalTime();
-    private static string Status(bool loading, bool error, long? at, string name)
+    private static string? SnapshotTime(long? at) => at is { } timestamp ? "Last snapshot " + Local(timestamp).ToString("g") + "." : null;
+    private static string Status(bool loading, long? at, string name)
     {
-        var old = at is { } timestamp ? "Last snapshot " + Local(timestamp).ToString("g") + "." : "";
+        var old = SnapshotTime(at) ?? "";
         if (loading) return $"Loading {name}. {old}".TrimEnd();
-        if (error) return $"Could not load {name}. {old}".TrimEnd();
         if (at is { } last && DateTimeOffset.UtcNow.ToUnixTimeSeconds() - last <= 120)
             return "Updated " + Local(last).ToString("t") + ".";
         return old;

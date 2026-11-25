@@ -139,6 +139,7 @@ internal static class SessionChecks
             return request.RequestUri!.AbsolutePath switch
             {
                 "/api/jobs" => Json("{\"job\":{\"id\":\"preview\",\"source_id\":\"abcdefghijk\",\"state\":\"running\",\"stream_url\":\"/api/jobs/preview/media/index.m3u8?ticket=test\"}}"),
+                "/api/jobs/preview/media/index.m3u8" when request.Method == HttpMethod.Head => new(HttpStatusCode.OK),
                 "/api/connect" => Json("{\"family_profiles\":true,\"csrf_token\":\"boot\",\"profiles\":" +
                     (removed ? "[]" : JsonSerializer.Serialize(new[] { new { id = "alex", name = "Alex", requires_password = passwordSetup || expectedPassword is not null, needs_password_setup = passwordSetup },
                         new { id = "sam", name = "Sam", requires_password = false, needs_password_setup = false } })) + "}"),
@@ -525,6 +526,8 @@ internal sealed class Preferences
     public bool ContainsKey(string key) => values.ContainsKey(key);
     public string Get(string key, string fallback) => values.GetValueOrDefault(key, fallback);
     public void Set(string key, string value) => values[key] = value;
+    public bool Get(string key, bool fallback) => values.TryGetValue(key, out var text) ? bool.Parse(text) : fallback;
+    public void Set(string key, bool value) => values[key] = value.ToString();
 }
 internal sealed class SecureStorage
 {

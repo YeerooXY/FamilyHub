@@ -1,6 +1,8 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const path = require("node:path");
-const { moviePage, output, verifyMovieProfiles } = require("./movies_fixture.cjs");
+const { jellyfin, cors, moviePage, output, playMovieDetails, verifyMovieProfiles } = require("./movies_fixture.cjs");
+const polishOutput = process.argv[2] || path.join(__dirname, "../docs/verification/movies-polish-2026-11-25");
 
 async function verify(browser, profile, options) {
     const page = await browser.newPage(options);
@@ -161,5 +163,89 @@ async function verify(browser, profile, options) {
     }
 }
 
-verifyMovieProfiles(verify).then(() => console.log("Movie controls and shortcuts passed."))
+async function verifyTranscodeFallback(browser, profile, options) {
+    const page = await browser.newPage(options);
+    page.setDefaultTimeout(5000);
+    const requests = [], item = {Id: "in-time", Name: "In Time", Type: "Movie"};
+    try {
+        await page.addInitScript(() => {
+            HTMLMediaElement.prototype.canPlayType = () => "";
+            HTMLMediaElement.prototype.play = () => Promise.resolve();
+            Object.defineProperty(HTMLMediaElement.prototype, "src", {
+                get() { return this.fixtureSource ?? ""; },
+                set(url) { this.fixtureSource = String(url); }
+            });
+            window.Hls = class {
+                static isSupported() { return true; }
+                static Events = {ERROR: "error"};
+                on(_name, fail) { window.hlsFailure = fail; }
+                loadSource(url) { fetch(url).catch(() => {}); }
+                attachMedia() {}
+                destroy() {}
+            };
+        });
+        await page.route(jellyfin + "/**", route => {
+            const request = route.request(), url = new URL(request.url());
+            if (request.method() === "OPTIONS") return route.fulfill({status: 204, headers: cors});
+            const json = body => route.fulfill({headers: cors, json: body});
+            if (url.pathname.endsWith("/PlaybackInfo")) {
+                const options = request.postDataJSON();
+                requests.push(options);
+                return json({PlaySessionId: String(requests.length), MediaSources: [{
+                    Id: "source", SupportsDirectPlay: options.EnableDirectPlay,
+                    TranscodingUrl: "/Videos/in-time/master.m3u8", DefaultSubtitleStreamIndex: -1
+                }]});
+            }
+            if (url.pathname.endsWith("/master.m3u8")) return route.fulfill({headers: cors, status: 503});
+            if (url.pathname === "/Items/in-time") return json(item);
+            const items = url.pathname === "/Items" && url.searchParams.get("includeItemTypes") === "Movie" ? [item] : [];
+            return json({Items: items, TotalRecordCount: items.length});
+        });
+        await moviePage(page);
+        await page.evaluate(async jellyfin => {
+            const {openMovies} = await import("/movies.js");
+            window.movies = window.openMovieFixture(openMovies, document.querySelector("main"),
+                {url: jellyfin, user: "test", token: "fixture", device: "fixture"},
+                {invokeMethodAsync: async method => method === "MovieConnectionKind" ? "wifi" : undefined});
+        }, jellyfin);
+        await playMovieDetails(page, page.getByRole("button", {name: item.Name, exact: true}), item.Name);
+        const video = page.locator("video");
+        await video.waitFor();
+        assert.match(await video.evaluate(node => node.src), /static=true/);
+        const manifest = () => page.waitForResponse(response => new URL(response.url()).pathname.endsWith("/master.m3u8"));
+        const fallback = manifest();
+        await video.evaluate(node => {
+            Object.defineProperty(node, "error", {value: {code: 4}});
+            node.dispatchEvent(new Event("error"));
+        });
+        await fallback;
+        assert.equal(requests.length, 2);
+        const transcode = requests[1];
+        assert.equal(transcode.MediaSourceId, "source");
+        assert.equal(transcode.DeviceProfile.TranscodingProfiles[0].Protocol, "hls");
+        for (const key of ["EnableDirectPlay", "EnableDirectStream", "AllowVideoStreamCopy", "AllowAudioStreamCopy"])
+            assert.equal(transcode[key], false);
+        await page.evaluate(() => window.hlsFailure("error", {fatal: true, type: "networkError", response: {code: 503}}));
+        const message = page.getByText("The video stream stopped responding.", {exact: true});
+        const retry = page.getByRole("button", {name: "Try again", exact: true});
+        await retry.waitFor();
+        assert.equal(await message.getAttribute("role"), "status");
+        assert.doesNotMatch(await page.locator(".movie-ui-message").innerText(), /503/);
+        await page.screenshot({path: path.join(polishOutput, profile + "-player-error.png"), animations: "disabled"});
+        const retried = manifest();
+        await retry.press("Enter");
+        await retried;
+        assert.equal(requests.length, 3);
+        await page.waitForFunction(() => document.activeElement?.classList.contains("movie-ui-play"));
+        await page.evaluate(() => window.movies.close());
+    } finally {
+        await page.close();
+    }
+}
+
+fs.mkdirSync(polishOutput, {recursive: true});
+verifyMovieProfiles(async (browser, profile, options) => {
+    await verify(browser, profile, options);
+    await verifyTranscodeFallback(browser, profile, options);
+}).then(() => console.log("Movie controls, shortcuts and server transcode fallback passed."))
     .catch(error => { console.error(error); process.exitCode = 1; });

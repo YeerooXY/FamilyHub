@@ -12,6 +12,68 @@ from music_web.resources import ResourceGovernor, TransferResources
 
 
 class ListenerAdmissionTests(Base):
+    def test_repeated_play_reuses_job_and_original_is_offered_during_purification(self):
+        from tests.test_native_music_api import NativeMusicApi
+
+        client, token = self.signed_in()
+        other, _ = self.signed_in('sample-b')
+        downloading, source_ready = threading.Event(), threading.Event()
+        purifying, finish = threading.Event(), threading.Event()
+        action = 'c' * 32
+        recording = {}
+
+        def fetch(_args):
+            downloading.set()
+            if not source_ready.wait(5):
+                raise RuntimeError('test did not release the fetch')
+            item, _, manifest, audio = NativeMusicApi.recording(self)
+            recording.update(manifest=manifest, audio=audio)
+            return {'item': str(item), 'manifest': manifest}
+
+        def purify(*_args, **_kwargs):
+            purifying.set()
+            if not finish.wait(5):
+                raise RuntimeError('test did not release purification')
+
+        with (mock.patch.object(self.intake, 'cmd_fetch', side_effect=fetch) as acquire,
+              mock.patch.object(self.intake, 'cmd_preview', side_effect=self.intake.IntakeError('fixture has no preview')),
+              mock.patch('music_web.prepare_record', side_effect=purify),
+              self.assertLogs('music_web.playback', 'INFO') as logs):
+            data = {'url': URL, 'play_action': action}
+            job_id = self.post(client, token, '/api/jobs', json=data).json['job']['id']
+            path = f'/api/jobs/{job_id}'
+            try:
+                self.assertTrue(downloading.wait(3))
+                duplicate = self.post(client, token, '/api/jobs', json=data)
+                self.assertEqual(duplicate.json['job']['id'], job_id)
+                acquire.assert_called_once()
+                for asset in ('source', 'index.m3u8', 'init.mp4', 'seg00000.m4s'):
+                    url = f'{path}/media/{asset}'
+                    response = self.go(client, 'HEAD', url)
+                    self.assertEqual((response.status_code, response.headers['Retry-After']), (503, '0'))
+                    self.assertEqual(self.go(other, 'HEAD', url).status_code, 404)
+                source_ready.set()
+                self.assertTrue(purifying.wait(3))
+                job = self.go(client, 'GET', path).json['job']
+                self.assertEqual((job['state'], job['phase']), ('running', 'prepare'))
+                self.assertNotIn('stream_url', job)
+                stream = job['fallback_stream_url']
+                with self.go(self.app.test_client(), 'GET', stream, headers={'Range': 'bytes=0-15'}) as response:
+                    self.assertEqual((response.status_code, response.data), (206, recording['audio'][:16]))
+                self.assertEqual(self.go(client, 'GET', path).json['job']['id'], job_id)
+                finish.set()
+                self.assertEqual(self.wait(client, job_id)['state'], 'done')
+            finally:
+                source_ready.set()
+                finish.set()
+        lines = '\n'.join(logs.output)
+        for stage in ('job_accepted', 'source_stream_offered', 'purification_started', 'purification_finished'):
+            self.assertIn(f'stage={stage} ', lines)
+        self.assertEqual(lines.count('stage=source_stream_offered '), 1)
+        self.assertNotIn('sample-a', lines)
+        self.assertNotIn(URL, lines)
+        self.assertNotIn(recording['manifest']['import']['title'], lines)
+
     def test_windows_preview_waits_for_two_segments_or_endlist(self):
         client, token = self.signed_in()
         publications = []
@@ -120,7 +182,8 @@ class ListenerAdmissionTests(Base):
         self.assertEqual(events[-2], {'stage': 'client_native_error', 'client_ms': 50, 'position_ms': 49050,
                                       'reason': 'ERROR_CODE_TIMEOUT'})
         self.assertEqual(events[-1], {'stage': 'client_native_error', 'client_ms': 51, 'position_ms': 49051})
-        for stage in ('resume_seek', 'resume_failed', 'resume_applied'):
+        for stage in ('resume_seek', 'resume_failed', 'resume_applied', 'screen_off', 'screen_on',
+                      'next_warmup_start', 'next_warmup_finish', 'next_warmup_failed'):
             self.assertEqual(report(stage, 750, position_ms=50400).status_code, 200)
             latest = self.go(client, 'GET', endpoint).json['actions'][0]['events'][-1]
             self.assertEqual(latest, {'stage': 'client_' + stage, 'client_ms': 750, 'position_ms': 50400})

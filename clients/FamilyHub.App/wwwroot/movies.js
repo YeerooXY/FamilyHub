@@ -2,6 +2,7 @@ import { buildPlayerUi } from "./movie-player-ui.js";
 import { addAudioDialog, audioJobResults, audioJobRunning, audioLanguage as audioLanguageName } from "./movie-audio-ui.js";
 import { movieAudioSync } from "./movie-audio-sync.js";
 import { buildReleaseSearch, cleanResultTitle, formatMinutes, videoQualityTier } from "./movie-releases.js";
+import { createServiceStatus } from "./service-status.js";
 
 // AbortSignal.timeout needs Chromium 103; older televisions (webOS) need this form.
 function timeoutSignal(ms) {
@@ -160,7 +161,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         finally { bounded.removeEventListener("abort", cancel); }
     }, signal);
     function addAudio(item, opener, parent, signal) {
-        addAudioDialog({parent, opener, item, signal, call, onJob: () => scheduleDownloads(0)});
+        addAudioDialog({parent, opener, item, signal, onJob: () => scheduleDownloads(0),
+            call: async (method, ...args) => {
+                const reply = await call(method, ...args);
+                if (method === "MovieAddAudio" && reply?.id) pendingAudioJobs.add(reply.id);
+                return reply;
+            }});
     }
     function select(name, options) {
         const label = el("label", name), pick = el("select");
@@ -196,7 +202,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         return svg;
     };
     const playPath = "M7 4.5v15l12-7.5z";
-        const quietMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const quietMotion = () => document.body.dataset.effects === "off" || matchMedia("(prefers-reduced-motion: reduce)").matches;
     function report(action, playback, media) {
         const data = { ItemId: playback.item.Id, MediaSourceId: playback.source.Id,
             PlaySessionId: playback.id, PositionTicks: Math.round(media.currentTime * 1e7),
@@ -282,7 +288,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }
     async function play(item, opener, options = {}) {
         if (!active) return;
-        const { audioIndex, position, paused } = options;
+        const { audioIndex, position, paused, forceTranscode, sourceId } = options;
         if (player.contains(document.activeElement)) player.focus({ preventScroll: true });
         stop();
         const rev = selection;
@@ -298,6 +304,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         } else status.textContent = opening;
         const media = el("video");
         const nativeHls = !!media.canPlayType("application/vnd.apple.mpegurl");
+        let failure = "The server did not return playback information.";
         try {
             if (!nativeHls && !globalThis.Hls && (globalThis.MediaSource || globalThis.ManagedMediaSource))
                 await import("./vendor/hls.light.min.js").catch(() => {});
@@ -323,25 +330,31 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         Conditions: [condition("AudioBitrate", limit.audioBitrate), condition("AudioChannels", 2)] });
                 }
             }
-            const playbackInfo = (sourceId, index) => request("Items/" + item.Id + "/PlaybackInfo", {userId: session.user}, {
+            const playbackInfo = (sourceId, index, signal) => request("Items/" + item.Id + "/PlaybackInfo", {userId: session.user}, {
                 UserId: session.user, DeviceProfile: profile,
                 ...(sourceId ? {MediaSourceId: sourceId, SubtitleStreamIndex: -1} : {}),
                 ...(index != null ? {AudioStreamIndex: index} : {}),
-                ...(limit ? { MaxStreamingBitrate: limit.bitrate, AllowVideoStreamCopy: false, AllowAudioStreamCopy: false } : {}),
+                ...(limit ? { MaxStreamingBitrate: limit.bitrate } : {}),
+                ...(limit || forceTranscode ? { AllowVideoStreamCopy: false, AllowAudioStreamCopy: false } : {}),
                 ...(limit?.audioBitrate ? { MaxAudioChannels: 2 } : {}),
-                EnableDirectPlay: !limit && index == null, EnableDirectStream: !limit, EnableTranscoding: true });
+                EnableDirectPlay: !forceTranscode && !limit && index == null, EnableDirectStream: !forceTranscode && !limit,
+                EnableTranscoding: true }, signal);
             const readResume = async () => {
                 await pendingReportsByItem.get(item.Id);
-                if (active && rev === selection) return request("Items/" + item.Id, {userId: session.user});
+                if (active && rev === selection)
+                    return withinMovieLoad(signal => request("Items/" + item.Id, {userId: session.user}, undefined, signal), life.signal)
+                        .catch(() => item);
             };
             const [resultInfo, freshItem] = await Promise.all([
-                playbackInfo(),
+                withinMovieLoad(signal => playbackInfo(sourceId, forceTranscode ? audioIndex : undefined, signal), life.signal),
                 position == null ? readResume() : null
             ]);
             if (!active || rev !== selection) return;
             let result = resultInfo;
             const resume = position ?? (freshItem?.UserData?.PlaybackPositionTicks || 0) / 1e7;
-            let source = result.MediaSources?.[0];
+            failure = result?.ErrorCode === "NoCompatibleStream" ? "The server found no compatible stream." :
+                "The server did not provide a playable version.";
+            let source = result?.MediaSources?.[0];
             if (!source) throw Error();
             const audioLanguage = prefs.audio;
             const audio = (source.MediaStreams || []).filter(s => s.Type === "Audio");
@@ -350,23 +363,26 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const defaultSubtitle = source.DefaultSubtitleStreamIndex;
             const requestedAudio = audioIndex ?? preferredAudio?.Index;
             let selectedAudio = defaultAudio;
-            let direct = !limit && source.SupportsDirectPlay;
+            let direct = !forceTranscode && !limit && source.SupportsDirectPlay;
             // A static stream leaves audio selection to the browser. Ask Jellyfin to select the track on multi-audio files.
             const customAudio = audio.length > 1 || audio[0]?.IsExternal ? requestedAudio : undefined;
-            if (customAudio != null || (!direct && defaultSubtitle >= 0)) {
-                const playback = await playbackInfo(source.Id, customAudio).catch(() => null);
+            if ((!forceTranscode && customAudio != null) || (!sourceId && !direct && defaultSubtitle >= 0)) {
+                const playback = await withinMovieLoad(signal => playbackInfo(source.Id, customAudio, signal), life.signal).catch(() => null);
                 if (!active || rev !== selection) return;
                 const configured = playback?.MediaSources?.[0];
-                if (configured?.TranscodingUrl || (!limit && configured?.SupportsDirectPlay && customAudio == null)) {
+                if (configured?.TranscodingUrl || (!forceTranscode && !limit && configured?.SupportsDirectPlay && customAudio == null)) {
                     selectedAudio = configured.DefaultAudioStreamIndex ?? requestedAudio ?? defaultAudio;
-                    direct = !limit && configured.SupportsDirectPlay && customAudio == null;
+                    direct = !forceTranscode && !limit && configured.SupportsDirectPlay && customAudio == null;
                     result = playback;
                     source = configured;
                 } else if (!direct && defaultSubtitle >= 0) {
-                    throw Error();
+                    if (forceTranscode) throw Error();
+                    return play(item, opener, {...options, sourceId: source.Id, forceTranscode: true, position: resume});
                 }
             }
             const path = direct ? "Videos/" + item.Id + "/stream" : source.TranscodingUrl;
+            if (!path && !forceTranscode)
+                return play(item, opener, {...options, sourceId: source.Id, forceTranscode: true, position: resume});
             if (!path) throw Error();
             const stream = mediaUrl(path, {mediaSourceId: source.Id, playSessionId: result.PlaySessionId});
             if (direct) stream.searchParams.set("static", "true");
@@ -401,7 +417,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 audioPick.value = String(selectedAudio);
                 audioPick.onchange = () => play(item, opener, { sheet: "audio", audioIndex: Number(audioPick.value),
                     position: metadataLoaded ? media.currentTime : resume, paused: media.paused,
-                    subtitleIndex: playback.subtitleOverride, dataSaver: playback.dataSaver });
+                    subtitleIndex: playback.subtitleOverride, dataSaver: playback.dataSaver, forceTranscode, sourceId: forceTranscode ? source.Id : undefined });
             }
             const subtitleOptions = subtitles.map(track => [track.Index, track.DisplayTitle || track.Language || "Subtitles"]);
             const subtitlePick = select("Subtitle track", [[-1, "Off"], ...subtitleOptions]);
@@ -422,7 +438,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             }
             for (const subtitle of subtitles) addSubtitleTrack(subtitle);
             const playback = { item, source, id: result.PlaySessionId, dataSaver: prefs.dataSaver,
-                method: direct ? "DirectPlay" : limit || source.TranscodeReasons?.length ? "Transcode" : "DirectStream" };
+                method: direct ? "DirectPlay" : forceTranscode || limit || source.TranscodeReasons?.length ? "Transcode" : "DirectStream" };
             playback.setSubtitles = (index) => {
                 playback.subtitleOverride = index;
                 const language = prefs.subtitles;
@@ -476,18 +492,31 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 playback.started = false;
                 if (playback.next) play(playback.next, opener);
             };
-            media.onerror = () => { if (current === playback) { status.textContent = "This device could not play this version."; ui?.say("This device could not play this version."); note("playback-error", playback.method); } };
+            let ui, recovering = false;
+            const failed = (hlsError = null) => {
+                if (current !== playback || recovering) return;
+                note("playback-error", playback.method);
+                const retry = {audioIndex: selectedAudio, subtitleIndex: playback.subtitleOverride, dataSaver: playback.dataSaver,
+                    position: metadataLoaded ? media.currentTime : resume, paused: playback.started && media.paused,
+                    sourceId: source.Id, forceTranscode: true};
+                const code = media.error?.code;
+                if (!forceTranscode && (direct || playback.method === "DirectStream" || code === 3 || code === 4 || hlsError === "mediaError")) {
+                    recovering = true;
+                    void play(item, opener, retry);
+                    return;
+                }
+                const reason = code === 2 || hlsError === "networkError" ? "The video stream stopped responding." :
+                    code === 3 || code === 4 || hlsError === "mediaError" ? "The video stream could not be decoded." :
+                    "The server stream could not start.";
+                ui?.showFailure(reason, () => play(item, opener, retry));
+            };
+            media.onerror = () => failed();
             if (!direct && !nativeHls && hls) {
                 playback.hls = new Hls({ startPosition: resume, enableWorker: false });
                 playback.hls.on(Hls.Events.ERROR, (_event, data) => {
-                    if (data.fatal && current === playback) media.onerror();
+                    if (data.fatal) failed(data.type);
                 });
-                playback.hls.loadSource(stream.href);
-                playback.hls.attachMedia(media);
-            } else {
-                media.src = stream;
             }
-            let ui;
             const numbered = item.ParentIndexNumber != null && item.IndexNumber != null;
             playerLife = new AbortController();
             const playerSignal = playerLife.signal;
@@ -592,7 +621,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 if (current === playback && change === qualityChange && playback.dataSaver === "auto" && nextQuality !== quality)
                     return play(item, opener, {
                         dataSaver: "auto", sheet: ui.openSheetName(), audioIndex, subtitleIndex: playback.subtitleOverride,
-                        position: metadataLoaded ? media.currentTime : resume, paused: media.paused
+                        position: metadataLoaded ? media.currentTime : resume, paused: media.paused,
+                        forceTranscode, sourceId: forceTranscode ? source.Id : undefined
                     });
             };
             ui = buildPlayerUi({ media, surface: player, back, signal: playerSignal, subtitleSearch,
@@ -600,6 +630,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 title: numbered ? `S${item.ParentIndexNumber}:E${item.IndexNumber} “${item.Name}”` : item.Name,
                 kicker: item.SeriesName, audioPick, subtitlePick, audioSync, notice,
                 addAudio: session.downloads_enabled ? trigger => addAudio(item, trigger, player, playerSignal) : null });
+            playback.showJobToast = ui.hint;
             player.replaceChildren(media, ui.root);
             enterPlayer();
             playback.setSubtitles(options.subtitleIndex);
@@ -627,15 +658,21 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 if (!seen) ui.hint("Switched to Saver on mobile data.");
             }
             status.textContent = "";
-            if (!paused) media.play().catch(() => {
-                if (current === playback && !status.textContent) { status.textContent = "Press play to start."; ui?.say("Press play to start."); }
+            if (playback.hls) {
+                playback.hls.loadSource(stream.href);
+                playback.hls.attachMedia(media);
+            } else media.src = stream;
+            if (!paused) media.play().catch(error => {
+                if (current !== playback || recovering) return;
+                if (error?.name === "NotSupportedError") failed("mediaError");
+                else if (!media.error) ui.say("Press play to start.");
             });
             if (network !== connectionRevision) void playback.refreshQuality();
         } catch {
             if (active && rev === selection) {
                 await leavePlayer();
                 if (!active || rev !== selection) return;
-                status.textContent = "Could not open this video. Try again.";
+                status.textContent = failure + " Try again using the play button.";
                 note("open-failed");
                 library.hidden = false;
                 opener.focus();
@@ -673,11 +710,14 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     let seriesView;
     function closeSeries(focus) {
         if (!seriesView) return;
-        const { section, opener, controller, fromResults } = seriesView;
+        const { section, opener, controller, fromResults, searchStatus } = seriesView;
         seriesView = undefined;
         controller.abort();
         browse.hidden = fromResults;
         results.hidden = false;
+        toolbar.hidden = false;
+        status.textContent = searchStatus;
+        (fromResults ? results : browse).classList.add("movie-screen-entry");
         const replacement = opener.isConnected && !opener.closest("[hidden]") ? opener :
             [...(fromResults ? results : browse).querySelectorAll(".movie-card, .movie-hero-details")]
                 .find(card => card.dataset.itemId === opener.dataset.itemId && !card.closest("[hidden]"));
@@ -687,10 +727,14 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     function openSeries(item, opener, preferredSeason) {
         const section = el("section"), heading = el("h2", item.Name), summary = el("p"), list = el("div");
         const credit = el("p", "Season data from TMDB. " + tmdbAttribution);
-        const back = button("Back to titles", () => closeSeries());
+        const back = button("", () => closeSeries());
+        back.className = "movie-title-back";
+        back.setAttribute("aria-label", "Back to titles");
+        back.title = "Back to titles";
+        back.append(icon("M19 12H5m7-7-7 7 7 7"));
         const controller = new AbortController(), signal = controller.signal;
         const fromResults = browse.hidden, isSeries = item.Type === "Series";
-        section.className = "movie-series";
+        section.className = "movie-series movie-screen-entry" + (isSeries ? "" : " movie-film-detail");
         section.setAttribute("aria-labelledby", "movie-series-title");
         heading.id = "movie-series-title";
         heading.tabIndex = -1;
@@ -698,36 +742,100 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         list.className = "movie-season-list";
         credit.className = "movie-matches-credit";
         credit.hidden = true;
-        const header = el("header"), intro = el("div"), selector = el("select");
+        const header = el("header"), intro = el("div");
         header.className = "movie-series-header";
         intro.className = "movie-title-intro";
-        selector.setAttribute("aria-label", "Season");
-        selector.hidden = true;
         intro.append(cardArtwork(item), heading);
         if (item.Overview) intro.append(el("p", item.Overview));
-        header.append(back, intro, summary, selector);
+        header.append(back, intro);
+        if (isSeries) header.append(summary);
         section.append(header, list, credit);
         section.addEventListener("keydown", event => {
             if (event.key === "Escape" && !event.target.closest("dialog, select")) { event.stopPropagation(); closeSeries(); }
         });
-        seriesView = { section, opener, controller, fromResults };
+        seriesView = { section, opener, controller, fromResults, searchStatus: fromResults ? status.textContent : "" };
+        status.textContent = "";
         catalogue.append(section);
         heading.focus({preventScroll: true});
+        browse.classList.remove("movie-screen-entry");
+        results.classList.remove("movie-screen-entry");
+        toolbar.hidden = true;
         browse.hidden = results.hidden = true;
         section.scrollIntoView({block: "start"});
 
         if (!isSeries) {
             const actions = el("div"), runtime = formatMinutes(item.RunTimeTicks / 6e8);
             actions.className = "movie-title-actions";
-            summary.textContent = [item.ProductionYear, runtime].filter(Boolean).join(", ");
+            const art = movieBackdrop(item);
+            const facts = [item.ProductionYear, item.OfficialRating, runtime, ...(item.Genres ?? []).slice(0, 3)].filter(Boolean);
+            if (facts.length) {
+                const meta = el("p", facts.join(", "));
+                meta.className = "movie-film-meta";
+                heading.after(meta);
+            }
+            header.prepend(art);
+            header.style.setProperty("--art-hue", titleHue(item.Name));
             actions.append(playAction(item));
-            if (session.downloads_enabled) actions.append(audioAction(item, signal));
-            list.append(actions);
+            if (session.downloads_enabled) {
+                actions.append(audioAction(item, signal));
+                list.append(audioJobSlot(item));
+            }
+            intro.append(actions);
             return;
         }
 
+        const seasons = el("div"), lane = el("div"), pills = new Map();
+        seasons.className = "movie-season-picker";
+        seasons.hidden = true;
+        lane.className = "movie-season-pills";
+        lane.setAttribute("role", "group");
+        lane.setAttribute("aria-label", "Seasons");
+        const arrows = [-1, 1].map(direction => {
+            const arrow = button("", () => {
+                if (arrow.getAttribute("aria-disabled") === "true") return;
+                lane.scrollBy({left: direction * lane.clientWidth * .8, behavior: quietMotion() ? "auto" : "smooth"});
+            });
+            arrow.className = "movie-season-arrow";
+            arrow.setAttribute("aria-label", direction < 0 ? "Previous seasons" : "Next seasons");
+            arrow.append(icon(direction < 0 ? "m15 5-7 7 7 7" : "m9 5 7 7-7 7"));
+            return arrow;
+        });
+        seasons.append(arrows[0], lane, arrows[1]);
+        list.before(seasons);
         const available = new Map(), pictures = new Map();
-        let episodes = null, metadata = null, tmdbId, revision = 0, busy = false;
+        let episodes = null, metadata = null, tmdbId, revision = 0, busy = false, selectedSeason;
+        const seasonFocus = () => pills.get(selectedSeason) ?? heading;
+        function updateSeasonArrows() {
+            const room = lane.scrollWidth - lane.clientWidth;
+            if (room <= 1 && arrows.includes(document.activeElement)) seasonFocus().focus({preventScroll: true});
+            seasons.dataset.overflow = String(room > 1);
+            arrows[0].setAttribute("aria-disabled", String(lane.scrollLeft < 1));
+            arrows[1].setAttribute("aria-disabled", String(lane.scrollLeft >= room - 1));
+            for (const arrow of arrows) arrow.tabIndex = arrow.getAttribute("aria-disabled") === "true" ? -1 : 0;
+        }
+        lane.addEventListener("scroll", updateSeasonArrows, {passive: true, signal});
+        if (globalThis.ResizeObserver) {
+            const resize = new ResizeObserver(updateSeasonArrows);
+            resize.observe(lane);
+            signal.addEventListener("abort", () => resize.disconnect(), {once: true});
+        } else window.addEventListener("resize", updateSeasonArrows, {signal});
+        function selectSeason(number) {
+            selectedSeason = number;
+            for (const [n, pill] of pills) pill.setAttribute("aria-pressed", String(n === number));
+        }
+        const libraryOutage = createServiceStatus({
+            detail: "Reconnect to check your library for episodes.", label: "Retry library check",
+            retry: () => load(false), focus: seasonFocus, automatic: true
+        });
+        const metadataOutage = createServiceStatus({
+            detail: "Reconnect to load the full season list.", label: "Retry season lookup",
+            retry: () => load(false), focus: seasonFocus, automatic: true
+        });
+        const episodeOutage = createServiceStatus({
+            detail: "Reconnect to load episode details.", label: "Retry episode data",
+            retry: () => choose(selectedSeason), focus: seasonFocus, automatic: true
+        });
+        list.after(libraryOutage.card, metadataOutage.card, episodeOutage.card);
         const local = bounded => localEpisodes(item.Id, bounded);
         const tmdb = async bounded => {
             const show = item.ProviderIds?.Tmdb ? item : await request(`Items/${encodeURIComponent(item.Id)}`,
@@ -739,7 +847,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             return boundedCall(bounded, "MovieMatches", term);
         };
         async function loadSeason(number, bounded) {
-            if (!tmdbId || pictures.has(number) || !available.get(number)?.total) return;
+            if (number == null || !tmdbId || pictures.has(number) || !available.has(number)) return;
             const reply = await boundedCall(bounded, "MovieSeasonEpisodes", tmdbId, number).catch(() => null);
             if (!bounded.aborted && Array.isArray(reply?.episodes)) pictures.set(number, reply.episodes);
         }
@@ -749,22 +857,26 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const focused = list.contains(focus);
             const key = focused && focus.dataset.episodeId;
             const nodes = season ? [seasonRow(item, number, season, episodes !== null, pictures.get(number), signal)] : [];
-            if (!episodes || !metadata) nodes.push(button(!episodes ? "Retry library check" : "Retry season lookup", event => load(false, event.currentTarget)));
-            else if (season?.total && tmdbId && !pictures.has(number)) nodes.push(button("Retry episode data", () => choose(number)));
+            if (!episodes) libraryOutage.show(); else libraryOutage.clear();
+            if (episodes && !metadata) metadataOutage.show(); else metadataOutage.clear();
+            if (episodes && metadata && season && tmdbId && !pictures.has(number)) episodeOutage.show();
+            else episodeOutage.clear();
             list.replaceChildren(...nodes);
             if (focused) {
                 const same = key ? [...list.querySelectorAll("[data-episode-id]")].find(node =>
                     node.dataset.episodeId === key && node.hasAttribute("data-episode-audio") === focus.hasAttribute("data-episode-audio")) :
                     focus.matches(".movie-hero-play") ? list.querySelector(".movie-hero-play") : null;
-                (same ?? (selector.hidden ? heading : selector)).focus({preventScroll: true});
+                (same ?? seasonFocus()).focus({preventScroll: true});
             }
         }
         async function choose(number) {
+            if (!pills.has(number)) return;
+            selectSeason(number);
             const change = ++revision;
             list.setAttribute("aria-busy", "true");
-            const waiting = !pictures.has(number) && tmdbId && available.get(number)?.total;
+            const waiting = !pictures.has(number) && tmdbId;
             if (waiting) {
-                if (list.contains(document.activeElement)) selector.focus({preventScroll: true});
+                if (list.contains(document.activeElement)) seasonFocus().focus({preventScroll: true});
                 list.hidden = true;
                 summary.textContent = "Loading episodes…";
                 await withinMovieLoad(bounded => loadSeason(number, bounded), signal);
@@ -778,13 +890,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         function summarize() {
             const count = metadata?.length ?? [...available.keys()].filter(number => number > 0).length;
             const total = metadata ? plural(count, "season") : count ? plural(count, "season") + " in your library" : "";
-            summary.textContent = [total, !episodes ? "Could not check your library." :
-                !metadata ? "Could not load the full season list." : !available.size ? "No seasons available." : ""].filter(Boolean).join(". ");
+            summary.textContent = total || (episodes && metadata && !available.size ? "No seasons available." : "");
         }
-        async function load(quiet, retry) {
+        async function load(quiet) {
             if (busy || signal.aborted) return;
             busy = true;
-            retry?.setAttribute("aria-disabled", "true");
             if (!quiet) {
                 summary.textContent = "Loading seasons…";
                 list.setAttribute("aria-busy", "true");
@@ -814,7 +924,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         if (!available.has(number)) available.set(number, {episodes: []});
                         available.get(number).episodes.push(episode);
                     }
-                    const selected = selector.value ? Number(selector.value) : preferredSeason;
+                    const firstMount = selectedSeason == null;
+                    const selected = selectedSeason ?? preferredSeason;
                     const seasonWithProgress = episodes?.find(episode => progressOf(episode) > 0 && !episode.UserData?.Played)?.ParentIndexNumber;
                     const owned = [...available].filter(([, season]) => season.episodes.length).map(([number]) => number);
                     const numbers = [...available.keys()].sort((a, b) => a - b);
@@ -823,22 +934,37 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     const change = revision;
                     await loadSeason(first, bounded);
                     if (signal.aborted || change !== revision) return;
-                    const options = numbers.map(n => new Option(n ? `Season ${n}` : "Specials", n));
-                    if (selector.options.length !== options.length || options.some((option, i) => option.value !== selector.options[i]?.value))
-                        selector.replaceChildren(...options);
-                    selector.hidden = !options.length;
-                    if (!selector.hidden) selector.value = String(first);
+                    const removedFocus = lane.contains(document.activeElement) && !numbers.some(n => pills.get(n) === document.activeElement);
+                    for (const [n, pill] of pills) {
+                        if (available.has(n)) continue;
+                        pill.remove();
+                        pills.delete(n);
+                    }
+                    let next = lane.firstElementChild;
+                    for (const n of numbers) {
+                        if (!pills.has(n)) pills.set(n, button(n ? `Season ${n}` : "Specials", () => {
+                            pills.get(n).focus({preventScroll: true});
+                            if (selectedSeason !== n) void choose(n);
+                        }));
+                        const pill = pills.get(n);
+                        if (pill !== next) lane.insertBefore(pill, next);
+                        next = pill.nextElementSibling;
+                    }
+                    seasons.hidden = !numbers.length;
+                    selectSeason(first);
+                    if (removedFocus) seasonFocus().focus({preventScroll: true});
+                    if (firstMount && first != null && first !== numbers[0])
+                        lane.scrollLeft = pills.get(first).offsetLeft - lane.offsetLeft;
+                    updateSeasonArrows();
                     credit.hidden = !metadata;
                     renderSeason(first);
                     summarize();
                 }, signal);
             } finally {
                 busy = false;
-                retry?.removeAttribute("aria-disabled");
                 list.removeAttribute("aria-busy");
             }
         }
-        selector.onchange = () => void choose(Number(selector.value));
         seriesView.refreshProgress = () => load(true);
         void load(false);
     }
@@ -907,9 +1033,17 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             image.decoding = "async";
             chainImages(image, [localStill, details?.still].filter(Boolean));
             frame.append(image);
-            const name = details?.name || episode?.Name || "Episode";
+            const name = [details?.name, episode?.Name].find(value => value?.trim() && !/^(?:\d+\.\s*)?episode\s*\d*$/i.test(value.trim())) ??
+                (index == null ? "Episode" : `Episode ${index}`);
             content.className = "movie-episode-text";
-            content.append(el("strong", (index == null ? "" : index + ". ") + name));
+            const title = el("strong");
+            if (index != null && name !== `Episode ${index}`) {
+                const prefix = el("span", index + ". ");
+                prefix.className = "movie-episode-number";
+                title.append(prefix);
+            }
+            title.append(name);
+            content.append(title);
             const runtime = formatMinutes(episode?.RunTimeTicks / 6e8 || details?.runtime);
             if (runtime) content.append(el("span", runtime));
             action.append(frame, content);
@@ -932,7 +1066,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 const audio = audioAction(episode, signal);
                 audio.dataset.episodeId = episode.Id;
                 audio.dataset.episodeAudio = "";
-                entry.append(audio);
+                entry.append(audio, audioJobSlot(episode));
             }
             items.append(entry);
         }
@@ -1035,6 +1169,23 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         artwork.append(poster);
         return artwork;
     }
+    function backdropSources(item) {
+        return [[item.Id, "Backdrop", item.BackdropImageTags?.[0]],
+            [item.ParentBackdropItemId, "Backdrop", item.ParentBackdropImageTags?.[0]],
+            [item.Id, "Thumb", item.ImageTags?.Thumb],
+            [item.Id, "Primary", item.ImageTags?.Primary]].filter(([id, , tag]) => id && tag);
+    }
+    function movieBackdrop(item) {
+        const art = el("img");
+        art.alt = "";
+        art.decoding = "async";
+        art.referrerPolicy = "no-referrer";
+        art.className = "movie-hero-art";
+        const width = innerWidth > 1700 ? 2560 : 1600;
+        chainImages(art, backdropSources(item).map(([id, type, tag]) =>
+            url(`Items/${encodeURIComponent(id)}/Images/${type}`, {tag, maxWidth: width}).href));
+        return art;
+    }
     function card(item, searchResult, resume) {
         const title = seriesCardItem(item);
         const continuingEpisode = resume && item.Type === "Episode";
@@ -1043,7 +1194,6 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const b = button("", () => openSeries(title, b, item.ParentIndexNumber));
         b.className = "movie-card";
         b.dataset.itemId = display.Id;
-        b.dataset.series = String(display.Type === "Series");
         const artwork = cardArtwork(display);
         const watched = progressOf(item);
         if (watched > 0 && watched < 100) {
@@ -1054,8 +1204,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             track.append(fill);
             artwork.append(track);
         }
-        const caption = el("span", name);
+        const caption = el("span"), titleText = el("span", name);
         caption.className = "movie-caption";
+        titleText.className = "movie-card-name";
+        caption.append(titleText);
         if (searchResult) {
             const action = el("span", title.Type === "Series" ? "Seasons" : "Details");
             action.className = "movie-search-play";
@@ -1068,11 +1220,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }
     const browseShelves = [];
     function placeBrowseCards() {
-        const visible = new Map(), series = new Set();
+        const visible = new Map(), placed = new Set();
         const focused = document.activeElement;
         let focusKey, fallback, originalShelf;
         for (const shelf of browseShelves) {
-            const {section, heading, rows, cards, more} = shelf;
+            const {section, heading, rows, cards, more, resume} = shelf;
             if (rows.contains(focused)) {
                 focusKey = focused.dataset.titleKey;
                 fallback = heading;
@@ -1080,11 +1232,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             } else if (section.contains(focused)) fallback = heading;
             const keep = new Set();
             for (const [key, node] of cards) {
-                if (node.dataset.series === "true") {
-                    if (series.has(key)) continue;
-                    series.add(key);
-                }
-                if (!visible.has(key)) visible.set(key, node);
+                if (!resume && placed.has(key)) continue;
+                if (!resume) placed.add(key);
+                visible.set(key, node);
                 keep.add(node);
             }
             for (const node of [...rows.children])
@@ -1094,7 +1244,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 if (node !== next) rows.insertBefore(node, next);
                 next = node.nextElementSibling;
             }
-            section.hidden = !keep.size && more.hidden;
+            section.hidden = !keep.size && more.hidden && !shelf.failed;
             shelf.updateArrows();
         }
         if (fallback && (!focused.isConnected || focused.closest("[hidden]"))) {
@@ -1112,9 +1262,14 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         more.setAttribute("aria-label", "Show more " + title.toLowerCase());
         heading.tabIndex = -1;
         const cards = new Map();
-        const state = { section, heading, rows, more, cards, updateArrows: () => {}, load, items: [] };
+        const outage = createServiceStatus({
+            detail: term ? "Reconnect to search your movie library." : "Reconnect to load this shelf.",
+            label: term ? "Retry library search" : "Retry " + title.toLowerCase(),
+            retry: () => load(offset === 0), focus: () => section.hidden ? submit : heading, automatic: true
+        });
+        const state = { section, heading, rows, more, cards, resume, updateArrows: () => {}, load, items: [] };
         if (!grid) browseShelves.push(state);
-        section.append(heading, rows, more); parent.append(section);
+        section.append(heading, rows, outage.card, more); parent.append(section);
         if (!grid) {
             const lane = el("div"), viewport = el("div");
             lane.className = "movie-shelf-lane";
@@ -1162,7 +1317,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     ...extra.params}, undefined, bounded));
                 if (!active || signal.aborted) return;
                 if (!Array.isArray(page?.Items)) throw Error("Invalid library page");
-                if (reset && !grid && JSON.stringify(state.items) === JSON.stringify(page.Items) && state.loaded) return;
+                if (reset && !grid && JSON.stringify(state.items) === JSON.stringify(page.Items) && state.loaded && !state.failed) return;
                 if (reset) { offset = 0; cards.clear(); }
                 state.items = reset ? page.Items : [...state.items, ...page.Items];
                 const wasFocused = document.activeElement === more;
@@ -1182,8 +1337,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 more.setAttribute("aria-label", "Show more " + title.toLowerCase());
                 state.loaded = true;
                 state.failed = false;
+                outage.clear();
                 if (!grid && !batch) renderHome();
-                if (status.textContent === "Could not load " + title.toLowerCase() + ".") status.textContent = "";
                 if (term && reset) {
                     const count = page.TotalRecordCount ?? offset;
                     status.textContent = count ? `${cards.size} in your library` : "";
@@ -1203,10 +1358,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 if (active && !signal.aborted && !quiet) {
                     state.failed = true;
                     section.hidden = false;
-                    more.hidden = false;
-                    more.textContent = term ? "Retry library search" : "Retry " + title.toLowerCase();
-                    more.setAttribute("aria-label", more.textContent);
-                    if (!batch) status.textContent = term ? "Could not search your library." : "Could not load " + title.toLowerCase() + ".";
+                    outage.show();
+                    if (document.activeElement === more) outage.card.querySelector("button").focus({preventScroll: true});
+                    more.hidden = true;
                     extra.noMatch?.();
                 }
             } finally { busy = false; more.removeAttribute("aria-disabled"); }
@@ -1352,12 +1506,16 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         message.setAttribute("role", "status");
         alternate.after(message);
 
-        function retry(section, reason, label, run) {
-            const line = el("p", reason), action = button(label, run);
-            line.setAttribute("role", "status");
-            section.replaceChildren(line, action);
-            section.hidden = false;
-        }
+        const videoOutage = createServiceStatus({
+            title: "YouTube did not respond", detail: "Retry the video search.", label: "Retry YouTube",
+            retry: () => findVideos(true), focus: () => web.querySelector("a") || submit, automatic: true
+        });
+        const downloadOutage = createServiceStatus({
+            detail: "Reconnect to search for download options.", label: "Retry download lookup",
+            retry: findDownloads, focus: () => downloads.querySelector("ul button") || submit, automatic: true
+        });
+        web.append(videoOutage.card);
+        downloads.append(downloadOutage.card);
         function videoCard(video) {
             const row = el("li"), art = el("div"), image = el("img"), content = el("div");
             row.className = "movie-release movie-youtube-card";
@@ -1413,7 +1571,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 } else {
                     action.removeAttribute("aria-disabled");
                     setAction("Try again");
-                    notice.textContent = reply?.error || "Could not confirm the download. Check the Downloading panel before trying again.";
+                    notice.textContent = reply?.error || "Could not confirm the download. Check Downloading before trying again.";
                 }
             });
             function setAction(label) {
@@ -1458,30 +1616,24 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             update(video);
             return {row, update, updateMatch, id: video.url.slice(-11)};
         }
-        async function findVideos(event) {
-            const trigger = event?.currentTarget;
-            if (trigger?.getAttribute("aria-disabled") === "true") return true;
-            if (trigger) {
-                trigger.focus();
-                trigger.setAttribute("aria-disabled", "true");
-                trigger.textContent = "Checking YouTube…";
-            }
-            if (trigger) {
+        async function findVideos(retrying = false) {
+            if (retrying) {
                 youtubeMetadata = null;
                 youtubeSearch = call("MovieFind", term).catch(() => ({error: "YouTube did not respond."}));
             }
             const reply = await youtubeSearch;
             if (!alive()) return false;
             if (reply?.error || !Array.isArray(reply?.results)) {
-                const focused = trigger === document.activeElement;
-                retry(web, reply?.error || "YouTube did not respond.", "Retry YouTube", findVideos);
-                if (focused) web.querySelector("button").focus();
+                if (videoOutage.card.hidden && reply?.error === "Searching the web is not set up on this server.") {
+                    videoOutage.card.querySelector(".service-status-announcement strong").textContent = "Web search unavailable";
+                    videoOutage.card.querySelector(".service-status-announcement p").textContent = "Searching the web is not set up on this server.";
+                }
+                web.hidden = false;
+                videoOutage.show();
                 return true;
             }
             showDetails(reply.title_details);
             const videos = youtubeVideos(reply);
-            const focused = trigger === document.activeElement;
-            web.replaceChildren();
             videoCards = [];
             if (videos.length) {
                 const list = el("ul"), heading = el("h2", "YouTube"), status = el("p");
@@ -1505,8 +1657,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     }
                 });
             }
-            web.hidden = !web.children.length;
-            if (focused) (web.querySelector("a") || submit).focus();
+            videoOutage.clear();
+            web.hidden = !videos.length;
             return !web.hidden;
         }
         const requestStates = {
@@ -1550,32 +1702,26 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             row.append(action);
             return row;
         }
-        async function findDownloads(event) {
-            const trigger = event?.currentTarget;
-            if (trigger?.getAttribute("aria-disabled") === "true") return true;
-            if (trigger) { trigger.setAttribute("aria-disabled", "true"); trigger.textContent = "Checking downloads…"; }
+        async function findDownloads() {
             let reply;
             try { reply = await call("MovieRequestSearch", term); }
             catch { reply = {error: "Download lookup did not respond."}; }
             if (!alive()) return false;
             if (reply?.error || !Array.isArray(reply?.results)) {
-                const focused = trigger === document.activeElement;
-                retry(downloads, reply?.error || "Download lookup did not respond.", "Retry download lookup", findDownloads);
-                if (focused) downloads.querySelector("button").focus();
+                downloads.hidden = false;
+                downloadOutage.show();
                 return true;
             }
             const found = reply.results.slice(0, 12);
             showDetails(reply.title_details);
-            const focused = trigger === document.activeElement;
-            downloads.replaceChildren();
-            downloads.hidden = !found.length;
             if (found.length) {
                 const heading = el("h2", "Download options"), rows = el("ul");
                 rows.className = "movie-source-list";
                 rows.append(...found.map(item => requestRow(item, reply.season)));
                 downloads.append(heading, rows);
             }
-            if (focused) (downloads.querySelector("button") || submit).focus();
+            downloadOutage.clear();
+            downloads.hidden = !found.length;
             return !!found.length;
         }
 
@@ -1667,30 +1813,83 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     const toolbar = el("div");
     toolbar.className = "movie-toolbar";
     toolbar.append(form);
-    const columns = el("div"), catalogue = el("div"), downloadsPanel = el("section");
-    columns.className = "movie-library-columns";
+    const catalogue = el("div"), downloadsPanel = el("section");
     catalogue.className = "movie-catalogue";
     downloadsPanel.className = "movie-downloads";
     downloadsPanel.setAttribute("aria-label", "Downloading");
-    const work = el("aside"), queue = el("div"), audioPanel = el("section"), audioQueue = el("div");
+    const queue = el("ul");
     catalogue.append(browse, results);
     if (session.downloads_enabled) {
-        work.className = "movie-work";
-        work.hidden = downloadsPanel.hidden = audioPanel.hidden = true;
+        downloadsPanel.hidden = true;
         downloadsPanel.append(el("h2", "Downloading"), queue);
-        audioPanel.className = "movie-audio-jobs";
-        audioPanel.setAttribute("aria-label", "Audio tracks");
-        audioPanel.append(el("h2", "Audio tracks"), audioQueue);
-        work.append(downloadsPanel, audioPanel);
-        columns.append(work);
+        catalogue.prepend(downloadsPanel);
     }
-    columns.classList.add("movie-library-columns-full");
-    columns.append(catalogue);
-    library.append(toolbar, columns);
+    library.append(toolbar, catalogue);
 
     let queueTimer, checkingQueue = false, refreshAfterGrabAt = 0;
-    const dismissedAudioJobs = new Set();
-    const queueVisible = () => session.downloads_enabled && active && !document.hidden && !library.hidden && host.isConnected;
+    let audioJobs = [];
+    const pendingAudioJobs = new Set(), audioJobItems = new WeakMap();
+    const queueVisible = () => session.downloads_enabled && active && !document.hidden && host.isConnected &&
+        (!library.hidden || pendingAudioJobs.size > 0);
+    function audioJobSlot(item) {
+        const slot = el("div");
+        slot.className = "movie-title-audio";
+        slot.hidden = true;
+        audioJobItems.set(slot, item);
+        slot.addEventListener("focusout", () => queueMicrotask(() => {
+            if (slot.isConnected) updateAudioJobSlot(slot);
+        }));
+        updateAudioJobSlot(slot);
+        return slot;
+    }
+    function updateAudioJobSlot(slot) {
+        if (slot.contains(document.activeElement)) return;
+        const {Id, ParentId, SeasonId, Name, Type, IndexNumber} = audioJobItems.get(slot);
+        const season = SeasonId ?? ParentId;
+        const jobs = new Map();
+        for (const item of audioJobs) {
+            const direct = item.item === Id;
+            if (!direct && (!season || item.item !== season)) continue;
+            const results = item.results.filter(result =>
+                (direct || result.title === Name) && (result.can_delete || result.refresh_pending || result.error));
+            const running = audioJobRunning(item);
+            if (!direct && !item.results.some(result => result.title === Name)) continue;
+            if (!running && !results.length && !(direct && item.error)) continue;
+            const key = JSON.stringify([item.name, item.state, results.map(result => result.title)]);
+            if (!jobs.has(key)) jobs.set(key, {...item, results, running});
+        }
+        const snapshot = JSON.stringify([...jobs.values()]);
+        if (slot.dataset.jobs === snapshot) return;
+        slot.dataset.jobs = snapshot;
+        slot.replaceChildren();
+        slot.hidden = !jobs.size;
+        for (const job of jobs.values()) {
+            const row = el("div");
+            row.className = "movie-audio-job";
+            row.append(el("strong", job.name), el("span", job.state));
+            if (job.running) {
+                const progress = el("progress");
+                progress.value = Math.max(0, Math.min(1, Number(job.progress) || 0));
+                progress.setAttribute("aria-label", job.name);
+                row.append(progress);
+            } else {
+                const results = audioJobResults(job, async (...args) => {
+                    try {
+                        const reply = await call(...args);
+                        if (!reply?.error) scheduleDownloads(3100);
+                        return reply;
+                    } catch { return {error: "The server did not respond. Try again."}; }
+                });
+                if (Type === "Episode") {
+                    const episode = IndexNumber == null ? Name : `episode ${IndexNumber}, ${Name}`;
+                    for (const remove of results.querySelectorAll("[data-audio-remove]"))
+                        remove.setAttribute("aria-label", "Delete source file for " + episode);
+                }
+                row.append(results);
+            }
+            slot.append(row);
+        }
+    }
     function scheduleDownloads(delay) {
         clearTimeout(queueTimer);
         if (queueVisible()) queueTimer = setTimeout(updateDownloads, delay);
@@ -1710,94 +1909,49 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         if (!queueVisible()) return;
         const itemsAvailable = reply?.available && Array.isArray(reply.items);
         downloadItems = itemsAvailable ? reply.items : [];
+        if (itemsAvailable) {
+            audioJobs = downloadItems.filter(item => Array.isArray(item.results));
+            for (const job of audioJobs) {
+                if (audioJobRunning(job)) pendingAudioJobs.add(job.id);
+                else if (pendingAudioJobs.delete(job.id)) {
+                    const title = job.results.length === 1 && job.results[0].title;
+                    const message = job.state === "Added" ? (title ? `Audio added to ${title}.` : "Audio track added.") :
+                        "The audio job finished with issues. Open the title for details.";
+                    if ((document.fullscreenElement || document.webkitFullscreenElement) === player && current?.showJobToast)
+                        current.showJobToast(message);
+                    else if (globalThis.FamilyHubNotices?.toast) globalThis.FamilyHubNotices.toast(message);
+                    else homeStatus.textContent = message;
+                }
+            }
+        }
         const cards = [...browseShelves.flatMap(shelf => [...shelf.cards.values()]), ...results.querySelectorAll("[data-download-key]")];
         for (const tile of cards) {
             const card = tile.dataset.downloadKey ? tile : tile.querySelector("[data-download-key]");
             if (card?.dataset.downloadKey) updateCardDownload(card);
         }
-        if (seriesView) for (const row of seriesView.section.querySelectorAll(".movie-season[data-season]")) updateSeasonState(row);
-        const audioJobs = new Map();
-        for (const item of downloadItems) {
-            if (!Array.isArray(item.results)) continue;
-            if (dismissedAudioJobs.has(item.id)) continue;
-            const running = audioJobRunning(item);
-            const followups = item.results.filter(result => result.can_delete || result.refresh_pending);
-            if (!running && !followups.length) continue;
-            const title = item.results.length === 1 ? item.results[0].title : item.name;
-            const key = JSON.stringify([item.item, item.name, running, followups.map(result => result.title)]);
-            const previous = audioJobs.get(key);
-            if (previous) previous.ids.push(item.id);
-            else audioJobs.set(key, {item, ids: [item.id], title: title || item.name, running, followups});
+        if (seriesView) {
+            for (const row of seriesView.section.querySelectorAll(".movie-season[data-season]")) updateSeasonState(row);
+            for (const slot of seriesView.section.querySelectorAll(".movie-title-audio")) updateAudioJobSlot(slot);
         }
         const running = downloadItems.filter(item => !Array.isArray(item.results) && item.progress < 1 &&
-            !["Finished", "Added", "Seeding", "Complete"].includes(item.state));
-        function renderQueue(panel, container, entries) {
-            if (container.contains(document.activeElement)) return;
-            panel.hidden = !entries.length;
-            if (panel.hidden) {
-                container.replaceChildren();
-                return;
-            }
-            const items = el("ul");
-            for (const item of entries) {
-                const tile = el("li"), bar = el("div"), fill = el("span");
-                const progress = Math.max(0, Math.min(1, Number(item.progress) || 0));
-                bar.className = "movie-download-progress";
-                bar.setAttribute("role", "progressbar");
-                bar.setAttribute("aria-label", item.name);
-                bar.setAttribute("aria-valuenow", Math.round(progress * 100));
-                fill.style.transform = `scaleX(${progress})`;
-                bar.append(fill);
-                const eta = item.eta != null && ["Downloading", "Almost done"].includes(item.state)
-                    ? `, about ${Math.max(1, Math.ceil(item.eta / 60))} min left` : "";
-                tile.append(el("strong", item.name), bar, el("p", item.state + eta));
-                items.append(tile);
-            }
-            container.replaceChildren(items);
-        }
-        renderQueue(downloadsPanel, queue, running);
-        if (!audioQueue.contains(document.activeElement)) {
-            const items = el("ul");
-            for (const job of audioJobs.values()) {
-                const row = el("li");
-                row.className = "movie-audio-job";
-                row.append(el("strong", job.title), el("span", job.item.state));
-                if (job.running) {
-                    const progress = el("progress");
-                    progress.value = Math.max(0, Math.min(1, Number(job.item.progress) || 0));
-                    progress.setAttribute("aria-label", job.title);
-                    row.append(progress);
-                } else {
-                    const results = job.followups.map(({id, title, state, can_delete, refresh_pending}) =>
-                        ({id, title, state, can_delete, refresh_pending}));
-                    row.append(audioJobResults({...job.item, error: undefined, results}, async (...args) => {
-                        try {
-                            const reply = await call(...args);
-                            if (!reply?.error) scheduleDownloads(3100);
-                            return reply;
-                        } catch { return {error: "The server did not respond. Try again."}; }
-                    }));
-                    const dismiss = button("Dismiss", () => {
-                        for (const id of job.ids) dismissedAudioJobs.add(id);
-                        const next = row.nextElementSibling ?? row.previousElementSibling;
-                        (next?.querySelector("button") ?? submit).focus({preventScroll: true});
-                        row.remove();
-                        audioPanel.hidden = !items.children.length;
-                        work.hidden = downloadsPanel.hidden && audioPanel.hidden;
-                        columns.classList.toggle("movie-library-columns-full", work.hidden);
-                    });
-                    dismiss.setAttribute("aria-label", "Dismiss audio job for " + job.title);
-                    row.append(dismiss);
-                }
-                items.append(row);
-            }
-            audioQueue.replaceChildren(items);
-            audioPanel.hidden = !audioJobs.size;
-        }
-        work.hidden = downloadsPanel.hidden && audioPanel.hidden;
-        columns.classList.toggle("movie-library-columns-full", work.hidden);
+            ["Waiting", "Downloading", "Almost done", "Stalled"].includes(item.state));
+        downloadsPanel.hidden = !running.length;
+        queue.replaceChildren(...running.map(item => {
+            const tile = el("li"), bar = el("div"), fill = el("span");
+            const progress = Math.max(0, Math.min(1, Number(item.progress) || 0));
+            bar.className = "movie-download-progress";
+            bar.setAttribute("role", "progressbar");
+            bar.setAttribute("aria-label", item.name);
+            bar.setAttribute("aria-valuenow", Math.round(progress * 100));
+            fill.style.transform = `scaleX(${progress})`;
+            bar.append(fill);
+            const eta = item.eta != null && ["Downloading", "Almost done"].includes(item.state)
+                ? `, about ${Math.max(1, Math.ceil(item.eta / 60))} min left` : "";
+            tile.append(el("strong", item.name), bar, el("p", item.state + eta));
+            return tile;
+        }));
         if (refreshAfterGrabAt) scheduleDownloads(Math.max(0, refreshAfterGrabAt - Date.now()));
-        else if (running.length || [...audioJobs.values()].some(job => job.running) || audioQueue.contains(document.activeElement))
+        else if (pendingAudioJobs.size || (!library.hidden && running.length))
             scheduleDownloads(5000);
     }
     const queueVisibility = () => scheduleDownloads(0);
@@ -1834,9 +1988,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     const moviesShelf = shelf("Movies", "Movie", false, browse, "", life.signal, {params: {fields}});
     const recentShelf = shelf("Recently added", "Movie,Series", false, browse, "", life.signal,
         {params: {fields, sortBy: "DateCreated", sortOrder: "Descending"}, singlePage: true});
-    const genreRetry = button("Retry genres", () => void refreshGenres());
-    genreRetry.className = "movie-more";
-    genreRetry.hidden = true;
+    const genreOutage = createServiceStatus({
+        detail: "Reconnect to load movie genres.", label: "Retry genres", retry: refreshGenres,
+        focus: () => browse, automatic: true
+    });
+    const genreRetry = genreOutage.card;
     browse.append(genreRetry, empty);
     catalogue.prepend(skeleton);
     browse.hidden = true;
@@ -1846,12 +2002,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
 
     function renderHome() {
         placeBrowseCards();
-        const backdrops = item => [[item.Id, "Backdrop", item.BackdropImageTags?.[0]],
-            [item.ParentBackdropItemId, "Backdrop", item.ParentBackdropImageTags?.[0]],
-            [item.Id, "Thumb", item.ImageTags?.Thumb],
-            [item.Id, "Primary", item.ImageTags?.Primary]].filter(([id, , tag]) => id && tag);
         const pick = resumeShelf.items.find(item => progressOf(item) > 0) ??
-            recentShelf.items.find(item => item.Type === "Movie" && backdrops(item).length) ??
+            recentShelf.items.find(item => item.Type === "Movie" && backdropSources(item).length) ??
             recentShelf.items[0] ?? moviesShelf.items[0] ?? tvShelf.items[0];
         empty.hidden = !!pick || !!browseShelves.some(shelf => shelf.cards.size || shelf.failed) || !genreRetry.hidden;
         if (!pick) {
@@ -1864,16 +2016,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         if (featured.dataset.selection === identity && !featured.hidden) return;
         const focusClass = featured.contains(document.activeElement) ? document.activeElement.className : "";
         featured.dataset.selection = identity;
-        const art = el("img"), body = el("div"), actions = el("div");
-        art.alt = "";
-        art.decoding = "async";
-        art.referrerPolicy = "no-referrer";
-        art.className = "movie-hero-art";
+        const art = movieBackdrop(pick), body = el("div"), actions = el("div");
         body.className = "movie-hero-body";
         actions.className = "movie-hero-actions";
-        const width = innerWidth > 1700 ? 2560 : 1600;
-        chainImages(art, backdrops(pick).map(([id, type, tag]) =>
-            url(`Items/${encodeURIComponent(id)}/Images/${type}`, {tag, maxWidth: width}).href));
         featured.style.setProperty("--art-hue", titleHue(pick.SeriesName || pick.Name));
         const heading = el("h2", pick.SeriesName ? `${pick.SeriesName}, ${pick.Name}` : pick.Name);
         heading.id = "movie-featured-title";
@@ -1929,21 +2074,17 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 }));
                 for (const shelf of genreShelves) genreRetry.before(shelf.section);
                 genresLoaded = true;
-                genreRetry.hidden = true;
+                genreOutage.clear();
             }
             await Promise.all(genreShelves.map(shelf => shelf.load(true, quiet, bounded, true)));
         } catch {
-            if (!quiet && active) genreRetry.hidden = false;
+            if (!quiet && active) genreOutage.show();
         }
     }
     async function refreshGenres() {
-        if (genreRetry.getAttribute("aria-disabled") === "true") return;
-        genreRetry.setAttribute("aria-disabled", "true");
         await withinMovieLoad(signal => loadGenres(signal, false), life.signal);
-        genreRetry.removeAttribute("aria-disabled");
         if (!active) return;
         renderHome();
-        if (genreRetry.hidden && document.activeElement === genreRetry) browse.focus();
     }
     const reloadResume = () => Promise.all([
         withinMovieLoad(signal => resumeShelf.load(true, true, signal, true), life.signal).then(() => { if (active) renderHome(); }),
@@ -1965,8 +2106,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 homeReady = true;
                 skeleton.remove();
                 browse.hidden = toolbar.hidden = false;
-                homeStatus.textContent = browseShelves.some(shelf => shelf.failed) || !genreRetry.hidden
-                    ? "Movies and TV loaded. Some sections could not load." : "Movies and TV loaded.";
+                homeStatus.textContent = browseShelves.some(shelf => shelf.failed) || !genreRetry.hidden ? "" : "Movies and TV loaded.";
                 if (document.activeElement === entryFocus || document.activeElement === document.body || host.contains(document.activeElement))
                     browse.focus({preventScroll: true});
                 placeBrowseCards();

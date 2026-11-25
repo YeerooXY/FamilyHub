@@ -173,12 +173,15 @@ public partial class MainPage : ContentPage
     {
         var eligible = !MeteredConnection() && Connectivity.Current.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
         var couldWarm = lastWarmEligibility;
+        var couldCacheUpcoming = lastUpcomingCacheEligibility;
         session.CanWarmPlayback = eligible;
         lastWarmEligibility = session.CanWarmPlayback;
-        if (couldWarm == lastWarmEligibility) return;
+        lastUpcomingCacheEligibility = session.CanCacheUpcoming;
+        if (couldWarm == lastWarmEligibility && couldCacheUpcoming == lastUpcomingCacheEligibility) return;
         player.PlaybackNetworkChanged();
     }
     private bool lastWarmEligibility;
+    private bool lastUpcomingCacheEligibility;
     private bool MeteredConnection()
     {
 #if WINDOWS

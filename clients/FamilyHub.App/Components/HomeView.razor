@@ -2,32 +2,36 @@
 @inject MusicSession Session
 @inject IJSRuntime JS
 
-@* Home uses the listening history and catalogue already loaded by the session. *@
 <div class="home-view">
     <DiscoveryShelf PlayTracks="PlayTracks" />
     <h1 id="view-title" class="sr" tabindex="-1">Home</h1>
 
-    <section class="home-section" aria-labelledby="home-radio-title">
-        <h2 id="home-radio-title">Radio</h2>
+    <section class="home-section home-radio" aria-labelledby="home-radio-title">
+        <h2 id="home-radio-title" tabindex="-1">Radio</h2>
         @if (radioSeeds.Count > 0)
         {
             <div class="home-shortcuts">
-                @for (var i = 0; i < radioSeeds.Count; i++)
+                @foreach (var seed in radioSeeds)
                 {
-                    var seed = radioSeeds[i];
-                    var title = Similarity.RadioTitle(seed);
-                    <button id="@("home-radio-" + i)" class="home-shortcut" @onclick="() => StartRadio.InvokeAsync(seed)"
-                            aria-disabled="@(!Session.Connected || RadioBusy || FollowingHost ? "true" : "false")" aria-label="Start @title Radio">
-                        <TrackCover Track="seed" />
-                        <span class="radio-shortcut-title"><MusicIcon Name="radio" /><span>@title</span></span>
+                    <button id="@RadioId(seed.Key)" @key="seed.Key" class="home-shortcut"
+                            @onclick="() => StartShortcut(seed.Key, seed.Tracks)"
+                            aria-disabled="@(!Session.Connected || RadioBusy || FollowingHost ? "true" : "false")" aria-label="Play @seed.Label">
+                        <TrackCover Track="seed.Tracks[0]" />
+                        <span class="radio-shortcut-title"><MusicIcon Name="radio" /><span>@seed.Label</span></span>
                     </button>
                 }
             </div>
-            <Notice Level="warning" Message="@(!Session.Connected ? "Connect to start radio." : FollowingHost ? "Leave the listening session to start radio." : "")" />
+            <Notice Level="warning" Message="@(Session.Connected && FollowingHost ? "Leave the listening session to start radio." : "")" />
         }
-        else
+        else if (Session.Connected && !loadingRadio && !radioFailed)
         {
-            <p class="note">@(Session.Connected ? "Play a song to start radio." : "Connect to your server to start radio.")</p>
+            <p class="note">Add songs to your library to start a mix.</p>
+        }
+        @if (Session.Connected)
+        {
+            <div role="status" class="sr">@(loadingRadio ? "Loading radio shortcuts…" : null)</div>
+            <Notice Id="home-radio-status" Level="error" Message="@(radioFailed ? "Radio shortcuts could not load." : null)"
+                    ActionLabel="Retry radio shortcuts" Action="LoadRadio" Busy="loadingRadio" FocusTarget="#home-radio-title" />
         }
     </section>
 
@@ -69,7 +73,7 @@
                     <div class="home-card-holder" @key="album.Key">
                         <button id="@opener" class="home-card" @onclick="() => OpenAlbum.InvokeAsync((album.Name, album.Artist, album.Tracks, opener))" aria-label="Open @album.Name by @album.Artist"><TrackCover Track="album.Tracks[0]" /><strong>@album.Name</strong><span>@album.Artist</span></button>
                         <button class="home-card-save @(saved ? "is-saved" : "")" @onclick="() => SaveAlbum(album)" aria-disabled="@(saved || busy || saving is not null || !Session.Connected ? "true" : "false")"
-                                aria-busy="@(busy ? "true" : "false")" aria-label="@(saved ? album.Name + " saved as a playlist" : "Save " + album.Name + " as a playlist")" title="@(saved ? "Saved as a playlist" : "Save " + album.Name + " as playlist")"><MusicIcon Name="@(saved ? "check" : "plus")" /></button>
+                                aria-busy="@(busy ? "true" : "false")" aria-label="@(saved ? $"Library songs from {album.Name} saved as a playlist" : $"Save library songs from {album.Name} as a playlist")" title="@(saved ? "Library songs saved as a playlist" : "Save library songs as a playlist")"><MusicIcon Name="@(saved ? "check" : "plus")" /></button>
                     </div>
                 }
             </div></ShelfArrows>
@@ -83,7 +87,8 @@
     [Parameter] public EventCallback<MusicPlaylist> OpenPlaylist { get; set; }
     [Parameter] public EventCallback<(string Name, string Artist, List<MusicTrack> Tracks, string Opener)> OpenAlbum { get; set; }
     [Parameter] public EventCallback<(IEnumerable<MusicTrack> Tracks, long RequestedAt)> PlayTracks { get; set; }
-    [Parameter] public EventCallback<MusicTrack> StartRadio { get; set; }
+    [Parameter] public EventCallback<(MusicTrack Track, bool ArtistOnly)> StartRadio { get; set; }
+    [Parameter] public EventCallback<List<MusicTrack>> PlayMix { get; set; }
     [Parameter] public MusicTrack? CurrentTrack { get; set; }
     [Parameter] public bool RadioBusy { get; set; }
     [Parameter] public bool FollowingHost { get; set; }
@@ -91,15 +96,69 @@
     private sealed record Album(string Key, string Name, string Artist, List<MusicTrack> Tracks);
     private List<MusicTrack> recent = [];
     private List<Album> albums = [];
-    private List<MusicTrack> radioSeeds = [];
-    private int renderedRadioCount;
+    private readonly List<(string Key, string Label, List<MusicTrack> Tracks)> radioSeeds = [];
+    private List<string> renderedRadioKeys = [];
     private long builtHistoryRevision = -1;
+    private (string Server, string User, long History, int LibraryCount)? radioSource;
+    private List<HomeRadioShortcut> shortcuts = [];
+    private CancellationTokenSource? radioLookup;
+    private bool loadingRadio, radioFailed;
+    private static string RadioId(string key) => "home-radio-" + Uri.EscapeDataString(key);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        for (var i = radioSeeds.Count; i < renderedRadioCount; i++)
-            await JS.InvokeVoidAsync("familyhub.restoreFocus", "home-radio-" + i, radioSeeds.Count > 0 ? "home-radio-0" : "view-title");
-        renderedRadioCount = radioSeeds.Count;
+        var keys = radioSeeds.Select(seed => seed.Key).ToList();
+        foreach (var key in renderedRadioKeys.Except(keys))
+            await JS.InvokeVoidAsync("familyhub.restoreFocus", RadioId(key), keys.Count > 0 ? RadioId(keys[0]) : "home-radio-title");
+        renderedRadioKeys = keys;
+    }
+
+    private Task StartShortcut(string key, List<MusicTrack> tracks) => !Session.Connected || RadioBusy || FollowingHost
+        ? Task.CompletedTask : key == "song" || key.StartsWith("artist:", StringComparison.Ordinal)
+            ? StartRadio.InvokeAsync((tracks[0], key != "song")) : PlayMix.InvokeAsync(tracks);
+
+    private async Task LoadRadio()
+    {
+        if (!Session.Connected) return;
+        radioLookup?.Cancel(); radioLookup?.Dispose();
+        radioLookup = new();
+        var token = radioLookup.Token;
+        loadingRadio = true;
+        try
+        {
+            var result = await Session.HomeRadioAsync(token);
+            if (!token.IsCancellationRequested)
+            {
+                if (radioFailed) await JS.InvokeVoidAsync("familyhub.focusIfWithin", "#home-radio-status .fh-notice-action", "home-radio-title");
+                if (token.IsCancellationRequested) return;
+                shortcuts = result ?? [];
+                radioFailed = false;
+            }
+        }
+        catch (Exception) { if (!token.IsCancellationRequested) radioFailed = true; }
+        finally
+        {
+            if (!token.IsCancellationRequested)
+            {
+                loadingRadio = false;
+                BuildRadio();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private void BuildRadio()
+    {
+        radioSeeds.Clear();
+        if (CurrentTrack is { } current && Similarity.Artist(current).Length > 0)
+            radioSeeds.Add(("song", Similarity.RadioTitle(current) + " Radio", [current]));
+        foreach (var shortcut in shortcuts.Take(7))
+        {
+            if (radioSeeds.Any(seed => seed.Key == shortcut.Key || seed.Label.Equals(shortcut.Label, StringComparison.OrdinalIgnoreCase))) continue;
+            var tracks = shortcut.TrackIds.Select(id => Session.CurrentRecording(new MusicTrack { Id = id }))
+                .Where(t => t.Saved).ToList();
+            if (tracks.Count > 0) radioSeeds.Add((shortcut.Key, shortcut.Label, tracks));
+        }
     }
 
 
@@ -143,18 +202,29 @@
             && builtConnected == Session.Connected && builtHistoryRevision == Session.HistoryRevision) return;
         OnParametersSet(); StateHasChanged();
     });
-    public void Dispose() => Session.Changed -= LibraryChanged;
+    public void Dispose()
+    {
+        Session.Changed -= LibraryChanged;
+        radioLookup?.Cancel(); radioLookup?.Dispose();
+    }
 
     protected override void OnParametersSet()
     {
         builtHistoryRevision = Session.HistoryRevision;
         recent = Session.RecentlyPlayed(6);
-        var history = Session.RecentlyPlayed(200);
-        var anchor = CurrentTrack ?? history.FirstOrDefault();
-        var artistPreferences = Session.ArtistPreferences();
-        radioSeeds = anchor is null ? [] : [anchor, .. history
-            .Where(t => Similarity.Artist(t).Length > 0 && Similarity.Artist(t) != Similarity.Artist(anchor))
-            .GroupBy(Similarity.Artist).OrderByDescending(g => artistPreferences.GetValueOrDefault(g.Key)).ThenByDescending(g => g.Count()).Take(3).Select(g => g.First())];
+        if (!Session.Connected)
+        {
+            radioLookup?.Cancel();
+            radioSource = null; shortcuts = []; radioFailed = loadingRadio = false;
+        }
+        else if (radioSource != (Session.Server, Session.User, builtHistoryRevision, Session.Library.Count))
+        {
+            if (radioSource is not { } last || last.Server != Session.Server || last.User != Session.User)
+            { shortcuts = []; radioFailed = false; }
+            radioSource = (Session.Server, Session.User, builtHistoryRevision, Session.Library.Count);
+            _ = LoadRadio();
+        }
+        BuildRadio();
         // Grouping the whole library is costly on phones; redo it only when the library changes.
         var source0 = Session.Connected ? Session.Library : Session.Downloads;
         if (ReferenceEquals(builtFrom, source0) && builtConnected == Session.Connected) return;

@@ -1,0 +1,65 @@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div @ref="card" class="service-status @(FullSection ? "service-status-section" : "")"
+     data-notice-focus="@FocusTarget" data-reconnecting="@(Busy ? "true" : null)" hidden="@(!Active)">
+    <span class="service-status-icon" aria-hidden="true"></span>
+    <div class="service-status-copy">
+        <div class="service-status-announcement" role="status" aria-atomic="true">
+            <strong>@Title</strong>
+            <p>@Detail</p>
+        </div>
+        <p class="service-status-timing" aria-live="off"><span class="service-status-clock"></span>@Status</p>
+    </div>
+    @if (RetryLabel is not null || Secondary is not null)
+    {
+        <div class="service-status-actions">
+            @if (RetryLabel is not null)
+            {
+                <button type="button" class="service-status-retry" aria-disabled="@(Busy ? "true" : null)" @onclick="RunRetry">@RetryLabel</button>
+            }
+            @Secondary
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "Can't reach your server";
+    [Parameter, EditorRequired] public string Detail { get; set; } = "";
+    [Parameter] public string? RetryLabel { get; set; }
+    [Parameter] public string? Status { get; set; }
+    [Parameter] public EventCallback Retry { get; set; }
+    [Parameter] public RenderFragment? Secondary { get; set; }
+    [Parameter] public string FocusTarget { get; set; } = "#content";
+    [Parameter] public string? RecoveryTarget { get; set; }
+    [Parameter] public bool Active { get; set; } = true;
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public bool AutoRetry { get; set; }
+    [Parameter] public bool FullSection { get; set; }
+
+    private ElementReference card;
+    private IJSObjectReference? module;
+    private bool configured;
+
+    private Task RunRetry() => Busy ? Task.CompletedTask : Retry.InvokeAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!Active && !configured) return;
+        try
+        {
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./service-status.js");
+            await module.InvokeVoidAsync("configureServiceStatus", card, Active, AutoRetry);
+            if (!Active) await module.InvokeVoidAsync("showServiceRecovery", RecoveryTarget ?? FocusTarget);
+            configured = Active;
+        }
+        catch (JSDisconnectedException) { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module is null) return;
+        try { await module.DisposeAsync(); }
+        catch (JSDisconnectedException) { }
+    }
+}

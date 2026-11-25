@@ -20,6 +20,8 @@ async function check(browser, profile, options) {
     await page.addInitScript(() => {
         HTMLMediaElement.prototype.play = () => Promise.resolve();
         HTMLMediaElement.prototype.canPlayType = () => "probably";
+        // The fixture clip may not decode in every engine; these checks cover the player screens, not stream recovery (movies_player does).
+        document.addEventListener("error", event => { if (event.target instanceof HTMLMediaElement) event.stopImmediatePropagation(); }, true);
         Element.prototype.requestFullscreen = undefined;
         Element.prototype.webkitRequestFullscreen = undefined;
     });
@@ -88,6 +90,8 @@ async function check(browser, profile, options) {
     assert.equal(await page.getByRole("button", { name: /^Next episode/ }).isVisible(), false);
     // Controls hide a few seconds after the last touch, also when paused and also with reduced motion (many phones set it).
     const idle = () => page.evaluate(() => document.querySelector(".movie-ui").classList.contains("movie-idle"));
+    // The fixture clip may not decode in every engine; a failed start keeps the controls up on purpose, so mark playback as started.
+    await page.locator(".movie-video").evaluate(video => video.dispatchEvent(new Event("playing")));
     await page.waitForFunction(() => document.querySelector(".movie-ui")?.classList.contains("movie-idle"), null, { timeout: 6000 });
     assert.equal(await shell.isVisible(), false);
     const captures = process.argv[2] || playerOutput;
@@ -127,11 +131,11 @@ async function check(browser, profile, options) {
 
     // An episode: title shows season and episode, the sheet lists the season, Next plays the following episode.
     await shelf.getByRole("button", { name: "Harbour Town" }).click();
-    const selector = page.getByLabel("Season", {exact: true});
-    await selector.selectOption("3");
+    const seasons = page.getByRole("group", {name: "Seasons"});
+    await seasons.getByRole("button", {name: "Season 3", exact: true}).press("Space");
     await page.getByRole("button", { name: "Find season 3" }).waitFor();
     await page.getByText("3 seasons", {exact: true}).waitFor();
-    await selector.selectOption("1");
+    await seasons.getByRole("button", {name: "Season 1", exact: true}).press("Enter");
     const episodeOpener = page.getByRole("button", { name: "2. The Move" });
     await episodeOpener.click();
     await page.getByRole("heading", { name: "S1:E2 “The Move”" }).waitFor();

@@ -2,12 +2,15 @@
 @inject MusicSession Session
 @inject IJSRuntime JS
 
-<div @ref="host" class="files-host"></div>
-@if (message.Length > 0)
-{
-    <p role="status">@message</p>
-    @if (failed) { <button class="quiet" @onclick="Load">Retry files</button> }
-}
+<div class="service-status-stage">
+    <div @ref="host" id="files-service-content" class="files-host"></div>
+    @if (!failed && message.Length > 0)
+    {
+        <p role="status">@message</p>
+    }
+    <ServiceStatus Active="failed" FullSection="true" Detail="Check your connection to load files."
+                   RetryLabel="Retry files" Retry="Load" Busy="loading" AutoRetry="true" RecoveryTarget="#files-service-content" />
+</div>
 
 @code {
     private ElementReference host;
@@ -38,7 +41,6 @@
         }
         catch (Exception) when (!closed.IsCancellationRequested)
         {
-            message = "Files are unavailable. Check the connection to your server.";
             failed = true;
         }
         catch (OperationCanceledException) { }

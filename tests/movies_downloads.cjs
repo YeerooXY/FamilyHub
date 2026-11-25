@@ -16,7 +16,9 @@ async function verify(browser, profile, options) {
             window.queueReads = 0;
             window.queueResponse = {available: true, items: [
                 {name: "Trinity restored edition", progress: .64, size: 12345, state: "Downloading", eta: 125, speed: 9143},
-                {name: "The General", progress: 1, size: 54321, state: "Finished", eta: null, speed: 0}
+                {name: "The General", progress: 1, size: 54321, state: "Finished", eta: null, speed: 0},
+                {name: "Paused release", progress: .5, state: "Paused"},
+                {name: "Failed release", progress: .2, state: "Problem"}
             ]};
             window.movies = window.openMovieFixture(openMovies, document.querySelector("main"),
                 {url: jellyfin, user: "fixture", token: "fixture", device: "fixture", downloads_enabled: true},
@@ -31,15 +33,18 @@ async function verify(browser, profile, options) {
         const panel = page.getByRole("region", {name: "Downloading"});
         await panel.getByText("Downloading, about 3 min left").waitFor();
         assert.equal(await panel.getByText("The General").count(), 0);
+        assert.equal(await panel.getByText(/Paused release|Failed release/).count(), 0);
         assert.equal(await panel.getByRole("progressbar").first().getAttribute("aria-valuenow"), "64");
         assert.equal(await panel.getByRole("progressbar").first().locator("span").evaluate(el => el.style.transform), "scaleX(0.64)");
         assert.doesNotMatch(await panel.innerText(), /seeder|bytes|9143/);
-        const wide = options.viewport.width >= 1100;
-        assert.equal(await page.evaluate(wide => {
+        assert.equal(await page.evaluate(() => {
             const box = selector => document.querySelector(selector).getBoundingClientRect();
             const panel = box(".movie-downloads"), catalogue = box(".movie-catalogue");
-            return wide ? panel.left > catalogue.right : panel.bottom < catalogue.top;
-        }, wide), true);
+            const shelf = document.querySelector(".movie-shelf");
+            const panelElement = document.querySelector(".movie-downloads");
+            return panel.left === catalogue.left && panel.right === catalogue.right &&
+                Boolean(panelElement.compareDocumentPosition(shelf) & Node.DOCUMENT_POSITION_FOLLOWING);
+        }), true);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
         await page.screenshot({path: path.join(process.argv[2] || homeOutput, profile + "-downloads.png")});
 
@@ -50,7 +55,7 @@ async function verify(browser, profile, options) {
         await panel.getByText("Almost done, about 1 min left").waitFor();
         assert.equal(await page.evaluate(() => queueReads), 2);
 
-        const setLibraryHidden = hidden => page.locator(".movie-library-columns").evaluate((node, hidden) => {
+        const setLibraryHidden = hidden => page.locator(".movie-catalogue").evaluate((node, hidden) => {
             node.parentElement.hidden = hidden;
         }, hidden);
         await setLibraryHidden(true);

@@ -51,7 +51,7 @@ async function moviePage(page) {
         if (name) return route.fulfill({path: path.join(root, "clients/FamilyHub.App/wwwroot", name)});
         return route.fulfill({contentType: "text/html", body: `
             <meta name="viewport" content="width=device-width,initial-scale=1">
-            <link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/movies.css">
+            <link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/movies.css"><link rel="stylesheet" href="/service-status.css">
             <style>html,body{height:auto;min-height:100dvh;overflow:auto}body{display:block;padding:1rem;background:#0b0d12}</style>
             <main class="movie-library"></main>`});
     });

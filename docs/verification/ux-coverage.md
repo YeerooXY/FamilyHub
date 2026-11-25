@@ -1,5 +1,26 @@
 # Interface verification
 
+## 25 November 2026 Music loudness
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Music Settings, Even out song volume on and off | never | never | never | never | never | Source check, 25 Nov 2026 | never |
+
+[Playback, test and device checks](loudness-2026-11-25/README.md)
+
+## 25 November 2026 Home albums and radio
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Home Radio, loading, empty and retry | never | never | never | never | never | Source check, 25 Nov 2026 | never |
+| Album details, loading, partial library, retry and ready | never | never | never | never | never | Source check, 25 Nov 2026 | never |
+
+[Fixture and capture record](home-1-5-1-2026-11-25/README.md)
+
+## 25 November 2026 Movies & TV 1.5.1
+
+Layout, visuals, motion, focus and keyboard, accessibility, wording and states are pending for Movies Home and Downloading, film details, series and episodes, player recovery and the shared app status banner. The [fixture and capture record](movies-polish-2026-11-25/README.md) lists the profiles and checks.
+
 ## 25 November 2026 Movies browser suite
 
 Round 3 passed 15 of 16 fixture tests across Movies Home, episodes, search, Downloading, player controls, volume, audio jobs, subtitles and quality negotiation. The popup test reached Leaderboard, where the fixture lacked the annual listening response on `/api/activity/stats`. The fixture source now serves that response. The rerun returned `spawnSync ... node.exe EPERM` before starting any browser tests. The rebuilt fixture still needs rendered Movies Settings checks for layout, visuals, motion, focus and keyboard, accessibility, wording and states. [Movies Home checks](movies-home-2026-11-24/README.md) and [player checks](movie-player-2026-11-24/README.md).
@@ -462,3 +483,11 @@ Both `Most Wanted A hajsza S2` and `Most Wanted A hajsza 2. évad` returned a se
 The Windows Chromium fixture and emulated Mac Safari, Android Chrome and iPhone Safari show the selected avatar and password fields in one centered column. The captures are in `.local/profile-sign-in-review/`. Checked normal animation, reduced motion on iPhone, Enter and Space selection, touch, Tab and Shift+Tab, focus after Back and Escape, inline rejection, and completion into the app. The fixture uses fallback avatars and simulated server responses. Portable client tests cover saved sign-in after restart and removal after a rejected password, a reset, or Switch profile.
 
 Physical Android and iPhone keyboards, macOS and iOS font rendering, native secure storage on physical devices, enlarged text and screen-reader speech remain open.
+## 25 November 2026 · Server unavailable
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| [Outage audit and fixture scenarios](outage-states-2026-11-25/README.md) | never | never | never | never | never | Source check, 25 Nov 2026 | never |
+
+The browser script covers emulated profiles. Captures, physical devices, and screen-reader speech remain pending.
+

@@ -4,16 +4,15 @@
 @inject IJSRuntime JS
 @using Microsoft.Maui.Networking
 
-<div @ref="host" class="movie-library" data-native-fullscreen="@(OperatingSystem.IsWindows() ? "true" : null)"></div>
-@if (loading || !failed && shelf is null)
-{
-    <div class="movie-home-skeleton movie-session-skeleton" aria-hidden="true"><span></span><span></span></div>
-}
-@if (message.Length > 0)
-{
-    <p role="status">@message</p>
-    @if (failed) { <button class="quiet" @onclick="Retry">Retry movies</button> }
-}
+<div class="service-status-stage">
+    <div @ref="host" id="movie-service-content" class="movie-library" data-native-fullscreen="@(OperatingSystem.IsWindows() ? "true" : null)"></div>
+    @if (!failed && (loading || shelf is null))
+    {
+        <div class="movie-home-skeleton movie-session-skeleton" aria-hidden="true"><span></span><span></span></div>
+    }
+    <ServiceStatus Active="failed" FullSection="true" Detail="Check the Jellyfin connection for this profile."
+                   RetryLabel="Retry movies" Retry="Load" Busy="loading" AutoRetry="true" RecoveryTarget="#movie-service-content" />
+</div>
 
 @code {
     private ElementReference host;
@@ -22,7 +21,6 @@
     private FamilyHub.Client.Core.FamilyHubApi? movieApi;
     private string? mediaTicket;
     private readonly CancellationTokenSource closed = new();
-    private string message = "";
     private bool failed, loading;
 #if WINDOWS
     private bool disposing;
@@ -33,13 +31,10 @@
         if (firstRender) await Load();
     }
 
-    private async Task Retry() => await Load();
-
     private async Task Load()
     {
         if (loading || closed.IsCancellationRequested) return;
         loading = true;
-        message = "";
         var started = System.Diagnostics.Stopwatch.StartNew();
         try
         {
@@ -58,12 +53,10 @@
             shelf = await module.InvokeAsync<IJSObjectReference>("openMovies", host, connection, callback, viewer, remaining);
             if (closed.IsCancellationRequested) { await shelf.InvokeVoidAsync("close"); return; }
             Connectivity.Current.ConnectivityChanged += MovieConnectionChanged;
-            message = "";
             failed = false;
         }
         catch (Exception) when (!closed.IsCancellationRequested)
         {
-            message = "Movies are unavailable. Check the Jellyfin connection for this profile.";
             failed = true;
         }
         catch (OperationCanceledException) { }

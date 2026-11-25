@@ -1,7 +1,18 @@
-'use strict';
+import { createServiceStatus } from './service-status.js';
+
 const $ = id => document.getElementById(id);
 const REFRESH_MS = 30000;
 let csrf = '', timer = 0, refreshing = false;
+const outage = createServiceStatus({
+  detail: 'Reconnect to load seeding records.', label: 'Retry seeding', retry: refresh,
+  focus: () => $('global').hidden ? $('page-title') : $('global-title'), automatic: true, fullSection: true
+});
+$('seeding-outage').append(outage.card);
+const signInOutage = createServiceStatus({
+  detail: 'Reload profiles, then enter your password again.', label: 'Retry profile lookup',
+  retry: () => showSignIn(), focus: () => $('password')
+});
+$('signin-outage').append(signInOutage.card);
 
 async function api(path, options = {}) {
   const headers = {Accept: 'application/json'};
@@ -33,15 +44,19 @@ async function showSignIn(message) {
   const prior = select.value;
   const {data} = await api('/api/connect').catch(() => ({data: null}));
   if (!Array.isArray(data?.profiles) || !data.profiles.length) {
-    showUnavailable('Profiles did not load.');
+    showUnavailable();
     return;
   }
   csrf = data.csrf_token;
   select.replaceChildren(...data.profiles.map(profile => new Option(profile.name, profile.id)));
   if (data.profiles.some(profile => profile.id === prior)) select.value = prior;
   $('signin-error').textContent = message || '';
+  const shouldFocus = $('seeding').contains(document.activeElement) ||
+    $('signin').contains(document.activeElement) || document.activeElement === document.body;
   show('signin');
-  select.focus();
+  if (shouldFocus) select.focus();
+  outage.clear();
+  signInOutage.clear();
 }
 
 function part(label, value) {
@@ -88,12 +103,14 @@ function render(snapshot) {
     : items.length ? '' : 'No torrents on the server.';
 }
 
-function showUnavailable(message) {
+function showUnavailable() {
   const wasSigningIn = $('signin').contains(document.activeElement);
   show('seeding');
-  $('status').textContent = message;
-  $('retry').hidden = false;
-  if (wasSigningIn) $('retry').focus();
+  $('status').textContent = '';
+  if (outage.card.hidden) outage.card.querySelector('.service-status-announcement p').textContent =
+    $('global').hidden ? 'Reconnect to load seeding records.' : 'Showing the last reading.';
+  outage.show();
+  if (wasSigningIn) outage.card.querySelector('button').focus();
 }
 
 async function refresh() {
@@ -102,26 +119,24 @@ async function refresh() {
   clearTimeout(timer);
   const {status, data} = await api('/api/server/seeding').catch(() => ({status: 0, data: null}));
   if (status === 401 || status === 403) {
-    if ($('seeding').contains(document.activeElement)) $('page-title').focus();
     $('global').hidden = $('items').hidden = $('files-title').hidden = true;
     await showSignIn(status === 403 ? 'Choose an administrator profile.' : '');
     refreshing = false;
     return;
   }
   if (status === 200 && data?.available) {
-    const moveFocus = document.activeElement === $('retry') || $('signin').contains(document.activeElement);
+    const moveFocus = $('signin').contains(document.activeElement);
     render(data);
     show('seeding');
     if (moveFocus) $('global-title').focus();
-    $('retry').hidden = true;
+    outage.clear();
   } else {
-    showUnavailable($('global').hidden ? 'Seeding records did not load.' : 'Refresh failed. Showing the last reading.');
+    showUnavailable();
   }
   refreshing = false;
-  if (!document.hidden) timer = setTimeout(refresh, REFRESH_MS);
+  if (!document.hidden && outage.card.hidden) timer = setTimeout(refresh, REFRESH_MS);
 }
 
-$('retry').addEventListener('click', () => { $('retry').focus(); refresh(); });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) clearTimeout(timer);
   else if (!$('seeding').hidden) refresh();
@@ -141,8 +156,12 @@ $('signin-form').addEventListener('submit', async event => {
     await refresh();
     return;
   }
-  $('signin-error').textContent = status === 403 || status === 401 ? (data?.error || 'Incorrect password. Try again.')
-    : status === 429 ? 'Too many attempts. Wait a few minutes.' : 'The server did not respond. Try again.';
+  if (status === 0 || status >= 500) signInOutage.show();
+  else {
+    signInOutage.clear();
+    $('signin-error').textContent = status === 403 || status === 401 ? (data?.error || 'Incorrect password. Try again.')
+      : status === 429 ? 'Too many attempts. Wait a few minutes.' : 'Sign-in could not finish. Try again.';
+  }
   $('password').focus();
 });
 refresh();

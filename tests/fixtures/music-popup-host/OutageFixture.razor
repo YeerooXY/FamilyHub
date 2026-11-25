@@ -1,0 +1,87 @@
+@using FamilyHub.App.Components
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using FamilyHub.App.Components.Pages
+@using FamilyHub.App.Services
+@inject MusicSession Session
+
+<div class="workspace" data-app-view="@(Screen == "wordle" ? "Wordle" : null)">
+    <main id="content" tabindex="-1">
+        @switch (Screen)
+        {
+            case "movies":
+                <MoviesView />
+                break;
+            case "files":
+                <FilesView />
+                break;
+            case "movie-health":
+                <MoviesServerStatus />
+                break;
+            case "health":
+                <ServerHealth Api="Session.Api" />
+                break;
+            case "server-work":
+                <ServerStats />
+                break;
+            case "leaderboard":
+                <ServerStats Leaderboard="true" />
+                break;
+            case "song-review":
+                <CatalogueReviewPanel />
+                break;
+            case "artist-mappings":
+                <ArtistMappings />
+                break;
+            case "wordle":
+                <DailyWordle />
+                break;
+            case "wordle-settings":
+                <WordleSettings />
+                break;
+            case "discovery":
+                <DiscoveryShelf />
+                break;
+            case "lyrics":
+                <LyricsView />
+                break;
+            case "diagnostics":
+                <PlaybackDiagnostics />
+                break;
+            case "listening":
+                <ListenTogetherPanel />
+                break;
+            case "add-songs":
+                <button id="fixture-action" @onclick='() => add?.Open("fixture-action")'>Open Add songs</button>
+                <AddSongs @ref="add" />
+                break;
+            case "upload":
+                <button id="fixture-action" @onclick="Upload">Submit songs</button>
+                <UploadSongs @ref="upload" Prefix="outage-upload" SubmitId="fixture-action" />
+                break;
+            case "playlist-picker":
+                <button id="fixture-action" @onclick='() => picker?.Open(Session.Library[0], "fixture-action")'>Open playlist picker</button>
+                <SongPlaylistPicker @ref="picker" />
+                break;
+            case "playlist-progress":
+                <PlaylistTransfer Playlist="@Session.Playlists[0]" />
+                break;
+            case "report-song":
+                <button id="fixture-action" @onclick='() => report?.Open(Session.Library[0], "fixture-action")'>Open song report</button>
+                <ReportSong @ref="report" />
+                break;
+            case "not-found":
+                <NotFound />
+                break;
+        }
+    </main>
+</div>
+
+@code {
+    [Parameter] public string Screen { get; set; } = "";
+    private AddSongs? add;
+    private SongPlaylistPicker? picker;
+    private UploadSongs? upload;
+    private ReportSong? report;
+    private Task Upload() => upload?.UploadTo(null) ?? Task.CompletedTask;
+}

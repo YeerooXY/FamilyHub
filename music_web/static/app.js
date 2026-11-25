@@ -558,6 +558,19 @@ function playbackFailure(message) {
 }
 
 async function listen(track, keepQueue = false, context = "search", local = true) {
+  if (track.id?.startsWith("deezer:")) {
+    unlock();
+    const version = ++requestVersion;
+    try {
+      const match = await api("/api/recommendations/match", {method:"POST", timeout:45000, json:{id:track.id}});
+      if (version !== requestVersion) return;
+      if (manualQueue.delete(track.id)) manualQueue.add(match.id);
+      track = {...track, ...match};
+    } catch (error) {
+      if (version === requestVersion) playbackFailure(error.message);
+      return;
+    }
+  }
   const localEpoch = local ? playbackEpoch : null;
   selectedSource = sourceKey(track);
   updateSongStates();
@@ -676,7 +689,7 @@ function queueIdentity(track) { return track?.playlistEntry || sourceKey(track);
 function pruneQueue() {
   manualQueue.delete(sourceKey(currentTrack));
   const explicit = queue.filter(t => t.playlistEntry || manualQueue.has(sourceKey(t)));
-  const automatic = songRecommendations.unique(queue.filter(t => !t.playlistEntry && !manualQueue.has(sourceKey(t)) && !listeningHistory.recent(t) && ($("queue-mode").value !== "mix" || songRecommendations.similar(similarSeed || currentTrack,t))), [currentTrack,...explicit].filter(Boolean));
+  const automatic = songRecommendations.unique(queue.filter(t => !t.playlistEntry && !manualQueue.has(sourceKey(t)) && !listeningHistory.recent(t) && ($("queue-mode").value !== "mix" || t.deezerRelated || songRecommendations.similar(similarSeed || currentTrack,t))), [currentTrack,...explicit].filter(Boolean));
   queue = [...explicit,...automatic];
   queue = [...new Map(queue.filter((r) => queueIdentity(r) !== queueIdentity(currentTrack)).map((r) => [queueIdentity(r), r])).values()];
 }
@@ -912,9 +925,11 @@ let similarSeed = null, similarVersion = 0;
 async function discoverSimilar(seed) {
   const artist=artistName(seed).slice(0,120);
   if (!artist) return [];
-  const data=await api("/api/recommendations", {method:"POST", timeout:15000, json:{query:artist + " official audio", seed_artist:artist}});
+  const data=await api("/api/recommendations", {method:"POST", timeout:60000, json:{query:artist, seed_artist:artist, seed_title:(seed.title || "").slice(0,300)}});
   if ((!seed.genre || seed.genre === "Unsorted") && data.seed_genre && data.seed_genre !== "Unsorted") seed.genre=data.seed_genre;
-  return songRecommendations.unique(data.results.filter(t=>songRecommendations.similar(seed,t)),[seed]);
+  const results = data.from_deezer ? data.results.map(t => ({...t, deezerRelated:true}))
+    : data.results.filter(t=>songRecommendations.similar(seed,t));
+  return songRecommendations.unique(results,[seed]);
 }
 $("recommend-similar").addEventListener("click", async () => {
   setView("queue");
@@ -931,7 +946,7 @@ $("recommend-similar").addEventListener("click", async () => {
   try {
     const found=await discoverSimilar(seed);
     if(version!==similarVersion)return;
-    const candidates=songRecommendations.unique([...found,...pool].filter(t=>songRecommendations.similar(seed,t)),[seed]);
+    const candidates=songRecommendations.unique([...found,...pool.filter(t=>songRecommendations.similar(seed,t))],[seed]);
     list.replaceChildren(...related(seed,candidates).map(t=>searchRow(t,"recommendations")));
     updateSongStates();
     if (candidates.length) notice(status, "Based on " + seed.title + ". Playing or queueing a new recording saves it to the server.");

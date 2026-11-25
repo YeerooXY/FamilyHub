@@ -8,6 +8,8 @@ verifyMovieProfiles(async (browser, profile, options) => {
     page.setDefaultTimeout(7000);
     await page.addInitScript(() => {
         HTMLMediaElement.prototype.canPlayType = () => "probably";
+        // The fixture clip may not decode in every engine; these checks cover the player screens, not stream recovery (movies_player does).
+        document.addEventListener("error", event => { if (event.target instanceof HTMLMediaElement) event.stopImmediatePropagation(); }, true);
         HTMLMediaElement.prototype.play = function () {
             if (this.tagName === "AUDIO") {
                 this.fixturePlaying = true;
@@ -37,6 +39,8 @@ verifyMovieProfiles(async (browser, profile, options) => {
     await page.route(jellyfin + "/**", route => {
         const req = route.request(), url = new URL(req.url());
         if (req.method() === "OPTIONS") return route.fulfill({status: 204, headers: cors});
+        if (url.pathname.endsWith("/stream"))
+            return route.fulfill({headers: cors, path: path.join(__dirname, "fixtures/movie-subtitles.mp4"), contentType: "video/mp4"});
         let json = {Items: [], TotalRecordCount: 0};
         if (url.pathname === "/Items" && url.searchParams.get("includeItemTypes") === "Movie")
             json = {Items: [movie], TotalRecordCount: 1};
@@ -84,12 +88,12 @@ verifyMovieProfiles(async (browser, profile, options) => {
             {profile: "owner"});
     }, {jellyfin, movie});
     const focused = async node => page.waitForFunction(el => el === document.activeElement, await node.elementHandle());
-    const library = page.getByRole("region", {name: "Audio tracks"});
     const card = page.locator("button.movie-card").filter({hasText: "In Time"}).first();
     await card.waitFor();
     assert.equal(await page.getByRole("button", {name: "Add audio track for In Time", exact: true}).count(), 0);
     await card.press("Enter");
     const details = page.getByRole("region", {name: "In Time", exact: true});
+    const library = details.locator(".movie-title-audio");
     const add = details.getByRole("button", {name: "Add audio track for In Time", exact: true});
     await add.press("Enter");
     const sheet = page.getByRole("dialog", {name: "Add audio track"});
@@ -106,6 +110,8 @@ verifyMovieProfiles(async (browser, profile, options) => {
     await close.press("Enter");
     await focused(add);
     await library.getByText(jobName()).waitFor();
+    await page.getByText("Audio track added.", {exact: true}).waitFor();
+    await focused(add);
     const remove = library.getByRole("button", {name: "Delete source file"});
     await remove.press("Enter");
     const keep = library.getByRole("button", {name: "Keep file"});

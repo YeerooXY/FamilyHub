@@ -32,7 +32,7 @@ from . import feedback, wordle
 from .wordle_source import published_answer
 from .listening_versions import ListeningVersions
 from .catalogue_review import CatalogueReview, lookup as lookup_catalogue_metadata, register as register_catalogue_review
-from .review_confidence import DEFAULT_AUTO_RESOLUTIONS_PER_HOUR, normal, presentation_title, recording_labels
+from .review_confidence import DEFAULT_AUTO_RESOLUTIONS_PER_HOUR, normal, pick_equivalent, presentation_title, recording_labels
 from .source_quality import register as register_source_quality
 from .song_analysis import register as register_song_analysis
 from .finished_audio import FinishedAudio, prepare_record, activity as finished_audio_activity
@@ -42,10 +42,12 @@ from .lyrics import LyricsCache
 from .worker_activity import WorkerActivity, stage_summary
 from .resources import (ResourceGovernor, TransferResources, PROVIDERS, background_activity, background_request,
                         enabled, transfer_limit, waiting, runtime_capacity, background_command, audio_command, lower_background_priority)
-from . import link_playlists
+from . import link_playlists, similar_songs
+from . import home_albums, home_radio
 from . import radio
 from .http_limits import body_limit
 from .library_index import LibraryIndex, SOURCE_ID, file_stamp, library_folders, matches, search_words, source_id as folder_source_id
+from . import library_loudness
 
 MAX_UPLOAD = 512 << 20
 SESSION_HOURS = 12
@@ -67,7 +69,7 @@ def scratch_size(workspace, library, intake):
         if root == workspace:
             # Published assets are durable storage, not acquisition scratch space.
             dirs[:] = [d for d in dirs if d not in
-                       (".app-updates", ".listening-versions", ".finished-audio", ".discovery")]
+                       (".app-updates", ".listening-versions", ".finished-audio", ".discovery", ".library-loudness-v1")]
             for name in dirs[:]:
                 if not intake.ID_RE.fullmatch(name):
                     continue
@@ -267,8 +269,8 @@ def create_app(test_config=None):
     playback_devices = PlaybackDevices(presence=resources)
     playback_diagnostics = PlaybackDiagnostics()
 
-    def job_playback_stage(job, stage):
-        playback_diagnostics.record(job["owner"], job.get("play_action"), stage)
+    def job_playback_stage(job, stage, *, once=False):
+        playback_diagnostics.record(job["owner"], job.get("play_action"), stage, once=once)
 
     @app.route("/api/playback/diagnostics", methods=["GET", "POST"])
     def playback_diagnostic_events():
@@ -290,6 +292,8 @@ def create_app(test_config=None):
                 observation["reason"] = reason
         playback_diagnostics.record(g.user, action, "client_" + stage, client_ms=elapsed, begin=True,
                                     observation=observation)
+        if stage in ("screen_off", "screen_on", "next_warmup_start", "next_warmup_finish", "next_warmup_failed"):
+            log.info("playback %s action=%s elapsed_ms=%d position_ms=%d", stage, action, elapsed, observation["position_ms"])
         # Interruptions reach the server journal with their position and reason, so a stop can be explained after the
         # in-memory timings expire (they last 30 minutes).
         if stage in PLAYBACK_PROBLEMS and (observation or {}).get("reason") not in ("user_request", "end_of_item", "remote_control"):
@@ -815,7 +819,8 @@ def create_app(test_config=None):
             if source_id:
                 found = next((j for j in jobs.values() if j["owner"] == user and j.get("source_id") == source_id
                               and j["state"] not in ("error", "cancelled") and not j["cancel"].is_set()
-                              and j["preview_state"] != "expired"), None)
+                              and (j["state"] in ("queued", "running") or j["preview_state"] != "expired"
+                                   or j.get("source_ready"))), None)
                 if found:
                     found["accessed"] = now
                     if found.get("current"):
@@ -855,6 +860,7 @@ def create_app(test_config=None):
         if include_media and job.get("source_ready") and job["state"] != "cancelled":
             out["fallback_url"] = f"/api/jobs/{job['id']}/media/source"
             out["fallback_stream_url"] = stream_url(out["fallback_url"])
+            job_playback_stage(job, "source_stream_offered", once=True)
         return out
 
     def source_signature(result):
@@ -1198,13 +1204,15 @@ def create_app(test_config=None):
                 text = fh.read(1 << 20)
             lines = text.splitlines()
             segments = {line for line in lines if line and not line.startswith("#")}
-            if not segments or any(not re.fullmatch(r"seg\d{5}\.m4s", name) for name in segments):
+            if (not segments or any(not re.fullmatch(r"seg\d{5}\.m4s", name) for name in segments)
+                    or any("URI=" in line and line != '#EXT-X-MAP:URI="init.mp4"' for line in lines)):
                 return
             names = {"index.m3u8", "init.mp4"} | segments
             for name in names:
                 app.intake.regular_file(os.path.join(root, name), "asset")
             with lock:
                 job["assets"].update(names)
+                job["preview_manifest"] = text
                 if job["preview_state"] != "ready":
                     job_playback_stage(job, "preview_ready")
                 job["preview_state"] = "ready"
@@ -2019,14 +2027,14 @@ def create_app(test_config=None):
         # Re-evaluate persisted choices before making another network request.
         if track.get("candidates"):
             track["candidates"] = rank_matches(track, track["candidates"])
-            cached = preferred_match(track["candidates"])
+            cached = pick_equivalent(track, track["candidates"]) or preferred_match(track["candidates"])
             if cached is not None:
                 return cached
         progress("Searching YouTube")
         query = (track["artist"].split(",")[0] + " " + track["title"])[:200]
         found = matching_search(SimpleNamespace(query=query, limit=30, offset=0))["results"]
         track["candidates"] = rank_matches(track, found, search=matching_search)
-        return preferred_match(track["candidates"])
+        return pick_equivalent(track, track["candidates"]) or preferred_match(track["candidates"])
 
     def queue_playlist_recording(user, pid, row, source_replacement=False, requested=False):
         with app.app_context():
@@ -2115,6 +2123,7 @@ def create_app(test_config=None):
     if automatic_downloads:
         playlist_preparation.backlog_wake = backlog_wake
         playlist_store.changed = playlist_preparation.backlog_changed
+    playlist_preparation.recheck_stored_reviews([p["id"] for p in profile_store.list()] if family_mode else sorted(allowed))
     app.extensions["music"].catalogue_review = catalogue_review
     def review_recording(identifier):
         if not re.fullmatch(r"(?:[A-Za-z0-9_-]{11}|local-[0-9a-f]{16})",identifier): raise ApiError("Choose a saved song.")
@@ -2418,6 +2427,14 @@ def create_app(test_config=None):
         try:
             data = body() if request.method != "GET" else {}
             with catalogue_lock:
+                if request.method == "GET" and request.args.get("follow") == "1":
+                    owner = request.args.get("owner_id", g.user)
+                    playlist = playlist_store.read(owner, pid)
+                    if owner != g.user and not (family_mode and (playlist.get("shared") is True
+                            or g.user in playlist.get("co_authors", []) or g.user in cfg["ADMIN_USERS"])):
+                        raise ApiError("This playlist is unavailable.", 403)
+                    status = playlist_preparation.status(owner, pid)
+                    return jsonify(state=status["state"], download_after_matching=status.get("download_after_matching", False))
                 owner = editable_playlist_owner(pid, data)
                 if request.method == "POST": status = playlist_preparation.start(owner, pid, data.get("mode", "download"), actor=g.user)
                 elif request.method == "DELETE":
@@ -2550,8 +2567,74 @@ def create_app(test_config=None):
             playlist_store.save(g.user, playlist)
         return start(job, app.intake.WATCH + vid, None, m)
 
-    @app.post("/api/search")
     @app.post("/api/recommendations")
+    def recommendations():
+        data = body()
+        artist = data.get("seed_artist", data.get("query", ""))
+        title = data.get("seed_title", "")
+        offset = data.get("offset", 0)
+        if not isinstance(artist, str) or not 1 <= len(artist.strip()) <= 120 or any(ord(c) < 32 or ord(c) == 127 for c in artist):
+            raise ApiError("Invalid recommendation artist.")
+        if not isinstance(title, str) or len(title) > 300 or any(ord(c) < 32 or ord(c) == 127 for c in title):
+            raise ApiError("Invalid recommendation song.")
+        if type(offset) is not int or not 0 <= offset <= 48 or offset % 8:
+            raise ApiError("Invalid recommendation page.")
+        artist = radio.first_artist(artist)
+        genre = genre_labels.get(artist)
+        key = (g.user, True, artist.casefold(), title.casefold())
+        with lock:
+            cached = search_cache.get(key) if offset else None
+        if cached and time.time() - cached[0] < 300:
+            _, found, from_deezer = cached
+        else:
+            with lock:
+                if not allow("search:" + g.user, 40, 60):
+                    raise ApiError("Too many searches. Wait a minute.", 429)
+            library = library_tracks()
+            try:
+                found = similar_songs.suggestions(artist, title, library)
+                from_deezer = bool(found)
+            except PlaylistError:
+                found = []
+                from_deezer = False
+            except (OSError, ValueError):
+                from_deezer = False
+                found = radio.related_library(artist, genre, library)
+                if not found:
+                    raise ApiError("Similar songs are unavailable right now. Try again later or add songs from your library.", 503)
+            if not found:
+                found = radio.related_library(artist, genre, library)
+            found = list({row["id"]: row for row in found}.values())
+            if found:
+                with lock:
+                    search_cache[key] = (time.time(), found, from_deezer)
+                    while len(search_cache) > 32:
+                        search_cache.popitem(last=False)
+        results = found[offset:offset + 8]
+        return jsonify(results=results, next_offset=offset + 8 if offset + 8 < len(found) else None,
+                       seed_genre=genre, from_deezer=from_deezer, state="ready" if results else "empty",
+                       message="" if results else "No similar songs found. Try another song.")
+
+    @app.post("/api/recommendations/match")
+    def match_recommendation():
+        identifier = body().get("id")
+        if not isinstance(identifier, str) or not re.fullmatch(r"deezer:[0-9]{1,15}", identifier):
+            raise ApiError("Invalid Deezer song.")
+        with lock:
+            if not allow("match-recommendation:" + g.user, 40, 60):
+                raise ApiError("Too many recordings requested. Wait a minute.", 429)
+        try:
+            track = similar_songs.recording(identifier)
+            row = match_playlist_recording(g.user, track, lambda _: None)
+        except PlaylistError:
+            raise ApiError("This song is unavailable in Deezer. Choose another song.", 404)
+        except (OSError, ValueError, app.intake.IntakeError):
+            raise ApiError("The recording could not be checked. Try again later.", 503)
+        if row is None:
+            raise ApiError("No reliable recording was found. Choose another song.", 404)
+        return jsonify(row)
+
+    @app.post("/api/search")
     def search():
         data = body()
         q = data.get("query")
@@ -2561,18 +2644,10 @@ def create_app(test_config=None):
         include_long = data.get("include_long", False)
         if type(include_long) is not bool:
             raise ApiError("Invalid long-mix filter.")
-        recommendation = request.path.endswith("recommendations")
-        seed_artist = data.get("seed_artist", "") if recommendation else ""
-        if not isinstance(seed_artist, str) or len(seed_artist) > 120 or any(ord(c) < 32 for c in seed_artist):
-            raise ApiError("Invalid recommendation artist.")
-        if recommendation:
-            seed_artist = radio.first_artist(seed_artist)
-        search_key = (g.user, recommendation)
+        search_key = (g.user, False)
         q = q.strip() if isinstance(q, str) else ""
         if not 1 <= len(q) <= 200 or any(ord(c) < 32 or ord(c) == 127 for c in q):
             raise ApiError("Enter 1 to 200 characters to search.")
-        if recommendation and seed_artist:
-            q = seed_artist + ' official audio'
         block = offset // 30 * 30
         page_offset = offset - block
         def page(found, complete=True):
@@ -2582,14 +2657,8 @@ def create_app(test_config=None):
             results = [{k: r.get(k) for k in ("id", "url", "title", "channel", "duration", "kind")} for r in found[page_offset:page_offset + 8]]
             for track in results:
                 track["title"], track["channel"] = recording_labels({**track, "kind": "youtube"})
-            if recommendation:
-                for track, original in zip(results, found[page_offset:page_offset + 8]):
-                    track["genre"] = original.get('genre') or genre_labels.get(artist_name(track, {"artist": track.get("channel") or ""}))
-                return jsonify(results=results, next_offset=next_page, seed_genre=genre_labels.get(seed_artist),
-                               state='ready' if results else 'empty',
-                               message='' if results else 'No similar recordings found. Choose another artist or add songs from your library.')
             return jsonify(results=results, next_offset=next_page, complete=complete)
-        cache_key = (g.user, recommendation, q.casefold(), block)
+        cache_key = (g.user, False, q.casefold(), block)
         with lock:
             previous = searches.get(search_key)
             cached = search_cache.get(cache_key)
@@ -2609,18 +2678,17 @@ def create_app(test_config=None):
             if not allow("search:" + g.user, 40, 60):
                 raise ApiError("Too many searches. Wait a minute.", 429)
             for job in jobs.values():
-                if not job.get("playlist_import") and not job.get("library_addition") and not recommendation and not block and job["owner"] == g.user and job.get("search_preview") and not job.get("current") and job["state"] in ("queued", "running"):
+                if not job.get("playlist_import") and not job.get("library_addition") and not block and job["owner"] == g.user and job.get("search_preview") and not job.get("current") and job["state"] in ("queued", "running"):
                     cancel_acquisition(job)
                     if job["state"] == "queued":
                         job.update(state="cancelled", message="Cancelled")
         app.intake.CONTROL.cancel = cancel
-        search_failed = False
         try:
             for attempt in range(3):
                 if cancel.is_set():
                     raise ApiError("A newer search replaced this request.", 409)
                 try:
-                    result = app.intake.cmd_search(SimpleNamespace(query=q, limit=30, offset=block, main_only=not recommendation))
+                    result = app.intake.cmd_search(SimpleNamespace(query=q, limit=30, offset=block, main_only=True))
                     found = result["results"]
                     complete = result.get("complete", True)
                     break
@@ -2635,31 +2703,19 @@ def create_app(test_config=None):
                     if cancel.wait((1.5, 4)[attempt]):
                         raise ApiError("A newer search replaced this request.", 409)
         except ApiError:
-            if not recommendation or cancel.is_set():
-                raise
-            found, complete = [], True
-            search_failed = True
+            raise
         except Exception as e:
             log.warning("search failed: %s", type(e).__name__)
-            if not recommendation:
-                raise ApiError("Search failed. Try again later.", 502)
-            found, complete = [], True
-            search_failed = True
+            raise ApiError("Search failed. Try again later.", 502)
         finally:
             app.intake.CONTROL.cancel = None
-        if recommendation and not radio.related_library(seed_artist, genre_labels.get(seed_artist), found):
-            found = recommendation_fallback(seed_artist, found)
-            complete = True
-        if recommendation and search_failed and not found:
-            raise ApiError('Similar songs are unavailable right now. Try again later or add songs from your library.', 503)
         with lock:
             if cancel.is_set():
                 raise ApiError("A newer search replaced this request.", 409)
             selected = selections.setdefault(g.user, {})
             selected.update({r["id"]: r for r in found})
             selections[g.user] = dict(list(selected.items())[-100:])
-            if found or not recommendation:
-                search_cache[cache_key] = (time.time(), found, complete)
+            search_cache[cache_key] = (time.time(), found, complete)
             while len(search_cache) > 32:
                 search_cache.popitem(last=False)
         if not complete:
@@ -2691,32 +2747,6 @@ def create_app(test_config=None):
                         selections[owner] = dict(list(selected.items())[-100:])
             threading.Thread(target=enrich, daemon=True, name="search-enrichment").start()
         return page(found, complete)
-
-    def recommendation_fallback(artist, found):
-        local = radio.related_library(artist, genre_labels.get(artist), library_tracks())
-        if local:
-            return local
-        try:
-            url, _ = radio.seed(artist)
-            identifier = radio.URL.fullmatch(url).group(2)
-            top = link_playlists._deezer(f'artist/{identifier}/top?limit=5')
-            if top.get('error') or not isinstance(top.get('data'), list):
-                raise OSError('Catalogue unavailable')
-            for song in top['data'][:3]:
-                title = radio.clean_title(artist, song.get('title', ''))
-                if not title:
-                    continue
-                result = app.intake.cmd_search(SimpleNamespace(query=(artist + ' ' + title)[:200],
-                                               limit=8, offset=0, main_only=True))
-                found.extend(result['results'])
-                if radio.related_library(artist, '', found):
-                    return found
-        except PlaylistError:
-            return found
-        except (OSError, ValueError, app.intake.IntakeError):
-            if not found:
-                raise ApiError('Similar songs are unavailable right now. Try again later or add songs from your library.', 503)
-        return found
 
     def fetch_metadata(d, vid):
         if any(k in d for k in ("artist", "album", "track")):
@@ -2798,7 +2828,7 @@ def create_app(test_config=None):
                     if other is not job and (other.get('background_requested') or other.get('library_addition')):
                         other['priority'] = max(10, other['priority'])
                 obsolete_current = other.get("priority", 0) == 0
-                needs_slot = job["preview_state"] != "ready" and other["state"] == "running"
+                needs_slot = job["preview_state"] != "ready" and not job.get("source_ready") and other["state"] == "running"
                 if (not other.get("playlist_import") and not other.get("analyzing") and other is not job
                         and not other.get("library_addition")
                         and not other.get("background_requested")
@@ -3018,6 +3048,11 @@ def create_app(test_config=None):
                     artwork_cache.popitem(last=False)
         return send_file(io.BytesIO(data), mimetype="image/jpeg", max_age=86400)
 
+    loudness_directory = state_path(cfg, ".library-loudness-v1")
+
+    def library_measurement(digest):
+        return library_loudness.read_measurement(app.intake, library_loudness.measurement_path(loudness_directory, digest))
+
     def library_record(result, *, allow_unfinished=False, source_only=False):
         manifest = result["manifest"]
         record, source = manifest["import"], manifest["source"]
@@ -3031,7 +3066,7 @@ def create_app(test_config=None):
         track = {"id": recording_id, "url": source.get("url", ""), "title": metadata.get("title",title),
                  "channel": metadata.get("artist",artist), "library_album": metadata.get("album",record["album"]),
                  "genre": metadata.get("genre") or genre_labels.get(metadata.get("artist") or artist_name(source, record)), "duration": manifest["audio"]["duration"],
-                 "saved": True, "download_url": "/api/library/" + recording_id + "/download",
+                 "saved": True, "added_at": record.get("added_at"), "download_url": "/api/library/" + recording_id + "/download",
                  "download_size": stat.st_size, "download_sha256": record["library_sha256"],
                  "download_extension": os.path.splitext(target)[1].lower()}
         track["playback_info_url"] = "/api/library/" + recording_id + "/playback-info"
@@ -3056,11 +3091,22 @@ def create_app(test_config=None):
                          listening_version="finished", original_duration=manifest["audio"]["duration"],
                          source_start=offset + version["start"], source_end=offset + version["end"],
                          loudness_lufs=version["lufs"], true_peak_db=version["true_peak"])
-        measured = version if finished else profile(app.intake, result["item"], {
-            "audio": {"sha256": track["download_sha256"], "duration": track["duration"], "file": target}})
-        track.update(lufs=measured.get("lufs"), true_peak=measured.get("true_peak"))
+        original = library_measurement(record["library_sha256"])
+        if finished:
+            measured = version
+        else:
+            digest = track["download_sha256"]
+            measured = (original if digest == record["library_sha256"] else library_measurement(digest))
+            if measured is None:
+                measured = profile(app.intake, result["item"], {
+                    "audio": {"sha256": digest, "duration": track["duration"], "file": target}})
+        lufs, peak = measured.get("lufs"), measured.get("true_peak")
+        track.update(lufs=lufs, true_peak=peak,
+                     over_peak=(peak or 0) > 0 or ((original or {}).get("true_peak") or 0) > 0)
         # Preserve the legacy gain for installed clients.
-        track["playback_gain_db"] = 0 if finished else measured.get("gain_db", 0)
+        track["playback_gain_db"] = 0
+        if not finished and lufs is not None and peak is not None:
+            track["playback_gain_db"] = measured.get("gain_db", min(12, -16 - lufs, -1.5 - peak))
         track.update(song_analysis.metadata(recording_id, record['library_sha256']))
         catalogue_review.observe(track,source,record["library_sha256"],automatic_title=record.get('automatic_title'))
         metadata=catalogue_review.overrides(recording_id,record["library_sha256"])
@@ -3119,6 +3165,7 @@ def create_app(test_config=None):
             except (OSError, ValueError, app.intake.IntakeError):
                 raise ApiError("Could not measure mobile audio. Try again.", 503)
             track.update(lufs=measured["lufs"], true_peak=measured["true_peak"],
+                         over_peak=track["over_peak"] or measured["true_peak"] > 0,
                          playback_gain_db=min(12, -16 - measured["lufs"], -1.5 - measured["true_peak"]))
             return track, path
         except (OSError, ValueError, app.intake.IntakeError):
@@ -3241,6 +3288,8 @@ def create_app(test_config=None):
                            file_stamp(os.path.join(ws, edition['file'])) if edition else None,
                            file_stamp(finished + '.json'), file_stamp(finished + '.flac'),
                            file_stamp(os.path.join(ws, '.playback-' + selected + '.json')),
+                           file_stamp(library_loudness.measurement_path(loudness_directory, digest)),
+                           file_stamp(library_loudness.measurement_path(loudness_directory, selected)) if selected != digest else None,
                            overrides, genre, edition, song_analysis.rows.get(identifier + ':' + digest)])
         return stamps
 
@@ -3517,19 +3566,26 @@ def create_app(test_config=None):
             if request.args.get("watch") == "1":
                 return watch_job_status(lambda: (dict(job=public(job, include_media=False)),
                                                  job["state"] in ("queued", "running")))
+            if job["state"] not in ("queued", "running") and time.time() - job.get("accessed", job["created"]) > PREVIEW_TTL:
+                raise ApiError(HTTP_TEXT[404], 404)
             return jsonify(job=public(job))
 
     @app.route("/api/jobs/<job_id>/media/<asset>", methods=["GET", "HEAD"])
     def job_media(job_id, asset):
         # Asset names are generated by the intake worker and explicitly published in this job.
+        def preparing():
+            return jsonify(error="Preparing playback."), 503, {"Retry-After": "0"}
+
         with lock:
             job = jobs.get(job_id)
             if not job or job["owner"] != g.user:
                 raise ApiError(HTTP_TEXT[404], 404)
-            if time.time() - job.get("accessed", job["created"]) > PREVIEW_TTL:
+            if job["state"] not in ("queued", "running") and time.time() - job.get("accessed", job["created"]) > PREVIEW_TTL:
                 raise ApiError("Preview expired. Start this saved recording again to prepare playback.", 410)
             if asset == "source":
                 if not job.get("source_ready") or job["state"] == "cancelled":
+                    if job["state"] in ("queued", "running"):
+                        return preparing()
                     raise ApiError(HTTP_TEXT[404], 404)
                 item = job["item"]
                 job["accessed"] = time.time()
@@ -3546,10 +3602,15 @@ def create_app(test_config=None):
         with lock:
             if job["preview_state"] == "expired":
                 raise ApiError("Preview expired. Listen again to prepare playback.", 410)
-            if asset == "index.m3u8" and job["preview_state"] != "ready":
-                return jsonify(error="Preparing playback."), 503, {"Retry-After": "2"}
-            if not re.fullmatch(r"(?:index\.m3u8|init\.mp4|seg\d{5}\.m4s)", asset) or asset not in job["assets"]:
+            if not re.fullmatch(r"(?:index\.m3u8|init\.mp4|seg\d{5}\.m4s)", asset):
                 raise ApiError(HTTP_TEXT[404], 404)
+            if asset not in job["assets"] or asset == "index.m3u8" and job["preview_state"] != "ready":
+                if job["state"] in ("queued", "running") and not job.get("preview_failed"):
+                    return preparing()
+                if asset == "index.m3u8" and job["preview_state"] != "ready":
+                    return jsonify(error="Preview unavailable."), 503
+                raise ApiError(HTTP_TEXT[404], 404)
+            text = job.get("preview_manifest") if asset == "index.m3u8" else None
             root = os.path.join(ws, ".preview-" + job_id)
             path = os.path.join(root, asset)
             job["accessed"] = time.time()
@@ -3565,14 +3626,9 @@ def create_app(test_config=None):
         except app.intake.IntakeError:
             raise ApiError(HTTP_TEXT[404], 404)
         if asset == "index.m3u8":
-            # A finite snapshot closes its descriptor before FFmpeg replaces the next playlist.
-            with open(path, encoding="utf-8") as fh:
-                text = fh.read(1 << 20)
-            for line in text.splitlines():
-                if line and not line.startswith("#") and not re.fullmatch(r"seg\d{5}\.m4s", line):
-                    raise ApiError(HTTP_TEXT[404], 404)
-                if "URI=" in line and line != '#EXT-X-MAP:URI="init.mp4"':
-                    raise ApiError(HTTP_TEXT[404], 404)
+            # Serve the snapshot published together with its validated segment paths.
+            if text is None:
+                raise ApiError(HTTP_TEXT[404], 404)
             if "ticket" in request.args:
                 text = text.replace('URI="init.mp4"', 'URI="' + stream_url(f"/api/jobs/{job_id}/media/init.mp4") + '"')
                 text = "\n".join(stream_url(f"/api/jobs/{job_id}/media/{line}")
@@ -3589,6 +3645,8 @@ def create_app(test_config=None):
         lambda: {t["id"]: t for t in library_tracks()}, catalogue_lock, track_metadata=history_metadata,
         chart=deezer_chart, songs_added=songs_added, clear_totals=listening_stats.clear,
         yearly_daily=listening_stats.yearly_daily)
+    home_albums.register(app, body, allow, library_tracks, playlist_store, playlist_preparation, catalogue_lock, visible_playlist)
+    home_radio.register(app, allow, library_tracks, lambda: library_index, listening_history, profile_store if family_mode else None)
     from .discovery import register as register_discovery
     register_discovery(app, cfg, body, cfg["ADMIN_USERS"], library_tracks,
                        cfg.get("DISCOVERY_WORKER", cfg["PUBLIC_ORIGIN"] != "https://music.test"), background_idle)
@@ -3646,6 +3704,53 @@ def create_app(test_config=None):
                                      [ws, lib, cfg['REQUIRE_FINISHED_AUDIO']], library_dependencies,
                                      library_dependency_stamp, project_library_record)
         app.extensions['music'].library_index = library_index
+        loudness_retry = {}
+
+        def measure_library_loudness(proceed):
+            rows = library_index.read('SELECT id, folders, dependencies FROM sources ORDER BY id')
+            if rows is None:
+                return False
+            deadline = time.monotonic() + 15
+            attempted = False
+
+            def pending(digest):
+                return time.monotonic() >= loudness_retry.get(digest, 0) and library_measurement(digest) is None
+
+            for identifier, folders, dependencies in rows:
+                if not background_idle() or library_index.wake.is_set() or not proceed():
+                    return False
+                edition = listening_versions.versions.get(identifier, {})
+                entry_digests = {row[3] for row in json.loads(dependencies)}
+                if edition.get('source_sha256') in entry_digests:
+                    entry_digests.add(edition['sha256'])
+                if not any(pending(digest) for digest in entry_digests):
+                    continue
+                result = saved_source(identifier, candidates=json.loads(folders))
+                if not result:
+                    continue
+                record = result['manifest']['import']
+                original_digest = record['library_sha256']
+                sources = [(original_digest, os.path.join(lib, *record['path'].split('/')))]
+                if edition.get('source_sha256') == original_digest and pending(edition['sha256']):
+                    try:
+                        if selected := listening_versions.select(identifier, original_digest):
+                            sources.append((selected[0]['sha256'], selected[1]))
+                    except (OSError, ValueError, app.intake.IntakeError):
+                        loudness_retry[edition['sha256']] = time.monotonic() + 600
+                for digest, path in sources:
+                    if not pending(digest):
+                        continue
+                    if not background_idle() or index_stop.is_set() or (attempted and time.monotonic() >= deadline):
+                        return False
+                    attempted = True
+                    try:
+                        library_loudness.measure(app.intake, path, library_loudness.measurement_path(loudness_directory, digest))
+                    except (OSError, ValueError, app.intake.IntakeError):
+                        loudness_retry[digest] = time.monotonic() + 600
+                    else:
+                        loudness_retry.pop(digest, None)
+                        library_index.update({identifier: ()})
+            return True
 
         def reconcile_library():
             lower_background_priority()
@@ -3663,6 +3768,14 @@ def create_app(test_config=None):
                         if complete:
                             with suppress(OSError):
                                 catalogue_review.flush()
+                            if cfg.get('LIBRARY_LOUDNESS_WORKER', cfg['PUBLIC_ORIGIN'] != 'https://music.test'):
+                                app.intake.CONTROL.background = True
+                                app.intake.CONTROL.cancel = index_stop
+                                try:
+                                    complete = measure_library_loudness(proceed)
+                                finally:
+                                    app.intake.CONTROL.background = False
+                                    app.intake.CONTROL.cancel = None
                 else:
                     complete = False
                 library_index.wake.wait(30 if complete else 2)

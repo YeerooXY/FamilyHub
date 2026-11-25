@@ -1,15 +1,66 @@
 """Resumable playlist matching and acquisition through the existing music queue."""
+import logging
+import re
 import threading
 import time
 from contextlib import ExitStack
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
-from .playlists import PlaylistError, entry_identity, rank_matches, preferred_match
+from .playlists import PlaylistError, entry_identity
+from .review_confidence import pick_equivalent
 from .worker_activity import WorkerActivity
 from .resources import observe, background_request, enabled
 
 
 RETRY_DELAYS = (3600, 6 * 3600, 24 * 3600, 72 * 3600)
+log = logging.getLogger(__name__)
+
+
+def recheck_equivalent_reviews(store, owner, data):
+    """Bind eligible stored choices so the normal preparation queue can use them."""
+    resolved = set()
+    for index, track in enumerate(data['tracks']):
+        if (track.get('state') != 'review' or track.get('source_id') or track.get('match')
+                or track.get('job_id') or track.get('replacement_origins') or not track.get('candidates')):
+            continue
+        row = pick_equivalent(track, track['candidates'])
+        if row is None:
+            continue
+        source = row.get('id')
+        # The search stores canonical watch URLs. Bind only a URL that identifies the stored source.
+        if (not isinstance(source, str) or not re.fullmatch(r'[A-Za-z0-9_-]{11}', source)
+                or row.get('url') != 'https://www.youtube.com/watch?v=' + source):
+            continue
+        track.update(source_id=source, match=row, state='ready')
+        track.pop('backlog_retry', None)
+        resolved.add(index)
+    if not resolved:
+        return 0
+
+    status = data.get('preparation', {})
+    if status.get('playlist_revision') == data['revision']:
+        first = status.get('start_index', 0)
+        cursor = max(first, status.get('cursor', first + status.get('processed', 0)))
+        completed = set(range(first, cursor)) | set(status.get('completed_after', []))
+        rescued = resolved & completed
+        if rescued:
+            status['review'] = max(0, status.get('review', 0) - len(rescued))
+            recent = status.get('recent', [])
+            if status.get('mode') == 'download' and status.get('state') in ('paused', 'running', 'pausing'):
+                # A reviewed entry completed before the pause still needs its download turn.
+                cursor = min(cursor, min(rescued))
+                completed -= rescued
+                status.update(cursor=cursor, completed_after=sorted(i for i in completed if i >= cursor),
+                              processed=len(completed), recent=[item for item in recent if item['index'] - 1 not in rescued])
+            else:
+                status['found'] = status.get('found', 0) + len(rescued)
+                for item in recent:
+                    if item['index'] - 1 in rescued:
+                        item['state'] = 'ready'
+    store.save(owner, data)
+    for count in range(1, len(resolved) + 1):
+        log.info('auto-resolved equivalent recording playlist=%s count=%d', data['id'][:8], count)
+    return len(resolved)
 
 
 def record_attempt(track, previous):
@@ -259,34 +310,15 @@ class _PlaylistOperation:
         try:
             with self.lock:
                 data = self.store.read(user, pid)
+                recheck_equivalent_reviews(self.store, user, data)
                 tracks = deepcopy(data["tracks"])
                 prior = data["preparation"]
             first_index = prior.get("start_index", 0)
-            start_index = max(start_index, first_index)
+            start_index = max(prior.get("cursor", start_index), first_index)
             found, saved, review, failed = (prior.get(k, 0) for k in ("found", "saved", "review", "failed"))
             recent = deepcopy(prior.get("recent", []))
             cursor = start_index
             completed_after = {i for i in prior.get("completed_after", []) if type(i) is int and cursor <= i < len(tracks)}
-            if mode != "download":
-                rescued = []
-                for index in sorted(set(range(first_index, cursor)) | completed_after):
-                    track = tracks[index]
-                    if track.get("state") != "review" or track.get("source_id") or track.get("match") or not track.get("candidates"):
-                        continue
-                    ranked = rank_matches(track, track["candidates"])
-                    result = preferred_match(ranked)
-                    if result is None: continue
-                    track.update(candidates=ranked, source_id=result["id"], match=result, state="ready")
-                    rescued.append(index)
-                if rescued:
-                    found += len(rescued); review = max(0, review - len(rescued))
-                    for item in recent:
-                        if item["index"] - 1 in rescued: item["state"] = "ready"
-                    with self.lock:
-                        data = self.store.read(user, pid)
-                        for index in rescued: data["tracks"][index] = tracks[index]
-                        data["preparation"].update(found=found, review=review, recent=recent)
-                        self.store.save(user, data)
             next_index = cursor
             workers = self.download_workers if mode == "download" else 3
             file_progress = {}
@@ -348,7 +380,7 @@ class _PlaylistOperation:
                             break
                         index = next_index
                         next_index += 1
-                        if index in completed_after: continue
+                        if index < cursor or index in completed_after: continue
                         with self.lock:
                             if self.stop.is_set(): break
                             pending[pool.submit(process, index, tracks[index])] = index
@@ -440,6 +472,20 @@ class PlaylistPreparation:
         self.backlog_counts = dict(backlog_pending=0, backlog_backing_off=0, backlog_running=0)
         self.activity = WorkerActivity('playlist', 'Playlist matching / preparation', self.capacity)
         self.resources = resources
+
+    def recheck_stored_reviews(self, owners):
+        with self.lock:
+            for owner in owners:
+                try:
+                    playlists = self.store.list(owner, snapshot=True)
+                except PlaylistError:
+                    log.warning('Could not read playlists for equivalent recording recheck')
+                    continue
+                for data in playlists:
+                    try:
+                        recheck_equivalent_reviews(self.store, owner, data)
+                    except OSError:
+                        log.warning('Could not save equivalent recording recheck for playlist=%s', data['id'][:8])
 
     def _execute(self, key, operation, callback):
         with observe(self.resources, "matching", "playlist slots") as state:

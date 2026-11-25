@@ -6,33 +6,24 @@
 <section class="settings-panel glass-panel" aria-labelledby="wordle-settings-title">
     <h2 id="wordle-settings-title">Wordle</h2>
     <label class="setting-toggle">
-        <input type="checkbox" checked="@hideFamily" disabled="@(!loaded)" aria-disabled="@(busy ? "true" : "false")" @ref="choice"
+        <input id="wordle-settings-choice" type="checkbox" checked="@hideFamily" disabled="@(!loaded)" aria-disabled="@(busy ? "true" : "false")"
                aria-describedby="wordle-settings-help" @onchange="SetPreference" />
         <span>Hide family results until I finish</span>
     </label>
     <p id="wordle-settings-help" class="setting-help">This applies to today’s family boards and results.</p>
-    <p class="setting-help" role="status">@status</p>
-    @if (loadFailed)
-    {
-        <button type="button" aria-disabled="@(busy ? "true" : "false")" @onclick="Load">Retry Wordle settings</button>
-    }
+    @if (!loadFailed && !saveUnavailable) { <p class="setting-help" role="status">@status</p> }
+    <ServiceStatus Active="@(loadFailed || saveUnavailable)"
+                   Detail="@(saveUnavailable ? "Reload your preferences to check whether the change was saved." : "Reconnect to load your Wordle preferences.")"
+                   RetryLabel="Retry Wordle settings" Retry="Load" Busy="busy" AutoRetry="true" FocusTarget="#wordle-settings-choice" />
 </section>
 
 @code {
     private sealed record Preference([property: JsonPropertyName("hide_family_until_finished")] bool? HideFamily);
     private readonly CancellationTokenSource lifetime = new();
-    private bool hideFamily, loaded, loadFailed, busy, disposed, focusChoice;
-    private ElementReference choice;
+    private bool hideFamily, loaded, loadFailed, saveUnavailable, busy, disposed;
     private string status = "";
 
     protected override Task OnInitializedAsync() => Load();
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (!focusChoice) return;
-        focusChoice = false;
-        await choice.FocusAsync(preventScroll: true);
-    }
 
     private async Task Load()
     {
@@ -44,17 +35,13 @@
             hideFamily = await Request(HttpMethod.Get);
             if (disposed) return;
             loaded = true;
-            focusChoice = loadFailed;
             loadFailed = false;
+            saveUnavailable = false;
             status = "";
         }
         catch (Exception error) when (IsRequestError(error))
         {
-            if (!disposed)
-            {
-                loadFailed = true;
-                status = "Wordle settings are unavailable.";
-            }
+            if (!disposed) loadFailed = true;
         }
         finally { busy = false; }
     }
@@ -69,12 +56,16 @@
         try
         {
             hideFamily = await Request(HttpMethod.Put, new { hide_family_until_finished = hideFamily });
-            if (!disposed) status = "Wordle settings saved.";
+            if (!disposed) { saveUnavailable = false; status = "Wordle settings saved."; }
         }
         catch (Exception error) when (IsRequestError(error))
         {
             hideFamily = previous;
-            if (!disposed) status = "Couldn’t save this setting. Try again.";
+            if (!disposed)
+            {
+                saveUnavailable = error is HttpRequestException or OperationCanceledException or FamilyHubApiException { StatusCode: >= 500 };
+                status = saveUnavailable ? "" : "Couldn’t save this setting. Try again.";
+            }
         }
         finally { busy = false; }
     }

@@ -11,7 +11,12 @@
             <span class="update-line-fill" style="width:@(percent)%" aria-hidden="true"></span>
         </button>
         @if (morphing) { @Stage }
-        @if (!Compact) { <Notice Level="@(failed ? "error" : "info")" Message="@(working ? "" : message)" /> }
+        @if (!Compact)
+        {
+            <ServiceStatus Active="updateUnavailable" Detail="Check the connection to download the update."
+                           RetryLabel="Retry update download" Retry="Update" Busy="working" FocusTarget="@("#" + Id)" />
+            <Notice Level="@(failed ? "error" : "info")" Message="@(working || updateUnavailable ? "" : message)" />
+        }
         @if (!Compact && !working) { @WhatsNew }
         @if (AppUpdater.UpdatesInSideStore && !Compact)
         {
@@ -105,6 +110,8 @@
     private ElementReference buttonRef, titleRef;
     [Parameter] public string Id { get; set; } = "app-update";
     [Parameter] public EventCallback<AppRelease> Available { get; set; }
+    /// <summary>True while the full-screen updater is showing, so a hosting popup can give the whole window to it.</summary>
+    [Parameter] public EventCallback<bool> FullScreenChanged { get; set; }
     [Parameter] public AppRelease? InitialRelease { get; set; }
     private AppRelease? lastInitialRelease;
     protected override void OnParametersSet()
@@ -114,6 +121,7 @@
           if (InitialRelease is not null && !Compact) _ = LoadNotes(InitialRelease); }
     }
     private AppRelease? available;
+    private bool updateUnavailable;
     private string message = "";
     private string DescribeRelease(AppRelease release) => (VersionInHeading ? "" : $"Version {release.Version} is available. ")
         + (AppUpdater.UpdatesInSideStore
@@ -138,6 +146,7 @@
             return;
         }
         working = true; failed = false; percent = 0; focusTitle = !Compact && !Inline && !AppUpdater.UpdatesInSideStore;
+        if (focusTitle) await FullScreenChanged.InvokeAsync(true);
         announcement = "Downloading the update.";
         var lastAnnounced = 0;
         try
@@ -149,17 +158,19 @@
                 if (percent >= lastAnnounced + 25) { lastAnnounced = percent / 25 * 25; announcement = $"{lastAnnounced} percent downloaded."; }
                 _ = InvokeAsync(StateHasChanged);
             });
+            updateUnavailable = false;
             announcement = AppUpdater.Platform == "windows-x64" ? "Restarting FamilyHub." : "Download finished.";
             if (AppUpdater.Platform == "android") message = "Confirm the update in the Android installer.";
         }
         catch (FamilyHubApiException error) when (error.StatusCode == 404)
-        { failed = true; message = "This update is unavailable. Try again later."; }
-        catch (OperationCanceledException) { failed = true; message = "The update request timed out. Try again."; }
-        catch (HttpRequestException) { failed = true; message = "Could not download the update. Check your connection and try again."; }
-        catch (Exception error) { failed = true; message = NoticeText.Error(error, "The update could not finish. Try again."); }
+        { failed = true; updateUnavailable = true; message = "The update could not be downloaded."; }
+        catch (OperationCanceledException) { failed = true; updateUnavailable = true; message = "The update request timed out."; }
+        catch (HttpRequestException) { failed = true; updateUnavailable = true; message = "The update connection was lost."; }
+        catch (Exception error) { failed = true; updateUnavailable = false; message = NoticeText.Error(error, "The update could not finish. Try again."); }
         finally
         {
             working = false; focusButton = !Compact;
+            if (!Compact && !Inline && !AppUpdater.UpdatesInSideStore) await FullScreenChanged.InvokeAsync(false);
             if (Compact && (failed || AppUpdater.Platform == "android")) Session.SetMessage(message, failed ? "error" : "info");
         }
     }

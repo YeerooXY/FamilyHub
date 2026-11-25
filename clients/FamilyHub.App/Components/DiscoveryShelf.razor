@@ -1,10 +1,12 @@
 @implements IDisposable
 @inject IJSRuntime JS
 @inject MusicSession Session
-@if (items.Count > 0)
+@if (items.Count > 0 || loadFailed)
 {
     <section class="home-section" aria-labelledby="discovery-title">
         <div class="home-section-heading"><h2 id="discovery-title" tabindex="-1">New from artists you play</h2></div>
+        <ServiceStatus Active="loadFailed" Detail="Reconnect to load new releases." RetryLabel="Retry new releases"
+                       Retry="RetryLoad" Busy="loading" AutoRetry="true" FocusTarget="#discovery-title" />
         <ShelfArrows Target="discovery-shelf" Label="new releases"><div class="home-shelf" id="discovery-shelf">
             @foreach (var item in items)
             {
@@ -40,25 +42,32 @@
     private List<MusicTrack> choices = [];
     private readonly HashSet<string> failedCovers = [];
     private string message = "";
-    private bool busy;
+    private bool busy, loadFailed, loading;
     private FamilyHubApi? loadedApi;
     private string? loadedUser;
     private bool disposed;
     protected override async Task OnInitializedAsync() { Session.Changed += Changed; await Load(); }
     public void Dispose() { disposed = true; Session.Changed -= Changed; }
     private void Changed() => _ = InvokeAsync(async () => { await Load(background: true); if (!disposed) StateHasChanged(); });
-    private async Task Load(bool background = false)
+    private Task RetryLoad() => Load(background: true, retry: true);
+    private async Task Load(bool background = false, bool retry = false)
     {
         if (disposed) return;
-        if (!Session.Connected) { loadedApi = null; loadedUser = null; items.Clear(); choices.Clear(); return; }
+        if (!Session.Connected) { loadedApi = null; loadedUser = null; items.Clear(); choices.Clear(); loadFailed = false; return; }
         var api = Session.Api; var user = Session.User;
-        if (api is null || (ReferenceEquals(api, loadedApi) && loadedUser == user)) return;
-        loadedApi = api; loadedUser = user; items.Clear(); choices.Clear();
+        if (api is null || (ReferenceEquals(api, loadedApi) && loadedUser == user && (!retry || loading))) return;
+        loadedApi = api; loadedUser = user; items.Clear(); choices.Clear(); loading = true;
         try {
             var result = await api.RequestJsonAsync<DiscoveryPage>(HttpMethod.Get, "/api/discovery", background: background);
-            if (!disposed && ReferenceEquals(api, Session.Api) && user == Session.User) items = result.Items;
+            if (!disposed && ReferenceEquals(api, Session.Api) && user == Session.User)
+            { items = result.Items; loadFailed = false; }
         }
-        catch (Exception e) when (e is not OperationCanceledException) { }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            if (!disposed && ReferenceEquals(api, Session.Api) && user == Session.User)
+                loadFailed = e is HttpRequestException or FamilyHubApiException { StatusCode: >= 500 };
+        }
+        finally { if (ReferenceEquals(api, loadedApi) && user == loadedUser) loading = false; }
     }
     private async Task Dismiss(DiscoveryItem item)
     {
@@ -86,7 +95,7 @@
             var saved = Session.Library.FirstOrDefault(t => t.Title.Equals(item.Title, StringComparison.OrdinalIgnoreCase) && t.Channel.Equals(item.Artist, StringComparison.OrdinalIgnoreCase));
             if (saved is not null) { await PlayTracks.InvokeAsync((new[] { saved }, requestedAt)); message = ""; return; }
             choices = (await Session.Api.RequestJsonAsync<SearchPage>(HttpMethod.Post, "/api/search", new { query = query.Query })).Tracks;
-            message = choices.Count == 0 ? "This release is unavailable. Try again later." : "";
+            message = choices.Count == 0 ? "No recordings found for this release." : "";
         }
         catch (Exception e) when (e is not OperationCanceledException) { message = "Recordings could not be loaded. Try again later."; }
         finally { busy = false; }

@@ -205,7 +205,6 @@ public partial class DailyWordle
     {
         if (disposed || syncing || puzzle == null || confirmed >= puzzle.Guesses.Length) return;
         syncing = true;
-        syncFailed = false;
         try
         {
             while (!disposed && puzzle is { } active && confirmed < active.Guesses.Length)
@@ -219,6 +218,7 @@ public partial class DailyWordle
                     !updated.Guesses.Select(g => g.Word).SequenceEqual(puzzle.Guesses.Take(updated.Guesses.Length).Select(g => g.Word)))
                 {
                     await ResolveSyncConflict();
+                    syncFailed = false;
                     return;
                 }
                 confirmed = updated.Guesses.Length;
@@ -227,13 +227,14 @@ public partial class DailyWordle
             }
             if (!disposed)
             {
+                syncFailed = false;
                 Preferences.Default.Remove(SaveKey);
                 if (stats is not null) await Task.WhenAll(RefreshFamily(), LoadStats());
             }
         }
         catch (FamilyHubApiException error) when (error.StatusCode is 400 or 409 or 422)
         {
-            try { await ResolveSyncConflict(); }
+            try { await ResolveSyncConflict(); syncFailed = false; }
             catch (Exception failure) when (IsRequestError(failure)) { syncFailed = true; }
         }
         catch (Exception error) when (IsRequestError(error)) { syncFailed = true; }

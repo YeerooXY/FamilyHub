@@ -4,6 +4,7 @@ const path = require("node:path");
 const {app, reviewMovieProfiles} = require("./movies_fixture.cjs");
 
 const assets = path.join(__dirname, "../music_web/admin_static");
+const shared = path.join(__dirname, "../clients/FamilyHub.App/wwwroot");
 const out = process.argv[2];
 const gb = 1024 ** 3;
 const snapshot = {
@@ -40,7 +41,7 @@ async function verify(browser, profile, options) {
                 return route.fulfill({json: snapshot});
             }
             const asset = resource === "/admin" ? "admin.html" : path.basename(resource);
-            return route.fulfill({path: path.join(assets, asset), headers: {
+            return route.fulfill({path: path.join(asset.startsWith("service-status.") ? shared : assets, asset), headers: {
                 "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'"
             }});
         });
@@ -81,7 +82,7 @@ async function verify(browser, profile, options) {
         if (out) await page.screenshot({path: path.join(out, profile + "-admin-seeding.png")});
         unavailable = true;
         await page.clock.fastForward(31000);
-        const retry = page.getByRole("button", {name: "Retry"});
+        const retry = page.getByRole("button", {name: "Retry seeding"});
         await retry.waitFor();
         await page.getByRole("status").filter({hasText: "Showing the last reading"}).waitFor();
         assert.equal(await meter.isVisible(), true);

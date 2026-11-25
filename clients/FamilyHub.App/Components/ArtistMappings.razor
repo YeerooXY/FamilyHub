@@ -7,7 +7,7 @@
     <header class="music-admin-heading">
         <p class="muted">Discovery uses these mappings to find new releases on Deezer.</p>
         <div class="artist-mapping-actions">
-            <button class="quiet" @onclick="Load" disabled="@(Offline || loading || saving)"><MusicIcon Name="refresh" />Refresh</button>
+            <button id="artist-mapping-refresh" class="quiet" @onclick="Load" disabled="@(Offline || loading || saving)"><MusicIcon Name="refresh" />Refresh</button>
             @if (mappings is not null)
             {
                 <button id="artist-mapping-add" class="primary" @onclick="BeginAdd" disabled="@(Editing || Offline || loading)"><MusicIcon Name="plus" />Add mapping</button>
@@ -16,7 +16,10 @@
     </header>
 
     <Notice Level="error" Message="@error" />
-    <Notice Level="@(Offline ? "warning" : "info")" Message="@StatusMessage" />
+    <ServiceStatus Active="@(Offline || loadFailed)" Detail="Reconnect to update artist mappings."
+                   RetryLabel="Retry artist mappings" Retry="RetryLoad" Busy="@(loading || saving)"
+                   AutoRetry="@(!Offline)" FocusTarget="#artist-mapping-refresh" />
+    <Notice Message="@StatusMessage" />
 
     @if (mappings is not null)
     {
@@ -75,7 +78,8 @@
     private readonly CancellationTokenSource lifetime = new();
     private bool Offline => !Session.Connected || Session.Api is null;
     private bool Editing => editing is not null || adding;
-    private string StatusMessage => Offline ? "Connect to the server to load artist mappings." : loading && mappings is null ? "Loading artist mappings…" : message;
+    private bool loadFailed;
+    private string StatusMessage => !Offline && !loadFailed && loading && mappings is null ? "Loading artist mappings…" : message;
 
     private RenderFragment MappingForm() => @<form class="artist-mapping-editor" @onsubmit="Save" @onsubmit:preventDefault>
         @if (adding)
@@ -123,9 +127,15 @@
     {
         if (disposed || wasConnected == !Offline) return;
         wasConnected = !Offline;
-        if (wasConnected && mappings is null) await Load();
+        if (wasConnected) await Load();
         if (!disposed) StateHasChanged();
     });
+
+    private async Task RetryLoad()
+    {
+        if (Offline) await Session.ReconnectAsync();
+        await Load();
+    }
 
     private async Task Load()
     {
@@ -139,19 +149,24 @@
             using var request = CancellationTokenSource.CreateLinkedTokenSource(token);
             request.CancelAfter(TimeSpan.FromSeconds(10));
             var result = await api.RequestJsonAsync<ArtistMappingPage>(HttpMethod.Get, "/api/admin/discovery", cancellationToken: request.Token);
-            if (!token.IsCancellationRequested) mappings = result.Artists.OrderBy(row => row.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+            if (!token.IsCancellationRequested)
+            {
+                mappings = result.Artists.OrderBy(row => row.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+                loadFailed = false;
+            }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (FamilyHubApiException failure) when (failure.StatusCode == 403)
         {
             mappings = null;
+            loadFailed = false;
             CancelEdit();
             focusTarget = "artist-mappings-title";
             error = "Switch to an administrator profile to view artist mappings.";
         }
         catch (Exception)
         {
-            error = "Artist mappings could not be loaded. Try Refresh.";
+            loadFailed = true;
         }
         finally { loading = false; }
     }

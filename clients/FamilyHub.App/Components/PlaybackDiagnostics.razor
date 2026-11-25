@@ -9,7 +9,9 @@
         <span>Music playback attempts in the last 30 minutes</span>
         <button id="playback-diagnostics-refresh" @onclick="Read" aria-disabled="@(loading ? "true" : "false")">@(actions is null ? "Load attempts" : "Refresh attempts")</button>
     </div>
-    <p class="setting-help" role="status">@status</p>
+    @if (!failed) { <p class="setting-help" role="status">@status</p> }
+    <ServiceStatus Active="failed" Detail="@(DeviceStatus("Server timings did not load."))"
+                   RetryLabel="Retry playback diagnostics" Retry="Read" Busy="loading" AutoRetry="true" FocusTarget="#playback-diagnostics-refresh" />
     @if (actions is { Length: > 0 })
     {
         @foreach (var action in actions)
@@ -76,6 +78,7 @@
     private readonly CancellationTokenSource lifetime = new();
     private bool loading;
     private string status = "";
+    private bool failed;
 
     private async Task Read()
     {
@@ -88,7 +91,7 @@
             if (!Session.Connected || api is null)
             {
                 await UpdateActions([]);
-                status = DeviceStatus("Offline.");
+                failed = true;
                 return;
             }
             using var request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
@@ -97,6 +100,7 @@
                 cancellationToken: request.Token, background: true);
             if (lifetime.IsCancellationRequested || Session.Api != api) return;
             var count = await UpdateActions(result.Actions);
+            failed = false;
             status = count == 0 ? "No playback attempts in the last 30 minutes."
                 : count == 1 ? "1 playback attempt. Open it for detailed timings."
                 : $"{count} playback attempts. Open an attempt for detailed timings.";
@@ -106,7 +110,7 @@
             if (!lifetime.IsCancellationRequested)
             {
                 await UpdateActions([]);
-                status = DeviceStatus("Server timings are unavailable.");
+                failed = true;
             }
         }
         finally { loading = false; }
@@ -189,6 +193,11 @@
     {
         "foreground" => "Returned to the app",
         "background" => "App went into the background",
+        "screen_off" => "Screen turned off",
+        "screen_on" => "Screen turned on",
+        "next_warmup_start" => "Started preparing the next song",
+        "next_warmup_finish" => "Next song ready on this device",
+        "next_warmup_failed" => "Could not prepare the next song",
         "checkpoint" => "Player position saved",
         "early_end" => "Stream ended early",
         "native_ended" => "Audio player reached the end",

@@ -5,6 +5,8 @@ from flask import abort, send_from_directory
 
 FILES = {'admin.css': 'text/css', 'admin.js': 'text/javascript'}
 ROOT = Path(__file__).with_name('admin_static')
+WEBROOT = ROOT.parents[1] / 'clients' / 'FamilyHub.App' / 'wwwroot'
+SHARED = {'service-status.css': 'text/css', 'service-status.js': 'text/javascript'}
 
 
 def register(app):
@@ -16,8 +18,9 @@ def register(app):
 
     @app.get('/admin/<name>')
     def admin_asset(name):
-        if name not in FILES:
+        if name not in FILES and name not in SHARED:
             abort(404)
-        response = send_from_directory(ROOT, name, mimetype=FILES[name])
+        folder = WEBROOT if name in SHARED and not (ROOT / name).is_file() else ROOT
+        response = send_from_directory(folder, name, mimetype=(SHARED | FILES)[name])
         response.headers['Cache-Control'] = 'no-store'
         return response

@@ -1,13 +1,15 @@
 @implements IDisposable
 @inject MusicSession Session
 
-<div class="stats-server-status" role="status"><MusicIcon Name="film" /><span>@message</span></div>
+<div class="stats-server-status" role="status" hidden="@failed"><MusicIcon Name="film" /><span>@message</span></div>
+<ServiceStatus Active="failed" Detail="Check the Jellyfin connection to load its status."
+               RetryLabel="Retry movie server check" Retry="Refresh" Busy="loading" AutoRetry="true" FocusTarget="#server-stats-refresh" />
 
 @code {
     private sealed record Health(bool Healthy);
     private readonly CancellationTokenSource lifetime = new();
     private string message = "Checking movie server…";
-    private bool loading;
+    private bool loading, failed;
 
     protected override Task OnInitializedAsync() => Refresh();
 
@@ -20,18 +22,19 @@
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             timeout.CancelAfter(TimeSpan.FromSeconds(5));
             var api = Session.Api;
-            if (!Session.Connected || api is null) message = "Movie server status unavailable";
+            if (!Session.Connected || api is null) failed = true;
             else
             {
                 var result = await api.RequestJsonAsync<Health>(HttpMethod.Get, "/api/movies/health",
                     cancellationToken: timeout.Token, background: true);
-                message = result.Healthy ? "Jellyfin online" : "Jellyfin unavailable";
+                failed = !result.Healthy;
+                message = "Jellyfin online";
             }
         }
         catch (Exception error) when (error is FamilyHubApiException or HttpRequestException or IOException
             or OperationCanceledException or System.Text.Json.JsonException)
         {
-            message = "Movie server status unavailable";
+            failed = true;
         }
         finally
         {

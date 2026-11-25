@@ -47,6 +47,11 @@
         </section>
     }
     @if (working || completed.Count > 0) { <div class="upload-status" role="status"><div><strong>@status</strong><span>@completed.Count / @files.Count saved</span></div>@if (currentName is not null) { <small>@currentName</small> }@if (uploading) { <progress aria-label="Uploading song" max="100" value="@percent"></progress> } else if (working) { <progress aria-label="Preparing song on server"></progress> }</div> }
+    <ServiceStatus Active="statusUnavailable" Detail="Check the status of the accepted upload."
+                   RetryLabel="Retry upload status" Retry="RetryUploadStatus" Busy="Busy" FocusTarget="@("#" + SubmitId)" />
+    <ServiceStatus Active="uploadConnectionFailed" Detail="Check the library before resubmitting the song."
+                   RetryLabel="Retry upload connection" Retry="RetryUploadConnection"
+                   Busy="@(Busy || checkingConnection)" FocusTarget="@("#" + SubmitId)" />
     @if (error is not null) { <Notice Level="error" Message="@error" /> }
 @if (working)
 {
@@ -70,6 +75,20 @@
 
     public Task UploadInto(string name, bool shared) => Upload(null, name.Trim(), shared);
     public Task UploadTo(MusicPlaylist? playlist) => Upload(playlist, null, true);
+    private bool statusUnavailable, uploadConnectionFailed, checkingConnection;
+    private Task RetryUploadStatus() => Upload(null, null, true, acceptedOnly: true);
+    private async Task RetryUploadConnection()
+    {
+        if (checkingConnection || Busy) return;
+        checkingConnection = true;
+        try
+        {
+            if (!Session.Connected) await Session.ReconnectAsync();
+            else await Session.RefreshAsync();
+            uploadConnectionFailed = !Session.Connected;
+        }
+        finally { checkingConnection = false; }
+    }
     public void Clear() { if (!Busy) { ResetSelection(); CreatedPlaylistKey = null; fileInputGeneration++; } }
 
     private List<LocalAudioFile> files = [];
@@ -112,6 +131,7 @@
     private void ResetSelection()
     {
         files = []; FolderName = ""; completed.Clear(); acceptedJobs.Clear();
+        statusUnavailable = uploadConnectionFailed = false;
         error = selectionNote = currentName = null; status = ""; problems.Clear(); otherFiles = 0; otherTypes = [];
     }
     private void Choose(InputFileChangeEventArgs args)
@@ -140,7 +160,7 @@
         catch (Exception exception) { error = NoticeText.Error(exception); }
         finally { picking = false; if (selectionInvalidated) ClearChangedIdentity(); pendingFocus ??= Prefix + "-folder"; await Changed.InvokeAsync(); }
     }
-    private async Task Upload(MusicPlaylist? playlist, string? newName, bool shared)
+    private async Task Upload(MusicPlaylist? playlist, string? newName, bool shared, bool acceptedOnly = false)
     {
         if (Busy || Remaining == 0 || Session.Api is not { } api || !Session.Connected) return;
         var identity = Identity;
@@ -168,7 +188,7 @@
                     if (!shared) await Session.EditPlaylistAsync(playlist, new { shared = false });
                 }
             }
-            foreach (var file in files.Where(f => !completed.Contains(f)).ToArray())
+            foreach (var file in files.Where(f => !completed.Contains(f) && (!acceptedOnly || acceptedJobs.ContainsKey(f))).ToArray())
             {
                 if (stopping || !Current()) break;
                 currentName = file.Name;
@@ -192,6 +212,7 @@
                         job = response.Deserialize<LibraryAdditionStatus>(FamilyHubApi.JsonOptions)?.Job
                             ?? throw new InvalidDataException("The server did not confirm the upload.");
                         acceptedJobs[file] = acceptedId = job.Id;
+                        uploadConnectionFailed = false;
                         if (Current()) await JobChanged.InvokeAsync(job);
                     }
 
@@ -204,6 +225,7 @@
                         {
                             if (!Current()) break;
                             job = update.Job;
+                            statusUnavailable = false;
                             status = job.Message;
                             await JobChanged.InvokeAsync(job);
                             await InvokeAsync(StateHasChanged);
@@ -212,10 +234,11 @@
                     if (!Current()) break;
                     if (job is null || job.Pending)
                     {
-                        error = "Upload status is unavailable. Submit again to check the accepted upload.";
+                        statusUnavailable = true;
                         break;
                     }
                     acceptedJobs.Remove(file);
+                    statusUnavailable = false;
                     if (!job.Saved && job.State != "done")
                         throw new InvalidOperationException(job.Message.Length > 0 ? job.Message : "The song could not be prepared.");
                     completed.Add(file);
@@ -224,6 +247,12 @@
                 catch (OperationCanceledException) { throw; }
                 catch (Exception exception)
                 {
+                    if (exception is HttpRequestException or FamilyHubApiException { StatusCode: >= 500 })
+                    {
+                        if (acceptedJobs.ContainsKey(file)) statusUnavailable = true;
+                        else uploadConnectionFailed = true;
+                        break;
+                    }
                     problems.Add((file.Name, exception switch
                     {
                         FamilyHubApiException { StatusCode: 404 } when acceptedJobs.ContainsKey(file) => "This upload status expired. Check the library before selecting this song again.",

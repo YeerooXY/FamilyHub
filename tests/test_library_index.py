@@ -12,6 +12,8 @@ from unittest.mock import patch
 from test_music_web import Base
 import test_native_music_api as native
 from music_web.library_index import LibraryIndex, search_words
+from music_web.library_loudness import measurement_path
+from music_web.state import write_json
 
 
 ITEM = re.compile(r'local-[0-9a-f]{16}')
@@ -131,6 +133,23 @@ class LibraryIndexTests(unittest.TestCase):
 
 class LibraryIndexApiTests(Base):
     extra = {'LIBRARY_INDEX_WORKER': True, 'ADMIN_USERS': ['sample-a']}
+
+    def test_loudness_sidecar_refreshes_catalogue_and_playback_metadata(self):
+        item, _, manifest, _ = native.NativeMusicApi.recording(self, FIRST)
+        index = self.state.library_index
+        index.wake.set()
+        deadline = time.monotonic() + 10
+        while index.get(FIRST) is None and time.monotonic() < deadline:
+            time.sleep(.02)
+        self.assertIsNone(index.get(FIRST)['lufs'])
+        path = measurement_path(Path(self.ws) / '.library-loudness-v1', manifest['import']['library_sha256'])
+        write_json(path, {"lufs": -7.6, "true_peak": 4.0})
+        index.update({FIRST: (item.name,)})
+        client, _ = self.signed_in()
+        results = [self.go(client, 'GET', '/api/library?id=' + FIRST).json['results'][0],
+                   self.go(client, 'GET', '/api/library/' + FIRST + '/playback-info?quality=max').json]
+        for row in results:
+            self.assertEqual((row['lufs'], row['true_peak'], row['over_peak']), (-7.6, 4.0, True))
 
     def test_index_serves_legacy_rows_and_paged_search_after_review_edit(self):
         native.NativeMusicApi.recording(self, FIRST, 'Árvíztűrő')

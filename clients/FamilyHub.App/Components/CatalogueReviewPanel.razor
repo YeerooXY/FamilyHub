@@ -8,10 +8,11 @@
 <section id="catalogue-review-title" tabindex="-1" aria-labelledby="srv-review-heading" class="music-admin catalogue-review srv-review" aria-busy="@Aria(loading && data is null)">
     <h2 id="srv-review-heading">Song review</h2>
     <p class="sr" role="status" aria-live="polite" aria-atomic="true">@announcement</p>
-    <Notice Level="error" Message="@error" ActionLabel="@(error is not null && Online ? "Retry song review" : null)"
-        Action="Refresh" Busy="@Unavailable" FocusTarget="#server-stats-refresh" />
+    <ServiceStatus Active="@(!Online || error is not null)"
+                   Detail="@(data is null ? "Reconnect to load song review." : "Showing the last loaded song review.")"
+                   RetryLabel="Retry song review" Retry="RetryReview" Busy="@(loading || saving || reconnecting)"
+                   AutoRetry="Online" FocusTarget="#catalogue-review-title" />
     @if (data is not null && (!Online || error is not null || SnapshotStale)) { <small class="catalogue-timestamp">Review updated @snapshotAt.ToLocalTime().ToString("t")</small> }
-    @if (!Online) { <Notice Level="warning" Message="@(data is null ? "Connect to the server to review songs." : "Server offline. Showing the last loaded review.")" /> }
     else if (data is null && error is null) { <Notice Message="Loading song review…" /> }
     @if (data is { } snapshot)
     {
@@ -370,6 +371,18 @@
     private bool loading, saving, disposed, wasOnline;
     private bool Online => Session.Connected && Session.Api is not null;
     private bool Unavailable => !Online || loading || saving;
+    private bool reconnecting;
+    private async Task RetryReview()
+    {
+        if (reconnecting) return;
+        reconnecting = true;
+        try
+        {
+            if (!Online) await Session.ReconnectAsync();
+            await Refresh();
+        }
+        finally { reconnecting = false; }
+    }
     private string Identity => Session.Server + "\n" + Session.User;
 
     protected override void OnInitialized() => Session.Changed += Changed;
@@ -465,7 +478,6 @@
         if (!followingUp) snapshotRetries = 0;
         followingUp = false;
         loading = true;
-        error = null;
         var requestIdentity = Identity;
         StateHasChanged();
         try
@@ -497,6 +509,7 @@
                 if (recordingChoice is not null) await CloseRecording("catalogue-review-title");
             }
             data = result;
+            error = null;
             snapshotAt = DateTimeOffset.UtcNow.AddSeconds(-Math.Max(0, result.SnapshotAgeSeconds));
             quality = newQuality;
             reports = newReports;
