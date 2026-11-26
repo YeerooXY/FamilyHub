@@ -165,7 +165,8 @@ async function movieDetailFixture(page) {
             const types = searchParams.get("includeItemTypes")?.split(",") ?? [];
             return items(library.filter(item => types.includes(item.Type) &&
                 (!searchParams.has("isFavorite") || item.UserData.IsFavorite))
-                .map(({MediaStreams, People, ...item}) => item));
+                .map(({MediaStreams, People, ...item}) => searchParams.get("fields")?.includes("MediaStreams")
+                    ? {...item, MediaStreams} : item));
         }
         const item = library.find(item => pathname === "/Items/" + item.Id);
         if (item) return json(item);
@@ -201,7 +202,7 @@ async function movieDetailFixture(page) {
         }};
         window.openDetailFixture = async style => {
             if (window.movies) await window.movies.close();
-            saveMoviePreferences(viewer, {backgroundStyle: style});
+            saveMoviePreferences(viewer, {backgroundStyle: style, screen: "1080"});
             window.movies = window.openMovieFixture(openMovies, host,
                 {url: jellyfin, user: "u", token: "t", release_search_enabled: true}, bridge, viewer);
         };

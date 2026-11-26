@@ -17,6 +17,87 @@ function resolution(title) {
     return /\b(?:4K|UHD)\b/i.test(title) ? 2160 : 0;
 }
 
+const audioFormats = {
+    atmos: ["Atmos", "Dolby Atmos"],
+    eac3: ["DDP", "Dolby Digital Plus"],
+    ac3: ["AC3", "Dolby Digital"],
+    truehd: ["TrueHD", "Dolby TrueHD"],
+    dtsma: ["DTS-HD MA", "DTS-HD Master Audio"],
+    dtshra: ["DTS-HD HRA", "DTS-HD High Resolution Audio"],
+    dtsx: ["DTS:X", "DTS:X"],
+    dts: ["DTS", "DTS"],
+    aac: ["AAC", "AAC"],
+    flac: ["FLAC", "FLAC"],
+    opus: ["Opus", "Opus"],
+    mp3: ["MP3", "MP3"]
+};
+
+function soundFormat(codec, channels) {
+    const format = Object.prototype.hasOwnProperty.call(audioFormats, codec) ? audioFormats[codec] : null;
+    if (!format && !channels) return null;
+    const suffix = codec === "atmos" || codec === "dtsx" ? "" : channels;
+    return {
+        label: [format?.[0], suffix].filter(Boolean).join(" "),
+        name: "Sound: " + [format?.[1], suffix].filter(Boolean).join(" ")
+    };
+}
+
+export function releaseSound(title) {
+    if (/\batmos\b/i.test(title)) return soundFormat("atmos");
+    if (/\bdts[ ._:-]*x\b/i.test(title)) return soundFormat("dtsx");
+    const match = title.match(/\b(dts[ ._-]*hd[ ._-]*(?:ma|hra)|ddp|dd\+|e[ ._-]?ac3|ac3|truehd|dts|aac|flac|opus|mp3)(?:[ ._-]*([12]\.0|[257]\.1)(?!\d|\.\d))?(?![a-z0-9])/i);
+    if (!match) return null;
+    const marker = match[1].toLowerCase().replace(/[ ._-]/g, "");
+    const codec = {ddp: "eac3", "dd+": "eac3", dtshdma: "dtsma", dtshdhra: "dtshra"}[marker] ?? marker;
+    return soundFormat(codec, match[2]);
+}
+
+export function librarySound(streams) {
+    const audio = streams.find(stream => stream.Type === "Audio" && stream.IsDefault) ??
+        streams.find(stream => stream.Type === "Audio");
+    if (!audio) return null;
+    const profile = audio.Profile ?? "";
+    const details = [profile, audio.AudioSpatialFormat, audio.DisplayTitle].join(" ");
+    const codec = audio.Codec?.toLowerCase();
+    const channels = {1: "1.0", 2: "2.0", 6: "5.1", 8: "7.1"}[audio.Channels];
+    if (/\batmos\b/i.test(details)) return soundFormat("atmos");
+    if (/\bdts[ ._:-]*x\b/i.test(details)) return soundFormat("dtsx");
+    if (codec === "dts") {
+        if (/^(?:DTS-HD MA|DTS-HD Master Audio)$/i.test(profile)) return soundFormat("dtsma", channels);
+        if (/^(?:DTS-HD HRA|DTS-HD High Resolution Audio)$/i.test(profile)) return soundFormat("dtshra", channels);
+    }
+    return soundFormat(codec, channels);
+}
+
+function chip(className, text, level) {
+    const node = document.createElement("span");
+    node.className = className;
+    node.textContent = text;
+    if (level) node.dataset.level = level;
+    return node;
+}
+
+export function appendSoundChip(target, sound, icon) {
+    if (!sound) return;
+    const badge = chip("movie-chip movie-sound-chip", sound.label);
+    badge.setAttribute("role", "img");
+    badge.setAttribute("aria-label", sound.name);
+    badge.title = sound.name;
+    badge.prepend(icon("M11 5 6 9H3v6h3l5 4V5Zm4 4a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"));
+    target.append(badge);
+}
+
+const screenExplanation = "The picture will look the same on this screen. Lower quality saves data and storage.";
+
+export function screenFlag(screen, height, width) {
+    if (!(height > screen.height || width > screen.width)) return null;
+    const badge = chip("movie-chip movie-screen-flag", "Above your screen");
+    badge.title = screenExplanation;
+    badge.setAttribute("role", "img");
+    badge.setAttribute("aria-label", `Above your screen. ${screenExplanation}`);
+    return badge;
+}
+
 /** What the release holds when it is a series: one episode, a whole season, or several seasons. */
 export function releaseKind(title) {
     if (/\bS\d{1,3}\s*[-–]\s*S?\d{1,3}\b/i.test(title) || /\b(?:complete|full)[ ._-]*(?:series|collection)\b/i.test(title)
@@ -162,7 +243,7 @@ function downloadOptions(parent, opener, signal, previous = []) {
     });
 }
 
-export function buildReleaseSearch(search, signal, download = null, showDetails = () => {}, preferredAudio = "default") {
+export function buildReleaseSearch(search, signal, download, showDetails, {preferredAudio, screen, icon}) {
     const panel = document.createElement("section");
     panel.className = "movie-releases";
     panel.hidden = true;
@@ -218,14 +299,6 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
         return choice;
     });
 
-    function chip(className, text, level) {
-        const node = document.createElement("span");
-        node.className = className;
-        node.textContent = text;
-        if (level) node.dataset.level = level;
-        return node;
-    }
-
     const guide = panel.querySelector(".movie-quality-table tbody");
     const guideRow = (group, badge, meaning) => {
         const row = document.createElement("tr"), first = document.createElement("td"), second = document.createElement("td");
@@ -276,6 +349,10 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             badges.className = "movie-release-top";
             if (sortBy === "best" && index === 0 && row.seeders >= 20 && row.quality.rank >= 3) badges.append(chip("movie-release-pick", "Recommended"));
             badges.append(chip("movie-release-quality", row.quality.label, row.quality.tier));
+            appendSoundChip(badges, releaseSound(row.title), icon);
+            const height = row.maxHeight;
+            const flag = screenFlag(screen, height, Math.round(height * 16 / 9));
+            if (flag) badges.append(flag);
             if (row.kind) badges.append(chip("movie-release-kind", row.kind));
             if (row.site) badges.append(chip("movie-release-kind", row.site));
             if (row.audio.includes("hu")) badges.append(chip("movie-release-kind", "Hungarian audio listed"));
@@ -301,11 +378,11 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
                 if (level === "smallest") sizeCell.append(chip("movie-release-size-note", "smallest"));
                 else if (row.size / smallest >= 1.5) sizeCell.append(chip("movie-release-size-note", `${row.size / smallest >= 10 ? Math.round(row.size / smallest) : (row.size / smallest).toFixed(1).replace(/\.0$/, "")}× the smallest`));
             }
-            const known = matchFor(row);
-            const length = formatMinutes(row.length || (!row.episodes && !row.kind && known?.kind === "movie" ? known.runtime : 0));
+            const length = formatMinutes(row.length);
             if (length) stat("Length", row.lengthEstimated ? "About " + length : length);
-            stat("Download time", row.seeders === 0 ? "May never finish" : downloadTime(row.size, row.seeders) || "Unknown",
-                row.seeders === 0 ? "none" : undefined).title = "An estimate from the file size and how many people share it, assuming a 100 Mbps connection.";
+            const time = stat("Download time", row.seeders === 0 ? "May never finish" : downloadTime(row.size, row.seeders) || "Unknown",
+                row.seeders === 0 ? "none" : undefined);
+            time.title = "An estimate from the file size and how many people share it, assuming a 100 Mbps connection.";
             const detail = stat("Availability", words, level);
             if (row.seeders !== null) detail.title = `${row.seeders} ${row.seeders === 1 ? "person shares" : "people share"} this file`;
 
@@ -378,8 +455,18 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             if (!row.site && note.textContent) item.append(note);
             if (!row.episodes) item.append(name);
             item.append(row.sent ? sent : action);
-            const poster = matchFor(row)?.poster;
-            if (poster) {
+            let hasMatchedLength = false;
+            row.updateMatch = () => {
+                if (!list.contains(item)) return;
+                const known = matchFor(row);
+                if (!length && !row.episodes && !row.kind && known?.kind === "movie" && !hasMatchedLength) {
+                    const runtime = formatMinutes(known.runtime);
+                    if (runtime) {
+                        time.parentElement.before(stat("Length", runtime).parentElement);
+                        hasMatchedLength = true;
+                    }
+                }
+                if (!known?.poster || item.classList.contains("has-poster")) return;
                 const art = document.createElement("img");
                 art.className = "movie-release-poster";
                 art.alt = "";
@@ -387,12 +474,13 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
                 art.decoding = "async";
                 art.referrerPolicy = "no-referrer";
                 art.onerror = () => { art.remove(); item.classList.remove("has-poster"); };
-                art.src = poster;
+                art.src = known.poster;
                 item.classList.add("has-poster");
                 item.prepend(art);
-            }
+            };
             return item;
         }));
+        for (const row of shown) row.updateMatch();
         more.hidden = showAll || sorted.length <= FIRST_PAGE;
     }
 
@@ -442,7 +530,8 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             const quality = releaseQuality(episodes ? "" : title, height, size, comparisonLength);
             if (episodes && height > 0 && item.max_height > height) quality.label = `${height}p–${item.max_height}p`;
             const name = episodes ? `${title} · Season ${item.number}` : displayTitle(title);
-            const row = { title, name, height, size, length, lengthEstimated, mismatch, kind, audio, episodes, quality,
+            const row = { title, name, height, maxHeight: episodes ? Math.max(height, number(item.max_height) || 0) : height,
+                size, length, lengthEstimated, mismatch, kind, audio, episodes, quality,
                 seeders: number(item.seeders), guid: item.guid, indexerId: item.indexerId, site: item.site, url: item.url };
             const key = row.site ? `${row.site}\n${row.url}` : `${row.title.toLowerCase().replace(/[^a-z0-9]+/g, "")}\n${Math.round((row.size || 0) / 1e8)}`;
             const previous = matches.get(key);
@@ -465,7 +554,8 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
     }
     function setMatches(list) {
         matches = Array.isArray(list) ? list : [];
-        if (!busy && complete) render();
+        // Late artwork should keep the focused action and any open download dialog connected.
+        if (!busy && complete) for (const row of rows) row.updateMatch?.();
     }
     return {element: panel, load, setMatches};
 }

@@ -16,6 +16,18 @@
     </div>
     <p class="setting-help" id="movie-data-saver-help">Auto uses Full quality on Wi-Fi and Saver on mobile data. Full quality uses the original bitrate.</p>
     <div class="setting-row">
+        <label for="movie-screen">My screen</label>
+        <select id="movie-screen" @bind="preferences.Screen" @bind:after="Save" disabled="@(!ready)" aria-describedby="movie-screen-help">
+            <option value="auto">Automatic</option>
+            <option value="1080">1080p / Full HD</option>
+            <option value="1440">1440p</option>
+            <option value="2160">4K / UHD</option>
+            <option value="4320">8K</option>
+            <option value="projector">Projector or very large screen</option>
+        </select>
+    </div>
+    <p class="setting-help" id="movie-screen-help">This sets the resolution limit for converted playback and flags larger downloads. Automatic uses your display’s pixel size. The projector setting allows up to 8K.</p>
+    <div class="setting-row">
         <label for="movie-background-style">Background style</label>
         <select id="movie-background-style" @bind="preferences.BackgroundStyle" @bind:after="Save" disabled="@(!ready)" aria-describedby="movie-background-style-help">
             <option value="auto">Automatic</option>
@@ -70,6 +82,7 @@
         public string Audio { get; set; } = "default";
         public string Subtitles { get; set; } = "default";
         public string DataSaver { get; set; } = "auto";
+        public string Screen { get; set; } = "auto";
         public string HomeBackground { get; set; } = "auto";
         public string BackgroundStyle { get; set; } = "auto";
         public bool LayoutPreview { get; set; }

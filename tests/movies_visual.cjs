@@ -129,7 +129,7 @@ async function render(browser, label, options) {
         }
         if (url.pathname === "/Shows/s/Episodes") {
             await episodesGate;
-            assert.equal(url.searchParams.has("fields"), false, "default DTO includes runtime");
+            assert.ok([null, "MediaStreams"].includes(url.searchParams.get("fields")), "episode fields stay limited to MediaStreams");
             if (failEpisodes) return route.fulfill({headers, status: 502});
             return list(imported ? [...episodes, {...episodes[4], Id: "new", Name: "Return to port", ParentIndexNumber: 3}] : episodes);
         }

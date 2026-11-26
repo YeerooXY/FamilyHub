@@ -1,5 +1,16 @@
 # Interface verification
 
+## 26 November 2026 Movies & TV release search and My screen
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Release results, loading, empty, retry and expanded list | never | never | never | never | never | Source check, 26 Nov 2026, Home theme | never |
+| Matching title shelf, peek and release handoff | never | never | never | never | never | Source check, 26 Nov 2026, Home theme | never |
+| Library cards and film details, sound and screen flags | never | never | never | never | never | Source check, 26 Nov 2026, Home theme | never |
+| Movies preferences, My screen | never | never | never | never | never | Source check, 26 Nov 2026, current branch | never |
+
+Release fixtures cover overflow from 320 to 3840 px, five full cards and a peek at 1280, 1920 and 2560 px, keyboard navigation, reduced motion, and effects off. Player fixtures cover the screen cap and a stricter server limit. Execution, visual inspection, screen-reader speech and physical-device verification are pending.
+
 ## 26 November 2026 Movie download options
 
 | Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |

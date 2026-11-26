@@ -100,6 +100,7 @@ async function check(browser, name, options) {
             return json({ Items: [], TotalRecordCount: 0 });
         });
         await moviePage(page);
+        const screen = await page.evaluate(async () => (await import("/movies.js")).movieScreen("auto"));
         const open = (profile = "alex") => page.evaluate(async ({ jellyfin, profile }) => {
             await window.movies?.close();
             const { openMovies } = await import("/movies.js");
@@ -128,7 +129,10 @@ async function check(browser, name, options) {
             assert.equal(transcode.AudioCodec, "aac");
             assert.equal(transcode.Protocol, "hls");
             const [video, audioProfile] = profile.CodecProfiles;
-            assert.deepEqual(video.Conditions.map(c => [c.Property, c.Condition, c.Value]), [["Height", "LessThanEqual", String(height)]]);
+            assert.deepEqual(video.Conditions.map(c => [c.Property, c.Condition, c.Value]), [
+                ["Height", "LessThanEqual", String(Math.min(height, screen.height))],
+                ["Width", "LessThanEqual", String(screen.width)]
+            ]);
             if (audio) {
                 assert.equal(request.MaxAudioChannels, 2);
                 assert.equal(transcode.MaxAudioChannels, "2");

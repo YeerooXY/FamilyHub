@@ -16,13 +16,15 @@ async function check(browser, profile, options) {
         const artwork = film.locator(".movie-hero-art");
         const firstOrbit = () => home.locator('.movie-card[data-item-id="film-a"]');
         const focused = target => target.evaluate(node => node === document.activeElement);
+        await firstOrbit().getByText("Above your screen", {exact: true}).waitFor();
+        assert.match(await firstOrbit().getAttribute("aria-description"), /Lower quality saves data and storage/);
         await page.evaluate(() => { window.failNextRelated = true; });
         await firstOrbit().press("Enter");
         await heading.waitFor();
         assert.equal(await focused(heading), true);
         await heading.locator("img").waitFor();
-        const expectedFacts = ["2026", "PG", "1 h 50 min", "4K", "DDP 5.1"];
-        await film.getByText(expectedFacts.at(-1), {exact: true}).waitFor();
+        const expectedFacts = ["2026", "PG", "1 h 50 min", "4K", "DDP 5.1", "Above your screen"];
+        await film.getByRole("img", {name: "Sound: Dolby Digital Plus 5.1"}).waitFor();
         assert.deepEqual(await film.locator(".movie-title-facts .movie-chip").allTextContents(), expectedFacts);
         assert.equal(await film.getByText("A pilot finds an abandoned station.").isVisible(), true);
         assert.equal(await film.getByRole("button", {name: /^(?:Download|Add to library)$/}).count(), 0);

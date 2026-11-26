@@ -1,8 +1,11 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const {constants, setPriority} = require("node:os");
 const { jellyfin, cors, moviePage, playMovieDetails, verifyMovieProfiles } = require("./movies_fixture.cjs");
 const output = process.argv[2] || path.join(__dirname, "../docs/verification/movies-1-5-2-2026-11-25");
+
+setPriority(constants.priority.PRIORITY_BELOW_NORMAL);
 
 async function verify(browser, profile, options) {
     const page = await browser.newPage(options);
@@ -230,7 +233,7 @@ async function verifyTranscodeFallback(browser, profile, options) {
                 requests.push(options);
                 return json({PlaySessionId: String(requests.length), MediaSources: [{
                     Id: "source", SupportsDirectPlay: options.EnableDirectPlay,
-                    TranscodingUrl: "/Videos/in-time/master.m3u8", DefaultSubtitleStreamIndex: -1
+                    TranscodingUrl: "/Videos/in-time/master.m3u8?MaxWidth=3840&MaxHeight=900", DefaultSubtitleStreamIndex: -1
                 }]});
             }
             if (url.pathname.endsWith("/master.m3u8")) return route.fulfill({headers: cors, status: 503});
@@ -240,7 +243,8 @@ async function verifyTranscodeFallback(browser, profile, options) {
         });
         await moviePage(page);
         await page.evaluate(async jellyfin => {
-            const {openMovies} = await import("/movies.js");
+            const {openMovies, saveMoviePreferences} = await import("/movies.js");
+            saveMoviePreferences({server:jellyfin + "/"}, {screen:"1080"});
             window.movies = window.openMovieFixture(openMovies, document.querySelector("main"),
                 {url: jellyfin, user: "test", token: "fixture", device: "fixture"},
                 {invokeMethodAsync: async (method, ...args) => {
@@ -260,12 +264,17 @@ async function verifyTranscodeFallback(browser, profile, options) {
             }});
             node.dispatchEvent(new Event("error"));
         });
-        await fallback;
+        const cappedUrl = new URL((await fallback).url());
         await page.waitForFunction(() => window.manifestStatus === 503);
         assert.equal(requests.length, 2);
         const transcode = requests[1];
         assert.equal(transcode.MediaSourceId, "source");
         assert.equal(transcode.DeviceProfile.TranscodingProfiles[0].Protocol, "hls");
+        assert.deepEqual(transcode.DeviceProfile.CodecProfiles[0].Conditions.map(({Property, Value}) => [Property, Value]),
+            [["Height", "1080"], ["Width", "1920"]]);
+        assert.equal(cappedUrl.searchParams.get("maxWidth"), "1920");
+        assert.equal(cappedUrl.searchParams.get("maxHeight"), "900");
+        assert.equal(cappedUrl.searchParams.has("MaxWidth") || cappedUrl.searchParams.has("MaxHeight"), false);
         for (const key of ["EnableDirectPlay", "EnableDirectStream", "AllowVideoStreamCopy", "AllowAudioStreamCopy"])
             assert.equal(transcode[key], false);
         await page.evaluate(() => window.hlsFailure("error", {

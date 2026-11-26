@@ -243,7 +243,7 @@ async function check(browser, options) {
     await group("Audio track").waitFor();
     await focused(checkedIn("Audio track"));
     assert.equal(await subtitle.inputValue(), "-1");
-    assert.deepEqual(await preferences("viewer-a"), { audio: "hu", subtitles: "hu", dataSaver: "auto" });
+    assert.deepEqual(await preferences("viewer-a"), { audio: "hu", subtitles: "hu", dataSaver: "auto", screen: "auto" });
     await closePlayer(twoPlay, two);
     const onePlay = await playMovieDetails(page, one, "One language");
     await openTracks();
@@ -260,7 +260,7 @@ async function check(browser, options) {
     assert.equal(await page.locator("main").evaluate(node => node.scrollWidth <= node.clientWidth), true);
 
     await open("viewer-b");
-    assert.deepEqual(await preferences("viewer-b"), { audio: "default", subtitles: "default", dataSaver: "auto" });
+    assert.deepEqual(await preferences("viewer-b"), { audio: "default", subtitles: "default", dataSaver: "auto", screen: "auto" });
     await playMovieDetails(page, two, "Two languages");
     await back.waitFor();
     await openTracks();
@@ -273,7 +273,7 @@ async function check(browser, options) {
     assert.equal(await subtitle.inputValue(), "-1");
     await page.reload();
     await open("viewer-a");
-    assert.deepEqual(await preferences("viewer-a"), { audio: "hu", subtitles: "hu", dataSaver: "auto" });
+    assert.deepEqual(await preferences("viewer-a"), { audio: "hu", subtitles: "hu", dataSaver: "auto", screen: "auto" });
 
     // The library card predates the position saved on another device.
     savedPosition = 180;
