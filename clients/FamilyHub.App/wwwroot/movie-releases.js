@@ -209,37 +209,122 @@ const audioMarkers = {
     en: /\b(?:eng|english[ ._-]+audio)\b/i
 };
 
-function downloadOptions(parent, opener, signal, previous = []) {
-    const dialog = movieDialog(parent, opener, "Download options", signal);
+function releaseStats(row) {
+    const [level, available] = row.site ? ["ok", "Available"] : availability(row.seeders);
+    const cost = (value, thresholds) => Number.isFinite(value) && value > 0
+        ? `movie-release-cost movie-release-cost-${["green", "amber", "orange", "red"][thresholds.filter(limit => value > limit).length]}`
+        : "";
+    const size = row.size / gib;
+    const minutes = Math.round(row.seconds / 60);
+    return [
+        ["Size", row.size ? `${size.toFixed(1)} GB` : "Unknown", "size", cost(size, [5, 15, 30])],
+        ["Download time", row.seeders === 0 ? "May never finish" : downloadTime(row.size, row.seeders) || "Unknown",
+            "time", cost(Math.max(1, minutes), [10, 30, 60])],
+        ["Availability", available, "health", "", level]
+    ];
+}
+
+function downloadOptions(parent, opener, signal, identity, row, {icon, chainImages, palette, preferences, save, download}) {
     const form = document.createElement("form");
-    const note = document.createElement("p");
-    note.textContent = "English subtitles are added automatically when available.";
+    form.className = "movie-confirm-form";
+    const summary = document.createElement("div"), art = document.createElement("span"), poster = document.createElement("img");
+    summary.className = "movie-confirm-summary";
+    art.className = "movie-art movie-confirm-poster";
+    art.setAttribute("aria-hidden", "true");
+    poster.alt = "";
+    poster.referrerPolicy = "no-referrer";
+    chainImages(poster, identity.poster ? [identity.poster] : []);
+    art.append(poster);
+    const info = document.createElement("div"), title = document.createElement("h2");
+    info.className = "movie-confirm-info";
+    title.textContent = identity.title;
+    title.className = "movie-confirm-title";
+    const year = identity.year || row.name.match(/\((\d{4})\)$/)?.[1];
+    if (year) title.append(chip("movie-confirm-year", year));
+    const rating = ratingBadge(identity.official_rating);
+    if (rating) title.append(rating);
+    const pills = document.createElement("div"), stats = document.createElement("div");
+    pills.className = stats.className = "movie-confirm-line";
+    appendSoundChip(pills, row.sound, icon);
+    pills.append(chip("movie-chip movie-release-quality", row.picture, row.tier));
+    for (const [, value, name, tone, level] of releaseStats(row)) {
+        const cell = chip(`movie-release-${name}`, "");
+        cell.append(chip(`movie-release-stat-value ${tone}`, value, level));
+        stats.append(cell);
+    }
+    info.append(title, pills, stats);
+    summary.append(art, info);
+    form.append(summary);
+    const options = document.createElement("div");
+    options.className = "movie-confirm-options";
+    const audioPath = "M11 5 6 9H3v6h3l5 4V5Zm4 4a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12";
+    const subtitlesPath = "M4 5h16v11H9l-5 4V5Zm4 5h8M8 13h5";
+    const defaults = preferences();
     const fields = ["Hungarian audio", "Hungarian subtitles"].map((title, index) => {
         const label = document.createElement("label"), input = document.createElement("input");
+        label.className = "movie-confirm-option";
         input.type = "checkbox";
-        input.checked = previous[index] === true;
-        label.append(input, title);
-        form.append(label);
+        input.setAttribute("role", "switch");
+        input.checked = defaults[index];
+        const visual = chip("movie-confirm-switch", "");
+        visual.setAttribute("aria-hidden", "true");
+        label.append(icon(index ? subtitlesPath : audioPath), chip("", title), input, visual);
+        options.append(label);
         return input;
     });
-    const submit = document.createElement("button");
+    const english = document.createElement("div"), englishLabel = chip("", "English subtitles");
+    english.className = "movie-confirm-option";
+    const note = document.createElement("small");
+    note.textContent = "Added automatically";
+    englishLabel.append(note);
+    const locked = chip("movie-confirm-switch movie-confirm-locked", "");
+    locked.setAttribute("aria-hidden", "true");
+    english.append(icon(subtitlesPath), englishLabel, locked);
+    options.append(english);
+    const buttons = document.createElement("div"), cancel = document.createElement("button"), submit = document.createElement("button");
+    buttons.className = "movie-confirm-buttons";
+    cancel.type = "button";
+    cancel.textContent = "Cancel";
     submit.type = "submit";
-    submit.textContent = "Download";
-    form.append(submit);
-    dialog.classList.add("movie-download-options");
-    dialog.append(note, form);
-    return new Promise(resolve => {
-        let choices;
-        form.addEventListener("submit", event => {
+    submit.autofocus = true;
+    submit.append(icon("M12 3v12m-5-5 5 5 5-5M5 20h14"), "Download");
+    buttons.append(cancel, submit);
+    form.append(options, buttons);
+    const dialog = movieDialog(parent, opener, "Confirm download", signal,
+        {content: form, initialFocus: submit, className: "movie-download-confirm"});
+    void palette(identity.backdrop).then(colors => {
+        if (colors) {
+            dialog.style.setProperty("--movie-hero-start", colors[0]);
+            dialog.style.setProperty("--movie-hero-end", colors[1]);
+        }
+    });
+    let pending = false;
+    cancel.onclick = () => { if (!pending) dialog.close(); };
+    dialog.addEventListener("cancel", event => { if (pending) event.preventDefault(); });
+    dialog.addEventListener("keydown", event => {
+        if (event.key !== "Tab") return;
+        if (pending || (event.shiftKey ? event.target === fields[0] : event.target === submit)) {
             event.preventDefault();
-            choices = fields.map(input => input.checked);
-            dialog.close();
-        });
-        dialog.addEventListener("close", () => resolve(choices), {once: true});
+            (pending || event.shiftKey ? submit : fields[0]).focus();
+        }
+    });
+    const choices = () => fields.map(input => input.checked);
+    for (const field of fields) field.addEventListener("change", () => save(choices()));
+    form.addEventListener("submit", async event => {
+        event.preventDefault();
+        if (pending) return;
+        pending = true;
+        submit.focus({preventScroll: true});
+        submit.setAttribute("aria-disabled", "true");
+        cancel.disabled = true;
+        fields.forEach(field => { field.disabled = true; });
+        await download(choices(), () => { if (dialog.open) dialog.close(); });
+        if (dialog.open) dialog.close();
     });
 }
 
-export function buildReleaseSearch(search, signal, download, {term, screen, icon, searchTitle, titleHue, chainImages, downloadProgress, watchLink, onResults}) {
+export function buildReleaseSearch(search, signal, download, {term, screen, icon, searchTitle, titleHue, chainImages, palette,
+    preferences, save, downloadProgress, watchLink, onResults}) {
     const panel = document.createElement("section");
     panel.className = "movie-releases";
     panel.hidden = true;
@@ -281,7 +366,7 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         focus: () => heading, automatic: true
     });
     panel.prepend(outage.card);
-    let rows = [], busy = false, matches = [], details = {}, usedPoster;
+    let rows = [], busy = false, matches = [], details = {}, identity = {}, usedPoster;
     const tiers = [["8k", "8K"], ["4k-remux", "4K Remux"], ["4k-web", "4K"], ["web", "1080p"], ["hd", "720p and below"]];
     const tierOrder = new Map(tiers.map(([tier], index) => [tier, index]));
     const legend = panel.querySelector(".movie-release-legend");
@@ -316,14 +401,18 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
             (!kind || item.kind === kind) &&
             (!details.year || !item.year || Number(item.year) === Number(details.year)) &&
             (normalized === searchTitle(item.title) || normalized === searchTitle(`${item.title} ${item.year}`)));
-        const match = exact.length === 1 ? exact[0] : null;
-        const title = match?.title || name;
-        const year = match?.year || details.year;
+        const match = exact.find(item => Number(item.id) === Number(details.tmdb_id)) ?? (exact.length === 1 ? exact[0] : null);
+        const nameYear = !details.title && /^(.*) \((\d{4})\)$/.exec(name);
+        const title = match?.title || nameYear?.[1] || name;
+        const year = match?.year || details.year || nameYear?.[2];
         heading.textContent = year ? `${title} (${year})` : title;
         heading.parentElement.querySelector(".movie-age-rating")?.remove();
         const badge = ratingBadge(details.official_rating);
         if (badge) heading.after(badge);
-        const posterUrl = match?.poster;
+        identity = {...match, ...details, title, year, kind: kind || match?.kind,
+            tmdb_id: details.tmdb_id ?? match?.id, poster: details.poster || match?.poster,
+            backdrop: details.backdrop || match?.backdrop};
+        const posterUrl = identity.poster;
         poster.dataset.initial = [...title][0]?.toUpperCase() ?? "";
         poster.style.setProperty("--art-hue", titleHue(title));
         if (posterUrl !== usedPoster) {
@@ -389,19 +478,14 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         if (warnings.length) head.append(chip("movie-release-note", warnings.join(" ")));
         head.append(file);
 
-        const stat = (name, value, className) => {
+        const stat = ([name, value, className, tone, level]) => {
             const cell = document.createElement("div");
-            cell.className = `movie-release-stat ${className}`;
-            cell.append(chip("movie-release-stat-label", name), chip("movie-release-stat-value", value));
+            cell.className = `movie-release-stat movie-release-${className}`;
+            cell.append(chip("movie-release-stat-label", name), chip(`movie-release-stat-value ${tone}`, value, level));
             return cell;
         };
-        const size = stat("Size", row.size ? `${(row.size / gib).toFixed(1)} GB` : "Unknown", "movie-release-size");
-        const time = stat("Download time", row.seeders === 0 ? "May never finish" :
-            downloadTime(row.size, row.seeders) || "Unknown", "movie-release-time");
+        const [size, time, health] = releaseStats(row).map(stat);
         time.title = `Estimated from size and the number of people sharing the file, assuming a ${ASSUMED_MBPS} Mbps connection.`;
-        const [level, words] = row.site ? ["ok", "Available"] : availability(row.seeders);
-        const health = stat("Availability", words, "movie-release-health");
-        health.lastChild.dataset.level = level;
         if (row.seeders !== null) health.title = `${row.seeders} ${row.seeders === 1 ? "person shares" : "people share"} this file`;
 
         const action = document.createElement("button"), progress = document.createElement("progress");
@@ -436,29 +520,28 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         };
         if (!allowed) action.title = canDownload ? "Search again to get a download reference." : "Ask the server owner to enable downloads for your profile.";
         updateAction();
-        action.addEventListener("click", async () => {
-            // A closed dialog can still be waiting for its close event, so only an open one blocks a new press.
-            if (action.getAttribute("aria-disabled") === "true" || panel.querySelector("dialog[open]")) return;
-            if (!row.site) {
-                const options = await downloadOptions(panel, action, signal, row.downloadOptions);
-                if (!options || signal.aborted || row.pending || row.sent) return;
-                row.downloadOptions = options;
-            }
-            if (action.isConnected) action.focus();
+        const send = async (options, close) => {
             row.pending = true;
             receipt.classList.add("movie-visually-hidden");
             receipt.textContent = "";
             updateAction();
             let reply;
-            try { reply = await download(row, row.downloadOptions); } catch {}
+            try { reply = await download(row, options, identity, action, close); } catch {}
             if (signal.aborted) return;
             row.pending = false;
             row.sent = reply?.state === "sent";
             row.failed = !row.sent;
             updateAction();
             receipt.classList.toggle("movie-visually-hidden", row.sent);
-            receipt.textContent = row.sent ? `Added ${row.name} to the download queue.`
+            receipt.textContent = row.sent ? (reply.opened ? "" : `Added ${row.name} to the download queue.`)
                 : reply?.error || "Could not confirm the download. Return to Movies & TV and check Downloading before trying again.";
+        };
+        action.addEventListener("click", () => {
+            // A closed dialog can still be waiting for its close event.
+            if (action.getAttribute("aria-disabled") === "true" || panel.querySelector("dialog[open]")) return;
+            if (row.site) { action.focus(); void send(); }
+            else downloadOptions(panel, action, signal, identity, row,
+                {icon, chainImages, palette, preferences, save, download: send});
         });
         const actions = document.createElement("div");
         actions.className = "movie-release-actions";
@@ -507,7 +590,7 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
             const name = episodes ? `${title}, Season ${item.number}` : displayTitle(title);
             const sound = releaseSound(title);
             const seeders = number(item.seeders);
-            const row = { title, fileName: item.title, name, height: episodes ? number(item.max_height) || height : height, size, mismatch, kind, audio, episodes, quality,
+            const row = { title, fileName: item.title, name, season: item.number, height: episodes ? number(item.max_height) || height : height, size, mismatch, kind, audio, episodes, quality,
                 tier: tier === "unknown" ? "hd" : tier, picture, source, sound,
                 seconds: downloadSeconds(size, seeders), unavailable: !item.site && seeders === 0,
                 seeders, guid: item.guid, indexerId: item.indexerId, site: item.site, url: item.url };

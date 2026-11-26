@@ -166,14 +166,19 @@ def download_item(row):
                 seeding_state=torrent_seeding.STATES.get(state, 'Unknown'))
 
 
-def read_downloads(qb):
+def read_downloads(qb, cfg=None):
     url = service_url(qb.get('url'))
     if not all((url, qb.get('user'), qb.get('password'))):
         return dict(available=False, reason='Server downloads are not set up.')
     try:
         opener = movie_import.torrent_login(url, qb, timeout=2)
         rows = movie_import.torrent_rows(opener, url + '/api/v2/torrents/info?category=' + movie_import.CATEGORY, 2)
-        return dict(available=True, items=[download_item(row) for row in rows])
+        items = [download_item(row) for row in rows]
+        tracks = movie_import.pending_tracks(cfg or {}, [row for row, item in zip(rows, items) if item['progress'] == 1])
+        for item in items:
+            if tracks.get(item['name']):
+                item['fetching'] = tracks[item['name']]
+        return dict(available=True, items=items)
     except urllib.error.HTTPError as error:
         error.close()
     except (OSError, http.client.HTTPException, ValueError, TypeError, KeyError, OverflowError):
@@ -262,7 +267,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
             return jsonify(error='Downloading is not switched on for your profile.'), 403
         with queue_lock:
             if monotonic() >= queue_expires:
-                queue_cache = read_downloads(qb)
+                queue_cache = read_downloads(qb, cfg)
                 queue_expires = monotonic() + 3
             snapshot = queue_cache
         jobs = [*audio_items(g.user), *youtube.items()]
@@ -571,7 +576,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
             if seasons is None:
                 return jsonify(error='The full season list is unavailable.'), 503
             return jsonify(seasons=seasons, series_id=ident)
-        if not release_access() or not isinstance(key, str) or not key:
+        if not release_access() or not posters_enabled:
             return jsonify(matches=[])
         if query is None:
             return jsonify(error='Enter a title of 2 to 120 characters.'), 400
@@ -579,7 +584,13 @@ def register_movies(app, cfg, body, allow, session_is_live):
             return jsonify(error='Wait a minute before searching again.'), 429
         season_query = SEASON_QUERY.fullmatch(query)
         term = season_query[1] if season_query else query
-        found = cached_search(('tmdb', term.casefold()), 3600, lambda: tmdb.search_with_runtime(key, term))
+        def find_matches():
+            if isinstance(key, str) and key:
+                return tmdb.search_with_runtime(key, term)
+            reply = tmdb_get('search/multi', params={'query': term, 'include_adult': 'false', 'language': 'en-US'})
+            return tmdb.parse(reply) if reply else None
+
+        found = cached_search(('tmdb', term.casefold()), 3600, find_matches)
         if found is None:
             return jsonify(error='Posters are unavailable right now.'), 503
         return jsonify(matches=found)
@@ -681,6 +692,48 @@ def register_movies(app, cfg, body, allow, session_is_live):
         except (OSError, ValueError):
             return {}
 
+    @app.get('/api/movies/title-details')
+    def movie_title_details():
+        if not download_access():
+            return jsonify(error='Downloading is not switched on for your profile.'), 403
+        kind, ident = request.args.get('kind', ''), request.args.get('tmdb', '')
+        if kind not in ('movie', 'tv') or not re.fullmatch(r'[1-9][0-9]{0,9}', ident):
+            return jsonify(error='Choose a title from the results.'), 400
+        if not allow('movie-title-details:' + g.user, 30, 60):
+            return jsonify(error='Wait a minute before opening another title.'), 429
+        key = poster_key if isinstance(poster_key, str) else None
+
+        def lookup():
+            detail = tmdb_get(f'{kind}/{ident}', key, {
+                'append_to_response': 'images,credits', 'include_image_language': 'en,null'
+            })
+            matches = tmdb.parse({'results': [{**detail, 'media_type': kind}]})
+            if not matches:
+                return None
+            match = matches[0]
+            match['poster'] = tmdb.image_url('https://image.tmdb.org/t/p/w500', detail.get('poster_path'))
+            match['backdrop'] = tmdb.image_url('https://image.tmdb.org/t/p/w1280', detail.get('backdrop_path'))
+            images, credits = detail.get('images'), detail.get('credits')
+            logos = images.get('logos') if isinstance(images, dict) else None
+            cast = credits.get('cast') if isinstance(credits, dict) else None
+            match['logo'] = next((url for logo in logos or [] if isinstance(logo, dict)
+                                  and (url := tmdb.image_url('https://image.tmdb.org/t/p/w500', logo.get('file_path')))), None)
+            match['cast'] = [
+                dict(name=actor['name'][:150], role=str(actor.get('character') or '')[:150],
+                     portrait=tmdb.image_url('https://image.tmdb.org/t/p/w185', actor.get('profile_path')))
+                for actor in (cast[:12] if isinstance(cast, list) else [])
+                if isinstance(actor, dict) and isinstance(actor.get('name'), str)
+            ]
+            genres = detail.get('genres')
+            match['genres'] = [genre['name'][:100] for genre in (genres[:10] if isinstance(genres, list) else [])
+                               if isinstance(genre, dict) and isinstance(genre.get('name'), str)]
+            overview = detail.get('overview')
+            match['overview'] = overview[:2000] if isinstance(overview, str) else ''
+            return match
+
+        detail = cached_search(('tmdb-download-detail', kind, ident), 3600, lookup)
+        return jsonify(detail) if detail else (jsonify(error='Title details are unavailable.'), 503)
+
     @app.get('/api/movies/related')
     def movie_related():
         if g.user not in cfg.get('JELLYFIN_PROFILES', {}):
@@ -754,6 +807,9 @@ def register_movies(app, cfg, body, allow, session_is_live):
         kind = item['kind']
         hungarian = movie_search.clean_query(localized.get('title' if kind == 'movie' else 'name'))
         details = dict(runtime_minutes=None, episode_count=None, hungarian_title=hungarian)
+        for field, base in (('poster', tmdb.IMAGE), ('backdrop', tmdb.BACKDROP)):
+            if art := tmdb.image_url(base, localized.get(field + 'Path')):
+                details[field] = art
         positive = lambda value: value if type(value) is int and value > 0 else None
         certifications = localized.get('releases' if kind == 'movie' else 'contentRatings')
         regions = certifications.get('results') if isinstance(certifications, dict) else None
@@ -832,7 +888,8 @@ def register_movies(app, cfg, body, allow, session_is_live):
         alias = catalog.get('hungarian_title')
         if not any(matches(name, item['year']) for name in (item['title'], item['original'], alias)):
             return results, {}
-        metadata = {**catalog, 'title': item['title'], 'year': item['year'], 'kind': item['kind'], 'season': season}
+        metadata = {**catalog, 'title': item['title'], 'year': item['year'], 'kind': item['kind'], 'season': season,
+                    'tmdb_id': item['id']}
         if alias and (matches(alias, item['year']) or alias.casefold() == item['title'].casefold()):
             metadata.pop('hungarian_title')
         return results, metadata

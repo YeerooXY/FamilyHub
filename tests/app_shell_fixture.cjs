@@ -5,12 +5,12 @@ const {chromium, webkit, devices} = require(require.resolve('playwright', {
 }));
 const {origin, runWithFixture, fixturePage} = require('./music_popup_unification.cjs');
 
-function verifyShell(check) {
+function verifyShell(check, widths = [320, 390, 1280, 1920]) {
     return runWithFixture(async () => {
         for (const [engine, device] of [[chromium, 'Pixel 7'], [webkit, 'iPhone 13']]) {
             const browser = await engine.launch({headless: true});
             try {
-                for (const width of [320, 390, 1280, 1920]) {
+                for (const width of widths) {
                     const phone = width < 721;
                     const options = phone ? devices[device] : {};
                     const page = await fixturePage(browser, {...options,

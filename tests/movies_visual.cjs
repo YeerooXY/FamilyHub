@@ -179,7 +179,7 @@ async function render(browser, label, options) {
                         {number: 2, name: "Episode 2", still: null}]});
                 }
                 if (method === "MovieDownloads") return JSON.stringify({available:true, items:[
-                    {name:"Harbour.Town.S02.1080p", progress:.3, state:"Downloading", eta:125},
+                    {name:"Harbour.Town.S06.1080p", progress:.3, state:"Downloading", eta:125},
                     {name:"The Golden Hour on the Last Day of the Year Before the River Froze", progress:.4, state:"Downloading"},
                     {name:"Harbour Lights 2008", progress:1, state:"Seeding", ratio:1.25},
                     {name:"Paper Moons 2008", progress:1, state:"Finished"},
@@ -451,6 +451,8 @@ async function render(browser, label, options) {
     assert.equal(await focus(season(2)), true);
     await page.keyboard.press("Space");
     await seriesView.locator('[data-season="2"]').waitFor();
+    assert.equal(await season(2).getAttribute("data-downloading"), null);
+    assert.equal(await season(6).getAttribute("data-downloading"), "");
     await seriesView.getByRole("button", {name:"Play", exact:true}).waitFor();
     await season(3).press("Enter");
     const find3 = seriesView.getByRole("button", {name:"Find season 3", exact:true});

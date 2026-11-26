@@ -123,6 +123,47 @@ const externalDts = track => track?.IsExternal && /^(?:dts|dca)(?:$|[-_])/i.test
 
 const labels = { default: "Default", hu: "Hungarian", en: "English", off: "Off" };
 const preferencesKey = viewer => "familyhub:movie-tracks:" + JSON.stringify(viewer);
+const downloadActivityKey = viewer => preferencesKey(viewer) + ":downloading";
+const downloadPollInterval = 5000;
+const runningMovieDownloads = items => items.filter(item => !Array.isArray(item?.results) && item?.progress < 1 &&
+    ["Waiting", "Downloading", "Almost done", "Stalled"].includes(item.state));
+function rememberDownloadActivity(viewer, downloading) {
+    try {
+        if (downloading) localStorage.setItem(downloadActivityKey(viewer), String(Date.now()));
+        else localStorage.removeItem(downloadActivityKey(viewer));
+    } catch {}
+}
+
+export function watchHubDownloads(indicator, viewer, app) {
+    let lastActive = 0;
+    try { lastActive = Number(localStorage.getItem(downloadActivityKey(viewer))); } catch {}
+    let pending = lastActive > Date.now() - 30 * 86400000;
+    const life = new AbortController();
+    let timer, reading = false;
+    indicator.hidden = !pending;
+    const visible = () => pending && !life.signal.aborted && !document.hidden && indicator.isConnected;
+    const schedule = delay => {
+        clearTimeout(timer);
+        if (visible()) timer = setTimeout(check, delay);
+    };
+    async function check() {
+        if (!visible() || reading) return;
+        reading = true;
+        try {
+            const reply = await app.invokeMethodAsync("HubMovieDownloads");
+            if (visible() && reply?.available && Array.isArray(reply.items)) {
+                if (!reply.items.length && Date.now() - lastActive < 3100) return;
+                pending = runningMovieDownloads(reply.items).length > 0;
+                indicator.hidden = !pending;
+                rememberDownloadActivity(viewer, pending);
+            }
+        } catch {}
+        finally { reading = false; schedule(downloadPollInterval); }
+    }
+    document.addEventListener("visibilitychange", () => schedule(0), {signal: life.signal});
+    schedule(0);
+    return {close() { life.abort(); clearTimeout(timer); }};
+}
 const dataChoices = ["auto", "full", "good", "saver", "lowest"];
 const screenChoices = ["auto", "1080", "1440", "2160", "4320", "projector"];
 const homeBackgrounds = {
@@ -141,6 +182,8 @@ function normalizeMoviePreferences(prefs) {
         subtitles: ["off", "hu", "en"].includes(prefs?.subtitles) ? prefs.subtitles : "default",
         dataSaver: dataChoices.includes(prefs?.dataSaver) ? prefs.dataSaver : "auto",
         screen: screenChoices.includes(prefs?.screen) ? prefs.screen : "auto",
+        ...(typeof prefs?.downloadAudio === "boolean" ? {downloadAudio: prefs.downloadAudio} : {}),
+        ...(typeof prefs?.downloadSubtitles === "boolean" ? {downloadSubtitles: prefs.downloadSubtitles} : {}),
         ...(["preset", "backdrop"].includes(prefs?.backgroundStyle) ? {backgroundStyle: prefs.backgroundStyle} : {}),
         ...(prefs?.layoutPreview === true ? {layoutPreview: true} : {}),
         ...(Object.prototype.hasOwnProperty.call(homeBackgrounds, prefs?.homeBackground) ? {homeBackground: prefs.homeBackground} : {})
@@ -384,6 +427,40 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     const searchPath = "M21 21l-4.3-4.3M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z";
     const heartPath = "M20.8 5.6a4.8 4.8 0 0 0-6.8 0l-2 2-2-2a4.8 4.8 0 0 0-6.8 6.8L12 21l8.8-8.6a4.8 4.8 0 0 0 0-6.8Z";
     const quietMotion = () => document.body.dataset.effects === "off" || matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const backdropPalettes = new Map();
+    function backdropPalette(src) {
+        if (!src) return Promise.resolve(null);
+        if (!backdropPalettes.has(src)) backdropPalettes.set(src, new Promise(resolve => {
+            const image = new Image();
+            image.crossOrigin = "anonymous";
+            image.referrerPolicy = "no-referrer";
+            image.onerror = () => resolve(null);
+            image.onload = () => {
+                try {
+                    const canvas = el("canvas");
+                    canvas.width = canvas.height = 24;
+                    const context = canvas.getContext("2d");
+                    context.drawImage(image, 0, 0, 24, 24);
+                    const {data} = context.getImageData(0, 0, 24, 24);
+                    const colors = [[0, 0, 0, 0], [0, 0, 0, 0]];
+                    for (let i = 0; i < data.length; i += 4) {
+                        const [r, g, b] = data.subarray(i, i + 3);
+                        const weight = (Math.max(r, g, b) - Math.min(r, g, b)) / 255;
+                        const color = colors[Number(r > b)];
+                        color[0] += r * weight;
+                        color[1] += g * weight;
+                        color[2] += b * weight;
+                        color[3] += weight;
+                    }
+                    resolve(colors.map(([r, g, b, weight], index) => weight > 0
+                        ? `rgb(${Math.round(r / weight)}, ${Math.round(g / weight)}, ${Math.round(b / weight)})`
+                        : ["#8a63ff", "#b767b9"][index]));
+                } catch { resolve(null); }
+            };
+            image.src = src;
+        }));
+        return backdropPalettes.get(src);
+    }
     const playbackNotice = el("div"), playbackMessage = el("p");
     let noticeTimer, noticeOpener;
     function clearPlaybackNotice() {
@@ -1170,6 +1247,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         }
         browse.hidden = fromResults;
         results.hidden = false;
+        results.getAnimations?.().forEach(animation => animation.cancel());
+        results.classList.remove("movie-results-leaving");
+        results.inert = false;
         toolbar.hidden = false;
         const destination = fromResults ? results : browse;
         destination.classList.add("movie-screen-entry");
@@ -1190,7 +1270,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             target.scrollIntoView({block: "nearest", inline: "nearest"});
         if (!fromHistory) publishNavigation("back");
     }
-    function openSeries(item, opener, preferredSeason, fromHistory = false, keepFocus = false) {
+    function openSeries(item, opener, preferredSeason, fromHistory = false, keepFocus = false, handoff) {
         const original = item;
         item = {...item};
         const section = el("section"), heading = el("h2", item.Name), summary = el("p"), list = el("div");
@@ -1272,18 +1352,46 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         section.addEventListener("keydown", event => {
             if (event.key === "Escape" && !event.target.closest("dialog, select")) { event.stopPropagation(); closeSeries(); }
         });
-        seriesView = { item, historySeason: preferredSeason, section, opener, controller, fromResults, parent, scrollTop: scrollHost.scrollTop };
-        if (!fromHistory) publishNavigation("open");
-        status.textContent = "";
+        const view = { item, historySeason: preferredSeason, section, opener, controller, fromResults, parent, scrollTop: scrollHost.scrollTop };
+        const job = trackedDownloads.get(item.Id);
+        const staged = Boolean(handoff);
+        section.hidden = staged;
         catalogue.append(section);
-        if (!keepFocus) heading.focus({preventScroll: true});
-        if (parent) parent.section.hidden = true;
-        browse.classList.remove("movie-screen-entry");
-        results.classList.remove("movie-screen-entry");
-        toolbar.hidden = true;
-        browse.hidden = results.hidden = true;
-        if (isCollection) section.scrollIntoView({block: "start"});
-        else scrollHost.scrollTop = 0;
+        const show = (focus = heading) => {
+            const leaving = staged && fromResults && !quietMotion() && typeof results.animate === "function" &&
+                !results.hidden && !parent;
+            if (leaving) {
+                results.style.top = results.offsetTop + "px";
+                results.classList.add("movie-results-leaving");
+            }
+            seriesView = view;
+            if (!fromHistory) publishNavigation("open");
+            status.textContent = "";
+            section.hidden = false;
+            updateDescription?.();
+            handoff?.close();
+            if (!keepFocus) focus.focus({preventScroll: true});
+            if (parent) parent.section.hidden = true;
+            browse.classList.remove("movie-screen-entry");
+            results.classList.remove("movie-screen-entry");
+            toolbar.hidden = true;
+            browse.hidden = true;
+            if (leaving) {
+                results.inert = true;
+                const animation = results.animate([{opacity: 1}, {opacity: 0}], {duration: 230, easing: "ease-out", fill: "forwards"});
+                const clean = () => {
+                    results.hidden = Boolean(seriesView);
+                    results.inert = false;
+                    results.classList.remove("movie-results-leaving");
+                    results.style.removeProperty("top");
+                    animation.cancel();
+                };
+                animation.finished.then(clean, clean);
+            } else results.hidden = true;
+            if (isCollection) section.scrollIntoView({block: "start"});
+            else scrollHost.scrollTop = 0;
+        };
+        if (!staged) show();
 
         if (isCollection) {
             shelf("Titles", "Movie,Series", false, list, "", signal, {params: {parentId: item.Id}});
@@ -1291,13 +1399,50 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         }
         const demo = preview || item.Demo;
         const playButton = playAction(isSeries ? null : item);
-        const favorite = demo ? null : favoriteAction(item, detailStatus, original);
+        const favorite = demo || job ? null : favoriteAction(item, detailStatus, original);
         playButton.prepend(icon(playPath));
-        if (favorite) actions.append(playButton, favorite);
-        if (!demo && !isSeries && session.downloads_enabled) credit.before(audioJobSlot(item));
+        if (!demo) actions.append(playButton, ...[favorite].filter(Boolean));
+        if (!demo && !job && !isSeries && session.downloads_enabled) credit.before(audioJobSlot(item));
+        const trackStatus = el("p");
+        if (job) {
+            trackStatus.className = "movie-download-tracks";
+            trackStatus.hidden = true;
+            actions.after(trackStatus);
+        }
+        let lastAnnounced = -1, localTitle, lookingUp = false;
+        const updateJob = () => {
+            if (!job) return;
+            const jobEntry = queueEntry(job);
+            const percent = downloadPercent(jobEntry);
+            const tracks = Array.isArray(jobEntry?.fetching) ? jobEntry.fetching : [];
+            trackStatus.textContent = tracks.length ? "Fetching " + tracks.join(" and ") :
+                percent === 100 && !localTitle && !isSeries ? "Waiting for the library" : "";
+            trackStatus.hidden = !trackStatus.textContent;
+            if (!isSeries) {
+                playButton.setDownload(percent, localTitle);
+                if (percent === 100 && !localTitle && !lookingUp && !section.hidden) {
+                    lookingUp = true;
+                    void downloadedLibraryTitle(item, signal).then(found => {
+                        if (signal.aborted || !found) return;
+                        localTitle = found;
+                        playButton.setDownload(100, found);
+                        if (!tracks.length) trackStatus.hidden = true;
+                    }).finally(() => { lookingUp = false; });
+                }
+            }
+            const step = Math.floor(percent / 10);
+            if (seriesView === view && step > lastAnnounced) {
+                if (lastAnnounced >= 0) homeStatus.textContent = percent === 100
+                    ? `${item.Name} download complete.` : `${item.Name}, ${step * 10}% downloaded.`;
+                lastAnnounced = step;
+            }
+        };
+        view.updateDownload = () => updateJob();
+        if (job && !isSeries) view.shouldPollLibrary = () => downloadPercent(queueEntry(job)) === 100 && !localTitle;
+        updateJob();
         let backdrop, backdropKey;
         const updateBackdrop = () => {
-            const key = JSON.stringify([backdropSources(item), innerWidth > 1920]);
+            const key = JSON.stringify([item.TmdbBackdrop, backdropSources(item), innerWidth > 1920]);
             if (key === backdropKey) return;
             backdropKey = key;
             const art = movieBackdrop(item);
@@ -1311,7 +1456,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             section.style.setProperty("--movie-hero-start", background[0]);
             section.style.setProperty("--movie-hero-end", background[1]);
             updateBackdrop();
-            if (!isSeries) setTitleLogo(item, heading);
+            if (!isSeries || job) setTitleLogo(item, heading);
             overview.textContent = item.Overview ?? "";
             overview.hidden = !item.Overview;
             updateDescription?.();
@@ -1321,7 +1466,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         }
         updateDetails();
         largeBackdrop.addEventListener?.("change", updateBackdrop, {signal});
-        const details = demo ? Promise.resolve() : searchLibrary("Items", {
+        const prepareSignal = handoff?.signal ?? signal;
+        const details = job ? loadDownloadMetadata(item, prepareSignal).then(detail => {
+            if (!detail || prepareSignal.aborted) return;
+            Object.assign(item, detail);
+            intro.firstElementChild.replaceWith(cardArtwork(item));
+            updateDetails();
+        }) : demo ? Promise.resolve() : searchLibrary("Items", {
             userId: session.user, ids: item.Id, includeItemTypes: item.Type, recursive: true, limit: 1,
             fields: "Overview,Genres,ProviderIds,People" + (isSeries ? "" : ",MediaStreams"),
             enableUserData: true, enableImages: true, enableImageTypes: "Primary,Thumb,Backdrop,Logo", imageTypeLimit: 1
@@ -1335,7 +1486,31 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             markFavorite(favorite, isFavorite(item));
             updateDetails();
         });
+        const reveal = async (data, mainAction) => {
+            if (!staged) return;
+            await Promise.race([Promise.resolve(data).then(() => preloadDetailImages(section, prepareSignal)).catch(() => {}), handoff.deadline]);
+            if (handoff.cancelled() || !active || seriesView !== parent) {
+                controller.abort();
+                section.remove();
+                return false;
+            }
+            if (handoff.expired) for (const image of section.querySelectorAll("img[src]")) {
+                if (image.complete) continue;
+                image.onload = image.onerror = null;
+                image.removeAttribute("src");
+                delete image.dataset.loading;
+            }
+            handoff.finish();
+            section.classList.add("movie-download-entry");
+            show(mainAction());
+            if (handoff.announce) homeStatus.textContent = `${item.Name} opened. Download started.`;
+            view.updateDownload();
+            for (const row of section.querySelectorAll(".movie-season[data-season]")) updateSeasonState(row);
+            return true;
+        };
+        if (!staged && job) updateJob();
         if (!isSeries) {
+            let ready = details;
             if (!demo) {
                 const relatedTitle = "More like this";
                 const related = el("section"), relatedHeader = el("div"), relatedHeading = el("h2", relatedTitle);
@@ -1360,27 +1535,28 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     action.hidden = true;
                     related.hidden = !related.querySelector(".movie-shelf-lane");
                 });
-                const retry = async () => {
+                const retry = async (requestSignal = signal) => {
                     if (loaded || action.getAttribute("aria-disabled") === "true") return;
                     action.setAttribute("aria-disabled", "true");
                     try {
-                        const found = await loadRelated(item, related, relatedTitle, signal);
-                        if (signal.aborted) return;
+                        const found = await loadRelated(item, related, relatedTitle, requestSignal);
+                        if (requestSignal.aborted) return;
                         loaded = true;
                         if (status.textContent === relatedFailure) status.textContent = "";
                         action.hidden = document.activeElement !== action;
                         related.hidden = !found && action.hidden;
                     } catch {
-                        if (signal.aborted) return;
+                        if (requestSignal.aborted) return;
                         related.hidden = action.hidden = false;
-                        if (status.textContent !== relatedFailure) status.textContent = relatedFailure;
+                        if (!section.hidden && status.textContent !== relatedFailure) status.textContent = relatedFailure;
                     } finally {
                         action.setAttribute("aria-disabled", String(loaded));
                     }
                 };
-                void details.then(retry, retry);
+                ready = job ? Promise.all([details, retry(prepareSignal)]) :
+                    details.then(() => !prepareSignal.aborted && retry(prepareSignal));
             }
-            return;
+            return reveal(ready, () => job ? playButton : heading);
         }
         if (demo) return;
 
@@ -1435,7 +1611,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             for (const [n, pill] of pills) pill.setAttribute("aria-pressed", String(n === number));
             updateSeasonArrows();
             const season = available.get(number);
-            const owned = season?.episodes.length ? season.episodes : episodes ?? [];
+            const owned = season?.episodes.length ? season.episodes : job ? [] : episodes ?? [];
             const next = owned.find(episode => progressOf(episode) > 0 && !episode.UserData?.Played) ??
                 owned.find(episode => !episode.UserData?.Played) ?? owned[0];
             if (!next && document.activeElement === playButton) seasonFocus().focus({preventScroll: true});
@@ -1457,7 +1633,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const seasonLoading = movieLoading("seasons");
         seasonLoading.hidden = true;
         seasons.after(seasonLoading);
-        const local = bounded => localEpisodes(item.Id, bounded);
+        const local = async bounded => {
+            if (!job) return localEpisodes(item.Id, bounded);
+            localTitle ??= await downloadedLibraryTitle(item, bounded);
+            return localTitle ? localEpisodes(localTitle.Id, bounded) : [];
+        };
         const tmdb = async bounded => {
             if (!item.ProviderIds?.Tmdb) await details;
             const id = item.ProviderIds?.Tmdb;
@@ -1477,9 +1657,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const focused = list.contains(focus);
             const key = focused && focus.dataset.episodeId;
             const nodes = season ? [seasonRow(item, number, season, episodes !== null, pictures.get(number), signal)] : [];
-            if (!episodes) libraryOutage.show(); else libraryOutage.clear();
-            if (episodes && !metadata) metadataOutage.show(); else metadataOutage.clear();
-            if (episodes && metadata && season && tmdbId && !pictures.has(number)) episodeOutage.show();
+            if (!episodes && !job) libraryOutage.show(); else libraryOutage.clear();
+            if (episodes && !metadata && !job) metadataOutage.show(); else metadataOutage.clear();
+            if (episodes && metadata && season && tmdbId && !pictures.has(number) && !job) episodeOutage.show();
             else episodeOutage.clear();
             if (focused) seasonFocus().focus({preventScroll: true});
             list.replaceChildren(...nodes);
@@ -1508,11 +1688,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             list.removeAttribute("aria-busy");
         }
         function summarize() {
+            if (job && !metadata) { summary.textContent = ""; return; }
             const count = metadata?.length ?? [...available.keys()].filter(number => number > 0).length;
             const total = metadata ? plural(count, "season") : count ? plural(count, "season") + " in your library" : "";
             summary.textContent = total || (episodes && metadata && !available.size ? "No seasons available." : "");
         }
-        async function load(quiet) {
+        async function load(quiet, requestSignal = signal) {
             if (busy || signal.aborted) return;
             busy = true;
             let episodeLoading;
@@ -1528,10 +1709,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             try {
                 await withinMovieLoad(async bounded => {
                     const [localItems, catalogueData] = await Promise.all([
-                        local(bounded).catch(() => null),
+                        job && downloadPercent(queueEntry(job)) < 100 && !quiet ? [] : local(bounded).catch(() => null),
                         metadata ? null : tmdb(bounded).catch(() => null)
                     ]);
-                    if (signal.aborted) return;
+                    if (bounded.aborted) return;
                     const changed = localItems && JSON.stringify(localItems) !== JSON.stringify(episodes);
                     if (localItems) episodes = localItems;
                     if (Array.isArray(catalogueData?.seasons)) {
@@ -1544,6 +1725,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         if (Number.isInteger(entry?.number) && entry.number > 0)
                             available.set(entry.number, {total: entry.episode_count, episodes: []});
                     }
+                    if (job && preferredSeason && !available.has(preferredSeason))
+                        available.set(preferredSeason, {total: job.episodeCount, episodes: []});
                     for (const episode of episodes ?? []) {
                         const number = episode.ParentIndexNumber;
                         if (!Number.isInteger(number) || number < 0) continue;
@@ -1559,7 +1742,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     const first = available.has(number) ? number : numbers[0];
                     const change = revision;
                     await loadSeason(first, bounded);
-                    if (signal.aborted || change !== revision) return;
+                    if (bounded.aborted || change !== revision) return;
                     const removedFocus = lane.contains(document.activeElement) && !numbers.some(n => pills.get(n) === document.activeElement);
                     if (removedFocus) heading.focus({preventScroll: true});
                     for (const [n, pill] of pills) {
@@ -1590,7 +1773,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     credit.hidden = !metadata;
                     renderSeason(first);
                     summarize();
-                }, signal);
+                    view.updateDownload();
+                }, requestSignal);
             } finally {
                 busy = false;
                 seasonLoading.hidden = true;
@@ -1598,22 +1782,67 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 list.removeAttribute("aria-busy");
             }
         }
-        seriesView.refreshProgress = () => load(true);
-        void load(false);
+        view.refreshProgress = () => load(true);
+        if (job) view.shouldPollLibrary = () => {
+            if (downloadPercent(queueEntry(job)) !== 100) return false;
+            const season = available.get(job.season);
+            if (job.episode) return !season?.episodes.some(episode => episode.IndexNumber === job.episode);
+            return !season?.episodes.length || season.total > season.episodes.length;
+        };
+        view.updateDownload = () => {
+            updateJob();
+            for (const [number, pill] of pills) {
+                const entry = seasonDownload(searchTitle(item.Name), number, job);
+                pill.toggleAttribute("data-downloading", Boolean(entry));
+                if (entry) pill.style.setProperty("--download-fill", downloadPercent(entry) + "%");
+            }
+        };
+        if (job && preferredSeason) {
+            available.set(preferredSeason, {total: job.episodeCount, episodes: []});
+            const pill = button(`Season ${preferredSeason}`, () => void choose(preferredSeason));
+            pills.set(preferredSeason, pill);
+            lane.append(pill);
+            seasons.hidden = false;
+            selectSeason(preferredSeason);
+            episodes = [];
+            renderSeason(preferredSeason);
+            view.updateDownload();
+        }
+        const ready = Promise.all([details, load(false, prepareSignal)]);
+        return reveal(ready, seasonFocus);
     }
     function playAction(item) {
-        const action = button("", () => { if (item) void play(item, action); });
+        const action = button("", () => { if (item && action.getAttribute("aria-disabled") !== "true") void play(item, action); });
         const label = el("span");
         action.append(label);
         action.setMovie = movie => {
             item = movie;
             action.hidden = !movie;
-            label.textContent = movie && progressOf(movie) > 0 && !movie.UserData?.Played ? "Resume" : "Play";
+            const text = movie && progressOf(movie) > 0 && !movie.UserData?.Played ? "Resume" : "Play";
+            if (label.textContent !== text) label.textContent = text;
         };
         action.setMovie(item);
         action.className = "movie-hero-play";
+        action.setDownload = (percent, movie) => {
+            const running = percent < 100;
+            const wasRunning = action.hasAttribute("data-downloading");
+            action.toggleAttribute("data-downloading", running);
+            action.style.setProperty("--download-fill", percent + "%");
+            if (running !== wasRunning) action.firstElementChild.replaceWith(icon(running ? downloadPath : playPath));
+            if (running) {
+                const text = percent + "%";
+                if (label.textContent !== text) label.textContent = text;
+                action.setAttribute("aria-label", "Downloading " + Math.floor(percent / 10) * 10 + "%");
+            } else {
+                action.setMovie(movie || item);
+                action.removeAttribute("aria-label");
+            }
+            if (running || !movie) action.setAttribute("aria-disabled", "true");
+            else action.removeAttribute("aria-disabled");
+        };
         return action;
     }
+    const downloadPath = "M12 3v12m-5-5 5 5 5-5M5 20h14";
     const streamsOf = item => (item.MediaStreams?.length ? item.MediaStreams : item.MediaSources?.[0]?.MediaStreams) ?? [];
     const videoOf = item => streamsOf(item).find(stream => stream.Type === "Video");
     function libraryQuality(item) {
@@ -1635,7 +1864,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         appendSoundChip(facts, librarySound(streamsOf(item)), icon);
     }
     function setTitleLogo(item, heading, name = item.Name) {
-        const tag = item.ImageTags?.Logo;
+        const tag = item.TmdbLogo ?? item.ImageTags?.Logo;
         if (heading.dataset.logo === (tag ?? "") && heading.textContent === name) return;
         heading.dataset.logo = tag ?? "";
         const text = el("span", name);
@@ -1647,7 +1876,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         logo.className = "movie-hero-logo";
         logo.referrerPolicy = "no-referrer";
         logo.onload = () => { logo.hidden = false; text.classList.add("movie-visually-hidden"); };
-        chainImages(logo, [imageSource(item.Id, "Logo", tag, 640)]);
+        chainImages(logo, [item.TmdbLogo ?? imageSource(item.Id, "Logo", tag, 640)]);
         heading.append(logo);
     }
     function renderCast(item, target) {
@@ -1664,12 +1893,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             portrait.style.setProperty("--art-hue", titleHue(actor.Name));
             const initials = actor.Name.trim().split(/\s+/).slice(0, 2).map(word => [...word][0]).join("").toUpperCase();
             portrait.append(el("span", initials));
-            if (actor.Id && actor.PrimaryImageTag) {
+            if (actor.TmdbPortrait || actor.Id && actor.PrimaryImageTag) {
                 const photo = el("img");
                 photo.alt = "";
                 photo.loading = "lazy";
                 photo.referrerPolicy = "no-referrer";
-                chainImages(photo, [imageSource(actor.Id, "Primary", actor.PrimaryImageTag, 200)]);
+                chainImages(photo, [actor.TmdbPortrait ?? imageSource(actor.Id, "Primary", actor.PrimaryImageTag, 200)]);
                 portrait.append(photo);
             }
             row.append(portrait, el("strong", actor.Name));
@@ -1695,7 +1924,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 matchedTitle.set(searchTitle(movie.Name) + ":" + movie.ProductionYear, movie);
         };
         for (const shelf of browseShelves) shelf.items.forEach(index);
-        if (matches.some(match => !owned.has(String(match.id)))) {
+        if (!trackedDownloads.has(item.Id) && matches.some(match => !owned.has(String(match.id)))) {
             await withinMovieLoad(async bounded => {
                 let startIndex = 0, page;
                 do {
@@ -1748,6 +1977,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         row.className = "movie-season";
         row.dataset.season = number;
         row.dataset.seriesKey = searchTitle(item.Name);
+        row.dataset.itemId = item.Id;
         header.className = "movie-season-header";
         counts.className = "movie-season-counts";
         state.className = "movie-season-state";
@@ -1776,12 +2006,17 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             return {index, episode, details};
         });
         for (const [index, details] of catalogue) rows.push({index, details});
+        if (trackedDownloads.has(item.Id) && !catalogueEpisodes && total > 0) {
+            for (let index = 1; index <= Math.min(total, 100); index++)
+                if (!rows.some(row => row.index === index)) rows.push({index});
+        }
         rows.sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
         for (const {index, episode, details} of rows) {
             const entry = el("li"), frame = el("span"), content = el("span");
             const action = episode ? button("", () => play(episode, action)) : el("div");
             action.className = "movie-episode-body";
             entry.dataset.episode = index ?? "";
+            if (episode) entry.dataset.episodeState = episode.UserData?.Played ? "watched" : "ready";
             frame.className = "movie-episode-still";
             frame.setAttribute("aria-hidden", "true");
             const image = el("img"), tag = episode?.ImageTags?.Primary ?? episode?.ImageTags?.Thumb;
@@ -1827,6 +2062,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 marker.className = "movie-episode-marker";
                 content.append(marker);
             }
+            if (trackedDownloads.has(item.Id)) {
+                const indicator = el("span");
+                indicator.className = "movie-episode-download-icon";
+                indicator.setAttribute("aria-hidden", "true");
+                if (episode) indicator.append(icon("m5 12 4 4L19 6"));
+                action.append(indicator);
+            }
             entry.append(action);
             if (episode && session.downloads_enabled) {
                 const audio = audioAction(episode, signal);
@@ -1842,18 +2084,15 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     /** Marks a season missing, downloading (with progress) or available from the server's download list. */
     function updateSeasonState(row) {
         const state = row.querySelector(".movie-season-state");
-        if (!state || state.dataset.state === "available") return;
+        if (!state) return;
         const number = Number(row.dataset.season), key = row.dataset.seriesKey;
-        const found = downloadItems.find(entry => {
-            if (typeof entry?.name !== "string" || entry.state === "Finished" || !(entry.progress < 1)) return false;
-            const name = searchTitle(entry.name);
-            if (name !== key && !name.startsWith(key + " ")) return false;
-            const wanted = /(?:^|[^a-z0-9])s(\d{1,3})(?:e\d+)?(?![a-z0-9])|season[ ._-]*(\d{1,3})(?!\d)/.exec(entry.name.toLowerCase());
-            return wanted && Number(wanted[1] ?? wanted[2]) === number;
-        });
+        const job = trackedDownloads.get(row.dataset.itemId);
+        const found = seasonDownload(key, number, job);
+        const hasEpisodes = Boolean(row.querySelector("[data-episode-state=ready], [data-episode-state=watched]"));
+        if (!job && hasEpisodes) return;
         const find = row.querySelector(".movie-season-header > button:not(.movie-hero-play)");
         if (found) {
-            const percent = Math.round(Math.max(0, Math.min(1, Number(found.progress) || 0)) * 100);
+            const percent = downloadPercent(found);
             const eta = found.eta != null && ["Downloading", "Almost done"].includes(found.state)
                 ? `, about ${Math.max(1, Math.ceil(found.eta / 60))} min left` : "";
             state.dataset.state = "downloading";
@@ -1865,16 +2104,112 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             }
             if (find) find.hidden = true;
         } else {
-            state.dataset.state = find ? "missing" : "unknown";
-            const label = find ? "Missing" : "Library check failed";
+            state.dataset.state = hasEpisodes ? "available" : find ? "missing" : "unknown";
+            const importing = job && (job.allSeasons || number === job.season) && downloadPercent(queueEntry(job)) === 100;
+            const label = hasEpisodes ? "Available" : importing
+                ? "Waiting for the library" : find ? "Missing" : "Library check failed";
             if (state.textContent !== label) state.textContent = label;
-            if (find) find.hidden = false;
+            if (find) find.hidden = Boolean(importing);
         }
-        for (const marker of row.querySelectorAll(".movie-episode-marker"))
-            marker.textContent = found ? "Downloading" : "Not in library";
+        for (const marker of row.querySelectorAll(".movie-episode-marker")) {
+            const entry = marker.closest("li");
+            const target = job?.episode;
+            const downloading = found && (!target || Number(entry.dataset.episode) === target);
+            const text = downloading ? "Downloading" : "Not in library";
+            if (marker.textContent !== text) marker.textContent = text;
+            if (job) entry.dataset.episodeState = downloading ? "downloading" : "missing";
+        }
     }
 
     let downloadItems = [];
+    const downloadsKey = preferencesKey(preferenceViewer) + ":downloads";
+    const trackedDownloads = new Map();
+    if (session.downloads_enabled) try {
+        for (const job of JSON.parse(localStorage.getItem(downloadsKey)) ?? [])
+            if (typeof job?.item?.Id === "string" && typeof job.release === "string" && job.expires > Date.now())
+                trackedDownloads.set(job.item.Id, job);
+    } catch {}
+    function saveDownloads() {
+        try { localStorage.setItem(downloadsKey, JSON.stringify([...trackedDownloads.values()].slice(-40))); } catch {}
+    }
+    const downloadPercent = entry => Math.min(entry?.progress >= 1 ? 100 : 99,
+        Math.max(0, Math.round((entry?.progress || 0) * 100)));
+    function queueEntry(job) {
+        return downloadItems.find(entry => !Array.isArray(entry?.results) && typeof entry?.name === "string" &&
+            searchTitle(entry.name) === searchTitle(job.release)) ?? job.last;
+    }
+    function seasonDownload(key, number, job) {
+        if (job && (job.allSeasons || job.season === number)) {
+            const entry = queueEntry(job);
+            if (downloadPercent(entry) < 100) return entry ?? {progress: 0};
+        }
+        return downloadItems.find(entry => {
+            if (typeof entry?.name !== "string" || entry.state === "Finished" || !(entry.progress < 1)) return false;
+            const name = searchTitle(entry.name);
+            if (name !== key && !name.startsWith(key + " ")) return false;
+            const wanted = /(?:^|[^a-z0-9])s(\d{1,3})(?:e\d+)?(?![a-z0-9])|season[ ._-]*(\d{1,3})(?!\d)/.exec(entry.name.toLowerCase());
+            return wanted && Number(wanted[1] ?? wanted[2]) === number;
+        });
+    }
+    async function downloadedLibraryTitle(item, signal) {
+        const id = String(item.ProviderIds?.Tmdb ?? "");
+        const page = await searchLibrary("Items", {userId: session.user, searchTerm: item.Name,
+            includeItemTypes: item.Type, recursive: true, fields: "ProviderIds,MediaStreams", limit: 30}, undefined, signal).catch(() => null);
+        const rows = (Array.isArray(page?.Items) ? page.Items : []).filter(row => row?.Type === item.Type && !row.IsMissing && row.LocationType !== "Virtual" &&
+            (!item.ProductionYear || !row.ProductionYear || Number(item.ProductionYear) === Number(row.ProductionYear)));
+        return rows.find(row => id && String(row.ProviderIds?.Tmdb ?? row.ProviderIds?.TMDb ?? "") === id) ??
+            rows.find(row => (!id || !(row.ProviderIds?.Tmdb ?? row.ProviderIds?.TMDb)) && searchTitle(row.Name) === searchTitle(item.Name));
+    }
+    async function loadDownloadMetadata(item, signal) {
+        const id = String(item.ProviderIds?.Tmdb ?? "");
+        if (!/^[1-9]\d{0,9}$/.test(id)) return null;
+        const reply = await boundedCall(signal, "MovieTitleDetails", item.Type === "Series" ? "tv" : "movie", id).catch(() => null);
+        if (!reply?.title) return null;
+        return {
+            Overview: reply.overview || item.Overview, Genres: reply.genres || item.Genres,
+            TmdbPoster: reply.poster || item.TmdbPoster, TmdbBackdrop: reply.backdrop || item.TmdbBackdrop,
+            TmdbLogo: reply.logo, People: (Array.isArray(reply.cast) ? reply.cast : []).map(actor => ({
+                Type: "Actor", Name: actor.name, Role: actor.role, TmdbPortrait: actor.portrait
+            }))
+        };
+    }
+    async function preloadDetailImages(section, signal) {
+        if (signal.aborted) return;
+        await Promise.all([...section.querySelectorAll("img[src]")].map(img => {
+            img.loading = "eager";
+            if (img.complete && img.naturalWidth) return img.decode?.().catch(() => {});
+            return new Promise(resolve => {
+                img.addEventListener("load", () => Promise.resolve(img.decode?.()).catch(() => {}).then(resolve), {once: true, signal});
+                const check = () => { if (!img.getAttribute("src") || img.complete) resolve(); };
+                img.addEventListener("error", () => queueMicrotask(check), {signal});
+                check();
+                signal.addEventListener("abort", resolve, {once: true});
+            });
+        }));
+    }
+    async function openDownloadedTitle(job, opener, sourceSignal, close = () => {}, announce = false) {
+        const preparation = new AbortController();
+        const fromResults = browse.hidden;
+        const stop = () => preparation.abort();
+        sourceSignal.addEventListener("abort", stop, {once: true});
+        const handoff = {
+            signal: preparation.signal, close, announce,
+            cancelled: () => sourceSignal.aborted || !opener.isConnected || browse.hidden !== fromResults,
+            finish: stop
+        };
+        let timer;
+        handoff.deadline = new Promise(resolve => {
+            timer = setTimeout(() => { handoff.expired = true; resolve(); }, 4000);
+            preparation.signal.addEventListener("abort", resolve, {once: true});
+        });
+        try {
+            return await openSeries(job.item, opener, job.season, false, false, handoff);
+        } finally {
+            clearTimeout(timer);
+            sourceSignal.removeEventListener("abort", stop);
+            stop();
+        }
+    }
     const releaseTail = /^(?:(?:19|20)\d\d|s\d{1,3}(?:e\d{1,3})?|season|complete|\d{3,4}[pi]|bluray|web|hdtv|dvdrip)\b/;
     function updateCardDownload(card) {
         const badge = card.querySelector(".movie-download-badge");
@@ -1929,8 +2264,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             [item.Id, "Backdrop", item.BackdropImageTags?.[0]]
         ];
         const candidates = preferLandscape ? [...landscape, ...series, primary] : [primary, ...landscape, ...series];
-        const images = new Set(candidates.filter(([id, , tag]) => id && tag).map(([id, type, tag]) =>
-            imageSource(id, type, tag, 480)));
+        const images = new Set([item.TmdbPoster, ...candidates.filter(([id, , tag]) => id && tag).map(([id, type, tag]) =>
+            imageSource(id, type, tag, 480))].filter(Boolean));
         chainImages(poster, [...images]);
         const artwork = el("span");
         artwork.className = "movie-art";
@@ -1954,7 +2289,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         art.className = "movie-hero-art";
         const style = readMoviePreferences(preferenceViewer).backgroundStyle;
         const width = innerWidth > 1920 ? 3840 : 1920;
-        const sources = style === "preset" ? [] : backdropSources(item).filter(([, type]) => type === "Backdrop");
+        const remote = item.TmdbBackdrop?.replace(/^(https:\/\/image\.tmdb\.org\/t\/p\/)(?:w\d+|original)\//,
+            (_, base) => base + (width > 1920 ? "original/" : innerWidth <= 780 ? "w780/" : "w1280/"));
+        const sources = style === "preset" ? [] : [remote, ...backdropSources(item).filter(([, type]) => type === "Backdrop")
+            .map(([id, type, tag]) => imageSource(id, type, tag, width))].filter(Boolean);
         const settle = () => {
             delete art.dataset.loading;
             onSettled?.();
@@ -1963,7 +2301,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             art.dataset.loading = "";
             art.addEventListener("load", settle, {once: true});
         }
-        chainImages(art, sources.map(([id, type, tag]) => imageSource(id, type, tag, width)), settle);
+        chainImages(art, sources, settle);
         return art;
     }
     const newTitle = item => {
@@ -2425,16 +2763,45 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         videaFailed && (videa?.error || "Videa did not respond.")].filter(Boolean).join(" ")};
                 }
                 return {results: ranked, title_details: torrents?.title_details || youtube?.title_details};
-            }, signal, session.downloads_enabled ? async (row, options) => {
+            }, signal, session.downloads_enabled ? async (row, options, identity, opener, close) => {
                 const reply = row.episodes
                     ? await call("MovieVideaSeasonDownload", row.name, row.episodes)
                     : row.site
                     ? await call(row.site === "Videa" ? "MovieVideaDownload" : "MovieYouTubeDownload", row.url, row.title)
                     : await call("MovieDownload", row.guid, row.indexerId, row.title, ...options);
-                if (reply?.state === "sent") refreshDownloadsAfterGrab();
+                if (reply?.state === "sent") {
+                    refreshDownloadsAfterGrab();
+                    if (!row.site) {
+                        const kind = identity.kind || (row.kind ? "tv" : "movie");
+                        const seasonTag = /\bS(\d{1,3})(?:E(\d{1,3}))?/i.exec(row.title);
+                        const season = kind === "tv" ? identity.season || Number(seasonTag?.[1]) || 1 : undefined;
+                        const name = identity.title || row.name;
+                        const item = {
+                            Id: `download-${kind}-${identity.tmdb_id || searchTitle(name) + "-" + (identity.year || "")}`,
+                            Name: name, Type: kind === "tv" ? "Series" : "Movie", ProductionYear: identity.year,
+                            ProviderIds: {Tmdb: identity.tmdb_id}, OfficialRating: identity.official_rating,
+                            RunTimeTicks: (identity.runtime_minutes || 0) * 6e8, Overview: identity.overview,
+                            TmdbPoster: identity.poster, TmdbBackdrop: identity.backdrop
+                        };
+                        const job = {item, season, episode: Number(seasonTag?.[2]) || undefined, episodeCount: identity.episode_count,
+                            allSeasons: row.kind === "Complete series", release: reply.name || row.fileName, expires: Date.now() + 30 * 86400000};
+                        trackedDownloads.set(item.Id, job);
+                        saveDownloads();
+                        if (active) renderDownloadQueue();
+                        const opened = !signal.aborted && await openDownloadedTitle(job, opener, signal, close, true).catch(() => false);
+                        return {...reply, opened};
+                    }
+                }
                 return reply;
             } : null, {
                 term, screen: movieScreen(readMoviePreferences(preferenceViewer).screen), icon, searchTitle, titleHue, chainImages,
+                palette: backdropPalette,
+                preferences: () => {
+                    const prefs = readMoviePreferences(preferenceViewer);
+                    return [prefs.downloadAudio ?? false, prefs.downloadSubtitles ?? true];
+                },
+                save: ([downloadAudio, downloadSubtitles]) => saveMoviePreferences(preferenceViewer,
+                    {...readMoviePreferences(preferenceViewer), downloadAudio, downloadSubtitles}),
                 watchLink: youtubeWatch,
                 downloadProgress: row => {
                     const key = searchTitle(row.episodes ? row.name : row.title);
@@ -2845,7 +3212,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     catalogue.className = "movie-catalogue";
     downloadsPanel.className = "movie-downloads";
     downloadsPanel.setAttribute("aria-label", "Downloading");
-    const queue = el("ul");
+    const queue = el("ul"), downloadCards = new Map();
     catalogue.append(browse, searchProgress, results, searchAnnouncement);
     if (session.downloads_enabled) {
         downloadsPanel.hidden = true;
@@ -2957,6 +3324,72 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         refreshAfterGrabAt = Date.now() + 3100;
         scheduleDownloads(3100);
     }
+    const runningDownloads = () => runningMovieDownloads(downloadItems);
+    function renderDownloadQueue() {
+        const running = runningDownloads();
+        const jobs = [...trackedDownloads.values()].filter(job => downloadPercent(queueEntry(job)) < 100 ||
+            downloadCards.get(job.item.Id)?.firstElementChild.getAttribute("aria-busy") === "true");
+        const represented = new Set(jobs.map(job => searchTitle(job.release)));
+        const shown = new Set();
+        for (const job of jobs) {
+            const id = job.item.Id;
+            shown.add(id);
+            let tile = downloadCards.get(id);
+            if (!tile) {
+                tile = el("li");
+                const open = button("", () => {
+                    if (open.getAttribute("aria-busy") === "true") return;
+                    open.setAttribute("aria-busy", "true");
+                    void openDownloadedTitle(job, open, life.signal).catch(() => {}).finally(() => {
+                        open.removeAttribute("aria-busy");
+                        renderDownloadQueue();
+                    });
+                });
+                const round = el("span"), label = el("strong", job.item.Name);
+                round.className = "movie-download-circle";
+                round.setAttribute("aria-hidden", "true");
+                open.append(round, label);
+                tile.append(open);
+                tile.className = "movie-download-card";
+                downloadCards.set(id, tile);
+                queue.append(tile);
+            }
+            const percent = downloadPercent(queueEntry(job));
+            const open = tile.firstElementChild;
+            open.firstElementChild.textContent = percent + "%";
+            open.setAttribute("aria-label", `${job.item.Name}, ${Math.floor(percent / 10) * 10}% downloaded`);
+        }
+        const adjacent = jobs.length > 0;
+        for (const [id, tile] of downloadCards) {
+            if (shown.has(id)) continue;
+            if (tile.contains(document.activeElement)) {
+                const next = [...downloadCards].find(([key]) => shown.has(key))?.[1];
+                (next?.firstElementChild ?? browse).focus({preventScroll: true});
+            }
+            downloadCards.delete(id);
+            tile.remove();
+        }
+        if (adjacent && downloadsPanel.parentElement !== browse) resumeShelf.section.after(downloadsPanel);
+        else if (!adjacent && downloadsPanel.parentElement === browse) catalogue.prepend(downloadsPanel);
+        for (const tile of queue.querySelectorAll("li:not(.movie-download-card)")) tile.remove();
+        for (const item of running) {
+            if (typeof item.name !== "string" || represented.has(searchTitle(item.name))) continue;
+            const tile = el("li"), bar = el("div"), fill = el("span");
+            const progress = downloadPercent(item);
+            bar.className = "movie-download-progress";
+            bar.setAttribute("role", "progressbar");
+            bar.setAttribute("aria-label", item.name);
+            bar.setAttribute("aria-valuenow", progress);
+            fill.style.transform = `scaleX(${progress / 100})`;
+            bar.append(fill);
+            const eta = item.eta != null && ["Downloading", "Almost done"].includes(item.state)
+                ? `, about ${Math.max(1, Math.ceil(item.eta / 60))} min left` : "";
+            tile.append(el("strong", item.name), bar, el("p", item.state + eta));
+            queue.append(tile);
+        }
+        downloadsPanel.hidden = !queue.children.length;
+        rememberDownloadActivity(preferenceViewer, !downloadsPanel.hidden);
+    }
     async function updateDownloads(bounded = life.signal) {
         if (!queueVisible() || checkingQueue) return;
         checkingQueue = true;
@@ -2966,7 +3399,20 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         checkingQueue = false;
         if (!queueVisible()) return;
         const itemsAvailable = reply?.available && Array.isArray(reply.items);
-        downloadItems = itemsAvailable ? reply.items : [];
+        if (itemsAvailable) downloadItems = reply.items;
+        let changed = false;
+        for (const job of trackedDownloads.values()) {
+            const entry = queueEntry(job);
+            if (entry && entry !== job.last) {
+                const {name, state, progress, fetching} = entry;
+                const snapshot = {name, state, progress, fetching};
+                if (JSON.stringify(snapshot) !== JSON.stringify(job.last)) {
+                    job.last = snapshot;
+                    changed = true;
+                }
+            }
+        }
+        if (changed) saveDownloads();
         updateReleaseProgress?.();
         if (itemsAvailable) {
             audioJobs = downloadItems.filter(item => Array.isArray(item.results));
@@ -2989,29 +3435,22 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             if (card?.dataset.downloadKey) updateCardDownload(card);
         }
         if (seriesView) {
+            seriesView.updateDownload?.();
+            const job = trackedDownloads.get(seriesView.item.Id);
+            if (job && (seriesView.shouldPollLibrary?.() ||
+                downloadPercent(queueEntry(job)) >= (seriesView.lastLibraryCheck ?? 10))) {
+                seriesView.lastLibraryCheck = Math.min(100, downloadPercent(queueEntry(job)) + 10);
+                void seriesView.refreshProgress?.();
+            }
             for (const row of seriesView.section.querySelectorAll(".movie-season[data-season]")) updateSeasonState(row);
             for (const slot of seriesView.section.querySelectorAll(".movie-title-audio")) updateAudioJobSlot(slot);
         }
-        const running = downloadItems.filter(item => !Array.isArray(item.results) && item.progress < 1 &&
-            ["Waiting", "Downloading", "Almost done", "Stalled"].includes(item.state));
-        downloadsPanel.hidden = !running.length;
-        queue.replaceChildren(...running.map(item => {
-            const tile = el("li"), bar = el("div"), fill = el("span");
-            const progress = Math.max(0, Math.min(1, Number(item.progress) || 0));
-            bar.className = "movie-download-progress";
-            bar.setAttribute("role", "progressbar");
-            bar.setAttribute("aria-label", item.name);
-            bar.setAttribute("aria-valuenow", Math.round(progress * 100));
-            fill.style.transform = `scaleX(${progress})`;
-            bar.append(fill);
-            const eta = item.eta != null && ["Downloading", "Almost done"].includes(item.state)
-                ? `, about ${Math.max(1, Math.ceil(item.eta / 60))} min left` : "";
-            tile.append(el("strong", item.name), bar, el("p", item.state + eta));
-            return tile;
-        }));
+        renderDownloadQueue();
         if (refreshAfterGrabAt) scheduleDownloads(Math.max(0, refreshAfterGrabAt - Date.now()));
-        else if (pendingAudioJobs.size || (!library.hidden && running.length))
-            scheduleDownloads(5000);
+        else if (pendingAudioJobs.size || !library.hidden && (runningDownloads().length ||
+            [...trackedDownloads.values()].some(job => downloadPercent(queueEntry(job)) < 100 || queueEntry(job)?.fetching?.length) ||
+            seriesView?.shouldPollLibrary?.()))
+            scheduleDownloads(downloadPollInterval);
     }
     const queueVisibility = () => scheduleDownloads(0);
     const queueObserver = new MutationObserver(queueVisibility);

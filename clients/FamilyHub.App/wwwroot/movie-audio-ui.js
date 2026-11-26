@@ -20,13 +20,13 @@ function button(text, click) {
     return action;
 }
 
-export function movieDialog(parent, opener, title, signal) {
+export function movieDialog(parent, opener, title, signal, {content, initialFocus, className} = {}) {
     const dialog = make("dialog"), heading = make("h2", title), head = make("header");
-    dialog.className = "movie-audio-dialog";
+    dialog.className = className ?? "movie-audio-dialog";
     dialog.setAttribute("aria-label", title);
     const close = button("Close", () => dialog.close());
     head.append(heading, close);
-    dialog.append(head);
+    dialog.append(content ?? head);
     parent.append(dialog);
     const cleanup = () => {
         if (dialog.open) dialog.close();
@@ -39,7 +39,7 @@ export function movieDialog(parent, opener, title, signal) {
     signal.addEventListener("abort", cleanup, {once: true});
     opener.focus({preventScroll: true});
     dialog.showModal();
-    close.focus({preventScroll: true});
+    (initialFocus ?? close).focus({preventScroll: true});
     return dialog;
 }
 

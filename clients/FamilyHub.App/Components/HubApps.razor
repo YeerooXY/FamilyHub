@@ -1,3 +1,7 @@
+@implements IAsyncDisposable
+@inject MusicSession Session
+@inject IJSRuntime JS
+
 @if (Current is null)
 {
     <section class="hub-apps" aria-labelledby="view-title">
@@ -51,11 +55,76 @@ else
                             <img class="hub-image" src="@($"hub-art/{art}.webp")" alt="" width="768" height="768" decoding="async" />
                         }
                     </span>
-                    <span class="hub-text"><span class="hub-label">@label</span><span class="hub-note">@note</span></span>
+                    <span class="hub-text">
+                        <span class="hub-label">
+                            @label
+                            @if (route == "Movies & TV")
+                            {
+                                <span @ref="downloadIndicator" class="hub-download-ring" role="img" aria-label="Downloading" hidden></span>
+                            }
+                        </span>
+                        <span class="hub-note">@note</span>
+                    </span>
                 }
             </button>
         }
     </nav>;
+
+    private ElementReference downloadIndicator;
+    private readonly CancellationTokenSource downloadWatch = new();
+    private IJSObjectReference? downloadModule, downloadWatcher;
+    private DotNetObjectReference<HubApps>? downloadCallback;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || Current is not null || Session.Api is null) return;
+        try
+        {
+            downloadModule = await JS.InvokeAsync<IJSObjectReference>("import", "./movies.js");
+            if (downloadWatch.IsCancellationRequested) { await downloadModule.DisposeAsync(); return; }
+            downloadCallback = DotNetObjectReference.Create(this);
+            downloadWatcher = await downloadModule.InvokeAsync<IJSObjectReference>("watchHubDownloads",
+                downloadIndicator, new { server = Session.Server, profile = Session.User }, downloadCallback);
+            if (downloadWatch.IsCancellationRequested) await CloseDownloadWatcher();
+        }
+        catch (Exception error) when (error is JSException or JSDisconnectedException) { }
+    }
+
+    [JSInvokable]
+    public async Task<System.Text.Json.JsonElement?> HubMovieDownloads()
+    {
+        if (downloadWatch.IsCancellationRequested || Session.Api is not { } api) return null;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(downloadWatch.Token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        try
+        {
+            return await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Get, "/api/movies/downloads",
+                cancellationToken: timeout.Token);
+        }
+        catch (FamilyHubApiException error) when (error.StatusCode == 403)
+        {
+            return System.Text.Json.JsonSerializer.SerializeToElement(new { available = true, items = Array.Empty<object>() });
+        }
+        catch (Exception) { return null; }
+    }
+
+    private async ValueTask CloseDownloadWatcher()
+    {
+        if (downloadWatcher is not { } watcher) return;
+        downloadWatcher = null;
+        try { await watcher.InvokeVoidAsync("close"); await watcher.DisposeAsync(); }
+        catch (Exception error) when (error is JSException or JSDisconnectedException) { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await downloadWatch.CancelAsync();
+        await CloseDownloadWatcher();
+        try { if (downloadModule is not null) await downloadModule.DisposeAsync(); }
+        catch (Exception error) when (error is JSException or JSDisconnectedException) { }
+        downloadCallback?.Dispose();
+        downloadWatch.Dispose();
+    }
 
     // A game in progress: three guesses narrow the word, the fourth solves it, and two rows stay empty.
     private static readonly string[] BoardMarks = "absent present absent absent absent absent correct present absent correct correct correct present absent correct correct correct correct correct correct empty empty empty empty empty empty empty empty empty empty".Split(' ');

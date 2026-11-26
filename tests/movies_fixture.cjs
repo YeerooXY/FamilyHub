@@ -11,11 +11,21 @@ const playerOutput = path.join(root, ".local/movie-player-2026-11-24");
 const output = path.resolve(process.argv[2] || playerOutput);
 const app = "http://familyhub.test", jellyfin = "https://jellyfin.test";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization,content-type" };
-const movieFixtureHeader = `<header class="app-header">
-    <div class="header-start"><button id="open-hub">Switch apps</button><button id="header-back">Go back</button></div>
+function fixtureHeader(phone) {
+    return `<header class="app-header">
+    <div class="header-start">${phone ? `
+        <button id="open-hub" type="button" class="brand hub-launcher" aria-label="Switch apps" title="Switch apps">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3Z"/>
+            </svg>
+        </button>
+        <nav class="view-history" aria-label="View history"><button id="header-back" type="button">Go back</button></nav>
+    ` : '<button id="open-hub">Switch apps</button><button id="header-back">Go back</button>'}</div>
     <div class="header-search"><form id="search-form"><input id="q" type="search" aria-label="Search songs"></form></div>
     <div class="sidebar-account"><button id="profile-toggle" aria-label="Profile menu">P</button></div>
 </header>`;
+}
+const movieFixtureHeader = fixtureHeader(false);
 
 function movieAssetPath(name) {
     // Match the linked content paths in FamilyHub.App.csproj.
@@ -75,6 +85,7 @@ async function useMovieBridge(page) {
 
 async function moviePage(page, {shell = false, nested = false} = {}) {
     await useMovieBridge(page);
+    const shellHeader = fixtureHeader(page.viewportSize()?.width <= 720);
     await page.route("**/*", route => {
         const {hostname} = new URL(route.request().url());
         return hostname.endsWith(".test") || ["localhost", "127.0.0.1", "[::1]"].includes(hostname)
@@ -88,7 +99,7 @@ async function moviePage(page, {shell = false, nested = false} = {}) {
             <meta name="viewport" content="width=device-width,initial-scale=1">
             <link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/movies.css"><link rel="stylesheet" href="/service-status.css">
             ${nested ? '' : '<style>html,body{height:auto;min-height:100dvh;overflow:auto}body{display:block;padding:1rem;background:#0b0d12}</style>'}
-            ${shell ? '<link rel="stylesheet" href="/app-native.css"><link rel="stylesheet" href="/hub.css">' + movieFixtureHeader : ''}
+            ${shell ? '<link rel="stylesheet" href="/app-native.css"><link rel="stylesheet" href="/hub.css">' + shellHeader : ''}
             ${shell
                 // The app hosts Movies inside the workspace that names the current app; hub.css keys on it.
                 ? '<div class="workspace" data-app-view="Movies &amp; TV">' + (nested

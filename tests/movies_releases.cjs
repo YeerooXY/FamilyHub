@@ -287,15 +287,14 @@ async function verify(browser, name, options) {
         await page.keyboard.press("Shift+Tab");
         assert.equal(await focus(grab), true);
         await page.keyboard.press("Enter");
-        const dialog = page.getByRole("dialog", {name: "Download options"});
-        const closeOptions = dialog.getByRole("button", {name: "Close", exact: true});
-        const huAudio = dialog.getByRole("checkbox", {name: "Hungarian audio", exact: true});
-        const huSubtitles = dialog.getByRole("checkbox", {name: "Hungarian subtitles", exact: true});
+        const dialog = page.getByRole("dialog", {name: "Confirm download"});
+        const huAudio = dialog.getByRole("switch", {name: "Hungarian audio", exact: true});
+        const huSubtitles = dialog.getByRole("switch", {name: "Hungarian subtitles", exact: true});
         const submitOptions = dialog.getByRole("button", {name: "Download", exact: true});
         await dialog.waitFor();
-        assert.equal(await focus(closeOptions), true);
+        assert.equal(await focus(submitOptions), true);
         assert.equal(await huAudio.isChecked(), false);
-        assert.equal(await huSubtitles.isChecked(), false);
+        assert.equal(await huSubtitles.isChecked(), true);
         await page.keyboard.press("Escape");
         await dialog.waitFor({state: "hidden"});
         assert.equal(await focus(grab), true);
@@ -306,6 +305,7 @@ async function verify(browser, name, options) {
         assert.equal(await focus(huAudio), true);
         await page.keyboard.press("Space");
         assert.equal(await huAudio.isChecked(), true);
+        await huSubtitles.press("Space");
         await submitOptions.press("Enter");
         const retryGrab = first.getByRole("button", {name:/^Try again/});
         await retryGrab.waitFor();
@@ -324,14 +324,14 @@ async function verify(browser, name, options) {
             window.queueItems = [{name:pack, progress:.42, size:17244393718, state:"Downloading", eta:null, speed:0}];
             confirmGrab();
         }, pack);
-        const added = first.getByRole("button", {name:/^Added The Gentlemen/});
-        await added.waitFor();
-        assert.equal(await focus(added), true);
+        const season = page.getByRole("button", {name:"Season 2", exact:true});
+        await season.waitFor();
+        assert.equal(await focus(season), true);
         assert.deepEqual(await page.evaluate(() => calls.filter(call => call[0] === "MovieDownload")),
             [["MovieDownload", "reference-a", 1, pack, true, false], ["MovieDownload", "reference-a", 1, pack, true, true]]);
         await page.clock.fastForward(3200);
-        await page.waitForFunction(progress => progress.value === .42, await first.getByRole("progressbar").elementHandle());
-        assert.equal(await focus(added), true);
+        await page.locator(".movie-season-state").filter({hasText:"Downloading 42%"}).waitFor();
+        assert.equal(await focus(season), true);
     } finally { await page.close(); }
 }
 

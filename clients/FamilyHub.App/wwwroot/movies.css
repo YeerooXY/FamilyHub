@@ -140,7 +140,7 @@
 .movie-icon-number { fill: currentColor; stroke: none; font: 700 8px system-ui, sans-serif; pointer-events: none; }
 .movie-library .movie-player:empty { display: none; }
 html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
-.movie-library .movie-player.movie-expanded { position: fixed; inset: 0; z-index: 2147483000; margin: 0; background: #000; }
+.movie-library .movie-player.movie-expanded { position: fixed; inset: 0; z-index: 2147483000; margin: 0; background: #000; animation: none; }
 body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--caption-height); }
 .movie-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; margin: 0 !important; }
 .movie-ui {
@@ -229,7 +229,8 @@ body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--ca
 .movie-library p[role="status"]:empty { margin: 0; }
 .movie-catalogue { min-width: 0; }
 .movie-library .movie-downloads { margin: 0 0 1rem; padding: .5rem .75rem; border-block: 1px solid #ffffff26; }
-.movie-catalogue:has(> .movie-series) > .movie-downloads { display: none; }
+.movie-catalogue:has(> .movie-series:not([hidden])) > .movie-downloads,
+.movie-catalogue:has(.movie-external[data-release-layout]) > .movie-downloads { display: none; }
 .movie-downloads h2 { margin: 0; font-size: 1rem; }
 .movie-downloads ul { display: grid; gap: .35rem; margin: .3rem 0 0; padding: 0; list-style: none; }
 .movie-downloads li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(4rem, 20%) auto; align-items: center; gap: .2rem 1rem; overflow-wrap: anywhere; }
@@ -387,20 +388,6 @@ body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--ca
     min-width: 0; width: 100%; padding-inline: .55rem; color: inherit; background: #242630;
     border: 1px solid #ffffff55; border-radius: .4rem;
 }
-.movie-download-options label {
-    display: flex;
-    align-items: center;
-    gap: .65rem;
-    min-height: 44px;
-    cursor: pointer;
-}
-.movie-download-options input[type="checkbox"] {
-    width: 1.15rem;
-    min-height: 0;
-    height: 1.15rem;
-    padding: 0;
-}
-.movie-download-options form button { justify-self: end; }
 .movie-audio-dialog p:empty, .movie-audio-dialog [hidden], .movie-audio-results [hidden] { display: none; }
 .movie-audio-source-name { overflow-wrap: anywhere; }
 .movie-audio-source-name:empty { display: none; }
@@ -1300,8 +1287,7 @@ body:has(.workspace > main :is(.movie-film-detail, .movie-show-detail):not([hidd
 .movie-external[data-release-layout] { max-width: none; }
 .movie-external[data-release-layout] > :is(h2, .movie-web-meta, .movie-source-note),
 .movie-external[data-release-layout] [data-release-match],
-.movie-external[data-release-layout] .movie-youtube:not(:has(li:not([data-release-match]), .service-status:not([hidden]))),
-.movie-catalogue:has(.movie-external[data-release-layout]) > .movie-downloads {
+.movie-external[data-release-layout] .movie-youtube:not(:has(li:not([data-release-match]), .service-status:not([hidden]))) {
     display: none;
 }
 .movie-external[data-release-layout] .movie-release-alternatives {
@@ -1509,14 +1495,10 @@ body:has([data-release-layout]) .header-search .movie-search :is(input, button) 
     .movie-release-time { grid-area: time; }
     .movie-release-health { grid-area: health; }
     .movie-release-actions { grid-area: action; }
-}
-@media (min-width: 350px) and (max-width: 700px) {
-    .movie-library .movie-release-content li.movie-release {
-        grid-template-columns: minmax(3.5rem, .7fr) minmax(0, 1fr) minmax(0, 1.05fr) minmax(5.4rem, 24%);
-        grid-template-areas: "quality head head action" "size time health action";
+    .movie-library .movie-release-content .movie-release-action {
+        white-space: nowrap;
+        line-height: max(1.15em, 24px);
     }
-    .movie-release-actions .movie-icon { width: 1rem; }
-    .movie-release-actions .movie-release-action { font-size: .9rem; }
 }
 @media (prefers-reduced-motion: reduce) {
     .movie-library .movie-release-content li.movie-release,
@@ -1528,4 +1510,284 @@ body[data-effects="off"] .movie-release-results button { transition: none; trans
 /* Anchor the expanded player to the viewport during playback from a detail page. */
 .movie-expanded-page .workspace > main:has(:is(.movie-film-detail, .movie-show-detail, [data-release-layout]):not([hidden])) {
     container-type: normal;
+}
+
+.movie-download-confirm {
+    --movie-hero-start: #8a63ff;
+    --movie-hero-end: #b767b9;
+    --confirm-target: 44px;
+    --confirm-outline: 2px;
+    box-sizing: border-box;
+    width: min(65rem, calc(100% - 2rem));
+    max-height: calc(100% - 2rem);
+    padding: clamp(.8rem, 1.8vw, 2.125rem);
+    overflow: auto;
+    color-scheme: dark;
+    color: #f1f4fb;
+    background: #141725e8;
+    border: 1px solid #a096ffb8;
+    border-radius: clamp(1rem, 2vw, 2rem);
+    box-shadow: 0 0 70px #8a63ff66, 0 2.5rem 5rem #0009;
+    box-shadow: 0 0 60px color-mix(in srgb, var(--movie-hero-start) 50%, transparent),
+        0 0 140px color-mix(in srgb, var(--movie-hero-end) 42%, transparent), 0 2.5rem 5rem #0009;
+}
+.movie-download-confirm[open] { animation: movie-confirm-in 450ms ease-out both; }
+.movie-confirm-form { margin: 0; }
+.movie-download-confirm::backdrop { background: #080a13a8; backdrop-filter: blur(10px); }
+@keyframes movie-confirm-in {
+    0% { transform: scale(.92); opacity: .55; }
+    56% { transform: scale(1.017); }
+    79% { transform: scale(.996); }
+    100% { transform: none; opacity: 1; }
+}
+.movie-confirm-summary {
+    display: grid;
+    grid-template-columns: clamp(4rem, 13vw, 12.5rem) minmax(0, 1fr);
+    overflow: hidden;
+    border-radius: clamp(.75rem, 1.2vw, 1.375rem);
+    background: #24283e;
+    box-shadow: inset 0 0 0 1px #ffffff12;
+}
+.movie-confirm-summary .movie-confirm-poster { aspect-ratio: auto; min-height: clamp(8rem, 14vw, 16.875rem); border-radius: 0; }
+.movie-confirm-poster img { position: absolute; inset: 0; }
+.movie-confirm-info { display: grid; align-content: center; gap: clamp(.35rem, .7vw, .85rem); padding: clamp(.65rem, 1.5vw, 1.8rem); }
+.movie-confirm-title, .movie-confirm-line { display: flex; align-items: center; flex-wrap: wrap; gap: .35em .65em; }
+.movie-download-confirm .movie-confirm-title { margin: 0; font-size: clamp(1.1rem, 3.125vw, 2.5rem); line-height: 1.12; overflow-wrap: anywhere; }
+.movie-confirm-year { font-size: .7em; color: #cdd3ea; }
+.movie-confirm-info .movie-age-rating { margin: 0; }
+.movie-confirm-line { font-size: clamp(.85rem, 1.72vw, 1.375rem); }
+.movie-confirm-line .movie-chip { padding: .26em .7em; background-color: #343b5c; font-size: .9em; }
+.movie-confirm-line .movie-release-quality[data-level="4k-remux"] { color: #2a1400; }
+.movie-release-cost-green { color: #61e49d; }
+.movie-release-cost-amber { color: #ffd568; }
+.movie-release-cost-orange { color: #ffa55f; }
+.movie-release-cost-red { color: #ff8181; }
+.movie-confirm-options { display: grid; grid-auto-rows: 1fr; gap: clamp(.4rem, .72vw, .875rem); margin-top: clamp(.65rem, 1.2vw, 1.375rem); }
+.movie-download-confirm .movie-confirm-option {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: clamp(.5rem, 1vw, 1.125rem);
+    min-height: clamp(3.25rem, 6vw, 4.75rem);
+    margin: 0;
+    padding-inline: clamp(.6rem, 1.2vw, 1.375rem);
+    border-radius: clamp(.65rem, .95vw, 1.125rem);
+    background: #242840;
+    color: inherit;
+    font-size: clamp(.95rem, 1.875vw, 1.5rem);
+    line-height: 1.18;
+}
+.movie-confirm-option:has(input:not(:disabled)) { cursor: pointer; }
+.movie-confirm-option small { display: block; margin-top: .15em; color: #b5bddb; font-size: .72em; }
+.movie-download-confirm .movie-icon { width: 1.15em; height: 1.15em; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.movie-download-confirm .movie-confirm-option > :is(input, .movie-confirm-switch) {
+    appearance: none;
+    position: relative;
+    display: block;
+    box-sizing: border-box;
+    width: max(44px, 3em);
+    height: var(--confirm-target);
+    border: 0;
+    margin: 0;
+    padding: 0;
+    color: #fff;
+    background: transparent;
+    font: inherit;
+    cursor: inherit;
+    grid-area: 1 / 3;
+}
+.movie-confirm-option input { opacity: 0; z-index: 1; }
+.movie-confirm-switch { pointer-events: none; }
+.movie-confirm-switch::before {
+    content: "";
+    position: absolute;
+    inset: 50% 0 auto;
+    transform: translateY(-50%);
+    height: 1.65em;
+    border-radius: 99px;
+    background: #494f70;
+}
+.movie-confirm-switch::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: .22em;
+    transform: translateY(-50%);
+    width: 1.18em;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: currentColor;
+}
+.movie-confirm-option input:checked + .movie-confirm-switch::before { background: #7958e5; }
+.movie-confirm-locked::before { background: #2c7a52; }
+.movie-confirm-option input:checked + .movie-confirm-switch::after, .movie-confirm-locked::after { left: auto; right: .22em; }
+.movie-confirm-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(.65rem, 1vw, 1.125rem); margin-top: clamp(.65rem, 1.25vw, 1.5rem); }
+.movie-download-confirm .movie-confirm-buttons button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .4em;
+    min-width: 0;
+    min-height: var(--confirm-target);
+    padding: .45em;
+    color: #fff;
+    background: #303653;
+    border: 0;
+    border-radius: clamp(.7rem, 1.04vw, 1.25rem);
+    font: inherit;
+    font-size: clamp(.95rem, 1.25vw, 1.5rem);
+    font-weight: 700;
+}
+.movie-download-confirm .movie-confirm-buttons button[type="submit"] { background: linear-gradient(135deg, #7550e0, #6034cb); }
+.movie-download-confirm :is(button:focus, .movie-confirm-option:focus-within) { outline: var(--confirm-outline) solid #fff; outline-offset: 3px; }
+.movie-confirm-option input:focus { outline: none; }
+@media (min-width: 1600px) {
+    .movie-download-confirm { --confirm-target: clamp(60px, 4vw, 76px); --confirm-outline: 4px; }
+    .movie-library :is(.movie-download-entry .movie-hero-play, .movie-download-card button):focus-visible {
+        outline: 4px solid #fff;
+        outline-offset: 3px;
+    }
+}
+
+.movie-library .movie-download-entry { animation: movie-download-fade 230ms ease-out both; }
+.movie-download-entry .movie-title-intro { animation: movie-download-title 270ms ease-out both; }
+@keyframes movie-download-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes movie-download-title {
+    from { transform: translateY(10px) scale(.985); }
+    65% { transform: translateY(-2px) scale(1.003); }
+    to { transform: none; }
+}
+.movie-results-leaving { position: absolute; inset-inline: 0; z-index: 2; pointer-events: none; }
+.movie-catalogue:has(> .movie-results-leaving) { position: relative; }
+.movie-download-tracks { margin: .25rem 0; color: #d4cde8; font-size: .9em; }
+.movie-library .movie-title-actions button.movie-hero-play[data-downloading] {
+    display: inline-grid;
+    grid-template-columns: auto 1fr;
+    gap: .65rem;
+    min-width: min(100%, 10rem);
+    justify-items: center;
+    color: #fff;
+    background: linear-gradient(#6940ca, #6940ca) left / var(--download-fill) 100% no-repeat #30294a;
+    transition: background-size 230ms ease-out;
+    opacity: 1;
+    font-size: 1.2em;
+    font-variant-numeric: tabular-nums;
+}
+.movie-hero-play[data-downloading] svg { grid-column: 1; grid-row: 1; padding: .23rem; box-sizing: content-box; }
+.movie-hero-play[data-downloading]::before {
+    content: "";
+    grid-column: 1;
+    grid-row: 1;
+    place-self: stretch;
+    border-radius: 50%;
+    border: 2px solid #ffffff48;
+    border-top-color: #fff;
+    animation: movie-download-spin 1.3s linear infinite;
+}
+.movie-library .movie-season-pills button[data-downloading] {
+    position: relative;
+    background: linear-gradient(#6744c1, #6744c1) bottom / 100% var(--download-fill) no-repeat #30294a;
+    transition: background-size 230ms ease-out;
+}
+.movie-season-pills button[data-downloading]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 2px solid #cab9ff;
+    border-radius: inherit;
+    pointer-events: none;
+    animation: movie-download-orbit 1.5s linear infinite;
+}
+@keyframes movie-download-orbit {
+    0%, 100% { clip-path: inset(0 55% 50% 0); }
+    25% { clip-path: inset(0 0 50% 55%); }
+    50% { clip-path: inset(50% 0 0 55%); }
+    75% { clip-path: inset(50% 55% 0 0); }
+}
+.movie-season [data-episode-state] .movie-episode-body:has(.movie-episode-download-icon) {
+    grid-template-columns: minmax(3rem, 24%) minmax(0, 1fr) auto;
+}
+.movie-episode-download-icon { display: none; }
+.movie-season :is([data-episode-state="ready"], [data-episode-state="watched"]) .movie-episode-download-icon { display: grid; color: #82e7ad; }
+.movie-season [data-episode-state="ready"] .movie-episode-body:has(.movie-episode-download-icon) .movie-episode-text strong::after {
+    content: "";
+    display: inline-block;
+    width: .45em;
+    height: .45em;
+    margin-inline-start: .5em;
+    border-radius: 50%;
+    vertical-align: middle;
+    background: #b697ff;
+}
+.movie-season [data-episode-state="watched"] .movie-episode-body:has(.movie-episode-download-icon) { opacity: .72; }
+.movie-season [data-episode-state="downloading"] .movie-episode-download-icon {
+    display: block;
+    width: 1.15em;
+    aspect-ratio: 1;
+    margin-inline: .4em;
+    border: 2px solid #7b67ac;
+    border-top-color: #e1d3ff;
+    border-radius: 50%;
+    animation: movie-download-spin 1.3s linear infinite;
+}
+.movie-season [data-episode-state="downloading"] .movie-episode-still {
+    background: linear-gradient(110deg, #24273b 25%, #3b3456 49%, #24273b 72%) 100% 0 / 240% 100%;
+    animation: movie-download-shimmer 1.6s ease-in-out infinite;
+}
+.movie-season [data-episode-state="downloading"] .movie-episode-still img { visibility: hidden; }
+@keyframes movie-download-shimmer { to { background-position: -60% 0; } }
+@keyframes movie-download-spin { to { transform: rotate(1turn); } }
+.movie-downloads li.movie-download-card { display: block; }
+.movie-library .movie-download-card button {
+    display: flex;
+    align-items: center;
+    gap: .85rem;
+    width: min(100%, 24rem);
+    min-height: var(--movie-target);
+    padding: .65rem .85rem;
+    text-align: start;
+    white-space: normal;
+    color: #fff;
+    background: #26223c;
+    border: 1px solid #ffffff28;
+    border-radius: .8rem;
+}
+.movie-download-circle {
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 3.1rem;
+    aspect-ratio: 1;
+    font-weight: 650;
+    font-family: ui-rounded, "Segoe UI", system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+}
+.movie-download-circle::before, .hub-movies .hub-download-ring {
+    border: 2px solid #b7a0ef65;
+    border-top-color: #d8c6ff;
+    border-radius: 50%;
+    animation: movie-download-spin 1.3s linear infinite;
+}
+.movie-download-circle::before { content: ""; position: absolute; inset: 0; }
+.hub-movies .hub-download-ring { display: inline-block; width: 1rem; height: 1rem; vertical-align: middle; margin-inline-start: .4em; }
+.hub-movies .hub-download-ring[hidden] { display: none; }
+
+body[data-effects="off"] :is(.movie-download-confirm[open], .movie-library .movie-download-entry, .movie-download-entry .movie-title-intro,
+    .movie-season [data-episode-state="downloading"] :is(.movie-episode-still, .movie-episode-download-icon), .hub-download-ring),
+body[data-effects="off"] .movie-hero-play[data-downloading]::before,
+body[data-effects="off"] .movie-season-pills button[data-downloading]::after,
+body[data-effects="off"] .movie-download-circle::before {
+    animation: none;
+}
+body[data-effects="off"] .movie-results-leaving { visibility: hidden; }
+body[data-effects="off"] .movie-library :is(.movie-title-actions button.movie-hero-play, .movie-season-pills button)[data-downloading] {
+    transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+    .movie-results-leaving { visibility: hidden; }
+    .movie-library :is(.movie-title-actions button.movie-hero-play, .movie-season-pills button)[data-downloading] { transition: none; }
+    .movie-download-confirm[open], .movie-library .movie-download-entry, .movie-download-entry .movie-title-intro,
+    .movie-season [data-episode-state="downloading"] :is(.movie-episode-still, .movie-episode-download-icon), .hub-download-ring,
+    .movie-hero-play[data-downloading]::before, .movie-season-pills button[data-downloading]::after, .movie-download-circle::before { animation: none; }
 }

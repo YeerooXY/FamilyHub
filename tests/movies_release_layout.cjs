@@ -71,6 +71,32 @@ async function check(browser, profile, options) {
         if (phone) {
             assert.equal(geometry.railBottom, geometry.contentTop, profile);
             assert.equal(geometry.legendScroll, false, profile);
+            const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+            const [switcher, search] = await Promise.all([
+                page.locator("#open-hub").boundingBox(), page.locator(".app-header .movie-search").boundingBox()
+            ]);
+            assert.ok(switcher.x + switcher.width < search.x, `${profile}: gap before movie search`);
+            const rowGeometry = await rows.evaluateAll(nodes => nodes.map(row => {
+                const button = row.querySelector(".movie-release-action");
+                const label = button.querySelector(".movie-release-action-label");
+                const range = document.createRange();
+                range.selectNodeContents(label);
+                const box = button.getBoundingClientRect();
+                return {
+                    title: row.querySelector(".movie-release-title").textContent,
+                    fits: button.scrollWidth <= button.clientWidth,
+                    lines: range.getClientRects().length,
+                    height: box.height,
+                    lineHeight: parseFloat(getComputedStyle(button).lineHeight),
+                    boxes: [...row.children].filter(child => !child.hidden).map(child => child.getBoundingClientRect().toJSON())
+                };
+            }));
+            for (const {title, fits, lines, height, lineHeight, boxes} of rowGeometry) {
+                assert.ok(fits && lines === 1 && height >= 44 && height < 2 * lineHeight,
+                    `${profile}: ${title} must have a single-line Download button at least 44 px tall`);
+                assert.ok(boxes.every((box, index) => boxes.slice(index + 1).every(other => !overlaps(box, other))),
+                    `${profile}: ${title} row elements must fit without overlap`);
+            }
         } else {
             assert.equal(geometry.sticky, true, profile);
             assert.equal(geometry.railRight, geometry.contentLeft, profile);
@@ -162,7 +188,9 @@ async function check(browser, profile, options) {
         await list.waitFor();
         assert.deepEqual((await filenames.allTextContents()).slice(0, 7),
             [higher, faster, equallyFast, episode, pack, fixture[2].title, highest], profile);
-        await page.locator("#header-back").press("Enter");
+        const back = page.locator("#header-back");
+        if (await back.isVisible()) await back.press("Enter");
+        else await page.locator(".app-header .movie-search").getByRole("button", {name: "Clear", exact: true}).press("Enter");
         assert.equal(await list.isVisible(), false);
         assert.equal(await query.inputValue(), "");
         assert.equal(await focused(query), true);

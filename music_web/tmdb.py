@@ -56,6 +56,7 @@ def parse(reply, limit=6):
             'id': ident, 'kind': kind, 'title': title.strip()[:150],
             'year': int(date[:4]) if isinstance(date, str) and YEAR.fullmatch(date[:4] or '') else None,
             'poster': image_url(IMAGE, poster),
+            'backdrop': image_url(BACKDROP, item.get('backdrop_path')),
             'overview': overview.strip()[:300] if isinstance(overview, str) else ''})
         if len(matches) >= limit:
             break

@@ -90,6 +90,26 @@ def record_options(cfg, title, ident, options):
     return forget
 
 
+def pending_tracks(cfg, rows):
+    settings = (cfg.get('MOVIE_DOWNLOADS') or {}).get('import') or {}
+    if settings.get('enabled') is not True or settings.get('dry_run') is True or not rows:
+        return {}
+    path = state_path(cfg, DATABASE)
+    if path.is_symlink() or not path.is_file():
+        return {}
+    try:
+        with closing(sqlite3.connect(path.absolute().as_uri() + '?mode=ro', uri=True, timeout=0.1)) as db:
+            options = {key: (audio, subtitles) for key, audio, subtitles in
+                       db.execute('SELECT key, audio, subtitles FROM download_options WHERE expires > ?', (time(),))}
+        return {row['name']: [label for flag, label in zip(
+                    options.get(job_key(row['name'], str(row.get('hash') or '').lower()),
+                                options.get(job_key(row['name'], ''), (False, False))),
+                    ('Hungarian audio', 'Hungarian subtitles')) if flag]
+                for row in rows}
+    except (OSError, sqlite3.Error):
+        return {}
+
+
 def import_path(roots, path):
     if isinstance(path, str) and len(path) <= 4096:
         video = Path(path)

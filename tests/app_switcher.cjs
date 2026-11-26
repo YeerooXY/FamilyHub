@@ -1,11 +1,32 @@
 const assert = require('node:assert/strict');
 const {verifyShell, focused, fits} = require('./app_shell_fixture.cjs');
+const {origin} = require('./music_popup_unification.cjs');
 
 verifyShell(async (page, phone) => {
     const opener = page.locator('#open-hub');
     const popup = page.getByRole('dialog', {name: 'Switch apps', exact: true});
     const app = name => popup.getByRole('button', {name, exact: true});
     const icon = () => opener.locator('svg').innerHTML();
+    const narrow = page.viewportSize().width === 360;
+    const header = page.locator('.app-header');
+    const checkHeader = async searchSelector => {
+        const profile = await header.getByRole('button', {name: 'Profile menu'}).boundingBox();
+        const switcher = await header.getByRole('button', {name: 'Switch apps', exact: true}).boundingBox();
+        assert.ok(profile && switcher && switcher.width >= 44 && switcher.height >= 44);
+        assert.equal((await opener.innerText()).trim(), '', 'The phone switcher displays only its icon');
+        // app.js moves title into data-tooltip once the control has been focused or hovered.
+        assert.equal(await opener.getAttribute('title') ?? await opener.getAttribute('data-tooltip'), 'Switch apps');
+        if (searchSelector) {
+            const search = header.locator(searchSelector);
+            await search.waitFor();
+            const box = await search.boundingBox();
+            assert.ok(box && switcher.x + switcher.width < box.x && box.x + box.width < profile.x,
+                'The phone search pill fits with gaps between the switcher and profile');
+        } else {
+            assert.equal(await header.getByRole('searchbox').count(), 0);
+            assert.ok(switcher.x + switcher.width < profile.x, 'The Files header controls fit with a gap');
+        }
+    };
     const open = async key => {
         await opener.press(key);
         await popup.waitFor();
@@ -22,6 +43,7 @@ verifyShell(async (page, phone) => {
 
     const musicIcon = await icon();
     assert.equal(await opener.getAttribute('aria-label'), 'Switch apps');
+    if (narrow) await checkHeader('#q');
     await open('Enter');
     assert.equal(await opener.locator('svg rect').count(), 4);
     assert.equal(await app('Music').getAttribute('aria-current'), 'true');
@@ -55,6 +77,7 @@ verifyShell(async (page, phone) => {
     await page.waitForFunction(() => document.getElementById('open-hub').getAttribute('aria-expanded') === 'false');
     await fits(page, workspace.locator('main'));
     assert.equal(await icon(), filesIcon);
+    if (narrow) await checkHeader();
     await open('Space');
     assert.equal(await app('Files').getAttribute('aria-current'), 'true');
     const hubIcon = await app('FamilyHub home').locator('svg').innerHTML();
@@ -63,6 +86,18 @@ verifyShell(async (page, phone) => {
     await page.waitForFunction(() => document.getElementById('open-hub').getAttribute('aria-expanded') === 'false');
     assert.equal(await icon(), hubIcon);
     await fits(page, page.locator('#content'));
+
+    if (narrow) {
+        assert.ok((await page.request.post(origin + '/fixture/startup/movies-polish')).ok());
+        try {
+            await open('Enter');
+            await app('Movies & TV').tap();
+            await popup.waitFor({state: 'hidden'});
+            await checkHeader('.movie-search');
+        } finally {
+            await page.request.post(origin + '/fixture/startup/none');
+        }
+    }
 
     if (page.viewportSize().width === 1280) {
         const geometry = await page.evaluate(() => {
@@ -85,4 +120,4 @@ verifyShell(async (page, phone) => {
         assert.equal(geometry.aligned, true);
         assert.equal(geometry.background, 'rgb(0, 0, 0)');
     }
-}).catch(error => { console.error(error); process.exitCode = 1; });
+}, [320, 360, 390, 1280, 1920]).catch(error => { console.error(error); process.exitCode = 1; });
