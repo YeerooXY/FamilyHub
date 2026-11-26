@@ -1,11 +1,10 @@
-const { useMovieBridge, reviewMovieProfiles, playerOutput } = require("./movies_fixture.cjs");
+const { useMovieBridge, reviewMovieProfiles, playerOutput, movieAssetPath } = require("./movies_fixture.cjs");
 // Episodes and Next Episode exist only for a title that belongs to a series. A film shows neither.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const fs = require("node:fs");
 
 const app = "http://familyhub.test", jellyfin = "https://jellyfin.test";
-const wwwroot = path.join(__dirname, "../clients/FamilyHub.App/wwwroot");
 const episodes = ["Pilot", "The Move", "Visitors"].map((Name, i) => ({
     Id: "e" + i, Name, Type: "Episode", SeriesName: "Harbour Town", SeriesId: "s", ParentIndexNumber: 1, IndexNumber: i + 1,
     ImageTags: {}, UserData: i === 0 ? { PlayedPercentage: 40 } : {} }));
@@ -27,8 +26,7 @@ async function check(browser, profile, options) {
     });
     await page.route(app + "/**", route => {
         const name = new URL(route.request().url()).pathname.slice(1);
-        if (name === "shell.css") return route.fulfill({path: path.join(wwwroot, "../../../music_web/static/shell.css")});
-        return name ? route.fulfill({ path: path.join(wwwroot, name) })
+        return name ? route.fulfill({ path: movieAssetPath(name) })
             : route.fulfill({ contentType: "text/html", body: `
                 <!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
                 <link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/app-native.css">

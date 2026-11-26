@@ -1,4 +1,4 @@
-const { useMovieBridge, homeOutput } = require("./movies_fixture.cjs");
+const { useMovieBridge, homeOutput, movieAssetPath } = require("./movies_fixture.cjs");
 // Movie search offers web results and, for linked profiles, Seerr requests.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -6,7 +6,6 @@ const path = require("node:path");
 const { chromium, webkit, devices } = require(require.resolve("playwright", { paths: [process.cwd(), path.resolve(__dirname, "../../agent-dock")] }));
 
 const app = "http://familyhub.test", jellyfin = "https://jellyfin.test";
-const wwwroot = path.join(__dirname, "../clients/FamilyHub.App/wwwroot");
 const answer = { ranking: "model", results: [
     { id: "aaaaaaaaaaa", title: "Az ördög jobb és bal keze 2 | Teljes Film", channel: "Film", seconds: 6600, label: "full film", reason: "Complete film", url: "https://www.youtube.com/watch?v=aaaaaaaaaaa" },
     { id: "bbbbbbbbbbb", title: "Előzetes", channel: "Film", seconds: 100, label: "trailer", reason: "", url: "https://www.youtube.com/watch?v=bbbbbbbbbbb" }] };
@@ -16,8 +15,7 @@ async function openSearch(browser, outcome, options = { viewport: { width: 412, 
     page.setDefaultTimeout(6000);
     await page.route(app + "/**", route => {
         const name = new URL(route.request().url()).pathname.slice(1);
-        if (name === "shell.css") return route.fulfill({ path: path.join(__dirname, "../music_web/static/shell.css") });
-        return name ? route.fulfill({ path: path.join(wwwroot, name) })
+        return name ? route.fulfill({ path: movieAssetPath(name) })
             : route.fulfill({ contentType: "text/html", body: '<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/movies.css"><style>html,body{height:auto;min-height:100dvh;overflow:auto}body{display:block;padding:1rem;background:#0b0d12}</style><main class="movie-library"></main>' });
     });
     await page.route(jellyfin + "/**", route => {

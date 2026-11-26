@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { chromium } = require(require.resolve("playwright", {paths: [process.cwd(), path.resolve(__dirname, "../../agent-dock")]}));
-const { jellyfin, cors, moviePage, playMovieDetails } = require("./movies_fixture.cjs");
+const { jellyfin, cors, moviePage, playMovieDetails, stubMovieHls } = require("./movies_fixture.cjs");
 
 const titles = [{Id: "film", Name: "Timing Test", Type: "Movie"}, {Id: "other", Name: "Other Title", Type: "Movie"},
     {Id: "image", Name: "Image Subtitles", Type: "Movie"}];
@@ -19,6 +19,7 @@ async function verify() {
     try {
         const page = await browser.newPage({viewport: {width: 1280, height: 850}, locale: "en-US"});
         await page.clock.install();
+        await stubMovieHls(page);
         await page.addInitScript(() => {
             HTMLMediaElement.prototype.play = () => Promise.resolve();
             Element.prototype.requestFullscreen = () => Promise.resolve();

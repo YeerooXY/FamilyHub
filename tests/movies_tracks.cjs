@@ -1,4 +1,4 @@
-const { useMovieBridge, playMovieDetails, dismissPlayerTracks } = require("./movies_fixture.cjs");
+const { useMovieBridge, playMovieDetails, dismissPlayerTracks, movieAssetPath, stubMovieHls } = require("./movies_fixture.cjs");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { chromium, webkit, devices } = require(require.resolve("playwright", {
@@ -25,6 +25,7 @@ async function check(browser, options) {
     const reports = [];
     const logoutAfter = [];
     let savedPosition = 0, playSession = 0, delayedProgress;
+    await stubMovieHls(page);
     await page.addInitScript(() => {
         // These checks cover negotiation and track controls independently of the media stream.
         HTMLMediaElement.prototype.play = () => Promise.resolve();
@@ -36,7 +37,7 @@ async function check(browser, options) {
     });
     await page.route(app + "/**", route => {
         const name = new URL(route.request().url()).pathname.slice(1);
-        return name ? route.fulfill({ path: path.join(__dirname, "../clients/FamilyHub.App/wwwroot", name) })
+        return name ? route.fulfill({ path: movieAssetPath(name) })
             : route.fulfill({ contentType: "text/html", body: '<link rel="stylesheet" href="/movies.css"><main class="movie-library"></main>' });
     });
     await page.route(jellyfin + "/**", async route => {

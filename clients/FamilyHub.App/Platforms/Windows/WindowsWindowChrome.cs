@@ -1,6 +1,10 @@
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
+using Microsoft.Maui.Platform;
 using Microsoft.UI.Xaml;
+using Microsoft.Extensions.DependencyInjection;
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using Windows.Graphics;
 using NativeColor = Windows.UI.Color;
@@ -60,12 +64,31 @@ internal static class WindowsWindowChrome
         return false;
     }
 
+    // MAUI's WindowRootView draws its own title row (window title text, 32 px) above the page whenever the
+    // window has a caption style, and pushes the page down by that height. The web header replaces it, so
+    // the row is hidden through MAUI's own visibility path, which it also uses when a window loses its caption.
+    private const BindingFlags Internal = BindingFlags.Instance | BindingFlags.NonPublic;
+    private static readonly MethodInfo? ManagerTitleVisibility =
+        typeof(NavigationRootManager).GetMethod("SetTitleBarVisibility", Internal, [typeof(bool)]);
+    private static readonly MethodInfo? RootTitleVisibility =
+        typeof(WindowRootView).GetMethod("SetTitleBarVisibility", Internal, [typeof(Microsoft.UI.Xaml.Visibility)]);
+    private static readonly PropertyInfo? RootTitleContainer =
+        typeof(WindowRootView).GetProperty("AppTitleBarContainer", Internal);
+    private const uint WmStyleChanged = 0x007C;
+    private const nint GwlStyle = -16;
+    private static Action<bool>? refresh;
+
+    [DynamicDependency("SetTitleBarVisibility(System.Boolean)", typeof(NavigationRootManager))]
+    [DynamicDependency("SetTitleBarVisibility(Microsoft.UI.Xaml.Visibility)", typeof(WindowRootView))]
+    [DynamicDependency("AppTitleBarContainer", typeof(WindowRootView))]
     public static void Initialize(Microsoft.UI.Xaml.Window window, Action<bool> refreshChrome)
     {
+        refresh = refreshChrome;
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
             DwmSetWindowAttribute(WinRT.Interop.WindowNative.GetWindowHandle(window), DwmwaBorderColor, 0, sizeof(uint));
         if (AppWindowTitleBar.IsCustomizationSupported())
             ConfigureTitleBar(window);
+        HideMauiTitleRow(window, force: true);
 
         window.AppWindow.Changed += (appWindow, args) =>
         {
@@ -78,9 +101,32 @@ internal static class WindowsWindowChrome
                     if (movieWindow?.Window == window) movieWindow = null;
                     if (AppWindowTitleBar.IsCustomizationSupported()) ConfigureTitleBar(window);
                 }
+                HideMauiTitleRow(window, force: true);
                 refreshChrome(fullscreen);
             });
         };
+    }
+
+    /// <summary>Runs after MAUI's own handling of the same window message.</summary>
+    public static void OnPlatformMessage(Microsoft.UI.Xaml.Window window, uint messageId, nint wParam)
+    {
+        if (messageId != WmStyleChanged || wParam != GwlStyle) return;
+        // MAUI has just restored its title row inset; hide it before the next layout pass.
+        HideMauiTitleRow(window, force: true);
+        window.DispatcherQueue.TryEnqueue(() => refresh?.Invoke(window.AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen));
+    }
+
+    /// <summary>Collapses MAUI's title row and its content inset; idempotent unless forced.</summary>
+    internal static void HideMauiTitleRow(Microsoft.UI.Xaml.Window window, bool force = false)
+    {
+        var context = Microsoft.Maui.Controls.Application.Current?.Windows
+            .FirstOrDefault(candidate => ReferenceEquals(candidate.Handler?.PlatformView, window))?.Handler?.MauiContext;
+        if (context is null || ManagerTitleVisibility is null || RootTitleVisibility is null) return;
+        var manager = context.Services.GetRequiredService<NavigationRootManager>();
+        if (manager.RootView is not WindowRootView root) return;
+        if (!force && RootTitleContainer?.GetValue(root) is FrameworkElement { Visibility: Microsoft.UI.Xaml.Visibility.Collapsed }) return;
+        ManagerTitleVisibility.Invoke(manager, [false]);
+        RootTitleVisibility.Invoke(root, [Microsoft.UI.Xaml.Visibility.Collapsed]);
     }
 
     public static WindowChromeMetrics Update(MainPage page, FrameworkElement? webView,
@@ -97,6 +143,7 @@ internal static class WindowsWindowChrome
         var titleBar = window.AppWindow.TitleBar;
         if (!window.ExtendsContentIntoTitleBar || !titleBar.ExtendsContentIntoTitleBar)
             ConfigureTitleBar(window);
+        HideMauiTitleRow(window);
 
         var height = titleBar.Height;
         if (height <= 0) return WindowChromeMetrics.Unsupported;

@@ -1,6 +1,9 @@
 using Microsoft.Extensions.Logging;
 using CommunityToolkit.Maui;
 using FamilyHub.App.Services;
+#if WINDOWS
+using Microsoft.Maui.LifecycleEvents;
+#endif
 
 namespace FamilyHub.App;
 
@@ -33,6 +36,9 @@ public static class MauiProgram
         builder.Services.AddSingleton<PlaybackDevicePoll>();
 #if WINDOWS
         builder.Services.AddSingleton<DiscordPresence>();
+        // MAUI shows its own title row again when the window style changes; hide it in the same message.
+        builder.ConfigureLifecycleEvents(events => events.AddWindows(windows =>
+            windows.OnPlatformMessage((window, args) => WindowsWindowChrome.OnPlatformMessage(window, args.MessageId, args.WParam))));
 #endif
         builder.Services.AddSingleton<ListenTogether>();
         builder.Services.AddSingleton<MainPage>();

@@ -1,4 +1,4 @@
-const { useMovieBridge } = require("./movies_fixture.cjs");
+const { useMovieBridge, movieAssetPath } = require("./movies_fixture.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -8,8 +8,6 @@ const {homeOutput, verifyMovieProfiles} = require("./movies_fixture.cjs");
 setPriority(constants.priority.PRIORITY_BELOW_NORMAL);
 
 const app = "http://familyhub.test", jellyfin = "https://jellyfin.test";
-const root = path.resolve(__dirname, "..");
-const assets = path.join(root, "clients/FamilyHub.App/wwwroot");
 const output = process.argv[2] || homeOutput;
 const title = "The Gentlemen S2";
 const pack = "The.Gentlemen.S02.1080p.NF.WEB-DL.DDP5.1.ENG.Atmos.ITA.H265-TBK";
@@ -47,8 +45,7 @@ async function verify(browser, name, options) {
         await page.route("**/*", route => [app, jellyfin].includes(new URL(route.request().url()).origin) ? route.fallback() : route.abort());
         await page.route(app + "/**", route => {
             const name = new URL(route.request().url()).pathname.slice(1);
-            if (name === "shell.css") return route.fulfill({path: path.join(root, "music_web/static/shell.css")});
-            if (name) return route.fulfill({path: path.join(assets, name)});
+            if (name) return route.fulfill({path: movieAssetPath(name)});
             return route.fulfill({contentType:"text/html", body:'<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/movies.css"><style>html,body{height:auto;min-height:100dvh;overflow:auto}body{display:block;padding:1rem;background:#0b0d12}</style><main class="movie-library"></main>'});
         });
         await page.route(jellyfin + "/**", route => {

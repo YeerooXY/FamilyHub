@@ -1,11 +1,10 @@
 // Each film sits on one genre shelf only: the first shelf, in the order shown, that lists one of its genres.
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { useMovieBridge } = require("./movies_fixture.cjs");
+const { useMovieBridge, movieAssetPath } = require("./movies_fixture.cjs");
 const { chromium, webkit, devices } = require(require.resolve("playwright", { paths: [process.cwd(), path.resolve(__dirname, "../../agent-dock")] }));
 
 const app = "http://familyhub.test", jellyfin = "https://jellyfin.test";
-const wwwroot = path.join(__dirname, "../clients/FamilyHub.App/wwwroot");
 const film = (id, name, genres) => ({ Id: id, Name: name, Type: "Movie", ProductionYear: 2011, Genres: genres, ImageTags: {}, UserData: {} });
 const library = [film("a1", "In Time", ["Science Fiction", "Thriller"]), film("a2", "Heat", ["Thriller", "Crime"]), film("a3", "Alien", ["Science Fiction"]),
     ...["Arrival", "Contact"].map((name, i) => film(`science${i}`, name, ["Science Fiction"])),
@@ -16,8 +15,7 @@ async function check(browser, label, options) {
     page.setDefaultTimeout(6000);
     await page.route(app + "/**", route => {
         const name = new URL(route.request().url()).pathname.slice(1);
-        if (name === "shell.css") return route.fulfill({ path: path.join(__dirname, "../music_web/static/shell.css") });
-        return name ? route.fulfill({ path: path.join(wwwroot, name) })
+        return name ? route.fulfill({ path: movieAssetPath(name) })
             : route.fulfill({ contentType: "text/html", body: '<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/movies.css"><style>html,body{min-height:100%}</style><main></main>' });
     });
     await page.route(jellyfin + "/**", route => {

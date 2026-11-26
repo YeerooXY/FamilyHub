@@ -1,11 +1,12 @@
 ﻿const assert = require("node:assert/strict");
 const path = require("node:path");
-const { jellyfin, cors, output, moviePage, verifyMovieProfiles } = require("./movies_fixture.cjs");
+const { jellyfin, cors, output, moviePage, verifyMovieProfiles, stubMovieHls } = require("./movies_fixture.cjs");
 
 verifyMovieProfiles(async (browser, profile, options) => {
     if (profile.endsWith("2000")) return;
     const page = await browser.newPage(options);
     page.setDefaultTimeout(7000);
+    await stubMovieHls(page);
     await page.addInitScript(() => {
         HTMLMediaElement.prototype.canPlayType = () => "probably";
         // The fixture clip may not decode in every engine; these checks cover the player screens, not stream recovery (movies_player does).

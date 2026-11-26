@@ -1,4 +1,4 @@
-const { useMovieBridge, reviewMovieProfiles, dismissPlayerTracks, movieFixtureHeader } = require("./movies_fixture.cjs");
+const { useMovieBridge, reviewMovieProfiles, dismissPlayerTracks, movieFixtureHeader, movieAssetPath } = require("./movies_fixture.cjs");
 // Renders the Movies & TV library from a dense mocked Jellyfin and saves screenshots for review.
 // Usage: node tests/movies_visual.cjs [output-dir]   (emulated engines and device profiles, not real devices)
 const assert = require("node:assert/strict");
@@ -97,10 +97,7 @@ async function render(browser, label, options) {
         ? route.fallback() : route.abort());
     await page.route(app + "/**", route => {
         const name = new URL(route.request().url()).pathname.slice(1);
-        if (name === "shell.css") return route.fulfill({path: path.join(wwwroot, "../../../music_web/static/shell.css")});
-        if (name === "notices.css" || name === "notices.js")
-            return route.fulfill({path: path.join(wwwroot, "../../../music_web/static", name)});
-        return name ? route.fulfill({ path: path.join(wwwroot, name) })
+        return name ? route.fulfill({ path: movieAssetPath(name) })
             : route.fulfill({ contentType: "text/html", body: `<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/app-native.css"><link rel="stylesheet" href="/movies.css"><link rel="stylesheet" href="/service-status.css"><link rel="stylesheet" href="/notices.css"><style>html,body{height:auto;min-height:100dvh;overflow:auto}body{display:block;padding:1rem;background:#0b0d12}</style>${movieFixtureHeader}<main id="content"><div class="shell-status"><div id="feedback" hidden></div></div><div class="movie-library"></div></main><script src="/notices.js"></script>` });
     });
     await page.route(jellyfin + "/**", async route => {

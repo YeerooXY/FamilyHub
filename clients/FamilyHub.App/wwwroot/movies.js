@@ -517,10 +517,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             watchPlayerIdle(player, playerLife.signal);
         } else status.textContent = opening;
         const media = el("video");
-        // Android WebView answers "maybe" for HLS but its built-in HLS player rejects our transcodes (media error 4 on
-        // every transcoded film, owner phone 26 Nov). Where Media Source exists on Android, hls.js does the work instead.
+        // Chromium-based players (Android WebView, Windows WebView2, Chrome, Edge) answer "maybe" for HLS, but their
+        // built-in HLS player rejects our transcodes (media error 4 on every transcoded film: owner phone and Windows,
+        // 26 Nov). Wherever Media Source exists on a Chromium engine, hls.js does the work; Safari and iOS keep native HLS.
+        const chromiumEngine = /\b(?:Chrome|Chromium|Edg|EdgA|OPR)\//.test(navigator.userAgent);
         const nativeHls = !!media.canPlayType("application/vnd.apple.mpegurl") &&
-            !(globalThis.MediaSource && /Android.*; wv\)/i.test(navigator.userAgent));
+            !(globalThis.MediaSource && chromiumEngine);
         let failure = "The server did not return playback information.";
         let method = forceTranscode ? "Transcode" : "", selectedAudio, httpStatus, hlsError;
         const diagnostics = () => ({

@@ -1,6 +1,7 @@
 // Desktop volume, mute, sound mode and persistence. Phones and televisions use hardware volume.
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const { movieAssetPath } = require("./movies_fixture.cjs");
 const { chromium } = require(require.resolve("playwright", { paths: [process.cwd(), path.resolve(__dirname, "../../agent-dock")] }));
 const wwwroot = path.join(__dirname, "../clients/FamilyHub.App/wwwroot");
 const app = "http://t.test";
@@ -20,7 +21,7 @@ const app = "http://t.test";
         const page = await browser.newPage(options);
         await page.route(app + "/**", route => {
             const n = new URL(route.request().url()).pathname.slice(1);
-            return n ? route.fulfill({ path: path.join(wwwroot, n) })
+            return n ? route.fulfill({ path: movieAssetPath(n) })
                 : route.fulfill({ contentType: "text/html", body: '<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/movies.css"><main class="movie-library"><section class="movie-player movie-expanded"><video></video></section></main>' });
         });
         await page.goto(app + "/");
@@ -28,8 +29,15 @@ const app = "http://t.test";
             const { buildPlayerUi } = await import("/movie-player-ui.js");
             const media = document.querySelector("video"), surface = document.querySelector(".movie-player");
             const back = document.createElement("button");
-            const ui = buildPlayerUi({ media, surface, back, signal: new AbortController().signal, title: "Test", trackControls: [],
-                notice: document.createElement("p") });
+            const pick = () => {
+                const label = document.createElement("label"), select = document.createElement("select");
+                label.append(select);
+                return select;
+            };
+            const audioPick = pick(), subtitlePick = pick();
+            subtitlePick.add(new Option("Off", -1));
+            const ui = buildPlayerUi({ media, surface, back, signal: new AbortController().signal, title: "Test",
+                notice: document.createElement("p"), audioPick, subtitlePick });
             surface.append(ui.root);
         });
         const mute = page.getByRole("button", { name: "Mute", exact: true });

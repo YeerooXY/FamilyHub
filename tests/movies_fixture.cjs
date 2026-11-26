@@ -17,6 +17,30 @@ const movieFixtureHeader = `<header class="app-header">
     <div class="sidebar-account"><button id="profile-toggle" aria-label="Profile menu">P</button></div>
 </header>`;
 
+function movieAssetPath(name) {
+    // Match the linked content paths in FamilyHub.App.csproj.
+    const shared = name.startsWith("vendor/") || ["shell.css", "notices.css", "notices.js"].includes(name);
+    return path.join(root, shared ? "music_web/static" : "clients/FamilyHub.App/wwwroot", name);
+}
+
+function stubMovieHls(page, {metadata = false} = {}) {
+    return page.addInitScript(({metadata}) => {
+        globalThis.Hls = class {
+            static isSupported() { return Boolean(globalThis.MediaSource || globalThis.ManagedMediaSource); }
+            static Events = {ERROR: "error", MANIFEST_PARSED: "manifestParsed"};
+            on() {}
+            once(_event, callback) { this.manifestParsed = callback; }
+            loadSource(url) { this.manifestUrl = url; }
+            attachMedia(media) {
+                media.fixtureManifest = this.manifestUrl;
+                this.manifestParsed?.();
+                if (metadata) setTimeout(() => media.dispatchEvent(new Event("loadedmetadata")), 0);
+            }
+            destroy() {}
+        };
+    }, {metadata});
+}
+
 async function useMovieBridge(page) {
     await page.addInitScript(() => {
         window.openMovieFixture = (openMovies, host, session, app, viewer = {}) => {
@@ -58,14 +82,16 @@ async function moviePage(page, {shell = false} = {}) {
     });
     await page.route(app + "/**", route => {
         const name = new URL(route.request().url()).pathname.slice(1);
-        if (name === "shell.css") return route.fulfill({path: path.join(root, "music_web/static/shell.css")});
-        if (name) return route.fulfill({path: path.join(root, "clients/FamilyHub.App/wwwroot", name)});
+        if (name) return route.fulfill({path: movieAssetPath(name)});
         return route.fulfill({contentType: "text/html", body: `
             <meta name="viewport" content="width=device-width,initial-scale=1">
             <link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/movies.css"><link rel="stylesheet" href="/service-status.css">
             <style>html,body{height:auto;min-height:100dvh;overflow:auto}body{display:block;padding:1rem;background:#0b0d12}</style>
-            ${shell ? '<link rel="stylesheet" href="/app-native.css">' + movieFixtureHeader : ''}
-            <main class="movie-library"></main>`});
+            ${shell ? '<link rel="stylesheet" href="/app-native.css"><link rel="stylesheet" href="/hub.css">' + movieFixtureHeader : ''}
+            ${shell
+                // The app hosts Movies inside the workspace that names the current app; hub.css keys on it.
+                ? '<div class="workspace" data-app-view="Movies &amp; TV"><main class="movie-library"></main></div>'
+                : '<main class="movie-library"></main>'}`});
     });
     await page.goto(app);
 }
@@ -282,4 +308,4 @@ async function reviewMovieProfiles(verify) {
 
 module.exports = { app, jellyfin, cors, output, homeOutput, playerOutput, moviePage, playMovieDetails,
     dismissPlayerTracks, useMovieBridge, verifyMovieProfiles, reviewMovieProfiles, movieFixtureHeader, movieHomeFixture,
-    movieDetailFixture };
+    movieDetailFixture, movieAssetPath, stubMovieHls };

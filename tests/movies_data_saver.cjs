@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { jellyfin, cors, playerOutput, moviePage, playMovieDetails, verifyMovieProfiles } = require("./movies_fixture.cjs");
+const { jellyfin, cors, playerOutput, moviePage, playMovieDetails, verifyMovieProfiles, stubMovieHls } = require("./movies_fixture.cjs");
 
 const output = process.argv[2] || playerOutput;
 const item = { Id: "in-time", Name: "In Time", Type: "Movie" };
@@ -50,6 +50,7 @@ async function check(browser, name, options) {
     let heldPlayback;
     page.on("pageerror", error => errors.push(error.message));
     try {
+        await stubMovieHls(page, {metadata: true});
         await page.addInitScript(() => {
             const connection = Object.assign(new EventTarget(), { type: "wifi", saveData: false });
             Object.defineProperty(navigator, "connection", { value: connection });
@@ -185,7 +186,7 @@ async function check(browser, name, options) {
         await hint.waitFor();
         await position(387);
         capped(1_000_000, 480, true);
-        assert.match(await video.evaluate(el => el.src), /master\.m3u8/);
+        assert.match(await video.evaluate(el => el.fixtureManifest ?? el.src), /master\.m3u8/);
         assert(await video.evaluate(el => el.paused));
         assert.equal(requests.at(-1).AudioStreamIndex, 2);
         assert.equal(requests.at(-1).SubtitleStreamIndex, -1);
