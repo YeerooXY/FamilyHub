@@ -82,6 +82,8 @@ Movie audio routes require an active FamilyHub session, administrator membership
 
 `GET /api/server/seeding` remains admin-only and reads the local torrent snapshot. The existing recorder timer applies the one-time share-limit backfill and sets limits on new movie and TV torrents. It sends validated hashes to the configured private qBittorrent endpoint through its cookie session with redirects disabled and bounded timeouts. The policy requires an explicit Stop action before writing limits. Recorder errors use fixed messages and keep credentials and upstream responses out of logs.
 
+The recorder removes up to 20 torrents per run from the movie and TV categories after observing them stopped at a 2.0× ratio or 14 days of seeding. It commits each candidate to local SQLite history before posting its hash to qBittorrent with `deleteFiles=false`. This preserves the download files and imported library links. The read-only Seeding endpoint adds aggregate `finished.goal` and `finished.no_demand` counts for confirmed removals and uses qBittorrent's all-time counters for transfer totals. Failed requests leave the history and the next sample checks whether removal succeeded before retrying.
+
 Read-only searches and stream preparation can populate caches and start bounded server work. Share download uses GET for passwordless recipients and consumes its allowance on redemption. GET and HEAD on the share landing page preserve that allowance. The inventory below lists Flask rules with GET's implicit HEAD and default OPTIONS omitted.
 
 ## Implementation checks

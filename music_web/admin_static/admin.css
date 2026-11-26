@@ -34,7 +34,7 @@ li h3 { margin: 0; font-size: .95rem; overflow-wrap: anywhere; }
 .row { display: flex; flex-wrap: wrap; gap: .15rem .8rem; margin: .3rem 0 0; font-size: .8rem; color: var(--muted); }
 .row b { color: var(--text); }
 .tag { padding: .1rem .5rem; border-radius: 99px; background: #252838; font-size: .75rem; font-weight: 600; }
-#status, #sample-time, .board > p { font-size: .85rem; }
+#status, #sample-time, #finished-summary, .board > p { font-size: .85rem; }
 #status { margin-bottom: .2rem; }
 #sample-time { margin-top: 0; }
 #status:empty, #sample-time:empty { margin: 0; }

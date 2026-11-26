@@ -1,4 +1,4 @@
-"""Record torrent activity and apply FamilyHub's per-torrent seeding limits."""
+"""Record torrent activity and enforce FamilyHub's seeding limits."""
 import argparse
 from contextlib import closing
 from datetime import datetime, timezone
@@ -18,6 +18,8 @@ import urllib.request
 GOAL = 2.0
 SEEDING_MINUTES = 14 * 24 * 60
 MOVIE_CATEGORIES = {'familyhub', 'movies', 'tv'}
+STOPPED_STATES = {'stoppedUP', 'stoppedDL', 'pausedUP'}
+REMOVAL_LIMIT = 20
 DATABASE = '.torrent-ratio.sqlite3'
 FIELDS = ('hash', 'name', 'category', 'state', 'ratio', 'uploaded', 'downloaded')
 SCHEMA = '''
@@ -30,6 +32,12 @@ CREATE TABLE IF NOT EXISTS last_seen (
 CREATE TABLE IF NOT EXISTS reached_goal (
     hash TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL, state TEXT NOT NULL,
     ratio REAL NOT NULL, uploaded INTEGER NOT NULL, downloaded INTEGER NOT NULL, observed_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS finished_torrents (
+    hash TEXT PRIMARY KEY, name TEXT NOT NULL, finished_at TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('goal', 'no_demand')),
+    ratio REAL NOT NULL, uploaded INTEGER NOT NULL, downloaded INTEGER NOT NULL, size INTEGER,
+    removed INTEGER NOT NULL DEFAULT 0 CHECK (removed IN (0, 1))
 );
 CREATE TABLE IF NOT EXISTS last_sample (id INTEGER PRIMARY KEY CHECK (id = 1), observed_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS global_ratio (
@@ -69,9 +77,53 @@ def record(config, database):
         raise ValueError('qBittorrent did not return a complete snapshot.')
     rows = [dict(row, hash=ident) for ident, row in data.get('torrents', {}).items()]
     totals = data['server_state']
-    sample(database, rows, datetime.now(timezone.utc).isoformat(timespec='microseconds'),
-           (totals['alltime_ul'], totals['alltime_dl']))
-    apply_share_limits(database, rows, opener, base)
+    observed_at = datetime.now(timezone.utc).isoformat(timespec='microseconds')
+    sample(database, rows, observed_at, (totals['alltime_ul'], totals['alltime_dl']))
+    removed = remove_finished(database, observed_at, opener, base)
+    apply_share_limits(database, [row for row in rows if row['hash'] not in removed], opener, base)
+
+
+def remove_finished(database, observed_at, opener, base):
+    with closing(sqlite3.connect(database, timeout=2)) as conn:
+        with conn:
+            conn.execute('BEGIN IMMEDIATE')
+            finished = conn.execute('''SELECT hash, name, observed_at,
+                       CASE WHEN ratio >= ? THEN 'goal' ELSE 'no_demand' END,
+                       ratio, uploaded, downloaded, size
+                FROM last_seen WHERE present=1 AND complete=1 AND observed_at=?
+                    AND category IN (?, ?, ?) AND state IN (?, ?, ?)
+                    AND (ratio >= ? OR seeding_time >= ?)
+                ORDER BY hash LIMIT ?''',
+                (GOAL, observed_at, *MOVIE_CATEGORIES, *STOPPED_STATES, GOAL,
+                 SEEDING_MINUTES * 60, REMOVAL_LIMIT)).fetchall()
+            if not finished:
+                return set()
+            conn.executemany('''INSERT OR IGNORE INTO finished_torrents
+                (hash, name, finished_at, outcome, ratio, uploaded, downloaded, size)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', finished)
+
+        with conn:
+            # The journal must be committed before the request. Recheck after reacquiring the write lock.
+            conn.execute('BEGIN IMMEDIATE')
+            if conn.execute('SELECT observed_at FROM last_sample WHERE id=1').fetchone() != (observed_at,):
+                return set()
+            hashes = [row[0] for row in finished if conn.execute(
+                'SELECT present FROM last_seen WHERE hash=?', (row[0],)).fetchone() == (1,)]
+            if not hashes:
+                return set()
+            request = urllib.request.Request(base + '/api/v2/torrents/delete', headers={'Referer': base + '/'},
+                data=urllib.parse.urlencode(dict(hashes='|'.join(hashes), deleteFiles='false')).encode())
+            try:
+                with opener.open(request, timeout=3):
+                    pass
+            except (OSError, http.client.HTTPException) as error:
+                if isinstance(error, urllib.error.HTTPError):
+                    error.close()
+                print('Could not remove finished torrents. The next sample will retry.', file=sys.stderr)
+                return set()
+            conn.executemany('UPDATE last_seen SET present=0 WHERE hash=?', ((ident,) for ident in hashes))
+            conn.executemany('UPDATE finished_torrents SET removed=1 WHERE hash=?', ((ident,) for ident in hashes))
+            return set(hashes)
 
 
 def apply_share_limits(database, rows, opener, base):
@@ -141,6 +193,8 @@ def sample(database, rows, observed_at, totals=None):
                 size=excluded.size, dl_speed=excluded.dl_speed, up_speed=excluded.up_speed,
                 seeding_time=excluded.seeding_time, present=1''', observations)
             conn.execute('UPDATE last_seen SET present=0 WHERE present=1 AND observed_at<>?', (observed_at,))
+            conn.execute('''UPDATE finished_torrents SET removed=1 WHERE removed=0
+                            AND hash IN (SELECT hash FROM last_seen WHERE present=0)''')
             conn.executemany('INSERT OR IGNORE INTO reached_goal VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                              (row[:8] for row in observations if row[8] and row[4] >= GOAL and row[6] > 0))
             conn.execute('INSERT OR REPLACE INTO last_sample VALUES (1, ?)', (observed_at,))

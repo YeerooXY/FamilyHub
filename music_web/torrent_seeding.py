@@ -26,10 +26,8 @@ def ratio(value):
 
 def seeding_state(state, share_ratio, seeding_time, complete):
     if complete:
-        if share_ratio >= GOAL:
-            return 'Goal reached'
-        if state in {'pausedUP', 'stoppedUP'}:
-            return 'Stopped, no demand' if (seeding_time or 0) >= SEEDING_SECONDS else 'Stopped'
+        if state in {'pausedUP', 'stoppedUP', 'stoppedDL'}:
+            return 'Stopped, no demand' if share_ratio < GOAL and (seeding_time or 0) >= SEEDING_SECONDS else 'Stopped'
         if state == 'queuedUP':
             return 'Waiting'
         if state in {'uploading', 'forcedUP', 'stalledUP'}:
@@ -49,6 +47,11 @@ def snapshot(config):
             latest = db.execute('SELECT observed_at FROM last_sample WHERE id=1').fetchone()
             if latest is None:
                 return unavailable
+            tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            totals = db.execute('SELECT uploaded, downloaded FROM global_ratio WHERE id=1').fetchone() if 'global_ratio' in tables else None
+            finished = {'goal': 0, 'no_demand': 0}
+            if 'finished_torrents' in tables:
+                finished.update(db.execute('SELECT outcome, COUNT(*) FROM finished_torrents WHERE removed=1 GROUP BY outcome'))
             columns = {row[1] for row in db.execute('PRAGMA table_info(last_seen)')}
             rows = db.execute(f'''
                 SELECT s.hash, s.name, s.state, s.ratio, s.uploaded, s.downloaded, s.complete,
@@ -68,8 +71,8 @@ def snapshot(config):
         item['ratio'] = ratio(item['ratio'])
         item['state'] = seeding_state(item['state'], item['ratio'], item.pop('seeding_time'), item['complete'])
         items.append(item)
-    uploaded = sum(max(0, item['uploaded']) for item in items if type(item['uploaded']) is int)
-    downloaded = sum(max(0, item['downloaded']) for item in items if type(item['downloaded']) is int)
+    uploaded, downloaded = totals if totals else (0, 0)
     return dict(available=True, goal=GOAL, last_sample_at=sampled_at.isoformat(), stale=stale, items=items,
+                finished=finished,
                 total_uploaded=uploaded, total_downloaded=downloaded,
                 global_ratio=round(uploaded / downloaded, 4) if downloaded else 0.0)

@@ -406,13 +406,15 @@ class MovieDownloads(Base):
         now = datetime.now(timezone.utc).isoformat()
         row = dict(hash='a' * 40, name='Fixture season', category='other', state='uploading',
                    ratio=2.01, uploaded=2010, downloaded=1000, progress=1)
-        sample(path, [row, dict(row, hash='b' * 40)], old)
+        sample(path, [row, dict(row, hash='b' * 40)], old, (4020, 2000))
         with sqlite3.connect(path) as db:
+            db.execute('DROP TABLE finished_torrents')
             for column in ('progress', 'size', 'dl_speed', 'up_speed', 'seeding_time'):
                 db.execute(f'ALTER TABLE last_seen DROP COLUMN {column}')
         db.close()
         self.assertTrue(self.go(client, 'GET', route).json['stale'])
         self.assertIsNone(self.go(client, 'GET', route).json['items'][0]['progress'])
+        self.assertEqual(self.go(client, 'GET', route).json['finished'], dict(goal=0, no_demand=0))
         sample(path, [dict(row, state='stalledUP', ratio=0.003, uploaded=3, size=1000, dlspeed=0, upspeed=0)], now)
         response = self.go(client, 'GET', route)
         self.assertEqual(response.headers['Cache-Control'], 'no-store')
@@ -420,7 +422,8 @@ class MovieDownloads(Base):
             items=[dict(hash=row['hash'], name=row['name'], title=row['name'], state='Seeding', ratio=0.003,
                         uploaded=3, downloaded=1000, reached_goal_at=old, complete=1, progress=1,
                         dl_speed=0, up_speed=0, size=1000)],
-            total_uploaded=3, total_downloaded=1000, global_ratio=0.003, posters_enabled=True))
+            finished=dict(goal=0, no_demand=0),
+            total_uploaded=4020, total_downloaded=2000, global_ratio=2.01, posters_enabled=True))
         poster_route = route + '?poster=' + row['hash']
         poster = 'https://image.tmdb.org/t/p/w342/fixture.jpg'
         with patch('music_web.movies.tmdb.search', return_value=[

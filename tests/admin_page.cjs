@@ -9,9 +9,10 @@ const out = process.argv[2];
 const gb = 1024 ** 3;
 const snapshot = {
     available: true, goal: 2, global_ratio: 1.5, total_uploaded: 63 * gb, total_downloaded: 42 * gb,
+    finished: {goal: 0, no_demand: 0},
     last_sample_at: "2026-11-25T22:45:00Z", posters_enabled: true,
     items: [
-        {hash: "a".repeat(40), name: "Home Alone 2", complete: 1, state: "Goal reached", ratio: 5.26,
+        {hash: "a".repeat(40), name: "Home Alone 2", complete: 1, state: "Stopped", ratio: 5.26,
             uploaded: Math.round(52.6 * gb), downloaded: 10 * gb, up_speed: 0},
         {hash: "e".repeat(40), name: "Queued season", complete: 1, state: "Waiting",
             ratio: 0, uploaded: 0, downloaded: 8 * gb, up_speed: 0},
@@ -89,11 +90,11 @@ async function verify(browser, profile, options) {
         const heading = page.getByRole("heading", {name: "Downloads", exact: true});
         await heading.waitFor();
         assert.equal(await focused(heading), true);
-        const meter = page.getByRole("progressbar", {name: "Share ratio of current torrents"});
+        const meter = page.getByRole("progressbar", {name: "All-time share ratio"});
+        const globalDetail = "63.0 GB uploaded, 42.0 GB downloaded. 21.0 GB more to reach 2.0×";
         assert.equal(await meter.getAttribute("aria-valuenow"), "75");
         assert.equal(await meter.locator("i").evaluate(node => node.style.width), "75%");
-        assert.equal(await page.locator("#global-detail").textContent(),
-            "63.0 GB uploaded · 42.0 GB downloaded · 21.0 GB more to reach 2.0×");
+        assert.equal(await page.locator("#global-detail").textContent(), globalDetail);
         const capped = page.getByRole("progressbar", {name: "Home Alone 2 share ratio"});
         assert.equal(await capped.getAttribute("aria-valuenow"), "100");
         assert.equal(await capped.getAttribute("aria-valuetext"), "5.26× of 2.0×");
@@ -101,7 +102,10 @@ async function verify(browser, profile, options) {
         assert.equal(await page.getByRole("progressbar", {name: "Archive of public domain films share ratio"}).getAttribute("aria-valuenow"), "25");
         const seeding = page.getByRole("region", {name: "Seeding"});
         assert.deepEqual(await seeding.locator(".tag").allTextContents(),
-            ["Seeding", "Waiting", "Goal reached", "Stopped, no demand"]);
+            ["Seeding", "Waiting", "Stopped", "Stopped, no demand"]);
+        const summary = seeding.locator("#finished-summary");
+        assert.equal(await summary.isVisible(), false);
+        assert.equal(await summary.textContent(), "");
         assert.equal(await seeding.getByText("1 title seeding", {exact: true}).count(), 1);
         assert.equal(await seeding.getByText("3.0 MB/s", {exact: true}).count(), 1);
         assert.equal(await seeding.getByText("0 KB/s", {exact: true}).count(), 3);
@@ -128,11 +132,27 @@ async function verify(browser, profile, options) {
         await page.clock.fastForward(31000);
         await page.getByRole("status").filter({hasText: "Showing a reading"}).waitFor();
         assert.equal(await page.getByText("3.0 MB/s").count(), 0);
-        sample = {...snapshot, items: [], global_ratio: 0, total_uploaded: 0, total_downloaded: 0};
+        sample = {...snapshot, finished: {goal: 1, no_demand: 0}, items: snapshot.items.slice(1)};
+        await page.clock.fastForward(31000);
+        await seeding.getByRole("status").getByText("1 title finished: 1 reached 2.0×", {exact: true}).waitFor();
+        assert.equal(await seeding.getByRole("heading", {name: "Home Alone 2"}).count(), 0);
+        assert.equal(await page.locator("#global-detail").textContent(), globalDetail);
+        assert.equal(await meter.getAttribute("aria-valuenow"), "75");
+        sample = {...snapshot, finished: {goal: 5, no_demand: 2},
+            items: snapshot.items.filter(item => !["Home Alone 2", "Timed-out season"].includes(item.name))};
+        await page.clock.fastForward(31000);
+        await seeding.getByRole("status").getByText("7 titles finished: 5 reached 2.0×, 2 stopped with no demand", {exact: true}).waitFor();
+        assert.deepEqual(await seeding.locator(".tag").allTextContents(), ["Seeding", "Waiting"]);
+        assert.equal(await seeding.getByRole("heading", {name: "Timed-out season"}).count(), 0);
+        assert.equal(await focused(heading), true);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        sample = {...snapshot, items: []};
         await page.clock.fastForward(31000);
         await page.getByText("No downloads in the queue.").waitFor();
         await page.getByText("No torrents ready to seed.").waitFor();
         assert.equal(await seeding.getByText("0 titles seeding", {exact: true}).count(), 1);
+        assert.equal(await summary.isVisible(), false);
+        assert.equal(await summary.textContent(), "");
         assert.equal(await focused(heading), true);
         assert.deepEqual(errors, []);
     } finally {

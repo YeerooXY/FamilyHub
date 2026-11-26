@@ -102,7 +102,7 @@ function torrentRow(item, download, goal, snapshot) {
   const title = document.createElement('h3'), tag = document.createElement('span');
   const header = document.createElement('div'), detail = document.createElement('p');
   header.className = 'torrent-header';
-  title.textContent = item.subtitle ? `${item.title} · ${item.subtitle}` : item.title || item.name;
+  title.textContent = item.subtitle ? `${item.title}, ${item.subtitle}` : item.title || item.name;
   title.title = item.name;
   const speed = snapshot.stale ? 0 : download ? item.dl_speed : item.up_speed;
   tag.className = 'tag';
@@ -151,10 +151,20 @@ function render(snapshot) {
   const need = Math.max(0, goal * snapshot.total_downloaded - snapshot.total_uploaded);
   const detail = need ? `${gb(need)} more to reach ${goal.toFixed(1)}×`
     : snapshot.global_ratio >= goal ? `${goal.toFixed(1)}× goal reached` : 'No downloads recorded.';
-  $('global-detail').textContent = `${gb(snapshot.total_uploaded)} uploaded · ${gb(snapshot.total_downloaded)} downloaded · ${detail}`;
+  $('global-detail').textContent = `${gb(snapshot.total_uploaded)} uploaded, ${gb(snapshot.total_downloaded)} downloaded. ${detail}`;
+  const {goal: reachedGoal = 0, no_demand: noDemand = 0} = snapshot.finished || {};
+  const finishedCount = reachedGoal + noDemand;
+  const outcomes = [];
+  if (reachedGoal) outcomes.push(`${reachedGoal} reached ${goal.toFixed(1)}×`);
+  if (noDemand) outcomes.push(`${noDemand} stopped with no demand`);
+  const summary = $('finished-summary');
+  const summaryText = finishedCount
+    ? `${finishedCount} ${finishedCount === 1 ? 'title' : 'titles'} finished: ${outcomes.join(', ')}` : '';
+  summary.hidden = !finishedCount;
+  if (summary.textContent !== summaryText) summary.textContent = summaryText;
   const downloads = snapshot.items.filter(item => !item.complete);
   const seedOrder = {Seeding: 0, Waiting: 1};
-  const seeds = snapshot.items.filter(item => item.complete || item.uploaded > 0)
+  const seeds = snapshot.items.filter(item => item.complete)
     .sort((left, right) => (seedOrder[left.state] ?? 2) - (seedOrder[right.state] ?? 2));
   const seedingCount = seeds.filter(item => item.state === 'Seeding').length;
   $('seeding-count').textContent = `${seedingCount} ${seedingCount === 1 ? 'title' : 'titles'} seeding`;
@@ -168,7 +178,7 @@ function render(snapshot) {
   const activeDownloads = downloads.filter(item => item.state === 'Downloading').length;
   const activeSeeds = seeds.filter(item => item.up_speed > 0).length;
   const status = snapshot.stale ? 'Showing a reading from more than two minutes ago.'
-    : `${downloads.length} unfinished · ${activeDownloads} downloading · ${activeSeeds} uploading`;
+    : `${downloads.length} unfinished, ${activeDownloads} downloading, ${activeSeeds} uploading`;
   if ($('status').textContent !== status) $('status').textContent = status;
 }
 

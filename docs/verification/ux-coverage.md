@@ -1,5 +1,13 @@
 # Interface verification
 
+## 26 November 2026 Admin finished torrents
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Admin Seeding, zero, one or several finished titles, stale reading and retry | never | never | never | never | never | Source check, 26 Nov 2026 | never |
+
+The summary updates immediately in a polite status region, with focus held on the current control and no added animation. The browser fixture checks the zero, singular and plural summaries, removed rows, unchanged all-time totals and retry focus. Headless execution, screen-reader speech and physical-device checks are pending.
+
 ## 26 November 2026 Windows app bar
 
 | Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
@@ -26,7 +34,7 @@ Live measurements are pending. At each scale, compare `AppWindow.TitleBar.Height
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Release results, loading, empty, retry and expanded list | never | never | never | never | never | Source check, 26 Nov 2026, Home theme | never |
 | Matching title shelf, peek and release handoff | never | never | never | never | never | Source check, 26 Nov 2026, Home theme | never |
-| Library cards and film details, sound and screen flags | never | never | never | never | never | Source check, 26 Nov 2026, Home theme | never |
+| Library cards and film details, sound chips | never | never | never | never | never | Source check, 26 Nov 2026, Home theme | never |
 | Movies preferences, My screen | never | never | never | never | never | Source check, 26 Nov 2026, current branch | never |
 
 Release fixtures cover overflow from 320 to 3840 px, five full cards and a peek at 1280, 1920 and 2560 px, keyboard navigation, reduced motion, and effects off. Player fixtures cover the screen cap and a stricter server limit. Execution, visual inspection, screen-reader speech and physical-device verification are pending.
