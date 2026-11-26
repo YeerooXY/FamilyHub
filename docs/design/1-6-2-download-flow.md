@@ -40,3 +40,7 @@ A round badge (about 40 px, 4 px coloured ring, dark centre, bold number): green
 ## Confirm dialog look (owner, 26 Nov)
 
 The poster fills the whole left edge of the summary card (flush to the left, top and bottom edges; the card's rounded corners clip it, no margin around it). The rest of the screen behind the dialog is softly blurred and dimmed. The dialog frame emits a soft light: a glow taken from the title's own backdrop colours (a dominant cool and a warm colour; fall back to violet). Reduced motion and effects off keep the glow static. Preview: `1-6-2-concepts/avatar3-confirm-dialog-v2.png`.
+
+## Summary card refinements (owner, 26 Nov)
+
+The title block sits at the top of the summary card (title, year, age symbol); the audio and quality pills follow; the data line sits at the bottom. Size and time take a colour from their value, text stays readable without it: size green up to 5 GB, amber up to 15 GB, orange up to 30 GB, red above; time green up to 10 min, amber up to 30 min, orange up to 60 min, red above. Use the same colours on the release rows. Preview: `1-6-2-concepts/avatar3-confirm-dialog-v3.png`, small file: `avatar3-confirm-dialog-v3-small.png`.

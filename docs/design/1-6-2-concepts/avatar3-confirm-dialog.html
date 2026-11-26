@@ -9,7 +9,7 @@ body{width:1920px;height:1080px;position:relative;overflow:hidden;font-family:"S
 .panel{position:absolute;left:50%;top:50%;width:1040px;transform:translate(-50%,-50%);padding:34px;border-radius:32px;background:rgba(20,23,37,.88);border:1px solid rgba(160,150,255,.75);box-shadow:0 0 0 1px rgba(255,255,255,.05),0 0 60px rgba(70,200,210,.28),0 0 140px rgba(255,140,60,.22),0 0 220px rgba(120,100,255,.28),0 40px 90px rgba(0,0,0,.55);backdrop-filter:blur(18px)}
 .summary{display:grid;grid-template-columns:200px 1fr;gap:0;padding:0;overflow:hidden;border-radius:22px;background:rgba(40,45,70,.72);border:1px solid rgba(255,255,255,.07);min-height:270px}
 .poster{width:200px;height:100%;background:url("avatar3-backdrop.png") 38% center/auto 100%;box-shadow:12px 0 30px rgba(0,0,0,.35)}
-.info{display:grid;align-content:center;gap:18px;padding:26px 30px}
+.info{display:grid;align-content:space-between;gap:18px;padding:22px 30px 26px}
 .line1{display:flex;align-items:center;gap:18px}
 .title{font-size:40px;font-weight:700;letter-spacing:.2px}
 .year{font-size:28px;font-weight:600;color:#cdd3ea}
@@ -20,6 +20,7 @@ body{width:1920px;height:1080px;position:relative;overflow:hidden;font-family:"S
 .pill.q{background:linear-gradient(135deg,#7a4ff0,#5b2fd0);color:#fff}
 .line3{display:flex;gap:30px;align-items:center;font-size:22px;color:#dde2f5}
 .line3 span{display:flex;align-items:center;gap:10px}
+.hot-green{color:#5fe39a;font-weight:700}.hot-amber{color:#f2c94c;font-weight:700}.hot-orange{color:#ff9a4a;font-weight:700}.hot-red{color:#ff6b6b;font-weight:700}
 .dot{width:14px;height:14px;border-radius:50%;background:#3ddc84;box-shadow:0 0 10px #3ddc84}
 .rows{display:grid;gap:14px;margin-top:22px}
 .row{display:flex;align-items:center;gap:18px;padding:18px 22px;min-height:76px;border-radius:18px;background:rgba(36,40,63,.75);font-size:24px}
@@ -46,7 +47,7 @@ body{width:1920px;height:1080px;position:relative;overflow:hidden;font-family:"S
     <span class="pill"><svg viewBox="0 0 24 24" class="ico" style="width:20px;height:20px"><path d="M11 5 6 9H3v6h3l5 4V5Zm4 4a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"/></svg>Dolby Atmos 7.1</span>
     <span class="pill q">4K</span>
    </div>
-   <div class="line3"><span>38.4 GB</span><span>about 1 h 12 min</span><span><i class="dot"></i>Available</span></div>
+   <div class="line3"><span class="hot-red">38.4 GB</span><span class="hot-red">about 1 h 12 min</span><span><i class="dot"></i>Available</span></div>
   </div>
  </div>
  <div class="rows">
