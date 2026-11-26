@@ -28,3 +28,11 @@ Concepts: `docs/design/1-6-2-concepts/` (`search-results-d-rail.png`, `download-
 ## Rules for all of it
 
 Keyboard path and focus (Download keeps focus until the page takes over, then focus goes to the page's main action), reduced motion and effects-off paths, announcements once via a polite live region, 44 px targets (60 px on TV), nothing shown twice.
+
+## Confirm dialog slots (owner, 26 Nov; wireframe `1-6-2-concepts/confirm-dialog-slots-v2.png`, source `confirm-dialog-slots.html`)
+
+Summary card, left: the quality block (tier and source, tier colour; the tier is shown only here). Right, three lines: (1) title, year and the round age symbol at the right end; (2) audio style chip, only when known (the line is removed otherwise); (3) size, download time, availability (dot plus word). Below: option 1 Hungarian audio (off), option 2 Hungarian subtitles (on), option 3 English subtitles (always on, locked, "Added automatically"). Buttons: Cancel left, Download right, the same width and height; focus starts on Download whenever the dialog opens (TV remote).
+
+## Age rating symbol
+
+A round badge (about 40 px, 4 px coloured ring, dark centre, bold number): green for no limit or 6, yellow for 12, orange for 16, red for 18. Source: TMDB certification, preferring the Hungarian (HU) value, then US and GB mapped to the nearest of 6, 12, 16, 18. Drawn in CSS or inline SVG, accessible name 'Rated 12'; shown next to the title on Home hero, film page, series page, release search rail and this dialog. Never copy official artwork.

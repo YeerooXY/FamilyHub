@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Confirm dialog: slots</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;width:1600px;height:900px;background:radial-gradient(1200px 700px at 60% 30%,#1b2036,#0a0c14);font-family:"Segoe UI",system-ui,sans-serif;color:#eef1f8;display:grid;place-items:center}
+.panel{width:860px;padding:28px;border-radius:28px;background:rgba(24,27,42,.92);border:1px solid #6e5bd8;box-shadow:0 0 60px rgba(110,91,216,.35)}
+.slot{position:relative;border:1px dashed #7d86a8;border-radius:14px}
+.cap{position:absolute;top:-9px;left:12px;padding:0 6px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;background:#181b2a;color:#9aa3c7}
+.summary{display:grid;grid-template-columns:150px 1fr;gap:18px;padding:18px;background:#20243a;border-radius:18px;border:1px solid #2c3150}
+.quality{height:132px;border-radius:16px;background:linear-gradient(160deg,#2b8cff,#1d5fc0);display:grid;place-items:center;text-align:center;font-weight:700;font-size:30px}
+.quality small{display:block;font-size:14px;font-weight:500;opacity:.9}
+.info{display:grid;gap:12px;align-content:center}
+.line1{display:flex;align-items:center;gap:14px;padding:12px 14px}
+.title{font-size:30px;font-weight:700}
+.year{color:#aeb6d4;font-size:18px}
+.age{width:40px;height:40px;border-radius:50%;border:4px solid #e8b923;background:#15161d;display:grid;place-items:center;font-weight:800;font-size:17px;color:#fff;margin-left:auto}
+.line2{display:flex;gap:12px;padding:12px 14px}
+.chip{padding:6px 14px;border-radius:999px;background:#2c3150;font-size:16px}
+.chip.q{background:#1d5fc0}
+.line3{display:flex;gap:26px;align-items:center;padding:12px 14px;font-size:18px}
+.line3 span{display:flex;align-items:center;gap:8px}
+.dot{width:12px;height:12px;border-radius:50%;background:#3ddc84}
+.rows{display:grid;gap:12px;margin-top:18px}
+.row{display:flex;align-items:center;gap:16px;padding:16px 18px;font-size:20px;min-height:68px}
+.row .label{flex:1}
+.row small{display:block;color:#9aa3c7;font-size:14px}
+.sw{width:64px;height:36px;border-radius:999px;background:#3a3f5c;position:relative}
+.sw::after{content:"";position:absolute;top:4px;left:4px;width:28px;height:28px;border-radius:50%;background:#fff}
+.sw.on{background:#6e5bd8}.sw.on::after{left:32px}
+.sw.locked{background:#2a6d4a;opacity:.85}.sw.locked::after{left:32px}
+.ico{width:28px;height:28px;border:2px solid #cfd5ee;border-radius:8px}
+.buttons{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}
+.btn{height:68px;border-radius:18px;display:grid;place-items:center;font-size:21px;font-weight:700;border:2px solid transparent}
+.cancel{background:#2c3150;color:#dfe3f5}
+.download{background:#6e5bd8;color:#fff;outline:3px solid #fff;outline-offset:2px}
+.note{margin-top:12px;color:#9aa3c7;font-size:13px;text-align:center}
+</style>
+<div class="panel">
+ <div class="summary">
+  <div class="slot quality"><span class="cap">Quality block: tier and source, tier colour</span><div>1080p<small>Blu-ray</small></div></div>
+  <div class="info">
+   <div class="slot line1"><span class="cap">Line 1: title, year, age symbol</span><span class="title">Happy Feet</span><span class="year">2006</span><span class="age">12</span></div>
+   <div class="slot line2"><span class="cap">Line 2: audio style (row hidden when unknown)</span><span class="chip">TrueHD 5.1</span></div>
+   <div class="slot line3"><span class="cap">Line 3: size, time, availability</span><span>4.1 GB</span><span>about 12 min</span><span><i class="dot"></i>Available</span></div>
+  </div>
+ </div>
+ <div class="rows">
+  <div class="slot row"><span class="cap">Option 1: off by default</span><span class="ico"></span><span class="label">Hungarian audio</span><span class="sw"></span></div>
+  <div class="slot row"><span class="cap">Option 2: on by default</span><span class="ico"></span><span class="label">Hungarian subtitles</span><span class="sw on"></span></div>
+  <div class="slot row"><span class="cap">Option 3: always on, cannot be switched</span><span class="ico"></span><span class="label">English subtitles<small>Added automatically</small></span><span class="sw locked"></span></div>
+ </div>
+ <div class="buttons">
+  <div class="slot btn cancel"><span class="cap">Cancel: left, same size</span>Cancel</div>
+  <div class="slot btn download"><span class="cap">Download: right, focused when the dialog opens</span>Download</div>
+ </div>
+ <div class="note">Wireframe: labels are for planning only; the real dialog shows no slot captions.</div>
+</div>
