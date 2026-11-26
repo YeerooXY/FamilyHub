@@ -205,6 +205,13 @@ sealed class FixtureHandler : HttpMessageHandler {
     public static bool CatalogueRows;
     public const string PlaylistId = "0123456789abcdefghijkl";
     public static bool OtherDeviceAddedSong;
+    // Flask marks every response of its own, so a single failing section is not mistaken for an unreachable server.
+    private static HttpResponseMessage FlaskError(System.Net.HttpStatusCode status)
+    {
+        var response = new HttpResponseMessage(status);
+        response.Headers.TryAddWithoutValidation("X-Content-Type-Options", "nosniff");
+        return response;
+    }
     public static string? FailedPath;
     public static int Removals;
     public static bool AlbumMode;
@@ -218,7 +225,7 @@ sealed class FixtureHandler : HttpMessageHandler {
         tracks = OtherDeviceAddedSong ? new[] { new { source_id = "abcdefghijk" } } : [] };
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) {
         var path=request.RequestUri!.AbsolutePath;
-        if (path == FailedPath) return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));
+        if (path == FailedPath) return Task.FromResult(FlaskError(System.Net.HttpStatusCode.ServiceUnavailable));
         if (Offline) throw new HttpRequestException("Fixture server offline");
         if (AlbumMode && request.Method == HttpMethod.Post && path == "/api/playlists") AlbumCreates++;
         if (path == "/api/playlists/" + AlbumId && request.Method == HttpMethod.Patch)
@@ -229,7 +236,7 @@ sealed class FixtureHandler : HttpMessageHandler {
             if (AlbumSongs.Count == 1 && rejectSecondSong)
             {
                 rejectSecondSong = false;
-                return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));
+                return Task.FromResult(FlaskError(System.Net.HttpStatusCode.ServiceUnavailable));
             }
             AlbumSongs.Add(body.RootElement.GetProperty("add_source_id").GetString()!);
         }

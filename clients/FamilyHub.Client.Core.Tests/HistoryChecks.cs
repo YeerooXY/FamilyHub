@@ -89,6 +89,8 @@ internal static class HistoryChecks
         online = false;
         for (var i = 0; i < 105; i++) restarted.QueueListeningEvent(Track("pending0001"), now, 1, 100, 1, "stopped", "library", restarted.HistoryOwner);
         online = true; batchSizes.Clear();
+        // A failed upload makes the session reconnect quietly first; history syncs once the server answers again.
+        for (var wait = 0; wait < 100 && !restarted.Connected; wait++) await Task.Delay(100);
         await restarted.SyncHistoryAsync();
         Check(batchSizes.SequenceEqual([100, 5]), "Upload batches must be bounded to 100 events");
         var beforeWrongOwner = posts;

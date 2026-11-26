@@ -139,7 +139,7 @@ public sealed class DownloadFixtureServer : HttpMessageHandler
         var path = request.RequestUri!.AbsolutePath;
         if (path.EndsWith("/download"))
         {
-            if (FailAudio) return new(HttpStatusCode.ServiceUnavailable);
+            if (FailAudio) { var failure = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable); failure.Headers.TryAddWithoutValidation("X-Content-Type-Options", "nosniff"); return failure; }
             if (AudioGate is { } gate) await gate.Task.WaitAsync(token);
             return new(HttpStatusCode.OK) { Content = new ByteArrayContent(Audio) };
         }
