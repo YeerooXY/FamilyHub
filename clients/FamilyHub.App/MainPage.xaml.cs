@@ -232,13 +232,13 @@ public partial class MainPage : ContentPage
     }
 
 	[Microsoft.JSInterop.JSInvokable("UpdateWindowChrome")]
-    public static Task<WindowChromeMetrics> UpdateWindowChrome(double headerHeight, WindowChromeRect[] interactiveRects, double devicePixelRatio)
+    public static Task<WindowChromeMetrics> UpdateWindowChrome(WindowChromeRect[] interactiveRects, double devicePixelRatio)
     {
 #if WINDOWS
         return MainThread.InvokeOnMainThreadAsync(() =>
             current is not null && current.TryGetTarget(out var page)
                 ? Services.WindowsWindowChrome.Update(page, page.blazorWebView.Handler?.PlatformView as Microsoft.UI.Xaml.FrameworkElement,
-                    headerHeight, interactiveRects, devicePixelRatio)
+                    interactiveRects, devicePixelRatio)
                 : WindowChromeMetrics.Unsupported);
 #else
         return Task.FromResult(WindowChromeMetrics.Unsupported);
@@ -363,7 +363,7 @@ public partial class MainPage : ContentPage
         audio.IsVisible = false;
         audioNext.IsVisible = false;
         Loaded += (_, _) => Services.WindowsWindowChrome.Update(this,
-            blazorWebView.Handler?.PlatformView as Microsoft.UI.Xaml.FrameworkElement, 48, [], 1);
+            blazorWebView.Handler?.PlatformView as Microsoft.UI.Xaml.FrameworkElement, [], 1);
 #endif
         checkpointTimer = Dispatcher.CreateTimer();
         checkpointTimer.IsRepeating = false;
@@ -422,7 +422,7 @@ public partial class MainPage : ContentPage
 }
 
 public sealed record WindowChromeRect(double X, double Y, double Width, double Height);
-public sealed record WindowChromeMetrics(bool Supported, double LeftInset, double RightInset, double MinHeight)
+public sealed record WindowChromeMetrics(bool Supported, double LeftInset, double RightInset, double Height)
 {
     public static WindowChromeMetrics Unsupported { get; } = new(false, 0, 0, 0);
 }

@@ -1,5 +1,25 @@
 # Interface verification
 
+## 26 November 2026 Windows app bar
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Windows app bar, restored, maximized and movie fullscreen | never | never | never | never | never | Source check, existing control names | never |
+
+The app bar takes its height and caption-button insets from `AppWindow.TitleBar`. WebView2 divides both measurements by the device pixel ratio. The browser layout check supplies a 48 CSS px header and a 139.2 CSS px right inset and checks the top edge, height, colour and avatar position. These are fixture inputs. For a 48 CSS px row, the corresponding physical heights at 100%, 125% and 150% are 48, 60 and 72 px.
+
+Live measurements are pending. At each scale, compare `AppWindow.TitleBar.Height` in physical pixels with the header rectangle height multiplied by `devicePixelRatio`, in both restored and maximized windows. Check that the switcher, arrows and avatar respond to clicks, the empty space drags the window and the profile sits clear of the caption buttons. In movie fullscreen, check that playback starts at the top edge. After exit, check that the native caption and its spacing return.
+
+## 26 November 2026 Settings and app switcher
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Settings, desktop category rail and content | never | never | never | never | never | Source check, 26 Nov 2026, Discord-style shell | never |
+| Settings, phone category list, category and return | never | never | never | never | never | Source check, 26 Nov 2026, Discord-style shell | never |
+| Header app switcher, closed, open, dismissal and app selection | never | never | never | never | never | Source check, 26 Nov 2026, app switcher concept | never |
+
+`tests/settings_shell.cjs` and `tests/app_switcher.cjs` cover fixture-only Chromium and WebKit at 320, 390, 1280 and 1920 CSS pixels. Settings changes categories immediately and moves focus into phone details or back to the selected category. The switcher uses the shared popup fade and restores focus on dismissal. Reduced motion and Effects off disable the fade. Browser execution, visual inspection, screen-reader speech and physical-device checks are pending.
+
 ## 26 November 2026 Movies & TV release search and My screen
 
 | Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |

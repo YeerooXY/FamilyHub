@@ -1,9 +1,11 @@
 // While an update downloads, the update popup becomes the full-window updater on PC, tablet and phone.
 const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path");
+const { constants, setPriority } = require("node:os");
 const { chromium, webkit } = require(require.resolve("playwright", { paths: [process.cwd(), path.resolve(__dirname, "../../agent-dock")] }));
 const wwwroot = path.join(__dirname, "../clients/FamilyHub.App/wwwroot");
-const out = path.join(__dirname, "../docs/verification/update-fullscreen-2026-11-25");
+const out = process.argv[2] || path.join(__dirname, "../.local/update-fullscreen-2026-11-25");
+setPriority(constants.priority.PRIORITY_BELOW_NORMAL);
 fs.mkdirSync(out, { recursive: true });
 const page$ = updating => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/popup-native.css"><link rel="stylesheet" href="/app-native.css"><link rel="stylesheet" href="/startup.css"><body style="margin:0;background:#05070d">

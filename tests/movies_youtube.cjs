@@ -1,6 +1,8 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const path = require("node:path");
 const { jellyfin, cors, homeOutput, moviePage, verifyMovieProfiles } = require("./movies_fixture.cjs");
+const output = process.argv[2] || homeOutput;
 
 const videos = [
     ["film0000001", "A Train Through the Alps", 2160, "movie.jpg"],
@@ -97,7 +99,7 @@ async function verify(browser, profile, options) {
         assert.equal(await watch.getAttribute("href"), url(videos[0][0]));
         assert.equal(await watch.getAttribute("target"), "_blank");
         await list.scrollIntoViewIfNeeded();
-        await page.screenshot({path: path.join(process.argv[2] || homeOutput, profile + "-youtube.png"), fullPage: true, scale: "css"});
+        await page.screenshot({path: path.join(output, profile + "-youtube.png"), fullPage: true, scale: "css"});
 
         await watch.press("Enter");
         assert.equal(await focused(watch), true);
@@ -140,5 +142,6 @@ async function verify(browser, profile, options) {
     }
 }
 
+fs.mkdirSync(output, {recursive: true});
 verifyMovieProfiles(verify).then(() => console.log("YouTube cards passed in eight browser profiles."))
     .catch(error => { console.error(error); process.exitCode = 1; });

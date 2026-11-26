@@ -2,18 +2,20 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const {chromium, webkit, devices} = require(require.resolve('playwright', {paths: [root, path.resolve(root, '../agent-dock')]}));
-const origin = process.env.POPUP_URL || 'http://127.0.0.1:38869';
+const {origin, runWithFixture, fixturePage} = require('./music_popup_unification.cjs');
 const capture = process.env.PROFILE_CAPTURE;
 
 async function audit(device, browserType, options) {
     const browser = await browserType.launch();
     try {
-        const page = await browser.newPage(options);
+        const page = await fixturePage(browser, options);
         await page.goto(origin);
         const profile = page.locator('#profile-toggle');
         await profile.click();
         await page.locator('#open-settings').click();
+        if (options.isMobile) await page.locator('#settings-general').click();
         const panel = page.getByRole('region', {name: 'Profile', exact: true});
+        await panel.waitFor();
         const name = panel.getByLabel('Display name', {exact: true});
         const save = panel.getByRole('button', {name: 'Save name', exact: true});
         const picture = panel.getByLabel('Change picture', {exact: true});
@@ -63,6 +65,8 @@ async function audit(device, browserType, options) {
         assert.equal(await name.evaluate(el => el.closest('section').scrollWidth <= el.closest('section').clientWidth), true);
         await name.fill('Unsaved change');
         await feedback.waitFor({state: 'hidden'});
+        if (options.isMobile) await page.getByRole('button', {name: 'Back to settings categories'}).click();
+        await page.getByRole('button', {name: 'Close settings'}).click();
         await profile.click();
         await page.getByRole('heading', {name: 'Mária 🌿', exact: true}).waitFor();
     } finally {
@@ -70,10 +74,10 @@ async function audit(device, browserType, options) {
     }
 }
 
-(async () => {
+runWithFixture(async () => {
     await audit('windows-chromium', chromium, {viewport: {width: 1280, height: 900}});
     await audit('mac-webkit', webkit, {...devices['Desktop Safari'], viewport: {width: 850, height: 900}});
     await audit('android-chromium', chromium, devices['Pixel 7']);
     await audit('iphone-webkit', webkit, {...devices['iPhone 13'], viewport: {width: 320, height: 750}});
     console.log('PASS: profile layout, display rename, error recovery, profile menu propagation, and keyboard focus.');
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}).catch(error => { console.error(error); process.exitCode = 1; });

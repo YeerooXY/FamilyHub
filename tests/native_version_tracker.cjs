@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const {chromium, webkit, devices} = require(require.resolve('playwright', {paths: [root, path.resolve(root, '../agent-dock')]}));
-const origin = process.env.POPUP_URL || 'http://127.0.0.1:38869';
+const {origin, runWithFixture, fixturePage} = require('./music_popup_unification.cjs');
 const project = fs.readFileSync(path.join(root, 'clients/FamilyHub.App/FamilyHub.App.csproj'), 'utf8');
 const version = project.match(/<ApplicationDisplayVersion>([^<]+)/)[1];
 const build = project.match(/<ApplicationVersion>([^<]+)/)[1];
@@ -12,10 +12,11 @@ const history = 'https://github.com/YeerooXY/FamilyHub/releases';
 async function audit(browserType, viewport, scenario, expected, historyKey) {
     const browser = await browserType.launch();
     try {
-        const page = await browser.newPage(viewport);
+        const page = await fixturePage(browser, viewport);
+        page.setDefaultTimeout(10000);
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
-        await page.request.post(origin + '/fixture/startup/' + scenario);
+        assert.ok((await page.request.post(origin + '/fixture/startup/' + scenario, {maxRedirects: 0})).ok());
         await page.goto(origin);
         if (scenario === 'update') {
             await page.locator('#update-dialog[open]').waitFor();
@@ -23,6 +24,7 @@ async function audit(browserType, viewport, scenario, expected, historyKey) {
         }
         await page.locator('#profile-toggle').click();
         await page.locator('#open-settings').click();
+        await page.locator('#settings-about').click();
         const status = page.locator('#settings-update-status');
         await page.waitForFunction(text => document.getElementById('settings-update-status')?.textContent.trim() === text, expected);
         assert.equal(await status.getAttribute('role'), 'status');
@@ -43,16 +45,17 @@ async function audit(browserType, viewport, scenario, expected, historyKey) {
         assert.equal(checked.count, 1, 'Settings and startup issued separate update checks');
         assert.deepEqual(errors, []);
     } finally {
-        await pageReset(browser);
-        await browser.close();
+        await closeScenario(browser);
     }
 }
 
 async function publicPopup(browserType, viewport, background) {
     const browser = await browserType.launch();
     try {
-        const page = await browser.newPage(viewport);
-        await page.request.post(origin + '/fixture/startup/' + (background ? 'update-current' : 'update-offline'));
+        const page = await fixturePage(browser, viewport);
+        page.setDefaultTimeout(10000);
+        const scenario = background ? 'update-current' : 'update-offline';
+        assert.ok((await page.request.post(origin + '/fixture/startup/' + scenario, {maxRedirects: 0})).ok());
         await page.goto(origin);
         const profile = page.locator('#profile-toggle');
         await profile.waitFor();
@@ -78,17 +81,20 @@ async function publicPopup(browserType, viewport, background) {
         await dialog.waitFor({state: 'hidden'});
         assert.equal(await update.evaluate(node => node === document.activeElement), true);
     } finally {
-        await pageReset(browser);
+        await closeScenario(browser);
+    }
+}
+
+async function closeScenario(browser) {
+    try {
+        const page = browser.contexts()[0]?.pages()[0];
+        if (page) await page.request.post(origin + '/fixture/startup/none', {timeout: 3000, maxRedirects: 0});
+    } finally {
         await browser.close();
     }
 }
 
-async function pageReset(browser) {
-    const page = browser.contexts()[0]?.pages()[0];
-    if (page) await page.request.post(origin + '/fixture/startup/none');
-}
-
-(async () => {
+runWithFixture(async () => {
     await audit(chromium, {viewport: {width: 1280, height: 900}}, 'update-current', `${version} · Up to date`, 'Enter');
     await audit(chromium, {viewport: {width: 820, height: 900}}, 'update-old', '0.0.1 · Installed version is newer', 'Space');
     await audit(chromium, devices['Pixel 7'], 'update', '9.9.9 available', 'Enter');
@@ -97,4 +103,4 @@ async function pageReset(browser) {
     await publicPopup(chromium, {viewport: {width: 1280, height: 900}}, true);
     await publicPopup(webkit, devices['iPhone 13'], false);
     console.log('PASS: installed and server versions, update states, canonical release history, keyboard focus, and one update check.');
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}).catch(error => { console.error(error); process.exitCode = 1; });

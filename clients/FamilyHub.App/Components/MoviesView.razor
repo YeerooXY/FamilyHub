@@ -241,7 +241,7 @@
     {
         var fullscreen = await Microsoft.Maui.ApplicationModel.MainThread.InvokeOnMainThreadAsync(() =>
             WindowsWindowChrome.SetMovieFullscreen(on && !disposing && PlayerScreen.Playing));
-        if (!on) await JS.InvokeVoidAsync("familyhub.refreshChrome");
+        await JS.InvokeVoidAsync("familyhub.refreshChrome");
         return fullscreen;
     }
 #else

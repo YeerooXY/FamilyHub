@@ -43,7 +43,7 @@ async function verifyRazorShell(browser, url) {
         assert.ok((await page.request.post(new URL("/fixture/startup/movies-polish", url).href)).ok());
         await page.goto(url);
         await page.getByRole("button", {name: "Switch apps"}).click();
-        await page.getByRole("button", {name: /Movies & TV/}).click();
+        await page.locator("#app-switcher").getByRole("button", {name: "Movies & TV", exact: true}).click();
         await page.locator(".app-header .movie-search").waitFor();
         await page.getByRole("button", {name: /^Harbour Town/}).press("Enter");
         await page.getByRole("button", {name: "Season 1", exact: true}).press("Enter");

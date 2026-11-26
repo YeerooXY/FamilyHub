@@ -212,20 +212,26 @@ document.addEventListener('click', event => { if(event.target.closest('[aria-dis
 
 function applyWindowChrome(chrome) {
     document.body.classList.toggle('native-titlebar',chrome.supported);
-    document.documentElement.style.setProperty('--window-controls-width',`${chrome.rightInset ?? 0}px`);
-    document.documentElement.style.setProperty('--window-controls-left',`${chrome.leftInset ?? 0}px`);
-    document.documentElement.style.setProperty('--caption-height',`${chrome.minHeight || 48}px`);
+    const style = document.documentElement.style;
+    if (chrome.supported) {
+        style.setProperty('--window-controls-width',`${chrome.rightInset}px`);
+        style.setProperty('--window-controls-left',`${chrome.leftInset}px`);
+        style.setProperty('--caption-height',`${chrome.height}px`);
+    } else {
+        style.removeProperty('--window-controls-width');
+        style.removeProperty('--window-controls-left');
+        style.removeProperty('--caption-height');
+    }
 }
 window.familyhub.prepareChrome = async () => {
+    if (!window.chrome?.webview) return;
     for (let attempt=0;attempt<12;attempt++) {
         try {
-            const chrome=await DotNet.invokeMethodAsync('FamilyHub.App','UpdateWindowChrome',48,[],devicePixelRatio);
+            const chrome=await DotNet.invokeMethodAsync('FamilyHub.App','UpdateWindowChrome',[],devicePixelRatio);
             if(chrome.supported) { applyWindowChrome(chrome); return; }
         } catch { }
         await new Promise(requestAnimationFrame);
     }
-    document.body.classList.add('native-titlebar');
-    document.documentElement.style.setProperty('--window-controls-width','144px');
 };
 let chromeHeader, chromeObserver, chromeSignature, chromeScheduled = false;
 window.familyhub.syncChrome = () => {
@@ -240,16 +246,15 @@ window.familyhub.syncChrome = () => {
     requestAnimationFrame(async () => {
         chromeScheduled = false;
         positionAnchoredPopup(document.querySelector('[data-popup-anchor][open]'));
-        const header = document.querySelector('.app-header');
-        const height = header?.getBoundingClientRect().bottom ?? 48;
+        if (!window.chrome?.webview) return;
         const rects = [...document.querySelectorAll('.app-header button,.app-header input,.app-header a,.app-header form,.skip:focus')]
             .map(element => element.getBoundingClientRect()).filter(rect => rect.width && rect.height)
             .map(({x,y,width,height}) => ({x:x-4,y:y-4,width:width+8,height:height+8}));
-        const signature = JSON.stringify([height,rects,devicePixelRatio,innerWidth]);
+        const signature = JSON.stringify([rects,devicePixelRatio,innerWidth,innerHeight]);
         if (signature === chromeSignature) return;
         chromeSignature = signature;
         try {
-            const chrome = await DotNet.invokeMethodAsync('FamilyHub.App','UpdateWindowChrome',height,rects,devicePixelRatio);
+            const chrome = await DotNet.invokeMethodAsync('FamilyHub.App','UpdateWindowChrome',rects,devicePixelRatio);
             applyWindowChrome(chrome);
         } catch { chromeSignature = null; }
     });
@@ -339,6 +344,7 @@ function positionAnchoredPopup(dialog) {
     if (!anchor) return;
     const rect = anchor.getBoundingClientRect();
     dialog.style.setProperty('--popup-anchor-top', `${rect.bottom + 8}px`);
+    dialog.style.setProperty('--popup-anchor-left', `${Math.max(8, rect.left)}px`);
     dialog.style.setProperty('--popup-anchor-right', `${Math.max(8, innerWidth - rect.right)}px`);
 }
 window.familyhub.showDialog = (id, focusId, openerId) => {
@@ -784,8 +790,23 @@ window.familyhub.revealWhenReady = id => {
 };
 const phoneLayout = matchMedia('(max-width:720px)');
 window.familyhub.isPhone = () => phoneLayout.matches;
+document.addEventListener('keydown', event => {
+    if (event.target.closest?.('.switcher-grid') && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+        event.preventDefault();
+    }
+    if (event.key === 'Escape' && !event.defaultPrevented && !document.querySelector('dialog[open]')) {
+        const exit = document.getElementById('settings-exit');
+        if (exit) {
+            event.preventDefault();
+            if (!event.repeat) exit.click();
+        }
+    }
+});
 phoneLayout.addEventListener('change', event => {
     if (!event.matches) document.getElementById('player-options-close')?.click();
+    const exit = document.getElementById('settings-exit');
+    if (exit && !document.querySelector('dialog[open]') &&
+        (document.activeElement === document.body || !document.activeElement.getClientRects().length)) exit.focus();
 });
 window.familyhub.dismissKeyboard = (input, successor) => {
     if (!familyhub.isPhone()) return;

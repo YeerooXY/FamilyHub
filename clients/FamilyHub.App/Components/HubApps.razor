@@ -1,31 +1,61 @@
-<section class="hub-apps" aria-labelledby="view-title">
-    <h1 id="view-title" class="hub-title">FamilyHub</h1>
-    <nav class="hub-grid" aria-label="Apps">
-        <button class="hub-card hub-music" @ref="cards[0]" @onkeydown="e => MoveFocus(0, e)" @onclick='() => Open.InvokeAsync("Home")'>
-            <span class="hub-art" aria-hidden="true"><img class="hub-image" src="hub-art/music.webp" alt="" width="768" height="768" decoding="async" /></span>
-            <span class="hub-text"><span class="hub-label">Music</span><span class="hub-note">Songs, playlists and radio</span></span>
-        </button>
-        <button class="hub-card hub-word" @ref="cards[1]" @onkeydown="e => MoveFocus(1, e)" @onclick='() => Open.InvokeAsync("Wordle")'>
-            <span class="hub-art" aria-hidden="true">
-                <span class="hub-board">
-                    @foreach (var mark in BoardMarks) { <i class="@mark"></i> }
-                </span>
-            </span>
-            <span class="hub-text"><span class="hub-label">Daily Wordle</span><span class="hub-note">Puzzle, family boards and stats</span></span>
-        </button>
-        <button class="hub-card hub-movies" @ref="cards[2]" @onkeydown="e => MoveFocus(2, e)" @onclick='() => Open.InvokeAsync("Movies & TV")'>
-            <span class="hub-art" aria-hidden="true"><img class="hub-image" src="hub-art/movies.webp" alt="" width="768" height="768" decoding="async" /></span>
-            <span class="hub-text"><span class="hub-label">Movies &amp; TV</span><span class="hub-note">Your films and series</span></span>
-        </button>
-        <button class="hub-card hub-files" @ref="cards[3]" @onkeydown="e => MoveFocus(3, e)" @onclick='() => Open.InvokeAsync("Files")'>
-            <span class="hub-art" aria-hidden="true"><img class="hub-image" src="hub-art/files.webp" alt="" width="768" height="768" decoding="async" /></span>
-            <span class="hub-text"><span class="hub-label">Files</span><span class="hub-note">Family and private folders</span></span>
-        </button>
-    </nav>
-</section>
+@if (Current is null)
+{
+    <section class="hub-apps" aria-labelledby="view-title">
+        <h1 id="view-title" class="hub-title">FamilyHub</h1>
+        @AppGrid
+    </section>
+}
+else
+{
+    @AppGrid
+}
+
 @code {
     [Parameter] public EventCallback<string> Open { get; set; }
-    private readonly ElementReference[] cards = new ElementReference[4];
+    [Parameter] public string? Current { get; set; }
+
+    private static readonly (string Route, string Label, string Icon, string Art, string Note)[] Apps =
+    [
+        ("Home", "Music", "music", "music", "Songs, playlists and radio"),
+        ("Wordle", "Daily Wordle", "wordle", "word", "Puzzle, family boards and stats"),
+        ("Movies & TV", "Movies & TV", "film", "movies", "Browse or continue watching"),
+        ("Files", "Files", "folder", "files", "Family and private folders")
+    ];
+    public static string AppIcon(string route) => Apps.FirstOrDefault(app => app.Route == route).Icon ?? "home";
+    public static string AppLabel(string route) => Apps.FirstOrDefault(app => app.Route == route).Label ?? "FamilyHub";
+
+    private readonly ElementReference[] cards = new ElementReference[Apps.Length];
+    private RenderFragment AppGrid => @<nav class="@(Current is null ? "hub-grid" : "switcher-grid")" aria-label="Apps">
+        @for (var i = 0; i < Apps.Length; i++)
+        {
+            var index = i;
+            var (route, label, icon, art, note) = Apps[index];
+            <button id="@(Current is null ? null : $"switcher-app-{index}")" type="button"
+                    class="@(Current is null ? $"hub-card hub-{art}" : null)" aria-current='@(Current == route ? "true" : null)'
+                    @ref="cards[index]" @onkeydown="e => MoveFocus(index, e)" @onclick="() => Open.InvokeAsync(route)">
+                @if (Current is not null)
+                {
+                    <MusicIcon Name="@icon" /><span>@label</span>
+                }
+                else
+                {
+                    <span class="hub-art" aria-hidden="true">
+                        @if (route == "Wordle")
+                        {
+                            <span class="hub-board">
+                                @foreach (var mark in BoardMarks) { <i class="@mark"></i> }
+                            </span>
+                        }
+                        else
+                        {
+                            <img class="hub-image" src="@($"hub-art/{art}.webp")" alt="" width="768" height="768" decoding="async" />
+                        }
+                    </span>
+                    <span class="hub-text"><span class="hub-label">@label</span><span class="hub-note">@note</span></span>
+                }
+            </button>
+        }
+    </nav>;
 
     // A game in progress: three guesses narrow the word, the fourth solves it, and two rows stay empty.
     private static readonly string[] BoardMarks = "absent present absent absent absent absent correct present absent correct correct correct present absent correct correct correct correct correct correct empty empty empty empty empty empty empty empty empty empty".Split(' ');

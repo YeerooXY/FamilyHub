@@ -30,7 +30,7 @@ internal static class WindowsWindowChrome
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowPlacement(nint window, in WindowPlacement placement);
 
-    private static (AppWindow Window, nint Handle, AppWindowPresenter Presenter, WindowPlacement Placement)? movieWindow;
+    private static (Microsoft.UI.Xaml.Window Window, nint Handle, AppWindowPresenter Presenter, WindowPlacement Placement)? movieWindow;
 
     public static bool SetMovieFullscreen(bool on)
     {
@@ -45,28 +45,30 @@ internal static class WindowsWindowChrome
             if (!GetWindowPlacement(handle, ref placement)) return false;
             var presenter = appWindow.Presenter;
             appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-            movieWindow = (appWindow, handle, presenter, placement);
+            movieWindow = (window, handle, presenter, placement);
             return true;
         }
         if (movieWindow is { } previous)
         {
-            previous.Window.SetPresenter(previous.Presenter);
+            previous.Window.AppWindow.SetPresenter(previous.Presenter);
             SetWindowPlacement(previous.Handle, previous.Placement);
             if (AppWindowTitleBar.IsCustomizationSupported())
-                ConfigureTitleBar(previous.Window.TitleBar);
+                ConfigureTitleBar(previous.Window);
             movieWindow = null;
         }
         return false;
     }
 
-    public static void SetBorderColor(Microsoft.UI.Xaml.Window window)
+    public static void Initialize(Microsoft.UI.Xaml.Window window)
     {
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
             DwmSetWindowAttribute(WinRT.Interop.WindowNative.GetWindowHandle(window), DwmwaBorderColor, 0, sizeof(uint));
+        if (AppWindowTitleBar.IsCustomizationSupported())
+            ConfigureTitleBar(window);
     }
 
     public static WindowChromeMetrics Update(MainPage page, FrameworkElement? webView,
-        double headerHeight, WindowChromeRect[] interactiveRects, double devicePixelRatio)
+        WindowChromeRect[] interactiveRects, double devicePixelRatio)
     {
         if (!AppWindowTitleBar.IsCustomizationSupported() ||
             page.Window?.Handler?.PlatformView is not Microsoft.UI.Xaml.Window window ||
@@ -77,11 +79,11 @@ internal static class WindowsWindowChrome
             return WindowChromeMetrics.Unsupported;
 
         var titleBar = window.AppWindow.TitleBar;
-        ConfigureTitleBar(titleBar);
+        if (!window.ExtendsContentIntoTitleBar)
+            ConfigureTitleBar(window);
 
-        // Public MAUI visibility mapping also clears the navigation root's title inset.
-        if (page.Window.TitleBar is Microsoft.Maui.Controls.TitleBar { IsVisible: true } mauiTitleBar)
-            mauiTitleBar.IsVisible = false;
+        var height = titleBar.Height;
+        if (height <= 0) return WindowChromeMetrics.Unsupported;
 
         var scale = webView.XamlRoot.RasterizationScale;
         var cssScale = double.IsFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : scale;
@@ -89,7 +91,6 @@ internal static class WindowsWindowChrome
         var left = Math.Max(0, titleBar.LeftInset);
         var right = Math.Max(0, titleBar.RightInset);
         var width = window.AppWindow.ClientSize.Width;
-        var height = (int)Math.Ceiling(Math.Clamp(double.IsFinite(headerHeight) ? headerHeight : 48, 48, 180) * cssScale);
         var source = InputNonClientPointerSource.GetForWindowId(window.AppWindow.Id);
         var regions = new List<RectInt32>();
         foreach (var rect in interactiveRects ?? [])
@@ -111,13 +112,15 @@ internal static class WindowsWindowChrome
             captions = captions.SelectMany(caption => Subtract(caption, region)).ToList();
         titleBar.SetDragRectangles(captions.Where(rect => rect.Width > 0 && rect.Height > 0).ToArray());
         source.SetRegionRects(NonClientRegionKind.Passthrough, regions.ToArray());
-        return new(true, left / cssScale, right / cssScale, titleBar.Height / cssScale);
+        return new(true, left / cssScale, right / cssScale, height / cssScale);
     }
 
-    private static void ConfigureTitleBar(AppWindowTitleBar titleBar)
+    private static void ConfigureTitleBar(Microsoft.UI.Xaml.Window window)
     {
-        titleBar.ExtendsContentIntoTitleBar = true;
+        window.ExtendsContentIntoTitleBar = true;
+        var titleBar = window.AppWindow.TitleBar;
         titleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+        titleBar.BackgroundColor = titleBar.InactiveBackgroundColor = Microsoft.UI.Colors.Black;
         titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
         titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
         titleBar.ButtonForegroundColor = NativeColor.FromArgb(255, 223, 232, 240);

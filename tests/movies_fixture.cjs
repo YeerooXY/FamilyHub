@@ -1,12 +1,13 @@
 const fs = require("node:fs");
+const { constants, setPriority } = require("node:os");
 const path = require("node:path");
 const { chromium, webkit, devices } = require(require.resolve("playwright", {
     paths: [process.cwd(), path.resolve(__dirname, "../../agent-dock")]
 }));
 
 const root = path.resolve(__dirname, "..");
-const homeOutput = path.join(root, "docs/verification/movies-home-2026-11-24");
-const playerOutput = path.join(root, "docs/verification/movie-player-2026-11-24");
+const homeOutput = path.join(root, ".local/movies-home-2026-11-24");
+const playerOutput = path.join(root, ".local/movie-player-2026-11-24");
 const output = path.resolve(process.argv[2] || playerOutput);
 const app = "http://familyhub.test", jellyfin = "https://jellyfin.test";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization,content-type" };
@@ -236,6 +237,7 @@ async function dismissPlayerTracks(page) {
 }
 
 async function verifyMovieProfiles(verify) {
+    setPriority(constants.priority.PRIORITY_BELOW_NORMAL);
     fs.mkdirSync(output, {recursive: true});
     for (const engine of [chromium, webkit]) {
         const browser = await engine.launch({headless: true});
@@ -265,6 +267,7 @@ const reviewProfiles = [
 ];
 
 async function reviewMovieProfiles(verify) {
+    setPriority(constants.priority.PRIORITY_BELOW_NORMAL);
     for (const engine of [chromium, webkit]) {
         const browser = await engine.launch({headless: true});
         try {

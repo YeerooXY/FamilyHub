@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const {chromium, webkit, devices} = require(require.resolve('playwright', {paths: [root, path.resolve(root, '../agent-dock')]}));
-const origin = process.env.POPUP_URL || 'http://127.0.0.1:38869';
+const {origin, runWithFixture, fixturePage} = require('./music_popup_unification.cjs');
 const capture = process.env.WORDLE_CAPTURE;
 
 async function openWordle(page) {
@@ -18,7 +18,7 @@ async function openWordle(page) {
 async function dailyPlay(name, engine, options) {
     const browser = await engine.launch();
     try {
-        const page = await browser.newPage({...options, colorScheme: 'light', reducedMotion: 'reduce'});
+        const page = await fixturePage(browser, {...options, colorScheme: 'light', reducedMotion: 'reduce'});
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
         await page.request.post(origin + '/fixture/startup/default');
@@ -178,7 +178,7 @@ async function dailyPlay(name, engine, options) {
 async function preferences() {
     const browser = await chromium.launch();
     try {
-        const page = await browser.newPage();
+        const page = await fixturePage(browser);
         await page.request.post(origin + '/fixture/wordle-reset/86400');
         await page.goto(origin);
         await page.locator('#profile-toggle').click();
@@ -188,8 +188,9 @@ async function preferences() {
         await setting.check();
         await page.getByText('Wordle settings saved.', {exact: true}).waitFor();
         assert(await setting.evaluate(node => node === document.activeElement));
+        await page.getByRole('button', {name: 'Close settings'}).click();
         await page.locator('#open-hub').click();
-        await page.getByRole('button', {name: /^Daily Wordle\b/}).click();
+        await page.locator('#app-switcher').getByRole('button', {name: 'Daily Wordle', exact: true}).click();
         await page.waitForFunction(() => document.querySelector('.daily-wordle')?.dataset.playing === 'true');
         assert.equal(await page.getByRole('button', {name: /^June,/}).count(), 0);
         console.log('Wordle spoiler setting saved and hid family boards');
@@ -199,7 +200,7 @@ async function preferences() {
 async function recapOnce() {
     const browser = await chromium.launch();
     try {
-        const page = await browser.newPage({reducedMotion: 'reduce'});
+        const page = await fixturePage(browser, {reducedMotion: 'reduce'});
         await page.request.post(origin + '/fixture/startup/wordle-recap');
         await page.request.post(origin + '/fixture/wordle-reset/86400');
         await page.request.post(origin + '/fixture/wordle-member/-1/false');
@@ -215,7 +216,8 @@ async function recapOnce() {
         assert(await page.evaluate(() => document.activeElement !== document.body), 'closing the recap keeps focus on the page');
         // The same day shows it once: leaving and coming back does not open it again.
         await page.locator('#open-hub').click();
-        await page.getByRole('button', {name: /^Daily Wordle\b/}).click();
+        await page.locator('#switcher-hub').click();
+        await page.locator('.hub-card.hub-word').click();
         await page.getByRole('heading', {name: 'Wordle', exact: true}).waitFor();
         await page.waitForFunction(() => document.querySelector('.daily-wordle')?.dataset.playing === 'true');
         await page.waitForTimeout(600);
@@ -227,7 +229,7 @@ async function recapOnce() {
 async function rollover() {
     const browser = await chromium.launch();
     try {
-        const page = await browser.newPage();
+        const page = await fixturePage(browser);
         await page.request.post(origin + '/fixture/wordle-reset/8');
         const panel = await openWordle(page);
         const before = await panel.locator('.dw-context span').first().textContent();
@@ -248,8 +250,8 @@ async function rollover() {
 
 async function localScoring() {
     const browser = await chromium.launch();
-    const page = await browser.newPage();
     try {
+        const page = await fixturePage(browser);
         await page.request.post(origin + '/fixture/startup/wordle-delayed');
         const panel = await openWordle(page);
         const submit = async word => {
@@ -274,16 +276,16 @@ async function localScoring() {
         assert(Date.now() - started < 4000, 'Second guess waited for the first save');
         console.log('Local scoring accepted two rows before the delayed server save.');
     } finally {
-        await page.request.post(origin + '/fixture/startup/default');
         await browser.close();
+        await fetch(origin + '/fixture/startup/default', {method: 'POST', redirect: 'error'});
     }
 }
 
 async function liveFamily() {
     const browser = await chromium.launch();
-    const page = await browser.newPage({reducedMotion: 'no-preference'});
-    const member = (count, submitted = false) => page.request.post(`${origin}/fixture/wordle-member/${count}/${submitted}`);
     try {
+        const page = await fixturePage(browser, {reducedMotion: 'no-preference'});
+        const member = (count, submitted = false) => page.request.post(`${origin}/fixture/wordle-member/${count}/${submitted}`);
         await page.request.post(origin + '/fixture/wordle-reset/86400');
         await member(-1);
         const panel = await openWordle(page);
@@ -337,15 +339,15 @@ async function liveFamily() {
         await panel.locator('.dw-stats-page').getByRole('heading', {name: 'Winning guesses'}).waitFor();
         console.log('Live family presence, draft deletion, committed tiles, focus and flip timing passed');
     } finally {
-        await member(-1);
         await browser.close();
+        await fetch(origin + '/fixture/wordle-member/-1/false', {method: 'POST', redirect: 'error'});
     }
 }
 
 async function resultsPopup(scenario, reducedMotion) {
     const browser = await chromium.launch();
     try {
-        const page = await browser.newPage({viewport: {width: 1280, height: 900}, reducedMotion});
+        const page = await fixturePage(browser, {viewport: {width: 1280, height: 900}, reducedMotion});
         await page.request.post(origin + '/fixture/startup/' + scenario);
         await page.request.post(origin + '/fixture/wordle-reset/86400');
         const panel = await openWordle(page);
@@ -383,7 +385,7 @@ async function resultsPopup(scenario, reducedMotion) {
 async function ordinaryWinReview(name, engine, options) {
     const browser = await engine.launch();
     try {
-        const page = await browser.newPage({...options, colorScheme: 'dark', reducedMotion: name === 'iphone-webkit' ? 'reduce' : 'no-preference'});
+        const page = await fixturePage(browser, {...options, colorScheme: 'dark', reducedMotion: name === 'iphone-webkit' ? 'reduce' : 'no-preference'});
         await page.request.post(origin + '/fixture/startup/default');
         await page.request.post(origin + '/fixture/wordle-reset/86400');
         const panel = await openWordle(page);
@@ -428,8 +430,7 @@ async function ordinaryWinReview(name, engine, options) {
 }
 
 async function boardFit() {
-    const shots = capture || path.resolve(root, 'docs/verification/wordle-fit-2026-11-23');
-    require('node:fs').mkdirSync(shots, {recursive: true});
+    if (capture) require('node:fs').mkdirSync(capture, {recursive: true});
     const profiles = [
         ['pixel7-412x915', chromium, {...devices['Pixel 7'], viewport: {width: 412, height: 915}}],
         ['iphone-390x844', webkit, {...devices['iPhone 13'], viewport: {width: 390, height: 844}}],
@@ -439,7 +440,7 @@ async function boardFit() {
     for (const [name, engine, options] of profiles) {
         const browser = await engine.launch();
         try {
-            const page = await browser.newPage({...options, colorScheme: 'light', reducedMotion: 'reduce'});
+            const page = await fixturePage(browser, {...options, colorScheme: 'light', reducedMotion: 'reduce'});
             await page.request.post(origin + '/fixture/wordle-reset/86400');
             await page.request.post(origin + '/fixture/wordle-member/-1/false');
             const panel = await openWordle(page);
@@ -467,13 +468,13 @@ async function boardFit() {
             assert(m.overflowX <= 0 && m.docOverflowX <= 0, `${name} has horizontal overflow`);
             assert(m.tileSquare && m.tile >= 36, `${name} tile ${m.tile}px`);
             assert(m.keyboardBottom <= m.innerHeight, `${name} keyboard is cut off`);
-            await page.screenshot({path: path.join(shots, name + '.png')});
+            if (capture) await page.screenshot({path: path.join(capture, name + '.png')});
         } finally { await browser.close(); }
     }
     console.log('Wordle six rows fit above the keyboard without scrolling on four viewports');
 }
 
-(async () => {
+runWithFixture(async () => {
     if (process.env.WORDLE_ONLY === 'fit') { await boardFit(); return; }
     for (const [name, engine, profile] of [
         ['windows-chromium', chromium, {viewport: {width: 1280, height: 900}}],
@@ -493,4 +494,4 @@ async function boardFit() {
     await preferences();
     await resultsPopup('wordle-lucky', 'no-preference');
     await resultsPopup('wordle-unlucky', 'reduce');
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}).catch(error => { console.error(error); process.exitCode = 1; });

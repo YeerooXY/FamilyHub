@@ -29,6 +29,7 @@ async function checkAppSettings(page, name, origin) {
     assert.equal(await movies.inputValue(), "good");
     assert(await movies.evaluate(el => el === document.activeElement));
     await page.screenshot({ path: path.join(output, name + "-movies-settings.png") });
+    if (page.viewportSize().width <= 720) await page.getByRole("button", { name: "Back to settings categories" }).click();
     await page.locator("#settings-music").click();
     const music = page.getByRole("checkbox", { name: "Data saver" });
     await music.press("Space");

@@ -1,11 +1,8 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const {constants, setPriority} = require("node:os");
 const { jellyfin, cors, moviePage, playMovieDetails, verifyMovieProfiles } = require("./movies_fixture.cjs");
-const output = process.argv[2] || path.join(__dirname, "../docs/verification/movies-1-5-2-2026-11-25");
-
-setPriority(constants.priority.PRIORITY_BELOW_NORMAL);
+const output = process.argv[2] || path.join(__dirname, "../.local/movies-1-5-2-2026-11-25");
 
 async function verify(browser, profile, options) {
     const page = await browser.newPage(options);

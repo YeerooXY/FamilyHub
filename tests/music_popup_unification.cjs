@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const {spawn} = require('node:child_process');
 const fs = require('node:fs');
+const {constants, setPriority} = require('node:os');
 const path = require('node:path');
 const {setTimeout: delay} = require('node:timers/promises');
 const root = path.resolve(__dirname, '..');
@@ -155,13 +156,14 @@ async function touchDismiss(page, engine, header) {
 async function audit(name, engine, options) {
     const browser = await engine.launch({headless: true});
     const phone = Boolean(options.isMobile);
-    const page = await browser.newPage({...options, reducedMotion: 'reduce'});
+    const page = await fixturePage(browser, {...options, reducedMotion: 'reduce'});
     const captures = {};
     let connect;
     const pageErrors = [];
     const target = id => page.locator('#' + id);
     const heading = text => page.getByRole('heading', {name: text, exact: true});
     const select = async node => { if (phone) await node.tap(); else await node.click(); };
+    const openMusic = () => select(page.locator('.hub-card.hub-music'));
     const closeByEscape = async surface => { await page.keyboard.press('Escape'); await surface.waitFor({state: 'hidden'}); };
     const focused = id => page.waitForFunction(expected => document.activeElement?.id === expected, id);
     const open = async (opener, id) => {
@@ -210,15 +212,12 @@ async function audit(name, engine, options) {
     try {
         page.setDefaultTimeout(10000);
         page.on('pageerror', error => pageErrors.push(error.message));
-        await page.route('**/*', route =>
-            new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
         for (const pattern of ['**/fh-art/**', '**/test/**', 'https://art.fixture.test/**']) {
             await page.route(pattern, route => route.fulfill({contentType: 'image/svg+xml', body: artwork(route.request().url())}));
         }
         if (!before) assert.ok((await page.request.post(origin + '/fixture/startup/health-admin')).ok());
         await page.goto(origin);
-        if (!before) await select(page.getByRole('navigation', {name: 'Apps', exact: true})
-            .getByRole('button', {name: /^Music\b/}));
+        if (!before) await openMusic();
         await page.locator('#discovery-shelf .home-card').nth(7).waitFor();
         if (!before) {
             const radio = target('home-radio-daily').locator('.radio-shortcut-title .icon');
@@ -647,6 +646,11 @@ async function audit(name, engine, options) {
         await page.waitForFunction(() => document.body.dataset.view === 'preferences');
         await capture('settings');
         if (!before) {
+            const backToCategories = async category => {
+                if (!phone) return;
+                await select(page.getByRole('button', {name: 'Back to settings categories'}));
+                await focused(category);
+            };
             await target('settings-general').focus();
             await page.keyboard.press('Tab');
             await focused('settings-music');
@@ -662,7 +666,7 @@ async function audit(name, engine, options) {
             assert.equal(await quality.evaluate(node => node === document.activeElement), true);
             await page.waitForFunction(() => JSON.parse(localStorage.getItem(
                 'familyhub:movie-tracks:' + JSON.stringify({server: 'https://music.fixture.test/', profile: 'fixture'})))?.dataSaver === 'good');
-            await page.screenshot({path: path.join(root, 'docs/verification/movie-player-2026-11-24',
+            if (output) await page.screenshot({path: path.join(output, name,
                 name + '-movie-settings.png'), scale: 'css', animations: 'disabled'});
             const audio = target('movie-preferred-audio');
             await audio.selectOption('hu');
@@ -672,16 +676,19 @@ async function audit(name, engine, options) {
             await subtitles.selectOption('off');
             await page.waitForFunction(() => JSON.parse(localStorage.getItem(
                 'familyhub:movie-tracks:' + JSON.stringify({server: 'https://music.fixture.test/', profile: 'fixture'})))?.subtitles === 'off');
+            await backToCategories('settings-movies');
             await target('settings-movies').focus();
             await page.keyboard.press('Shift+Tab');
             await focused('settings-music');
             await page.keyboard.press('Enter');
-            await heading('Playback and storage').waitFor();
-            await focused('settings-music');
+            await heading('Music playback').waitFor();
+            await focused(phone ? 'settings-category' : 'settings-music');
+            await backToCategories('settings-music');
             await target('settings-movies').press('Enter');
             await page.waitForFunction(() => document.getElementById('movie-preferred-audio')?.value === 'hu');
             assert.equal(await subtitles.inputValue(), 'off');
             assert.equal(await quality.inputValue(), 'good');
+            await backToCategories('settings-movies');
             await target('settings-music').press('Enter');
             const diagnostics = page.getByRole('region', {name: 'Playback diagnostics'});
             await diagnostics.getByRole('button', {name: 'Load attempts'}).press('Enter');
@@ -717,6 +724,11 @@ async function audit(name, engine, options) {
         await open(target('clear-history'), 'clear-history-dialog');
         await capture('clear-history', target('clear-history-dialog'));
         await closeByEscape(target('clear-history-dialog'));
+        if (!before) {
+            if (phone) await select(target('settings-exit'));
+            await select(target('settings-exit'));
+            await target('settings-exit').waitFor({state: 'hidden'});
+        }
 
         if (output) {
             await page.request.post(origin + '/fixture/listening-request/true');
@@ -743,6 +755,7 @@ async function audit(name, engine, options) {
             await pinned.locator('[data-playlist-key="fixture:mix0"]').waitFor();
             await focused('playlist-card-fixture:mix0');
             await page.reload();
+            await openMusic();
             await select(playlists);
             await pinned.locator('[data-playlist-key="fixture:mix0"]').waitFor();
             await select(playlistCard('fixture:mix0'));
@@ -783,12 +796,24 @@ async function audit(name, engine, options) {
 }
 
 async function runWithFixture(run) {
+    setPriority(constants.priority.PRIORITY_BELOW_NORMAL);
     const ready = () => fetch(origin + '/fixture/update-check', {signal: AbortSignal.timeout(500), redirect: 'error'})
         .then(response => response.ok, () => false);
     if (await ready()) return run();
     assert.ok(!process.env.POPUP_URL, `Popup fixture did not respond at ${origin}`);
     const executable = path.join(__dirname, 'fixtures/music-popup-host/bin/Debug/net10.0-windows10.0.19041.0/MusicPopupHost.exe');
     assert.ok(fs.existsSync(executable), 'Build the existing Windows music popup fixture before running its browser checks');
+    if (!before) {
+        const native = path.join(root, 'clients/FamilyHub.App/bin/x64/Debug/net10.0-windows10.0.19041.0/win-x64');
+        for (const name of ['FamilyHub.App.dll', 'FamilyHub.Client.Core.dll']) {
+            const source = path.join(native, name);
+            const target = path.join(path.dirname(executable), name);
+            assert.ok(fs.existsSync(source), 'Build the Windows Debug app before running its browser checks');
+            // The fixture serves current wwwroot files directly. Load the matching Razor build even if the host was built first.
+            if (!fs.existsSync(target) || !fs.readFileSync(source).equals(fs.readFileSync(target)))
+                fs.copyFileSync(source, target);
+        }
+    }
     const host = spawn(executable, {
         cwd: root, windowsHide: true, stdio: 'inherit', env: {...process.env, POPUP_URL: origin}
     });
@@ -808,7 +833,18 @@ async function runWithFixture(run) {
     }
 }
 
-runWithFixture(async () => {
-    const requested = process.env.POPUP_PROFILES?.split(',');
-    for (const profile of profiles.filter(([name]) => !requested || requested.includes(name))) await audit(...profile);
-}).catch(error => { console.error(error); process.exitCode = 1; });
+async function fixturePage(browser, options) {
+    const page = await browser.newPage({...options, serviceWorkers: 'block'});
+    await page.route('**/*', route => new URL(route.request().url()).origin === origin
+        ? route.continue() : route.abort());
+    return page;
+}
+
+module.exports = {origin, runWithFixture, fixturePage};
+
+if (require.main === module) {
+    runWithFixture(async () => {
+        const requested = process.env.POPUP_PROFILES?.split(',');
+        for (const profile of profiles.filter(([name]) => !requested || requested.includes(name))) await audit(...profile);
+    }).catch(error => { console.error(error); process.exitCode = 1; });
+}

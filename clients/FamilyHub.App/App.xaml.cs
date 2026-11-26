@@ -26,15 +26,12 @@ public partial class App : Application
         window.MinimumHeight = 640;
 #endif
 #if WINDOWS
-        // The native caption buttons remain; MainPage hides MAUI's title row
-        // after its handler exists and supplies the web header's hit regions.
-        window.TitleBar = new TitleBar();
         window.Created += (_, _) =>
         {
             if (window.Handler?.PlatformView is Microsoft.UI.Xaml.Window nativeWindow)
             {
                 nativeWindow.AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "FamilyHub.ico"));
-                Services.WindowsWindowChrome.SetBorderColor(nativeWindow);
+                Services.WindowsWindowChrome.Initialize(nativeWindow);
             }
         };
 #endif

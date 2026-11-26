@@ -1,16 +1,16 @@
 ﻿const assert = require('node:assert/strict');
 const {chromium, webkit, devices} = require(require.resolve('playwright', {paths: [process.cwd(), '../agent-dock']}));
-const origin = process.env.POPUP_URL || 'http://127.0.0.1:38869';
+const {origin, runWithFixture, fixturePage} = require('./music_popup_unification.cjs');
 
-(async () => {
-    await fetch(origin + '/fixture/startup/library-pages', {method: 'POST'});
+runWithFixture(async () => {
+    assert.ok((await fetch(origin + '/fixture/startup/library-pages', {method: 'POST', redirect: 'error'})).ok);
     try {
         for (const [engine, options] of [[chromium, {viewport: {width:1280, height:850}}], [webkit, devices['iPhone 13']]]) {
             const browser = await engine.launch();
             try {
-                const page = await browser.newPage(options);
+                const page = await fixturePage(browser, options);
                 await page.goto(origin);
-                await page.getByRole('button', {name:'Music', exact:true}).click();
+                await page.locator('.hub-card.hub-music').click();
                 await page.locator('.workspace[data-app-view=Home]').waitFor();
                 if (options.isMobile) {
                     await page.getByRole('button', {name:'Playlists', exact:true}).click();
@@ -44,12 +44,12 @@ const origin = process.env.POPUP_URL || 'http://127.0.0.1:38869';
                 await count(125);
                 assert.equal(await end.count(), 0);
                 await page.getByRole('button', {name:'Switch apps'}).click();
-                await page.getByRole('button', {name:'Movies & TV',exact:true}).click();
-                await page.locator('.movie-library').waitFor({state:'attached'});
+                await page.locator('#app-switcher').getByRole('button', {name:'Movies & TV',exact:true}).click();
+                await page.locator('.workspace[data-app-view="Movies & TV"] .movie-library').waitFor({state:'attached'});
                 assert.equal(await page.locator('.sidebar').isVisible(), false);
                 assert.equal(await page.getByRole('button',{name:'Switch apps'}).isVisible(), true);
                 console.log(engine.name() + ' Hub switcher, library paging and filter restoration passed');
             } finally { await browser.close(); }
         }
-    } finally { await fetch(origin + '/fixture/startup/none', {method: 'POST'}); }
-})().catch(e => { console.error(e); process.exitCode = 1; });
+    } finally { await fetch(origin + '/fixture/startup/none', {method: 'POST', redirect: 'error'}); }
+}).catch(e => { console.error(e); process.exitCode = 1; });

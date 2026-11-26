@@ -140,6 +140,7 @@
 .movie-icon-number { fill: currentColor; stroke: none; font: 700 8px system-ui, sans-serif; pointer-events: none; }
 html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-library .movie-player.movie-expanded { position: fixed; inset: 0; z-index: 2147483000; margin: 0; background: #000; }
+body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--caption-height); }
 .movie-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; margin: 0 !important; }
 .movie-ui {
     position: absolute; inset: 0; display: grid; grid-template-rows: auto 1fr auto; color: #fff;

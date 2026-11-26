@@ -111,7 +111,11 @@ else
 <a class="skip" href="#content">Skip to content</a>
 <header class="app-header">
     <div class="header-start">
-        <button id="open-hub" class="brand hub-launcher" @onclick='() => Navigate("Hub")' aria-label="Switch apps" title="Switch apps"><MusicIcon Name="apps" /></button>
+        <button id="open-hub" type="button" class="brand hub-launcher" @onclick="OpenAppSwitcher" aria-label="Switch apps" aria-describedby="current-app" title="Switch apps" aria-haspopup="dialog" aria-controls="app-switcher" aria-expanded="@Aria(appSwitcherOpen)"><MusicIcon Name="@(appSwitcherOpen ? "apps" : HubApps.AppIcon(SwitcherApp))" /><span id="current-app" hidden>@HubApps.AppLabel(SwitcherApp)</span></button>
+        <dialog id="app-switcher" class="popup-panel" aria-label="Switch apps" data-popup-anchor="open-hub" @onclose="() => appSwitcherOpen = false">
+            <HubApps Current="@SwitcherApp" Open="SwitchApp" />
+            <button id="switcher-hub" type="button" @onclick='() => SwitchApp("Hub")'><MusicIcon Name="home" /> FamilyHub home</button>
+        </dialog>
         <nav class="view-history" aria-label="View history">
             <button id="header-back" class="header-icon header-history" @onclick="() => StepHistory(false, true)" aria-label="Go back" title="Go back" aria-disabled="@Aria(!viewHistory.CanBack)"><MusicIcon Name="back" /></button>
             <button id="header-forward" class="header-icon header-history" @onclick="() => StepHistory(true, true)" aria-label="Go forward" title="Go forward" aria-disabled="@Aria(!viewHistory.CanForward)"><MusicIcon Name="forward" /></button>
@@ -136,7 +140,7 @@ else
             { <button class="profile-phone-link" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" />@NavLabel(tab)</button> }
             <hr class="profile-phone-link" />
             <button @onclick="SwitchProfile"><MusicIcon Name="person" />Switch profile</button>
-            <button id="open-settings" @onclick='() => Navigate("Preferences")'><MusicIcon Name="settings" />Settings</button>
+            <button id="open-settings" @onclick="OpenSettings"><MusicIcon Name="settings" />Settings</button>
             <button id="open-feedback" aria-haspopup="dialog" @onclick="OpenProfileFeedback"><MusicIcon Name="alert" />Feedback</button>
         </dialog>
     }
@@ -168,7 +172,7 @@ else
         Message="@(restartBanner is not null || searchBanner || connectionBanner ? null : error ?? radioProgress ?? (!ConnectionLost && Session.DownloadingId is null && Session.MessageLevel != "success" ? Session.Message : ""))"
         ActionLabel="@(restartBanner is not null || searchBanner || connectionBanner ? null : RecoveryLabel)" Action="RetryNotice" FocusTarget="@(searchFailed ? "#view-title" : "#play")" />
     </div>
-    @if (view is not ("Playlists" or "Home" or "Album" or "Hub" or "Wordle")) { <h1 id="view-title" tabindex="-1">@(view == "Preferences" ? "Settings" : NavLabel(view))</h1> }
+    @if (view is not ("Playlists" or "Home" or "Album" or "Hub" or "Wordle" or "Preferences")) { <h1 id="view-title" tabindex="-1">@NavLabel(view)</h1> }
     @if (error is not null && playbackRetry is not null)
     { <button id="report-playback-problem" class="quiet" type="button" aria-haspopup="dialog" @onclick="OpenPlaybackFeedback">Report this problem</button> }
     @if (Session.DownloadingId is not null) { <DeviceDownloadProgress Status="@Session.DownloadStatus" /> }
@@ -278,24 +282,40 @@ else
     }
     else if (view == "Preferences")
     {
-        <div class="settings-page">
-            <div class="settings-sections" role="group" aria-label="Settings sections">
-                <button id="settings-general" aria-pressed='@Aria(settingsSection == "General")' @onclick='() => SelectSettingsSection("General")'>General</button>
-                <button id="settings-music" aria-pressed='@Aria(settingsSection == "Music")' @onclick='() => SelectSettingsSection("Music")'>Music</button>
-                <button id="settings-movies" aria-pressed='@Aria(settingsSection == "Movies")' @onclick='() => SelectSettingsSection("Movies")'>Movies</button>
-                <button id="settings-wordle" aria-pressed='@Aria(settingsSection == "Wordle")' @onclick='() => SelectSettingsSection("Wordle")'>Wordle</button>
-            </div>
-            @if (settingsSection == "General")
+        <div class="settings-shell @(settingsDrilled ? "settings-drilled" : null)">
+            <header class="settings-header">
+                <h1 id="view-title" tabindex="-1">Settings</h1>
+                <button id="settings-exit" class="quiet" type="button" @onclick="BackFromSettings">
+                    <span class="settings-close"><MusicIcon Name="close" /><span class="sr">Close settings</span></span>
+                    <span class="settings-back"><MusicIcon Name="back" /><span class="sr">Back to settings categories</span></span>
+                </button>
+            </header>
+            <nav class="settings-sections" aria-label="Settings categories">
+                @foreach (var (id, label, icon) in SettingsCategories)
+                {
+                    <button id="settings-@id" type="button" aria-current='@(settingsSection == id ? "true" : null)' @onclick="() => SelectSettingsSection(id)">
+                        <MusicIcon Name="@icon" /><span>@label</span><span class="settings-chevron"><MusicIcon Name="forward" /></span>
+                    </button>
+                }
+            </nav>
+            <div id="settings-category" @key="settingsSection" class="settings-page" role="region" aria-label="@($"{SettingsCategories.First(category => category.Id == settingsSection).Label} settings")" tabindex="-1">
+            @if (settingsSection == "general")
             {
                 <section class="settings-panel glass-panel" aria-labelledby="profile-settings-heading">
                     <h2 id="profile-settings-heading">Profile</h2>
                     <ProfileImagePicker Profile="CurrentProfile" />
                 </section>
+            }
+            else if (settingsSection == "appearance")
+            {
                 <section class="settings-panel glass-panel" aria-labelledby="appearance-settings-heading">
                     <h2 id="appearance-settings-heading">Appearance</h2>
                     <div class="setting-row"><label for="appearance-theme">Theme</label><select id="appearance-theme" value="@theme" @onchange="SetTheme">@foreach (var option in themes) { <option value="@option.Id">@option.Label</option> }</select></div>
                     <label class="setting-toggle"><input type="checkbox" checked="@themeEffects" @onchange="SetEffects" /><span>Theme effects</span></label>
                 </section>
+            }
+            else if (settingsSection == "about")
+            {
                 <section class="settings-panel glass-panel" aria-labelledby="connection-settings-heading">
                     <h2 id="connection-settings-heading">Server and updates</h2>
                     <div class="setting-row"><span>Server <span class="settings-connection-state">@(Session.Connected ? "Connected" : "Offline")</span></span><button @onclick='() => Navigate("Settings")'>Change server</button></div>
@@ -305,11 +325,11 @@ else
                     <AppUpdate Id="settings-app-update" @key="Session.Server" InitialRelease="@(updateCheckOrigin == Session.Server ? startupUpdate : null)" VersionInHeading="true" />
                 </section>
             }
-            else if (settingsSection == "Music")
+            else if (settingsSection == "music")
             {
                 <section class="settings-panel glass-panel" aria-label="Spotify"><SpotifyProfilePreference /></section>
                 <section class="settings-panel glass-panel" aria-labelledby="playback-settings-heading">
-                    <h2 id="playback-settings-heading">Playback and storage</h2>
+                    <h2 id="playback-settings-heading">Music playback</h2>
                     <div class="setting-crossfade">
                         <label for="crossfade-seconds">Crossfade songs</label>
                         <output for="crossfade-seconds" aria-live="polite">@(CrossfadeShown == 0 ? "Off" : CrossfadeShown + " s")</output>
@@ -325,11 +345,6 @@ else
                     <p class="setting-help" id="music-data-saver-help">@(OperatingSystem.IsAndroid() ? "Uses Low quality on mobile data and skips early song downloads." : "Uses Low quality and skips preloading songs on mobile data.")</p>
                     <div class="setting-row"><label for="streaming-wifi">Streaming on Wi-Fi</label><select id="streaming-wifi" value="@Session.StreamingQualityWifi" @onchange="SetStreamingQualityWifi" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
                     <div class="setting-row"><label for="streaming-mobile">Streaming on mobile data</label><select id="streaming-mobile" value="@Session.StreamingQualityMobile" @onchange="SetStreamingQualityMobile" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
-                    <div class="setting-row"><label for="downloads-quality">Downloads</label><select id="downloads-quality" value="@Session.DownloadQuality" @onchange="SetDownloadQuality" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
-                    <p class="setting-help">Max uses the original file, lossless when available. Downloaded songs always play from the device.</p>
-                    <div class="setting-row"><label for="cache-limit">Music cache</label><select id="cache-limit" value="@Session.CacheLimitGb" @onchange="SetMusicCacheLimit"><option value="1">1 GB</option><option value="3">3 GB</option><option value="5">5 GB</option><option value="10">10 GB</option></select></div>
-                    <p class="setting-help">Stores songs prepared for playback. Songs you choose to download are stored separately.</p>
-                    <label class="setting-toggle"><input type="checkbox" checked="@Session.DownloadsWifiOnly" @onchange="args => Session.SetDownloadsWifiOnly(args.Value is true)" /><span>Wi-Fi-only downloads</span></label>
                     @if (OperatingSystem.IsAndroid())
                     {
                         <div class="setting-row">
@@ -351,7 +366,18 @@ else
                 </section>
                 <PlaybackDiagnostics @key="(Session.Server, Session.User)" />
             }
-            else if (settingsSection == "Wordle")
+            else if (settingsSection == "storage")
+            {
+                <section class="settings-panel glass-panel" aria-labelledby="storage-settings-heading">
+                    <h2 id="storage-settings-heading">Storage and downloads</h2>
+                    <div class="setting-row"><label for="downloads-quality">Downloads</label><select id="downloads-quality" value="@Session.DownloadQuality" @onchange="SetDownloadQuality" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
+                    <p class="setting-help">Max uses the original file, lossless when available. Downloaded songs always play from the device.</p>
+                    <div class="setting-row"><label for="cache-limit">Music cache</label><select id="cache-limit" value="@Session.CacheLimitGb" @onchange="SetMusicCacheLimit"><option value="1">1 GB</option><option value="3">3 GB</option><option value="5">5 GB</option><option value="10">10 GB</option></select></div>
+                    <p class="setting-help">Stores songs prepared for playback. Songs you choose to download are stored separately.</p>
+                    <label class="setting-toggle"><input type="checkbox" checked="@Session.DownloadsWifiOnly" @onchange="args => Session.SetDownloadsWifiOnly(args.Value is true)" /><span>Wi-Fi-only downloads</span></label>
+                </section>
+            }
+            else if (settingsSection == "wordle")
             {
                 <WordleSettings @key="AppearanceKey" />
             }
@@ -359,6 +385,7 @@ else
             {
                 <MoviePreferences @key="AppearanceKey" />
             }
+            </div>
         </div>
     }
     else if (view == "Playlists")
@@ -826,11 +853,62 @@ else
             await JS.InvokeVoidAsync("familyhub.closeDialog", "add-song-dialog", "playlist-menu-toggle");
         });
     }
-    private string settingsSection = "General";
+    private static readonly (string Id, string Label, string Icon)[] SettingsCategories =
+    [
+        ("general", "Profile", "person"),
+        ("music", "Music", "music"),
+        ("movies", "Movies & TV", "film"),
+        ("wordle", "Wordle", "wordle"),
+        ("appearance", "Appearance", "sparkle"),
+        ("storage", "Storage and downloads", "download"),
+        ("about", "Server and updates", "info-circle")
+    ];
+    private string settingsSection = "general";
+    private bool settingsDrilled, appSwitcherOpen;
+    private string SwitcherApp => view is "Hub" or "Wordle" or "Movies & TV" or "Files" ? view : "Home";
+
+    private async Task OpenAppSwitcher()
+    {
+        appSwitcherOpen = true;
+        await JS.InvokeVoidAsync("familyhub.showDialog", "app-switcher", "switcher-app-0", "open-hub");
+    }
+
+    private async Task SwitchApp(string app)
+    {
+        await JS.InvokeVoidAsync("familyhub.closeDialog", "app-switcher");
+        appSwitcherOpen = false;
+        if (app != SwitcherApp) await Navigate(app);
+    }
+
+    private async Task OpenSettings()
+    {
+        profileMenu = false;
+        await JS.InvokeVoidAsync("familyhub.closeDialog", "profile-menu", "content");
+        await Navigate("Preferences");
+    }
+
     private async Task SelectSettingsSection(string section)
     {
-        await JS.InvokeVoidAsync("familyhub.focus", "settings-" + section.ToLowerInvariant());
+        var phone = await JS.InvokeAsync<bool>("familyhub.isPhone");
+        await JS.InvokeVoidAsync("familyhub.focus", phone ? "settings-exit" : "settings-" + section);
         settingsSection = section;
+        settingsDrilled = true;
+        if (phone) pendingFocus = "settings-category";
+    }
+
+    private async Task BackFromSettings()
+    {
+        if (settingsDrilled && await JS.InvokeAsync<bool>("familyhub.isPhone"))
+        {
+            await JS.InvokeVoidAsync("familyhub.focus", "settings-exit");
+            settingsDrilled = false;
+            pendingFocus = "settings-" + settingsSection;
+            return;
+        }
+        await JS.InvokeVoidAsync("familyhub.focus", "content");
+        if (viewHistory.CanBack) await StepHistory(false);
+        else await Navigate("Hub");
+        pendingFocus = "profile-toggle";
     }
     private string view = "Hub", server = "", filter = "", query = "", genre = "", profileName = "";
     private string selectedId = "", recommendationTitle = "";
@@ -1749,7 +1827,7 @@ else
             await JS.InvokeVoidAsync("familyhub.focusIfWithin", "#sheet-add-playlist,#sheet-queue,#sheet-lyrics", "listen-together");
         playerState = state; StateHasChanged();
     });
-    // Android Back: dialogs first, then Now Playing, menus, the open playlist, the previous view, then Home.
+    // Android Back gives the open dialog or Settings the first chance to handle it.
     private async Task<bool> StepBack()
     {
         if (await JS.InvokeAsync<bool>("familyhub.closeTopLayer")) return true;
@@ -1759,7 +1837,8 @@ else
             if (view != "Settings" || string.IsNullOrEmpty(Session.User) || Session.NeedsProfileSelection) return false;
             view = "Home"; StateHasChanged(); return true;
         }
-        if (playerToolsOpen) await ClosePlayerTools();
+        if (view == "Preferences") await BackFromSettings();
+        else if (playerToolsOpen) await ClosePlayerTools();
         else if (lyricsOpen) await JS.InvokeVoidAsync("familyhub.press", "lyrics-close");
         else if (playerExpanded) CollapsePlayer();
         else if (profileMenu) { profileMenu = false; pendingFocus = "profile-toggle"; }
@@ -1785,12 +1864,16 @@ else
         if (tab != "Search") CancelSearch();
         initialPlaylistReviewIndex = null;
         if (tab == "Playlists" && view == tab && Selected is not null) await AllPlaylists();
-        if (tab == "Preferences") settingsSection = view switch { "Wordle" => "Wordle", "Movies & TV" => "Movies", _ => "General" };
+        if (tab == "Preferences")
+        {
+            settingsSection = view switch { "Wordle" => "wordle", "Movies & TV" => "movies", _ => "general" };
+            settingsDrilled = false;
+        }
         RememberView(tab);
         if (tab == "Playlists") selectedId = "";
         profileMenu = false; error = null; playbackRetry = null; genre = "";
         if (tab == "Settings") server = Session.Server;
-        pendingFocus = tab == "Stats" ? "view-title" : "content";
+        pendingFocus = tab is "Stats" or "Preferences" ? "view-title" : tab == "Settings" ? "server" : "content";
         await Task.CompletedTask;
     }
     private Task GoBack() => StepHistory(false);
@@ -1823,6 +1906,7 @@ else
                 albumFailed = false; albumWaiting = null;
             }
             view = destination.Tab;
+            if (view == "Preferences") settingsDrilled = false;
             movieRoute = destination.Movie;
             if (view == "Playlists") selectedId = destination.Playlist;
             profileMenu = false; error = null; playbackRetry = null;
@@ -1838,7 +1922,7 @@ else
                 pendingFocus = arrow ?? (view == "Home" && current.Album is { } previousAlbum ? previousAlbum.Opener :
                     view == "Playlists" && Selected is null && current.Playlist.Length > 0 &&
                     FilteredPlaylists().Any(playlist => PlaylistKey(playlist) == current.Playlist) ? "playlist-card-" + current.Playlist :
-                    view is "Album" or "Playlists" ? "view-title" : "content");
+                    view is "Album" or "Playlists" or "Preferences" ? "view-title" : "content");
             if (view == "Album" && fullAlbum is null) _ = LoadAlbum();
         }
         finally { steppingHistory = false; }
