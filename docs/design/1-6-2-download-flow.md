@@ -31,7 +31,7 @@ Keyboard path and focus (Download keeps focus until the page takes over, then fo
 
 ## Confirm dialog slots (owner, 26 Nov; wireframe `1-6-2-concepts/confirm-dialog-slots-v2.png`, source `confirm-dialog-slots.html`)
 
-Summary card, left: the quality block (tier and source, tier colour; the tier is shown only here). Right, three lines: (1) title, year and the round age symbol at the right end; (2) audio style chip, only when known (the line is removed otherwise); (3) size, download time, availability (dot plus word). Below: option 1 Hungarian audio (off), option 2 Hungarian subtitles (on), option 3 English subtitles (always on, locked, "Added automatically"). Buttons: Cancel left, Download right, the same width and height; focus starts on Download whenever the dialog opens (TV remote).
+Summary card, left: a poster thumbnail (no colour block). Right, three lines: (1) title, then the year at a readable size (about 70 percent of the title size), then the round age symbol straight after the year; (2) the audio style pill (only when known) and the quality pill, which is the only place the tier appears, in its tier colour; (3) size, download time, availability (dot plus word). Preview with sample data: `1-6-2-concepts/avatar3-confirm-dialog.png` (source `avatar3-confirm-dialog.html`). Below: option 1 Hungarian audio (off), option 2 Hungarian subtitles (on), option 3 English subtitles (always on, locked, "Added automatically"). Buttons: Cancel left, Download right, the same width and height; focus starts on Download whenever the dialog opens (TV remote).
 
 ## Age rating symbol
 
