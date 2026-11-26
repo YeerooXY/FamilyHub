@@ -1,5 +1,14 @@
 # Interface verification
 
+## 26 November 2026 Movies & TV 1.6.0 details
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Film detail, backdrop and logo fallback, favourites, related films and release search | never | never | never | never | never | Source check, 26 Nov 2026 | never |
+| Series detail, with and without cast, seasons and episodes | never | never | never | never | never | Source check, 26 Nov 2026 | never |
+
+The film and series fixture suites cover headless Chromium and WebKit desktop and phone profiles. Browser execution, visual inspection and physical-device checks are pending.
+
 ## 25 November 2026 Admin torrent activity
 
 | Screen and states | Layout and visual | Motion | Focus and keyboard | Accessibility | Wording and states |
@@ -14,7 +23,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Home, loading, empty library and retry | never | never | never | never | never | Source check, 25 Nov 2026 | never |
 | Home title search, empty results and release handoff | never | never | never | never | never | Source check, 25 Nov 2026 | never |
-| Movies settings, Layout preview and fallback background | never | never | never | never | never | Source check, 25 Nov 2026 | never |
+| Movies settings, Layout preview, background style and preset colour | never | never | never | never | never | Source check, 26 Nov 2026 | never |
 | Preview library and collection titles | never | never | never | never | never | Source check, 25 Nov 2026 | never |
 
 `tests/movies_home_layout.cjs` measures five widths and covers normal motion, reduced motion and effects off. The visual fixture covers Chromium and WebKit profiles. Rendered checks and real-device verification are pending.

@@ -130,6 +130,10 @@
 
     [JSInvokable]
     public Task<string> MovieMatches(string query) => SendMovieRequest("/api/movies/matches", new { query });
+
+    [JSInvokable]
+    public Task<string> MovieRelated(string tmdb) =>
+        SendMovieRequest("/api/movies/related?tmdb=" + Uri.EscapeDataString(tmdb) + "&kind=movie");
     [JSInvokable]
     public Task<string> MovieSeasonEpisodes(int series, int season) => SendMovieRequest("/api/movies/season-episodes", new { series, season });
 

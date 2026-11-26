@@ -174,13 +174,16 @@ async function checkWidth(browser, width, height) {
             await firstDot.press("Enter");
             await firstDot.and(page.locator('[aria-current="true"]')).waitFor();
             const favorite = page.locator(".movie-hero-slide:not([inert]) .movie-hero-favorite");
+            const savedCard = shelf(page, "My list").locator('.movie-card[data-item-id="preview-Movie-0"]');
             await favorite.press("Enter");
             await page.waitForFunction(() => document.querySelector(".movie-hero-favorite")?.getAttribute("aria-pressed") === "true");
             assert.equal(await focusIs(favorite), true);
             assert.deepEqual(favoriteWrites, [{item:"preview-Movie-0", favorite:true}]);
+            assert.equal(await savedCard.isVisible(), true);
             await favorite.press("Space");
             await page.waitForFunction(() => document.querySelector(".movie-hero-favorite")?.getAttribute("aria-pressed") === "false");
             assert.deepEqual(favoriteWrites.at(-1), {item:"preview-Movie-0", favorite:false});
+            assert.equal(await savedCard.count(), 0);
 
             const query = page.getByRole("searchbox", {name:"Search movies and TV"});
             await next.press("Enter");
@@ -299,7 +302,7 @@ async function checkQuiet(browser, reducedMotion) {
         const requests = [];
         page.on("request", request => { if (request.url().startsWith(jellyfin)) requests.push(request.url()); });
         await movieHomeFixture(page, {preview:true});
-        assert.equal(await page.getByText("Layout preview: demo library").isVisible(), true);
+        assert.equal(await page.getByText("Demo library", {exact: true}).isVisible(), true);
         assert.equal(await page.getByRole("region", {name:"Movie library", exact:true}).evaluate(node => {
             node.focus();
             return getComputedStyle(node).outlineStyle;

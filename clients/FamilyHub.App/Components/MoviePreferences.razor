@@ -16,6 +16,15 @@
     </div>
     <p class="setting-help" id="movie-data-saver-help">Auto uses Full quality on Wi-Fi and Saver on mobile data. Full quality uses the original bitrate.</p>
     <div class="setting-row">
+        <label for="movie-background-style">Background style</label>
+        <select id="movie-background-style" @bind="preferences.BackgroundStyle" @bind:after="Save" disabled="@(!ready)" aria-describedby="movie-background-style-help">
+            <option value="auto">Automatic</option>
+            <option value="preset">Always preset</option>
+            <option value="backdrop">Always backdrop</option>
+        </select>
+    </div>
+    <p class="setting-help" id="movie-background-style-help">For titles missing a backdrop, Automatic uses the preset and Always backdrop uses a neutral background.</p>
+    <div class="setting-row">
         <label for="movie-preferred-audio">Preferred audio</label>
         <select id="movie-preferred-audio" @bind="preferences.Audio" @bind:after="Save" disabled="@(!ready)">
             <option value="default">Media default</option>
@@ -33,7 +42,7 @@
         </select>
     </div>
     <div class="setting-row">
-        <label for="movie-home-background">Home fallback background</label>
+        <label for="movie-home-background">Preset colour</label>
         <select id="movie-home-background" @bind="preferences.HomeBackground" @bind:after="Save" disabled="@(!ready)">
             <option value="auto">Match genre</option>
             <option value="violet">Violet</option>
@@ -62,6 +71,7 @@
         public string Subtitles { get; set; } = "default";
         public string DataSaver { get; set; } = "auto";
         public string HomeBackground { get; set; } = "auto";
+        public string BackgroundStyle { get; set; } = "auto";
         public bool LayoutPreview { get; set; }
     }
 

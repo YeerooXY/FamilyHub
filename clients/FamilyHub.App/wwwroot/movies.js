@@ -139,6 +139,7 @@ function normalizeMoviePreferences(prefs) {
         audio: ["hu", "en"].includes(prefs?.audio) ? prefs.audio : "default",
         subtitles: ["off", "hu", "en"].includes(prefs?.subtitles) ? prefs.subtitles : "default",
         dataSaver: dataChoices.includes(prefs?.dataSaver) ? prefs.dataSaver : "auto",
+        ...(["preset", "backdrop"].includes(prefs?.backgroundStyle) ? {backgroundStyle: prefs.backgroundStyle} : {}),
         ...(prefs?.layoutPreview === true ? {layoutPreview: true} : {}),
         ...(Object.prototype.hasOwnProperty.call(homeBackgrounds, prefs?.homeBackground) ? {homeBackground: prefs.homeBackground} : {})
     };
@@ -448,7 +449,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         toolbar.hidden = !!seriesView;
         if (!keepFocus) {
             const replacement = opener?.isConnected && !opener.closest("[hidden]") ? opener :
-                seriesView?.section.querySelector("[data-episode-id], .movie-hero-play") ?? browse;
+                seriesView?.section.querySelector("[data-episode-id], .movie-hero-play:not([hidden])") ??
+                seriesView?.section.querySelector("h2") ?? browse;
             replacement.focus({preventScroll: true});
         }
         stop();
@@ -1055,7 +1057,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             BackdropImageTags: undefined, ParentThumbItemId: undefined, ParentPrimaryImageItemId: undefined };
     }
 
-    let seriesView;
+    let seriesView, detailNumber = 0;
     function publishNavigation(action) {
         if (preview) return;
         const route = seriesView || playerItem ? JSON.stringify({detail: seriesView?.item,
@@ -1064,22 +1066,42 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }
     function closeSeries(focus, fromHistory = false, keepFocus = false) {
         if (!seriesView) return;
-        const { section, opener, controller, fromResults, scrollTop } = seriesView;
-        seriesView = undefined;
+        const { section, opener, controller, fromResults, scrollTop, parent } = seriesView;
+        seriesView = parent;
         controller.abort();
+        if (parent) {
+            parent.section.hidden = false;
+            if (!keepFocus) opener.focus({preventScroll: true});
+            section.remove();
+            scrollHost.scrollTop = scrollTop;
+            if (!fromHistory) publishNavigation("back");
+            return;
+        }
         browse.hidden = fromResults;
         results.hidden = false;
         toolbar.hidden = false;
-        (fromResults ? results : browse).classList.add("movie-screen-entry");
-        const replacement = opener.isConnected && !opener.closest("[hidden]") ? opener :
-            [...(fromResults ? results : browse).querySelectorAll(".movie-card, .movie-hero-details")]
-                .find(card => card.dataset.itemId === opener.dataset.itemId && !card.closest("[hidden]"));
-        if (!keepFocus) (focus || replacement || (fromResults ? submit : browse)).focus({preventScroll: true});
+        const destination = fromResults ? results : browse;
+        destination.classList.add("movie-screen-entry");
+        let target = focus || opener;
+        if (!keepFocus) {
+            if (!focus && (!opener.isConnected || opener.closest("[hidden], [inert]"))) {
+                const candidates = [...destination.querySelectorAll(".movie-card, .movie-hero-details")]
+                    .filter(node => node.dataset.itemId === opener.dataset.itemId && !node.closest("[hidden], [inert]"));
+                const openerIsCard = opener.matches(".movie-card");
+                target = candidates.find(node => node.matches(".movie-card") === openerIsCard) ??
+                    candidates[0] ?? (fromResults ? submit : browse);
+            }
+            target.focus({preventScroll: true});
+        }
         section.remove();
         scrollHost.scrollTop = scrollTop;
+        if (!keepFocus && !focus && target !== opener && target.matches(".movie-card"))
+            target.scrollIntoView({block: "nearest", inline: "nearest"});
         if (!fromHistory) publishNavigation("back");
     }
     function openSeries(item, opener, preferredSeason, fromHistory = false, keepFocus = false) {
+        const original = item;
+        item = {...item};
         const section = el("section"), heading = el("h2", item.Name), summary = el("p"), list = el("div");
         const credit = el("p", "Season data from TMDB. " + tmdbAttribution);
         const back = button("", () => closeSeries());
@@ -1088,31 +1110,56 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         back.title = "Back to titles";
         back.append(icon("M19 12H5m7-7-7 7 7 7"));
         const controller = new AbortController(), signal = controller.signal;
-        const fromResults = browse.hidden, isSeries = item.Type === "Series", isCollection = item.Type === "BoxSet";
-        section.className = "movie-series movie-screen-entry" + (isSeries ? "" : " movie-film-detail");
-        section.setAttribute("aria-labelledby", "movie-series-title");
-        heading.id = "movie-series-title";
+        const parent = seriesView, fromResults = parent?.fromResults ?? browse.hidden;
+        const isSeries = item.Type === "Series", isCollection = item.Type === "BoxSet";
+        section.className = "movie-series movie-screen-entry " +
+            (isSeries ? "movie-show-detail" : isCollection ? "movie-collection-detail" : "movie-film-detail");
+        heading.id = "movie-series-title-" + ++detailNumber;
+        section.setAttribute("aria-labelledby", heading.id);
         heading.tabIndex = -1;
         summary.setAttribute("role", "status");
         list.className = "movie-season-list";
         credit.className = "movie-matches-credit";
         credit.hidden = true;
-        const header = el("header"), intro = el("div");
+        const header = el("header"), intro = el("div"), actions = el("div");
+        const overview = el("p", item.Overview), facts = el("div"), detailStatus = el("p");
+        overview.hidden = !item.Overview;
+        facts.className = "movie-title-facts";
+        detailStatus.className = "movie-favorite-status";
+        detailStatus.setAttribute("role", "status");
         header.className = "movie-series-header";
         intro.className = "movie-title-intro";
-        intro.append(cardArtwork(item), heading);
-        if (item.Overview) intro.append(el("p", item.Overview));
-        header.append(back, intro);
-        if (isSeries) header.append(summary);
-        section.append(header, list, credit);
+        actions.className = "movie-title-actions movie-hero-actions";
+        const text = el("div");
+        text.className = "movie-title-text";
+        text.append(heading);
+        if (isSeries) text.append(actions, overview, facts);
+        else text.append(facts, actions, overview);
+        text.append(detailStatus);
+        intro.append(cardArtwork(item), text);
+        if (isSeries) {
+            const columns = el("div"), info = el("div"), episodesColumn = el("div");
+            columns.className = "movie-show-columns";
+            info.className = "movie-show-info";
+            episodesColumn.className = "movie-show-episodes";
+            info.append(intro);
+            episodesColumn.append(summary, list, credit);
+            columns.append(info, episodesColumn);
+            header.append(back);
+            section.append(header, columns);
+        } else {
+            header.append(back, intro);
+            section.append(header, list, credit);
+        }
         section.addEventListener("keydown", event => {
             if (event.key === "Escape" && !event.target.closest("dialog, select")) { event.stopPropagation(); closeSeries(); }
         });
-        seriesView = { item, historySeason: preferredSeason, section, opener, controller, fromResults, scrollTop: scrollHost.scrollTop };
+        seriesView = { item, historySeason: preferredSeason, section, opener, controller, fromResults, parent, scrollTop: scrollHost.scrollTop };
         if (!fromHistory) publishNavigation("open");
         status.textContent = "";
         catalogue.append(section);
         if (!keepFocus) heading.focus({preventScroll: true});
+        if (parent) parent.section.hidden = true;
         browse.classList.remove("movie-screen-entry");
         results.classList.remove("movie-screen-entry");
         toolbar.hidden = true;
@@ -1123,27 +1170,78 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             shelf("Titles", "Movie,Series", false, list, "", signal, {params: {parentId: item.Id}});
             return;
         }
-        if (preview || item.Demo) return;
-        if (!isSeries) {
-            const actions = el("div"), runtime = formatMinutes(item.RunTimeTicks / 6e8);
-            actions.className = "movie-title-actions";
+        const demo = preview || item.Demo;
+        const playButton = playAction(isSeries ? null : item);
+        const favorite = demo ? null : favoriteAction(item, detailStatus, original);
+        playButton.prepend(icon(playPath));
+        if (favorite) actions.append(playButton, favorite);
+        if (!demo && !isSeries && session.downloads_enabled) {
+            const audio = audioAction(item, signal);
+            audio.className = "movie-film-audio";
+            actions.append(audio);
+            list.append(audioJobSlot(item));
+        }
+        const artHost = isSeries ? section : header;
+        let backdrop, backdropKey;
+        const updateBackdrop = () => {
+            const key = JSON.stringify([backdropSources(item), innerWidth > 1920]);
+            if (key === backdropKey) return;
+            backdropKey = key;
             const art = movieBackdrop(item);
-            const facts = [item.ProductionYear, item.OfficialRating, runtime, ...(item.Genres ?? []).slice(0, 3)].filter(Boolean);
-            if (facts.length) {
-                const meta = el("p", facts.join(", "));
-                meta.className = "movie-film-meta";
-                heading.after(meta);
+            if (backdrop) backdrop.replaceWith(art); else artHost.prepend(art);
+            backdrop = art;
+        };
+        const cast = isSeries ? el("div") : null;
+        if (cast) intro.after(cast);
+        function updateDetails() {
+            const background = backgroundFor(item);
+            section.style.setProperty("--movie-hero-start", background[0]);
+            section.style.setProperty("--movie-hero-end", background[1]);
+            updateBackdrop();
+            if (!isSeries) setTitleLogo(item, heading);
+            overview.textContent = item.Overview ?? "";
+            overview.hidden = !item.Overview;
+            const values = isSeries ? [...(item.Genres ?? []).slice(0, 3), titleRating(item)] : filmFacts(item);
+            facts.replaceChildren(...values.filter(Boolean).map(chip));
+            if (cast) renderCast(item, cast);
+        }
+        updateDetails();
+        largeBackdrop.addEventListener?.("change", updateBackdrop, {signal});
+        const details = demo ? Promise.resolve() : searchLibrary("Items", {
+            userId: session.user, ids: item.Id, includeItemTypes: item.Type, recursive: true, limit: 1,
+            fields: "Overview,Genres,ProviderIds," + (isSeries ? "People" : "MediaStreams"),
+            enableUserData: true, enableImages: true, enableImageTypes: "Primary,Thumb,Backdrop,Logo", imageTypeLimit: 1
+        }, undefined, signal).catch(() => null).then(reply => {
+            const detail = Array.isArray(reply?.Items) && reply.Items.find(candidate => candidate.Id === item.Id);
+            if (signal.aborted || !detail) return;
+            const posterChanged = detail.ImageTags?.Primary && detail.ImageTags.Primary !== item.ImageTags?.Primary;
+            Object.assign(item, {...detail, UserData: {...detail.UserData, ...item.UserData}});
+            if (posterChanged) intro.firstElementChild.replaceWith(cardArtwork(item));
+            if (!isSeries) playButton.setMovie(item);
+            markFavorite(favorite, isFavorite(item));
+            updateDetails();
+        });
+        if (!isSeries) {
+            if (!demo) {
+                let relatedHeading;
+                const retry = async () => {
+                    try {
+                        relatedHeading = await loadRelated(item, list, signal);
+                        if (!signal.aborted) relatedOutage.clear();
+                    } catch {
+                        if (!signal.aborted) relatedOutage.show();
+                    }
+                };
+                const relatedOutage = createServiceStatus({
+                    title: "Related films are unavailable", label: "Retry related films", retry,
+                    focus: () => relatedHeading ?? heading
+                });
+                list.after(relatedOutage.card);
+                void details.then(retry, retry);
             }
-            header.prepend(art);
-            header.style.setProperty("--art-hue", titleHue(item.Name));
-            actions.append(playAction(item));
-            if (session.downloads_enabled) {
-                actions.append(audioAction(item, signal));
-                list.append(audioJobSlot(item));
-            }
-            intro.append(actions);
             return;
         }
+        if (demo) return;
 
         const seasons = el("div"), lane = el("div"), pills = new Map();
         seasons.className = "movie-season-picker";
@@ -1151,6 +1249,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         lane.className = "movie-season-pills";
         lane.setAttribute("role", "group");
         lane.setAttribute("aria-label", "Seasons");
+        const seasonOutline = el("span");
+        seasonOutline.className = "movie-season-outline";
+        seasonOutline.setAttribute("aria-hidden", "true");
+        seasonOutline.hidden = true;
+        lane.append(seasonOutline);
         const arrows = [-1, 1].map(direction => {
             const arrow = button("", () => {
                 if (arrow.getAttribute("aria-disabled") === "true") return;
@@ -1167,6 +1270,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         let episodes = null, metadata = null, tmdbId, revision = 0, busy = false, selectedSeason;
         const seasonFocus = () => pills.get(selectedSeason) ?? heading;
         function updateSeasonArrows() {
+            const selected = pills.get(selectedSeason);
+            seasonOutline.hidden = !selected;
+            if (selected) {
+                seasonOutline.style.width = selected.offsetWidth + "px";
+                seasonOutline.style.transform = `translateX(${selected.offsetLeft}px)`;
+            }
             const room = lane.scrollWidth - lane.clientWidth;
             if (room <= 1 && arrows.includes(document.activeElement)) seasonFocus().focus({preventScroll: true});
             seasons.dataset.overflow = String(room > 1);
@@ -1183,6 +1292,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         function selectSeason(number) {
             selectedSeason = number;
             for (const [n, pill] of pills) pill.setAttribute("aria-pressed", String(n === number));
+            updateSeasonArrows();
+            const season = available.get(number);
+            const owned = season?.episodes.length ? season.episodes : episodes ?? [];
+            const next = owned.find(episode => progressOf(episode) > 0 && !episode.UserData?.Played) ??
+                owned.find(episode => !episode.UserData?.Played) ?? owned[0];
+            if (!next && document.activeElement === playButton) seasonFocus().focus({preventScroll: true});
+            playButton.setMovie(next);
         }
         const libraryOutage = createServiceStatus({
             detail: "Reconnect to check your library for episodes.", label: "Retry library check",
@@ -1202,10 +1318,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         seasons.after(seasonLoading);
         const local = bounded => localEpisodes(item.Id, bounded);
         const tmdb = async bounded => {
-            const show = item.ProviderIds?.Tmdb ? item : await request(`Items/${encodeURIComponent(item.Id)}`,
-                {userId: session.user, fields: "ProviderIds"}, undefined, bounded).catch(() => null);
-            const id = show?.ProviderIds?.Tmdb;
-            const year = String(show?.ProductionYear ?? item.ProductionYear ?? "");
+            if (!item.ProviderIds?.Tmdb) await details;
+            const id = item.ProviderIds?.Tmdb;
+            const year = String(item.ProductionYear ?? "");
             const prefix = "tmdb:tv:title:" + (/^\d{4}$/.test(year) ? year : "") + ":";
             const term = /^[1-9]\d{0,9}$/.test(String(id)) ? "tmdb:tv:" + id : prefix + item.Name.slice(0, 120 - prefix.length);
             return boundedCall(bounded, "MovieMatches", term);
@@ -1225,11 +1340,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             if (episodes && !metadata) metadataOutage.show(); else metadataOutage.clear();
             if (episodes && metadata && season && tmdbId && !pictures.has(number)) episodeOutage.show();
             else episodeOutage.clear();
+            if (focused) seasonFocus().focus({preventScroll: true});
             list.replaceChildren(...nodes);
             if (focused) {
                 const same = key ? [...list.querySelectorAll("[data-episode-id]")].find(node =>
-                    node.dataset.episodeId === key && node.hasAttribute("data-episode-audio") === focus.hasAttribute("data-episode-audio")) :
-                    focus.matches(".movie-hero-play") ? list.querySelector(".movie-hero-play") : null;
+                    node.dataset.episodeId === key && node.hasAttribute("data-episode-audio") === focus.hasAttribute("data-episode-audio")) : null;
                 (same ?? seasonFocus()).focus({preventScroll: true});
             }
         }
@@ -1305,12 +1420,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     await loadSeason(first, bounded);
                     if (signal.aborted || change !== revision) return;
                     const removedFocus = lane.contains(document.activeElement) && !numbers.some(n => pills.get(n) === document.activeElement);
+                    if (removedFocus) heading.focus({preventScroll: true});
                     for (const [n, pill] of pills) {
                         if (available.has(n)) continue;
                         pill.remove();
                         pills.delete(n);
                     }
-                    let next = lane.firstElementChild;
+                    let next = seasonOutline.nextElementSibling;
                     for (const n of numbers) {
                         if (!pills.has(n)) pills.set(n, button(n ? `Season ${n}` : "Specials", () => {
                             pills.get(n).focus({preventScroll: true});
@@ -1328,7 +1444,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     selectSeason(first);
                     if (removedFocus) seasonFocus().focus({preventScroll: true});
                     if (firstMount && first != null && first !== numbers[0])
-                        lane.scrollLeft = pills.get(first).offsetLeft - lane.offsetLeft;
+                        lane.scrollLeft = pills.get(first).offsetLeft;
                     updateSeasonArrows();
                     credit.hidden = !metadata;
                     renderSeason(first);
@@ -1345,10 +1461,136 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         void load(false);
     }
     function playAction(item) {
-        const resume = progressOf(item) > 0 && !item.UserData?.Played;
-        const action = button(resume ? "Resume" : "Play", () => play(item, action));
+        const action = button("", () => { if (item) void play(item, action); });
+        const label = el("span");
+        action.append(label);
+        action.setMovie = movie => {
+            item = movie;
+            action.hidden = !movie;
+            label.textContent = movie && progressOf(movie) > 0 && !movie.UserData?.Played ? "Resume" : "Play";
+        };
+        action.setMovie(item);
         action.className = "movie-hero-play";
         return action;
+    }
+    function filmFacts(item) {
+        const streams = (item.MediaStreams?.length ? item.MediaStreams : item.MediaSources?.[0]?.MediaStreams) ?? [];
+        const video = streams.find(stream => stream.Type === "Video");
+        const audio = streams.find(stream => stream.Type === "Audio" && stream.IsDefault) ??
+            streams.find(stream => stream.Type === "Audio");
+        const height = video?.Height, width = video?.Width;
+        const quality = height >= 4320 || width >= 7680 ? "8K" :
+            height >= 2160 || width >= 3840 ? "4K" : height > 0 ? height + "p" : "";
+        const codec = {eac3: "DDP", ac3: "Dolby Digital", truehd: "TrueHD", dts: "DTS", aac: "AAC",
+            flac: "FLAC", opus: "Opus", mp3: "MP3"}[audio?.Codec?.toLowerCase()] ?? audio?.Codec?.toUpperCase();
+        const format = /atmos/i.test(`${audio?.AudioSpatialFormat ?? ""} ${audio?.DisplayTitle ?? ""}`)
+            ? "Atmos" : audio?.Codec?.toLowerCase() === "dts" && /^(?:DTS-HD MA|DTS-HD HRA)$/i.test(audio.Profile)
+                ? audio.Profile : codec;
+        const channels = {1: "1.0", 2: "2.0", 6: "5.1", 8: "7.1"}[audio?.Channels];
+        return [item.ProductionYear, titleRating(item),
+            formatMinutes(item.RunTimeTicks / 6e8), quality, [format, channels].filter(Boolean).join(" ")];
+    }
+    function titleRating(item) {
+        return item.OfficialRating || (Number.isFinite(item.CommunityRating) && item.CommunityRating > 0
+            ? item.CommunityRating.toFixed(1) : "");
+    }
+    function setTitleLogo(item, heading, name = item.Name) {
+        const tag = item.ImageTags?.Logo;
+        if (heading.dataset.logo === (tag ?? "") && heading.textContent === name) return;
+        heading.dataset.logo = tag ?? "";
+        const text = el("span", name);
+        heading.replaceChildren(text);
+        if (!tag) return;
+        const logo = el("img");
+        logo.alt = "";
+        logo.hidden = true;
+        logo.className = "movie-hero-logo";
+        logo.referrerPolicy = "no-referrer";
+        logo.onload = () => { logo.hidden = false; text.classList.add("movie-visually-hidden"); };
+        chainImages(logo, [imageSource(item.Id, "Logo", tag, 640)]);
+        heading.append(logo);
+    }
+    function renderCast(item, target) {
+        const actors = (item.People ?? []).filter(person => person.Type === "Actor" && person.Name?.trim()).slice(0, 12);
+        target.classList.toggle("movie-cast", Boolean(actors.length));
+        if (!actors.length) { target.replaceChildren(); return; }
+        const heading = el("h3", "Cast"), names = el("ul");
+        for (const actor of actors) {
+            const row = el("li"), portrait = el("span");
+            portrait.className = "movie-cast-portrait";
+            portrait.setAttribute("aria-hidden", "true");
+            portrait.style.setProperty("--art-hue", titleHue(actor.Name));
+            const initials = actor.Name.trim().split(/\s+/).slice(0, 2).map(word => [...word][0]).join("").toUpperCase();
+            portrait.append(el("span", initials));
+            if (actor.Id && actor.PrimaryImageTag) {
+                const photo = el("img");
+                photo.alt = "";
+                photo.loading = "lazy";
+                photo.referrerPolicy = "no-referrer";
+                chainImages(photo, [imageSource(actor.Id, "Primary", actor.PrimaryImageTag, 200)]);
+                portrait.append(photo);
+            }
+            row.append(portrait, el("strong", actor.Name));
+            if (actor.Role) row.append(el("span", actor.Role));
+            names.append(row);
+        }
+        target.replaceChildren(heading, names);
+    }
+    async function loadRelated(item, list, signal) {
+        const id = String(item.ProviderIds?.Tmdb ?? item.ProviderIds?.TMDb ?? "");
+        if (!/^[1-9]\d{0,9}$/.test(id) || signal.aborted) return;
+        const reply = await boundedCall(signal, "MovieRelated", id);
+        if (!Array.isArray(reply?.matches)) throw Error("Invalid related films");
+        const matches = reply.matches;
+        if (!matches.length || signal.aborted) return;
+        const owned = new Map(), matchedTitle = new Map();
+        const index = movie => {
+            if (movie.Type !== "Movie" || movie.Id === item.Id || movie.IsMissing || movie.LocationType === "Virtual") return;
+            const providerId = String(movie.ProviderIds?.Tmdb ?? movie.ProviderIds?.TMDb ?? "");
+            if (providerId) owned.set(providerId, movie);
+            else if (movie.ProductionYear)
+                matchedTitle.set(searchTitle(movie.Name) + ":" + movie.ProductionYear, movie);
+        };
+        for (const shelf of browseShelves) shelf.items.forEach(index);
+        if (matches.some(match => !owned.has(String(match.id)))) {
+            await withinMovieLoad(async bounded => {
+                let startIndex = 0, page;
+                do {
+                    page = await request("Items", {userId: session.user, recursive: true, includeItemTypes: "Movie",
+                        fields: "ProviderIds", enableImages: true, enableImageTypes: "Primary,Thumb,Backdrop,Logo",
+                        imageTypeLimit: 1, sortBy: "SortName", startIndex, limit: 100}, undefined, bounded);
+                    if (!Array.isArray(page?.Items)) throw Error("Invalid library page");
+                    page.Items.forEach(index);
+                    startIndex += page.Items.length;
+                } while (page.Items.length && startIndex < page.TotalRecordCount &&
+                    matches.some(match => !owned.has(String(match.id))));
+            }, signal);
+        }
+        if (signal.aborted) return;
+        const title = "More like this", section = el("section"), rows = el("div");
+        section.className = "movie-shelf";
+        section.dataset.format = "related";
+        rows.className = "movie-cards";
+        for (const match of matches) {
+            const local = owned.get(String(match.id)) ?? matchedTitle.get(searchTitle(match.title) + ":" + match.year);
+            const pick = local ? card(local, "related") : card({
+                Name: match.title, Id: "tmdb-" + match.id, Type: "Movie", ProductionYear: match.year
+            }, "related", () => {
+                query.value = match.title.slice(0, query.maxLength).trimEnd();
+                startSearch(true);
+            });
+            if (!local) chainImages(pick.querySelector("img"), [match.backdrop, match.poster].filter(Boolean));
+            rows.append(pick);
+        }
+        const {lane, update} = shelfLane(rows, title, signal);
+        const credit = el("p", "Film data from TMDB. " + tmdbAttribution);
+        credit.className = "movie-matches-credit";
+        const heading = el("h2", title);
+        heading.tabIndex = -1;
+        section.append(heading, lane, credit);
+        list.append(section);
+        update();
+        return heading;
     }
     function audioAction(item, signal) {
         const action = button("Add audio track", event => addAudio(item, event.currentTarget, library, signal));
@@ -1373,15 +1615,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 plural(Math.max(total ?? 0, episodes.length), "episode")));
         if (episodes.length) {
             episodes.sort((a, b) => (a.IndexNumber ?? 0) - (b.IndexNumber ?? 0));
-            const resume = episodes.find(episode => progressOf(episode) > 0 && !episode.UserData?.Played);
-            header.append(playAction(resume ?? episodes.find(episode => !episode.UserData?.Played) ?? episodes[0]));
             const watched = episodes.filter(episode => episode.UserData?.Played).length;
             counts.append(chip(`${watched} of ${episodes.length} watched`));
         } else if (libraryKnown) {
             header.append(button("Find season " + number, () => {
                 const suffix = " S" + String(number).padStart(2, "0");
                 query.value = item.Name.slice(0, query.maxLength - suffix.length).trimEnd() + suffix;
-                closeSeries(submit);
                 startSearch(true);
             }));
         }
@@ -1556,14 +1795,15 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             [item.Id, "Thumb", item.ImageTags?.Thumb],
             [item.Id, "Primary", item.ImageTags?.Primary]].filter(([id, , tag]) => id && tag);
     }
-    function movieBackdrop(item, home = false, onSettled) {
+    function movieBackdrop(item, onSettled) {
         const art = el("img");
         art.alt = "";
         art.decoding = "async";
         art.referrerPolicy = "no-referrer";
         art.className = "movie-hero-art";
-        const width = home ? (innerWidth > 1920 ? 3840 : 1920) : (innerWidth > 1700 ? 2560 : 1600);
-        const sources = backdropSources(item).filter(([, type]) => !home || type === "Backdrop");
+        const style = readMoviePreferences(preferenceViewer).backgroundStyle;
+        const width = innerWidth > 1920 ? 3840 : 1920;
+        const sources = style === "preset" ? [] : backdropSources(item).filter(([, type]) => type === "Backdrop");
         const settle = () => {
             delete art.dataset.loading;
             onSettled?.();
@@ -1588,13 +1828,19 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         b.className = "movie-card";
         b.dataset.itemId = display.Id;
         if (title.ProductionYear) b.dataset.year = String(title.ProductionYear);
-        const artwork = cardArtwork(display, format === "resume" || format === "recent");
+        const artwork = cardArtwork(display, ["resume", "recent", "related"].includes(format));
         if (findRelease) {
             const action = el("span");
             action.className = "movie-card-find";
             action.append(icon(searchPath));
             artwork.append(action);
             b.setAttribute("aria-label", `Find releases for ${name}`);
+        } else if (format === "related") {
+            const check = el("span");
+            check.className = "movie-card-find movie-card-owned";
+            check.append(icon("m5 12 4 4L19 6"));
+            artwork.append(check);
+            b.setAttribute("aria-label", `${name}, in your library`);
         }
         const watched = progressOf(item);
         if (watched > 0 && watched < 100) {
@@ -1624,7 +1870,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         }
         b.append(artwork, caption);
         if (format === "collections") b.classList.add("movie-card-collection");
-        if (!preview && !findRelease) attachCardDownload(b, title.Name);
+        if (!preview && !findRelease && format !== "related") attachCardDownload(b, title.Name);
         return b;
     }
     function shelfLane(rows, title, signal) {
@@ -1684,8 +1930,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             for (const arrow of arrows) arrow.tabIndex = arrow.getAttribute("aria-disabled") === "true" ? -1 : 0;
         }
         function update() {
-            if (!CSS.supports("width", "1cqi") && catalogue.clientWidth)
-                catalogue.style.setProperty("--movie-row-width", `${catalogue.clientWidth}px`);
+            if (!CSS.supports("width", "1cqi")) {
+                if (catalogue.clientWidth) catalogue.style.setProperty("--movie-row-width", `${catalogue.clientWidth}px`);
+                if (viewport.clientWidth) lane.style.setProperty("--movie-row-width", `${viewport.clientWidth}px`);
+            }
             pageSize = Number(getComputedStyle(viewport).getPropertyValue("--movie-page-size")) || 5;
             const count = rows.childElementCount;
             const overflow = count > pageSize;
@@ -1792,6 +2040,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         async function load(reset, quiet = false, bounded = signal, batch = false) {
             if (busy || !active) return;
             busy = true; more.setAttribute("aria-disabled", "true");
+            const previousItems = state.items;
             try {
                 const fetchPage = batch ? request : searchLibrary;
                 const page = await (extra.page?.() ?? fetchPage(resume ? "UserItems/Resume" : "Items", {userId: session.user,
@@ -1800,6 +2049,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     ...(resume ? {mediaTypes:"Video"} : {sortBy:"SortName",sortOrder:"Ascending"}),
                     ...extra.params}, undefined, bounded));
                 if (!active || signal.aborted) return;
+                // A completed toggle replaces the list while an older shelf request can still be in flight.
+                if (format === "favorites" && state.items !== previousItems) return;
                 if (!Array.isArray(page?.Items)) throw Error("Invalid library page");
                 const items = page.Items.filter(item => type.split(",").includes(item.Type) && (!extra.accept || extra.accept(item)));
                 if (reset && !grid && state.loaded && !state.failed &&
@@ -2284,7 +2535,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         searchCount = 0;
     }
     function resetSearch() {
-        closeSeries(query);
+        while (seriesView) closeSeries(query);
         replaceSearchResults();
         clear.hidden = true;
         browse.hidden = false;
@@ -2315,7 +2566,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             if (!keepInput) submit.focus({preventScroll: true});
             return;
         }
-        if (seriesView) closeSeries(submit);
+        while (seriesView) closeSeries(submit);
         replaceSearchResults();
         if (!term) { resetSearch(); return; }
         if (!keepInput) submit.focus({preventScroll: true});
@@ -2395,7 +2646,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     life.signal.addEventListener("abort", () => {
         clearTimeout(searchTimer);
         searchRequest?.abort();
-        seriesView?.controller.abort();
+        for (let view = seriesView; view; view = view.parent) view.controller.abort();
         toolbar.remove();
     }, {once:true});
 
@@ -2556,7 +2807,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     favoriteStatus.className = "movie-favorite-status";
     favoriteStatus.setAttribute("role", "status");
     if (preview) {
-        const previewLabel = el("p", "Layout preview: demo library");
+        const previewLabel = el("p", "Demo library");
         previewLabel.className = "movie-preview-label";
         browse.append(previewLabel);
     }
@@ -2595,7 +2846,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         if (heroPreload?.key === key) return heroPreload;
         let settle;
         const ready = new Promise(resolve => { settle = resolve; });
-        const art = movieBackdrop(item, true, settle);
+        const art = movieBackdrop(item, settle);
         return heroPreload = {key, art, ready};
     }
 
@@ -2680,12 +2931,68 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     });
 
     function backgroundFor(item) {
+        const preferences = readMoviePreferences(preferenceViewer);
+        if (preferences.backgroundStyle === "backdrop") return homeBackgrounds.slate;
         const genre = searchTitle(item.Genres?.[0] || "");
         const presets = {
-            "science fiction": "violet", fantasy: "violet", adventure: "blue", mystery: "blue", documentary: "green",
+            "science fiction": "violet", fantasy: "violet", adventure: "blue", mystery: "blue", crime: "blue", documentary: "green",
             animation: "green", comedy: "amber", western: "amber", action: "red", horror: "red", thriller: "red", romance: "red"
         };
-        return homeBackgrounds[readMoviePreferences(preferenceViewer).homeBackground ?? presets[genre] ?? "slate"];
+        return homeBackgrounds[preferences.homeBackground ?? presets[genre] ?? "slate"];
+    }
+
+    function isFavorite(title) {
+        return favoriteShelf.items.some(item => item.Id === title.Id) || title.UserData?.IsFavorite === true;
+    }
+    function markFavorite(button, saved) {
+        button.setAttribute("aria-pressed", String(saved));
+        button.title = saved ? "Remove from My list" : "Add to My list";
+    }
+    function favoriteAction(title, message, original = title) {
+        const id = title.Id;
+        const favorite = button("", async () => {
+            if (savingFavorite) return;
+            savingFavorite = true;
+            favorite.setAttribute("aria-disabled", "true");
+            message.textContent = "";
+            const next = favorite.getAttribute("aria-pressed") !== "true";
+            try {
+                await request(`UserFavoriteItems/${encodeURIComponent(id)}`, {}, {favorite: next}, timeoutSignal(8000));
+                if (!active) return;
+                title.UserData = {...title.UserData, IsFavorite: next};
+                if (original !== title) original.UserData = {...original.UserData, IsFavorite: next};
+                for (const shelf of browseShelves) {
+                    for (const item of shelf.items) {
+                        if (item.Id === id) item.UserData = {...item.UserData, IsFavorite: next};
+                    }
+                }
+                const key = titleKey(title);
+                favoriteShelf.cards.delete(key);
+                favoriteShelf.items = favoriteShelf.items.filter(item => item.Id !== id);
+                if (next) {
+                    const node = card(title, "favorites");
+                    node.dataset.titleKey = key;
+                    favoriteShelf.items.unshift(title);
+                    favoriteShelf.cards.set(key, node);
+                }
+                favoriteShelf.loaded = true;
+                for (const node of library.querySelectorAll(".movie-hero-favorite")) {
+                    if (node.dataset.favoriteId === id) markFavorite(node, next);
+                }
+                renderHome();
+            } catch {
+                if (active) message.textContent = "Could not update My list. Try again.";
+            } finally {
+                savingFavorite = false;
+                favorite.removeAttribute("aria-disabled");
+            }
+        });
+        favorite.className = "movie-hero-favorite";
+        favorite.dataset.favoriteId = id;
+        favorite.setAttribute("aria-label", "My list: " + title.Name);
+        markFavorite(favorite, isFavorite(title));
+        favorite.append(icon(heartPath));
+        return favorite;
     }
 
     function renderHome() {
@@ -2745,16 +3052,16 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
 
     function renderHero(pick, art, crossfade = false) {
         const title = seriesCardItem(pick);
-        const favoriteItem = favoriteShelf.items.find(item => item.Id === title.Id);
         const existingTitle = pick.Type === "Episode" ? tvShelf.items.find(item => item.Id === title.Id) : pick;
-        const isFavorite = !!favoriteItem || existingTitle?.UserData?.IsFavorite === true;
+        const favoriteTitle = existingTitle ?? {...title, UserData: undefined};
+        const saved = isFavorite(favoriteTitle);
         const background = backgroundFor(pick);
-        const identity = JSON.stringify([pick, isFavorite, background, innerWidth > 1920]);
+        const identity = JSON.stringify([pick, saved, background, readMoviePreferences(preferenceViewer).backgroundStyle, innerWidth > 1920]);
         heroPick = pick;
         if (featured.dataset.selection === identity && !featured.hidden) return;
         const focusClass = heroSlide?.contains(document.activeElement) ? document.activeElement.className : "";
         featured.dataset.selection = identity;
-        art ??= movieBackdrop(pick, true);
+        art ??= movieBackdrop(pick);
         const slide = el("div"), body = el("div"), controls = el("div"), actions = el("div");
         slide.className = "movie-hero-slide";
         body.className = "movie-hero-body";
@@ -2762,21 +3069,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         actions.className = "movie-hero-actions";
         slide.style.setProperty("--movie-hero-start", background[0]);
         slide.style.setProperty("--movie-hero-end", background[1]);
-        const heading = el("h2"), nameText = el("span", heroName(pick));
+        const heading = el("h2");
         heading.id = "movie-featured-title";
         heading.className = "movie-hero-title";
-        heading.append(nameText);
         const logoItem = pick.ImageTags?.Logo ? pick : pick.ParentLogoImageTag ? {Id: pick.ParentLogoItemId, ImageTags: {Logo: pick.ParentLogoImageTag}} : title;
-        if (logoItem.Id && logoItem.ImageTags?.Logo) {
-            const logo = el("img");
-            logo.alt = "";
-            logo.hidden = true;
-            logo.className = "movie-hero-logo";
-            logo.referrerPolicy = "no-referrer";
-            logo.onload = () => { logo.hidden = false; nameText.classList.add("movie-visually-hidden"); };
-            chainImages(logo, [imageSource(logoItem.Id, "Logo", logoItem.ImageTags.Logo, 640)]);
-            heading.append(logo);
-        }
+        setTitleLogo(logoItem.Id ? logoItem : title, heading, heroName(pick));
         featured.setAttribute("aria-labelledby", heading.id);
         const facts = [pick.ProductionYear, pick.OfficialRating, formatMinutes(pick.RunTimeTicks / 6e8),
             ...(pick.Genres ?? []).slice(0, 3)].filter(Boolean);
@@ -2805,46 +3102,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             actions.append(play);
         }
         if (!preview) {
-            const favorite = button("", async () => {
-                if (savingFavorite) return;
-                savingFavorite = true;
-                favorite.setAttribute("aria-disabled", "true");
-                favoriteStatus.textContent = "";
-                try {
-                    await request(`UserFavoriteItems/${encodeURIComponent(title.Id)}`, {}, {favorite: !isFavorite}, timeoutSignal(8000));
-                    if (!active) return;
-                    const key = titleKey(title);
-                    for (const shelf of browseShelves) {
-                        for (const item of shelf.items) {
-                            if (item.Id === title.Id) item.UserData = {...item.UserData, IsFavorite: !isFavorite};
-                        }
-                    }
-                    if (isFavorite) {
-                        favoriteShelf.cards.delete(key);
-                        favoriteShelf.items = favoriteShelf.items.filter(item => item.Id !== title.Id);
-                    } else {
-                        const saved = {...(existingTitle ?? title), UserData: {...title.UserData, IsFavorite: true}};
-                        const node = card(saved, "favorites");
-                        node.dataset.titleKey = key;
-                        favoriteShelf.items.unshift(saved);
-                        favoriteShelf.cards.set(key, node);
-                    }
-                    favoriteShelf.loaded = true;
-                    renderHome();
-                } catch {
-                    if (active) favoriteStatus.textContent = "Could not update My list. Try again.";
-                } finally {
-                    savingFavorite = false;
-                    favorite.removeAttribute("aria-disabled");
-                }
-            });
-            favorite.className = "movie-hero-favorite";
-            favorite.setAttribute("aria-label", "My list: " + title.Name);
-            favorite.setAttribute("aria-pressed", String(isFavorite));
-            favorite.title = isFavorite ? "Remove from My list" : "Add to My list";
-            favorite.append(icon(heartPath));
             if (pick.Type === "Series") actions.append(details);
-            actions.append(favorite);
+            actions.append(favoriteAction(favoriteTitle, favoriteStatus));
         }
         if (preview || pick.Type !== "Series") actions.append(details);
         controls.append(actions);
@@ -2971,7 +3230,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const current = event.target;
         const navigate = ".movie-card, .movie-hero-actions button";
         if ((!arrows && !page) || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !current.matches?.(navigate)) return;
-        const catalogue = browse.hidden ? results : browse;
+        const catalogue = seriesView?.section ?? (browse.hidden ? results : browse);
         const groups = [...catalogue.querySelectorAll(".movie-hero:not([hidden]) .movie-hero-slide:not([inert]) .movie-hero-actions, .movie-shelf:not([hidden]) .movie-cards")]
             .map(group => [...group.querySelectorAll(navigate)]).filter(group => group.length);
         const index = groups.findIndex(group => group.includes(current));
@@ -2999,14 +3258,22 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const route = value ? JSON.parse(value) : {};
         if (playerItem && playerItem.Id !== route.player?.Id) await closePlayback(keepFocus, true);
         if (!active) return;
-        if (seriesView && seriesView.item.Id !== route.detail?.Id) closeSeries(undefined, true, keepFocus);
+        const linked = seriesView?.section.querySelectorAll('.movie-shelf[data-format="related"] .movie-card');
+        const relatedOpener = [...(linked ?? [])].find(node => node.dataset.itemId === route.detail?.Id);
+        let ancestor = seriesView?.parent;
+        while (ancestor && ancestor.item.Id !== route.detail?.Id) ancestor = ancestor.parent;
+        if (relatedOpener && !ancestor && seriesView.item.Id !== route.detail?.Id)
+            openSeries(route.detail, relatedOpener, route.season, true, keepFocus);
+        else if (seriesView && seriesView.item.Id !== route.detail?.Id) {
+            while (seriesView && seriesView !== ancestor) closeSeries(undefined, true, keepFocus);
+        }
         if (route.detail && !seriesView) {
             const opener = [...library.querySelectorAll("[data-item-id]")].find(node =>
                 node.dataset.itemId === route.detail.Id && !node.closest("[hidden]")) ?? browse;
             openSeries(route.detail, opener, route.season, true, keepFocus);
         }
         if (route.player && !playerItem) {
-            const opener = seriesView?.section.querySelector(".movie-hero-play") ??
+            const opener = seriesView?.section.querySelector(".movie-hero-play:not([hidden])") ??
                 seriesView?.section.querySelector("h2") ?? browse;
             void play(route.player, opener, {fromHistory: true});
         }

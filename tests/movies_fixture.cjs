@@ -125,6 +125,92 @@ async function movieHomeFixture(page, {preview = false, matches = []} = {}) {
     return {library, favoriteWrites};
 }
 
+async function movieDetailFixture(page) {
+    await moviePage(page, {shell: true});
+    const film = (Id, Name, Tmdb, extra = {}) => ({
+        Id, Name, Type: "Movie", ProviderIds: {Tmdb}, Genres: ["Science Fiction"], ImageTags: {},
+        UserData: {IsFavorite: false}, ...extra
+    });
+    const filmA = film("film-a", "First Orbit", "101", {Overview: "A pilot finds an abandoned station.",
+        ImageTags: {Primary: "poster", Logo: "logo"}, BackdropImageTags: ["backdrop"],
+        RunTimeTicks: 110 * 6e8, ProductionYear: 2026, OfficialRating: "PG",
+        MediaStreams: [{Type: "Video", Width: 3840, Height: 1600},
+            {Type: "Audio", IsDefault: true, Channels: 6, Codec: "eac3"}]});
+    const filmB = film("film-b", "Second Orbit", "102", {ImageTags: {Logo: "missing"}, Genres: ["Comedy"]});
+    const show = {Id: "show-a", Name: "Night Signal", Type: "Series", ProviderIds: {Tmdb: "201"},
+        Overview: "A radio operator listens for a missing crew.", Genres: ["Mystery"], OfficialRating: "TV-14",
+        ImageTags: {Primary: "poster"}, BackdropImageTags: ["backdrop"], UserData: {IsFavorite: false},
+        People: [{Type: "Director", Name: "Skipped Director"}, {Id: "actor-a", Type: "Actor", Name: "Avery Vale", Role: "Sam", PrimaryImageTag: "actor"},
+            {Type: "Actor", Name: "Morgan Lee", Role: "Jo"}, ...Array.from({length: 11}, (_, i) => ({Type: "Actor", Name: `Actor ${i + 3}`}))]};
+    const emptyShow = {...show, Id: "show-b", Name: "Quiet Port", ProviderIds: {Tmdb: "202"}, BackdropImageTags: [], People: []};
+    const library = [filmA, filmB, show, emptyShow], favoriteWrites = [];
+    const matches = [{id: 102, title: filmB.Name}, ...Array.from({length: 8}, (_, i) => ({id: 103 + i, title: `Outer Station ${i + 1}`}))];
+    await page.route(jellyfin + "/**", route => {
+        const {pathname, searchParams} = new URL(route.request().url());
+        if (route.request().method() === "OPTIONS") return route.fulfill({status: 204, headers: cors});
+        const json = value => route.fulfill({headers: cors, json: value});
+        const items = Items => json({Items, TotalRecordCount: Items.length});
+        if (pathname.includes("/Images/") && pathname !== "/Items/film-b/Images/Logo")
+            return route.fulfill({headers: cors, path: path.join(root, "clients/FamilyHub.App/wwwroot/movie-art/movie.jpg")});
+        if (pathname.startsWith("/UserFavoriteItems/")) {
+            const item = library.find(item => pathname.endsWith("/" + item.Id));
+            const {favorite} = route.request().postDataJSON();
+            item.UserData.IsFavorite = favorite;
+            favoriteWrites.push([item.Id, favorite]);
+            return route.fulfill({status: 204, headers: cors});
+        }
+        if (pathname === "/Items") {
+            const id = searchParams.get("ids");
+            if (id) return items(library.filter(item => item.Id === id));
+            const types = searchParams.get("includeItemTypes")?.split(",") ?? [];
+            return items(library.filter(item => types.includes(item.Type) &&
+                (!searchParams.has("isFavorite") || item.UserData.IsFavorite))
+                .map(({MediaStreams, People, ...item}) => item));
+        }
+        const item = library.find(item => pathname === "/Items/" + item.Id);
+        if (item) return json(item);
+        const episodes = /^\/Shows\/(show-[ab])\/Episodes$/.exec(pathname);
+        if (episodes) return items([1, 2].map(ParentIndexNumber => ({
+            Type: "Episode", Id: episodes[1] + "-episode-" + ParentIndexNumber, SeriesId: episodes[1],
+            Name: ParentIndexNumber === 1 ? "Pilot" : "Return", ParentIndexNumber, IndexNumber: 1,
+            ImageTags: {Primary: "still"}, UserData: ParentIndexNumber === 1 ? {PlayedPercentage: 30} : {}
+        })));
+        if (pathname === "/UserItems/Resume" || pathname === "/Genres") return items([]);
+        if (pathname === "/Sessions/Logout") return route.fulfill({status: 204, headers: cors});
+        return route.fulfill({status: 404, headers: cors});
+    });
+    await page.evaluate(async ({jellyfin, matches}) => {
+        const {openMovies, saveMoviePreferences} = await import("/movies.js");
+        const host = document.querySelector(".movie-library");
+        const viewer = {server: jellyfin + "/", profile: "fixture"};
+        window.detailCalls = [];
+        const bridge = {async invokeMethodAsync(method, ...args) {
+            window.detailCalls.push([method, ...args]);
+            if (method === "MovieRelated") {
+                if (window.failNextRelated) {
+                    window.failNextRelated = false;
+                    return JSON.stringify({error: "Related films are unavailable."});
+                }
+                return JSON.stringify({matches: args[0] === "101" ? matches : []});
+            }
+            if (method === "MovieMatches") return JSON.stringify({seasons: [
+                {number: 1, episode_count: 1}, {number: 2, episode_count: 1}
+            ]});
+            if (method === "MovieSeasonEpisodes") return JSON.stringify({episodes: []});
+            return JSON.stringify({results: []});
+        }};
+        window.openDetailFixture = async style => {
+            if (window.movies) await window.movies.close();
+            saveMoviePreferences(viewer, {backgroundStyle: style});
+            window.movies = window.openMovieFixture(openMovies, host,
+                {url: jellyfin, user: "u", token: "t", release_search_enabled: true}, bridge, viewer);
+        };
+        await window.openDetailFixture("auto");
+    }, {jellyfin, matches});
+    await page.getByRole("searchbox").waitFor();
+    return favoriteWrites;
+}
+
 async function playMovieDetails(page, card, title) {
     await card.press("Enter");
     const details = page.getByRole("region", {name: title, exact: true});
@@ -191,4 +277,5 @@ async function reviewMovieProfiles(verify) {
 }
 
 module.exports = { app, jellyfin, cors, output, homeOutput, playerOutput, moviePage, playMovieDetails,
-    dismissPlayerTracks, useMovieBridge, verifyMovieProfiles, reviewMovieProfiles, movieFixtureHeader, movieHomeFixture };
+    dismissPlayerTracks, useMovieBridge, verifyMovieProfiles, reviewMovieProfiles, movieFixtureHeader, movieHomeFixture,
+    movieDetailFixture };

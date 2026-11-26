@@ -285,7 +285,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
                 return jsonify(poster=None)
             series = bool(movie_import.SEASON.search(item['name']) or movie_import.EPISODE.search(item['name']))
             matches = cached_search(('torrent-poster', title.casefold()), 3600, lambda: (
-                tmdb.parse(tmdb_season('search/multi', params={'query': title, 'include_adult': 'false'}))
+                tmdb.parse(tmdb_get('search/multi', params={'query': title, 'include_adult': 'false'}))
                 if tmdb_token else tmdb.search(poster_key, title)))
             def words(value):
                 return re.findall(r'[^\W_]+', movie_search.plain(value))
@@ -585,7 +585,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
         if not key and not tmdb_token:
             return jsonify(error='Episode pictures are unavailable.'), 503
         detail = cached_search(('tmdb-season', series, season), 3600,
-                               lambda: tmdb_season(f'tv/{series}/season/{season}', key) or None)
+                               lambda: tmdb_get(f'tv/{series}/season/{season}', key) or None)
         rows = detail.get('episodes') if isinstance(detail, dict) else None
         if not isinstance(rows, list):
             return jsonify(error='Episode pictures are unavailable.'), 503
@@ -646,7 +646,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
         except (OSError, ValueError):
             return {}
 
-    def tmdb_season(path, api_key=None, params=None):
+    def tmdb_get(path, api_key=None, params=None):
         if not tmdb_token and not api_key:
             return {}
         try:
@@ -665,8 +665,51 @@ def register_movies(app, cfg, body, allow, session_is_live):
         except (OSError, ValueError):
             return {}
 
+    @app.get('/api/movies/related')
+    def movie_related():
+        if g.user not in cfg.get('JELLYFIN_PROFILES', {}):
+            return jsonify(error='Movies are unavailable for this profile.'), 403
+        ident = request.args.get('tmdb', '')
+        if request.args.get('kind') != 'movie' or not re.fullmatch(r'[1-9][0-9]{0,9}', ident):
+            return jsonify(error='Choose a film from the library.'), 400
+        if not allow('movie-related:' + g.user, 30, 60):
+            return jsonify(error='Wait a minute before loading related films again.'), 429
+        key = poster_key if isinstance(poster_key, str) else None
+        if not key and not tmdb_token:
+            return jsonify(matches=[])
+
+        def related():
+            movie = tmdb_get(f'movie/{ident}', key, {'append_to_response': 'recommendations'})
+            if not movie:
+                return None
+            collection = movie.get('belongs_to_collection')
+            collection_id = collection.get('id') if isinstance(collection, dict) else None
+            parts = (tmdb_get(f'collection/{collection_id}', key).get('parts')
+                     if type(collection_id) is int and 0 < collection_id < 10**10 else [])
+            recommendations = movie.get('recommendations')
+            recommendations = recommendations.get('results') if isinstance(recommendations, dict) else []
+            rows = []
+            seen = {int(ident)}
+            for group in (parts, recommendations):
+                for row in group[:100] if isinstance(group, list) else ():
+                    if not isinstance(row, dict) or row.get('adult') is True:
+                        continue
+                    parsed = tmdb.parse({'results': [{**row, 'media_type': 'movie'}]})
+                    if parsed and parsed[0]['id'] > 0 and parsed[0]['id'] not in seen:
+                        parsed[0]['backdrop'] = tmdb.image_url(tmdb.BACKDROP, row.get('backdrop_path'))
+                        rows.append(parsed[0])
+                        seen.add(parsed[0]['id'])
+                    if len(rows) == 20:
+                        return rows
+            return rows
+
+        matches = cached_search(('tmdb-related', ident), 3600, related)
+        if matches is None:
+            return jsonify(error='Related films are unavailable.'), 503
+        return jsonify(matches=matches)
+
     def catalogue_seasons(ident, key):
-        rows = tmdb_season(f'tv/{ident}', key).get('seasons')
+        rows = tmdb_get(f'tv/{ident}', key).get('seasons')
         if not isinstance(rows, list):
             return None
         return [{'number': row['season_number'], 'episode_count': row.get('episode_count')}
@@ -675,7 +718,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
                 and row['episode_count'] >= 0]
 
     def catalogue_series_id(key, year, title):
-        rows = (tmdb.parse(tmdb_season('search/multi', params={
+        rows = (tmdb.parse(tmdb_get('search/multi', params={
             'query': title, 'include_adult': 'false', 'language': 'en-US'})) if tmdb_token else tmdb.search(key, title))
         exact = [match['id'] for match in rows or []
                  if match['kind'] == 'tv' and movie_search.plain(match['title']) == movie_search.plain(title)
@@ -706,7 +749,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
 
         def season_runtime(number):
             season_path = path + f'/season/{number}'
-            episodes = (tmdb_season(season_path).get('episodes') or seerr_details(season_path, user).get('episodes') or [])
+            episodes = (tmdb_get(season_path).get('episodes') or seerr_details(season_path, user).get('episodes') or [])
             times = [positive(episode.get('runtime')) for episode in episodes if isinstance(episode, dict)]
             count = max(len(times), seasons.get(number) or 0) or None
             return (sum(times) if times and len(times) == count and all(times) else None), count

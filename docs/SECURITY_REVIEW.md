@@ -208,6 +208,7 @@ POST /api/movies/library
 POST /api/movies/matches
 GET /api/movies/media/<ticket>/<path:resource>
 POST /api/movies/media/close
+GET /api/movies/related
 POST /api/movies/releases
 POST /api/movies/report
 POST /api/movies/request
