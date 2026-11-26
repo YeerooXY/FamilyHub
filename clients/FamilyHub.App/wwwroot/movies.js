@@ -1175,24 +1175,18 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const favorite = demo ? null : favoriteAction(item, detailStatus, original);
         playButton.prepend(icon(playPath));
         if (favorite) actions.append(playButton, favorite);
-        if (!demo && !isSeries && session.downloads_enabled) {
-            const audio = audioAction(item, signal);
-            audio.className = "movie-film-audio";
-            actions.append(audio);
-            list.append(audioJobSlot(item));
-        }
-        const artHost = isSeries ? section : header;
+        if (!demo && !isSeries && session.downloads_enabled) credit.before(audioJobSlot(item));
         let backdrop, backdropKey;
         const updateBackdrop = () => {
             const key = JSON.stringify([backdropSources(item), innerWidth > 1920]);
             if (key === backdropKey) return;
             backdropKey = key;
             const art = movieBackdrop(item);
-            if (backdrop) backdrop.replaceWith(art); else artHost.prepend(art);
+            if (backdrop) backdrop.replaceWith(art); else section.prepend(art);
             backdrop = art;
         };
-        const cast = isSeries ? el("div") : null;
-        if (cast) intro.after(cast);
+        const cast = el("div");
+        intro.after(cast);
         function updateDetails() {
             const background = backgroundFor(item);
             section.style.setProperty("--movie-hero-start", background[0]);
@@ -1203,13 +1197,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             overview.hidden = !item.Overview;
             const values = isSeries ? [...(item.Genres ?? []).slice(0, 3), titleRating(item)] : filmFacts(item);
             facts.replaceChildren(...values.filter(Boolean).map(chip));
-            if (cast) renderCast(item, cast);
+            renderCast(item, cast);
         }
         updateDetails();
         largeBackdrop.addEventListener?.("change", updateBackdrop, {signal});
         const details = demo ? Promise.resolve() : searchLibrary("Items", {
             userId: session.user, ids: item.Id, includeItemTypes: item.Type, recursive: true, limit: 1,
-            fields: "Overview,Genres,ProviderIds," + (isSeries ? "People" : "MediaStreams"),
+            fields: "Overview,Genres,ProviderIds,People" + (isSeries ? "" : ",MediaStreams"),
             enableUserData: true, enableImages: true, enableImageTypes: "Primary,Thumb,Backdrop,Logo", imageTypeLimit: 1
         }, undefined, signal).catch(() => null).then(reply => {
             const detail = Array.isArray(reply?.Items) && reply.Items.find(candidate => candidate.Id === item.Id);
@@ -1511,7 +1505,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         heading.append(logo);
     }
     function renderCast(item, target) {
-        const actors = (item.People ?? []).filter(person => person.Type === "Actor" && person.Name?.trim()).slice(0, 12);
+        const actors = (item.People ?? []).filter(person => person.Type === "Actor" && person.Name?.trim())
+            .slice(0, item.Type === "Series" ? 12 : 6);
         target.classList.toggle("movie-cast", Boolean(actors.length));
         if (!actors.length) { target.replaceChildren(); return; }
         const heading = el("h3", "Cast"), names = el("ul");
@@ -1593,9 +1588,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         return heading;
     }
     function audioAction(item, signal) {
-        const action = button("Add audio track", event => addAudio(item, event.currentTarget, library, signal));
-        action.setAttribute("aria-label", "Add audio track for " + item.Name);
+        const action = button("", event => addAudio(item, event.currentTarget, library, signal));
+        action.className = "movie-episode-audio";
+        action.title = "Add audio track for " + item.Name;
+        action.setAttribute("aria-label", action.title);
         action.setAttribute("aria-haspopup", "dialog");
+        action.append(icon("M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"));
         return action;
     }
     function seasonRow(item, number, {episodes, total}, libraryKnown, catalogueEpisodes, signal) {

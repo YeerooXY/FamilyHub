@@ -3,7 +3,10 @@ const { useMovieBridge, reviewMovieProfiles, dismissPlayerTracks, movieFixtureHe
 // Usage: node tests/movies_visual.cjs [output-dir]   (emulated engines and device profiles, not real devices)
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const {constants, setPriority} = require("node:os");
 const path = require("node:path");
+
+setPriority(constants.priority.PRIORITY_BELOW_NORMAL);
 
 const wwwroot = path.join(__dirname, "../clients/FamilyHub.App/wwwroot");
 const out = path.resolve(process.argv[2] || path.join(__dirname, "../.local/movies-1-6-0-visual"));
@@ -23,6 +26,12 @@ const episodes = ["Episode 1", "The Move", "Visitors", "Episode 4", "Finale", "R
     IndexNumber: i < 4 ? i + 1 : i - 3, RunTimeTicks: (36 + i) * 6e8,
     UserData: i === 0 ? {Played: true} : i === 1 ? {PlayedPercentage: 40} : {}, ImageTags: { Thumb: "t" } }));
 const series = {Id: "s", Name: "Harbour Town", Type: "Series", ProviderIds: {Tmdb: "42"}};
+const cast = ["Avery Vale", "Morgan Lee", "Ellis Shaw", "Riley Chen", "Robin Ellis", "Drew Bell",
+    "Jamie Shah", "Alex Reed", "Cameron Fox", "Quinn Holt", "Blair Park", "Skyler Cole"]
+    .map((Name, i) => ({Name, Type: "Actor", Role: i === 0 ? "Sam" : undefined}));
+const filmDetail = {...movies[1], ProviderIds: {Tmdb: "101"}, People: cast.slice(0, 6)};
+const seriesDetail = {...series, ImageTags: {Primary: "p"}, Genres: ["Drama", "Mystery"], OfficialRating: "TV-14",
+    Overview: "A ferry vanishes on its final crossing, and the harbour crew searches for its passengers.", People: cast};
 
 async function verifyRazorShell(browser, url) {
     assert.ok(["localhost", "127.0.0.1", "[::1]"].includes(new URL(url).hostname), "Use a local Razor stub");
@@ -108,7 +117,8 @@ async function render(browser, label, options) {
         if (url.pathname.includes("/Images/")) {
             if (url.pathname === "/Items/m0/Images/Backdrop" && Number(url.searchParams.get("maxWidth")) > 480)
                 await filmGate;
-            const art = url.pathname.endsWith("/Backdrop") ? "movie.jpg" : url.pathname.includes("/Items/e") ? "episode.jpg" : "movie-alt.jpg";
+            const art = url.pathname.endsWith("/Backdrop") ? "movie.jpg" :
+                /^\/Items\/(?:e\d+|s)\//.test(url.pathname) ? "episode.jpg" : "movie-alt.jpg";
             return route.fulfill({ headers, path: path.join(wwwroot, "movie-art", art) });
         }
         if (url.pathname === "/Genres") return list(empty ? [] : [{ Name: "Drama" }, { Name: "Comedy" }, { Name: "Thriller" }]);
@@ -123,10 +133,12 @@ async function render(browser, label, options) {
             if (failEpisodes) return route.fulfill({headers, status: 502});
             return list(imported ? [...episodes, {...episodes[4], Id: "new", Name: "Return to port", ParentIndexNumber: 3}] : episodes);
         }
-        if (url.pathname === "/Items/s") return route.fulfill({headers, json: series});
-        if (url.pathname === "/Items/m1") return route.fulfill({headers, json: movies[1]});
+        if (url.pathname === "/Items/s") return route.fulfill({headers, json: seriesDetail});
+        if (url.pathname === "/Items/m1") return route.fulfill({headers, json: filmDetail});
         if (url.pathname === "/Items") {
             if (empty) return list([]);
+            if (url.searchParams.get("ids") === "m1") return list([filmDetail]);
+            if (url.searchParams.get("ids") === "s") return list([seriesDetail]);
             const types = url.searchParams.get("includeItemTypes");
             const genre = url.searchParams.get("genres");
             if (genre) return list([]);
@@ -141,7 +153,10 @@ async function render(browser, label, options) {
     await useMovieBridge(page);
     await page.goto(app + "/");
     const still = "data:image/jpeg;base64," + fs.readFileSync(path.join(wwwroot, "movie-art", "episode.jpg")).toString("base64");
-    await page.evaluate(async ({jellyfin, still, native}) => {
+    const relatedFilms = [...movies.slice(2, 5).map(({Name, ProductionYear}, i) => ({id: 102 + i, title: Name, year: ProductionYear})),
+        ...["Across the Bay", "After the Ferry", "Last Train North"].map((title, i) => ({id: 105 + i, title, year: 2014,
+            backdrop: "/movie-art/" + ["movie.jpg", "episode.jpg", "movie-alt.jpg"][i]}))];
+    await page.evaluate(async ({jellyfin, still, native, relatedFilms}) => {
         const { openMovies } = await import("/movies.js");
         const host = document.querySelector(".movie-library");
         if (native) host.dataset.nativeFullscreen = "true";
@@ -154,6 +169,7 @@ async function render(browser, label, options) {
                     (window.fullscreenCalls ??= []).push(query);
                     return query;
                 }
+                if (method === "MovieRelated" && query === "101") return JSON.stringify({matches: relatedFilms});
                 if (method === "MovieMatches" && query === "tmdb:tv:42") {
                     return JSON.stringify({series_id: 42, seasons: Array.from({length: 6}, (_, i) => ({number: i + 1, episode_count: 4}))});
                 }
@@ -184,10 +200,10 @@ async function render(browser, label, options) {
                 return JSON.stringify({results: []});
             } }, { server: location.origin, profile: "viewer" });
         window.movies = window.openMovieHome();
-    }, {jellyfin, still, native: label.startsWith("windows-")});
-    const capture = async state => {
+    }, {jellyfin, still, native: label.startsWith("windows-"), relatedFilms});
+    const capture = async (state, fullPage = true) => {
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, label + " " + state);
-        await page.screenshot({path: path.join(out, label + "-" + state + ".png"), animations: "disabled", fullPage: true});
+        await page.screenshot({path: path.join(out, label + "-" + state + ".png"), animations: "disabled", fullPage});
     };
     const loading = page.locator(".movie-home-skeleton");
     await loading.waitFor();
@@ -303,28 +319,43 @@ async function render(browser, label, options) {
     await filmLoading.press("Enter");
     const loadingDetail = page.getByRole("region", {name:"Harbour Lights", exact:true});
     const loadingHero = loadingDetail.locator(".movie-series-header");
-    await loadingHero.locator(".movie-hero-art[data-loading]").waitFor({state:"attached"});
+    await loadingDetail.locator(".movie-hero-art[data-loading]").waitFor({state:"attached"});
     const loadingDetailSize = await loadingHero.evaluate(geometry);
-    assert.equal(await loadingHero.evaluate(node => getComputedStyle(node, "::before").animationName),
+    assert.equal(await loadingDetail.evaluate(node => getComputedStyle(node, "::before").animationName),
         options.reducedMotion === "reduce" ? "none" : "service-status-pulse");
     await capture("film-loading");
     holdFilm();
-    await loadingHero.locator(".movie-hero-art[data-loading]").waitFor({state:"detached"});
+    await loadingDetail.locator(".movie-hero-art[data-loading]").waitFor({state:"detached"});
     assert.deepEqual(await loadingHero.evaluate(geometry), loadingDetailSize);
     await loadingDetail.getByRole("button", {name:"Back to titles"}).press("Enter");
 
     const film = moviesCards.filter({hasText:"The Long Way Home"});
-    await film.press("Enter");
+    await film.click();
     const details = page.getByRole("region", {name:"The Long Way Home", exact:true});
     const resume = details.getByRole("button", {name:"Resume", exact:true});
     await resume.waitFor();
-    await details.getByRole("button", {name:"Add audio track for The Long Way Home"}).waitFor();
+    assert.equal(await details.getByRole("button", {name:"Add audio track for The Long Way Home"}).count(), 0);
     await details.getByRole("button", {name:"Delete source file"}).waitFor();
     assert.equal(await details.getByRole("button", {name:"Delete source file"}).count(), 1);
-    assert.equal(await details.locator(".movie-hero-art").evaluate(image => Boolean(image.getAttribute("src"))), true);
-    assert.ok((await details.boundingBox()).width <= 1600);
-    if (options.viewport.width >= 1280) assert.ok((await details.boundingBox()).width >= 1200);
-    await capture("detail");
+    const backdrop = details.locator(".movie-hero-art");
+    const related = details.locator('.movie-shelf[data-format="related"]');
+    const relatedArt = related.locator(".movie-art img").first();
+    await details.getByRole("heading", {name:"Cast", exact:true}).waitFor();
+    assert.equal(await details.locator(".movie-cast li").count(), 6);
+    await relatedArt.waitFor();
+    assert.equal(await related.count(), 1);
+    assert.equal(await related.locator(".movie-card").count(), relatedFilms.length);
+    await page.waitForFunction(image => image.naturalWidth > 0, await relatedArt.elementHandle());
+    await page.waitForFunction(image => image.naturalWidth > 0, await backdrop.elementHandle());
+    assert.equal(await backdrop.evaluate(image => {
+        const art = image.getBoundingClientRect(), film = image.parentElement.getBoundingClientRect();
+        const catalogue = image.parentElement.parentElement.getBoundingClientRect();
+        return getComputedStyle(image).objectFit === "cover" && art.left === film.left && art.right === film.right &&
+            art.left === catalogue.left && art.right === catalogue.right;
+    }), true);
+    const desktop = options.viewport.width >= 1280;
+    if (desktop) assert.ok(await relatedArt.evaluate(image => image.getBoundingClientRect().top < innerHeight));
+    await capture("detail", !desktop);
     await resume.press("Enter");
     const player = page.getByRole("region", {name:"Movie player"});
     const playerBack = player.getByRole("button", {name:"Back to movies"});
@@ -407,6 +438,13 @@ async function render(browser, label, options) {
         assert.ok(Math.abs(size - stillSize[axis]) <= .5, label + " loading and loaded episode stills differ"));
     await page.waitForFunction(img => img.naturalWidth > 0, await image.elementHandle());
     await seriesView.getByRole("button", {name:"Resume", exact:true}).waitFor();
+    await seriesView.getByRole("heading", {name:"Cast", exact:true}).waitFor();
+    const seriesPoster = seriesView.locator(".movie-title-intro .movie-art img");
+    await page.waitForFunction(image => image.naturalWidth > 0, await seriesPoster.elementHandle());
+    assert.equal(await seriesView.locator(".movie-cast li").count(), 12);
+    const addEpisodeAudio = seriesView.locator('[data-episode="2"]').getByRole("button", {name:"Add audio track for The Move"});
+    assert.equal(await addEpisodeAudio.textContent(), "");
+    assert.equal(await addEpisodeAudio.locator("svg").count(), 1);
     await capture("series");
     const nextSeasons = seriesView.getByRole("button", {name:"Next seasons"});
     if (await nextSeasons.isVisible()) {

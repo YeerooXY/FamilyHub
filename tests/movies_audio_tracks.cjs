@@ -96,26 +96,19 @@ verifyMovieProfiles(async (browser, profile, options) => {
     await card.press("Enter");
     const details = page.getByRole("region", {name: "In Time", exact: true});
     const library = details.locator(".movie-title-audio");
-    const add = details.getByRole("button", {name: "Add audio track for In Time", exact: true});
+    assert.equal(await details.getByRole("button", {name: "Add audio track for In Time", exact: true}).count(), 0);
     const sheet = page.getByRole("dialog", {name: "Add audio track"});
     const close = sheet.getByRole("button", {name: "Close", exact: true});
     const language = sheet.getByRole("combobox", {name: "Track language"});
     const audio = page.getByRole("button", {name: "Audio & Subtitles", exact: true});
     const trackSheet = page.getByRole("dialog", {name: "Audio & Subtitles"});
-    await details.getByRole("button", {name: "Play", exact: true}).press("Enter");
+    const play = details.getByRole("button", {name: "Play", exact: true});
+    const back = page.getByRole("button", {name: "Back to movies"});
+    const closeTracks = trackSheet.getByRole("button", {name: "Close audio and subtitles"});
+    await play.press("Enter");
     await audio.press("Enter");
     const findAudio = trackSheet.getByRole("button", {name: "Find Hungarian audio", exact: true});
     await findAudio.press("Space");
-    await focused(close);
-    assert.equal(await language.inputValue(), "hu");
-    await sheet.getByRole("option", {name: /Hungarian.*AC3.*6 ch/}).waitFor({state: "attached"});
-    await close.press("Enter");
-    await focused(findAudio);
-    await trackSheet.getByRole("button", {name: "Close audio and subtitles"}).press("Enter");
-    await page.getByRole("button", {name: "Back to movies"}).press("Enter");
-
-    await add.waitFor();
-    await add.press("Enter");
     await focused(close);
     const start = sheet.getByRole("button", {name: "Start matching"});
     await sheet.getByRole("option", {name: /Hungarian.*AC3.*6 ch/}).waitFor({state: "attached"});
@@ -124,13 +117,15 @@ verifyMovieProfiles(async (browser, profile, options) => {
     await start.press("Enter");
     await sheet.getByText("Audio moved 1.2 s earlier. Confidence high.").waitFor();
     await focused(start);
+    await page.getByText("Audio track added.", {exact: true}).waitFor({state: "attached"});
     await page.screenshot({path: path.join(output, profile + "-result.png")});
     await close.press("Enter");
-    await focused(add);
+    await focused(findAudio);
+    await closeTracks.press("Enter");
+    await back.press("Enter");
+    await focused(play);
     await library.getByText(jobName()).waitFor();
-    await page.getByText("Audio track added.", {exact: true}).waitFor();
     audioImported = true;
-    await focused(add);
     const remove = library.getByRole("button", {name: "Delete source file"});
     await remove.press("Enter");
     const keep = library.getByRole("button", {name: "Keep file"});
@@ -142,7 +137,7 @@ verifyMovieProfiles(async (browser, profile, options) => {
     await library.getByText("Source file deleted.").waitFor();
     assert.equal(await page.evaluate(() => window.removedAudio), true);
 
-    await details.getByRole("button", {name: "Play", exact: true}).press("Enter");
+    await play.press("Enter");
     await audio.press("Enter");
     const source = trackSheet.getByRole("radiogroup", {name: "Audio track"})
         .getByRole("radio", {name: "Hungarian", exact: true});
@@ -182,7 +177,7 @@ verifyMovieProfiles(async (browser, profile, options) => {
     await page.waitForFunction(() => window.fixtureAudio?.currentTime === 5.1 && document.querySelector("video").muted);
     await page.screenshot({path: path.join(output, profile + "-sync.png")});
     assert.equal(await findAudio.count(), 0);
-    await trackSheet.getByRole("button", {name: "Close audio and subtitles"}).press("Enter");
+    await closeTracks.press("Enter");
     await focused(audio);
     await page.close();
 }).catch(error => { console.error(error); process.exitCode = 1; });
