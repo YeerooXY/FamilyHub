@@ -8,6 +8,9 @@ verifyShell(async (page, phone) => {
     const back = button('Back to settings categories');
     const panel = page.locator('#settings-category');
     const open = async () => {
+        // The first press can land before the app attaches its handlers in WebKit.
+        await button('Profile menu').waitFor();
+        await page.waitForTimeout(250);
         await button('Profile menu').press('Enter');
         await focused(page, 'profile-menu-close');
         await page.locator('#profile-menu[open] #open-settings').press('Space');

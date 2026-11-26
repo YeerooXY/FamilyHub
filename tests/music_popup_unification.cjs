@@ -699,6 +699,8 @@ async function audit(name, engine, options) {
             assert.equal(await quality.inputValue(), 'good');
             await backToCategories('settings-movies');
             await target('settings-music').press('Enter');
+            // The phone shell focuses the new category after rendering it.
+            await focused(phone ? 'settings-category' : 'settings-music');
             const diagnostics = page.getByRole('region', {name: 'Playback diagnostics'});
             await diagnostics.getByRole('button', {name: 'Load attempts'}).press('Enter');
             const refreshAttempts = diagnostics.getByRole('button', {name: 'Refresh attempts'});
@@ -709,7 +711,8 @@ async function audit(name, engine, options) {
             assert.match(await older.nth(0).innerText(), /Time unavailable ·\s+The retry loaded\. Playback start is unconfirmed\./);
             assert.match(await older.nth(1).innerText(), /Time unavailable ·\s+Started playing\./);
             assert.doesNotMatch(await diagnostics.innerText(), /fedcba98|adb80533|cdb80533/);
-            assert.equal(await refreshAttempts.evaluate(node => node === document.activeElement), true);
+            assert.equal(await refreshAttempts.evaluate(node => node === document.activeElement), true,
+                name + '/settings: loading diagnostics should retain focus on Refresh attempts');
             const firstAttempt = diagnostics.locator('summary').first();
             await page.keyboard.press('Tab');
             assert.equal(await firstAttempt.evaluate(node => node === document.activeElement), true);
@@ -730,13 +733,19 @@ async function audit(name, engine, options) {
             await diagnostics.getByText(/Song position 0:50/).waitFor();
             assert.doesNotMatch(await diagnostics.innerText(), /fedcba98|adb80533|cdb80533|edcba987|ddcba987/);
         }
-        await open(target('clear-history'), 'clear-history-dialog');
-        await capture('clear-history', target('clear-history-dialog'));
-        await closeByEscape(target('clear-history-dialog'));
+        const clearHistory = await open(target('clear-history'), 'clear-history-dialog');
+        await capture('clear-history', clearHistory);
+        if (!before) assert.equal(await clearHistory.getByRole('button', {name: 'Close clear listening history', exact: true}).count(), 1);
+        await closeByEscape(clearHistory);
         if (!before) {
-            if (phone) await select(target('settings-exit'));
+            await focused('clear-history');
+            if (phone) {
+                await select(target('settings-exit'));
+                await focused('settings-music');
+            }
             await select(target('settings-exit'));
             await target('settings-exit').waitFor({state: 'hidden'});
+            await focused('profile-toggle');
         }
 
         if (output) {

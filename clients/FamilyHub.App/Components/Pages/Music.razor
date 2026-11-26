@@ -361,7 +361,7 @@ else
                 <section class="settings-panel glass-panel" aria-labelledby="listening-history-heading">
                     <h2 id="listening-history-heading">Listening history</h2>
                     <label class="setting-toggle"><input type="checkbox" checked="@Session.PlaybackPreferences.ListeningHistoryPaused" @onchange="SetHistoryPaused" disabled="@busy" /><span>Pause history</span></label>
-                    <div class="setting-row"><span>Family profiles can see your Leaderboard stats. Admins can see individual plays.</span><button id="clear-history" @onclick='() => JS.InvokeVoidAsync("familyhub.showDialog", "clear-history-dialog", "cancel-clear-history").AsTask()' disabled="@(!Session.Connected)">Clear listening history</button></div>
+                    <div class="setting-row"><span>Family profiles can see your Leaderboard stats. Admins can see individual plays.</span><button id="clear-history" @onclick='() => JS.InvokeVoidAsync("familyhub.showDialog", "clear-history-dialog", "cancel-clear-history", "clear-history").AsTask()' disabled="@(!Session.Connected)">Clear listening history</button></div>
                     @if (!Session.Connected) { <p class="setting-help">Connect to clear shared listening history.</p> }
                 </section>
                 <PlaybackDiagnostics @key="(Session.Server, Session.User)" />

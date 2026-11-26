@@ -25,7 +25,8 @@ async function audit(device, browserType, options) {
         ]);
         assert(inputBounds.x - pictureBounds.x - pictureBounds.width <= 24);
         assert(Math.abs(labelBounds.x - inputBounds.x) <= 1 && labelBounds.y < inputBounds.y);
-        assert(inputBounds.height >= 44 && saveBounds.height >= 44);
+        assert(inputBounds.height >= 44 && saveBounds.height >= 44,
+            `${device} at ${page.viewportSize().width}px: display name ${inputBounds.height}px, Save name ${saveBounds.height}px`);
         if (page.viewportSize().width > 600) {
             assert(Math.abs(inputBounds.y - saveBounds.y) <= 1);
             assert(saveBounds.x + saveBounds.width - inputBounds.x <= 441);
