@@ -21,10 +21,10 @@ async function check(browser, profile, options) {
         await heading.waitFor();
         assert.equal(await focused(heading), true);
         await heading.locator("img").waitFor();
-        const expectedFacts = ["2026", "PG", "1 h 50 min", "4K", "DDP 5.1"];
+        const expectedFacts = ["2026", "6", "1 h 50 min", "4K", "DDP 5.1"];
         await film.getByRole("img", {name: "Sound: Dolby Digital Plus 5.1"}).waitFor();
         assert.deepEqual(await film.locator(".movie-title-facts .movie-chip").allTextContents(), expectedFacts);
-        assert.equal(await film.getByRole("img", {name: "Rated PG", exact: true}).getAttribute("data-level"), "general");
+        assert.equal(await film.getByRole("img", {name: "Rated 6", exact: true}).textContent(), "6");
         assert.equal(await film.locator(".movie-title-facts .movie-release-quality").getAttribute("data-level"), "4k-web");
         assert.equal(await film.getByText("A pilot finds an abandoned station.").isVisible(), true);
         assert.equal(await film.getByRole("button", {name: /^(?:Download|Add to library)$/}).count(), 0);

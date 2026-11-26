@@ -80,10 +80,17 @@ async function check(browser, profile, options) {
     assert.equal(await shell.isVisible(), false);
     assert.equal(await page.getByRole("link", {name:"Skip to content"}).isVisible(), false);
     await page.locator(".movie-video").evaluate(video => { video.poster = "/movie-art/movie.jpg"; });
-    assert.deepEqual(await page.locator(".movie-video").evaluate(video => {
-        const bounds = video.getBoundingClientRect();
-        return [bounds.left, bounds.top, bounds.width, bounds.height];
-    }), [0, 0, options.viewport.width, options.viewport.height]);
+    const fullscreen = await page.locator(".movie-video").evaluate(video => {
+        const edges = node => {
+            const {left, top, right, bottom} = node.getBoundingClientRect();
+            return [left, top, right, bottom];
+        };
+        return {video: edges(video), player: edges(video.closest(".movie-player")), viewport: [0, 0, innerWidth, innerHeight]};
+    });
+    assert.deepEqual(fullscreen.video, fullscreen.player, `${profile}: video covers the player`);
+    // Mobile emulation can round viewport and fixed element bounds differently.
+    assert.ok(fullscreen.player.every((edge, index) => Math.abs(edge - fullscreen.viewport[index]) <= 1.5),
+        `${profile}: player covers the viewport ${JSON.stringify(fullscreen)}`);
     assert.equal(await page.getByRole("button", { name: "Episodes" }).isVisible(), false);
     assert.equal(await page.getByRole("button", { name: /^Next episode/ }).isVisible(), false);
     // Controls hide a few seconds after the last touch, also when paused and also with reduced motion (many phones set it).

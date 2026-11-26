@@ -151,7 +151,8 @@ async function verify(browser, name, options) {
         await search(title);
         const heading = page.locator(".movie-release-identity h2");
         await page.getByRole("heading", {name:"The Gentlemen (2024)", exact:true}).waitFor();
-        await page.getByRole("status").filter({hasText:"9 releases found. 1 source did not answer."}).waitFor();
+        assert.equal(await page.getByText(/\d+ releases found|source did not answer/).count(), 0);
+        assert.equal(await page.locator(".movie-release-rail").getByRole("img", {name:"Rated 18"}).textContent(), "18");
         assert.equal(await page.getByRole("searchbox").count(), 1);
         assert.equal(await page.getByRole("heading", {name:"In your library", exact:true}).isVisible(), false);
         assert.equal(await focus(submit), true);
@@ -167,7 +168,7 @@ async function verify(browser, name, options) {
         const rows = result.getByRole("listitem");
         const first = rows.filter({has:page.getByRole("img", {name:"Sound: Dolby Atmos"})});
         assert.equal(await rows.count(), 9);
-        assert.equal(await rows.first().getAttribute("data-tier"), "hd");
+        assert.equal(await rows.first().getAttribute("data-tier"), "web");
         const text = await first.innerText();
         assert.match(text, /1080p\s+Web/);
         assert.match(text, /Full season 2/);
@@ -175,7 +176,7 @@ async function verify(browser, name, options) {
         assert.match(text, /Download time\s+about 23 min/);
         assert.match(text, /Availability\s+Available/);
         assert.doesNotMatch(text, /seeder|leecher|The Pirate Bay|Knaben/);
-        assert.equal(await first.getByRole("img", {name:"Rated TV-MA"}).getAttribute("data-level"), "18");
+        assert.equal(await first.locator(".movie-age-rating").count(), 0);
         const raw = first.locator(".movie-release-name");
         const expand = first.getByRole("button", {name:/File name for The Gentlemen/});
         assert.equal(await raw.isVisible(), false);

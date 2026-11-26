@@ -25,7 +25,7 @@ async function check(browser, profile, options) {
         assert.equal(await cast.getByText("Skipped Director").count(), 0);
         assert.ok(await cast.getByText("Avery Vale").locator("..").locator("img").getAttribute("src"));
         assert.equal(await cast.getByText("Morgan Lee").locator("..").locator(".movie-cast-portrait").textContent(), "ML");
-        assert.equal(await series.getByText("TV-14", {exact: true}).count(), 1);
+        assert.equal(await series.getByRole("img", {name: "Rated 16", exact: true}).textContent(), "16");
         assert.equal(await series.getByText("Mystery", {exact: true}).count(), 1);
 
         const favorite = series.getByRole("button", {name: "My list: Night Signal"});

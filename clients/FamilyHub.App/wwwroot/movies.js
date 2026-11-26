@@ -1,7 +1,7 @@
 import { buildPlayerUi, watchPlayerIdle } from "./movie-player-ui.js";
 import { addAudioDialog, audioJobResults, audioJobRunning, audioLanguage as audioLanguageName } from "./movie-audio-ui.js";
 import { movieAudioSync } from "./movie-audio-sync.js";
-import { ageRatingBadge, appendSoundChip, buildReleaseSearch, cleanResultTitle, formatMinutes, librarySound, releaseSound, videoQualityTier } from "./movie-releases.js";
+import { appendSoundChip, buildReleaseSearch, cleanResultTitle, formatMinutes, librarySound, ratingBadge, releaseSound, videoQualityTier } from "./movie-releases.js";
 import { createServiceStatus } from "./service-status.js";
 
 // AbortSignal.timeout needs Chromium 103; older televisions (webOS) need this form.
@@ -1223,10 +1223,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         actions.className = "movie-title-actions movie-hero-actions";
         const text = el("div");
         text.className = "movie-title-text";
-        text.append(heading);
-        if (isSeries) text.append(actions, overview, facts);
-        else text.append(facts, actions, overview);
-        text.append(detailStatus);
+        text.append(heading, facts, actions, overview, detailStatus);
         intro.append(cardArtwork(item), text);
         if (isSeries) {
             const columns = el("div"), info = el("div"), episodesColumn = el("div");
@@ -1318,7 +1315,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             overview.textContent = item.Overview ?? "";
             overview.hidden = !item.Overview;
             updateDescription?.();
-            if (isSeries) facts.replaceChildren(...[...(item.Genres ?? []).slice(0, 3).map(chip), titleRating(item)].filter(Boolean));
+            if (isSeries) facts.replaceChildren(...[...(item.Genres ?? []).slice(0, 3).map(chip), ratingBadge(item.OfficialRating)].filter(Boolean));
             else renderFilmFacts(item, facts);
             renderCast(item, cast);
         }
@@ -1634,12 +1631,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         return [item.ProductionYear && chip(item.ProductionYear), rating, runtime && chip(runtime), libraryQuality(item)].filter(Boolean);
     }
     function renderFilmFacts(item, facts) {
-        facts.replaceChildren(...titleFacts(item, titleRating(item)));
+        facts.replaceChildren(...titleFacts(item, ratingBadge(item.OfficialRating)));
         appendSoundChip(facts, librarySound(streamsOf(item)), icon);
-    }
-    function titleRating(item) {
-        return ageRatingBadge(item.OfficialRating) ??
-            (Number.isFinite(item.CommunityRating) && item.CommunityRating > 0 ? chip(item.CommunityRating.toFixed(1)) : null);
     }
     function setTitleLogo(item, heading, name = item.Name) {
         const tag = item.ImageTags?.Logo;
@@ -2431,7 +2424,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     return {error: [torrentFailed && (torrents?.error || "Release lookup did not respond."),
                         videaFailed && (videa?.error || "Videa did not respond.")].filter(Boolean).join(" ")};
                 }
-                return {results: ranked, title_details: torrents?.title_details || youtube?.title_details, unavailable: (torrents?.unavailable || 0) + Number(torrentFailed) + Number(videaFailed)};
+                return {results: ranked, title_details: torrents?.title_details || youtube?.title_details};
             }, signal, session.downloads_enabled ? async (row, options) => {
                 const reply = row.episodes
                     ? await call("MovieVideaSeasonDownload", row.name, row.episodes)
@@ -3350,7 +3343,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const logoItem = pick.ImageTags?.Logo ? pick : pick.ParentLogoImageTag ? {Id: pick.ParentLogoItemId, ImageTags: {Logo: pick.ParentLogoImageTag}} : title;
         setTitleLogo(logoItem.Id ? logoItem : title, heading, heroName(pick));
         featured.setAttribute("aria-labelledby", heading.id);
-        const facts = titleFacts(pick, ageRatingBadge(pick.OfficialRating || existingTitle?.OfficialRating));
+        const facts = titleFacts(pick, ratingBadge(pick.OfficialRating) ?? ratingBadge(existingTitle?.OfficialRating));
         const genres = (pick.Genres ?? []).slice(0, 3);
         if (genres.length) facts.push(el("span", genres.join(", ")));
         body.append(heading);

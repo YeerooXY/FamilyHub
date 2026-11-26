@@ -49,6 +49,7 @@ def main():
             else:
                 files.append(ROOT / 'music_web' / name)
         files.append(ROOT / 'scripts' / 'music-intake.py')
+        files.append(ROOT / 'scripts' / 'torrent-ratio-audit.py')
     for platform in platforms:
         manifest = release / (platform + '.json')
         data = json.loads(manifest.read_text(encoding='utf-8'))
@@ -103,6 +104,17 @@ for platform in platforms:
     temporary.write_text(json.dumps(data)+'\n')
     shutil.chown(temporary,user='familyhub-writer',group='familyhub-writer')
     os.replace(temporary,active)
+if not assets_only:
+    # The torrent recorder runs from its own systemd timer, so it is swapped in place without a service restart.
+    recorder=pathlib.Path('/usr/local/lib/familyhub/torrent-ratio-audit.py')
+    fresh=(incoming/'torrent-ratio-audit.py').read_bytes()
+    if not recorder.exists() or recorder.read_bytes()!=fresh:
+        if recorder.exists():shutil.copy2(recorder,backup/'torrent-ratio-audit.py')
+        staged=recorder.with_name(recorder.name+'.new')
+        staged.write_bytes(fresh)
+        os.chmod(staged,0o644)
+        os.chown(staged,0,0)
+        os.replace(staged,recorder)
 if not code_changed:
     shutil.rmtree(incoming)
     print(json.dumps({'version':data['version'],'backup':str(backup),'server_restarted':False}))

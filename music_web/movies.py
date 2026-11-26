@@ -517,8 +517,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
             pages = list(pool.map(lookup, indexers))
             metadata, extra = alternate.result() if alternate else ({}, [])
         unavailable = pages.count(None)
-        if unavailable == len(indexers) and not extra:
-            return jsonify(error='The sources did not respond. Try again.'), 503
+        all_failed = unavailable == len(indexers) and not extra
         unavailable += extra is None
         rows, seen = [], set()
         for page in [*pages, extra]:
@@ -529,6 +528,9 @@ def register_movies(app, cfg, body, allow, session_is_live):
                         continue
                     seen.add(guid)
                 rows.append(stored.copy())
+        log.info('Release search results=%d unavailable_sources=%d', len(rows), unavailable)
+        if all_failed:
+            return jsonify(error='The sources did not respond. Try again.'), 503
         with grab_lock:
             now = monotonic()
             for ref in list(grab_refs):
@@ -756,7 +758,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
         certifications = localized.get('releases' if kind == 'movie' else 'contentRatings')
         regions = certifications.get('results') if isinstance(certifications, dict) else None
         if isinstance(regions, list):
-            for country in ('US', 'HU', 'GB'):
+            for country in ('HU', 'US', 'GB'):
                 region = next((entry for entry in regions
                                if isinstance(entry, dict) and entry.get('iso_3166_1') == country), {})
                 dates = region.get('release_dates') if kind == 'movie' else [region]

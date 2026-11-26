@@ -930,7 +930,7 @@ body[data-effects="off"] .movie-library .movie-toolbar .movie-search { transitio
 .movie-title-text > p[hidden], .movie-title-text > p:empty,
 .movie-title-text > div:empty, .movie-title-actions > [hidden] { display: none; }
 .movie-title-text > p { color: #e4e8f1; line-height: 1.5; }
-.movie-title-facts { display: flex; flex-wrap: wrap; gap: .4rem; }
+.movie-title-facts { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
 .movie-title-facts .movie-chip:not(:where(.movie-release-quality, .movie-age-rating)) { color: #f3f0ff; background: #2a263c; border-color: #ffffff28; }
 .movie-library :is(.movie-film-detail, .movie-show-detail) .movie-title-back { border-radius: 50%; }
 .movie-library .movie-film-detail {
@@ -1153,21 +1153,23 @@ body[data-effects="off"] .movie-film-detail:has(> .movie-hero-art[data-loading])
 .movie-chip.movie-age-rating {
     display: inline-grid;
     place-items: center;
-    min-inline-size: 2em;
+    flex: none;
+    inline-size: var(--movie-rating-size, 40px);
+    block-size: var(--movie-rating-size, 40px);
     box-sizing: border-box;
-    border: 1px solid currentColor;
-    border-radius: .35em;
-    padding: .04em .38em;
-    font-weight: 750;
-    line-height: 1.4;
-    white-space: nowrap;
-    color: var(--rating-ink, #e3d9fa);
-    background: var(--rating-bg, #332c47);
+    border: 4px solid var(--rating-ring);
+    border-radius: 50%;
+    padding: 0;
+    font-size: calc(var(--movie-rating-size, 40px) * .36);
+    font-weight: 800;
+    line-height: 1;
+    color: #fff;
+    background: #15151c;
 }
-.movie-age-rating[data-level="general"] { --rating-ink: #b5f6cc; --rating-bg: #17422d; }
-.movie-age-rating[data-level="12"] { --rating-ink: #ffe59a; --rating-bg: #543a11; }
-.movie-age-rating[data-level="16"] { --rating-ink: #ffd1ab; --rating-bg: #602e16; }
-.movie-age-rating[data-level="18"] { --rating-ink: #ffc2c6; --rating-bg: #65252e; }
+.movie-age-rating:is([data-level="KN"], [data-level="6"]) { --rating-ring: #49d681; }
+.movie-age-rating[data-level="12"] { --rating-ring: #ffda55; }
+.movie-age-rating[data-level="16"] { --rating-ring: #ff9a52; }
+.movie-age-rating[data-level="18"] { --rating-ring: #ff6573; }
 
 body:has(.workspace > main :is(.movie-film-detail, .movie-show-detail):not([hidden])):not(.movie-expanded-page body) {
     display: grid;
@@ -1267,7 +1269,7 @@ body:has(.workspace > main :is(.movie-film-detail, .movie-show-detail):not([hidd
     .movie-film-detail .movie-cast .movie-cast-portrait { width: min(100%, clamp(2rem, 5.5vh, 5rem)); }
     .movie-film-detail .movie-shelf { margin-bottom: 0; }
     .movie-film-detail .movie-shelf-scroll .movie-cards { padding-block: clamp(.55rem, 1.4vh, 1.9rem); }
-    .movie-film-detail .movie-shelf-scroll .movie-art { aspect-ratio: auto; height: clamp(6rem, 18vh, 20rem); }
+    .movie-film-detail .movie-shelf-scroll .movie-art { aspect-ratio: auto; height: clamp(6rem, calc(18vh - 1.75rem), 20rem); }
     .movie-film-detail .movie-matches-credit { margin-top: .1rem; }
 }
 
@@ -1373,34 +1375,36 @@ body:has([data-release-layout]) .header-search .movie-search :is(input, button) 
     .workspace > main [data-release-layout] .movie-release-rail { max-height: 100cqh; }
 }
 .movie-release-identity { display: grid; gap: .65rem; min-width: 0; }
-.movie-release-identity h2 { font-size: clamp(1rem, 2vw, 2rem); }
+.movie-release-heading { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; min-width: 0; overflow-wrap: anywhere; }
+.movie-release-identity h2 { margin: 0; font-size: clamp(1rem, 2vw, 2rem); }
 .movie-release-identity .movie-art {
     width: min(75%, 11rem, 20vh);
     justify-self: center;
     aspect-ratio: 2 / 3;
     border-radius: .65rem;
 }
-.movie-release-summary { color: #cdc9da; font-size: .92em; }
 .movie-release-legend-wrap { display: flex; align-items: start; gap: .3rem; min-width: 0; border-top: 1px solid #ffffff24; padding-top: .4rem; }
 .movie-release-legend { flex: 1; min-width: 0; display: grid; gap: .15rem; }
-.movie-releases :is(.movie-release-tier, .movie-release-icon, .movie-release-menu) {
+.movie-release-tier, .movie-releases .movie-release-icon {
     display: flex;
     align-items: center;
     gap: .4rem;
-    min-width: var(--movie-target);
-    min-height: var(--movie-target);
     padding: .25rem .5rem;
-    border: 1px solid transparent;
-    border-radius: .55rem;
-    background: transparent;
     color: inherit;
     text-align: start;
     line-height: 1.2;
 }
-.movie-releases .movie-release-menu { display: none; }
-.movie-releases .movie-release-tier[aria-pressed="true"] { border-color: #bfacff; background: #7b59e138; }
 .movie-release-tier-count { margin-inline-start: auto; padding: .2rem .4rem; border-radius: 1rem; background: #ffffff19; }
-.movie-releases .movie-release-icon { justify-content: center; flex: none; padding: 0; }
+.movie-releases .movie-release-icon {
+    justify-content: center;
+    flex: none;
+    min-width: var(--movie-target);
+    min-height: var(--movie-target);
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: .55rem;
+    background: transparent;
+}
 .movie-release-tier::before, .movie-release-health .movie-release-stat-value::before {
     content: "";
     display: inline-block;
@@ -1410,33 +1414,6 @@ body:has([data-release-layout]) .header-search .movie-search :is(input, button) 
     border-radius: 50%;
     background: var(--quality-bg, currentColor);
     border: 1px solid #ffffff2c;
-}
-.movie-release-controls { display: grid; gap: .6rem; }
-.movie-release-tools, .movie-release-filters { display: grid; min-width: 0; margin: 0; padding: 0; border: 0; }
-.movie-release-tools legend { padding: 0 .4rem; font-weight: 700; }
-.movie-release-filters { padding-top: .4rem; border-top: 1px solid #ffffff24; }
-.movie-release-controls label {
-    display: flex;
-    align-items: center;
-    gap: .55rem;
-    min-height: var(--movie-target);
-    padding: .15rem .35rem;
-    line-height: 1.25;
-    cursor: pointer;
-    border-radius: .4rem;
-}
-.movie-release-controls label:focus-within { outline: 2px solid #fff; outline-offset: -2px; }
-@media (min-width: 1000px) {
-    .movie-release-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-.movie-release-controls input { flex: none; margin: 0; accent-color: #ab94ff; }
-.movie-release-controls input[type="checkbox"] { appearance: none; width: 2rem; height: 1.15rem; border-radius: 1rem; border: 1px solid #ffffff53; background: #3c3c49; }
-.movie-release-controls input[type="checkbox"]::before { content: ""; display: block; width: .75rem; height: .75rem; margin: .13rem; border-radius: 50%; background: #fff; }
-.movie-release-controls input[type="checkbox"]:checked { background: #5e3cbd; }
-.movie-release-controls input[type="checkbox"]:checked::before { margin-inline-start: .9rem; }
-@media (forced-colors: active) {
-    .movie-release-controls input[type="checkbox"] { appearance: auto; }
-    .movie-release-controls input[type="checkbox"]::before { display: none; }
 }
 .movie-release-content { min-width: 0; padding: var(--release-edge); }
 .movie-library .movie-release-content li.movie-release {
@@ -1477,15 +1454,13 @@ body:has([data-release-layout]) .header-search .movie-search :is(input, button) 
 .movie-release-head .movie-release-top { gap: .2rem; }
 .movie-release-head .movie-release-top > span { padding: .1rem .35rem; font-size: .78em; }
 .movie-release-stat { display: grid; align-content: center; gap: .15rem; line-height: 1.2; }
-.movie-release-stat-label, .movie-release-size-note { font-size: .78em; color: #c0bdcb; }
+.movie-release-stat-label { font-size: .78em; color: #c0bdcb; }
 .movie-release-stat-value { font-weight: 650; }
 .movie-release-health .movie-release-stat-value { display: flex; align-items: center; gap: .3rem; }
 .movie-release-health .movie-release-stat-value::before { width: .65rem; height: .65rem; }
 .movie-release-health [data-level="ok"]::before { background: #42d783; }
 .movie-release-health [data-level="slow"]::before { background: #f2c46d; }
 .movie-release-health [data-level="none"]::before { background: #fb7373; }
-.movie-release-stat .movie-download-progress { display: block; height: .3rem; margin: .15rem 0; }
-.movie-release-stat .movie-download-progress > span { background: #9880ff; transition: none; }
 .movie-release-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: .2rem; }
 .movie-library .movie-release-content .movie-release-action {
     display: flex;
@@ -1522,11 +1497,8 @@ body:has([data-release-layout]) .header-search .movie-search :is(input, button) 
     .movie-release-identity { grid-template-columns: 3rem minmax(0, 1fr); align-items: center; }
     .movie-release-identity .movie-art { width: 100%; }
     .movie-release-identity .movie-art::before { font-size: 1.5rem; }
-    .movie-release-legend { display: flex; overflow-x: auto; padding: 2px; overscroll-behavior-inline: contain; }
-    .movie-releases .movie-release-tier { flex: none; background: #ffffff0c; }
-    .movie-release-tier:focus-visible { outline-offset: -2px; }
-    .movie-releases .movie-release-menu { display: flex; justify-self: start; background: #ffffff14; }
-    .movie-release-menu[aria-expanded="false"] + .movie-release-controls { display: none; }
+    .movie-release-legend { display: flex; flex-wrap: wrap; gap: .25rem; }
+    .movie-release-tier { border-radius: .5rem; background: #ffffff0c; }
     .movie-library .movie-release-content li.movie-release {
         grid-template-columns: minmax(3.2rem, .8fr) repeat(2, minmax(0, 1fr));
         grid-template-areas: "quality head head" "size time health" "action action action";
@@ -1552,3 +1524,8 @@ body:has([data-release-layout]) .header-search .movie-search :is(input, button) 
 }
 body[data-effects="off"] .movie-library .movie-release-content li.movie-release,
 body[data-effects="off"] .movie-release-results button { transition: none; transform: none; }
+
+/* Anchor the expanded player to the viewport during playback from a detail page. */
+.movie-expanded-page .workspace > main:has(:is(.movie-film-detail, .movie-show-detail, [data-release-layout]):not([hidden])) {
+    container-type: normal;
+}

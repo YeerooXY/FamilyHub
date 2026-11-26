@@ -193,7 +193,12 @@ async function checkVidea(browser, name, options, screenshots) {
     const cards = list.getByRole("listitem");
     await cards.last().waitFor();
     assert.equal(await focused(submit), true);
-    assert.deepEqual(await cards.locator(".movie-release-quality").allTextContents(), ["1080p Web", "1080p Web", "720p Web"]);
+    const qualities = ["1080p Web", "1080p Web", "720p Web"];
+    assert.deepEqual(await cards.locator(".movie-release-quality").allTextContents(), qualities);
+    assert.deepEqual(await cards.locator(".movie-release-health .movie-release-stat-value").allTextContents(),
+        ["Available", "Available", "Available"]);
+    assert.equal(await cards.first().locator(".movie-release-size .movie-release-stat-value").textContent(), "1.9 GB");
+    assert.equal(await cards.nth(1).getByText("YouTube", {exact: true}).count(), 1);
     const videa = cards.filter({hasText: "Hungarian audio listed"});
     assert.equal(await videa.getByText("Videa", {exact: true}).count(), 1);
     assert.equal(await videa.getByRole("link").count(), 0);
@@ -227,7 +232,7 @@ async function checkVidea(browser, name, options, screenshots) {
     await page.evaluate(() => window.finishVidea());
     await videa.getByText("Hungarian audio listed").waitFor();
     assert.equal(await cards.first().getByText("Hungarian audio listed").isVisible(), false);
-    assert.deepEqual((await cards.locator(".movie-release-quality").allTextContents()).sort(), ["1080p Web", "1080p Web", "720p Web"]);
+    assert.deepEqual(await cards.locator(".movie-release-quality").allTextContents(), qualities);
 
     await query.fill("Most Wanted A hajsza S2");
     await query.press("Enter");

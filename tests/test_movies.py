@@ -198,6 +198,25 @@ class MovieRequests(Base):
                          {'mediaType': 'movie', 'mediaId': 9394, 'is4k': False})
 
     @patch('music_web.movies.urllib.request.build_opener')
+    def test_movie_certifications_prefer_hu_then_us_then_gb(self, opener):
+        client, selection = self.select('sample-a')
+        cases = [('16', 'PG', '16'), (' ', 'PG', 'PG'), ('', '', '15')]
+        for movie_id, (hu, us, expected) in enumerate(cases, 101):
+            with self.subTest(hu=hu, us=us):
+                title = f'Fixture Film {movie_id}'
+                opener.return_value.open.side_effect = [
+                    upstream_json({'results': [dict(mediaType='movie', id=movie_id, title=title)]}),
+                    upstream_json({'title': title, 'releases': {'results': [
+                        {'iso_3166_1': country, 'release_dates': [{'certification': rating}]}
+                        for country, rating in [('GB', '15'), ('US', us), ('HU', hu)]
+                    ]}}),
+                ]
+                reply = self.post(client, selection['csrf_token'], '/api/movies/request-search',
+                                  json={'query': title})
+                self.assertEqual(reply.status_code, 200)
+                self.assertEqual(reply.json['title_details']['official_rating'], expected)
+
+    @patch('music_web.movies.urllib.request.build_opener')
     def test_search_and_series_request_use_the_mapped_user(self, opener):
         client, selection = self.select('sample-a')
         send = lambda route, **data: self.post(client, selection['csrf_token'], '/api/movies/' + route, json=data)
@@ -284,11 +303,13 @@ class MovieReleaseSearch(Base):
                 seeders=82, leechers=14, magnetUrl='magnet:fixture', downloadUrl='https://private.test')]).encode())
 
         opener.return_value.open.side_effect = lookup
-        for profile, status in [('sample-b', 404), ('sample-a', 200)]:
-            client, selected = self.select(profile)
-            reply = self.post(client, selected['csrf_token'], '/api/movies/releases',
-                              json={'query': 'Regular Show Season 1', 'indexerIds': [99]})
-            self.assertEqual(reply.status_code, status)
+        with self.assertLogs('music_web.movies', 'INFO') as logs:
+            for profile, status in [('sample-b', 404), ('sample-a', 200)]:
+                client, selected = self.select(profile)
+                reply = self.post(client, selected['csrf_token'], '/api/movies/releases',
+                                  json={'query': 'Regular Show Season 1', 'indexerIds': [99]})
+                self.assertEqual(reply.status_code, status)
+        self.assertEqual(logs.output, ['INFO:music_web.movies:Release search results=1 unavailable_sources=1'])
         self.assertEqual(reply.json, {'unavailable': 1, 'results': [dict(
             title='Regular Show S01', source='The Pirate Bay', size=123, seeders=82, leechers=14)]})
 

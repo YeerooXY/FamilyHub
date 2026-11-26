@@ -105,8 +105,8 @@ async function checkWidth(browser, width, height) {
         await logo.waitFor();
         assert.match(await page.locator(".movie-hero-art").getAttribute("src"), new RegExp(`maxWidth=${width > 1920 ? 3840 : 1920}$`));
         const meta = page.locator(".movie-hero-meta");
-        assert.deepEqual(await meta.locator(".movie-chip").allTextContents(), ["2001", "PG-13", "1 h 20 min", "1080p"]);
-        assert.equal(await meta.getByRole("img", {name: "Rated PG-13"}).getAttribute("data-level"), "12");
+        assert.deepEqual(await meta.locator(".movie-chip").allTextContents(), ["2001", "12", "1 h 20 min", "1080p"]);
+        assert.equal(await meta.getByRole("img", {name: "Rated 12"}).textContent(), "12");
         assert.equal(await meta.locator(".movie-release-quality").getAttribute("data-level"), "web");
 
         const compact = shelf(page, "Collections");
