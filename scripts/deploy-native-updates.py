@@ -15,6 +15,7 @@ def main():
     parser.add_argument('--platforms', default='windows-x64,android', help='comma-separated: windows-x64, android, ios')
     parser.add_argument('--assets-only', action='store_true', help='Mirror native packages without updating server code')
     parser.add_argument('--allow-busy', action='store_true', help='Restart even while downloads or analysis run; the server retries interrupted jobs')
+    parser.add_argument('--allow-playing', action='store_true', help='Restart even while someone is watching a film')
     args = parser.parse_args()
     platforms = [p for p in args.platforms.split(',') if p]
     if not platforms or any(p not in ('windows-x64', 'android', 'ios') for p in platforms):
@@ -57,7 +58,7 @@ def main():
     subprocess.run(['scp', *options, *map(str, files), host + ':' + incoming + '/'], check=True, cwd=ROOT)
     remote = (
         f'incoming = {incoming!r}\nplatforms = {platforms!r}\n'
-        f'web_files = {web_files!r}\nassets_only = {args.assets_only!r}\nallow_busy = {args.allow_busy!r}\n' + r'''
+        f'web_files = {web_files!r}\nassets_only = {args.assets_only!r}\nallow_busy = {args.allow_busy!r}\nallow_playing = {args.allow_playing!r}\n' + r'''
 import hashlib,hmac,json,os,pathlib,secrets,shutil,subprocess,time,urllib.request
 incoming=pathlib.Path(incoming)
 config=json.loads(pathlib.Path('/etc/familyhub-music-web/config.json').read_text())
@@ -74,6 +75,18 @@ if not assets_only:
         pid=subprocess.check_output(['systemctl','show',service,'-p','MainPID','--value'],text=True).strip()
         if not allow_busy and pid!='0' and subprocess.run(['pgrep','-P',pid],capture_output=True).returncode==0:
             raise RuntimeError('An acquisition or analysis is active. Retry deployment after it finishes.')
+        if not allow_playing and config.get('JELLYFIN_API_KEY'):
+            # Films stream through this service, so a restart cuts off anyone watching.
+            jellyfin=config.get('JELLYFIN_INTERNAL_URL','http://127.0.0.1:8096').rstrip('/')
+            request=urllib.request.Request(jellyfin+'/Sessions?activeWithinSeconds=300',
+                headers={'Authorization':'MediaBrowser Token="'+config['JELLYFIN_API_KEY']+'"'})
+            try:
+                with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request,timeout=5) as response:
+                    watching=[s for s in json.load(response) if s.get('NowPlayingItem')]
+            except Exception:
+                watching=[]
+            if watching:
+                raise RuntimeError(f'Playback is active on {len(watching)} device(s). Retry after it ends, or pass --allow-playing.')
 backup=pathlib.Path('/usr/local/lib/familyhub')/('before-native-updates-'+str(time.time_ns()))
 backup.mkdir(mode=0o700)
 originals={}
