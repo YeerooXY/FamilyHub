@@ -1,4 +1,5 @@
 import { createServiceStatus } from "./service-status.js";
+import { movieDialog } from "./movie-audio-ui.js";
 
 const gib = 1024 ** 3;
 // Download times assume this connection; the real speed depends on the server's line and on how many people share the file.
@@ -130,6 +131,36 @@ const audioMarkers = {
     hu: /\b(?:hun|magyarul|hungarian[ ._-]+audio|magyar[ ._-]+szinkron)\b/i,
     en: /\b(?:eng|english[ ._-]+audio)\b/i
 };
+
+function downloadOptions(parent, opener, signal, previous = []) {
+    const dialog = movieDialog(parent, opener, "Download options", signal);
+    const form = document.createElement("form");
+    const note = document.createElement("p");
+    note.textContent = "English subtitles are added automatically when available.";
+    const fields = ["Hungarian audio", "Hungarian subtitles"].map((title, index) => {
+        const label = document.createElement("label"), input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = previous[index] === true;
+        label.append(input, title);
+        form.append(label);
+        return input;
+    });
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.textContent = "Download";
+    form.append(submit);
+    dialog.classList.add("movie-download-options");
+    dialog.append(note, form);
+    return new Promise(resolve => {
+        let choices;
+        form.addEventListener("submit", event => {
+            event.preventDefault();
+            choices = fields.map(input => input.checked);
+            dialog.close();
+        });
+        dialog.addEventListener("close", () => resolve(choices), {once: true});
+    });
+}
 
 export function buildReleaseSearch(search, signal, download = null, showDetails = () => {}, preferredAudio = "default") {
     const panel = document.createElement("section");
@@ -301,6 +332,7 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             sent.tabIndex = -1;
             action.textContent = row.pending ? "Sending…" : row.failed ? "Try again" : "Download";
             action.setAttribute("aria-label", `${action.textContent} ${label}`);
+            if (canDownload && row.guid && !row.site) action.setAttribute("aria-haspopup", "dialog");
             if (!canDownload || !(row.guid || row.site && (row.url || row.episodes))) {
                 action.setAttribute("aria-disabled", "true");
                 action.title = canDownload ? "Search again to get a download reference." : "Downloading is not switched on for your profile.";
@@ -318,6 +350,11 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
             };
             action.addEventListener("click", async () => {
                 if (action.getAttribute("aria-disabled") === "true") return;
+                if (!row.site) {
+                    const options = await downloadOptions(panel, action, signal, row.downloadOptions);
+                    if (!options || signal.aborted) return;
+                    row.downloadOptions = options;
+                }
                 action.focus();
                 row.pending = true;
                 status.textContent = "";
@@ -325,7 +362,7 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
                 action.textContent = "Sending…";
                 action.setAttribute("aria-label", `Sending ${label}`);
                 let reply;
-                try { reply = await download(row); } catch {}
+                try { reply = await download(row, row.downloadOptions); } catch {}
                 if (signal.aborted) return;
                 row.pending = false;
                 row.sent = reply?.state === "sent";
@@ -432,4 +469,5 @@ export function buildReleaseSearch(search, signal, download = null, showDetails 
     }
     return {element: panel, load, setMatches};
 }
+
 

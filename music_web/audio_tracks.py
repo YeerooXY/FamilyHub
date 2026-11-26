@@ -23,7 +23,7 @@ from time import monotonic
 from flask import abort, g, jsonify, request
 
 from .movie_media import ITEM
-from .resources import lower_background_priority
+from .resources import background_command, lower_background_priority
 from .state import state_path, write_json
 
 
@@ -266,11 +266,11 @@ def target_path(item):
     raise ValueError('The library video is outside the movie and TV folders.')
 
 
-def media_command(tool, path, args, timeout, probe=False, expected=None):
+def media_command(tool, path, args, timeout, probe=False, expected=None, diagnostics=False):
     with opened(path) as fd:
         if expected is not None and fingerprint(os.fstat(fd)) != expected:
             raise ValueError('The media file changed while matching.')
-        command = [tool, '-v', 'error']
+        command = [tool, '-v', 'info' if diagnostics else 'error']
         if probe:
             command += ['-max_alloc', '67108864', '-probesize', '5000000', '-analyzeduration', '3000000']
         else:
@@ -278,9 +278,13 @@ def media_command(tool, path, args, timeout, probe=False, expected=None):
         command += ['-protocol_whitelist', 'file', '-f', FORMATS[path.suffix.lower()]]
         if not probe:
             command += ['-i']
-        return subprocess.run([*command, f'/proc/self/fd/{fd}', *args], pass_fds=(fd,), timeout=timeout,
-                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE if probe else subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL, check=True).stdout
+        command = [*command, f'/proc/self/fd/{fd}', *args]
+        if diagnostics:
+            command = background_command(command, nice=19)
+        result = subprocess.run(command, pass_fds=(fd,), timeout=timeout, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE if probe else subprocess.DEVNULL,
+                                stderr=subprocess.PIPE if diagnostics else subprocess.DEVNULL, check=True)
+        return result.stderr if diagnostics else result.stdout
 
 
 def duration(value):
@@ -314,6 +318,18 @@ def read_features(ffmpeg, path, index, output, smooth, expected):
             features = audio_features(pcm, smooth)
     output.unlink()
     return features
+
+
+def match_track(ffmpeg, video, source, target_index, reference, selected_index, original, video_stamp):
+    with opened(video.parent, directory=True) as folder, TemporaryDirectory(
+            prefix='.audio-match-', dir=f'/proc/{os.getpid()}/fd/{folder}') as temp:
+        temp = Path(temp)
+        smooth = reference is None
+        target = read_features(ffmpeg, video, target_index, temp / 'target.pcm', smooth, video_stamp)
+        origin = read_features(ffmpeg, source, selected_index, temp / 'source.pcm', smooth, original)
+        if reference is not None and reference != selected_index:
+            origin = read_features(ffmpeg, source, reference, temp / 'english.pcm', False, original)
+        return match_features(target, origin, smooth)
 
 
 def write_sidecar(ffmpeg, ffprobe, source, video, stream, language, title, report, source_stamp=None, video_stamp=None):
@@ -535,18 +551,8 @@ def register(app, cfg, body, allow, access, audio_library):
                         raise ValueError('Choose audio shorter than six hours.')
                     reference = english(source_tracks)
                     set_job(job, index, state='Matching audio', progress=index / len(pairs))
-                    with opened(video.parent, directory=True) as folder, TemporaryDirectory(
-                            prefix='.audio-match-', dir=f'/proc/{os.getpid()}/fd/{folder}') as temp:
-                        temp = Path(temp)
-                        smooth = reference is None
-                        target_features = read_features(ffmpeg, video, target_index, temp / 'target.pcm',
-                                                        smooth, video_stamp)
-                        source_features = read_features(ffmpeg, source, selected['index'], temp / 'source.pcm',
-                                                        smooth, original)
-                        if reference is not None and reference != selected['index']:
-                            source_features = read_features(ffmpeg, source, reference, temp / 'english.pcm',
-                                                            False, original)
-                        report = match_features(target_features, source_features, smooth)
+                    report = match_track(ffmpeg, video, source, target_index, reference,
+                                         selected['index'], original, video_stamp)
                     result['report'] = report
                     set_job(job, index, state='Writing audio', progress=(index + .6) / len(pairs))
                     output, stamp = write_sidecar(ffmpeg, ffprobe, source, video, selected, language,

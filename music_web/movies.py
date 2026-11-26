@@ -7,6 +7,7 @@ import logging
 import re
 import secrets
 import shutil
+import sqlite3
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -183,14 +184,15 @@ def read_downloads(qb):
 def register_movies(app, cfg, body, allow, session_is_live):
     base = service_url(cfg.get('JELLYFIN_INTERNAL_URL', 'http://127.0.0.1:8096'))
     public = service_url(cfg.get('JELLYFIN_PUBLIC_URL'), ('https',))
-    issue_media, audio_library = movie_media.register(app, base, body, allow, session_is_live, cfg.get('JELLYFIN_API_KEY'))
+    subtitle_imported = None
+    issue_media, audio_library = movie_media.register(app, base, body, allow, session_is_live, cfg.get('JELLYFIN_API_KEY'),
+        lambda path: subtitle_imported(path) if subtitle_imported else False)
     releases = cfg.get('MOVIE_RELEASE_SEARCH') or {}
     prowlarr = service_url(releases.get('url', 'http://127.0.0.1:9696'))
     indexers = tuple(dict.fromkeys(i for i in releases.get('indexer_ids', []) if type(i) is int and i > 0))[:4]
     requests = cfg.get('MOVIE_REQUESTS') or {}
     downloads = cfg.get('MOVIE_DOWNLOADS') or {}
     qb = downloads.get('qbittorrent') or {}
-    movie_import.start(cfg, service_url(qb.get('url')), base)
     youtube = YouTubeDownloads(downloads.get('youtube_dir') or DEFAULT_DIR, app.intake.spawn, app.intake.stop_process)
     seeds = downloads.get('videa_seeds')
     videa_seeds = {videa_title(title): link for title, link in (seeds.items() if isinstance(seeds, dict) else ())
@@ -222,7 +224,8 @@ def register_movies(app, cfg, body, allow, session_is_live):
                 and g.user in cfg.get('JELLYFIN_PROFILES', {}))
 
     audio_items = audio_tracks.register(app, cfg, body, allow, download_access, audio_library)
-    movie_subtitles.register(app, cfg, body, allow, audio_library)
+    subtitle_provider = movie_subtitles.register(app, cfg, body, allow, audio_library)
+    subtitle_imported = movie_import.start(cfg, service_url(qb.get('url')), base, subtitle_provider)
 
     def cached_search(key, ttl, fetch):
         with search_lock:
@@ -408,8 +411,10 @@ def register_movies(app, cfg, body, allow, session_is_live):
             return jsonify(error='Downloading is not switched on for your profile.'), 403
         data = body()
         ref, indexer, title = data.get('guid'), data.get('indexer_id'), data.get('title')
+        options = (data.get('hungarian_audio', False), data.get('hungarian_subtitles', False))
         if (not isinstance(ref, str) or not re.fullmatch(r'[A-Za-z0-9_-]{24}', ref)
-                or type(indexer) is not int or not isinstance(title, str) or not 0 < len(title) <= 250):
+                or type(indexer) is not int or not isinstance(title, str) or not 0 < len(title) <= 250
+                or any(type(option) is not bool for option in options)):
             return jsonify(error='Search again and select a release.'), 400
         if not allow('movie-download:' + g.user, 8, 60):
             return jsonify(error='Wait a minute before starting another download.'), 429
@@ -430,12 +435,18 @@ def register_movies(app, cfg, body, allow, session_is_live):
                     return error.code, error.read(8192).lower()
 
         try:
+            forget_options = movie_import.record_options(cfg, entry[4], entry[5], options)
+        except (OSError, ValueError, sqlite3.Error):
+            return jsonify(error='Could not save download options. Try again.'), 503
+        try:
             code, detail = grab([release])
             # Prowlarr's single-grab route on current versions binds a JSON object.
             if code == 400 and any(problem in detail for problem in (b'convert', b'"release"', b"body can't be empty")):
                 code, detail = grab(release)
         except (OSError, http.client.HTTPException, ValueError):
             return jsonify(error='Could not confirm the download. Check On the server before trying again.'), 503
+        if code and code < 500 and forget_options:
+            forget_options()
         if b'download client' in detail and any(word in detail for word in (b'configur', b'no download client')):
             return jsonify(error='Prowlarr has no download client set up for this release.'), 503
         if code == 404 or b'getting release from indexer failed' in detail:
@@ -468,6 +479,8 @@ def register_movies(app, cfg, body, allow, session_is_live):
                     rows = json.loads(reply.read(1024 * 1024))
                 return [dict(title=cleaned[:250], source=row.get('indexer', '')[:80], size=row.get('size'),
                              seeders=row.get('seeders'), leechers=row.get('leechers'),
+                             torrent_hash=movie_import.release_hash(row.get('infoHash'), row.get('magnetUrl')),
+                             torrent_title=cleaned[:4096],
                              guid=row.get('guid'), indexerId=row.get('indexerId', ids[0] if len(ids) == 1 else None)) for row in rows
                         if isinstance(row.get('title'), str) and (cleaned := movie_search.plain_title(row['title']))]
             except (OSError, ValueError, KeyError, TypeError, AttributeError):
@@ -523,9 +536,10 @@ def register_movies(app, cfg, body, allow, session_is_live):
                     del grab_refs[ref]
             for row in rows:
                 guid, indexer = row.pop('guid'), row.pop('indexerId')
+                torrent_title, torrent_hash = row.pop('torrent_title'), row.pop('torrent_hash')
                 if isinstance(guid, str) and 0 < len(guid) <= 8192 and type(indexer) is int and indexer in indexers:
                     ref = secrets.token_urlsafe(18)
-                    grab_refs[ref] = (g.user, indexer, guid, now + 1800)
+                    grab_refs[ref] = (g.user, indexer, guid, now + 1800, torrent_title, torrent_hash)
                     row.update(guid=ref, indexerId=indexer)
             while len(grab_refs) > 10000:
                 del grab_refs[next(iter(grab_refs))]

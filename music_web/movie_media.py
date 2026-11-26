@@ -86,7 +86,7 @@ def library_json(value, base_path):
     return value
 
 
-def register(app, base, body, allow, session_is_live, refresh_key=None):
+def register(app, base, body, allow, session_is_live, refresh_key=None, subtitle_imported=None):
     grants = {}
     lock = Lock()
     base_path = urllib.parse.urlsplit(base).path
@@ -179,7 +179,20 @@ def register(app, base, body, allow, session_is_live, refresh_key=None):
                 raw = upstream.read((4 << 20) + 1)
             if len(raw) > 4 << 20:
                 raise ValueError('Movie library response is too large')
-            return jsonify(result=library_json(json.loads(raw), base_path) if raw else None)
+            result = json.loads(raw) if raw else None
+            if subtitle_imported and re.fullmatch(rf'Items/{ITEM}(?:/PlaybackInfo)?', resource) and isinstance(result, dict):
+                for source in result.get('MediaSources') or []:
+                    if not isinstance(source, dict) or not subtitle_imported(source.get('Path')):
+                        continue
+                    source['FamilyHubSubtitleImport'] = True
+                    video = source['Path'].rsplit('/', 1)[-1].rsplit('.', 1)[0]
+                    sidecars = {video + '.en.srt', video + '.hu.srt'}
+                    for track in source.get('MediaStreams') or []:
+                        path = track.get('Path') if isinstance(track, dict) else None
+                        if (isinstance(path, str) and track.get('IsExternal') and track.get('Type') == 'Subtitle'
+                                and path.rsplit('/', 1)[-1] in sidecars):
+                            track['FamilyHubSubtitleSidecar'] = True
+            return jsonify(result=library_json(result, base_path))
         except (OSError, ValueError, RecursionError):
             abort(502)
 

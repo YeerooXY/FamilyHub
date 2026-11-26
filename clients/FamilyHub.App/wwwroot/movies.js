@@ -97,10 +97,10 @@ async function subtitleRows(streams, videoPath, readLineCount) {
         const matches = streams.filter(track => track.Type === "Subtitle" && trackLanguage(track) === language);
         const text = matches.filter(textSubtitle);
         if (text.length < 2) return text[0] ?? matches.find(bitmapSubtitle);
-        const sidecar = video && text.find(track => {
+        const sidecar = text.find(track => track.FamilyHubSubtitleSidecar) ?? (video && text.find(track => {
             const name = track.Path?.split(/[/\\]/).pop().toLowerCase();
             return name === `${video}.${language}.srt`;
-        });
+        }));
         if (sidecar) return sidecar;
         const named = video ? text.filter(track => languageCodes[language].some(code =>
             filenameStem(track.Path) === `${video}.${code}`)) : [];
@@ -863,7 +863,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         }
                         if (playerSignal.aborted) return;
                         if (saved?.error === "Subtitle provider is not set up")
-                            throw new SubtitleSearchError(saved.error + ". Ask an admin to add the OpenSubtitles account and API key to the server configuration.");
+                            throw new SubtitleSearchError(saved.error + ". Ask an admin to configure the OpenSubtitles API key.");
                         if (typeof saved?.error === "string" && saved.error)
                             throw new SubtitleSearchError(saved.error);
                         if (saved?.added !== true)
@@ -940,6 +940,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 }
             };
             function autoSubtitles() {
+                if (source.FamilyHubSubtitleImport) return;
                 if (!wantsSubtitles || options.subtitleIndex != null || preferredTrack(subtitles, subtitleLanguage)) return;
                 const key = preferencesKey(preferenceViewer) + ":autosub:" + item.Id + ":" + subtitleLanguage;
                 let tried = subtitleAttempts.has(key);
@@ -2236,12 +2237,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         videaFailed && (videa?.error || "Videa did not respond.")].filter(Boolean).join(" ")};
                 }
                 return {results: ranked, title_details: torrents?.title_details || youtube?.title_details, unavailable: (torrents?.unavailable || 0) + Number(torrentFailed) + Number(videaFailed)};
-            }, signal, session.downloads_enabled ? async row => {
+            }, signal, session.downloads_enabled ? async (row, options) => {
                 const reply = row.episodes
                     ? await call("MovieVideaSeasonDownload", row.name, row.episodes)
                     : row.site
                     ? await call(row.site === "Videa" ? "MovieVideaDownload" : "MovieYouTubeDownload", row.url, row.title)
-                    : await call("MovieDownload", row.guid, row.indexerId, row.title);
+                    : await call("MovieDownload", row.guid, row.indexerId, row.title, ...options);
                 if (reply?.state === "sent") refreshDownloadsAfterGrab();
                 return reply;
             } : null, showDetails, readMoviePreferences(preferenceViewer).audio) : null;

@@ -141,8 +141,9 @@
     public Task<string> MovieReleaseSearch(string query) => SendMovieRequest("/api/movies/releases", new { query });
 
     [JSInvokable]
-    public Task<string> MovieDownload(string guid, int indexerId, string title) =>
-        SendMovieRequest("/api/movies/download", new { guid, indexer_id = indexerId, title });
+    public Task<string> MovieDownload(string guid, int indexerId, string title, bool hungarianAudio, bool hungarianSubtitles) =>
+        SendMovieRequest("/api/movies/download", new { guid, indexer_id = indexerId, title,
+            hungarian_audio = hungarianAudio, hungarian_subtitles = hungarianSubtitles });
 
     [JSInvokable]
     public Task<string> MovieYouTubeMetadata(string[] ids) =>

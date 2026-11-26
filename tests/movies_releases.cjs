@@ -230,12 +230,37 @@ async function verify(browser, name, options) {
         await page.keyboard.press("Shift+Tab");
         assert.equal(await focus(grab), true);
         await page.keyboard.press("Enter");
+        const dialog = page.getByRole("dialog", {name: "Download options"});
+        const closeOptions = dialog.getByRole("button", {name: "Close", exact: true});
+        const huAudio = dialog.getByRole("checkbox", {name: "Hungarian audio", exact: true});
+        const huSubtitles = dialog.getByRole("checkbox", {name: "Hungarian subtitles", exact: true});
+        const submitOptions = dialog.getByRole("button", {name: "Download", exact: true});
+        await dialog.waitFor();
+        assert.equal(await focus(closeOptions), true);
+        assert.equal(await huAudio.isChecked(), false);
+        assert.equal(await huSubtitles.isChecked(), false);
+        await page.keyboard.press("Escape");
+        await dialog.waitFor({state: "hidden"});
+        assert.equal(await focus(grab), true);
+        assert.equal(await page.evaluate(() => calls.some(call => call[0] === "MovieDownload")), false);
+        await page.keyboard.press("Enter");
+        await dialog.waitFor();
+        await page.keyboard.press("Tab");
+        assert.equal(await focus(huAudio), true);
+        await page.keyboard.press("Space");
+        assert.equal(await huAudio.isChecked(), true);
+        await submitOptions.press("Enter");
         const retryGrab = first.getByRole("button", {name:/^Try again/});
         await retryGrab.waitFor();
         assert.equal(await focus(retryGrab), true);
         await page.getByRole("status").filter({hasText:"Prowlarr has no download client"}).waitFor();
         await page.clock.install();
         await page.keyboard.press("Space");
+        await dialog.waitFor();
+        assert.equal(await huAudio.isChecked(), true);
+        assert.equal(await huSubtitles.isChecked(), false);
+        await huSubtitles.press("Space");
+        await submitOptions.press("Enter");
         await page.waitForFunction(() => typeof confirmGrab === "function");
         await page.keyboard.press("Enter");
         await page.evaluate(() => {
@@ -246,7 +271,7 @@ async function verify(browser, name, options) {
         await sent.waitFor();
         assert.equal(await focus(sent), true);
         assert.deepEqual(await page.evaluate(() => calls.filter(call => call[0] === "MovieDownload")),
-            [["MovieDownload", "reference-a", 1, pack], ["MovieDownload", "reference-a", 1, pack]]);
+            [["MovieDownload", "reference-a", 1, pack, true, false], ["MovieDownload", "reference-a", 1, pack, true, true]]);
         await page.clock.fastForward(3200);
         await page.getByRole("region", {name:"Downloading"}).getByText("The Gentlemen Season 2", {exact:true}).waitFor();
         assert.equal(await focus(sent), true);

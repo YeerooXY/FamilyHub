@@ -173,7 +173,7 @@ async function verify(browser, profile, options) {
         }
         await page.getByText("Hungarian fixture cue").waitFor();
         await findEnglish.press("Space");
-        await status("Subtitle provider is not set up. Ask an admin to add the OpenSubtitles account and API key");
+        await status("Subtitle provider is not set up. Ask an admin to configure the OpenSubtitles API key.");
         assert.equal(await page.getByText("HTTP 503").count(), 0);
         assert.equal(await focused(findEnglish), true);
         await page.keyboard.press("Enter");

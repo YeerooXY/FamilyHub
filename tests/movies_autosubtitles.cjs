@@ -7,7 +7,7 @@ const { jellyfin, cors, moviePage, playMovieDetails, verifyMovieProfiles } = req
 const clip = fs.readFileSync(path.join(__dirname, "fixtures/movie-subtitles.mp4"));
 
 async function run(browser, options, scenario) {
-    const { preference, locale, language, code, firstResponse, nativeFullscreen = false } = scenario;
+    const { preference, locale, language, code, firstResponse, imported = false, nativeFullscreen = false } = scenario;
     const page = await browser.newPage({ ...options, locale });
     page.setDefaultTimeout(7000);
     const decodeVideo = browser.browserType().name() === "chromium";
@@ -29,7 +29,8 @@ async function run(browser, options, scenario) {
             const reply = props => route.fulfill({headers: cors, ...props});
             if (req.method() === "OPTIONS") return reply({status: 204});
             if (url.pathname === "/Items/trinity/PlaybackInfo")
-                return reply({json: {PlaySessionId: "play-1", MediaSources: [{Id: "source", SupportsDirectPlay: true, MediaStreams: []}]}});
+                return reply({json: {PlaySessionId: "play-1", MediaSources: [{Id: "source", SupportsDirectPlay: true,
+                    FamilyHubSubtitleImport: imported, MediaStreams: []}]}});
             if (url.pathname === "/Items/trinity") {
                 const MediaStreams = saved && mediaReads++ > 0 ? [addedTrack] : [];
                 return reply({json: {MediaSources: [{Id: "source", MediaStreams}]}});
@@ -104,7 +105,7 @@ async function run(browser, options, scenario) {
         const subtitles = sheet.getByRole("radiogroup", {name: "Subtitle track", exact: true});
         const downloaded = subtitles.getByRole("radio", {name: language, exact: true});
         const off = subtitles.getByRole("radio", {name: "Off", exact: true});
-        const automatic = preference === "en" || preference === "hu";
+        const automatic = !imported && (preference === "en" || preference === "hu");
         if (automatic) {
             await sheet.getByText(`Searching for ${language} subtitles`, {exact: true}).waitFor();
             assert.equal(await find.getAttribute("aria-disabled"), "true");
@@ -115,6 +116,13 @@ async function run(browser, options, scenario) {
             assert.equal(await find.getAttribute("aria-disabled"), "false");
             assert.equal(await off.getAttribute("aria-checked"), "true");
             assert.equal(searches, 0);
+            if (imported) {
+                releaseSearch();
+                await find.press("Enter");
+                await sheet.getByText("Found", {exact: true}).waitFor();
+                assert.equal(searches, 1);
+                assert.deepEqual(saves, ["provider_srt-420"]);
+            }
         } else if (firstResponse) {
             await sheet.getByText(firstResponse === "error" ? "The subtitle provider is unreachable. Try again later."
                 : "No subtitles found for this title and language. Try another language.",
@@ -162,6 +170,8 @@ verifyMovieProfiles(async (browser, profile, options) => {
     await run(browser, options, {preference: "hu", locale: "en-US", language: "Hungarian", code: "hun"});
     await run(browser, options, {locale: "hu-HU"});
     await run(browser, options, {preference: "off", locale: "en-US"});
+    if (profile === "chromium-1280")
+        await run(browser, options, {preference: "en", locale: "en-US", language: "English", code: "eng", imported: true});
     for (const firstResponse of ["error", "empty"])
         await run(browser, options, {preference: "en", locale: "en-US", language: "English", code: "eng", firstResponse});
 }).then(() => console.log("Automatic subtitle search, language, retry, and session limit passed."))

@@ -438,7 +438,7 @@ class MovieDownloads(Base):
             if req.get_method() == 'POST':
                 return io.BytesIO(b'{"downloadUrl":"https://private-indexer.test"}')
             indexer = urllib.parse.parse_qs(urllib.parse.urlsplit(req.full_url).query)['indexerIds'][0]
-            rows = [dict(title='Sample Release', indexerId=1, guid=self.guid,
+            rows = [dict(title='Sample Release', indexerId=1, guid=self.guid, infoHash='b' * 40,
                          magnetUrl='magnet:fixture', downloadUrl=self.guid)] if indexer == '1' else []
             return io.BytesIO(json.dumps(rows).encode())
 
@@ -449,6 +449,7 @@ class MovieDownloads(Base):
         self.assertEqual(row['indexerId'], 1)
         self.assertNotIn(self.guid, search.get_data(as_text=True))
         self.assertNotIn('magnet:', search.get_data(as_text=True))
+        self.assertNotIn('b' * 40, search.get_data(as_text=True))
         payload = dict(guid=row['guid'], indexer_id=1, title=row['title'])
         other, selected = self.select('sample-b')
         denied = self.post(other, selected['csrf_token'], '/api/movies/download', json=payload)
@@ -456,7 +457,14 @@ class MovieDownloads(Base):
         self.assertEqual(opener.return_value.open.call_count, 2)
         mismatched = self.post(client, profile['csrf_token'], '/api/movies/download', json={**payload, 'indexer_id': 3})
         self.assertEqual(mismatched.status_code, 404)
-        reply = self.post(client, profile['csrf_token'], '/api/movies/download', json=payload)
+        with patch('music_web.movie_import.record_options', return_value=None) as options:
+            invalid = self.post(client, profile['csrf_token'], '/api/movies/download',
+                                json={**payload, 'hungarian_subtitles': 'true'})
+            self.assertEqual(invalid.status_code, 400)
+            options.assert_not_called()
+            reply = self.post(client, profile['csrf_token'], '/api/movies/download',
+                              json={**payload, 'title': 'Client label', 'hungarian_subtitles': True})
+            self.assertEqual(options.call_args.args[1:], ('Sample Release', 'b' * 40, (False, True)))
         self.assertEqual(reply.json, {'state': 'sent'})
         req = opener.return_value.open.call_args.args[0]
         self.assertTrue(req.full_url.endswith('/api/v1/search'))

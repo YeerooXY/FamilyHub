@@ -1,5 +1,13 @@
 # Interface verification
 
+## 26 November 2026 Movie download options
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Torrent Download options, initial, cancelled, retry and submitted | never | never | never | never | never | Source check, 26 Nov 2026, current branch | never |
+
+The existing release browser fixture exercises unchecked defaults, Escape, focus return, Tab, Space, Enter and retaining choices on retry. The dialog uses the shared native modal with immediate state changes and the existing release status messages. Rendered browser and physical-device checks are pending.
+
 ## 26 November 2026 Admin per-torrent seeding goals
 
 | Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |

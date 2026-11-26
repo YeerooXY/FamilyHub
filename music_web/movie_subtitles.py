@@ -26,14 +26,7 @@ API = 'https://api.opensubtitles.com/api/v1'
 USER_AGENT = 'FamilyHub v1.5.2'
 MAX_FILE = 2 << 20
 MAX_JSON = 4 << 20
-LANGUAGES = frozenset("""
-aa ab ae af ak am an ar as av ay az ba be bg bh bi bm bn bo br bs ca ce ch co cr cs cu cv cy
-da de dv dz ee el en eo es et eu fa ff fi fj fo fr fy ga gd gl gn gu gv ha he hi ho hr ht hu hy hz
-ia id ie ig ii ik io is it iu ja jv ka kg ki kj kk kl km kn ko kr ks ku kv kw ky la lb lg li ln lo lt lu lv
-mg mh mi mk ml mn mr ms mt my na nb nd ne ng nl nn no nr nv ny oc oj om or os pa pi pl ps pt
-qu rm rn ro ru rw sa sc sd se sg si sk sl sm sn so sq sr ss st su sv sw ta te tg th ti tk tl tn to tr ts tt tw ty
-ug uk ur uz ve vi vo wa wo xh yi yo za zh zu
-""".split())
+LANGUAGES = {'en': {'en', 'eng', 'english'}, 'hu': {'hu', 'hun', 'hungarian', 'magyar'}}
 NO_RESULTS = 'No subtitles found for this title and language. Try another language.'
 UNREACHABLE = 'The subtitle provider is unreachable. Try again later.'
 SIGN_IN = 'The subtitle provider could not sign in. Ask an admin to check the OpenSubtitles account settings.'
@@ -259,16 +252,20 @@ class OpenSubtitles:
         return subtitle_bytes(self.request(link, api=False), params['languages'])
 
 
+def subtitle_text(raw, language):
+    if raw.startswith((b'\xff\xfe', b'\xfe\xff')):
+        text = raw.decode('utf-16')
+    else:
+        try:
+            text = raw.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            text = raw.decode('cp1250' if language in {'hu', 'pl', 'cs', 'sk', 'sl', 'hr', 'ro'} else 'cp1252')
+    return text.replace('\r\n', '\n').replace('\r', '\n').strip()
+
+
 def subtitle_bytes(raw, language):
     try:
-        if raw.startswith((b'\xff\xfe', b'\xfe\xff')):
-            text = raw.decode('utf-16')
-        else:
-            try:
-                text = raw.decode('utf-8-sig')
-            except UnicodeDecodeError:
-                text = raw.decode('cp1250' if language in {'hu', 'pl', 'cs', 'sk', 'sl', 'hr', 'ro'} else 'cp1252')
-        text = text.replace('\r\n', '\n').replace('\r', '\n').strip()
+        text = subtitle_text(raw, language)
         if SRT_START.match(text) and not re.search(r'[\x00-\x08\x0b-\x1f\x7f]', text):
             return (text + '\n').encode('utf-8')
     except UnicodeError:
@@ -327,8 +324,24 @@ def ensure_sidecar(item, library, provider, language):
         raise SubtitleError('Could not save subtitles beside this video. Ask an admin to check the library file and folder permissions.', 409) from None
 
 
+def fetch_for_import(provider, lock, mark_tried, title, year, episode, source, language):
+    if not provider.configured or not title or not mark_tried(language):
+        return None
+    params = dict(query=title, languages=language, type='episode' if episode else 'movie')
+    if year:
+        params['year'] = year
+    if episode:
+        params.update(season_number=episode[0], episode_number=episode[1])
+    try:
+        with lock:
+            return provider.fetch(params, source.stem)
+    except SubtitleError:
+        return None
+
+
 def register(app, cfg, body, allow, library_for, http=None):
     provider = OpenSubtitles(cfg, http)
+    automatic = provider if not provider.signs_in else OpenSubtitles({'OPENSUBTITLES_API_KEY': provider.key}, http)
     lock = Lock()
 
     @app.post('/api/movies/subtitle')
@@ -364,3 +377,5 @@ def register(app, cfg, body, allow, library_for, http=None):
             return jsonify(error=LIBRARY_UNAVAILABLE), 502
         finally:
             lock.release()
+
+    return automatic, lock

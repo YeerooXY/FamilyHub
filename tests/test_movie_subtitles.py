@@ -6,6 +6,7 @@ import os
 from email.message import Message
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Lock
 import unittest
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError
@@ -107,6 +108,31 @@ class OpenSubtitlesTests(unittest.TestCase):
             self.provider.fetch(self.params, 'Film')
         self.assertEqual(self.http.open.call_count, 4)
 
+    def test_import_uses_key_only_and_records_attempts_even_during_quota(self):
+        provider = subtitles.OpenSubtitles({'OPENSUBTITLES_API_KEY': CONFIG['OPENSUBTITLES_API_KEY']}, self.http)
+        self.http.open.side_effect = [response({'data': [result(1)]}), failure(406, {'reset_time': '2 hours'})]
+        tried = set()
+
+        def mark(language):
+            if language in tried:
+                return False
+            tried.add(language)
+            return True
+
+        for language in ('en', 'hu', 'en'):
+            self.assertIsNone(subtitles.fetch_for_import(provider, Lock(), mark, 'Film', '2024', (1, 2),
+                                                         Path('Film.S01E02.mkv'), language))
+        self.assertEqual(tried, {'en', 'hu'})
+        self.assertEqual(self.http.open.call_count, 2)
+        search, download = [call.args[0] for call in self.http.open.call_args_list]
+        self.assertEqual(parse_qs(urlsplit(search.full_url).query), {'query': ['Film'], 'type': ['episode'],
+            'year': ['2024'], 'languages': ['en'], 'season_number': ['1'], 'episode_number': ['2']})
+        self.assertTrue(download.has_header('Api-key'))
+        self.assertFalse(download.has_header('Authorization'))
+        provider.quota_until = 0
+        self.assertIsNone(subtitles.fetch_for_import(provider, Lock(), mark, 'Film', None, None, Path('Film.mkv'), 'en'))
+        self.assertEqual(self.http.open.call_count, 2)
+
     def test_retry_after_short_circuits_and_file_host_is_restricted(self):
         self.http.open.side_effect = [
             login(), failure(429, Retry_After='15'), response({'data': [result(1)]}),
@@ -171,6 +197,7 @@ class SubtitleGatewayTests(SubtitleGateway):
         self.assertEqual(self.fetch().json['error'], 'Subtitle provider is not set up')
         self.assertEqual(self.fetch(language='../en').status_code, 400)
         self.assertEqual(self.fetch(language='xx').status_code, 400)
+        self.assertEqual(self.fetch(language='de').status_code, 400)
         self.assertEqual(self.fetch(item='../Film').status_code, 400)
         self.assertEqual(self.go(self.client, 'POST', ROUTE, json={}).status_code, 400)
         other, csrf = self.select('sample-a')
@@ -180,7 +207,7 @@ class SubtitleGatewayTests(SubtitleGateway):
         self.http.open.assert_not_called()
 
 
-@unittest.skipUnless(os.name == 'posix', 'Linux media paths')
+@unittest.skipUnless(hasattr(os, 'O_PATH') and hasattr(os, 'O_NOFOLLOW'), 'Linux media paths')
 class SubtitleSidecarTests(SubtitleGateway):
     extra = {**SubtitleGateway.extra, **CONFIG, 'JELLYFIN_API_KEY': 'jellyfin-refresh'}
 
@@ -210,7 +237,7 @@ class SubtitleSidecarTests(SubtitleGateway):
         refresh = requests[-1]
         self.assertTrue(refresh.full_url.endswith(f'/Items/{ITEM}/Refresh?MetadataRefreshMode=FullRefresh&userId=viewer'))
         self.assertEqual(refresh.get_method(), 'POST')
-        self.assertEqual(refresh.get_header('X-emby-token'), 'jellyfin-refresh')
+        self.assertEqual(refresh.get_header('Authorization'), 'MediaBrowser Token="jellyfin-refresh"')
         self.assertTrue(self.fetch().json['existing'])
         self.assertEqual(self.http.open.call_count, 4)
         self.assertEqual(set(self.root.iterdir()), {video, output})
