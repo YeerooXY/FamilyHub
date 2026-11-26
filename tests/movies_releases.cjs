@@ -192,7 +192,6 @@ async function verify(browser, name, options) {
         assert.doesNotMatch(text, /seeder|leecher|Upload|The Pirate Bay|Knaben/);
         assert.equal(await first.locator(".movie-release-quality").getAttribute("data-level"), "web");
         assert.equal(await first.getByRole("img", {name:"Sound: Dolby Atmos"}).isVisible(), true);
-        assert.equal(await first.locator(".movie-screen-flag").count(), 0);
         assert.equal(await guide.getByText("Times assume a 100 Mbps connection.").isVisible(), false);
         assert.equal(await page.getByRole("spinbutton").count(), 0);
         const second = result.getByRole("listitem").nth(1);
@@ -203,9 +202,6 @@ async function verify(browser, name, options) {
         assert.match(await none.innerText(), /4K Remux.*May never finish.*Hard to get/s);
         assert.equal(await none.locator(".movie-release-quality").getAttribute("data-level"), "4k-remux");
         assert.doesNotMatch(await none.innerText(), /about \d+ (?:min|h)/);
-        const above = none.getByRole("img", {name:/Above your screen.*Lower quality saves data and storage/});
-        assert.equal(await above.isVisible(), true);
-        assert.match(await above.getAttribute("title"), /picture will look the same on this screen/);
         // The action is present on every tile and explains itself while downloads are off for the profile.
         const action = first.getByRole("button", {name: /^Download The Gentlemen/});
         assert.equal(await action.getAttribute("aria-disabled"), "true");

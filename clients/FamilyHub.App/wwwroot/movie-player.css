@@ -170,7 +170,7 @@
     animation: movie-tracks-open 200ms ease-out both;
 }
 @keyframes movie-tracks-open {
-    from { opacity: 0; transform: scale(.96); }
+    from { opacity: 0; transform: var(--movie-tracks-entry-transform, scale(.96)); }
 }
 body[data-effects="off"] .movie-ui > .movie-sheet-tracks { animation: none; }
 .movie-sheet-tracks .movie-sheet-head { margin-bottom: .4rem; }
@@ -329,9 +329,21 @@ body[data-effects="off"] .movie-track-spinner { animation: none; }
 }
 @media (min-width: 1600px) {
     .movie-ui.movie-hardware-volume { font-size: 1.3rem; }
+    .movie-ui.movie-hardware-volume > .movie-sheet-tracks { --movie-tracks-entry-transform: none; }
+    .movie-library .movie-ui.movie-hardware-volume .movie-sheet-tracks :is(button, select) {
+        min-width: var(--movie-target);
+        min-height: var(--movie-target);
+    }
     .movie-library .movie-ui.movie-hardware-volume select {
         min-width: var(--movie-target);
         min-height: var(--movie-target);
+    }
+    .movie-library .movie-ui.movie-hardware-volume > .movie-sheet-tracks :is(button, select, summary):focus-visible {
+        outline: 4px solid #fff;
+        outline-offset: 2px;
+    }
+    .movie-library .movie-ui.movie-hardware-volume > .movie-sheet-tracks .movie-track-option:focus-visible {
+        outline-offset: -4px;
     }
     .movie-ui.movie-hardware-volume .movie-ui-transport .movie-icon { width: 2rem; height: 2rem; }
 }

@@ -10,6 +10,8 @@ const shelf = (page, title) => page.locator(".movie-shelf").filter({has: page.ge
 const viewport = row => row.locator(".movie-shelf-scroll");
 const scrollLeft = row => viewport(row).evaluate(node => node.scrollLeft);
 const activeIndex = row => row.locator(".movie-card").evaluateAll(cards => cards.indexOf(document.activeElement));
+const heroFillSelector = '.movie-hero-pager [aria-current="true"] .movie-hero-dot-fill';
+const fillScale = fill => fill.evaluate(node => node.getBoundingClientRect().width / node.offsetWidth);
 
 async function measure(row) {
     return viewport(row).evaluate(node => {
@@ -116,7 +118,8 @@ async function checkWidth(browser, width, height) {
         }));
         near(hero.titleLeft, initial.firstLeft, "hero title alignment");
         assert.ok(hero.height >= .50 * height && hero.height <= .56 * height, "hero height");
-        assert.deepEqual(hero.controlHeights, Array(3).fill(width >= 1600 ? 52 : 44));
+        for (const controlHeight of hero.controlHeights) near(controlHeight, width >= 1600 ? 52 : 44, "hero control height");
+        assert.equal(hero.controlHeights.length, 3);
         assert.equal(await compact.getByRole("button", {name:/^(Previous|Next) collections$/}).count(), 0);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
 
@@ -221,18 +224,40 @@ async function checkWidth(browser, width, height) {
 async function checkHero(browser) {
     const page = await browser.newPage({viewport: {width: 320, height: 720}});
     try {
-        await page.clock.install();
         const {library} = await movieHomeFixture(page);
         const hero = page.locator(".movie-hero");
         const slide = hero.locator(".movie-hero-slide:not([inert])");
         const pager = hero.locator(".movie-hero-pager");
         const dots = pager.getByRole("button", {name: /^Show /});
+        const fill = page.locator(heroFillSelector);
+        const assertPaused = async reason => {
+            const [state, stopped, afterFrame] = await fill.evaluate(async node => {
+                const animation = node.getAnimations()[0];
+                await animation.ready;
+                const stopped = animation.currentTime;
+                await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                return [animation.playState, stopped, animation.currentTime];
+            });
+            assert.equal(state, "paused", reason);
+            assert.equal(afterFrame, stopped, reason);
+            return stopped;
+        };
+        const waitForProgress = time => page.waitForFunction(({selector, time}) => {
+            const animation = document.querySelector(selector)?.getAnimations()[0];
+            return animation?.playState === "running" && animation.currentTime > time;
+        }, {selector: heroFillSelector, time}, {timeout: 5000});
         const current = () => pager.locator('[aria-current="true"]').getAttribute("aria-label");
         const labels = await dots.evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label")));
         assert.equal(labels.length, 5);
         assert.equal(new Set(labels).size, labels.length);
         assert.equal(labels[0], "Show Midnight Meridian (Demo)");
         assert.equal(await current(), labels[0]);
+        assert.equal(await dots.first().getAttribute("title"), labels[0]);
+        const pill = dots.first().locator(".movie-hero-dot");
+        const {width, height} = await pill.boundingBox();
+        assert.deepEqual([width, height], [28, 6]);
+        assert.equal(await pill.getAttribute("aria-hidden"), "true");
+        assert.equal(await fill.evaluate(node => node.getAnimations()[0].effect.getTiming().duration), 9000);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
         near((await slide.locator("h2").boundingBox()).x, (await measure(shelf(page, "Continue watching"))).headingLeft, "phone hero alignment");
         const groups = await slide.evaluate(node => {
@@ -246,27 +271,33 @@ async function checkHero(browser) {
         assert.deepEqual(groups.buttons.map(Math.round), [44, 44, 44]);
         assert.equal(await slide.locator(".movie-hero-time").textContent(), "1 h 12 min left");
 
-        // Pointer hover pauses rotation through featured.matches(":hover"); headless Chromium does not update :hover under the fake clock, so keyboard focus and hidden-page pauses carry the coverage here.
         await page.mouse.move(0, 0);
+        await waitForProgress(0);
+        await dots.first().hover();
+        const hovered = await assertPaused("hover pauses the fill");
+        assert.ok(hovered > 0, "hover holds a partly filled pill");
+        assert.equal(await current(), labels[0], "hover keeps the current slide");
         const play = slide.getByRole("button", {name: "Resume"});
         await play.focus();
-        await page.clock.fastForward(9100);
+        await page.mouse.move(0, 0);
+        assert.equal(await assertPaused("focus pauses the fill"), hovered);
         assert.equal(await current(), labels[0], "focus pauses rotation");
         assert.equal(await focusIs(play), true);
 
         const search = page.getByRole("searchbox", {name: "Search movies and TV"});
-        await search.focus();
         await page.evaluate(() => {
             Object.defineProperty(document, "hidden", {configurable: true, value: true});
             document.dispatchEvent(new Event("visibilitychange"));
         });
-        await page.clock.fastForward(9100);
+        await search.focus();
+        assert.equal(await assertPaused("a hidden document pauses the fill"), hovered);
         assert.equal(await current(), labels[0], "a hidden document pauses rotation");
         await page.evaluate(() => {
             delete document.hidden;
             document.dispatchEvent(new Event("visibilitychange"));
         });
-        await page.clock.fastForward(9100);
+        await waitForProgress(hovered);
+        await fill.evaluate(node => { node.getAnimations()[0].currentTime = 8800; });
         await pager.locator('[aria-current="true"]').and(dots.nth(1)).waitFor();
         assert.equal(await focusIs(search), true);
         assert.equal(await hero.getByRole("status").textContent(), "");
@@ -274,15 +305,21 @@ async function checkHero(browser) {
         assert.equal(await slide.evaluate(node => node.getAnimations().some(animation => animation.effect.getTiming().duration === 900)), true);
         await hero.locator(".movie-hero-slide[inert]").waitFor({state: "detached"});
 
+        await waitForProgress(0);
+        await dots.nth(1).click();
+        assert.equal(await current(), labels[1]);
+        assert.equal(await assertPaused("clicking the current dot restarts its fill"), 0);
+        assert.equal(await fillScale(fill), 0);
         await dots.first().press("Space");
         await pager.locator('[aria-current="true"]').and(dots.first()).waitFor();
+        assert.equal(await assertPaused("selecting another dot starts its fill empty"), 0);
         assert.equal(await focusIs(dots.first()), true);
         assert.equal(await hero.getByRole("status").textContent(), labels[0].slice(5));
         await page.keyboard.press("Tab");
         assert.equal(await focusIs(dots.nth(1)), true);
         await page.keyboard.press("Shift+Tab");
         assert.equal(await focusIs(dots.first()), true);
-        await page.clock.fastForward(9100);
+        await assertPaused("pager focus pauses the fill");
         assert.equal(await current(), labels[0], "pager focus pauses rotation");
 
         for (const item of library.slice(1)) item.BackdropImageTags = [];
@@ -290,7 +327,7 @@ async function checkHero(browser) {
         await pager.waitFor({state: "hidden"});
         assert.equal(await focusIs(slide.getByRole("button", {name: "Resume"})), true);
         await search.focus();
-        await page.clock.fastForward(9100);
+        assert.equal(await fill.count(), 0);
         assert.equal(await slide.locator("h2").textContent(), labels[0].slice(5));
     } finally { await page.close(); }
 }
@@ -310,11 +347,16 @@ async function checkQuiet(browser, reducedMotion) {
         if (reducedMotion !== "reduce") await page.evaluate(() => { document.body.dataset.effects = "off"; });
         const hero = page.locator(".movie-hero"), pager = hero.locator(".movie-hero-pager");
         const dots = pager.getByRole("button", {name: /^Show /});
+        const fill = page.locator(heroFillSelector);
         await page.clock.fastForward(9100);
         assert.equal(await dots.first().getAttribute("aria-current"), "true");
+        assert.equal(await fillScale(fill), 1);
+        assert.equal(await fill.evaluate(node => node.getAnimations().length), 0);
         await dots.nth(1).press("Enter");
         assert.equal(await dots.nth(1).getAttribute("aria-current"), "true");
         assert.equal(await focusIs(dots.nth(1)), true);
+        assert.equal(await fillScale(fill), 1);
+        assert.equal(await fill.evaluate(node => node.getAnimations().length), 0);
         assert.equal(await hero.locator(".movie-hero-slide").evaluate(node => node.getAnimations().length), 0);
         const row = shelf(page, "Continue watching");
         const first = row.locator(".movie-card").first();

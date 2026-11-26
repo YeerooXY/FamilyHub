@@ -1,7 +1,7 @@
 import { buildPlayerUi, watchPlayerIdle } from "./movie-player-ui.js";
 import { addAudioDialog, audioJobResults, audioJobRunning, audioLanguage as audioLanguageName } from "./movie-audio-ui.js";
 import { movieAudioSync } from "./movie-audio-sync.js";
-import { appendSoundChip, buildReleaseSearch, cleanResultTitle, formatMinutes, librarySound, releaseSound, screenFlag, videoQualityTier } from "./movie-releases.js";
+import { appendSoundChip, buildReleaseSearch, cleanResultTitle, formatMinutes, librarySound, releaseSound, videoQualityTier } from "./movie-releases.js";
 import { createServiceStatus } from "./service-status.js";
 
 // AbortSignal.timeout needs Chromium 103; older televisions (webOS) need this form.
@@ -542,8 +542,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const quality = await qualityFor(prefs.dataSaver);
             if (!active || rev !== selection) return;
             const limit = dataLimits[quality];
-            const screen = movieScreen(prefs.screen);
-            const maxHeight = Math.min(screen.height, limit?.height ?? Infinity);
+            const configuredScreen = movieScreen(prefs.screen);
+            const maxHeight = Math.min(configuredScreen.height, limit?.height ?? Infinity);
             const Hls = nativeHls ? null : globalThis.Hls;
             const hls = nativeHls || Hls?.isSupported();
             const profile = { Name: "FamilyHub web video",
@@ -554,7 +554,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     ["dvdsub", "dvd_subtitle", "pgs", "pgssub", "hdmv_pgs_subtitle"].map(Format => ({ Format, Method: "Encode" })))] };
             const condition = (Property, Value) => ({ Condition: "LessThanEqual", Property, Value: String(Value), IsRequired: true });
             profile.CodecProfiles = [{ Type: "Video", Codec: "h264",
-                Conditions: [condition("Height", maxHeight), condition("Width", screen.width)] }];
+                Conditions: [condition("Height", maxHeight), condition("Width", configuredScreen.width)] }];
             if (limit) {
                 profile.MaxStreamingBitrate = limit.bitrate;
                 if (limit.audioBitrate) {
@@ -642,7 +642,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const stream = mediaUrl(path, {mediaSourceId: source.Id, playSessionId: result.PlaySessionId});
             if (direct) stream.searchParams.set("static", "true");
             else {
-                for (const [key, ceiling] of [["maxWidth", screen.width], ["maxHeight", maxHeight]]) {
+                for (const [key, ceiling] of [["maxWidth", configuredScreen.width], ["maxHeight", maxHeight]]) {
                     let capped = ceiling;
                     for (const name of [...stream.searchParams.keys()]) {
                         if (name.toLowerCase() !== key.toLowerCase()) continue;
@@ -1510,7 +1510,6 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }
     const streamsOf = item => (item.MediaStreams?.length ? item.MediaStreams : item.MediaSources?.[0]?.MediaStreams) ?? [];
     const videoOf = item => streamsOf(item).find(stream => stream.Type === "Video");
-    const configuredScreen = () => movieScreen(readMoviePreferences(preferenceViewer).screen);
     function renderFilmFacts(item, facts) {
         const video = videoOf(item);
         const height = video?.Height, width = video?.Width;
@@ -1519,8 +1518,6 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         facts.replaceChildren(...[item.ProductionYear, titleRating(item),
             formatMinutes(item.RunTimeTicks / 6e8), quality].filter(Boolean).map(chip));
         appendSoundChip(facts, librarySound(streamsOf(item)), icon);
-        const flag = screenFlag(configuredScreen(), height, width);
-        if (flag) facts.append(flag);
     }
     function titleRating(item) {
         return item.OfficialRating || (Number.isFinite(item.CommunityRating) && item.CommunityRating > 0
@@ -1707,13 +1704,6 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 progress.setAttribute("aria-label", `Episode ${index ?? name} watched`);
                 content.append(progress);
                 if (played || percent > 0) content.append(el("span", played ? "Watched" : percent + "% watched"));
-                const video = videoOf(episode);
-                const flag = video && screenFlag(configuredScreen(), video.Height, video.Width);
-                if (flag) {
-                    flag.setAttribute("aria-hidden", "true");
-                    action.setAttribute("aria-description", flag.getAttribute("aria-label"));
-                    content.append(flag);
-                }
             } else if (libraryKnown) {
                 const marker = el("span", "Not in library");
                 marker.className = "movie-episode-marker";
@@ -1912,14 +1902,6 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             b.setAttribute("aria-label", `${name}, new`);
         }
         b.append(artwork, caption);
-        const video = !findRelease && videoOf(display);
-        const flag = video && screenFlag(configuredScreen(), video.Height, video.Width);
-        if (flag) {
-            flag.setAttribute("aria-hidden", "true");
-            b.setAttribute("aria-label", b.getAttribute("aria-label") || name);
-            b.setAttribute("aria-description", flag.getAttribute("aria-label"));
-            caption.append(flag);
-        }
         if (format === "collections") b.classList.add("movie-card-collection");
         if (!preview && !findRelease && format !== "related") attachCardDownload(b, title.Name);
         return b;
@@ -2266,7 +2248,6 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 release?.setMatches(list);
                 return showMatchingTitles(list);
             }).catch(() => false) : null;
-        const screen = configuredScreen();
         const release = session.release_search_enabled || session.downloads_enabled
             ? buildReleaseSearch(async () => {
                 const [torrents, videa, youtube] = await Promise.all([
@@ -2298,7 +2279,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     : await call("MovieDownload", row.guid, row.indexerId, row.title, ...options);
                 if (reply?.state === "sent") refreshDownloadsAfterGrab();
                 return reply;
-            } : null, showDetails, {preferredAudio: readMoviePreferences(preferenceViewer).audio, screen, icon}) : null;
+            } : null, showDetails, {preferredAudio: readMoviePreferences(preferenceViewer).audio, icon}) : null;
         if (release) panel.append(release.element);
         panel.append(web);
         const message = el("p", "Checking other sources…");
@@ -2389,7 +2370,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             content.append(title, badges, meta, actions, notice);
             row.append(art, content);
 
-            let seconds, flag;
+            let seconds;
             function updateMatch() {
                 const ratio = seconds / (titleDetails.runtime_minutes * 60);
                 const same = ratio >= .9 && ratio <= 1.1;
@@ -2403,9 +2384,6 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 const tier = videoQualityTier(height || 0);
                 quality.dataset.level = row.dataset.tier = tier;
                 quality.textContent = height >= 2160 && height < 4320 ? "4K" : height ? `${height}p` : "Quality unknown";
-                flag?.remove();
-                flag = screenFlag(screen, height, details.width ?? video.width ?? Math.round(height * 16 / 9));
-                if (flag) badges.insertBefore(flag, match);
                 seconds = details.duration ?? video.duration ?? video.seconds;
                 const duration = formatMinutes(seconds / 60);
                 updateMatch();
@@ -2893,7 +2871,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     query.disabled = submit.disabled = true;
     requestAnimationFrame(() => { if (!homeReady && active) homeStatus.textContent = "Loading movies and TV…"; });
     let genreShelves = [], genresLoaded = false, loadingHome = false, homeReady = false, savingFavorite = false;
-    let heroItems = [], heroPick, heroSlide, heroTimer, heroPreload, heroChoice, heroFade, outgoingSlide;
+    let heroItems = [], heroPick, heroSlide, heroRotation, heroPreload, heroChoice, heroFade, outgoingSlide;
+    let heroHovered = false;
+    const heroInterval = 9000;
     const heroName = item => item.SeriesName ? `${item.SeriesName}, ${item.Name}` : item.Name;
     const hasBackdrop = item => backdropSources(item).some(([, type]) => type === "Backdrop");
     const heroVisible = () => active && !library.hidden && !browse.hidden && !featured.hidden;
@@ -2904,6 +2884,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         let settle;
         const ready = new Promise(resolve => { settle = resolve; });
         const art = movieBackdrop(item, settle);
+        void ready.then(scheduleHero);
         return heroPreload = {key, art, ready};
     }
 
@@ -2916,36 +2897,46 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         heroFade = outgoingSlide = undefined;
     }
 
-    function cancelHeroTimer() {
-        clearTimeout(heroTimer);
-        heroTimer = undefined;
+    function cancelHeroRotation() {
+        if (!heroRotation) return;
+        heroRotation.onfinish = null;
+        heroRotation.cancel();
+        heroRotation = undefined;
     }
 
     function scheduleHero() {
-        if (!heroVisible() || quietMotion()) finishHeroFade();
-        const paused = !heroVisible() || document.hidden || quietMotion() || heroChoice || heroItems.length < 2 ||
-            featured.matches(":hover") || featured.contains(document.activeElement);
-        if (paused) {
-            cancelHeroTimer();
+        const quiet = quietMotion();
+        if (!heroVisible() || quiet) finishHeroFade();
+        const fill = heroPager.querySelector('[aria-current="true"] .movie-hero-dot-fill');
+        if (!active || quiet || heroItems.length < 2 || !fill?.animate) {
+            cancelHeroRotation();
             return;
         }
-        if (heroTimer !== undefined) return;
+        if (!heroRotation) {
+            heroRotation = fill.animate([{transform: "scaleX(0)"}, {transform: "scaleX(1)"}],
+                {duration: heroInterval, fill: "both"});
+            heroRotation.currentTime = 0;
+            heroRotation.onfinish = scheduleHero;
+        }
+        const paused = !heroVisible() || document.hidden || heroChoice || heroHovered ||
+            featured.contains(document.activeElement);
+        if (paused) {
+            if (heroRotation.playState === "running") {
+                const elapsed = heroRotation.currentTime;
+                heroRotation.pause();
+                heroRotation.currentTime = elapsed;
+            }
+            return;
+        }
         const index = heroItems.findIndex(item => titleKey(item) === titleKey(heroPick));
         const next = heroItems[(index + 1) % heroItems.length];
         const preload = preloadHero(next);
-        const timer = setTimeout(async () => {
-            await preload.ready;
+        if (heroRotation.playState === "paused") heroRotation.play();
+        else if (heroRotation.playState === "finished" && !preload.art.hasAttribute("data-loading")) {
+            heroPreload = undefined;
+            renderHero(next, preload.art, true);
             scheduleHero();
-            if (heroTimer !== timer) return;
-            heroTimer = undefined;
-            const item = heroItems.find(item => item.Id === next.Id);
-            if (item && preloadHero(item) === preload) {
-                heroPreload = undefined;
-                renderHero(item, preload.art, true);
-            }
-            scheduleHero();
-        }, 9000);
-        heroTimer = timer;
+        }
     }
 
     async function chooseHero(key) {
@@ -2965,6 +2956,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             }
         }
         heroChoice = undefined;
+        cancelHeroRotation();
         scheduleHero();
     }
 
@@ -2974,9 +2966,14 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     const reducedHeroMotion = matchMedia("(prefers-reduced-motion: reduce)");
     reducedHeroMotion.addEventListener?.("change", scheduleHero, {signal: life.signal});
     document.addEventListener("visibilitychange", scheduleHero, {signal: life.signal});
-    for (const event of ["pointerenter", "pointerleave", "focusin"]) {
-        featured.addEventListener(event, () => queueMicrotask(scheduleHero));
+    for (const type of ["pointerenter", "pointerleave"]) {
+        featured.addEventListener(type, event => {
+            if (event.pointerType === "touch") return;
+            heroHovered = event.type === "pointerenter";
+            scheduleHero();
+        });
     }
+    featured.addEventListener("focusin", scheduleHero);
     featured.addEventListener("focusout", () => queueMicrotask(() => {
         if (heroVisible() && heroItems.length && !heroItems.includes(heroPick) && !heroSlide.contains(document.activeElement)) renderHome();
         else scheduleHero();
@@ -3082,14 +3079,21 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const dots = heroItems.length > 1 ? heroItems : [];
         const pagerKey = JSON.stringify(dots.map(item => [titleKey(item), heroName(item)]));
         if (heroPager.dataset.items !== pagerKey) {
-            cancelHeroTimer();
+            cancelHeroRotation();
             const focused = heroPager.contains(document.activeElement) ? document.activeElement.dataset.itemId : undefined;
             heroPager.dataset.items = pagerKey;
             heroPager.replaceChildren(...dots.map(item => {
                 const key = titleKey(item);
                 const dot = button("", () => void chooseHero(key));
+                const track = el("span"), fill = el("span");
+                track.className = "movie-hero-dot";
+                track.setAttribute("aria-hidden", "true");
+                fill.className = "movie-hero-dot-fill";
+                track.append(fill);
+                dot.append(track);
                 dot.dataset.itemId = key;
-                dot.setAttribute("aria-label", `Show ${heroName(item)}`);
+                dot.title = `Show ${heroName(item)}`;
+                dot.setAttribute("aria-label", dot.title);
                 return dot;
             }));
             heroPager.hidden = !dots.length;
@@ -3101,10 +3105,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }
 
     function updateHeroPager() {
-        for (const dot of heroPager.children) {
-            if (dot.dataset.itemId === titleKey(heroPick)) dot.setAttribute("aria-current", "true");
-            else dot.removeAttribute("aria-current");
-        }
+        const previous = heroPager.querySelector('[aria-current="true"]');
+        const current = [...heroPager.children].find(dot => dot.dataset.itemId === titleKey(heroPick)) ?? null;
+        if (previous === current) return;
+        cancelHeroRotation();
+        previous?.removeAttribute("aria-current");
+        current?.setAttribute("aria-current", "true");
     }
 
     function renderHero(pick, art, crossfade = false) {

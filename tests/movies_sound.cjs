@@ -35,11 +35,15 @@ const app = "http://t.test";
                 return select;
             };
             const audioPick = pick(), subtitlePick = pick();
+            const original = new Option("Original", 0);
+            original.dataset.language = "original";
+            audioPick.add(original);
             subtitlePick.add(new Option("Off", -1));
             const ui = buildPlayerUi({ media, surface, back, signal: new AbortController().signal, title: "Test",
-                notice: document.createElement("p"), audioPick, subtitlePick });
+                notice: document.createElement("p"), audioPick, subtitlePick, findAudio() {} });
             surface.append(ui.root);
         });
+        await page.waitForFunction(() => document.querySelector("link[data-movie-player]")?.sheet);
         const mute = page.getByRole("button", { name: "Mute", exact: true });
         const tracks = page.getByRole("button", { name: "Audio & Subtitles", exact: true });
         const slider = page.getByRole("slider", { name: "Volume" });
@@ -74,10 +78,22 @@ const app = "http://t.test";
             if (name === "tv") {
                 const controls = page.locator(".movie-ui").locator("button:visible, select:visible, input:visible");
                 assert.ok(await controls.count() > 0);
-                assert.equal(await controls.evaluateAll(nodes => nodes.every(node => {
+                const undersized = await controls.evaluateAll(nodes => nodes.flatMap(node => {
                     const {width, height} = node.getBoundingClientRect();
-                    return width >= 60 && height >= 60;
-                })), true);
+                    if (width >= 60 && height >= 60) return [];
+                    const classes = [...node.classList].map(name => `.${name}`).join("");
+                    return [{selector: `${node.localName}${classes}`, label: node.getAttribute("aria-label"), width, height}];
+                }));
+                assert.deepEqual(undersized, [], "TV targets below 60 × 60 CSS px");
+                const close = page.getByRole("button", { name: "Close audio and subtitles" });
+                const original = page.getByRole("radio", { name: "Original", exact: true });
+                const find = page.getByRole("button", { name: "Find English audio" });
+                for (const control of [close, original, find]) {
+                    assert.deepEqual(await control.evaluate(node => [
+                        document.activeElement === node, node.matches(":focus-visible"), getComputedStyle(node).outlineWidth
+                    ]), [true, true, "4px"], await control.getAttribute("aria-label"));
+                    await page.keyboard.press("Tab");
+                }
             }
         }
         await page.close();

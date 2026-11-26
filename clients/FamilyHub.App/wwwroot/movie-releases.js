@@ -87,17 +87,6 @@ export function appendSoundChip(target, sound, icon) {
     target.append(badge);
 }
 
-const screenExplanation = "The picture will look the same on this screen. Lower quality saves data and storage.";
-
-export function screenFlag(screen, height, width) {
-    if (!(height > screen.height || width > screen.width)) return null;
-    const badge = chip("movie-chip movie-screen-flag", "Above your screen");
-    badge.title = screenExplanation;
-    badge.setAttribute("role", "img");
-    badge.setAttribute("aria-label", `Above your screen. ${screenExplanation}`);
-    return badge;
-}
-
 /** What the release holds when it is a series: one episode, a whole season, or several seasons. */
 export function releaseKind(title) {
     if (/\bS\d{1,3}\s*[-–]\s*S?\d{1,3}\b/i.test(title) || /\b(?:complete|full)[ ._-]*(?:series|collection)\b/i.test(title)
@@ -243,7 +232,7 @@ function downloadOptions(parent, opener, signal, previous = []) {
     });
 }
 
-export function buildReleaseSearch(search, signal, download, showDetails, {preferredAudio, screen, icon}) {
+export function buildReleaseSearch(search, signal, download, showDetails, {preferredAudio, icon}) {
     const panel = document.createElement("section");
     panel.className = "movie-releases";
     panel.hidden = true;
@@ -350,9 +339,6 @@ export function buildReleaseSearch(search, signal, download, showDetails, {prefe
             if (sortBy === "best" && index === 0 && row.seeders >= 20 && row.quality.rank >= 3) badges.append(chip("movie-release-pick", "Recommended"));
             badges.append(chip("movie-release-quality", row.quality.label, row.quality.tier));
             appendSoundChip(badges, releaseSound(row.title), icon);
-            const height = row.maxHeight;
-            const flag = screenFlag(screen, height, Math.round(height * 16 / 9));
-            if (flag) badges.append(flag);
             if (row.kind) badges.append(chip("movie-release-kind", row.kind));
             if (row.site) badges.append(chip("movie-release-kind", row.site));
             if (row.audio.includes("hu")) badges.append(chip("movie-release-kind", "Hungarian audio listed"));
@@ -530,8 +516,7 @@ export function buildReleaseSearch(search, signal, download, showDetails, {prefe
             const quality = releaseQuality(episodes ? "" : title, height, size, comparisonLength);
             if (episodes && height > 0 && item.max_height > height) quality.label = `${height}p–${item.max_height}p`;
             const name = episodes ? `${title} · Season ${item.number}` : displayTitle(title);
-            const row = { title, name, height, maxHeight: episodes ? Math.max(height, number(item.max_height) || 0) : height,
-                size, length, lengthEstimated, mismatch, kind, audio, episodes, quality,
+            const row = { title, name, height, size, length, lengthEstimated, mismatch, kind, audio, episodes, quality,
                 seeders: number(item.seeders), guid: item.guid, indexerId: item.indexerId, site: item.site, url: item.url };
             const key = row.site ? `${row.site}\n${row.url}` : `${row.title.toLowerCase().replace(/[^a-z0-9]+/g, "")}\n${Math.round((row.size || 0) / 1e8)}`;
             const previous = matches.get(key);
