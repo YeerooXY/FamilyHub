@@ -82,20 +82,20 @@ internal static class AndroidExitDiagnostics
             .MaxBy(entry => entry.Timestamp);
         if (exit is null) return;
 
-        var reason = (int)exit.Reason switch
+        var reason = (ApplicationExitInfoReason)exit.Reason switch
         {
-            (int)ApplicationExitInfo.ReasonFreezer => "freezer",
-            (int)ApplicationExitInfo.ReasonLowMemory => "low_memory",
-            (int)ApplicationExitInfo.ReasonExcessiveResourceUsage => "excessive_resource_usage",
-            (int)ApplicationExitInfo.ReasonSignaled => "signaled",
-            (int)ApplicationExitInfo.ReasonCrash => "crash",
-            (int)ApplicationExitInfo.ReasonCrashNative => "crash_native",
-            (int)ApplicationExitInfo.ReasonAnr => "anr",
-            (int)ApplicationExitInfo.ReasonUserRequested => "user_requested",
-            (int)ApplicationExitInfo.ReasonUserStopped => "user_stopped",
-            (int)ApplicationExitInfo.ReasonDependencyDied => "dependency_died",
-            (int)ApplicationExitInfo.ReasonPermissionChange => "permission_change",
-            (int)ApplicationExitInfo.ReasonInitializationFailure => "initialization_failure",
+            ApplicationExitInfoReason.Freezer => "freezer",
+            ApplicationExitInfoReason.LowMemory => "low_memory",
+            ApplicationExitInfoReason.ExcessiveResourceUsage => "excessive_resource_usage",
+            ApplicationExitInfoReason.Signaled => "signaled",
+            ApplicationExitInfoReason.Crash => "crash",
+            ApplicationExitInfoReason.CrashNative => "crash_native",
+            ApplicationExitInfoReason.Anr => "anr",
+            ApplicationExitInfoReason.UserRequested => "user_requested",
+            ApplicationExitInfoReason.UserStopped => "user_stopped",
+            ApplicationExitInfoReason.DependencyDied => "dependency_died",
+            ApplicationExitInfoReason.PermissionChange => "permission_change",
+            ApplicationExitInfoReason.InitializationFailure => "initialization_failure",
             _ => "other"
         };
         var importance = ((Importance)exit.Importance) switch
