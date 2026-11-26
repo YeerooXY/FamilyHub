@@ -242,6 +242,7 @@
     border-radius:2px;
     background:#636363;
   }
+  #profile-menu.popup-menu { --menu-row-height:52px; }
   .connect-panel.popup-panel[open] { padding-bottom:0; }
   .player-bar .player-tools.popup-panel.is-open {
     position:fixed;

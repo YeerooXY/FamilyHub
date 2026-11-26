@@ -116,14 +116,16 @@ function checkGeometry(metrics, name, phone, connect) {
         const {anchor} = metrics;
         near(box.y - anchor.y - anchor.height, 8, 'gap below avatar');
         near(box.x + box.width, Math.min(viewportWidth - 8, anchor.x + anchor.width), 'right edge under avatar');
-        assert.ok(box.y + box.height < viewportHeight - 7 && box.height < 340, name + ' compact height');
+        assert.ok(box.y + box.height < viewportHeight - 7 && box.height < 340,
+            `${name} compact height (${box.height}px at y=${box.y}px in a ${viewportHeight}px viewport)`);
     }
+    const rowHeight = phone ? (anchored ? 52 : 56) : 44;
     for (const row of rows) {
         near(row.icon.width, 20, row.label + ' icon width');
         near(row.icon.height, 20, row.label + ' icon height');
         near(row.icon.x, title.x, row.label + ' icon column');
         near(row.icon.y + 10, row.box.y + row.box.height / 2, row.label + ' icon center');
-        near(row.box.height, phone ? 56 : 44, row.label + ' row height');
+        near(row.box.height, rowHeight, row.label + ' row height');
         assert.equal(row.gap, '12px', name + ' ' + row.label + ' gap');
         assert.equal(row.padding, phone ? '0px 12px' : '0px 8px', name + ' ' + row.label + ' padding');
         if (row.text) {
