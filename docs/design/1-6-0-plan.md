@@ -20,7 +20,7 @@
    - Remove the unused Jellyfin-downloaded wrong-timing subtitles once the new ones are confirmed.
 2. Player Audio & Subtitles panel (concept `round3/player-tracks-sheet.png`)
    - Smaller centred panel; two audio languages plus the original; two subtitle languages.
-   - No language picker and no Find subtitles button. Fixed rows, same every time (Owner 26 Nov): Off, English, Hungarian. A row whose subtitle is missing shows its own small download icon that searches for that language only; rows are never added or removed, so the panel looks the same on every title. The same rule applies to the audio rows (English, Hungarian, original).
+   - No language picker and no Find subtitles button. Fixed rows, same every time (Owner 26 Nov): Off, English, Hungarian. A row whose subtitle is missing shows its own small download icon that searches for that language only; rows are never added or removed, so the panel looks the same on every title. Audio rows (Owner 26 Nov): Original, English, Hungarian, since for Nordic or Japanese films the original track often sounds best. When the original is English or Hungarian the rows merge and the label reads 'English (original)'. A missing audio row also gets its own download icon (Hungarian audio uses the existing audio-track import).
    - Subtitle shift (any amount, in steps) and speed/frame-rate stretch, saved per title.
    - No random pills.
 3. Film full screen, series two-column with optional cast, genre background presets, heart favourites and My list, related row (collection parts first, then recommendations; check mark if in the library, search icon if not).
