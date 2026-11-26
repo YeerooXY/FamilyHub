@@ -122,7 +122,7 @@ def register(app, base, body, allow, session_is_live, refresh_key=None):
             query = urllib.parse.urlencode(dict(params or {}, userId=grant.viewer))
             headers = {'Accept': 'application/json'}
             if refresh and server_refresh and isinstance(refresh_key, str) and refresh_key:
-                headers['X-Emby-Token'] = refresh_key
+                headers['Authorization'] = 'MediaBrowser Token="' + refresh_key + '"'  # Jellyfin 12 no longer reads X-Emby-Token
             else:
                 headers['Authorization'] = grant.authorization
             req = urllib.request.Request(base + '/' + resource + '?' + query,

@@ -328,7 +328,7 @@ def start(config, qb_url, jellyfin_url):
 
                 def refresh():
                     request = urllib.request.Request(jellyfin_url + '/Library/Refresh', method='POST', data=b'',
-                                                     headers={'X-Emby-Token': key})
+                                                     headers={'Authorization': 'MediaBrowser Token="' + key + '"'})
                     with urllib.request.build_opener(NoRedirect).open(request, timeout=8):
                         pass
 
