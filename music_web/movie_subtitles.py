@@ -145,8 +145,10 @@ class OpenSubtitles:
         self.key = cfg.get('OPENSUBTITLES_API_KEY')
         self.username = cfg.get('OPENSUBTITLES_USERNAME')
         self.password = cfg.get('OPENSUBTITLES_PASSWORD')
-        self.configured = all(isinstance(value, str) and value.strip()
-                              for value in (self.key, self.username, self.password))
+        # The API key alone is enough: a consumer created with "Allow anonymous downloads" (and "Under dev" while testing)
+        # downloads without an account sign-in. Account credentials are optional and give the account's own quota.
+        self.configured = isinstance(self.key, str) and bool(self.key.strip())
+        self.signs_in = all(isinstance(value, str) and value.strip() for value in (self.username, self.password))
         self.http = http if http is not None else urllib.request.build_opener(NoRedirect)
         self.base = API
         self.token = None
@@ -229,7 +231,8 @@ class OpenSubtitles:
         remaining = self.rate_until - monotonic()
         if remaining > 0:
             raise SubtitleError(RATE_LIMIT, 429, int(remaining) + 1)
-        self.login()
+        if self.signs_in:
+            self.login()
         search = self.request(self.base + '/subtitles?' + urllib.parse.urlencode(params), token=self.token)
         results = search.get('data')
         if not isinstance(results, list):

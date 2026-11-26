@@ -12,11 +12,14 @@ function Read-Secret([string]$Label) {
 }
 
 $key = Read-Secret 'OpenSubtitles API key (from your API consumer)'
-$user = Read-Host 'OpenSubtitles username'
-$password = Read-Secret 'OpenSubtitles password'
-if (-not $key -or -not $user -or -not $password) { throw 'All three values are required.' }
+if (-not $key) { throw 'The API key is required.' }
+$user = Read-Host 'OpenSubtitles username (optional: press Enter to skip, the key is enough)'
+$password = ''
+if ($user) { $password = Read-Secret 'OpenSubtitles password' }
 
-$payload = @{ OPENSUBTITLES_API_KEY = $key; OPENSUBTITLES_USERNAME = $user; OPENSUBTITLES_PASSWORD = $password } | ConvertTo-Json -Compress
+$values = @{ OPENSUBTITLES_API_KEY = $key }
+if ($user -and $password) { $values.OPENSUBTITLES_USERNAME = $user; $values.OPENSUBTITLES_PASSWORD = $password }
+$payload = $values | ConvertTo-Json -Compress
 $remote = @'
 import json, os, shutil, sys, time
 path = '/etc/familyhub-music-web/config.json'
