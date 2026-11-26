@@ -16,6 +16,7 @@ public sealed class FamilyHubApi : IDisposable
 
     public Uri ServerOrigin { get; }
     public string? UserName { get; private set; }
+    public event Action<FamilyHubApi, Exception>? ServerRequestFailed;
     public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public string[] RecentFeedbackRequests(string profile)
@@ -522,7 +523,17 @@ public sealed class FamilyHubApi : IDisposable
                 request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(rangeStart, null);
                 request.Headers.IfRange = new System.Net.Http.Headers.RangeConditionHeaderValue(new System.Net.Http.Headers.EntityTagHeaderValue('"' + etag + '"'));
             }
-            var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            HttpResponseMessage response;
+            try { response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken); }
+            catch (HttpRequestException error)
+            {
+                ServerRequestFailed?.Invoke(this, error);
+                throw;
+            }
+            // Flask identifies its own responses, including errors from a single upstream service.
+            if (response.StatusCode is (HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout)
+                && !response.Headers.Contains("X-Content-Type-Options"))
+                ServerRequestFailed?.Invoke(this, new HttpRequestException("The server did not respond.", null, response.StatusCode));
             if (response.RequestMessage?.RequestUri is { } actual) ResolveUri(actual.AbsoluteUri);
             if (profile is not null && trace is not null)
             {

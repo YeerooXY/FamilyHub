@@ -24,6 +24,11 @@ public sealed class MusicSession
     public bool MoviesEnabled { get; private set; }
     public bool ServerHealthAdmin { get; private set; }
     public bool Connected { get; private set; }
+    private long? lastServerAnswer, reconnectUntil;
+    private bool restartAnnounced;
+    public bool ReconnectingToServer => reconnectUntil is not null;
+    public string? ServerStatusMessage => ReconnectingToServer ? "Reconnecting to the server..."
+        : restartAnnounced ? "The server will restart in a moment. Music keeps playing from downloaded or cached songs." : null;
     private bool uiActive = true;
     public event Action? UiActiveChanged;
     public bool UiActive
@@ -265,6 +270,12 @@ public sealed class MusicSession
                 activity.Status, activity.Duration, snapshot, revision, localPlay ? localPlaybackEpoch : playbackEpoch, localPlay, acks, compactIndex);
             if (receipt.CountersAccepted && journal is not null && counters is { Count: > 0 }) journal.Acknowledge(counters);
             if (profileVersion != accountVersion || !ReferenceEquals(api, Api)) return;
+            var announced = receipt.RestartInSeconds is >= 0 and <= 60;
+            lastServerAnswer = Environment.TickCount64;
+            var noticeChanged = restartAnnounced != announced;
+            restartAnnounced = announced;
+            if (ReconnectingToServer) ServerAnswered();
+            else if (noticeChanged) Changed?.Invoke();
             var epoch = receipt.Epoch ?? receipt.Command?.Epoch;
             var serverRestarted = epoch < playbackEpoch;
             playbackEpoch = epoch ?? playbackEpoch;
@@ -292,7 +303,10 @@ public sealed class MusicSession
             compactQueue = false;
             pendingActivity ??= activity;
         }
-        catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException or ObjectDisposedException) { }
+        catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException or ObjectDisposedException)
+        {
+            if (profileVersion == accountVersion) HandleServerFailure(api, error);
+        }
         finally
         {
             activityInFlight = false;
@@ -346,6 +360,7 @@ public sealed class MusicSession
         var sameAccount = Server == origin.AbsoluteUri && User == user;
         Api?.Dispose();
         Api = authenticatedApi ?? createApi(origin);
+        Api.ServerRequestFailed += OnServerRequestFailed;
         Server = origin.AbsoluteUri;
         User = user;
         listeningJournal?.Flush();
@@ -357,6 +372,7 @@ public sealed class MusicSession
         accountVersion++; pendingActivity = null; compactQueue = true; sentQueueIds = null; observedQueue = null; TopListenerId = null; topListenerChecked = default;
         if (!sameAccount)
         {
+            lastServerAnswer = reconnectUntil = null; restartAnnounced = false;
             PlaybackActivation = 0; activationWatermark = 0; controlsSeen.Clear();
             lock (handovers) handovers.Clear();
             playbackEpoch = null; localPlaybackEpoch = null; pendingAcks.Clear(); queueIds = []; activityQueueIndex = -1; queueRevision = 0; queueModes = default;
@@ -713,6 +729,7 @@ public sealed class MusicSession
     private void ClearProfile()
     {
         profilePassword = null;
+        lastServerAnswer = reconnectUntil = null; restartAnnounced = false;
         accountVersion++; TopListenerId = null; topListenerChecked = default;
         playbackCaches.Clear();
         PinPlayback(null); PinPreparingPlayback(null);
@@ -796,7 +813,7 @@ public sealed class MusicSession
         ServerHealthAdmin = selection.ServerHealthAdmin;
         ProfileName = selection.Profile.Name; Profiles = profiles; NeedsProfileSelection = false;
         StoreProfiles(Server, profiles);
-        Library = library; Playlists = playlists; Connected = true; UpdateMessage("", "info");
+        Library = library; Playlists = playlists; ServerAnswered(); UpdateMessage("", "info");
         PersistConnection();
 #if ANDROID
         ReportPreviousExit();
@@ -871,7 +888,9 @@ public sealed class MusicSession
             if (string.IsNullOrEmpty(Server)) return;
             RequireIdleDownload();
             candidate = createApi(new Uri(Server));
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            using var timeout = new CancellationTokenSource(reconnectUntil is { } deadline
+                ? TimeSpan.FromMilliseconds(Math.Clamp(deadline - Environment.TickCount64, 1, 3000))
+                : TimeSpan.FromSeconds(15));
             var connection = await candidate.ConnectAsync(timeout.Token, background);
             StoreProfiles(Server, connection.Profiles);
             var profile = connection.Profiles.FirstOrDefault(p => p.Id == User);
@@ -941,16 +960,25 @@ public sealed class MusicSession
     // Automatic refreshes try again a few times before saying the server is unavailable.
     private static readonly TimeSpan[] quietRetries = [TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(8), TimeSpan.FromSeconds(20)];
     private bool retryingQuietly;
-    public async Task RefreshLibraryAutomaticallyAsync()
+    public async Task RefreshLibraryAutomaticallyAsync(bool delayFirstRetry = false)
     {
-        if (string.IsNullOrEmpty(User) || DownloadingId is not null || retryingQuietly) return;
-        var version = accountVersion;
+        if (string.IsNullOrEmpty(User) || (DownloadingId is not null && !ReconnectingToServer) || retryingQuietly) return;
+        var account = (Server, User);
         retryingQuietly = true;
         try
         {
+            var reconnectAttempts = 0;
+            if (delayFirstRetry) await Task.Delay(2500);
             for (var attempt = 0; ; attempt++)
             {
-                if (attempt == quietRetries.Length) retryingQuietly = false;
+                if (account != (Server, User) || (delayFirstRetry && Connected && !ReconnectingToServer)) return;
+                if (reconnectUntil is { } deadline && deadline <= Environment.TickCount64)
+                {
+                    reconnectUntil = null;
+                    SetMessage("Server unavailable. Downloaded songs are available offline.", "warning");
+                    return;
+                }
+                if (!ReconnectingToServer && attempt >= quietRetries.Length) retryingQuietly = false;
                 if (!Connected) await ReconnectAsync(background: true);
                 else if (await connectionLock.WaitAsync(0))
                 {
@@ -958,8 +986,14 @@ public sealed class MusicSession
                     finally { connectionLock.Release(); }
                 }
                 else return;
-                if (Connected || !retryingQuietly || version != accountVersion || string.IsNullOrEmpty(User)) return;
-                await Task.Delay(quietRetries[attempt]);
+                if (Connected || account != (Server, User)) return;
+                if (reconnectUntil is { } until)
+                {
+                    var remaining = Math.Max(0, until - Environment.TickCount64);
+                    await Task.Delay((int)Math.Min(remaining, 2500 << Math.Min(reconnectAttempts++, 2)));
+                }
+                else if (retryingQuietly) await Task.Delay(quietRetries[attempt]);
+                else return;
             }
         }
         finally { retryingQuietly = false; }
@@ -998,7 +1032,7 @@ public sealed class MusicSession
         {
             await RefreshCatalogueAsync(timeout.Token, background);
             if (version != accountVersion) return;
-            Connected = true; UpdateMessage("", "info");
+            ServerAnswered(); UpdateMessage("", "info");
 #if ANDROID
             ReportPreviousExit();
 #endif
@@ -1062,10 +1096,43 @@ public sealed class MusicSession
     private void OfflineError(Exception error)
     {
         Connected = false;
-        if (retryingQuietly && error is not FamilyHubApiException { RequiresSignIn: true }) { Changed?.Invoke(); return; }
+        if (retryingQuietly && (TryBeginReconnect(error) || error is not FamilyHubApiException { RequiresSignIn: true }))
+        { Changed?.Invoke(); return; }
         SetMessage(error is FamilyHubApiException { RequiresSignIn: true }
             ? "Reconnect to your server. Downloaded songs are available offline."
             : "Server unavailable. Downloaded songs are available offline.", "warning");
+    }
+
+    private bool TryBeginReconnect(Exception error)
+    {
+        if (ReconnectingToServer) return true;
+        var now = Environment.TickCount64;
+        if (!restartAnnounced && !(lastServerAnswer is { } last && now - last <= 60_000)) return false;
+        if (error is not (HttpRequestException or OperationCanceledException or FamilyHubApiException { StatusCode: >= 500 })
+            && !(restartAnnounced && error is FamilyHubApiException { RequiresSignIn: true })) return false;
+        restartAnnounced = false;
+        reconnectUntil = now + 60_000;
+        return true;
+    }
+
+    private void OnServerRequestFailed(FamilyHubApi api, Exception error) =>
+        Microsoft.Maui.ApplicationModel.MainThread.BeginInvokeOnMainThread(() => HandleServerFailure(api, error));
+
+    private void HandleServerFailure(FamilyHubApi api, Exception error)
+    {
+        if (!ReferenceEquals(api, Api) || !Connected || !TryBeginReconnect(error)) return;
+        Connected = false;
+        Changed?.Invoke();
+        _ = RefreshLibraryAutomaticallyAsync(delayFirstRetry: true);
+    }
+
+    private void ServerAnswered()
+    {
+        var recovered = ReconnectingToServer;
+        lastServerAnswer = Environment.TickCount64;
+        Connected = true;
+        reconnectUntil = null;
+        if (recovered) Changed?.Invoke();
     }
 
     public bool OnServer(PlaylistTrack entry) => entry.RecordingId is { Length: > 0 } id

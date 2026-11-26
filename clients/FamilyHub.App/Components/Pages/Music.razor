@@ -16,6 +16,8 @@
 @inject NavigationManager Navigation
 @inject PublicAppReleases PublicReleases
 
+<span class="sr" role="status" aria-live="polite" aria-atomic="true">@Session.ServerStatusMessage</span>
+
 @if (splash != SplashState.Gone)
 {
     <StartupSplash Leaving="@(splash == SplashState.Leaving)" />
@@ -26,6 +28,9 @@
 else if (EntryScreen)
 {
     <main id="content" class="entry-screen" tabindex="-1">
+        <div class="shell-status">
+            <Notice Id="server-restart-status" Level="@(Session.ReconnectingToServer ? "info" : "warning")" Message="@Session.ServerStatusMessage" Announce="false" />
+        </div>
         @if (Session.NeedsProfileSelection && view != "Settings")
         {
             <section class="profile-picker" aria-labelledby="@(protectedProfile is null ? "profile-heading" : "profile-password-title")" @onkeydown="ProfilePickerKeyDown">
@@ -91,10 +96,10 @@ else if (EntryScreen)
             <form class="connect-form" @onsubmit="Connect" @onsubmit:preventDefault>
                 <img class="connect-mark" src="familyhub-mark.png" alt="FamilyHub" />
                 <div class="connect-fields"><label class="sr" for="server">Server address</label><input id="server" type="url" @bind="server" placeholder="Server address" autocomplete="url" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url" required /><button class="primary" type="submit" aria-disabled="@Aria(busy)">@(busy ? "Connecting..." : "Connect")</button></div>
-                <ServiceStatus Active="@(connectFailed || ConnectionLost)" FullSection="true"
+                <ServiceStatus Active="@(Session.ServerStatusMessage is null && (connectFailed || ConnectionLost))" FullSection="true"
                                Detail="Check the server address and your connection." RetryLabel="Retry server connection"
                                Retry="Connect" Busy="busy" FocusTarget="#server" />
-                <Notice Level="@(error is null ? Session.MessageLevel : "error")" Message="@(connectFailed || ConnectionLost ? null : error ?? EntryMessage)" />
+                <Notice Level="@(error is null ? Session.MessageLevel : "error")" Message="@(Session.ServerStatusMessage is not null || connectFailed || ConnectionLost ? null : error ?? EntryMessage)" />
                 @if (!string.IsNullOrEmpty(Session.User)) { <button class="quiet change-server" type="button" @onclick='() => Navigate("Library")'>Back</button> }
                 <AppUpdate @key="Session.Server" InitialRelease="startupUpdate" />
             </form>
@@ -148,18 +153,20 @@ else
     </nav>
     <div id="sidebar-resize" role="separator" tabindex="0" aria-label="Resize library sidebar" aria-orientation="vertical" aria-valuemin="72" aria-valuemax="420" aria-valuenow="@(sidebarCollapsed ? 72 : sidebarWidth)"></div>
 </aside>
-<div class="workspace" data-app-view="@view"><main id="content" tabindex="-1">
-    @{ var searchBanner = view == "Search" && searchFailed && searchUnavailable;
-       var connectionBanner = !searchBanner && error is null && ConnectionLost && view is not ("Stats" or "Leaderboard" or "Movies & TV" or "Files"); }
+<div class="workspace" data-app-view="@view"><main id="content" class="@(Session.ReconnectingToServer ? "server-reconnecting" : null)" tabindex="-1">
+    @{ var restartBanner = Session.ServerStatusMessage;
+       var searchBanner = restartBanner is null && view == "Search" && searchFailed && searchUnavailable;
+       var connectionBanner = restartBanner is null && !searchBanner && error is null && ConnectionLost && view is not ("Stats" or "Leaderboard" or "Movies & TV" or "Files"); }
     <div class="shell-status">
+    <Notice Id="server-restart-status" Level="@(Session.ReconnectingToServer ? "info" : "warning")" Message="@restartBanner" Announce="false" />
     <ServiceStatus Active="@connectionBanner"
                    Detail="@ConnectionDetail" RetryLabel="Retry server connection" Retry="Reconnect" Busy="reconnecting" AutoRetry="true"
                    FocusTarget="@(view == "Home" ? "#open-home" : view == "Library" ? "#open-library" : "#open-hub")" />
     <ServiceStatus Active="@searchBanner" Detail="Reconnect to search for songs."
                    RetryLabel="Retry search" Retry="RetrySongSearch" Busy="retryingSearch" AutoRetry="true" FocusTarget="#q" />
     <Notice Id="feedback" Level="@(error is not null ? "error" : radioProgress is not null ? "info" : Session.MessageLevel)"
-        Message="@(searchBanner || connectionBanner ? null : error ?? radioProgress ?? (!ConnectionLost && Session.DownloadingId is null && Session.MessageLevel != "success" ? Session.Message : ""))"
-        ActionLabel="@(searchBanner || connectionBanner ? null : RecoveryLabel)" Action="RetryNotice" FocusTarget="@(searchFailed ? "#view-title" : "#play")" />
+        Message="@(restartBanner is not null || searchBanner || connectionBanner ? null : error ?? radioProgress ?? (!ConnectionLost && Session.DownloadingId is null && Session.MessageLevel != "success" ? Session.Message : ""))"
+        ActionLabel="@(restartBanner is not null || searchBanner || connectionBanner ? null : RecoveryLabel)" Action="RetryNotice" FocusTarget="@(searchFailed ? "#view-title" : "#play")" />
     </div>
     @if (view is not ("Playlists" or "Home" or "Album" or "Hub" or "Wordle")) { <h1 id="view-title" tabindex="-1">@(view == "Preferences" ? "Settings" : NavLabel(view))</h1> }
     @if (error is not null && playbackRetry is not null)

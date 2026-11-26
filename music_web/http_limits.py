@@ -11,6 +11,8 @@ SMALL_BODY_LIMIT = 1 << 20
 
 
 def body_limit(method, path):
+    if (method, path) == ('POST', '/api/server/restart-notice'):
+        return 256
     if (method, path) in (('POST', '/api/uploads'), ('PUT', '/api/files/upload')):
         return None
     return FEEDBACK_BODY_LIMIT if (method, path) == ('POST', '/api/feedback') else SMALL_BODY_LIMIT

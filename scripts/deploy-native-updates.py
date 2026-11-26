@@ -57,7 +57,7 @@ def main():
     remote = (
         f'incoming = {incoming!r}\nplatforms = {platforms!r}\n'
         f'web_files = {web_files!r}\nassets_only = {args.assets_only!r}\nallow_busy = {args.allow_busy!r}\n' + r'''
-import hashlib,json,os,pathlib,shutil,subprocess,time,urllib.request
+import hashlib,hmac,json,os,pathlib,secrets,shutil,subprocess,time,urllib.request
 incoming=pathlib.Path(incoming)
 config=json.loads(pathlib.Path('/etc/familyhub-music-web/config.json').read_text())
 root=pathlib.Path(config['WORKSPACE'])/'.app-updates'
@@ -107,6 +107,26 @@ if not code_changed:
     shutil.rmtree(incoming)
     print(json.dumps({'version':data['version'],'backup':str(backup),'server_restarted':False}))
     raise SystemExit(0)
+deadline=time.monotonic()+8
+presence=None
+try:
+    origin=config['PUBLIC_ORIGIN'].rstrip('/')
+    secret=config.get('SECRET_KEY') or pathlib.Path(config.get('SECRET_FILE','/etc/familyhub/music-web.secret')).read_text(encoding='utf-8').strip()
+    stamp,nonce=int(time.time()),secrets.token_hex(16)
+    signature=hmac.new(secret.encode(),f'restart-notice|{stamp}|{nonce}|8'.encode(),hashlib.sha256).hexdigest()
+    headers={'Host':origin.split('://',1)[1],'Origin':origin,'Content-Type':'application/json',
+             'X-FamilyHub-Restart-Proof':f'{stamp}:{nonce}:{signature}'}
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+    opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
+    request=urllib.request.Request('http://127.0.0.1:8765/api/server/restart-notice',data=b'{"seconds":8}',headers=headers)
+    with opener.open(request,timeout=2) as response:
+        presence=json.load(response).get('presence')
+except Exception:
+    pass  # Older servers have no notice endpoint.
+if allow_busy or presence!='offline':
+    time.sleep(max(0,deadline-time.monotonic()))
 subprocess.run(['systemctl','stop',service],check=True)
 try:
     shutil.copyfile(incoming/'music-intake.py',intake)

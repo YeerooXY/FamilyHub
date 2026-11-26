@@ -40,6 +40,76 @@ window.familyhub = { press(id) { document.getElementById(id)?.click(); }, retain
     if (document.activeElement?.id === removedId || (document.activeElement === document.body && lastFocusId === removedId)) document.getElementById(successorId)?.focus();
 }, view(name) { document.body.dataset.view = name; familyhub.feedback?.screen(); const content = document.getElementById("content"); if (content) content.scrollTop = 0; if (document.activeElement === document.body) document.getElementById("content")?.focus(); }, focus(id) { const target = document.getElementById(id); if (target) target.focus(); else requestAnimationFrame(() => document.getElementById(id)?.focus()); } };
 
+(() => {
+    const panel = document.getElementById("blazor-error-ui");
+    if (!panel) return;
+    const button = panel.querySelector("button");
+    const announcement = document.getElementById("blazor-error-announcement");
+    const app = document.getElementById("app");
+    const reloadKey = "familyhub:reload-requested";
+    const visible = () => getComputedStyle(panel).display !== "none";
+    const show = () => { panel.style.display = "block"; };
+
+    const announce = () => {
+        if (!visible()) {
+            if (announcement.textContent) { announcement.textContent = ""; app.inert = false; }
+            return;
+        }
+        if (announcement.textContent) return;
+        for (const dialog of app.querySelectorAll("dialog[open]")) dialog.close();
+        app.inert = true;
+        announcement.textContent = panel.querySelector("h2").textContent + ". " + panel.querySelector("p").textContent;
+        button.focus({ preventScroll: true });
+    };
+    new MutationObserver(announce).observe(panel, { attributes: true, attributeFilter: ["style", "class"] });
+    announce();
+
+    async function fallback() {
+        try { sessionStorage.removeItem(reloadKey); } catch { }
+        if (!visible() && !document.getElementById("blazor-startup")) return;
+        show();
+        const timeout = new AbortController();
+        const timer = setTimeout(() => timeout.abort(), 3500);
+        try {
+            await fetch("/_familyhub/ReloadApp", {
+                method: "POST", headers: { "X-FamilyHub-WebView": "reload" },
+                mode: "same-origin", credentials: "omit", redirect: "error", signal: timeout.signal
+            });
+        } catch { }
+        finally {
+            clearTimeout(timer);
+            button.removeAttribute("aria-disabled");
+        }
+    }
+
+    try {
+        const requested = Number(sessionStorage.getItem(reloadKey));
+        const elapsed = Date.now() - requested;
+        if (requested && elapsed >= 0 && elapsed < 15000) setTimeout(fallback, Math.max(0, 3000 - elapsed));
+        else sessionStorage.removeItem(reloadKey);
+    } catch { }
+    button.addEventListener("click", () => {
+        if (button.hasAttribute("aria-disabled")) return;
+        button.setAttribute("aria-disabled", "true");
+        try { sessionStorage.setItem(reloadKey, String(Date.now())); } catch { }
+        setTimeout(fallback, 3000);
+        location.reload();
+    });
+
+    let hiddenSince = document.hidden ? Date.now() : null;
+    familyhub.checkReloadOnResume = async active => {
+        if (!active) { hiddenSince ??= Date.now(); return; }
+        const away = hiddenSince === null ? 0 : Date.now() - hiddenSince;
+        hiddenSince = null;
+        if (away < 60000 || visible()) return;
+        const timer = setTimeout(() => { if (!document.hidden && familyhub.nativeActive !== false) show(); }, 3000);
+        try {
+            await window.DotNet.invokeMethodAsync("FamilyHub.App", "CheckAppResponse");
+            clearTimeout(timer);
+        } catch { /* The timeout also handles an interop call that never settles. */ }
+    };
+})();
+
 familyhub.profileAvatarBounds = id => {
     if (matchMedia('(prefers-reduced-motion: reduce)').matches || document.body.dataset.effects === 'off') return null;
     const bounds = document.getElementById(id)?.querySelector('.profile-avatar')?.getBoundingClientRect();
@@ -991,6 +1061,7 @@ document.addEventListener('visibilitychange',()=>familyhub.setNativeActive(famil
 window.familyhub.setNativeActive = active => {
  familyhub.nativeActive=active;
  document.body.classList.toggle('native-hidden',!active||document.hidden);
+ familyhub.checkReloadOnResume?.(active && !document.hidden);
  familyhub.fitTitle();
 };
 

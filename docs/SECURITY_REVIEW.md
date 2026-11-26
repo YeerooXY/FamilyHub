@@ -28,6 +28,12 @@ Task 8 covers `codex-downloads`, app version 1.1.0. The review used local source
 | Low | Open | `clients/FamilyHub.App/Services/AppUpdater.cs:72`, `:102`, `docs/IOS_PRIVATE_INSTALL.md:1` | Windows trusts GitHub's TLS and asset digest. Android adds OS package signature and downgrade enforcement. iOS hands off to SideStore, which controls the source and re-signs the IPA. Consider Authenticode or a pinned release-signing key for Windows, keep the Android signing key stable and confirm SideStore uses the official source. |
 | Low | Open | `docs/MOBILE_MUSIC.md:109`, `docs/SERVER_HEALTH.md:27`, `compose.acquisition.yaml:27` | The live unit and acquisition image startup behavior sit outside this checkout. Test the systemd settings and image-specific read-only filesystems below on a disposable Debian environment before rollout. |
 
+## Deployment restart notice
+
+`POST /api/server/restart-notice` checks the configured host and origin, accepts direct loopback requests, rejects forwarded requests, rate-limits attempts, and bounds the JSON body and delay. The deploy script reads the existing server signing secret from its protected config or secret file and sends a purpose-bound HMAC over the timestamp, nonce and delay. Proofs expire after 30 seconds and accepted nonces cannot be replayed. This endpoint uses the proof in place of session and CSRF credentials. The script sends it directly without following redirects or logging credentials.
+
+The announcement lives in memory for two minutes. Signed-in playback check-ins receive only the remaining delay. Existing authentication and CSRF checks still protect playback check-ins.
+
 ## Profile password setup
 
 1. Use the stable ID shown by the local profile list or in `STATE_DIR/.family-profiles.json`. When `STATE_DIR` is unset, use `WORKSPACE/.family-profiles.json`. Add a distinct passphrase for each administrator, each Jellyfin-linked viewer and any profile that uses **Your files**.
@@ -249,6 +255,7 @@ POST /api/radio
 POST /api/recommendations
 POST /api/recommendations/match
 POST /api/search
+POST /api/server/restart-notice
 GET /api/server/seeding
 GET /api/server/stats
 GET /api/server/stats/now

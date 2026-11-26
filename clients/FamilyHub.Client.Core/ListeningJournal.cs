@@ -13,6 +13,7 @@ public sealed record ActivityReceipt
 {
     [JsonPropertyName("counters_accepted")] public bool CountersAccepted { get; init; }
     [JsonPropertyName("epoch")] public long? Epoch { get; init; }
+    [JsonPropertyName("restart_in_seconds")] public int? RestartInSeconds { get; init; }
     /// <summary>A playback transfer or pause when another device of this profile becomes active.</summary>
     [JsonPropertyName("command")] public PlaybackHandover? Command { get; init; }
     /// <summary>Play, pause, next, previous or seek sent by the device that handed playback here.</summary>

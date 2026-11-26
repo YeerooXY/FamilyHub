@@ -144,6 +144,7 @@ export function moviePreviewLibrary(now = Date.now()) {
         Id: `preview-${Type}-${index}`, Name: `${Name} (Demo)`, Type,
         Overview: Name === "Midnight Meridian" ? "A night dispatcher traces a distress call to a closed station. The caller gives her the number of the next train and tells her to stop it before midnight." : undefined,
         Genres: [genres[index % genres.length]], ProductionYear: 2001 + index % 25, Demo: true,
+        RunTimeTicks: Type === "Movie" ? 80 * 6e8 : undefined,
         DateCreated: new Date(now - (Type === "Movie" && index >= 32 ? index - 31 : 30 + index) * 86400000).toISOString(),
         UserData: {IsFavorite: index >= 1 && index <= 4, PlayedPercentage: index % 6 === 0 ? 20 + index : 0},
         ImageTags: index % 4 ? {Primary: `preview-${index % 3}`} : {},
@@ -154,6 +155,21 @@ export function moviePreviewLibrary(now = Date.now()) {
     const collections = make(["Meridian Films", "Harbor Stories", "The Orbit Collection"], "BoxSet");
     return [...movies, ...shows, ...collections.map((item, index) => ({...item,
         ChildIds: movies.filter((_, position) => position % 3 === index).slice(0, 5).map(movie => movie.Id)}))];
+}
+
+// hls.js is a classic UMD script. It never reached the app through import() (hls_loaded=False in every transcode
+// failure on Windows and Android, 26 Nov), so load it the way the web player does, with a script element.
+let hlsLoading;
+function loadHls() {
+    if (globalThis.Hls) return Promise.resolve();
+    hlsLoading ??= new Promise(resolve => {
+        const script = document.createElement("script");
+        script.src = new URL("vendor/hls.light.min.js", document.baseURI).href;
+        script.onload = script.onerror = () => resolve();
+        document.head.append(script);
+    }).then(() => globalThis.Hls ? undefined : import("./vendor/hls.light.min.js").catch(() => {}))
+      .then(() => { if (!globalThis.Hls) hlsLoading = undefined; });
+    return hlsLoading;
 }
 
 export function openMovies(host, session, app, viewer, homeBudget = 9500) {
@@ -446,7 +462,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             watchPlayerIdle(player, playerLife.signal);
         } else status.textContent = opening;
         const media = el("video");
-        const nativeHls = !!media.canPlayType("application/vnd.apple.mpegurl");
+        // Android WebView answers "maybe" for HLS but its built-in HLS player rejects our transcodes (media error 4 on
+        // every transcoded film, owner phone 26 Nov). Where Media Source exists on Android, hls.js does the work instead.
+        const nativeHls = !!media.canPlayType("application/vnd.apple.mpegurl") &&
+            !(globalThis.MediaSource && /Android.*; wv\)/i.test(navigator.userAgent));
         let failure = "The server did not return playback information.";
         let method = forceTranscode ? "Transcode" : "", selectedAudio, httpStatus, hlsError;
         const diagnostics = () => ({
@@ -461,7 +480,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         };
         try {
             if (!nativeHls && !globalThis.Hls && (globalThis.MediaSource || globalThis.ManagedMediaSource))
-                await import("./vendor/hls.light.min.js").catch(() => {});
+                await loadHls();
             const network = connectionRevision;
             const quality = await qualityFor(prefs.dataSaver);
             if (!active || rev !== selection) return;
@@ -1430,7 +1449,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             [item.Id, "Thumb", item.ImageTags?.Thumb],
             [item.Id, "Primary", item.ImageTags?.Primary]].filter(([id, , tag]) => id && tag);
     }
-    function movieBackdrop(item, home = false) {
+    function movieBackdrop(item, home = false, onSettled) {
         const art = el("img");
         art.alt = "";
         art.decoding = "async";
@@ -1438,7 +1457,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         art.className = "movie-hero-art";
         const width = home ? (innerWidth > 1920 ? 3840 : 1920) : (innerWidth > 1700 ? 2560 : 1600);
         const sources = backdropSources(item).filter(([, type]) => !home || type === "Backdrop");
-        const settle = () => delete art.dataset.loading;
+        const settle = () => {
+            delete art.dataset.loading;
+            onSettled?.();
+        };
         if (sources.length) {
             art.dataset.loading = "";
             art.addEventListener("load", settle, {once: true});
@@ -2417,6 +2439,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     const featured = el("section");
     featured.className = "movie-hero";
     featured.hidden = true;
+    const heroPager = el("div"), heroStatus = el("p");
+    heroPager.className = "movie-hero-pager";
+    heroPager.hidden = true;
+    heroStatus.className = "movie-visually-hidden";
+    heroStatus.setAttribute("role", "status");
+    featured.append(heroPager, heroStatus);
     const favoriteStatus = el("p");
     favoriteStatus.className = "movie-favorite-status";
     favoriteStatus.setAttribute("role", "status");
@@ -2450,6 +2478,99 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     query.disabled = submit.disabled = true;
     requestAnimationFrame(() => { if (!homeReady && active) homeStatus.textContent = "Loading movies and TV…"; });
     let genreShelves = [], genresLoaded = false, loadingHome = false, homeReady = false, savingFavorite = false;
+    let heroItems = [], heroPick, heroSlide, heroTimer, heroPreload, heroChoice, heroFade, outgoingSlide;
+    const heroName = item => item.SeriesName ? `${item.SeriesName}, ${item.Name}` : item.Name;
+    const hasBackdrop = item => backdropSources(item).some(([, type]) => type === "Backdrop");
+    const heroVisible = () => active && !library.hidden && !browse.hidden && !featured.hidden;
+
+    function preloadHero(item) {
+        const key = JSON.stringify([item.Id, backdropSources(item), innerWidth > 1920]);
+        if (heroPreload?.key === key) return heroPreload;
+        let settle;
+        const ready = new Promise(resolve => { settle = resolve; });
+        const art = movieBackdrop(item, true, settle);
+        return heroPreload = {key, art, ready};
+    }
+
+    function finishHeroFade() {
+        if (heroFade) {
+            heroFade.onfinish = null;
+            heroFade.cancel();
+        }
+        outgoingSlide?.remove();
+        heroFade = outgoingSlide = undefined;
+    }
+
+    function cancelHeroTimer() {
+        clearTimeout(heroTimer);
+        heroTimer = undefined;
+    }
+
+    function scheduleHero() {
+        if (!heroVisible() || quietMotion()) finishHeroFade();
+        const paused = !heroVisible() || document.hidden || quietMotion() || heroChoice || heroItems.length < 2 ||
+            featured.matches(":hover") || featured.contains(document.activeElement);
+        if (paused) {
+            cancelHeroTimer();
+            return;
+        }
+        if (heroTimer !== undefined) return;
+        const index = heroItems.findIndex(item => titleKey(item) === titleKey(heroPick));
+        const next = heroItems[(index + 1) % heroItems.length];
+        const preload = preloadHero(next);
+        const timer = setTimeout(async () => {
+            await preload.ready;
+            scheduleHero();
+            if (heroTimer !== timer) return;
+            heroTimer = undefined;
+            const item = heroItems.find(item => item.Id === next.Id);
+            if (item && preloadHero(item) === preload) {
+                heroPreload = undefined;
+                renderHero(item, preload.art, true);
+            }
+            scheduleHero();
+        }, 9000);
+        heroTimer = timer;
+    }
+
+    async function chooseHero(key) {
+        const pick = heroItems.find(item => titleKey(item) === key);
+        if (!pick) return;
+        const choice = heroChoice = {};
+        scheduleHero();
+        if (key !== titleKey(heroPick)) {
+            const preload = preloadHero(pick);
+            if (!quietMotion()) await preload.ready;
+            if (heroChoice !== choice) return;
+            const item = heroItems.find(item => titleKey(item) === key);
+            if (item && heroVisible() && !heroSlide.contains(document.activeElement) && preloadHero(item) === preload) {
+                heroPreload = undefined;
+                renderHero(item, preload.art, !quietMotion());
+                heroStatus.textContent = heroName(item);
+            }
+        }
+        heroChoice = undefined;
+        scheduleHero();
+    }
+
+    const heroObserver = new MutationObserver(scheduleHero);
+    for (const node of [library, browse]) heroObserver.observe(node, {attributes: true, attributeFilter: ["hidden"]});
+    heroObserver.observe(document.body, {attributes: true, attributeFilter: ["data-effects"]});
+    const reducedHeroMotion = matchMedia("(prefers-reduced-motion: reduce)");
+    reducedHeroMotion.addEventListener?.("change", scheduleHero, {signal: life.signal});
+    document.addEventListener("visibilitychange", scheduleHero, {signal: life.signal});
+    for (const event of ["pointerenter", "pointerleave", "focusin"]) {
+        featured.addEventListener(event, () => queueMicrotask(scheduleHero));
+    }
+    featured.addEventListener("focusout", () => queueMicrotask(() => {
+        if (heroVisible() && heroItems.length && !heroItems.includes(heroPick) && !heroSlide.contains(document.activeElement)) renderHome();
+        else scheduleHero();
+    }));
+    life.signal.addEventListener("abort", () => {
+        heroObserver.disconnect();
+        heroPreload = heroChoice = undefined;
+        scheduleHero();
+    });
 
     function backgroundFor(item) {
         const genre = searchTitle(item.Genres?.[0] || "");
@@ -2462,32 +2583,79 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
 
     function renderHome() {
         placeBrowseCards();
-        const pick = resumeShelf.items.find(item => progressOf(item) > 0) ??
-            recentShelf.items.find(item => item.Type === "Movie" && backdropSources(item).some(([, type]) => type === "Backdrop")) ??
-            recentShelf.items[0] ?? moviesShelf.items[0] ?? tvShelf.items[0] ?? favoriteShelf.items[0];
+        const resume = resumeShelf.items.find(item => progressOf(item) > 0);
+        const candidates = new Map();
+        if (resume) candidates.set(titleKey(resume), resume);
+        const sources = [recentShelf.items, favoriteShelf.items, genreShelves.flatMap(shelf => shelf.items)];
+        const unlistedBackdrop = item => !candidates.has(titleKey(item)) && hasBackdrop(item);
+        for (const items of sources) {
+            const item = items.find(unlistedBackdrop);
+            if (item) candidates.set(titleKey(item), item);
+        }
+        for (const item of sources.flat()) {
+            if (candidates.size === 5) break;
+            if (unlistedBackdrop(item)) candidates.set(titleKey(item), item);
+        }
+        const first = candidates.values().next().value ?? recentShelf.items[0] ?? moviesShelf.items[0] ?? tvShelf.items[0] ?? favoriteShelf.items[0];
+        const pick = (heroPick && candidates.get(titleKey(heroPick))) ?? first;
+        heroItems = candidates.size ? [...candidates.values()] : first ? [first] : [];
         empty.hidden = !!pick || !!browseShelves.some(shelf => shelf.cards.size || shelf.failed) || !genreRetry.hidden;
         if (!pick) {
             if (featured.contains(document.activeElement)) browse.focus({preventScroll: true});
             featured.hidden = true;
-            featured.replaceChildren();
-            return;
+            heroSlide?.remove();
+            heroSlide = heroPick = undefined;
+        } else if (!heroSlide?.contains(document.activeElement) || pick.Id === heroPick?.Id) {
+            renderHero(pick);
         }
+        const dots = heroItems.length > 1 ? heroItems : [];
+        const pagerKey = JSON.stringify(dots.map(item => [titleKey(item), heroName(item)]));
+        if (heroPager.dataset.items !== pagerKey) {
+            cancelHeroTimer();
+            const focused = heroPager.contains(document.activeElement) ? document.activeElement.dataset.itemId : undefined;
+            heroPager.dataset.items = pagerKey;
+            heroPager.replaceChildren(...dots.map(item => {
+                const key = titleKey(item);
+                const dot = button("", () => void chooseHero(key));
+                dot.dataset.itemId = key;
+                dot.setAttribute("aria-label", `Show ${heroName(item)}`);
+                return dot;
+            }));
+            heroPager.hidden = !dots.length;
+            if (focused) ([...heroPager.children].find(dot => dot.dataset.itemId === focused) ??
+                heroPager.firstElementChild ?? heroSlide?.querySelector(".movie-hero-actions button") ?? browse).focus({preventScroll: true});
+        }
+        updateHeroPager();
+        scheduleHero();
+    }
+
+    function updateHeroPager() {
+        for (const dot of heroPager.children) {
+            if (dot.dataset.itemId === titleKey(heroPick)) dot.setAttribute("aria-current", "true");
+            else dot.removeAttribute("aria-current");
+        }
+    }
+
+    function renderHero(pick, art, crossfade = false) {
         const title = seriesCardItem(pick);
         const favoriteItem = favoriteShelf.items.find(item => item.Id === title.Id);
         const existingTitle = pick.Type === "Episode" ? tvShelf.items.find(item => item.Id === title.Id) : pick;
         const isFavorite = !!favoriteItem || existingTitle?.UserData?.IsFavorite === true;
         const background = backgroundFor(pick);
         const identity = JSON.stringify([pick, isFavorite, background, innerWidth > 1920]);
+        heroPick = pick;
         if (featured.dataset.selection === identity && !featured.hidden) return;
-        const focusClass = featured.contains(document.activeElement) ? document.activeElement.className : "";
+        const focusClass = heroSlide?.contains(document.activeElement) ? document.activeElement.className : "";
         featured.dataset.selection = identity;
-        const art = movieBackdrop(pick, true), body = el("div"), actions = el("div");
+        art ??= movieBackdrop(pick, true);
+        const slide = el("div"), body = el("div"), controls = el("div"), actions = el("div");
+        slide.className = "movie-hero-slide";
         body.className = "movie-hero-body";
+        controls.className = "movie-hero-controls";
         actions.className = "movie-hero-actions";
-        featured.style.setProperty("--movie-hero-start", background[0]);
-        featured.style.setProperty("--movie-hero-end", background[1]);
-        const name = pick.SeriesName ? `${pick.SeriesName}, ${pick.Name}` : pick.Name;
-        const heading = el("h2"), nameText = el("span", name);
+        slide.style.setProperty("--movie-hero-start", background[0]);
+        slide.style.setProperty("--movie-hero-end", background[1]);
+        const heading = el("h2"), nameText = el("span", heroName(pick));
         heading.id = "movie-featured-title";
         heading.className = "movie-hero-title";
         heading.append(nameText);
@@ -2516,10 +2684,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             overview.className = "movie-hero-overview";
             body.append(overview);
         }
-        const details = button(pick.Type === "Series" && !preview ? "Seasons" : "Details",
-            () => openSeries(title, details, pick.ParentIndexNumber));
+        const details = button("", () => openSeries(title, details, pick.ParentIndexNumber));
+        const detailsLabel = pick.Type === "Series" && !preview ? "Seasons" : "Details";
         details.className = "movie-hero-details";
         details.dataset.itemId = titleKey(pick);
+        details.setAttribute("aria-label", detailsLabel);
+        details.title = detailsLabel;
+        details.append(icon("M12 16v-4m0-4h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z"));
         if (pick.Type !== "Series" && !preview) {
             const play = playAction(pick);
             play.setAttribute("aria-describedby", heading.id);
@@ -2568,16 +2739,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             if (pick.Type === "Series") actions.append(details);
             actions.append(favorite);
         }
-        if (preview || pick.Type !== "Series") {
-            if (!preview) {
-                details.textContent = "";
-                details.setAttribute("aria-label", "Details");
-                details.title = "Details";
-                details.append(icon("M12 16v-4m0-4h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z"));
-            }
-            actions.append(details);
-        }
-        body.append(actions);
+        if (preview || pick.Type !== "Series") actions.append(details);
+        controls.append(actions);
+        body.append(controls);
         const watched = progressOf(pick);
         if (watched > 0 && watched < 100) {
             const track = el("span"), fill = el("span");
@@ -2585,10 +2749,32 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             track.setAttribute("aria-hidden", "true");
             fill.style.width = watched + "%";
             track.append(fill);
-            body.append(track);
+            controls.append(track);
+            const runtime = pick.RunTimeTicks;
+            const position = pick.UserData?.PlaybackPositionTicks;
+            const remaining = formatMinutes((position > 0 && position < runtime ? runtime - position : runtime * (1 - watched / 100)) / 6e8);
+            if (remaining) {
+                const time = el("p", `${remaining} left`);
+                time.className = "movie-hero-time";
+                controls.append(time);
+            }
         }
-        featured.replaceChildren(art, body);
+        finishHeroFade();
+        slide.append(art, body);
+        if (crossfade && heroSlide && slide.animate) {
+            outgoingSlide = heroSlide;
+            outgoingSlide.querySelector(".movie-hero-title").removeAttribute("id");
+            outgoingSlide.setAttribute("inert", "");
+            outgoingSlide.setAttribute("aria-hidden", "true");
+        } else heroSlide?.remove();
+        heroSlide = slide;
+        featured.prepend(slide);
         featured.hidden = false;
+        updateHeroPager();
+        if (outgoingSlide) {
+            heroFade = slide.animate([{opacity: 0}, {opacity: 1}], {duration: 900, easing: "ease-in-out"});
+            heroFade.onfinish = finishHeroFade;
+        }
         if (focusClass) (Array.from(actions.children).find(node => node.className === focusClass) ?? details).focus({preventScroll: true});
     }
     async function loadGenres(bounded, quiet) {
@@ -2679,7 +2865,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const navigate = ".movie-card, .movie-hero-actions button";
         if ((!arrows && !page) || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !current.matches?.(navigate)) return;
         const catalogue = browse.hidden ? results : browse;
-        const groups = [...catalogue.querySelectorAll(".movie-hero:not([hidden]) .movie-hero-actions, .movie-shelf:not([hidden]) .movie-cards")]
+        const groups = [...catalogue.querySelectorAll(".movie-hero:not([hidden]) .movie-hero-slide:not([inert]) .movie-hero-actions, .movie-shelf:not([hidden]) .movie-cards")]
             .map(group => [...group.querySelectorAll(navigate)]).filter(group => group.length);
         const index = groups.findIndex(group => group.includes(current));
         if (index < 0) return;

@@ -388,7 +388,7 @@ def create_app(test_config=None):
             if not (sent == origin if sent is not None else ref == origin or ref.startswith(origin + "/")):
                 app.logger.warning("Rejected request: invalid origin")
                 abort(403)
-        if request.endpoint in ("admin_page", "admin_asset", "login", "static", "family_connect", "create_family_profile", "select_family_profile", "set_first_family_password", "app_update_manifest", "app_update_package", "profile_image", "share_landing", "share_download", "movie_media"):
+        if request.endpoint in ("admin_page", "admin_asset", "login", "static", "family_connect", "create_family_profile", "select_family_profile", "set_first_family_password", "app_update_manifest", "app_update_package", "profile_image", "share_landing", "share_download", "movie_media", "announce_restart"):
             return
         # Audio players cannot send the sign-in cookie, so a stream link carries a signed ticket.
         if request.endpoint in ("playback_audio", "download_library_recording", "job_media") and "ticket" in request.args:
@@ -971,6 +971,41 @@ def create_app(test_config=None):
 
     history_markers = {}
 
+    restart_lock = threading.Lock()
+    restart_at, restart_expires = 0, 0
+    restart_nonces = {}
+
+    @app.post("/api/server/restart-notice")
+    @csrf.exempt  # The deployment request uses a single-use proof and has no browser session.
+    def announce_restart():
+        nonlocal restart_at, restart_expires
+        if (request.remote_addr not in ("127.0.0.1", "::1")
+                or any(name in request.headers for name in ("Forwarded", "X-Forwarded-For"))):
+            abort(403)
+        if not allow("announce-restart", 10, 60):
+            abort(429)
+        data = body(256)
+        seconds = data.get("seconds")
+        if type(seconds) is not int or not 1 <= seconds <= 60:
+            raise ApiError("Choose a restart delay from 1 to 60 seconds.")
+        proof = request.headers.get("X-FamilyHub-Restart-Proof", "")
+        match = re.fullmatch(r"([0-9]{1,12}):([a-f0-9]{32}):([a-f0-9]{64})", proof)
+        if not match:
+            abort(403)
+        stamp, nonce, signature = match.groups()
+        expected = hmac.new(cfg["SECRET_KEY"].encode(), f"restart-notice|{stamp}|{nonce}|{seconds}".encode(), hashlib.sha256).hexdigest()
+        if abs(time.time() - int(stamp)) > 30 or not hmac.compare_digest(expected, signature):
+            abort(403)
+        with restart_lock:
+            now = time.monotonic()
+            for used in [key for key, expiry in restart_nonces.items() if expiry <= now]:
+                del restart_nonces[used]
+            if nonce in restart_nonces:
+                abort(403)
+            restart_nonces[nonce] = now + 61
+            restart_at, restart_expires = now + seconds, now + 120
+        return jsonify(presence=resources.reservations()[0])
+
     @app.post("/api/playback/activity")
     def playback_activity():
         data = body(65536)
@@ -1035,7 +1070,12 @@ def create_app(test_config=None):
                 catalogue_lock.release()
         if writes:
             wait_for_write(writes[-1])
-        return jsonify(ok=True, counters_accepted=accepted, command=command, controls=controls, epoch=epoch)
+        receipt = dict(ok=True, counters_accepted=accepted, command=command, controls=controls, epoch=epoch)
+        with restart_lock:
+            now = time.monotonic()
+            if now < restart_expires:
+                receipt["restart_in_seconds"] = max(0, int(restart_at - now + .999))
+        return jsonify(receipt)
 
     @app.get("/api/server/stats")
     def server_stats():

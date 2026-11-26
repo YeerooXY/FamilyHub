@@ -1,5 +1,6 @@
 using FamilyHub.Client.Core;
 using FamilyHub.App.Services;
+using Microsoft.AspNetCore.Components.WebView.Maui;
 
 namespace FamilyHub.App;
 
@@ -244,10 +245,45 @@ public partial class MainPage : ContentPage
 #endif
     }
 
-    // Song and playlist covers: answered from the app's cover cache. The address carries the
-    // account scope and cover version, so the web view may keep each one for a long time.
-    private void ServeArtwork(object? sender, WebViewWebResourceRequestedEventArgs args)
+    [Microsoft.JSInterop.JSInvokable]
+    public static void CheckAppResponse() { }
+
+    private void ReloadApp()
     {
+#if ANDROID
+        if (Content is not Grid grid) return;
+        var previous = blazorWebView;
+        var next = new BlazorWebView { HostPage = previous.HostPage };
+        next.RootComponents.Add(new() { Selector = "#app", ComponentType = typeof(ExitDiagnosticsBoundary) });
+        ConfigureWebView(next);
+        blazorWebView = next;
+        grid.Children.Remove(previous);
+        previous.Handler?.DisconnectHandler();
+        grid.Children.Add(next);
+#elif WINDOWS
+        if (blazorWebView.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.WebView2 web) web.CoreWebView2?.Reload();
+#elif IOS || MACCATALYST
+        if (blazorWebView.Handler?.PlatformView is WebKit.WKWebView web) web.Reload();
+#endif
+    }
+
+    private void OnWebResourceRequested(BlazorWebView view, WebViewWebResourceRequestedEventArgs args)
+    {
+        if (args.Uri.AbsolutePath == "/_familyhub/ReloadApp" && args.Uri.Host == "0.0.0.1" &&
+            args.Uri.Scheme is ("https" or "http" or "app") && args.Uri.IsDefaultPort && args.Uri.UserInfo.Length == 0 &&
+            args.Method == "POST" && args.Headers.Any(header =>
+                header.Key.Equals("X-FamilyHub-WebView", StringComparison.OrdinalIgnoreCase) && header.Value == "reload"))
+        {
+            args.Handled = true;
+            args.SetResponse(204, "No Content", new Dictionary<string, string> { ["Cache-Control"] = "no-store" }, Stream.Null);
+            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(100), () =>
+            {
+                if (ReferenceEquals(view, blazorWebView)) ReloadApp();
+            });
+            return;
+        }
+
+        // Scoped and versioned covers may be cached by the WebView.
         if (!args.Uri.AbsolutePath.StartsWith("/fh-art/", StringComparison.Ordinal)) return;
         args.Handled = true;
         var image = session.OpenArtworkAsync(args.Uri);
@@ -255,6 +291,35 @@ public partial class MainPage : ContentPage
         if (image.IsCompleted && image.Result is null) { args.SetResponse(404, "Not Found", notFound, Stream.Null); return; }
         args.SetResponse(200, "OK", new Dictionary<string, string> { ["Content-Type"] = "image/jpeg", ["Cache-Control"] = "private, max-age=2592000, immutable" },
             Task.Run<Stream>(async () => await image is { } found ? new MemoryStream(found.Data, false) : throw new FileNotFoundException()));
+    }
+
+    private void ConfigureWebView(BlazorWebView view)
+    {
+        view.WebResourceRequested += (_, args) => OnWebResourceRequested(view, args);
+        view.UrlLoading += (_, args) =>
+        {
+            if (args.Url.Host != "0.0.0.1" || args.Url.Scheme is not ("https" or "http" or "app") ||
+                !args.Url.IsDefaultPort || args.Url.UserInfo.Length != 0 ||
+                args.UrlLoadingStrategy != Microsoft.AspNetCore.Components.WebView.UrlLoadingStrategy.OpenInWebView)
+                args.UrlLoadingStrategy = Microsoft.AspNetCore.Components.WebView.UrlLoadingStrategy.CancelLoad;
+        };
+#if ANDROID
+        view.BlazorWebViewInitialized += (_, args) =>
+        {
+            var settings = args.WebView.Settings;
+            settings.AllowFileAccess = false;
+            settings.AllowContentAccess = false;
+            settings.MixedContentMode = Android.Webkit.MixedContentHandling.NeverAllow;
+        };
+#endif
+#if WINDOWS
+        view.BlazorWebViewInitialized += (_, args) =>
+        {
+            args.WebView.DefaultBackgroundColor = Microsoft.UI.Colors.Black;
+            args.WebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
+            args.WebView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
+        };
+#endif
     }
 
 	public MainPage(Services.MusicPlayer player, Services.MusicSession session, PlaybackConnection connection, PlaybackDevicePoll devices
@@ -293,23 +358,8 @@ public partial class MainPage : ContentPage
         UpdateDiscord();
 #endif
         current = new(this);
-        blazorWebView.WebResourceRequested += ServeArtwork;
-#if ANDROID
-        blazorWebView.BlazorWebViewInitialized += (_, args) =>
-        {
-            var settings = args.WebView.Settings;
-            settings.AllowFileAccess = false;
-            settings.AllowContentAccess = false;
-            settings.MixedContentMode = Android.Webkit.MixedContentHandling.NeverAllow;
-        };
-#endif
+        ConfigureWebView(blazorWebView);
 #if WINDOWS
-        blazorWebView.BlazorWebViewInitialized += (_, args) =>
-        {
-            args.WebView.DefaultBackgroundColor = Microsoft.UI.Colors.Black;
-            args.WebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
-            args.WebView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
-        };
         audio.IsVisible = false;
         audioNext.IsVisible = false;
         Loaded += (_, _) => Services.WindowsWindowChrome.Update(this,
@@ -349,13 +399,6 @@ public partial class MainPage : ContentPage
         {
             var activation = session.PlaybackActivation;
             if (session.Api is { } api) Dispatcher.Dispatch(async () => await connection.ReceiveAsync(handover, api, activation));
-        };
-        blazorWebView.UrlLoading += (_, args) =>
-        {
-            if (args.Url.Host != "0.0.0.1" || args.Url.Scheme is not ("https" or "http" or "app") ||
-                !args.Url.IsDefaultPort || args.Url.UserInfo.Length != 0 ||
-                args.UrlLoadingStrategy != Microsoft.AspNetCore.Components.WebView.UrlLoadingStrategy.OpenInWebView)
-                args.UrlLoadingStrategy = Microsoft.AspNetCore.Components.WebView.UrlLoadingStrategy.CancelLoad;
         };
 	}
     protected override bool OnBackButtonPressed()

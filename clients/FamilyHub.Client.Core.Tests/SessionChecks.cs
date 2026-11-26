@@ -4,6 +4,14 @@ using System.Text;
 using FamilyHub.App.Services;
 using FamilyHub.Client.Core;
 
+namespace Microsoft.Maui.ApplicationModel
+{
+    public static class MainThread
+    {
+        public static void BeginInvokeOnMainThread(Action action) => action();
+    }
+}
+
 internal static class SessionChecks
 {
     public static async Task<int> RunAsync()
@@ -30,6 +38,7 @@ internal static class SessionChecks
         var activityReports = new List<JsonElement>();
         JsonElement activityBody = default;
         long? ownershipEpoch = null;
+        int? restartInSeconds = null;
         var rejectActivity = false;
         var rejectCompact = false;
         var statuses = new Queue<string>();
@@ -86,8 +95,8 @@ internal static class SessionChecks
                 activityReports.Add(body.RootElement.GetProperty("device_info").Clone());
                 if (rejectCompact && activityReports[^1].TryGetProperty("queue", out var delta) && !delta.TryGetProperty("track_ids", out _))
                     return new(HttpStatusCode.BadRequest);
-                if (rejectActivity) return new(HttpStatusCode.ServiceUnavailable);
-                var response = Json(JsonSerializer.Serialize(new { counters_accepted = true, command = activityCommand, epoch = ownershipEpoch }, FamilyHubApi.JsonOptions));
+                if (rejectActivity) return new(HttpStatusCode.TooManyRequests);
+                var response = Json(JsonSerializer.Serialize(new { counters_accepted = true, command = activityCommand, epoch = ownershipEpoch, restart_in_seconds = restartInSeconds }, FamilyHubApi.JsonOptions));
                 var callback = duringActivity; duringActivity = null; callback?.Invoke();
                 return response;
             }
@@ -495,6 +504,25 @@ internal static class SessionChecks
             await remembered.ReconnectAsync();
             Check(remembered.NeedsProfileSelection && passwordSelections == selectionsBeforeReset && SecureStorage.Default.Count == 0, "Reset tried the saved password instead of offering setup");
             await remembered.SelectProfileAsync("alex", "replacement fixture password", createPassword: true);
+            restartInSeconds = 8;
+            await remembered.ReportPlaybackActivityAsync(false, force: true);
+            Check(remembered.ServerStatusMessage?.StartsWith("The server will restart", StringComparison.Ordinal) == true,
+                "Heartbeat restart notice did not reach the session");
+            reachable = false;
+            await remembered.ReportPlaybackActivityAsync(false, force: true);
+            Check(remembered.ReconnectingToServer && remembered.ServerStatusMessage == "Reconnecting to the server...",
+                "Failure after a restart notice did not start quiet reconnect");
+            var recovered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void ObserveRecovery()
+            {
+                if (remembered.Connected && remembered.ServerStatusMessage is null) recovered.TrySetResult();
+            }
+            remembered.Changed += ObserveRecovery;
+            restartInSeconds = null;
+            reachable = true;
+            await recovered.Task.WaitAsync(TimeSpan.FromSeconds(8));
+            remembered.Changed -= ObserveRecovery;
+            Check(!remembered.ReconnectingToServer, "Automatic reconnect left the banner active");
             await remembered.SwitchProfileAsync();
             Check(remembered.NeedsProfileSelection && SecureStorage.Default.Count == 0, "Switch profile kept the saved sign-in");
             remembered.Api?.Dispose();

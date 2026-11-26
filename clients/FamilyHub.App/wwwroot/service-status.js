@@ -43,7 +43,9 @@ export function showServiceRecovery(target) {
     setTimeout(() => target.classList.remove("service-status-restored"), 180);
 }
 
-export function createServiceStatus({ title = "Can't reach your server", detail, label, retry, focus, automatic = false, fullSection = false }) {
+const serverOutageTitle = "Can't reach your server";
+
+export function createServiceStatus({ title = serverOutageTitle, detail, label, retry, focus, automatic = false, fullSection = false }) {
     const make = (tag, className, copy) => {
         const node = document.createElement(tag);
         node.className = className;
@@ -51,6 +53,8 @@ export function createServiceStatus({ title = "Can't reach your server", detail,
         return node;
     };
     const card = make("div", "service-status" + (fullSection ? " service-status-section" : ""));
+    if (title === serverOutageTitle) card.dataset.serverOutage = "";
+    card.dataset.noticeFocus = "#content";
     card.hidden = true;
     const icon = make("span", "service-status-icon");
     icon.setAttribute("aria-hidden", "true");

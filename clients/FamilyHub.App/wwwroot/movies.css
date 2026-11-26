@@ -100,7 +100,7 @@
 }
 .movie-hero-art { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; object-fit: cover; object-position: center 25%; }
 .movie-hero-art:not([src]) { display: none; }
-.movie-hero::after {
+:is(.movie-hero, .movie-hero-slide)::after {
     content: "";
     position: absolute;
     inset: 0;
@@ -133,8 +133,6 @@
     font-weight: 700;
 }
 .movie-hero-play svg { width: 1.5rem; height: 1.5rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.movie-hero-play:hover { background: #e4e8f1; }
-.movie-hero-progress { position: relative; inset: auto; width: min(100%, 16rem); border-radius: 1rem; overflow: hidden; }
 
 /* Player: always the whole window. The accent is one variable. */
 .movie-library { --movie-accent: #e5484d; }
@@ -630,8 +628,24 @@ body:has(.workspace[data-app-view="Movies & TV"]) .header-search > :is(#search-f
 .movie-loading .movie-loading-pill { flex: 0 0 6rem; min-height: var(--movie-target); border-radius: 999px; }
 .movie-loading-card { border: 1px solid var(--border, #ffffff24); border-radius: .75rem; background: var(--panel-bg, #17191f); }
 .movie-library :is(.movie-toolbar, .movie-series, .movie-season-list, .movie-season, .movie-hero, .movie-shelf, .movie-library-empty)[hidden] { display: none; }
-.movie-library .movie-hero { background: linear-gradient(125deg, var(--movie-hero-start, #302052), var(--movie-hero-end, #121126)); }
-.movie-hero::after { background: linear-gradient(90deg, #070710f2 0%, #0707109c 36%, transparent 75%), linear-gradient(0deg, #0b0d12, transparent 55%); }
+.movie-library .movie-hero { grid-template-columns: minmax(0, 1fr); }
+.movie-library .movie-hero, .movie-hero-slide {
+    background: linear-gradient(125deg, var(--movie-hero-start, #302052), var(--movie-hero-end, #121126));
+}
+.movie-hero-slide {
+    position: relative;
+    z-index: 1;
+    isolation: isolate;
+    display: grid;
+    align-items: end;
+    align-self: stretch;
+    min-width: 0;
+    --movie-hero-control: 44px;
+}
+.movie-hero-slide[inert] { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.movie-hero:has(.movie-hero-pager:not([hidden])) .movie-hero-slide { padding-bottom: .9rem; }
+:is(.movie-hero, .movie-hero-slide)::after { background: linear-gradient(90deg, #070710f2 0%, #0707109c 36%, transparent 75%), linear-gradient(0deg, #0b0d12, transparent 55%); }
+@media (min-width: 1600px) { .movie-hero-slide { --movie-hero-control: 52px; } }
 .movie-hero-logo { display: block; max-width: min(100%, 23rem); height: clamp(3rem, 8vh, 7rem); object-fit: contain; object-position: left center; }
 .movie-hero-logo[hidden], .movie-favorite-status:empty { display: none; }
 .movie-browse:focus-visible { outline: none; }
@@ -649,15 +663,69 @@ body:has(.workspace[data-app-view="Movies & TV"]) .header-search > :is(#search-f
 .movie-favorite-status { margin: .5rem 0; }
 .movie-hero-title { overflow-wrap: anywhere; color: #fff; }
 .movie-hero-body { min-width: 0; padding: clamp(1rem, 2.8vw, 2.75rem) var(--movie-peek-edge); }
-.movie-library .movie-hero-details { background: #272c38; color: #fff; }
-.movie-library :is(.movie-hero-play, .movie-hero-details, .movie-hero-favorite) { border-radius: 999px; }
-.movie-library :is(.movie-hero-play, .movie-hero-details, .movie-hero-favorite, .movie-series button) {
+.movie-library .movie-series button {
     min-width: var(--movie-target);
     min-height: var(--movie-target);
 }
-.movie-library .movie-hero-favorite { display: grid; place-items: center; padding: 0; border: 1px solid #b799ff94; color: #cfb4ff; background: #171126dd; }
+.movie-hero-controls { display: grid; gap: .35rem; justify-self: start; max-width: 100%; }
+.movie-library .movie-hero-actions button {
+    height: var(--movie-hero-control);
+    min-height: var(--movie-hero-control);
+    border-radius: 999px;
+    transition: filter 180ms ease-out;
+}
+.movie-library .movie-hero-actions .movie-hero-play {
+    padding: 0 1.1rem;
+    background: #f7f8fb;
+    box-shadow: 0 2px 10px #0004;
+}
+.movie-library .movie-hero-actions :is(.movie-hero-details, .movie-hero-favorite) {
+    display: grid;
+    place-items: center;
+    width: var(--movie-hero-control);
+    padding: 0;
+    border: 1px solid #ffffff1f;
+    background: #ffffff20;
+    color: #fff;
+    backdrop-filter: blur(12px);
+}
+.movie-library .movie-hero-actions button:is(:hover, :active):not([aria-disabled="true"]) {
+    transform: none;
+    filter: brightness(1.08);
+}
 .movie-library .movie-hero-favorite[aria-pressed="true"] svg { fill: currentColor; }
-.movie-library .movie-hero-details:has(svg) { display: grid; place-items: center; padding: 0; }
+.movie-hero-progress { position: relative; inset: auto; height: 3px; border-radius: 999px; background: #ffffff36; }
+.movie-hero-progress > span { border-radius: inherit; background: #fff; box-shadow: 0 0 6px #fff8; }
+.movie-hero-time { margin: 0; color: #e4e8f1c9; font-size: .82rem; }
+.movie-hero-pager {
+    position: absolute;
+    inset-inline-end: var(--movie-peek-edge);
+    inset-block-end: .3rem;
+    z-index: 2;
+    display: flex;
+}
+.movie-hero-pager[hidden] { display: none; }
+.movie-library .movie-hero-pager button {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    min-height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+}
+.movie-hero-pager button::before {
+    content: "";
+    width: 4px;
+    height: 4px;
+    border-radius: 999px;
+    background: #fff9;
+    box-shadow: 0 0 5px #0008;
+}
+.movie-hero-pager button[aria-current="true"]::before { width: 12px; background: #fff; }
+.movie-library .movie-hero-pager button:active:not(:disabled):not([aria-disabled="true"]) { transform: none; }
+.movie-library .movie-hero-pager button:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
 :is(.movie-hero-details, .movie-hero-favorite, .movie-card-heart, .movie-card-find) svg {
     width: 20px; height: 20px; fill: none; stroke: currentColor;
     stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
@@ -736,8 +804,10 @@ body:has(.workspace[data-app-view="Movies & TV"]) .header-search > :is(#search-f
 .movie-shelf-scroll .movie-caption { padding: .3rem .6rem .35rem; }
 .movie-shelf-scroll .movie-card-name { min-height: 0; }
 .movie-library .movie-shelf-arrow {
+    --movie-arrow-drift: -6px;
     position: absolute;
     top: 44%;
+    margin-top: calc(var(--movie-target) / -2);
     z-index: 3;
     display: grid;
     place-items: center;
@@ -745,19 +815,32 @@ body:has(.workspace[data-app-view="Movies & TV"]) .header-search > :is(#search-f
     height: var(--movie-target);
     padding: 0;
     border-radius: 50%;
-    border: 1px solid #ffffff70;
+    border: 0;
     background: #10141bee;
     color: #fff;
+    outline: none;
     opacity: 0;
     pointer-events: none;
-    transform: translateY(-50%);
-    transition: opacity .18s ease;
+    translate: var(--movie-arrow-drift) 0;
+    transition: opacity var(--movie-arrow-out, 220ms) ease-out, translate var(--movie-arrow-out, 220ms) ease-out;
     inset-inline-start: .65rem;
 }
-.movie-library .movie-shelf-arrow:last-child { inset-inline: auto .65rem; }
+.movie-library .movie-shelf-arrow:last-child { --movie-arrow-drift: 6px; inset-inline: auto .65rem; }
 .movie-library .movie-shelf-lane:not([data-overflow="true"]) .movie-shelf-arrow { display: none; }
-.movie-library .movie-shelf-lane:is(:hover, :focus-within) .movie-shelf-arrow { opacity: 1; pointer-events: auto; }
-.movie-library .movie-shelf-lane .movie-shelf-arrow[aria-disabled="true"]:not(:focus-visible) { opacity: 0; pointer-events: none; }
+.movie-library .movie-shelf-lane:is(:hover, :focus-within) .movie-shelf-arrow {
+    opacity: 1;
+    translate: 0;
+    pointer-events: auto;
+    transition-duration: var(--movie-arrow-in, 320ms);
+}
+.movie-library .movie-shelf-lane .movie-shelf-arrow[aria-disabled="true"]:not(:focus-visible) {
+    opacity: 0;
+    translate: var(--movie-arrow-drift) 0;
+    pointer-events: none;
+    transition-duration: var(--movie-arrow-out, 220ms);
+}
+.movie-library .movie-shelf-lane .movie-shelf-arrow:active { transform: none; }
+.movie-library .movie-shelf-arrow:focus-visible { outline: 1px solid #ffffffb3; outline-offset: -4px; }
 .movie-shelf-arrow svg { width: 1.4rem; height: 1.4rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 @media (hover: none), (pointer: coarse), (max-width: 600px) {
     .movie-library .movie-shelf-lane .movie-shelf-arrow { display: none; }
@@ -773,7 +856,7 @@ body:has(.workspace[data-app-view="Movies & TV"]) .header-search > :is(#search-f
     .movie-library .movie-hero-actions .movie-hero-play { padding-inline: .7rem; }
     .movie-shelf-scroll .movie-caption { padding-inline: .3rem; font-size: .78rem; }
     .movie-shelf-scroll .movie-art::before { font-size: 1.65rem; }
-    .movie-hero::after { background: linear-gradient(0deg, #0b0d12 0%, #0b0d12a6 58%, #0b0d1233); }
+    :is(.movie-hero, .movie-hero-slide)::after { background: linear-gradient(0deg, #0b0d12 0%, #0b0d12a6 58%, #0b0d1233); }
 }
 @media (prefers-reduced-motion: reduce) {
     .movie-library .movie-shelf-scroll .movie-card { --movie-grow: 1; transition: none; }
@@ -884,9 +967,12 @@ body[data-effects="off"] .movie-library .movie-toolbar .movie-search { transitio
     .movie-library .movie-season .movie-episode-body { flex: 1 0 100%; grid-template-columns: minmax(4rem, 5.5rem) minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
-    .movie-library .movie-shelf-arrow { transition: none; }
+    .movie-library .movie-shelf-lane .movie-shelf-arrow { --movie-arrow-drift: 0px; --movie-arrow-in: 0s; --movie-arrow-out: 0s; }
+    .movie-library .movie-hero-actions button { transition: none; }
     .movie-loading-block, .movie-film-detail .movie-series-header:has(.movie-hero-art[data-loading])::before { animation: none; }
 }
+body[data-effects="off"] .movie-library .movie-shelf-lane .movie-shelf-arrow { --movie-arrow-drift: 0px; --movie-arrow-in: 0s; --movie-arrow-out: 0s; }
+body[data-effects="off"] .movie-library .movie-hero-actions button { transition: none; }
 body[data-effects="off"] .movie-loading-block,
 body[data-effects="off"] .movie-film-detail .movie-series-header:has(.movie-hero-art[data-loading])::before { animation: none; }
 @media (min-width: 1600px) {

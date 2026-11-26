@@ -12,7 +12,7 @@ public sealed class ExitDiagnosticsBoundary : ErrorBoundaryBase
 
     protected override void OnInitialized()
     {
-        // Restart app reloads the WebView and can leave the Android process alive.
+        // Reload can replace the WebView while the Android process stays alive.
         AndroidExitDiagnostics.PrepareManagedFailure();
         Session.ReportPreviousExit();
     }

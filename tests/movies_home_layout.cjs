@@ -62,6 +62,31 @@ async function checkHover(row, index, scale) {
     await card.page().waitForFunction(card => !card.getAnimations().length, await card.elementHandle());
 }
 
+async function checkArrowPress(page, row, next) {
+    await row.locator(".movie-card").first().hover();
+    await page.waitForFunction(arrow => getComputedStyle(arrow).opacity === "1" && !arrow.getAnimations().length,
+        await next.elementHandle());
+    await next.hover();
+    assert.equal(await next.evaluate(node => getComputedStyle(node).outlineStyle), "none");
+    const before = await next.boundingBox();
+    const restingTransform = await next.evaluate(node => getComputedStyle(node).transform);
+    await page.mouse.down();
+    try {
+        assert.equal(await next.evaluate((node, transform) => getComputedStyle(node).transform === transform, restingTransform), true);
+        assert.equal(await next.evaluate(node => getComputedStyle(node).outlineStyle), "none");
+        assert.deepEqual(await next.boundingBox(), before);
+    } finally {
+        await page.mouse.move(0, 0);
+        await page.mouse.up();
+    }
+    await page.keyboard.press("Tab");
+    await next.focus();
+    assert.deepEqual(await next.evaluate(node => {
+        const {outlineStyle, outlineOffset, outlineWidth} = getComputedStyle(node);
+        return [outlineStyle, outlineOffset, outlineWidth];
+    }), ["solid", "-4px", "1px"]);
+}
+
 async function checkWidth(browser, width, height) {
     const page = await browser.newPage({viewport: {width, height}});
     try {
@@ -86,10 +111,12 @@ async function checkWidth(browser, width, height) {
         near(initial.headingLeft, initial.firstLeft, "full row heading");
         const hero = await page.locator(".movie-hero").evaluate(node => ({
             height: node.getBoundingClientRect().height,
-            titleLeft: node.querySelector(".movie-hero-title").getBoundingClientRect().left
+            titleLeft: node.querySelector(".movie-hero-title").getBoundingClientRect().left,
+            controlHeights: [...node.querySelectorAll(".movie-hero-actions button")].map(button => button.getBoundingClientRect().height)
         }));
         near(hero.titleLeft, initial.firstLeft, "hero title alignment");
         assert.ok(hero.height >= .50 * height && hero.height <= .56 * height, "hero height");
+        assert.deepEqual(hero.controlHeights, Array(3).fill(width >= 1600 ? 52 : 44));
         assert.equal(await compact.getByRole("button", {name:/^(Previous|Next) collections$/}).count(), 0);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
 
@@ -110,6 +137,7 @@ async function checkWidth(browser, width, height) {
         await checkHover(posters, 1, 1.12);
         const next = row.getByRole("button", {name:"Next continue watching"});
         const previous = row.getByRole("button", {name:"Previous continue watching"});
+        if (width === 1280) await checkArrowPress(page, row, next);
         await next.focus();
         await next.press("Enter");
         await waitPage(row, step);
@@ -142,7 +170,10 @@ async function checkWidth(browser, width, height) {
             const genres = page.locator('.movie-shelf[data-format="genre"]:not([hidden])');
             assert.equal(await genres.count(), 3);
             assert.ok(await genres.evaluateAll(rows => rows.every(row => row.querySelectorAll(".movie-card").length >= 4)));
-            const favorite = page.locator(".movie-hero-favorite");
+            const firstDot = page.locator(".movie-hero-pager button").first();
+            await firstDot.press("Enter");
+            await firstDot.and(page.locator('[aria-current="true"]')).waitFor();
+            const favorite = page.locator(".movie-hero-slide:not([inert]) .movie-hero-favorite");
             await favorite.press("Enter");
             await page.waitForFunction(() => document.querySelector(".movie-hero-favorite")?.getAttribute("aria-pressed") === "true");
             assert.equal(await focusIs(favorite), true);
@@ -184,9 +215,87 @@ async function checkWidth(browser, width, height) {
     } finally { await page.close(); }
 }
 
+async function checkHero(browser) {
+    const page = await browser.newPage({viewport: {width: 320, height: 720}});
+    try {
+        await page.clock.install();
+        const {library} = await movieHomeFixture(page);
+        const hero = page.locator(".movie-hero");
+        const slide = hero.locator(".movie-hero-slide:not([inert])");
+        const pager = hero.locator(".movie-hero-pager");
+        const dots = pager.getByRole("button", {name: /^Show /});
+        const current = () => pager.locator('[aria-current="true"]').getAttribute("aria-label");
+        const labels = await dots.evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label")));
+        assert.equal(labels.length, 5);
+        assert.equal(new Set(labels).size, labels.length);
+        assert.equal(labels[0], "Show Midnight Meridian (Demo)");
+        assert.equal(await current(), labels[0]);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
+        near((await slide.locator("h2").boundingBox()).x, (await measure(shelf(page, "Continue watching"))).headingLeft, "phone hero alignment");
+        const groups = await slide.evaluate(node => {
+            const actions = node.querySelector(".movie-hero-actions").getBoundingClientRect();
+            const progress = node.querySelector(".movie-hero-progress").getBoundingClientRect();
+            return {actions: actions.width, progress: progress.width, height: progress.height,
+                buttons: [...node.querySelectorAll("button")].map(button => button.getBoundingClientRect().height)};
+        });
+        near(groups.actions, groups.progress, "progress matches the controls");
+        assert.equal(groups.height, 3);
+        assert.deepEqual(groups.buttons.map(Math.round), [44, 44, 44]);
+        assert.equal(await slide.locator(".movie-hero-time").textContent(), "1 h 12 min left");
+
+        // Pointer hover pauses rotation through featured.matches(":hover"); headless Chromium does not update :hover under the fake clock, so keyboard focus and hidden-page pauses carry the coverage here.
+        await page.mouse.move(0, 0);
+        const play = slide.getByRole("button", {name: "Resume"});
+        await play.focus();
+        await page.clock.fastForward(9100);
+        assert.equal(await current(), labels[0], "focus pauses rotation");
+        assert.equal(await focusIs(play), true);
+
+        const search = page.getByRole("searchbox", {name: "Search movies and TV"});
+        await search.focus();
+        await page.evaluate(() => {
+            Object.defineProperty(document, "hidden", {configurable: true, value: true});
+            document.dispatchEvent(new Event("visibilitychange"));
+        });
+        await page.clock.fastForward(9100);
+        assert.equal(await current(), labels[0], "a hidden document pauses rotation");
+        await page.evaluate(() => {
+            delete document.hidden;
+            document.dispatchEvent(new Event("visibilitychange"));
+        });
+        await page.clock.fastForward(9100);
+        await pager.locator('[aria-current="true"]').and(dots.nth(1)).waitFor();
+        assert.equal(await focusIs(search), true);
+        assert.equal(await hero.getByRole("status").textContent(), "");
+        assert.equal(await slide.locator(".movie-hero-art").evaluate(art => art.complete && art.naturalWidth > 0), true);
+        assert.equal(await slide.evaluate(node => node.getAnimations().some(animation => animation.effect.getTiming().duration === 900)), true);
+        await hero.locator(".movie-hero-slide[inert]").waitFor({state: "detached"});
+
+        await dots.first().press("Space");
+        await pager.locator('[aria-current="true"]').and(dots.first()).waitFor();
+        assert.equal(await focusIs(dots.first()), true);
+        assert.equal(await hero.getByRole("status").textContent(), labels[0].slice(5));
+        await page.keyboard.press("Tab");
+        assert.equal(await focusIs(dots.nth(1)), true);
+        await page.keyboard.press("Shift+Tab");
+        assert.equal(await focusIs(dots.first()), true);
+        await page.clock.fastForward(9100);
+        assert.equal(await current(), labels[0], "pager focus pauses rotation");
+
+        for (const item of library.slice(1)) item.BackdropImageTags = [];
+        await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+        await pager.waitFor({state: "hidden"});
+        assert.equal(await focusIs(slide.getByRole("button", {name: "Resume"})), true);
+        await search.focus();
+        await page.clock.fastForward(9100);
+        assert.equal(await slide.locator("h2").textContent(), labels[0].slice(5));
+    } finally { await page.close(); }
+}
+
 async function checkQuiet(browser, reducedMotion) {
     const page = await browser.newPage({viewport:{width: 1280, height: 850}, reducedMotion});
     try {
+        await page.clock.install();
         const requests = [];
         page.on("request", request => { if (request.url().startsWith(jellyfin)) requests.push(request.url()); });
         await movieHomeFixture(page, {preview:true});
@@ -196,9 +305,21 @@ async function checkQuiet(browser, reducedMotion) {
             return getComputedStyle(node).outlineStyle;
         }), "none");
         if (reducedMotion !== "reduce") await page.evaluate(() => { document.body.dataset.effects = "off"; });
+        const hero = page.locator(".movie-hero"), pager = hero.locator(".movie-hero-pager");
+        const dots = pager.getByRole("button", {name: /^Show /});
+        await page.clock.fastForward(9100);
+        assert.equal(await dots.first().getAttribute("aria-current"), "true");
+        await dots.nth(1).press("Enter");
+        assert.equal(await dots.nth(1).getAttribute("aria-current"), "true");
+        assert.equal(await focusIs(dots.nth(1)), true);
+        assert.equal(await hero.locator(".movie-hero-slide").evaluate(node => node.getAnimations().length), 0);
         const row = shelf(page, "Continue watching");
         const first = row.locator(".movie-card").first();
         await first.hover();
+        assert.deepEqual(await row.getByRole("button", {name: "Next continue watching"}).evaluate(node => {
+            const {opacity, translate, transitionDuration} = getComputedStyle(node);
+            return [opacity, translate, transitionDuration];
+        }), ["1", "0px", "0s"]);
         assert.equal(await first.evaluate(card => {
             const {transform, boxShadow, outlineColor, transitionDuration} = getComputedStyle(card);
             return new DOMMatrix(transform === "none" ? undefined : transform).a === 1 && boxShadow === "none" &&
@@ -223,8 +344,9 @@ async function checkQuiet(browser, reducedMotion) {
     const browser = await chromium.launch({headless: true});
     try {
         for (const [width, height] of widths) await checkWidth(browser, width, height);
+        await checkHero(browser);
         await checkQuiet(browser, "reduce");
         await checkQuiet(browser, "no-preference");
     } finally { await browser.close(); }
-    console.log("Movies Home geometry and keyboard checks passed at five widths, with reduced-motion and effects-off checks.");
+    console.log("Movies Home geometry, hero rotation and keyboard checks passed, including reduced motion and effects off.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

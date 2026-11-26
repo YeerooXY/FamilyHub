@@ -1,7 +1,8 @@
 <div id="@Id" class="fh-notice" data-level="@Level" data-attached="@(Attached ? "" : null)" data-notice-focus="@FocusTarget" hidden="@string.IsNullOrWhiteSpace(Message)">
     <span class="fh-notice-copy">
         <span class="fh-notice-icon"><MusicIcon Name="@Icon" /></span>
-        <span class="fh-notice-text" role="@(Level == "error" ? "alert" : "status")" aria-live="@(Level == "error" ? null : "polite")" aria-atomic="true">@Message</span>
+        <span class="fh-notice-text" role="@(Announce ? Level == "error" ? "alert" : "status" : null)"
+              aria-live="@(Announce && Level != "error" ? "polite" : null)" aria-atomic="@(Announce ? "true" : null)">@Message</span>
     </span>
     @if (ActionLabel is not null)
     {
@@ -26,6 +27,7 @@
     [Parameter] public string FocusTarget { get; set; } = "#content";
     [Parameter] public bool Busy { get; set; }
     [Parameter] public bool Attached { get; set; }
+    [Parameter] public bool Announce { get; set; } = true;
 
     private Task RunAction() => Busy ? Task.CompletedTask : Action.InvokeAsync();
     private string Icon => Level switch

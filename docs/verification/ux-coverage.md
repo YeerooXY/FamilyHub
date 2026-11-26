@@ -522,3 +522,10 @@ Physical Android and iPhone keyboards, macOS and iOS font rendering, native secu
 
 The browser script covers emulated profiles. Captures, physical devices, and screen-reader speech remain pending.
 
+## 26 November 2026 Native reload and server restart
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Crash, Reload, and foreground recovery | never | never | never | never | never | Source check, current working tree, 26 Nov 2026 | never |
+| Server restart notice, reconnect, recovery, and outage | never | never | never | never | never | Source check, current working tree, 26 Nov 2026 | never |
+

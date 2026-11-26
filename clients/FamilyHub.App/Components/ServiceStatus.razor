@@ -2,6 +2,7 @@
 @implements IAsyncDisposable
 
 <div @ref="card" class="service-status @(FullSection ? "service-status-section" : "")"
+     data-server-outage="@(Title == ServerOutageTitle ? "" : null)"
      data-notice-focus="@FocusTarget" data-reconnecting="@(Busy ? "true" : null)" hidden="@(!Active)">
     <span class="service-status-icon" aria-hidden="true"></span>
     <div class="service-status-copy">
@@ -24,7 +25,8 @@
 </div>
 
 @code {
-    [Parameter] public string Title { get; set; } = "Can't reach your server";
+    private const string ServerOutageTitle = "Can't reach your server";
+    [Parameter] public string Title { get; set; } = ServerOutageTitle;
     [Parameter, EditorRequired] public string Detail { get; set; } = "";
     [Parameter] public string? RetryLabel { get; set; }
     [Parameter] public string? Status { get; set; }
