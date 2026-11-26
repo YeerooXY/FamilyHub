@@ -30,7 +30,8 @@ async function openSearch(browser, outcome, options = { viewport: { width: 412, 
     await page.evaluate(async ({ jellyfin, outcome, answer }) => {
         window.calls = [];
         window.queue = [];
-        const { openMovies } = await import("/movies.js");
+        const { openMovies, saveMoviePreferences } = await import("/movies.js");
+        if (outcome === "videa") saveMoviePreferences({server: jellyfin + "/", profile: "viewer"}, {screen: "1080"});
         window.movies = window.openMovieFixture(openMovies, document.querySelector("main"), { url: jellyfin, user: "u", token: "t", device: "0123456789abcdef0123456789abcdef", requests_enabled: ["requests", "trinity"].includes(outcome),
             release_search_enabled: outcome === "videa", downloads_enabled: outcome === "videa" },
             { invokeMethodAsync: (name, ...args) => {
@@ -192,23 +193,23 @@ async function checkVidea(browser, name, options, screenshots) {
     const cards = list.getByRole("listitem");
     await cards.last().waitFor();
     assert.equal(await focused(submit), true);
-    assert.deepEqual(await cards.locator(".movie-release-quality").allTextContents(), ["1080p Web", "1080p", "720p"]);
+    assert.deepEqual(await cards.locator(".movie-release-quality").allTextContents(), ["1080p Web", "1080p Web", "720p Web"]);
     const videa = cards.filter({hasText: "Hungarian audio listed"});
     assert.equal(await videa.getByText("Videa", {exact: true}).count(), 1);
     assert.equal(await videa.getByRole("link").count(), 0);
     const action = videa.getByRole("button", {name: /^Download /});
     await action.focus();
     await page.keyboard.press("Shift+Tab");
-    assert.equal(await focused(cards.nth(1).getByRole("button", {name: /^Download /})), true);
+    assert.equal(await focused(videa.getByRole("button", {name: /^File name for /})), true);
     await page.keyboard.press("Tab");
     assert.equal(await focused(action), true);
     if (screenshots) await page.screenshot({path: path.join(screenshots, `videa-${name}.png`), fullPage: true});
     if (options.hasTouch) await action.tap();
     else await action.press("Space");
-    const sent = videa.getByRole("status").filter({hasText: "Sent to the server"});
+    const sent = videa.getByRole("button", {name: /^Added /});
     await sent.waitFor();
     assert.equal(await focused(sent), true);
-    await page.getByRole("region", {name: "Downloading"}).getByRole("listitem").getByText("Downloading", {exact: true}).waitFor({timeout: 5000});
+    await page.waitForFunction(progress => progress.value === .45, await videa.getByRole("progressbar").elementHandle());
     assert.deepEqual(await page.evaluate(() => window.calls.find(([method]) => method === "MovieVideaDownload")), [
         "MovieVideaDownload", "https://videa.hu/videok/film-animacio/fixture-ry9BOkAA4SZIAYZp", title + " HUN 1080p WEB-DL"
     ]);
@@ -217,22 +218,22 @@ async function checkVidea(browser, name, options, screenshots) {
     assert.equal(await focused(query), true);
     await page.evaluate(async () => {
         const {saveMoviePreferences} = await import("/movies.js");
-        saveMoviePreferences({server: "https://jellyfin.test/", profile: "viewer"}, {audio: "hu"});
+        saveMoviePreferences({server: "https://jellyfin.test/", profile: "viewer"}, {screen: "1080", audio: "hu"});
         window.finishVidea = null;
     });
     await query.fill(title);
     await query.press("Enter");
     await page.waitForFunction(() => typeof window.finishVidea === "function");
     await page.evaluate(() => window.finishVidea());
-    await cards.first().getByText("Hungarian audio listed").waitFor();
-    assert.equal(await page.getByRole("button", {name: "Quality", exact: true}).isVisible(), false);
-    assert.deepEqual((await cards.locator(".movie-release-quality").allTextContents()).sort(), ["1080p", "1080p Web", "720p"]);
+    await videa.getByText("Hungarian audio listed").waitFor();
+    assert.equal(await cards.first().getByText("Hungarian audio listed").isVisible(), false);
+    assert.deepEqual((await cards.locator(".movie-release-quality").allTextContents()).sort(), ["1080p Web", "1080p Web", "720p Web"]);
 
     await query.fill("Most Wanted A hajsza S2");
     await query.press("Enter");
     const season = cards.filter({hasText: "10 episodes"});
-    const seasonAction = season.getByRole("button", {name: /^Download Most Wanted A hajsza · Season 2, 10 episodes/});
-    await season.getByText("360p–1080p", {exact: true}).waitFor();
+    const seasonAction = season.getByRole("button", {name: /^Download Most Wanted A hajsza, Season 2, 10 episodes/});
+    await season.getByText("360p–1080p Web", {exact: true}).waitFor();
     assert.equal(await cards.count(), 1);
     assert.equal(await season.getByRole("link").count(), 0);
     await seasonAction.focus();
@@ -242,11 +243,10 @@ async function checkVidea(browser, name, options, screenshots) {
     if (screenshots) await page.screenshot({path: path.join(screenshots, `videa-season-${name}.png`), fullPage: true});
     if (options.hasTouch) await seasonAction.tap();
     else await seasonAction.press("Enter");
-    await season.getByText("Sent to the server").waitFor();
-    assert.equal(await focused(season.getByText("Sent to the server")), true);
-    const queue = page.getByRole("region", {name: "Downloading"});
-    await queue.getByText("Most Wanted A hajsza · Season 2", {exact: true}).waitFor({timeout: 5000});
-    assert.equal(await queue.getByRole("progressbar").count(), 1);
+    const added = season.getByRole("button", {name: /^Added /});
+    await added.waitFor();
+    assert.equal(await focused(added), true);
+    await page.waitForFunction(progress => progress.value === .2, await season.getByRole("progressbar").elementHandle());
     if (screenshots) await page.screenshot({path: path.join(screenshots, `videa-season-queued-${name}.png`), fullPage: true});
     const seasonCalls = await page.evaluate(() => window.calls.filter(([method]) => method === "MovieVideaSeasonDownload"));
     assert.equal(seasonCalls.length, 1);

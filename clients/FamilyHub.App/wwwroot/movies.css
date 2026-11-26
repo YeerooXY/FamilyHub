@@ -138,6 +138,7 @@
 .movie-library { --movie-accent: #e5484d; }
 .movie-icon { width: 1.4rem; height: 1.4rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .movie-icon-number { fill: currentColor; stroke: none; font: 700 8px system-ui, sans-serif; pointer-events: none; }
+.movie-library .movie-player:empty { display: none; }
 html.movie-expanded-page, html.movie-expanded-page body { overflow: hidden; }
 .movie-library .movie-player.movie-expanded { position: fixed; inset: 0; z-index: 2147483000; margin: 0; background: #000; }
 body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--caption-height); }
@@ -349,23 +350,10 @@ body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--ca
     .movie-library .movie-search button { flex-basis: 60px; }
     .movie-library .movie-search :is(input,button):focus-visible { outline-width: 4px; }
 }
-.movie-releases :is(input, button) { min-height: 44px; }
-.movie-releases li p { margin: 0; overflow-wrap: anywhere; }
-
-/* Releases: one card each. The facts a viewer weighs (quality, what it holds, size, time, health) come first;
-   the raw release name is small and muted underneath. */
 .movie-source-list li.movie-release { display: grid; gap: .4rem; padding: .85rem 1rem; margin-bottom: .6rem; border: 1px solid var(--border, #ffffff24); border-radius: .8rem; background: var(--panel-bg, #17191f); }
 .movie-release-top { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
 .movie-release-top > span { padding: .15rem .6rem; border-radius: 999px; font-size: .85rem; font-weight: 650; line-height: 1.5; background: #ffffff1a; color: #fff; }
 .movie-release-kind { background: #a371f726; box-shadow: inset 0 0 0 1px #c9a3ff66; }
-.movie-release-pick { background: #3fb95033; box-shadow: inset 0 0 0 1px #3fb95099; }
-.movie-release-health[data-level="good"] { color: #7ee2a0; }
-.movie-release-health[data-level="low"] { color: #f2c46d; }
-.movie-release-health[data-level="none"] { color: #ff9b9b; }
-.movie-releases .movie-release-name { font-size: .8rem; font-weight: 400; color: #ffffff8c; overflow-wrap: anywhere; line-height: 1.35; }
-.movie-releases .movie-release-facts { font-size: 1.02rem; font-weight: 600; color: #fff; }
-.movie-releases .movie-release-more { justify-self: start; margin-top: .4rem; padding: 0 1.1rem; border: 1px solid #ffffff36; border-radius: 999px; background: transparent; color: inherit; font: inherit; }
-.movie-releases .movie-release-more:focus-visible, .movie-releases .movie-release-name:focus-visible { outline: 2px solid var(--focus, #98abed); outline-offset: 3px; }
 
 /* Titles without artwork: a colour per title and its initial, drawn by CSS (live text, no baked-in lettering). */
 .movie-art[data-initial] { --art-hue: 215; background: linear-gradient(155deg, hsl(var(--art-hue) 45% 30%), hsl(calc(var(--art-hue) + 40) 50% 14%)); }
@@ -448,7 +436,6 @@ body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--ca
 .movie-sound-hint[hidden], .movie-sound-body .movie-track-col[hidden] { display: none; }
 
 /* Search at the top, centred, one soft focus ring on the whole bar (not a second ring on the input). */
-.movie-library .movie-releases { max-width: 60rem; margin-inline: auto; }
 .movie-library .movie-toolbar { position: sticky; top: 0; z-index: 6; padding: .6rem 0 .5rem; background: var(--movie-edge); }
 .movie-library .movie-search { max-width: none; border-radius: 999px; background: #171a22; border-color: #ffffff2e; }
 .movie-library .movie-search:focus-within { border-color: var(--focus, #98abed); box-shadow: 0 0 0 3px #98abed38; }
@@ -456,10 +443,6 @@ body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--ca
 .movie-library .movie-search input:focus-visible { outline: none; }
 .movie-library .movie-search button { border-radius: 999px; }
 
-/* Release tiles: a bigger card each, quality shown by colour, words instead of seeders. */
-.movie-release-tools { display: flex; flex-wrap: wrap; gap: .45rem; margin: .7rem 0 .9rem; }
-.movie-releases .movie-release-tools button { min-height: var(--movie-target, 44px); padding: 0 1.05rem; border: 1px solid #ffffff2e; border-radius: 999px; background: transparent; color: inherit; font: inherit; font-size: .92rem; }
-.movie-releases .movie-release-tools button[aria-pressed="true"] { background: #fff; border-color: #fff; color: #0b0d12; font-weight: 700; }
 .movie-source-list li.movie-release { gap: .75rem; padding: 1.15rem 1.3rem; margin-bottom: .8rem; border-radius: 1.05rem; }
 .movie-library .movie-source-list li.movie-release {
     position: relative;
@@ -489,17 +472,7 @@ body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--ca
     align-items: center;
 }
 .movie-sound-chip .movie-icon { width: 1em; height: 1em; flex: none; }
-.movie-release-head { display: grid; gap: .5rem; }
 .movie-external .movie-release-title { margin: 0; font-size: 1.2rem; line-height: 1.25; font-weight: 700; color: #fff; }
-.movie-release-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: .5rem 1.2rem; margin: 0; }
-.movie-release-stats > div { display: grid; gap: .1rem; }
-.movie-release-stats dt { font-size: .78rem; color: #ffffff99; }
-.movie-release-stats dd { margin: 0; font-size: 1.12rem; font-weight: 700; color: #fff; }
-.movie-release-stats dd:is([data-level="great"], [data-level="good"]),
-.movie-release-availability:is([data-level="great"], [data-level="good"]) { color: #7ee2a0; }
-.movie-release-stats dd[data-level="ok"], .movie-release-availability[data-level="ok"] { color: #7fd3e8; }
-.movie-release-stats dd[data-level="slow"], .movie-release-availability[data-level="slow"] { color: #f2c46d; }
-.movie-release-stats dd[data-level="none"], .movie-release-availability[data-level="none"] { color: #ff9b9b; }
 .movie-release .movie-release-note { color: #ffffffb8; font-size: .9rem; }
 .movie-library .movie-release .movie-release-action { justify-self: start; min-height: 46px; padding: 0 1.5rem; border: 0; border-radius: .75rem; background: linear-gradient(135deg, #89b4ff, #f19cda); color: #0b0d12; font: inherit; font-weight: 700; cursor: pointer; }
 .movie-library .movie-release .movie-release-action[aria-disabled="true"] { background: #ffffff1f; color: #ffffffcc; cursor: not-allowed; }
@@ -523,11 +496,6 @@ body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--ca
 }
 
 .movie-quality-guide { margin: 0 0 1rem; padding: .7rem .8rem; background: #ffffff08; border-radius: .75rem; }
-.movie-quality-guide h3 { margin: 0 0 .55rem; font-size: .95rem; }
-.movie-quality-guide .movie-quality-chips { display: flex; flex-wrap: wrap; gap: .35rem .75rem; list-style: none; padding: 0; margin: 0; }
-.movie-quality-chips li { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .35rem; font-size: .79rem; color: #d2d7e2; }
-.movie-quality-chips span { padding: .1rem .45rem; border-radius: 999px; font-weight: 650; }
-.movie-quality-chips .movie-release-availability { background: #ffffff14; }
 .movie-quality-guide .movie-web-meta { margin: .45rem 0 0; }
 .movie-release-quality { color: #fff; }
 .movie-release-quality[data-level="8k"] { --quality-bg: linear-gradient(120deg, #1f8f8a, #2f6fd1 55%, #7a4fd8); }
@@ -540,9 +508,9 @@ body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--ca
 .movie-release-quality[data-level="hd"] { --quality-bg: #50617b; }
 .movie-release-quality[data-level="tv"] { --quality-bg: #494c58; }
 .movie-release-quality[data-level="poor"] { --quality-bg: #9a4323; }
-.movie-release-top > .movie-release-quality, .movie-quality-chips .movie-release-quality,
+.movie-release-top > .movie-release-quality, .movie-release-block,
 .movie-chip.movie-release-quality { background: var(--quality-bg, #ffffff1a); }
-.movie-release-top > .movie-release-quality[data-level="4k-remux"], .movie-quality-chips .movie-release-quality[data-level="4k-remux"] { color: #2a1400; }
+.movie-release-block[data-level="4k-remux"] { color: #2a1400; }
 .movie-release-top > .movie-release-quality[data-level="4k-remux"] { background-size: 220% 100%; animation: movie-shine 5s linear infinite; box-shadow: 0 0 16px #ffb45e66; }
 .movie-release-top > .movie-release-quality[data-level="4k-bluray"] { box-shadow: 0 0 8px #c17ce833; }
 .movie-release-top > .movie-release-quality[data-level="estimated"] { background: transparent; border: 1px dashed #bac3d4; }
@@ -617,31 +585,13 @@ body:has(.workspace[data-app-view="Movies & TV"]) .header-search > :is(#search-f
 .movie-matches > h2 { margin: 0 0 .6rem; font-size: 1.05rem; }
 .movie-matches-credit { margin: .7rem 0 0; font-size: .75rem; }
 
-/* Release cards carry the matching title's poster as a small thumbnail. */
-.movie-source-list li.movie-release.has-poster { grid-template-columns: 8.5rem minmax(0, 1fr); column-gap: 1.25rem; align-items: start; }
-.movie-source-list li.movie-release.has-poster > * { grid-column: 2; min-width: 0; }
-.movie-source-list li.movie-release.has-poster > .movie-release-poster { grid-column: 1; grid-row: 1 / span 6; width: 8.5rem; aspect-ratio: 2 / 3; object-fit: cover; border-radius: .5rem; background: #131a24; }
-@media (max-width: 520px) { .movie-source-list li.movie-release.has-poster { grid-template-columns: 5.2rem minmax(0, 1fr); column-gap: .75rem; } .movie-source-list li.movie-release.has-poster > .movie-release-poster { width: 5.2rem; } }
-@media (max-width: 380px) {
-    .movie-source-list li.movie-release { padding: .85rem; }
-    .movie-source-list li.movie-release.has-poster { grid-template-columns: minmax(0, 1fr); }
-    .movie-source-list li.movie-release.has-poster > * { grid-column: 1; }
-    .movie-source-list li.movie-release.has-poster > .movie-release-poster { grid-row: auto; }
-}
-
-/* Quality guide: a collapsed table; size colours compare the shown releases (green smallest, amber large, red largest). */
-.movie-quality-guide summary { cursor: pointer; font-weight: 650; font-size: .95rem; padding: .15rem 0; }
-.movie-quality-guide summary:focus-visible { outline: 3px solid #fff; outline-offset: 3px; border-radius: .4rem; }
 .movie-quality-table { width: 100%; border-collapse: collapse; margin-top: .6rem; font-size: .85rem; }
 .movie-quality-table th, .movie-quality-table td { text-align: left; padding: .4rem .6rem; border-top: 1px solid #ffffff14; }
 .movie-quality-table th { color: #ffffff99; font-weight: 600; font-size: .75rem; }
-.movie-quality-table td:first-child { white-space: nowrap; width: 1%; }
-.movie-quality-table td span { padding: .1rem .55rem; border-radius: 999px; font-weight: 650; background: var(--quality-bg, #ffffff14); }
+.movie-quality-table td:first-child { width: 40%; }
+.movie-quality-table td span { font-weight: 650; }
 .movie-quality-table .movie-release-quality[data-level="4k-remux"] { color: #2a1400; }
-.movie-release-stats dd[data-size="smallest"] { color: #7fe3a4; }
-.movie-release-stats dd[data-size="large"] { color: #f2c46d; }
-.movie-release-stats dd[data-size="largest"] { color: #ff9b9b; }
-.movie-release-stats dd .movie-release-size-note { margin-inline-start: .45rem; font-size: .75rem; font-weight: 500; color: #ffffffb8; }
+.movie-quality-table td span { display: inline-block; padding: .15rem .3rem; border-radius: .3rem; background: var(--quality-bg, #ffffff14); }
 
 /* Season availability: green available, amber downloading, red missing. A word always accompanies the colour. */
 .movie-season-state { display: inline-flex; align-items: center; gap: .4rem; padding: .2rem .7rem; border-radius: 999px; font-size: .82rem; font-weight: 650; background: #ffffff14; }
@@ -1343,3 +1293,262 @@ body:has(.workspace > main :is(.movie-film-detail, .movie-show-detail):not([hidd
 .movie-playback-notice > p { margin: 0; }
 .movie-playback-notice > svg { flex: none; color: #ffdb9a; }
 .movie-library .movie-player.movie-expanded ~ .movie-playback-notice { display: none; }
+
+.movie-release-alternatives > summary { display: none; }
+.movie-external[data-release-layout] { max-width: none; }
+.movie-external[data-release-layout] > :is(h2, .movie-web-meta, .movie-source-note),
+.movie-external[data-release-layout] [data-release-match],
+.movie-external[data-release-layout] .movie-youtube:not(:has(li:not([data-release-match]), .service-status:not([hidden]))),
+.movie-catalogue:has(.movie-external[data-release-layout]) > .movie-downloads {
+    display: none;
+}
+.movie-external[data-release-layout] .movie-release-alternatives {
+    max-width: 70rem;
+    margin: .75rem auto 1rem;
+    padding-inline: 1rem;
+}
+.movie-external[data-release-layout] .movie-release-alternatives:not(:has(
+    .movie-source:not([hidden]) li:not([data-release-match]),
+    .movie-source:not([hidden]) .service-status:not([hidden]), .movie-shelf:not([hidden])
+)) { display: none; }
+.movie-external[data-release-layout] .movie-release-alternatives:has(
+    .movie-source:not([hidden]) li:not([data-release-match]),
+    .movie-source:not([hidden]) .service-status:not([hidden]), .movie-shelf:not([hidden])
+) > summary {
+    display: list-item;
+    align-content: center;
+    min-height: var(--movie-target);
+    cursor: pointer;
+}
+.movie-external[data-release-layout] .movie-release-alternatives > summary:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: -2px;
+}
+.movie-library .movie-external[data-release-layout] .movie-releases {
+    margin: 0;
+    animation: none;
+}
+.workspace:has([data-release-layout]), .workspace > main:has([data-release-layout]) {
+    margin: 0;
+    border-radius: 0;
+    padding: 0;
+}
+.workspace > main:has([data-release-layout]) { container-type: size; }
+body:has(.workspace [data-release-layout]) {
+    grid-template-rows: auto minmax(0, 1fr);
+    row-gap: 0;
+    padding-inline: 0;
+}
+body:has(.workspace [data-release-layout]) .app-header {
+    margin-inline: 0;
+    width: auto;
+    min-height: var(--caption-height, 56px);
+}
+.movie-search button[type="submit"] { order: -1; }
+body:has([data-release-layout]) .header-search .movie-search :is(input, button) { min-height: 44px; }
+.movie-release-results {
+    --release-outline: 2px;
+    --release-edge: clamp(.75rem, 1.5vw, 2rem);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 3.3fr);
+    min-height: calc(100dvh - var(--caption-height, 56px));
+    background: #0c0d13;
+    color: #f8f6ff;
+}
+.movie-release-rail {
+    position: sticky;
+    inset-block-start: 0;
+    align-self: start;
+    display: grid;
+    gap: .65rem;
+    max-height: calc(100dvh - var(--caption-height, 56px));
+    padding: var(--release-edge);
+    overflow: auto;
+    scrollbar-width: thin;
+    border-inline-end: 1px solid #ffffff24;
+    background: #14151c;
+}
+@supports (height: 1cqh) {
+    .workspace > main [data-release-layout] .movie-release-results { min-height: 100cqh; }
+    .workspace > main [data-release-layout] .movie-release-rail { max-height: 100cqh; }
+}
+.movie-release-identity { display: grid; gap: .65rem; min-width: 0; }
+.movie-release-identity h2 { font-size: clamp(1rem, 2vw, 2rem); }
+.movie-release-identity .movie-art {
+    width: min(75%, 11rem, 20vh);
+    justify-self: center;
+    aspect-ratio: 2 / 3;
+    border-radius: .65rem;
+}
+.movie-release-summary { color: #cdc9da; font-size: .92em; }
+.movie-release-legend-wrap { display: flex; align-items: start; gap: .3rem; min-width: 0; border-top: 1px solid #ffffff24; padding-top: .4rem; }
+.movie-release-legend { flex: 1; min-width: 0; display: grid; gap: .15rem; }
+.movie-releases :is(.movie-release-tier, .movie-release-icon, .movie-release-menu) {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    min-width: var(--movie-target);
+    min-height: var(--movie-target);
+    padding: .25rem .5rem;
+    border: 1px solid transparent;
+    border-radius: .55rem;
+    background: transparent;
+    color: inherit;
+    text-align: start;
+    line-height: 1.2;
+}
+.movie-releases .movie-release-menu { display: none; }
+.movie-releases .movie-release-tier[aria-pressed="true"] { border-color: #bfacff; background: #7b59e138; }
+.movie-release-tier-count { margin-inline-start: auto; padding: .2rem .4rem; border-radius: 1rem; background: #ffffff19; }
+.movie-releases .movie-release-icon { justify-content: center; flex: none; padding: 0; }
+.movie-release-tier::before, .movie-release-health .movie-release-stat-value::before {
+    content: "";
+    display: inline-block;
+    flex: none;
+    width: .8rem;
+    height: .8rem;
+    border-radius: 50%;
+    background: var(--quality-bg, currentColor);
+    border: 1px solid #ffffff2c;
+}
+.movie-release-controls { display: grid; gap: .6rem; }
+.movie-release-tools, .movie-release-filters { display: grid; min-width: 0; margin: 0; padding: 0; border: 0; }
+.movie-release-tools legend { padding: 0 .4rem; font-weight: 700; }
+.movie-release-filters { padding-top: .4rem; border-top: 1px solid #ffffff24; }
+.movie-release-controls label {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    min-height: var(--movie-target);
+    padding: .15rem .35rem;
+    line-height: 1.25;
+    cursor: pointer;
+    border-radius: .4rem;
+}
+.movie-release-controls label:focus-within { outline: 2px solid #fff; outline-offset: -2px; }
+@media (min-width: 1000px) {
+    .movie-release-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.movie-release-controls input { flex: none; margin: 0; accent-color: #ab94ff; }
+.movie-release-controls input[type="checkbox"] { appearance: none; width: 2rem; height: 1.15rem; border-radius: 1rem; border: 1px solid #ffffff53; background: #3c3c49; }
+.movie-release-controls input[type="checkbox"]::before { content: ""; display: block; width: .75rem; height: .75rem; margin: .13rem; border-radius: 50%; background: #fff; }
+.movie-release-controls input[type="checkbox"]:checked { background: #5e3cbd; }
+.movie-release-controls input[type="checkbox"]:checked::before { margin-inline-start: .9rem; }
+@media (forced-colors: active) {
+    .movie-release-controls input[type="checkbox"] { appearance: auto; }
+    .movie-release-controls input[type="checkbox"]::before { display: none; }
+}
+.movie-release-content { min-width: 0; padding: var(--release-edge); }
+.movie-library .movie-release-content li.movie-release {
+    grid-template-columns: minmax(3.5rem, .75fr) minmax(0, 3.1fr) minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(6.5rem, 1.2fr);
+    align-items: center;
+    gap: clamp(.25rem, .85vw, 1.25rem);
+    padding: .55rem;
+    margin: 0 0 .5rem;
+    border-radius: .85rem;
+    background: linear-gradient(145deg, #1b1b24, #13141b);
+    outline: var(--release-outline) solid transparent;
+    outline-offset: calc(-1 * var(--release-outline));
+    transform: none;
+    box-shadow: none;
+    transition: outline-color 160ms ease-out;
+}
+.movie-library .movie-release-content li.movie-release:focus-within { outline-color: #fff; }
+@media (hover: hover) and (pointer: fine) {
+    .movie-library .movie-release-content li.movie-release:hover { outline-color: #fff; }
+}
+.movie-release-content li > * { min-width: 0; }
+.movie-release-block {
+    display: grid;
+    place-content: center;
+    align-self: stretch;
+    min-height: 4.4rem;
+    padding: .35rem .25rem;
+    border-radius: .6rem;
+    text-align: center;
+    line-height: 1.15;
+    font-weight: 750;
+}
+.movie-release-source { display: block; margin-top: .2rem; font-weight: 500; font-size: .8em; }
+.movie-release-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .2rem .15rem; }
+.movie-release-head > :not(button) { grid-column: 1; }
+.movie-release-head > .movie-release-file { grid-area: 1 / 2 / span 2; }
+.movie-external .movie-release-head .movie-release-title { font-size: clamp(.9rem, 1.2vw, 1.3rem); }
+.movie-release-head .movie-release-top { gap: .2rem; }
+.movie-release-head .movie-release-top > span { padding: .1rem .35rem; font-size: .78em; }
+.movie-release-stat { display: grid; align-content: center; gap: .15rem; line-height: 1.2; }
+.movie-release-stat-label, .movie-release-size-note { font-size: .78em; color: #c0bdcb; }
+.movie-release-stat-value { font-weight: 650; }
+.movie-release-health .movie-release-stat-value { display: flex; align-items: center; gap: .3rem; }
+.movie-release-health .movie-release-stat-value::before { width: .65rem; height: .65rem; }
+.movie-release-health [data-level="ok"]::before { background: #42d783; }
+.movie-release-health [data-level="slow"]::before { background: #f2c46d; }
+.movie-release-health [data-level="none"]::before { background: #fb7373; }
+.movie-release-stat .movie-download-progress { display: block; height: .3rem; margin: .15rem 0; }
+.movie-release-stat .movie-download-progress > span { background: #9880ff; transition: none; }
+.movie-release-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: .2rem; }
+.movie-library .movie-release-content .movie-release-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .35rem;
+    width: 100%;
+    min-width: var(--movie-target);
+    min-height: var(--movie-target);
+    padding: .3rem clamp(.35rem, 1vw, .9rem);
+    background: #613bd5;
+    color: #fff;
+    line-height: 1.15;
+}
+.movie-library .movie-release-content .movie-release-action[aria-disabled="true"] { background: #332a4a; opacity: 1; }
+.movie-release-progress { width: 100%; height: .55rem; accent-color: #b79cff; }
+.movie-release-receipt { max-width: 11rem; color: #ffb5b5; font-size: .85em; }
+.movie-release-name { grid-column: 1 / -1; padding: .35rem; color: #cdc9da; overflow-wrap: anywhere; }
+.movie-release-name .movie-source-action { width: fit-content; margin-top: .35rem; }
+@media (min-width: 1600px) {
+    .movie-release-results { --release-outline: 4px; }
+    body:has([data-release-layout]) .header-search .movie-search :is(input, button) { min-height: 60px; }
+    body:has([data-release-layout]) .header-search .movie-search button { min-width: 60px; }
+}
+@media (max-width: 700px) {
+    .movie-release-results { grid-template-columns: minmax(0, 1fr); align-content: start; }
+    .workspace > main [data-release-layout] .movie-release-rail, .movie-release-rail {
+        position: static;
+        max-height: none;
+        overflow: visible;
+        border-inline-end: 0;
+        border-bottom: 1px solid #ffffff24;
+    }
+    .movie-release-identity { grid-template-columns: 3rem minmax(0, 1fr); align-items: center; }
+    .movie-release-identity .movie-art { width: 100%; }
+    .movie-release-identity .movie-art::before { font-size: 1.5rem; }
+    .movie-release-legend { display: flex; overflow-x: auto; padding: 2px; overscroll-behavior-inline: contain; }
+    .movie-releases .movie-release-tier { flex: none; background: #ffffff0c; }
+    .movie-release-tier:focus-visible { outline-offset: -2px; }
+    .movie-releases .movie-release-menu { display: flex; justify-self: start; background: #ffffff14; }
+    .movie-release-menu[aria-expanded="false"] + .movie-release-controls { display: none; }
+    .movie-library .movie-release-content li.movie-release {
+        grid-template-columns: minmax(3.2rem, .8fr) repeat(2, minmax(0, 1fr));
+        grid-template-areas: "quality head head" "size time health" "action action action";
+    }
+    .movie-release-block { grid-area: quality; min-height: 3rem; }
+    .movie-release-head { grid-area: head; grid-template-columns: minmax(0, 1fr) auto auto; }
+    .movie-release-size { grid-area: size; }
+    .movie-release-time { grid-area: time; }
+    .movie-release-health { grid-area: health; }
+    .movie-release-actions { grid-area: action; }
+}
+@media (min-width: 350px) and (max-width: 700px) {
+    .movie-library .movie-release-content li.movie-release {
+        grid-template-columns: minmax(3.5rem, .7fr) minmax(0, 1fr) minmax(0, 1.05fr) minmax(5.4rem, 24%);
+        grid-template-areas: "quality head head action" "size time health action";
+    }
+    .movie-release-actions .movie-icon { width: 1rem; }
+    .movie-release-actions .movie-release-action { font-size: .9rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .movie-library .movie-release-content li.movie-release,
+    .movie-release-results button:not(:disabled) { transition: none; transform: none; }
+}
+body[data-effects="off"] .movie-library .movie-release-content li.movie-release,
+body[data-effects="off"] .movie-release-results button { transition: none; transform: none; }

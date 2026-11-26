@@ -830,7 +830,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
         alias = catalog.get('hungarian_title')
         if not any(matches(name, item['year']) for name in (item['title'], item['original'], alias)):
             return results, {}
-        metadata = {**catalog, 'title': item['title'], 'kind': item['kind'], 'season': season}
+        metadata = {**catalog, 'title': item['title'], 'year': item['year'], 'kind': item['kind'], 'season': season}
         if alias and (matches(alias, item['year']) or alias.casefold() == item['title'].casefold()):
             metadata.pop('hungarian_title')
         return results, metadata

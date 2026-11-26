@@ -2312,6 +2312,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         runtime.hidden = alternate.hidden = true;
         panel.append(heading, runtime, alternate);
         let titleDetails = {}, videoCards = [], externalCount = 0, requestCount = 0;
+        let releaseLookup, matchingShelf;
         function showDetails(details) {
             if (!details?.title) return;
             titleDetails = details;
@@ -2330,11 +2331,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         }
 
         // Each source publishes independently. Clearing or replacing the search detaches this panel.
-        const web = el("section"), downloads = el("section");
+        const web = el("section"), downloads = el("section"), otherSources = el("details");
         web.className = "movie-source movie-youtube";
         downloads.className = "movie-source";
         web.hidden = downloads.hidden = true;
-        panel.append(downloads);
+        otherSources.className = "movie-release-alternatives";
+        otherSources.open = true;
+        otherSources.append(el("summary", "Other watch and download options"), downloads, web);
         const alive = () => active && !signal.aborted && panel.isConnected;
         const wanted = searchTitle(term);
         const matchesTitle = value => {
@@ -2359,7 +2362,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         function showMatchingTitles(list) {
             if (!list.length || !alive() || findRelease) return false;
             const libraryNames = [...results.querySelectorAll(".movie-card-name")];
-            const matches = list.filter(item => typeof item.title === "string" && item.title.trim() && !libraryNames.some(name => {
+            const matches = list.filter(item => typeof item?.title === "string" && item.title.trim() && !libraryNames.some(name => {
                 const year = name.closest(".movie-card").dataset.year;
                 return (!year || !item.year || year === String(item.year)) && searchTitle(name.textContent) === searchTitle(item.title);
             }));
@@ -2388,17 +2391,23 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 update();
             }
             externalCount = matches.length;
-            if (list.some(item => item.poster)) matchShelf.append(credit);
+            if (matches.some(item => item.poster)) matchShelf.append(credit);
             results.insertBefore(matchShelf, panel);
+            matchingShelf = matchShelf;
             return true;
         }
+        const getMatches = () => call("MovieMatches", term).then(reply => {
+            const list = Array.isArray(reply?.matches) ? reply.matches : [];
+            if (!alive()) return [];
+            release?.setMatches(list);
+            return list;
+        }).catch(() => []);
         const matchingTitles = session.release_search_enabled ?
-            call("MovieMatches", term).then(reply => {
-                const list = Array.isArray(reply?.matches) ? reply.matches : [];
-                if (!list.length || !alive()) return false;
-                release?.setMatches(list);
+            getMatches().then(async list => {
+                await releaseLookup;
+                if (panel.hasAttribute("data-release-layout")) return false;
                 return showMatchingTitles(list);
-            }).catch(() => false) : null;
+            }) : null;
         const release = session.release_search_enabled || session.downloads_enabled
             ? buildReleaseSearch(async () => {
                 const [torrents, videa, youtube] = await Promise.all([
@@ -2409,12 +2418,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 const torrentFailed = session.release_search_enabled && !Array.isArray(torrents?.results);
                 const videaFailed = session.downloads_enabled && !Array.isArray(videa?.results);
                 const candidates = youtubeVideos(youtube);
-                const videos = candidates.filter(fullMatch);
-                const details = videos.some(item => !item.height) && alive() ? await enrichVideos(candidates) : null;
                 const videaMatches = videaFailed ? [] : videa?.season ? [videa.season] : videa?.results || [];
+                const releaseCandidates = [...(torrentFailed ? [] : torrents?.results || []),
+                    ...videaMatches.map(item => ({...item, site: "Videa"}))];
+                const videos = releaseCandidates.length || session.release_search_enabled ? candidates.filter(fullMatch) : [];
+                const details = videos.some(item => !item.height) && alive() ? await enrichVideos(candidates) : null;
                 const ranked = [
-                    ...(torrentFailed ? [] : torrents?.results || []),
-                    ...videaMatches.map(item => ({...item, site: "Videa"})),
+                    ...releaseCandidates,
                     ...videos.map(item => ({...item, site: "YouTube", height: item.height || details?.results?.[item.url.slice(-11)]?.height}))
                 ];
                 if (!ranked.length && (torrentFailed || videaFailed)) {
@@ -2430,9 +2440,40 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     : await call("MovieDownload", row.guid, row.indexerId, row.title, ...options);
                 if (reply?.state === "sent") refreshDownloadsAfterGrab();
                 return reply;
-            } : null, showDetails, {preferredAudio: readMoviePreferences(preferenceViewer).audio, icon}) : null;
-        if (release) panel.append(release.element);
-        panel.append(web);
+            } : null, {
+                term, screen: movieScreen(readMoviePreferences(preferenceViewer).screen), icon, searchTitle, titleHue, chainImages,
+                watchLink: youtubeWatch,
+                downloadProgress: row => {
+                    const key = searchTitle(row.episodes ? row.name : row.title);
+                    const found = downloadItems.find(item => typeof item?.name === "string" &&
+                        searchTitle(item.name) === key && Number.isFinite(item.progress));
+                    return found?.progress;
+                },
+                onResults: (details, visible) => {
+                    showDetails(details);
+                    if (!visible || panel.hasAttribute("data-release-layout")) return;
+                    const focused = document.activeElement;
+                    const matchFocus = matchingShelf?.contains(focused);
+                    matchingShelf?.remove();
+                    const libraryShelf = results.querySelector(":scope > .movie-shelf");
+                    const otherFocus = otherSources.contains(focused) || libraryShelf?.contains(focused);
+                    const otherSummary = otherSources.querySelector("summary");
+                    if (libraryShelf) otherSummary.after(libraryShelf);
+                    otherSources.open = Boolean(otherFocus);
+                    panel.setAttribute("data-release-layout", "");
+                    searchAnnouncement.textContent = "";
+                    if (!matchingTitles) void getMatches();
+                    if (matchFocus || otherFocus && (document.activeElement !== focused || focused.closest("[data-release-match]"))) {
+                        const next = otherSummary.getClientRects().length ? otherSummary : release.element.querySelector("h2");
+                        next.focus({preventScroll: true});
+                    }
+                }
+            }) : null;
+        if (release) {
+            panel.append(release.element);
+            updateReleaseProgress = release.updateProgress;
+        }
+        panel.append(otherSources);
         const message = el("p", "Checking other sources…");
         message.className = "movie-source-note is-checking";
         message.setAttribute("role", "status");
@@ -2448,9 +2489,26 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         });
         web.append(videoOutage.card);
         downloads.append(downloadOutage.card);
+        function youtubeWatch(watchUrl) {
+            const link = el("a", "Watch on YouTube");
+            link.className = "movie-source-action";
+            link.append(icon("M13 5h6v6m0-6-9 9m6-1v5H6V8h5"));
+            if (typeof watchUrl !== "string" || !/^https:\/\/www\.youtube\.com\/watch\?v=[A-Za-z0-9_-]{11}$/.test(watchUrl)) return link;
+            link.href = watchUrl;
+            link.rel = "noopener noreferrer";
+            link.target = "_blank";
+            link.onclick = event => {
+                event.preventDefault();
+                link.focus();
+                Promise.resolve(app.invokeMethodAsync("MovieOpenLink", watchUrl))
+                    .catch(() => window.open(watchUrl, "_blank", "noopener,noreferrer"));
+            };
+            return link;
+        }
         function videoCard(video) {
             const row = el("li"), art = el("div"), image = el("img"), content = el("div");
             row.className = "movie-release movie-youtube-card";
+            if (session.downloads_enabled && fullMatch(video)) row.dataset.releaseMatch = "";
             art.className = "movie-youtube-art";
             image.alt = "";
             image.decoding = "async";
@@ -2467,20 +2525,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             badges.append(quality);
             appendSoundChip(badges, releaseSound(video.title), icon);
             badges.append(match);
-            const actions = el("div"), link = el("a", "Watch on YouTube");
+            const actions = el("div"), link = youtubeWatch(video.url);
             actions.className = "movie-youtube-actions";
-            link.className = "movie-source-action";
-            link.append(icon("M13 5h6v6m0-6-9 9m6-1v5H6V8h5"));
-            const watchUrl = typeof video.url === "string" && /^https:\/\/www\.youtube\.com\/watch\?v=[A-Za-z0-9_-]{11}$/.test(video.url) ? video.url : null;
-            if (watchUrl) link.href = watchUrl;
-            link.rel = "noopener noreferrer";
-            link.target = "_blank";
-            link.onclick = event => {
-                event.preventDefault();
-                link.focus();
-                if (watchUrl) Promise.resolve(app.invokeMethodAsync("MovieOpenLink", watchUrl))
-                    .catch(() => window.open(watchUrl, "_blank", "noopener,noreferrer"));
-            };
             const notice = el("p");
             notice.setAttribute("role", "status");
             notice.className = "movie-release-note";
@@ -2582,7 +2628,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 if (!session.downloads_enabled) web.append(el("p", "Downloading is not switched on for your profile."));
                 web.append(list);
                 web.hidden = false;
-                announceResults(videos.length);
+                if (!release || retrying) announceResults(videos.length);
                 enrichVideos(videos).then(details => {
                     if (!alive()) return;
                     for (const card of cards) {
@@ -2664,7 +2710,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const searches = [findVideos()];
         if (matchingTitles) searches.push(matchingTitles);
         if (session.requests_enabled) searches.push(findDownloads());
-        if (release) searches.push(release.load());
+        if (release) {
+            releaseLookup = release.load();
+            searches.push(releaseLookup);
+        }
         let shown = false, outstanding = searches.length;
         for (const search of searches) search.then(found => {
             if (!alive()) return;
@@ -2673,7 +2722,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             if (!outstanding) {
                 message.classList.remove("is-checking");
                 message.textContent = shown ? "" : "No watch or download options found. Try another title.";
-                if (!findRelease) announceResults(externalCount || requestCount || videoCards.length);
+                if (!findRelease && !panel.hasAttribute("data-release-layout")) announceResults(externalCount || requestCount || videoCards.length);
             }
         });
     }
@@ -2702,9 +2751,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     searchAnnouncement.className = "movie-visually-hidden";
     searchAnnouncement.setAttribute("role", "status");
     searchAnnouncement.setAttribute("aria-atomic", "true");
-    let searchRequest, searchTimer, submittedTerm, homeScroll, searchCount = 0;
+    let searchRequest, searchTimer, submittedTerm, homeScroll, updateReleaseProgress, searchCount = 0;
     searchProgress.hidden = true;
     function announceResults(external = 0, showEmpty = false) {
+        if (results.querySelector("[data-release-layout]")) return;
         if (searchAnnouncement.textContent) return;
         const count = searchCount + external;
         searchAnnouncement.classList.toggle("movie-visually-hidden", !showEmpty || count > 0);
@@ -2713,6 +2763,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     function replaceSearchResults() {
         clearTimeout(searchTimer);
         searchRequest?.abort();
+        updateReleaseProgress = undefined;
         submittedTerm = undefined;
         if (results.contains(document.activeElement)) submit.focus({preventScroll: true});
         results.replaceChildren();
@@ -2780,7 +2831,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             page: season ? () => findSeason(season[1], Number(season[2]), signal) : undefined
         });
     }
-    form.onsubmit = event => { event.preventDefault(); startSearch(); };
+    form.onsubmit = event => {
+        event.preventDefault();
+        const releaseLayout = Boolean(results.querySelector("[data-release-layout]"));
+        startSearch(releaseLayout, releaseLayout && document.activeElement === query);
+    };
     query.oninput = event => {
         if (event.isComposing) return;
         if (!query.value.trim()) { resetSearch(); return; }
@@ -2789,7 +2844,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         searchProgress.hidden = false;
         searchTimer = setTimeout(() => startSearch(false, true), 350);
     };
-    form.append(submit, query, clear);
+    form.append(query, submit, clear);
     const toolbar = el("div");
     toolbar.className = "movie-toolbar";
     toolbar.append(form);
@@ -2919,6 +2974,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         if (!queueVisible()) return;
         const itemsAvailable = reply?.available && Array.isArray(reply.items);
         downloadItems = itemsAvailable ? reply.items : [];
+        updateReleaseProgress?.();
         if (itemsAvailable) {
             audioJobs = downloadItems.filter(item => Array.isArray(item.results));
             for (const job of audioJobs) {

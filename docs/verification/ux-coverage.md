@@ -50,12 +50,19 @@ Live measurements are pending. At each scale, compare `AppWindow.TitleBar.Height
 
 | Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Release results, loading, empty, retry and expanded list | never | never | never | never | never | Source check, 26 Nov 2026, Home theme | never |
+| Release results, loading, empty and retry | never | never | never | never | never | Source check, 26 Nov 2026, concept D | never |
+| Release results, desktop and TV rail, filters, sort and quality guide | never | never | never | never | never | Source check, 26 Nov 2026, concept D | never |
+| Release results, phone poster strip, tier chips and sort and filters menu | never | never | never | never | never | Source check, 26 Nov 2026, concept D | never |
+| Release rows, file name disclosure, pending download, receipt and retry | never | never | never | never | never | Source check, 26 Nov 2026, concept D | never |
 | Matching title shelf, peek and release handoff | never | never | never | never | never | Source check, 26 Nov 2026, Home theme | never |
 | Library cards and film details, sound chips | never | never | never | never | never | Source check, 26 Nov 2026, Home theme | never |
 | Movies preferences, My screen | never | never | never | never | never | Source check, 26 Nov 2026, current branch | never |
 
-Release fixtures cover overflow from 320 to 3840 px, five full cards and a peek at 1280, 1920 and 2560 px, keyboard navigation, reduced motion, and effects off. Player fixtures cover the screen cap and a stricter server limit. Execution, visual inspection, screen-reader speech and physical-device verification are pending.
+`tests/movies_release_layout.cjs` checks the rail and rows at 1280, 1920 and 2560 px, the 1920 px TV profile, and emulated tablet and phone profiles. The fixtures check poster and search field uniqueness, tier counts, sort and filter behavior, focus, row order, file disclosure, overflow, outline and target size. The matching title shelf fixture still checks five full cards and a peek at 1280, 1920 and 2560 px.
+
+Filtering and sorting update immediately and keep focus on the active control. The summary announces a changed result count once. The guide, file name and phone controls open immediately and keep focus on their disclosure buttons. The row outline fades in or out over 160 ms with ease-out and reverses from its current colour when interrupted. Reduced motion and Effects off make the outline immediate. The download button keeps focus as it changes to Added or Try again. Its status announces the receipt or failure and the adjoining progress indicator shows the queue value.
+
+Player fixtures cover the screen cap and a stricter server limit. Paddock execution, visual inspection, screen-reader speech and physical-device verification are pending.
 
 ## 26 November 2026 Movie download options
 
