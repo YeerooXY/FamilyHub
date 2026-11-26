@@ -36,3 +36,7 @@ Summary card, left: a poster thumbnail (no colour block). Right, three lines: (1
 ## Age rating symbol
 
 A round badge (about 40 px, 4 px coloured ring, dark centre, bold number): green for no limit or 6, yellow for 12, orange for 16, red for 18. Source: TMDB certification, preferring the Hungarian (HU) value, then US and GB mapped to the nearest of 6, 12, 16, 18. Drawn in CSS or inline SVG, accessible name 'Rated 12'; shown next to the title on Home hero, film page, series page, release search rail and this dialog. Never copy official artwork.
+
+## Confirm dialog look (owner, 26 Nov)
+
+The poster fills the whole left edge of the summary card (flush to the left, top and bottom edges; the card's rounded corners clip it, no margin around it). The rest of the screen behind the dialog is softly blurred and dimmed. The dialog frame emits a soft light: a glow taken from the title's own backdrop colours (a dominant cool and a warm colour; fall back to violet). Reduced motion and effects off keep the glow static. Preview: `1-6-2-concepts/avatar3-confirm-dialog-v2.png`.
