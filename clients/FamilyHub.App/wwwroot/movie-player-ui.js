@@ -5,10 +5,14 @@ import { attachSound, soundPanelWanted, SOUND_MODES, MAX_VOLUME } from "./movie-
 const SVG = "http://www.w3.org/2000/svg";
 const subtitleSizeKey = "familyhub.movie.subtitle-size";
 const subtitleSizes = ["Small", "Medium", "Large"];
-const subtitleSearches = new Set();
 const paths = {
     back: "M15 5l-7 7 7 7",
     close: "M6 6l12 12M18 6L6 18",
+    check: "M5 12l4 4 10-10",
+    download: "M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4",
+    minus: "M5 12h14",
+    plus: "M5 12h14m-7-7v14",
+    reset: "M4 11a8 8 0 1 1 2 7M4 5v6h6",
     play: "M8 4.5v15l12-7.5z",
     pause: "M7 4h4v16H7zM13 4h4v16h-4z",
     skip: ["M12 5a8 8 0 1 1-7.4 5", "M14.5 2.5L12 5l2.5 2.5"],
@@ -252,11 +256,25 @@ export function buildPlayerUi(ctx) {
     audioSheet.classList.add("movie-sheet-tracks");
     const audio = make("section", "movie-track-col");
     const subtitles = make("section", "movie-track-col");
+    const subtitleHead = make("div", "movie-track-heading");
+    const downloadLabel = "Find a subtitle for this film";
+    let lastDownloadLanguage;
+    const download = button("movie-track-icon", downloadLabel, paths.download, {}, () => {
+        download.focus({ preventScroll: true });
+        if (download.getAttribute("aria-disabled") === "true" || !ctx.subtitleSearch) return;
+        const missing = ctx.subtitleSearch.missing();
+        lastDownloadLanguage = missing.find(language => language !== lastDownloadLanguage) ?? missing[0];
+        void ctx.subtitleSearch.run(lastDownloadLanguage);
+    });
+    download.title = downloadLabel;
+    const searchStatus = make("p", "movie-subtitle-status");
+    searchStatus.setAttribute("role", "status");
+    subtitleHead.append(make("h4", "", "Subtitles"), download);
     audio.append(make("h4", "", "Audio"));
-    subtitles.append(make("h4", "", "Subtitles"));
+    subtitles.append(subtitleHead, searchStatus);
     sheets.audio.body.append(audio, subtitles);
     const episodesSheet = makeSheet("episodes", "Episodes", "Close episodes", episodesButton);
-    bottom.append(audioSheet, episodesSheet);
+    bottom.append(episodesSheet);
     if (sound) {
         const volumeRow = make("div", "movie-volume");
         const mute = button("movie-ui-action", "Mute", paths.sound, {}, () => sound.toggleMute());
@@ -333,8 +351,7 @@ export function buildPlayerUi(ctx) {
         audio.append(details);
         paint(sound.state);
     }
-    // Audio & Subtitles is one popover with a list per kind, like Netflix. The labelled selects stay in the document,
-    // hidden, as the single source of truth: choosing a row sets its select and fires the select's change event.
+    // The hidden selects keep playback and the track rows in sync.
     function trackList(sheet, pick, name) {
         if (!pick) return () => {};
         pick.closest("label").hidden = true;
@@ -348,30 +365,43 @@ export function buildPlayerUi(ctx) {
             if (next.length !== options.length || next.some((option, index) => option !== options[index])) {
                 const previousRows = [...list.children];
                 const focusedIndex = previousRows.indexOf(document.activeElement);
-                const focusedValue = options[focusedIndex]?.value;
+                const focusedValue = options[focusedIndex]?.dataset.language ?? options[focusedIndex]?.value;
                 options = next;
                 const nextRows = options.map(option => {
-                    const row = make("button", "movie-track-option", option.text);
+                    const row = make("button", "movie-track-option movie-track-choice", option.text);
                     row.type = "button";
                     row.setAttribute("role", "radio");
+                    const dot = make("span", "movie-track-dot");
+                    dot.append(icon(paths.check));
+                    row.prepend(dot);
                     row.addEventListener("click", () => {
-                        if (pick !== ctx.subtitlePick && pick.value === option.value) return;
+                        if (pick.value === option.value) return;
                         pick.value = option.value;
                         pick.dispatchEvent(new Event("change"));
-                        sync();
+                        if (pick === ctx.subtitlePick) syncSubtitles();
+                        else sync();
+                    }, { signal });
+                    row.addEventListener("focus", () => {
+                        for (const other of list.children) other.tabIndex = other === row ? 0 : -1;
                     }, { signal });
                     return row;
                 });
                 if (focusedIndex < 0) list.replaceChildren(...nextRows);
                 else {
                     list.append(...nextRows);
-                    (nextRows[next.findIndex(option => option.value === focusedValue)] ?? nextRows[0] ?? sheets.audio.close)
+                    (nextRows[next.findIndex(option => (option.dataset.language ?? option.value) === focusedValue)]
+                        ?? nextRows[0] ?? sheets.audio.close)
                         .focus({ preventScroll: true });
                     previousRows.forEach(row => row.remove());
                 }
             }
-            options.forEach((option, index) =>
-                list.children[index].setAttribute("aria-checked", String(pick.value === option.value)));
+            const activeRow = list.contains(document.activeElement) ? document.activeElement
+                : list.children[options.findIndex(option => option.value === pick.value)] ?? list.firstElementChild;
+            options.forEach((option, index) => {
+                const row = list.children[index];
+                row.setAttribute("aria-checked", String(pick.value === option.value));
+                row.tabIndex = row === activeRow ? 0 : -1;
+            });
         }
         sync();
         return sync;
@@ -380,7 +410,7 @@ export function buildPlayerUi(ctx) {
     if (!ctx.audioPick) audio.append(make("p", "", "Default audio"));
     const soundOptions = audio.querySelector(".movie-sound-options");
     if (soundOptions) audio.append(soundOptions);
-    const syncSubtitles = trackList(subtitles, ctx.subtitlePick, "Subtitle track");
+    const syncSubtitleRows = trackList(subtitles, ctx.subtitlePick, "Subtitle track");
     const sizeLabel = make("label", "movie-subtitle-size", "Subtitle size");
     const size = make("select");
     for (const label of subtitleSizes) size.add(new Option(label, label.toLowerCase()));
@@ -393,7 +423,6 @@ export function buildPlayerUi(ctx) {
         try { localStorage.setItem(subtitleSizeKey, size.value); } catch {}
     }, { signal });
     sizeLabel.append(size);
-    subtitles.append(sizeLabel);
     if (ctx.audioSync) {
         const sync = make("div", "movie-audio-sync");
         sync.setAttribute("role", "group");
@@ -417,131 +446,131 @@ export function buildPlayerUi(ctx) {
             adjust(100, "Play audio 100 ms later", "+"));
         audio.append(sync);
     }
-    if (ctx.addAudio) {
-        const add = button("movie-track-option", "Add audio track", null, {}, () => ctx.addAudio(add));
-        add.textContent = "Add audio track";
-        audio.append(add);
-    }
-    let subtitleStatus = () => {};
-    if (ctx.subtitleSearch) {
-        const finder = make("div", "movie-subtitle-finder");
-        const form = make("div", "movie-subtitle-form");
-        const languageLabel = make("label", "", "Subtitle language");
-        const language = make("select");
-        language.add(new Option("English", "eng"));
-        language.add(new Option("Hungarian", "hun"));
-        language.value = ctx.subtitleSearch.language;
-        languageLabel.append(language);
-        const find = make("button", "movie-subtitle-action", "Find subtitles");
-        find.type = "button";
-        const feedback = make("p", "");
-        feedback.setAttribute("role", "status");
-        const results = make("ul", "movie-subtitle-results");
-        results.setAttribute("aria-label", "Subtitle results");
-        form.append(languageLabel, find);
-        finder.append(form, feedback, results);
-        subtitles.append(finder);
-        let busy = false;
-        function setBusy(value) {
-            busy = value;
-            find.setAttribute("aria-disabled", String(value));
-            for (const row of results.querySelectorAll("button")) row.setAttribute("aria-disabled", String(value));
-        }
-        function reportStatus(text, working = false, retry = false) {
-            if (working) text = text.startsWith("Adding") ? "Adding subtitles…" : "Searching…";
-            else if (text.startsWith("Automatic search")) text = "";
-            feedback.textContent = text;
-            find.textContent = retry ? "Retry" : "Find subtitles";
-            setBusy(working);
-        }
-        const streamItem = /\/Videos\/([^/?#]+)\//i.exec(media.getAttribute("src") ?? "")?.[1];
-        const attemptsKey = ctx.subtitleSearch.itemId ?? streamItem ?? JSON.stringify([ctx.kicker, ctx.title]);
-        const searchedLanguage = () => JSON.stringify([attemptsKey, language.value]);
-        function searchMissingLanguage() {
-            if (busy) return;
-            results.replaceChildren();
-            reportStatus("");
-            const aliases = language.value === "hun" ? ["hu", "hun"] : ["en", "eng"];
-            if ([...media.querySelectorAll("track")].some(track =>
-                aliases.includes(track.srclang.toLowerCase().split(/[-_]/)[0]))) return;
-            const key = searchedLanguage();
-            if (subtitleSearches.has(key)) return;
-            subtitleSearches.add(key);
-            void search();
-        }
-        function finish(languageUsed) {
-            setBusy(false);
-            if (languageUsed !== language.value) searchMissingLanguage();
-        }
-        async function search() {
-            if (busy) return;
-            results.replaceChildren();
-            reportStatus("Searching…", true);
-            const selectedLanguage = language.value;
-            const languageName = language.selectedOptions[0].text;
-            try {
-                const matches = await ctx.subtitleSearch.find(selectedLanguage);
-                if (signal.aborted || selectedLanguage !== language.value) return;
-                if (matches === null) {
-                    reportStatus(`${languageName} subtitles added.`);
-                    return;
-                }
-                for (const result of matches) {
-                    const entry = make("li");
-                    const add = make("button", "movie-subtitle-action");
-                    add.type = "button";
-                    const facts = [languageName];
-                    if (Number.isFinite(result.CommunityRating) && result.CommunityRating > 0)
-                        facts.push(`Rating ${result.CommunityRating.toLocaleString(undefined, {maximumFractionDigits: 1})}`);
-                    if (Number.isFinite(result.DownloadCount))
-                        facts.push(`${result.DownloadCount.toLocaleString()} ${result.DownloadCount === 1 ? "download" : "downloads"}`);
-                    add.append(make("strong", "", result.Name || "Subtitle"), make("span", "", facts.join(", ")));
-                    add.addEventListener("click", async () => {
-                        if (busy) return;
-                        add.focus();
-                        reportStatus("Adding subtitles…", true);
-                        try {
-                            await ctx.subtitleSearch.add(result, selectedLanguage);
-                            if (signal.aborted) return;
-                            if (openSheet === "audio") closeSheet();
-                            results.replaceChildren();
-                            feedback.textContent = "";
-                            failure.textContent = "Subtitles added.";
-                            show();
-                        } catch {
-                            if (!signal.aborted) {
-                                feedback.textContent = "Could not add subtitles. Try again.";
-                                add.replaceChildren(make("strong", "", "Retry"), make("span", "", result.Name || "Subtitle"));
-                            }
-                        } finally {
-                            if (!signal.aborted) finish(selectedLanguage);
-                        }
-                    }, { signal });
-                    entry.append(add);
-                    results.append(entry);
-                }
-                reportStatus("");
-            } catch (error) {
-                if (!signal.aborted && selectedLanguage === language.value)
-                    reportStatus(ctx.subtitleSearch.message(error), false, true);
-            } finally {
-                if (!signal.aborted) finish(selectedLanguage);
+    const subtitleAnnouncement = make("span", "movie-player-sr");
+    subtitleAnnouncement.setAttribute("role", "status");
+    subtitles.append(subtitleAnnouncement);
+
+    const timing = make("section", "movie-track-col movie-subtitle-timing");
+    const timingFields = make("div", "movie-timing-fields");
+    const bitmapNote = make("p", "", "Timing is unavailable for image subtitles.");
+    timing.append(make("h4", "", "Timing"), bitmapNote, timingFields, sizeLabel);
+    sheets.audio.body.append(timing);
+    let timingKey, shift = 0, speed = 0;
+    let stopHold = () => {};
+    const shiftControl = stepper("Shift", 600, 1, "s", () => shift, value => { shift = value; });
+    const speedControl = stepper("Speed", 500, 2, "%", () => speed, value => { speed = value; });
+    function stepper(label, limit, places, unit, read, write) {
+        const group = make("div", "movie-timing-stepper");
+        group.setAttribute("role", "group");
+        group.setAttribute("aria-label", label);
+        const heading = make("div", "movie-timing-label");
+        const controls = make("div", "movie-timing-controls");
+        const output = make("output");
+        output.setAttribute("aria-label", label + " value");
+        const reset = button("movie-track-icon", "Reset subtitle " + label.toLowerCase(), paths.reset, {}, () => set(0));
+        reset.title = reset.getAttribute("aria-label");
+        function set(value) {
+            write(Math.min(limit, Math.max(-limit, value)));
+            if (timingKey) {
+                try {
+                    if (shift || speed) localStorage.setItem(timingKey, JSON.stringify({ shift, speed }));
+                    else localStorage.removeItem(timingKey);
+                } catch {}
             }
+            paint();
+            refreshCueTiming();
         }
-        const defaultLanguage = language.value;
-        subtitleStatus = (text, working = false, retry = false) => {
-            if (text.startsWith("Searching") || text.startsWith("Automatic search already"))
-                subtitleSearches.add(JSON.stringify([attemptsKey, defaultLanguage]));
-            reportStatus(text, working, retry);
-            if (!working && language.value !== defaultLanguage) searchMissingLanguage();
-        };
-        find.addEventListener("click", () => {
-            if (busy) return;
-            subtitleSearches.add(searchedLanguage());
-            void search();
+        function paint() {
+            const value = read();
+            output.textContent = (value > 0 ? "+" : "") + (value / 10 ** places).toFixed(places) + " " + unit;
+            if (value === 0 && reset === document.activeElement) increase.focus({ preventScroll: true });
+            reset.hidden = value === 0;
+        }
+        function adjust(direction, shape, verb) {
+            let repeated = false;
+            const control = button("movie-track-icon", verb + " subtitle " + label.toLowerCase(), shape, {}, event => {
+                if (!repeated || event.detail === 0) set(read() + direction * (event.shiftKey ? 10 : 1));
+                repeated = false;
+            });
+            control.title = control.getAttribute("aria-label");
+            control.addEventListener("pointerdown", event => {
+                if (event.button !== 0 || !event.isPrimary) return;
+                control.focus({ preventScroll: true });
+                stopHold();
+                repeated = false;
+                control.setPointerCapture(event.pointerId);
+                const step = event.shiftKey ? 10 : 1;
+                let delay = 260;
+                function repeat() {
+                    repeated = true;
+                    set(read() + direction * step);
+                    delay = Math.max(45, delay * .78);
+                    timer = setTimeout(repeat, delay);
+                }
+                let timer = setTimeout(repeat, 350);
+                stopHold = () => clearTimeout(timer);
+            }, { signal });
+            for (const type of ["pointerup", "pointercancel", "lostpointercapture", "blur"])
+                control.addEventListener(type, () => stopHold(), { signal });
+            return control;
+        }
+        const decrease = adjust(-1, paths.minus, "Decrease"), increase = adjust(1, paths.plus, "Increase");
+        heading.append(make("span", "", label), reset);
+        controls.append(decrease, output, increase);
+        group.append(heading, controls);
+        group.addEventListener("keydown", event => {
+            if (event.key !== "PageUp" && event.key !== "PageDown") return;
+            event.preventDefault();
+            set(read() + (event.key === "PageUp" ? 10 : -10));
         }, { signal });
-        language.addEventListener("change", searchMissingLanguage, { signal });
+        timingFields.append(group);
+        return paint;
     }
+    function syncTiming() {
+        const selected = ctx.subtitlePick?.selectedOptions[0];
+        const language = selected?.dataset.language;
+        const bitmap = !!language && ctx.burnedSubtitle === Number(selected.value);
+        if (!language && timing.contains(document.activeElement))
+            subtitles.querySelector("[aria-checked='true']")?.focus({ preventScroll: true });
+        timing.hidden = !language;
+        timingFields.hidden = sizeLabel.hidden = bitmap;
+        bitmapNote.hidden = !bitmap;
+        const key = language && !bitmap && ctx.itemId != null
+            ? "familyhub.movie.subtitle-timing.v1:" + JSON.stringify([ctx.itemId, language]) : undefined;
+        if (key !== timingKey) {
+            timingKey = key;
+            let saved;
+            try { if (key) saved = JSON.parse(localStorage.getItem(key)); } catch {}
+            shift = Number.isInteger(saved?.shift) && Math.abs(saved.shift) <= 600 ? saved.shift : 0;
+            speed = Number.isInteger(saved?.speed) && Math.abs(saved.speed) <= 500 ? saved.speed : 0;
+        }
+        shiftControl();
+        speedControl();
+        refreshCueTiming();
+    }
+    function syncDownload() {
+        const missing = ctx.subtitleSearch?.missing().length > 0;
+        // Keep the focused action until the user moves on after the last download.
+        download.hidden = !missing && document.activeElement !== download;
+        download.setAttribute("aria-disabled", String(searching || !missing));
+    }
+    let searching = false, announcedTrack;
+    function subtitleStatus(text, working = false) {
+        searching = working;
+        searchStatus.textContent = text;
+        syncDownload();
+    }
+    function syncSubtitles() {
+        syncSubtitleRows();
+        syncTiming();
+        syncDownload();
+        const label = ctx.subtitlePick?.selectedOptions[0]?.text;
+        if (openSheet === "audio" && label && label !== announcedTrack)
+            subtitleAnnouncement.textContent = `Subtitles: ${label}`;
+        announcedTrack = label;
+    }
+    download.addEventListener("blur", () => queueMicrotask(syncDownload), { signal });
+    signal.addEventListener("abort", () => stopHold(), { once: true });
     function toggleSheet(name, focusTarget) {
         if (openSheet === name) return closeSheet();
         const previous = openSheet && sheets[openSheet];
@@ -555,6 +584,7 @@ export function buildPlayerUi(ctx) {
         if (previous) {
             previous.opener.setAttribute("aria-expanded", "false");
             previous.node.hidden = true;
+            stopHold();
         }
     }
     function closeSheet() {
@@ -564,6 +594,7 @@ export function buildPlayerUi(ctx) {
         sheet.opener.setAttribute("aria-expanded", "false");
         (sheet.opener.hidden ? tracksButton : sheet.opener).focus({ preventScroll: true });
         sheet.node.hidden = true;
+        stopHold();
         show();
     }
     for (const sheet of Object.values(sheets)) {
@@ -616,7 +647,7 @@ export function buildPlayerUi(ctx) {
         clearTimeout(shortcutTimer);
         shortcutTimer = setTimeout(() => { shortcutStatus.textContent = ""; }, 1200);
     }
-    root.append(surfaceLayer, subs, spinnerRoot, message, top, bottom, shortcutStatus);
+    root.append(surfaceLayer, subs, spinnerRoot, message, top, bottom, shortcutStatus, audioSheet);
 
     // Controls hide a few seconds after the last touch, playing or paused. Reduced motion only removes the fade, not the hiding.
     // A keyboard or remote focus ring keeps them up so the focused control stays visible.
@@ -646,7 +677,7 @@ export function buildPlayerUi(ctx) {
     });
     // Subtitles: draw the active cues just above the bottom of the picture, and above the seek row while the controls show.
     const entities = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&nbsp;": " " };
-    let watched = [];
+    let watched = [], frame, drawnText;
     function placeSubs() {
         const area = root.getBoundingClientRect();
         const hidden = root.classList.contains("movie-idle");
@@ -654,10 +685,35 @@ export function buildPlayerUi(ctx) {
         subs.style.bottom = subtitleBottom({ width: area.width, height: area.height, videoWidth: media.videoWidth, videoHeight: media.videoHeight, barTop }) + "px";
     }
     function drawCues() {
-        const text = watched.flatMap(track => [...(track.activeCues || [])].map(cue => cue.text)).join("\n");
+        const text = watched.flatMap(track => {
+            if (!shift && !speed) return [...(track.activeCues ?? [])].map(cue => cue.text);
+            const cues = track.cues;
+            if (!cues?.length) return [];
+            const anchor = cues[0].startTime;
+            // Compare in the original cue timeline to apply the same transform to both edges.
+            const time = anchor + (media.currentTime - shift / 10 - anchor) / (1 + speed / 10000);
+            const active = [];
+            for (const cue of cues) {
+                if (cue.startTime > time) break;
+                if (time < cue.endTime) active.push(cue.text);
+            }
+            return active;
+        }).join("\n");
+        if (text === drawnText) return;
+        drawnText = text;
         const lines = cleanCue(text).replace(/&(?:amp|lt|gt|quot|#39|nbsp);/g, entity => entities[entity]).split("\n").filter(Boolean);
         subs.replaceChildren(...lines.map(line => make("span", "movie-ui-sub", line)));
         placeSubs();
+    }
+    function paintTimedFrame() {
+        drawCues();
+        if ((shift || speed) && watched.length && !media.paused && !media.ended)
+            frame = requestAnimationFrame(paintTimedFrame);
+    }
+    function refreshCueTiming() {
+        cancelAnimationFrame(frame);
+        watchTracks();
+        paintTimedFrame();
     }
     function watchTracks() {
         for (const track of watched) track.removeEventListener("cuechange", drawCues);
@@ -667,13 +723,20 @@ export function buildPlayerUi(ctx) {
     }
     media.textTracks.addEventListener("change", watchTracks, { signal });
     media.textTracks.addEventListener("addtrack", watchTracks, { signal });
+    media.textTracks.addEventListener("removetrack", watchTracks, { signal });
+    for (const type of ["play", "pause", "ended"]) media.addEventListener(type, refreshCueTiming, { signal });
+    for (const type of ["seeking", "seeked", "timeupdate"]) media.addEventListener(type, drawCues, { signal });
     for (const type of ["loadedmetadata", "resize"]) media.addEventListener(type, placeSubs, { signal });
     window.addEventListener("resize", placeSubs, { signal });
     for (const type of ["fullscreenchange", "webkitfullscreenchange"])
         document.addEventListener(type, placeSubs, { signal });
     const classWatcher = new MutationObserver(placeSubs);
     classWatcher.observe(root, { attributes: true, attributeFilter: ["class"] });
-    signal.addEventListener("abort", () => { classWatcher.disconnect(); for (const track of watched) track.removeEventListener("cuechange", drawCues); });
+    signal.addEventListener("abort", () => {
+        cancelAnimationFrame(frame);
+        classWatcher.disconnect();
+        for (const track of watched) track.removeEventListener("cuechange", drawCues);
+    });
 
     signal.addEventListener("abort", () => { clearTimeout(tapTimer); clearTimeout(shortcutTimer); });
 
@@ -830,6 +893,24 @@ export function buildPlayerUi(ctx) {
             return;
         }
         if (inSheet) {
+            const group = target.closest("[role='radiogroup']");
+            if (arrow && openSheet === "audio" && group) {
+                const radios = [...group.querySelectorAll("[role='radio']")];
+                const step = key === "arrowdown" || key === "arrowright" ? 1 : -1;
+                const index = radios.indexOf(target) + step;
+                if (radios[index] || !tv || key === "arrowleft" || key === "arrowright") {
+                    event.preventDefault();
+                    (radios[index] ?? radios.at(step > 0 ? 0 : -1))?.focus();
+                    return;
+                }
+            }
+            const stepper = target.closest(".movie-timing-stepper");
+            if (stepper && (key === "arrowleft" || key === "arrowright")) {
+                const controls = [...stepper.querySelectorAll(".movie-timing-controls button")];
+                event.preventDefault();
+                controls.at(key === "arrowleft" ? 0 : -1).focus();
+                return;
+            }
             if (tv && arrow && moveFocus(target, event.key)) event.preventDefault();
             return;
         }
@@ -863,7 +944,7 @@ export function buildPlayerUi(ctx) {
 
     sync();
     paint();
-    watchTracks();
+    syncSubtitles();
     show();
     return {
         root,
@@ -927,10 +1008,12 @@ export function buildPlayerUi(ctx) {
             return true;
         },
         openSheetName: () => openSheet,
-        reopenSheet(name) {
+        reopenSheet(name, focusSubtitle = false) {
             if (name === "subtitles") name = "audio";
             if (name && sheets[name]) toggleSheet(name, name === "audio"
-                ? sheets.audio.body.querySelector("[aria-checked='true']") : null);
+                ? (focusSubtitle ? subtitles : audio).querySelector("[aria-checked='true']") : null);
+            if (name === "audio" && focusSubtitle && announcedTrack)
+                subtitleAnnouncement.textContent = `Subtitles: ${announcedTrack}`;
         },
         dispose() { root.remove(); }
     };

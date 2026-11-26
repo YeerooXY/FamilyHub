@@ -219,20 +219,23 @@ async function check(browser, options) {
     await dismissPlayerTracks(page);
     await tracks.click();
     assert.equal(await audio.inputValue(), "2");
+    assert.equal(await subtitle.inputValue(), "-1", "Hungarian audio starts with subtitles off");
+    await group("Subtitle track").getByRole("radio", {name: "Hungarian", exact: true}).press("Space");
     assert.equal(await subtitle.inputValue(), "3");
     assert.equal(await page.locator("video").evaluate(video => {
         video.dispatchEvent(new Event("loadedmetadata"));
-        return video.textTracks[0].mode;
+        return [...video.textTracks].find(track => track.language === "hu-HU").mode;
     }), "hidden", "the player draws subtitles itself, so the browser keeps the track hidden");
     // The player's own subtitle layer shows the active cue without YouTube's ">>" mark.
     await page.locator("video").evaluate(video => {
-        const track = video.textTracks[0];
+        const track = [...video.textTracks].find(track => track.language === "hu-HU");
         Object.defineProperty(track, "activeCues", { configurable: true, get: () => [{ text: ">> Hello &amp; welcome\n<i>Second line</i>" }] });
         track.dispatchEvent(new Event("cuechange"));
     });
     assert.deepEqual(await page.locator(".movie-ui-sub").allInnerTexts(), ["Hello & welcome", "Second line"]);
     if (browser.browserType() === chromium)
-        await page.waitForFunction(() => document.querySelector("video").textTracks[0].cues?.length === 1);
+        await page.waitForFunction(() => [...document.querySelector("video").textTracks]
+            .find(track => track.language === "hu-HU").cues?.length === 1);
     assert.equal(await checkedIn("Audio track").innerText(), "Hungarian, added");
     await group("Subtitle track").getByRole("radio", { name: "Off", exact: true }).click();
     await group("Audio track").getByRole("radio", { name: "English stereo", exact: true }).click();
@@ -255,7 +258,7 @@ async function check(browser, options) {
     await playMovieDetails(page, two, "Two languages");
     await back.waitFor();
     await openTracks();
-    assert.equal(await subtitle.inputValue(), "4");
+    assert.equal(await subtitle.inputValue(), "-1", "Jellyfin's subtitle default does not override Movies settings");
     await closePlayer(twoPlay, two);
     assert.equal(await preferences("viewer-b", { audio: "default", subtitles: "off" }), true);
     await playMovieDetails(page, two, "Two languages");

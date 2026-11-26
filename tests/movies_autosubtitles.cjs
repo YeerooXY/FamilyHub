@@ -1,4 +1,4 @@
-// Each title gets one automatic search per session. The sheet keeps a manual retry available.
+// Each requested title/language gets one automatic search per session. The download control can retry.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -100,36 +100,38 @@ async function run(browser, options, scenario) {
             return page.getByRole("dialog", {name: "Audio & Subtitles"});
         };
         const sheet = await openSheet();
-        const find = sheet.getByRole("button", {name: "Find subtitles", exact: true});
+        const find = sheet.getByRole("button", {name: "Find a subtitle for this film", exact: true});
         const off = sheet.getByRole("radio", {name: "Off", exact: true});
-        if (preference !== "off") {
-            await sheet.getByText("Searching…", {exact: true}).waitFor();
+        const automatic = preference === "en" || preference === "hu";
+        if (automatic) {
+            await sheet.getByText(`Searching for ${language} subtitles…`, {exact: true}).waitFor();
             assert.equal(await find.getAttribute("aria-disabled"), "true");
-            assert.equal(await sheet.getByRole("combobox", {name: "Subtitle language"}).inputValue(), code);
             if (!firstResponse) await off.focus();
             releaseSearch();
         }
-        if (preference === "off") {
+        if (!automatic) {
             assert.equal(await find.getAttribute("aria-disabled"), "false");
+            assert.equal(await off.getAttribute("aria-checked"), "true");
             assert.equal(searches, 0);
         } else if (firstResponse) {
             await sheet.getByText(firstResponse === "error" ? "The subtitle provider is unreachable. Try again later."
                 : "No subtitles found for this title and language. Try another language.",
                 {exact: true}).waitFor();
-            const retry = sheet.getByRole("button", {name: "Retry", exact: true});
             assert.equal(await sheet.getByText("503", {exact: false}).count(), 0);
             assert.equal(searches, 1);
-            assert.equal(await retry.getAttribute("aria-disabled"), "false");
-            await retry.press("Enter");
-            await sheet.getByRole("button", {name: /Trinity popular/}).waitFor();
+            assert.equal(await find.getAttribute("aria-disabled"), "false");
+            await find.press("Enter");
+            await sheet.getByText(`${language} subtitles added.`).waitFor();
             assert.equal(searches, 2);
+            assert.deepEqual(saves, ["provider_srt-420"]);
+            assert.equal(await find.evaluate(node => node === document.activeElement), true);
         } else {
             await sheet.getByText(`${language} subtitles added.`).waitFor();
             assert.equal(searches, 1);
             assert.deepEqual(saves, ["provider_srt-420"]);
             assert.equal(await video.evaluate(node => node.textTracks[0]?.mode), "hidden");
             assert.equal(await off.evaluate(row => row === document.activeElement), true);
-            assert.equal(await sheet.getByRole("radio", {name: language + " (external)"}).getAttribute("aria-checked"), "true");
+            assert.equal(await sheet.getByRole("radio", {name: language, exact: true}).getAttribute("aria-checked"), "true");
             await sheet.getByRole("button", {name: "Close audio and subtitles"}).press("Enter");
             if (nativeFullscreen) {
                 await page.getByRole("button", {name: "Full screen", exact: true}).press("Enter");
@@ -152,11 +154,12 @@ async function run(browser, options, scenario) {
 }
 
 verifyMovieProfiles(async (browser, profile, options) => {
-    await run(browser, options, {locale: "hu-HU", language: "Hungarian", code: "hun",
+    await run(browser, options, {preference: "en", locale: "hu-HU", language: "English", code: "eng",
         nativeFullscreen: profile === "chromium-1280"});
     await run(browser, options, {preference: "hu", locale: "en-US", language: "Hungarian", code: "hun"});
+    await run(browser, options, {locale: "hu-HU"});
     await run(browser, options, {preference: "off", locale: "en-US"});
     for (const firstResponse of ["error", "empty"])
-        await run(browser, options, {locale: "en-US", language: "English", code: "eng", firstResponse});
+        await run(browser, options, {preference: "en", locale: "en-US", language: "English", code: "eng", firstResponse});
 }).then(() => console.log("Automatic subtitle search, language, retry, and session limit passed."))
     .catch(error => { console.error(error); process.exitCode = 1; });

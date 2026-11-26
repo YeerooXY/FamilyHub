@@ -90,6 +90,18 @@ async function verify(browser, profile, options) {
         const tracks = button("Audio & Subtitles");
         const sheet = page.getByRole("dialog", {name: "Audio & Subtitles"});
         await (options.hasTouch ? tracks.tap() : tracks.click());
+        await page.waitForFunction(() => [...document.styleSheets].some(style => style.href?.endsWith("/movie-player.css")));
+        const panel = await sheet.boundingBox();
+        const viewport = page.viewportSize();
+        assert.ok(Math.abs(panel.x + panel.width / 2 - viewport.width / 2) < 1);
+        if (viewport.width < 600) {
+            assert.ok(Math.abs(panel.width - viewport.width) < 1);
+            assert.ok(Math.abs(panel.y + panel.height - viewport.height) < 1);
+        } else {
+            assert.ok(panel.width <= 448);
+            assert.ok(Math.abs(panel.y + panel.height / 2 - viewport.height / 2) < 1);
+        }
+        assert.equal(await button("Close audio and subtitles").evaluate(node => node === document.activeElement), true);
         await button("Close audio and subtitles").press("Enter");
         assert.equal(await focused(tracks), true);
         await page.keyboard.press("Space");

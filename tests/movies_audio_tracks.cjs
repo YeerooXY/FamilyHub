@@ -162,11 +162,10 @@ verifyMovieProfiles(async (browser, profile, options) => {
     await page.getByText("100 ms earlier", {exact: true}).waitFor();
     await page.waitForFunction(() => window.fixtureAudio?.currentTime === 5.1 && document.querySelector("video").muted);
     await page.screenshot({path: path.join(output, profile + "-sync.png")});
-    const addFromPlayer = page.getByRole("button", {name: "Add audio track"});
-    await addFromPlayer.press("Enter");
-    await focused(close);
-    await close.press("Enter");
-    await focused(addFromPlayer);
+    const trackSheet = page.getByRole("dialog", {name: "Audio & Subtitles"});
+    assert.equal(await trackSheet.getByRole("button", {name: "Add audio track"}).count(), 0);
+    await trackSheet.getByRole("button", {name: "Close audio and subtitles"}).press("Enter");
+    await focused(audio);
     await page.close();
 }).catch(error => { console.error(error); process.exitCode = 1; });
 

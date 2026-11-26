@@ -6,7 +6,7 @@ const { jellyfin, cors, output, moviePage, playMovieDetails, verifyMovieProfiles
 const clip = fs.readFileSync(path.join(__dirname, "fixtures/movie-subtitles.mp4"));
 
 async function verify(browser, profile, options) {
-    const page = await browser.newPage(options);
+    const page = await browser.newPage({...options, locale: "hu-HU"});
     page.setDefaultTimeout(7000);
     const decodeVideo = browser.browserType().name() === "chromium";
     let finishSearch, finishSave, saved = false, mediaReads = 0, playbackRequests = 0;
@@ -79,8 +79,7 @@ async function verify(browser, profile, options) {
         await page.evaluate(async jellyfin => {
             const { openMovies, saveMoviePreferences } = await import("/movies.js");
             const viewer = {server: jellyfin + "/", profile: "fixture"};
-            saveMoviePreferences(viewer, {subtitles: "hu"});
-            sessionStorage.setItem("familyhub:movie-tracks:" + JSON.stringify(viewer) + ":autosub:trinity", "1");
+            saveMoviePreferences(viewer, {subtitles: "off"});
             window.openMovieFixture(openMovies, document.querySelector("main"), {url: jellyfin, user: "fixture", token: "fixture", device: "fixture"},
                 {invokeMethodAsync: async (method, item, language) => {
                     if (method !== "MovieFetchSubtitle") return "{}";
@@ -112,20 +111,39 @@ async function verify(browser, profile, options) {
         const focused = locator => locator.evaluate(node => node === document.activeElement);
         assert.equal(await focused(close), true);
         await page.getByRole("heading", {name: "Subtitles", exact: true}).waitFor();
-        const language = page.getByRole("combobox", {name: "Subtitle language"});
-        assert.equal(await language.inputValue(), "hun");
-        await language.selectOption("eng");
-        const find = page.getByRole("button", {name: /^(Find subtitles|Retry)$/});
-        await find.focus();
-        await page.keyboard.press("Shift+Tab");
-        assert.equal(await focused(language), true);
-        await page.keyboard.press("Tab");
+        const sheet = page.getByRole("dialog", {name: "Audio & Subtitles"});
+        assert.equal(await sheet.getByRole("combobox", {name: "Subtitle language"}).count(), 0);
+        const find = sheet.getByRole("button", {name: "Find a subtitle for this film"});
+        const status = message => sheet.getByRole("status").filter({hasText: message}).waitFor();
+        assert.equal(await find.getAttribute("title"), "Find a subtitle for this film");
+        const position = await video.evaluate(node => node.currentTime);
+        await find.press("Enter");
+        await status("Searching for Hungarian subtitles");
         assert.equal(await focused(find), true);
-        const status = message => page.getByRole("status").filter({hasText: message}).waitFor();
+        await page.screenshot({path: path.join(output, profile + "-subtitles.png")});
+        finishSearch();
+        await status("Adding Hungarian subtitles");
+        assert.equal(await focused(find), true);
+        finishSave();
+        await status("Hungarian subtitles added.");
+        assert.equal(savedId, "provider_srt-hun-42");
+        assert.ok(mediaReads >= 2);
+        assert.equal(await focused(find), true);
+        assert.equal(await video.evaluate(node => [...node.textTracks].find(track => track.language === "hun").mode), "hidden");
+        if (decodeVideo) {
+            assert.ok(await video.evaluate((node, position) => !node.paused && node.currentTime > position, position));
+        } else {
+            await video.evaluate(node => {
+                const track = [...node.textTracks].find(track => track.language === "hun");
+                Object.defineProperty(track, "activeCues", {value: [{text: "Hungarian fixture cue"}]});
+                track.dispatchEvent(new Event("cuechange"));
+            });
+        }
+        await page.getByText("Hungarian fixture cue").waitFor();
+        await page.keyboard.press("Space");
         await status("Subtitle provider is not set up. Ask an admin to add the OpenSubtitles account and API key");
-        const retry = page.getByRole("button", {name: "Retry", exact: true});
         assert.equal(await page.getByText("HTTP 503").count(), 0);
-        assert.equal(await focused(retry), true);
+        assert.equal(await focused(find), true);
         await page.keyboard.press("Enter");
         await status("No subtitles found for this title and language. Try another language.");
         await page.keyboard.press("Enter");
@@ -133,53 +151,18 @@ async function verify(browser, profile, options) {
         await page.keyboard.press("Enter");
         await status("The subtitle provider is unreachable. Try again later.");
         assert.equal(lastLanguage, "eng");
-        assert.equal(await focused(retry), true);
-        await language.focus();
-        await language.selectOption("hun");
-        assert.equal(await focused(language), true);
-        assert.equal(lastLanguage, "eng", "returning to a previously searched language waits for Find subtitles");
-        await page.keyboard.press("Tab");
         assert.equal(await focused(find), true);
         await page.keyboard.press("Enter");
-        await page.getByRole("status").filter({hasText: "Searching…"}).waitFor();
-        assert.equal(await focused(find), true);
-        finishSearch();
-        const result = page.getByRole("button", {name: /Trinity \(1970\).*Hungarian.*Rating.*42 downloads/});
-        await result.waitFor();
-        await page.keyboard.press("Tab");
-        assert.equal(await focused(result), true);
-        await page.screenshot({path: path.join(output, profile + "-subtitles.png")});
-        const position = await video.evaluate(node => node.currentTime);
-        await page.keyboard.press("Space");
-        await page.getByRole("status").filter({hasText: "Adding subtitles…"}).waitFor();
-        assert.equal(await focused(result), true);
-        finishSave();
-        await page.getByRole("status").filter({hasText: "Subtitles added."}).waitFor();
-        assert.equal(savedId, "provider_srt-hun-42");
-        assert.ok(mediaReads >= 2);
-        assert.equal(playbackRequests, 1);
-        assert.equal(await focused(tracks), true);
-        assert.equal(await video.evaluate(node => node === window.originalVideo && node.src === window.originalVideoSrc), true);
-        assert.equal(await video.evaluate(node => node.textTracks[0].mode), "hidden");
-        if (decodeVideo) {
-            assert.ok(await video.evaluate((node, position) => !node.paused && node.currentTime > position, position));
-        } else {
-            await video.evaluate(node => {
-                const track = node.textTracks[0];
-                Object.defineProperty(track, "activeCues", {value: [{text: "Hungarian fixture cue"}]});
-                track.dispatchEvent(new Event("cuechange"));
-            });
-        }
-        await page.getByText("Hungarian fixture cue").waitFor();
-        await tracks.press("Enter");
-        assert.equal(await page.getByRole("radio", {name: "Hungarian (external)"}).getAttribute("aria-checked"), "true");
-        await language.selectOption("eng");
-        await find.press("Enter");
         await status("English subtitles added.");
-        assert.equal(await page.getByRole("radio", {name: "English (external)"}).getAttribute("aria-checked"), "true");
+        assert.equal(await sheet.getByRole("radio", {name: "English", exact: true}).getAttribute("aria-checked"), "true");
         assert.equal(await focused(find), true);
-        assert.equal(await page.evaluate(() => window.subtitleFallbacks), 5);
         assert.equal(playbackRequests, 1);
+        assert.equal(await find.getAttribute("aria-disabled"), "true");
+        assert.equal(await video.evaluate(node => node === window.originalVideo && node.src === window.originalVideoSrc), true);
+        await page.keyboard.press("Tab");
+        await find.waitFor({state: "hidden"});
+        assert.equal(await focused(sheet.getByRole("radio", {name: "English", exact: true})), true);
+        assert.equal(await page.evaluate(() => window.subtitleFallbacks), 5);
         await close.press("Enter");
         assert.equal(await focused(tracks), true);
     } finally {
