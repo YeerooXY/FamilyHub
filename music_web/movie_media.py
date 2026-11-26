@@ -27,6 +27,8 @@ LIBRARY_READ = re.compile(rf'(?:Items(?:/{ITEM})?|UserItems/Resume|Genres|Shows/
 LIBRARY_WRITE = re.compile(rf'(?:Items/{ITEM}/PlaybackInfo|Sessions/Playing(?:/Progress|/Stopped)?|Items/{ITEM}/RemoteSearch/Subtitles/[A-Za-z0-9._~%+-]{{1,500}})')
 FAVORITE = re.compile(rf'UserFavoriteItems/({ITEM})')
 LIBRARY_PRIVATE_FIELDS = {'path', 'encoderpath', 'directstreamurl', 'password', 'pw'}
+# A two-hour film has thousands of segment lines and each carries Jellyfin's full query string (about 1.4 MB for 4,300 lines).
+MAX_PLAYLIST_BYTES = 8 << 20
 
 
 @dataclass(frozen=True)
@@ -248,8 +250,8 @@ def register(app, base, body, allow, session_is_live, refresh_key=None, subtitle
                 if request.method == 'HEAD':
                     return Response(status=upstream.status, headers=response_headers, mimetype='application/vnd.apple.mpegurl')
                 try:
-                    raw = upstream.read((1 << 20) + 1)
-                    if len(raw) > 1 << 20 or not raw.startswith(b'#EXTM3U'):
+                    raw = upstream.read(MAX_PLAYLIST_BYTES + 1)
+                    if len(raw) > MAX_PLAYLIST_BYTES or not raw.startswith(b'#EXTM3U'):
                         raise ValueError('Invalid media playlist')
                     content = playlist_urls(raw.decode('utf-8'), resource, ticket, base_path)
                 except (OSError, ValueError):
