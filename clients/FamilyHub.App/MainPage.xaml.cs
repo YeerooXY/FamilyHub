@@ -264,6 +264,9 @@ public partial class MainPage : ContentPage
         )
 	{
 		InitializeComponent();
+#if ANDROID
+        blazorWebView.RootComponents[0].ComponentType = typeof(ExitDiagnosticsBoundary);
+#endif
         this.devices = devices;
         this.session = session;
         this.player = player;

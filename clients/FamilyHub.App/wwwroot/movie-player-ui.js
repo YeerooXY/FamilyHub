@@ -447,14 +447,11 @@ export function buildPlayerUi(ctx) {
             find.setAttribute("aria-disabled", String(value));
             for (const row of results.querySelectorAll("button")) row.setAttribute("aria-disabled", String(value));
         }
-        function reportStatus(text, working = false) {
+        function reportStatus(text, working = false, retry = false) {
             if (working) text = text.startsWith("Adding") ? "Adding subtitles…" : "Searching…";
-            else if (text.startsWith("Could not")) text = text.startsWith("Could not add")
-                ? "Could not add subtitles." : "Subtitle search failed.";
-            else if (text.startsWith("No ")) text = "No subtitles found.";
             else if (text.startsWith("Automatic search")) text = "";
             feedback.textContent = text;
-            find.textContent = /failed|^No subtitles/.test(text) ? "Retry" : "Find subtitles";
+            find.textContent = retry ? "Retry" : "Find subtitles";
             setBusy(working);
         }
         const streamItem = /\/Videos\/([^/?#]+)\//i.exec(media.getAttribute("src") ?? "")?.[1];
@@ -485,6 +482,10 @@ export function buildPlayerUi(ctx) {
             try {
                 const matches = await ctx.subtitleSearch.find(selectedLanguage);
                 if (signal.aborted || selectedLanguage !== language.value) return;
+                if (matches === null) {
+                    reportStatus(`${languageName} subtitles added.`);
+                    return;
+                }
                 for (const result of matches) {
                     const entry = make("li");
                     const add = make("button", "movie-subtitle-action");
@@ -509,7 +510,7 @@ export function buildPlayerUi(ctx) {
                             show();
                         } catch {
                             if (!signal.aborted) {
-                                feedback.textContent = "Could not add subtitles.";
+                                feedback.textContent = "Could not add subtitles. Try again.";
                                 add.replaceChildren(make("strong", "", "Retry"), make("span", "", result.Name || "Subtitle"));
                             }
                         } finally {
@@ -519,18 +520,19 @@ export function buildPlayerUi(ctx) {
                     entry.append(add);
                     results.append(entry);
                 }
-                reportStatus(results.childElementCount ? "" : "No subtitles found.");
-            } catch {
-                if (!signal.aborted && selectedLanguage === language.value) reportStatus("Could not search for subtitles.");
+                reportStatus("");
+            } catch (error) {
+                if (!signal.aborted && selectedLanguage === language.value)
+                    reportStatus(ctx.subtitleSearch.message(error), false, true);
             } finally {
                 if (!signal.aborted) finish(selectedLanguage);
             }
         }
         const defaultLanguage = language.value;
-        subtitleStatus = (text, working = false) => {
+        subtitleStatus = (text, working = false, retry = false) => {
             if (text.startsWith("Searching") || text.startsWith("Automatic search already"))
                 subtitleSearches.add(JSON.stringify([attemptsKey, defaultLanguage]));
-            reportStatus(text, working);
+            reportStatus(text, working, retry);
             if (!working && language.value !== defaultLanguage) searchMissingLanguage();
         };
         find.addEventListener("click", () => {

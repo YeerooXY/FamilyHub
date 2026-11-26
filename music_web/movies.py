@@ -16,7 +16,7 @@ from time import monotonic
 
 from flask import g, jsonify, request, session
 
-from . import audio_tracks, feedback, movie_import, movie_media, movie_search, tmdb, tmdb_stills, torrent_seeding
+from . import audio_tracks, feedback, movie_import, movie_media, movie_search, movie_subtitles, tmdb, tmdb_stills, torrent_seeding
 from .catalog_search import NoRedirect
 from .movie_youtube_downloads import DEFAULT_DIR, MAX_PENDING, YouTubeDownloads
 
@@ -183,7 +183,7 @@ def read_downloads(qb):
 def register_movies(app, cfg, body, allow, session_is_live):
     base = service_url(cfg.get('JELLYFIN_INTERNAL_URL', 'http://127.0.0.1:8096'))
     public = service_url(cfg.get('JELLYFIN_PUBLIC_URL'), ('https',))
-    issue_media, audio_library = movie_media.register(app, base, body, allow, session_is_live)
+    issue_media, audio_library = movie_media.register(app, base, body, allow, session_is_live, cfg.get('JELLYFIN_API_KEY'))
     releases = cfg.get('MOVIE_RELEASE_SEARCH') or {}
     prowlarr = service_url(releases.get('url', 'http://127.0.0.1:9696'))
     indexers = tuple(dict.fromkeys(i for i in releases.get('indexer_ids', []) if type(i) is int and i > 0))[:4]
@@ -222,6 +222,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
                 and g.user in cfg.get('JELLYFIN_PROFILES', {}))
 
     audio_items = audio_tracks.register(app, cfg, body, allow, download_access, audio_library)
+    movie_subtitles.register(app, cfg, body, allow, audio_library)
 
     def cached_search(key, ttl, fetch):
         with search_lock:

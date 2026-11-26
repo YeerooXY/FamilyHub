@@ -86,7 +86,7 @@ def library_json(value, base_path):
     return value
 
 
-def register(app, base, body, allow, session_is_live):
+def register(app, base, body, allow, session_is_live, refresh_key=None):
     grants = {}
     lock = Lock()
     base_path = urllib.parse.urlsplit(base).path
@@ -111,7 +111,7 @@ def register(app, base, body, allow, session_is_live):
         if grant and grant.expires > time.monotonic() and session_is_live(grant.sid, grant.profile):
             return grant
 
-    def audio_library(ticket):
+    def audio_library(ticket, *, server_refresh=False):
         grant = live_grant(ticket)
         if not grant or (grant.profile, grant.sid) != (g.user, session.get('sid')):
             abort(404)
@@ -120,9 +120,13 @@ def register(app, base, body, allow, session_is_live):
             if live_grant(ticket) is not grant:
                 raise PermissionError('Movie session ended')
             query = urllib.parse.urlencode(dict(params or {}, userId=grant.viewer))
+            headers = {'Accept': 'application/json'}
+            if refresh and server_refresh and isinstance(refresh_key, str) and refresh_key:
+                headers['X-Emby-Token'] = refresh_key
+            else:
+                headers['Authorization'] = grant.authorization
             req = urllib.request.Request(base + '/' + resource + '?' + query,
-                                         data=b'' if refresh else None,
-                                         headers={'Authorization': grant.authorization, 'Accept': 'application/json'})
+                                         data=b'' if refresh else None, headers=headers)
             with urllib.request.build_opener(NoRedirect).open(req, timeout=8) as upstream:
                 raw = upstream.read((4 << 20) + 1)
             if len(raw) > 4 << 20:

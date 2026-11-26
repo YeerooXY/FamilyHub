@@ -37,7 +37,9 @@ from .source_quality import register as register_source_quality
 from .song_analysis import register as register_song_analysis
 from .finished_audio import FinishedAudio, prepare_record, activity as finished_audio_activity
 from .playlist_artwork import PlaylistArtwork, ArtworkError
-from .playback_diagnostics import PlaybackDiagnostics, CLIENT_STAGES, NATIVE_STAGES, NATIVE_REASONS
+from .playback_diagnostics import (
+    PlaybackDiagnostics, CLIENT_STAGES, NATIVE_STAGES, NATIVE_REASONS, EXIT_STAGES, record_client_exit,
+)
 from .lyrics import LyricsCache
 from .worker_activity import WorkerActivity, stage_summary
 from .resources import (ResourceGovernor, TransferResources, PROVIDERS, background_activity, background_request,
@@ -278,6 +280,10 @@ def create_app(test_config=None):
             return jsonify(actions=playback_diagnostics.recent(g.user))
         data = body(limit=1024)
         action, stage, elapsed = (data.get(key) for key in ("action", "stage", "elapsed_ms"))
+        if isinstance(stage, str) and stage in EXIT_STAGES:
+            if not record_client_exit(data):
+                raise ApiError("Invalid client exit report.")
+            return jsonify(ok=True)
         if (not playback_diagnostics.valid(action) or not isinstance(stage, str)
                 or (stage not in CLIENT_STAGES and stage not in NATIVE_STAGES)
                 or type(elapsed) is not int or not 0 <= elapsed <= 3600000):

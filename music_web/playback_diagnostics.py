@@ -20,6 +20,41 @@ NATIVE_STAGES = frozenset({
     "screen_off", "screen_on", "next_warmup_start", "next_warmup_finish", "next_warmup_failed",
 })
 
+EXIT_STAGES = frozenset({"client_exit"})
+EXIT_REASONS = frozenset({
+    "freezer", "low_memory", "excessive_resource_usage", "signaled", "crash", "crash_native",
+    "anr", "user_requested", "user_stopped", "dependency_died", "permission_change",
+    "initialization_failure", "other",
+})
+EXIT_IMPORTANCE = frozenset({
+    "foreground", "foreground_service", "visible", "perceptible", "service", "top_sleeping",
+    "cant_save_state", "cached", "gone", "unknown",
+})
+EXCEPTION_TYPE = re.compile(r"[A-Za-z_][A-Za-z0-9_`]{0,95}")
+FRAME_METHOD = re.compile(r"[A-Za-z_.<>][A-Za-z0-9_.<>`|]{0,95}")
+
+
+def record_client_exit(data):
+    if data.keys() - {"stage", "reason", "importance", "age_s", "screen_off_s", "exception", "frames"}:
+        return False
+    reason, importance = data.get("reason"), data.get("importance")
+    age, screen_off = data.get("age_s"), data.get("screen_off_s")
+    kind, frames = data.get("exception"), data.get("frames", [])
+    if (not isinstance(reason, str) or reason not in EXIT_REASONS
+            or not isinstance(importance, str) or importance not in EXIT_IMPORTANCE
+            or any(value is not None and (type(value) is not int or not 0 <= value <= 2147483647)
+                   for value in (age, screen_off))
+            or (age is not None and screen_off is not None and screen_off > age)
+            or (kind is not None and (not isinstance(kind, str) or not EXCEPTION_TYPE.fullmatch(kind)))
+            or not isinstance(frames, list) or len(frames) > 3 or (kind is None and frames)
+            or any(not isinstance(frame, str) or not FRAME_METHOD.fullmatch(frame) for frame in frames)):
+        return False
+    log.info("client_exit reason=%s importance=%s age_s=%s screen_off_s=%s exception=%s%s",
+             reason, importance, age if age is not None else "unknown",
+             screen_off if screen_off is not None else "unknown", kind or "none",
+             " frames=" + ",".join(frames) if frames else "")
+    return True
+
 # AndroidX Media3 1.8 PlaybackException names. Never retain free-form player or network errors.
 MEDIA3_ERRORS = frozenset("ERROR_CODE_" + name for name in """
     INVALID_STATE BAD_VALUE PERMISSION_DENIED NOT_SUPPORTED DISCONNECTED AUTHENTICATION_EXPIRED

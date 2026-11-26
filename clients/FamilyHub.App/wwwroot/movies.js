@@ -73,6 +73,8 @@ const languageCodes = {
     en: ["en", "eng", "english"]
 };
 
+class SubtitleSearchError extends Error {}
+
 function preferredTrack(tracks, language) {
     const matches = tracks.filter(track => languageCodes[language]?.includes(track.Language?.toLowerCase().split(/[-_]/)[0]));
     return matches.find(track => track.IsDefault) ?? matches[0];
@@ -705,10 +707,21 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const subtitleSearch = {
                 itemId: item.Id,
                 language: subtitleCode,
-                async find(language) {
-                    const results = await searchLibrary(remote + language, {}, undefined, playerSignal);
-                    if (!Array.isArray(results)) throw Error("Invalid subtitle results");
-                    return results.filter(result => typeof result?.Id === "string" && result.Id);
+                message(error) {
+                    return error instanceof SubtitleSearchError ? error.message : "Could not search for subtitles. Try again.";
+                },
+                async find(language, automatic = false) {
+                    let results;
+                    try {
+                        results = await searchLibrary(remote + language, {}, undefined, playerSignal);
+                    } catch {
+                        if (playerSignal.aborted) return null;
+                    }
+                    const matches = Array.isArray(results)
+                        ? results.filter(result => typeof result?.Id === "string" && result.Id) : [];
+                    if (matches.length) return matches;
+                    await this.add(null, language, automatic);
+                    return null;
                 },
                 async add(result, language, automatic = false) {
                     const readTracks = async () => {
@@ -716,17 +729,41 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         return (fresh.MediaSources?.find(candidate => candidate.Id === source.Id)?.MediaStreams
                             ?? fresh.MediaStreams ?? []).filter(stream => stream.Type === "Subtitle" && stream.IsTextSubtitleStream);
                     };
-                    const existing = await readTracks();
-                    await searchLibrary(remote + encodeURIComponent(result.Id), {}, {}, playerSignal);
+                    const code = language === "hun" ? "hu" : "en";
+                    const existing = result ? await readTracks() : [...subtitles];
+                    let saved;
+                    if (result) await searchLibrary(remote + encodeURIComponent(result.Id), {}, {}, playerSignal);
+                    else {
+                        if (playerSignal.aborted) return;
+                        try {
+                            saved = JSON.parse(await app.invokeMethodAsync("MovieFetchSubtitle", subtitleItem, code));
+                        } catch {
+                            throw new SubtitleSearchError("The server did not respond to the subtitle request. Try again.");
+                        }
+                        if (playerSignal.aborted) return;
+                        if (saved?.error === "Subtitle provider is not set up")
+                            throw new SubtitleSearchError(saved.error + ". Ask an admin to add the OpenSubtitles account and API key to the server configuration.");
+                        if (typeof saved?.error === "string" && saved.error)
+                            throw new SubtitleSearchError(saved.error);
+                        if (saved?.added !== true)
+                            throw new SubtitleSearchError("The server did not respond to the subtitle request. Try again.");
+                    }
                     for (let attempt = 0; attempt < 12 && !playerSignal.aborted; attempt++) {
                         if (attempt) await new Promise(resolve => setTimeout(resolve, 500));
                         if (playerSignal.aborted) return;
-                        const refreshed = await readTracks();
-                        const added = refreshed.filter(track => track.IsExternal && !existing.some(old =>
+                        let refreshed;
+                        try {
+                            refreshed = await readTracks();
+                        } catch (error) {
+                            if (!saved) throw error;
+                            break;
+                        }
+                        const matching = refreshed.filter(track => track.IsExternal &&
+                            languageCodes[code].includes(track.Language?.toLowerCase().split(/[-_]/)[0]));
+                        const added = matching.filter(track => !existing.some(old =>
                             old.Path && track.Path ? old.Path === track.Path : old.Index === track.Index));
-                        const matching = added.filter(track => languageCodes[language === "hun" ? "hu" : "en"]
-                            .includes(track.Language?.toLowerCase().split(/[-_]/)[0]));
-                        const track = matching.length === 1 ? matching[0] : null;
+                        const track = added.length === 1 ? added[0]
+                            : saved?.existing && matching.length === 1 ? matching[0] : null;
                         if (!track || playerSignal.aborted) continue;
                         const prior = subtitles.find(stream => stream.Index === playback.subtitleOverride);
                         for (const node of media.querySelectorAll("track")) node.remove();
@@ -745,6 +782,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         ui.syncSubtitles();
                         return;
                     }
+                    if (saved?.refresh_pending)
+                        throw new SubtitleSearchError("Subtitles were saved. Jellyfin could not refresh this title. Retry or ask an admin to check the library.");
+                    if (saved) throw new SubtitleSearchError("Subtitles were saved. Give the library a moment, then retry or reopen the video.");
                     throw Error("Subtitle track unavailable");
                 }
             };
@@ -769,21 +809,19 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 ui.subtitleStatus(`Searching for ${name} subtitles…`, true);
                 let best;
                 try {
-                    const found = await subtitleSearch.find(subtitleCode);
+                    const found = await subtitleSearch.find(subtitleCode, true);
                     if (playerSignal.aborted) return;
-                    best = found.sort((a, b) => (b.DownloadCount ?? 0) - (a.DownloadCount ?? 0) ||
-                        (b.CommunityRating ?? 0) - (a.CommunityRating ?? 0))[0];
-                    if (!best) {
-                        ui.subtitleStatus(`No ${name} subtitles found. Use Find subtitles to retry. If searches stay empty, ask the server owner to check the Open Subtitles plugin and account in Jellyfin.`);
-                        return;
+                    if (found) {
+                        best = found.sort((a, b) => (b.DownloadCount ?? 0) - (a.DownloadCount ?? 0) ||
+                            (b.CommunityRating ?? 0) - (a.CommunityRating ?? 0))[0];
+                        ui.subtitleStatus(`Adding ${name} subtitles…`, true);
+                        await subtitleSearch.add(best, subtitleCode, true);
                     }
-                    ui.subtitleStatus(`Adding ${name} subtitles…`, true);
-                    await subtitleSearch.add(best, subtitleCode, true);
                     if (!playerSignal.aborted) ui.subtitleStatus(`${name} subtitles added.`);
-                } catch {
+                } catch (error) {
                     if (!playerSignal.aborted) ui.subtitleStatus(best
-                        ? "Could not add subtitles. Use Find subtitles to retry or ask the server owner to check subtitle permissions and storage."
-                        : "Could not search for subtitles. Use Find subtitles to retry or ask the server owner to check the Jellyfin subtitle provider and your subtitle management permission.");
+                        ? "Could not add subtitles. Try again or ask an admin to check subtitle permissions and storage."
+                        : subtitleSearch.message(error), false, true);
                 }
             }
             let qualityChange = 0;

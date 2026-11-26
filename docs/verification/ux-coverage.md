@@ -265,6 +265,8 @@ Tab reached the first play, Space opened its device and server events, and
 Shift+Tab returned to Refresh timings. Fixture timings exercise presentation.
 Physical phone playback, battery use, and metered-network performance remain open.
 
+The Android exit reason sentence received a source wording check on 26 November 2026. Rendered layout, visual, motion, focus and keyboard, accessibility, and states checks are pending for this addition.
+
 The combined native UI fixture passed the music popup suite at 1280 and
 2000 px in Chromium, 850 px in WebKit, and 390 px in both Android Chromium
 and iPhone WebKit emulation. The suite covers the Library and Downloaded

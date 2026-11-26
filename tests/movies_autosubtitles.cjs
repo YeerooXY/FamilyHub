@@ -63,7 +63,7 @@ async function run(browser, options, scenario) {
             return reply({status: 204});
         });
         await moviePage(page);
-        await page.evaluate(async ({ jellyfin, preference, nativeFullscreen }) => {
+        await page.evaluate(async ({ jellyfin, preference, nativeFullscreen, firstResponse }) => {
             const { openMovies, saveMoviePreferences } = await import("/movies.js");
             const viewer = {server: jellyfin + "/", profile: "fixture"};
             if (preference) saveMoviePreferences(viewer, {subtitles: preference});
@@ -73,11 +73,14 @@ async function run(browser, options, scenario) {
             window.openMovieFixture(openMovies, host,
                 {url: jellyfin, user: "fixture", token: "fixture", device: "fixture"},
                 {invokeMethodAsync: async (method, on) => {
+                    if (method === "MovieFetchSubtitle") return JSON.stringify({error: firstResponse === "error"
+                        ? "The subtitle provider is unreachable. Try again later."
+                        : "No subtitles found for this title and language. Try another language."});
                     if (method !== "MovieWindowFullscreen") return "{}";
                     window.fullscreenCalls.push(on);
                     return on;
                 }}, viewer);
-        }, { jellyfin, preference, nativeFullscreen });
+        }, { jellyfin, preference, nativeFullscreen, firstResponse });
         const title = "They Call Me Trinity";
         const open = () => playMovieDetails(page, page.getByRole("button", {name: title, exact: true}).first(), title);
         await open();
@@ -110,7 +113,8 @@ async function run(browser, options, scenario) {
             assert.equal(await find.getAttribute("aria-disabled"), "false");
             assert.equal(searches, 0);
         } else if (firstResponse) {
-            await sheet.getByText(firstResponse === "error" ? "Subtitle search failed." : "No subtitles found.",
+            await sheet.getByText(firstResponse === "error" ? "The subtitle provider is unreachable. Try again later."
+                : "No subtitles found for this title and language. Try another language.",
                 {exact: true}).waitFor();
             const retry = sheet.getByRole("button", {name: "Retry", exact: true});
             assert.equal(await sheet.getByText("503", {exact: false}).count(), 0);

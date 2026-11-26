@@ -8,6 +8,7 @@
 <RazorComponent Include="../../clients/FamilyHub.App/Components/MusicIcon.razor" Link="Components/MusicIcon.razor" />
 <RazorComponent Include="../../clients/FamilyHub.App/Components/Notice.razor" Link="Components/Notice.razor" />
 <RazorComponent Include="../../clients/FamilyHub.App/Components/ServiceStatus.razor" Link="Components/ServiceStatus.razor" />
+<RazorComponent Include="../../clients/FamilyHub.App/Components/PlaybackDiagnostics.razor" Link="Components/PlaybackDiagnostics.razor" />
 <Compile Include="../../clients/FamilyHub.App/Components/NoticeText.cs" Link="Components/NoticeText.cs" />
 <RazorComponent Include="../../clients/FamilyHub.App/Components/ProfileAvatar.razor" Link="Components/ProfileAvatar.razor" />
 <RazorComponent Include="../../clients/FamilyHub.App/Components/TrackCover.razor" Link="Components/TrackCover.razor" />

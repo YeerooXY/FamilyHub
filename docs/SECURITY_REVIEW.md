@@ -68,6 +68,8 @@ The host check applies to every request. Unsafe methods require a matching `Orig
 
 Administrator checks also apply to catalogue edits, undo, bulk resolutions, report management and source-quality administration, artist mappings, feedback inbox and status, and listening history for other profiles. Files scope access to the profile, the uploader or an administrator as appropriate. Playlist access follows ownership, co-author and share rules. Movie search, requests and releases apply their Jellyfin, Seerr and release mappings and allowlists.
 
+`POST /api/movies/subtitle` requires a mapped Movies profile, a session-bound media grant, CSRF and a per-profile rate limit. The server reads the video path from Jellyfin, publishes without replacing existing subtitles, and uses the server's Jellyfin key only for the item refresh when that key is configured.
+
 Movie audio routes require an active FamilyHub session, administrator membership and a profile on the movie downloads allowlist. Mutations use bounded JSON and CSRF. Starting a job also checks the media grant against the issuing session. Server-side source IDs resolve within the completed downloads and imports roots. Jellyfin supplies the destination through the server-side movie session. The worker opens media through no-follow descriptors, restricts FFmpeg and FFprobe to local files and known formats, and runs one batch at a time. Job history stays in `STATE_DIR`. Source deletion checks both stored file identities and probes the published audio again.
 
 Read-only searches and stream preparation can populate caches and start bounded server work. Share download uses GET for passwordless recipients and consumes its allowance on redemption. GET and HEAD on the share landing page preserve that allowance. The inventory below lists Flask rules with GET's implicit HEAD and default OPTIONS omitted.
@@ -114,6 +116,8 @@ Existing wording flagged during the review. The introduction in `docs/FILES.md` 
 - After merging `rc-1.2.0`, the VM ran 710 Python tests. The route inventory, profile password and state migration checks passed. The run had three skips and three known baseline failures in tempo analysis and scratch quota. Three .NET test projects, the Windows and Android builds, and all 15 requested Playwright suites passed.
 
 ## Complete route inventory
+
+The authenticated POST to `/api/playback/diagnostics` accepts the `client_exit` stage. It logs allow-listed Android exit reasons and importance, relative timings, and up to three managed method names with the exception type. The existing request limits and CSRF checks apply.
 
 The following rules are registered with family mode enabled. Feature flags and profile mappings can make individual routes unavailable.
 
@@ -204,6 +208,7 @@ POST /api/movies/request
 POST /api/movies/request-search
 POST /api/movies/season-episodes
 POST /api/movies/session
+POST /api/movies/subtitle
 POST /api/movies/videa-download
 POST /api/movies/videa-search
 POST /api/movies/youtube-download

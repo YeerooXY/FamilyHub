@@ -171,6 +171,10 @@
         SendMovieRequest("/api/movies/audio-track", new { item, source, stream_index = streamIndex, language, title, ticket = mediaTicket });
 
     [JSInvokable]
+    public Task<string> MovieFetchSubtitle(string item, string language) =>
+        SendMovieRequest("/api/movies/subtitle", new { item, language, ticket = mediaTicket });
+
+    [JSInvokable]
     public Task<string> MovieDeleteAudioSource(string job, string result) =>
         SendMovieRequest("/api/movies/audio-track/" + Uri.EscapeDataString(job) + "/delete-source", new { result });
 

@@ -156,6 +156,48 @@ class ListenerAdmissionTests(Base):
                 'action': f'{n:032x}', 'stage': 'play', 'elapsed_ms': 0}).status_code, 200)
         self.assertEqual(len(self.go(client, 'GET', endpoint).json['actions']), 32)
 
+    def test_client_exit_stage_logs_only_exit_diagnostics(self):
+        client, token = self.signed_in()
+        endpoint = '/api/playback/diagnostics'
+        report = {'stage': 'client_exit', 'reason': 'freezer', 'importance': 'cached',
+                  'age_s': 312, 'screen_off_s': 140}
+
+        with self.assertLogs('music_web.playback', 'INFO') as logs:
+            self.assertEqual(self.post(client, token, endpoint, json=report).json, {'ok': True})
+            self.assertEqual(self.post(client, token, endpoint, json={
+                'stage': 'client_exit', 'reason': 'other', 'importance': 'unknown',
+                'exception': 'InvalidOperationException', 'frames': ['<LoadAsync>d__12.MoveNext', 'Render']
+            }).json, {'ok': True})
+        self.assertEqual([record.getMessage() for record in logs.records], [
+            'client_exit reason=freezer importance=cached age_s=312 screen_off_s=140 exception=none',
+            'client_exit reason=other importance=unknown age_s=unknown screen_off_s=unknown '
+            'exception=InvalidOperationException frames=<LoadAsync>d__12.MoveNext,Render',
+        ])
+        self.assertEqual(self.go(client, 'GET', endpoint).json, {'actions': []})
+
+    def test_client_exit_stage_requires_auth_csrf_and_allowlisted_fields(self):
+        client, token = self.signed_in()
+        endpoint = '/api/playback/diagnostics'
+        report = {'stage': 'client_exit', 'reason': 'freezer', 'importance': 'foreground_service'}
+
+        with self.assertNoLogs('music_web.playback', 'INFO'):
+            self.assertEqual(self.go(self.app.test_client(), 'POST', endpoint, json=report).status_code, 401)
+            self.assertEqual(self.go(client, 'POST', endpoint, json=report).status_code, 400)
+            self.assertEqual(self.post(client, token, endpoint, json=report,
+                                       headers={'Origin': 'https://other.invalid'}).status_code, 403)
+            for invalid in (
+                {'stage': 'exit'}, {'reason': []}, {'reason': 'unexpected'}, {'importance': 'user'},
+                {'age_s': True}, {'screen_off_s': -1}, {'age_s': 20, 'screen_off_s': 21},
+                {'exception': 'InvalidOperationException\nmessage'}, {'exception': 'x' * 97},
+                {'frames': ['Render']},
+                {'exception': 'Exception', 'frames': ['Render'] * 4},
+                {'exception': 'Exception', 'frames': ['C:\\Users\\name\\Private.cs']},
+                {'exception': 'Exception', 'frames': ['Run\nother log line']},
+                {'song': 'fixture song'},
+            ):
+                with self.subTest(invalid=invalid):
+                    self.assertEqual(self.post(client, token, endpoint, json=report | invalid).status_code, 400)
+
     def test_native_playback_observations_keep_recent_positions_and_known_reasons(self):
         client, token = self.signed_in()
         other, _ = self.signed_in('sample-b')

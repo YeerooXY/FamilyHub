@@ -15,6 +15,8 @@ async function verify(browser, profile, options) {
     let savedId, lastLanguage, englishAttempts = 0;
     const addedTrack = {Type: "Subtitle", IsTextSubtitleStream: true, IsExternal: true, Language: "hun",
         DisplayTitle: "Hungarian (external)", Index: 3, Path: "/internal/trinity.hun.srt"};
+    const englishTrack = {...addedTrack, Language: "eng", DisplayTitle: "English (external)", Index: 4,
+        Path: "/internal/trinity.en.srt"};
     try {
         if (!decodeVideo) await page.addInitScript(() => {
             // Windows Playwright WebKit does not decode the H.264 fixture.
@@ -34,6 +36,7 @@ async function verify(browser, profile, options) {
             }
             if (url.pathname === "/Items/trinity") {
                 const MediaStreams = saved && mediaReads++ > 0 ? [addedTrack] : [];
+                if (englishAttempts === 5) MediaStreams.push(englishTrack);
                 return reply({json: {MediaSources: [{Id: "source", MediaStreams}]}});
             }
             if (url.pathname.startsWith("/Items/trinity/RemoteSearch/Subtitles/")) {
@@ -55,6 +58,8 @@ async function verify(browser, profile, options) {
                 return reply({json: [{Id: "provider_srt-hun-42", Name: "Trinity (1970)", ThreeLetterISOLanguageName: "hun",
                     CommunityRating: 8.5, DownloadCount: 42}]});
             }
+            if (url.pathname === "/Videos/trinity/source/Subtitles/4/Stream.vtt")
+                return reply({contentType: "text/vtt", body: "WEBVTT\n\n00:00:00.000 --> 00:00:10.000\nEnglish fixture cue\n"});
             if (url.pathname === "/Videos/trinity/source/Subtitles/3/Stream.vtt")
                 return reply({contentType: "text/vtt", body: "WEBVTT\n\n00:00:00.000 --> 00:00:10.000\nHungarian fixture cue\n"});
             if (url.pathname === "/Videos/trinity/stream") {
@@ -77,7 +82,19 @@ async function verify(browser, profile, options) {
             saveMoviePreferences(viewer, {subtitles: "hu"});
             sessionStorage.setItem("familyhub:movie-tracks:" + JSON.stringify(viewer) + ":autosub:trinity", "1");
             window.openMovieFixture(openMovies, document.querySelector("main"), {url: jellyfin, user: "fixture", token: "fixture", device: "fixture"},
-                {invokeMethodAsync: async () => "{}"}, viewer);
+                {invokeMethodAsync: async (method, item, language) => {
+                    if (method !== "MovieFetchSubtitle") return "{}";
+                    if (item !== "trinity" || language !== "en") throw Error("Unexpected subtitle request");
+                    const reasons = [
+                        "Subtitle provider is not set up",
+                        "No subtitles found for this title and language. Try another language.",
+                        "Daily subtitle limit reached, try again tomorrow. The limit resets at 2099-12-31 10:15 UTC.",
+                        "The subtitle provider is unreachable. Try again later."
+                    ];
+                    window.subtitleFallbacks = (window.subtitleFallbacks ?? 0) + 1;
+                    const error = reasons[window.subtitleFallbacks - 1];
+                    return JSON.stringify(error ? {error} : {added: true, existing: false, refresh_pending: false});
+                }}, viewer);
         }, jellyfin);
         const title = "They Call Me Trinity";
         await playMovieDetails(page, page.getByRole("button", {name: title, exact: true}).first(), title);
@@ -104,12 +121,17 @@ async function verify(browser, profile, options) {
         assert.equal(await focused(language), true);
         await page.keyboard.press("Tab");
         assert.equal(await focused(find), true);
-        await page.getByRole("status").filter({hasText: "Subtitle search failed."}).waitFor();
+        const status = message => page.getByRole("status").filter({hasText: message}).waitFor();
+        await status("Subtitle provider is not set up. Ask an admin to add the OpenSubtitles account and API key");
         const retry = page.getByRole("button", {name: "Retry", exact: true});
         assert.equal(await page.getByText("HTTP 503").count(), 0);
         assert.equal(await focused(retry), true);
         await page.keyboard.press("Enter");
-        await page.getByRole("status").filter({hasText: "No subtitles found."}).waitFor();
+        await status("No subtitles found for this title and language. Try another language.");
+        await page.keyboard.press("Enter");
+        await status("Daily subtitle limit reached, try again tomorrow. The limit resets at 2099-12-31 10:15 UTC.");
+        await page.keyboard.press("Enter");
+        await status("The subtitle provider is unreachable. Try again later.");
         assert.equal(lastLanguage, "eng");
         assert.equal(await focused(retry), true);
         await language.focus();
@@ -151,6 +173,13 @@ async function verify(browser, profile, options) {
         await page.getByText("Hungarian fixture cue").waitFor();
         await tracks.press("Enter");
         assert.equal(await page.getByRole("radio", {name: "Hungarian (external)"}).getAttribute("aria-checked"), "true");
+        await language.selectOption("eng");
+        await find.press("Enter");
+        await status("English subtitles added.");
+        assert.equal(await page.getByRole("radio", {name: "English (external)"}).getAttribute("aria-checked"), "true");
+        assert.equal(await focused(find), true);
+        assert.equal(await page.evaluate(() => window.subtitleFallbacks), 5);
+        assert.equal(playbackRequests, 1);
         await close.press("Enter");
         assert.equal(await focused(tracks), true);
     } finally {

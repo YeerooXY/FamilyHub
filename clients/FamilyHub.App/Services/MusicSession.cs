@@ -8,6 +8,7 @@ namespace FamilyHub.App.Services;
 
 public sealed class MusicSession
 {
+    private const string PlaybackDiagnosticsPath = "/api/playback/diagnostics";
     private readonly Func<Uri, FamilyHubApi> createApi;
     public MusicSession() : this(origin => new FamilyHubApi(origin)) { }
     internal MusicSession(Func<Uri, FamilyHubApi> createApi) => this.createApi = createApi;
@@ -797,6 +798,9 @@ public sealed class MusicSession
         StoreProfiles(Server, profiles);
         Library = library; Playlists = playlists; Connected = true; UpdateMessage("", "info");
         PersistConnection();
+#if ANDROID
+        ReportPreviousExit();
+#endif
         var cached = ReadPreferences();
         PlaybackPreferences = cached.Dirty ? cached.Value : selection.Preferences;
         StorePreferences(PlaybackPreferences, cached.Dirty);
@@ -995,6 +999,9 @@ public sealed class MusicSession
             await RefreshCatalogueAsync(timeout.Token, background);
             if (version != accountVersion) return;
             Connected = true; UpdateMessage("", "info");
+#if ANDROID
+            ReportPreviousExit();
+#endif
             await SyncHistoryAsync();
             await ReadDownloadsAsync();
             await ReadPlaybackAvailabilityAsync(version, playbackCaches.Values.ToArray());
@@ -1528,11 +1535,24 @@ public sealed class MusicSession
                 (_, null) => new { action, stage, elapsed_ms = elapsed, position_ms = positionMs },
                 _ => new { action, stage, elapsed_ms = elapsed, position_ms = positionMs, reason }
             };
-            await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, "/api/playback/diagnostics", payload, timeout.Token, background: true);
+            await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, PlaybackDiagnosticsPath, payload, timeout.Token, background: true);
         }
         catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException
             or ObjectDisposedException or JsonException or IOException or InvalidDataException) { }
     }
+
+    public string? LastExitReason =>
+#if ANDROID
+        AndroidExitDiagnostics.LastExitReason;
+
+    internal void ReportPreviousExit()
+    {
+        if (Connected && Api is { } api)
+            _ = AndroidExitDiagnostics.SendAsync(api, PlaybackDiagnosticsPath);
+    }
+#else
+        null;
+#endif
 
     public async Task<string> StreamPlaybackAsync(MusicTrack track, double lead, CancellationToken cancellationToken, bool background = false, string? action = null)
     {

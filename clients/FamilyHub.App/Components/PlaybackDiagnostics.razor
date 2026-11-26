@@ -5,6 +5,10 @@
 
 <section id="playback-diagnostics" class="settings-panel glass-panel" aria-labelledby="playback-timing-title">
     <h2 id="playback-timing-title">Playback diagnostics</h2>
+    @if (Session.LastExitReason is { } reason)
+    {
+        <p class="setting-help">The last Android app exit reason was @(ExitReasonLabel(reason)).</p>
+    }
     <div class="setting-row">
         <span>Music playback attempts in the last 30 minutes</span>
         <button id="playback-diagnostics-refresh" @onclick="Read" aria-disabled="@(loading ? "true" : "false")">@(actions is null ? "Load attempts" : "Refresh attempts")</button>
@@ -68,6 +72,19 @@
 </section>
 
 @code {
+    private static string ExitReasonLabel(string reason) => reason switch
+    {
+        "freezer" => "frozen process terminated",
+        "anr" => "app stopped responding",
+        "signaled" => "process terminated by a signal",
+        "crash_native" => "native crash",
+        "user_requested" => "user request",
+        "user_stopped" => "user profile stopped",
+        "dependency_died" => "required process stopped",
+        "other" => "other or unknown",
+        _ => reason.Replace('_', ' ')
+    };
+
     private sealed record TimingEvent(string Stage, [property: JsonPropertyName("client_ms")] int? ClientMs,
         [property: JsonPropertyName("server_ms")] int? ServerMs,
         [property: JsonPropertyName("position_ms")] int? PositionMs = null, string? Reason = null);
