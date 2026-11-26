@@ -119,6 +119,7 @@ export function watchPlayerIdle(surface, signal, onIdle, onWake) {
  * @param {HTMLElement} ctx.surface  element that goes fullscreen (the player section)
  * @param {HTMLButtonElement} ctx.back  the close control, named "Back to movies"
  * @param {string} ctx.title @param {string} [ctx.kicker]
+ * @param {HTMLSelectElement} ctx.audioPick  labelled audio select
  * @param {HTMLSelectElement} ctx.subtitlePick  labelled subtitle select
  * @param {HTMLElement} ctx.notice  status line for track fallbacks
  * @param {AbortSignal} ctx.signal  aborts every listener
@@ -256,22 +257,10 @@ export function buildPlayerUi(ctx) {
     audioSheet.classList.add("movie-sheet-tracks");
     const audio = make("section", "movie-track-col");
     const subtitles = make("section", "movie-track-col");
-    const subtitleHead = make("div", "movie-track-heading");
-    const downloadLabel = "Find a subtitle for this film";
-    let lastDownloadLanguage;
-    const download = button("movie-track-icon", downloadLabel, paths.download, {}, () => {
-        download.focus({ preventScroll: true });
-        if (download.getAttribute("aria-disabled") === "true" || !ctx.subtitleSearch) return;
-        const missing = ctx.subtitleSearch.missing();
-        lastDownloadLanguage = missing.find(language => language !== lastDownloadLanguage) ?? missing[0];
-        void ctx.subtitleSearch.run(lastDownloadLanguage);
-    });
-    download.title = downloadLabel;
     const searchStatus = make("p", "movie-subtitle-status");
     searchStatus.setAttribute("role", "status");
-    subtitleHead.append(make("h4", "", "Subtitles"), download);
     audio.append(make("h4", "", "Audio"));
-    subtitles.append(subtitleHead, searchStatus);
+    subtitles.append(make("h4", "", "Subtitles"));
     sheets.audio.body.append(audio, subtitles);
     const episodesSheet = makeSheet("episodes", "Episodes", "Close episodes", episodesButton);
     bottom.append(episodesSheet);
@@ -352,65 +341,105 @@ export function buildPlayerUi(ctx) {
         paint(sound.state);
     }
     // The hidden selects keep playback and the track rows in sync.
-    function trackList(sheet, pick, name) {
-        if (!pick) return () => {};
+    let searchingLanguage, announcedTrack;
+    const languages = [["en", "English"], ["hu", "Hungarian"]];
+    function trackList(sheet, pick, name, choices, findAction) {
         pick.closest("label").hidden = true;
         const list = make("div", "movie-track-list");
         list.setAttribute("role", "radiogroup");
         list.setAttribute("aria-label", name);
         sheet.append(pick.closest("label"), list);
-        let options = [];
-        function sync() {
-            const next = [...pick.options];
-            if (next.length !== options.length || next.some((option, index) => option !== options[index])) {
-                const previousRows = [...list.children];
-                const focusedIndex = previousRows.indexOf(document.activeElement);
-                const focusedValue = options[focusedIndex]?.dataset.language ?? options[focusedIndex]?.value;
-                options = next;
-                const nextRows = options.map(option => {
-                    const row = make("button", "movie-track-option movie-track-choice", option.text);
-                    row.type = "button";
-                    row.setAttribute("role", "radio");
-                    const dot = make("span", "movie-track-dot");
-                    dot.append(icon(paths.check));
-                    row.prepend(dot);
-                    row.addEventListener("click", () => {
-                        if (pick.value === option.value) return;
-                        pick.value = option.value;
-                        pick.dispatchEvent(new Event("change"));
-                        if (pick === ctx.subtitlePick) syncSubtitles();
-                        else sync();
-                    }, { signal });
-                    row.addEventListener("focus", () => {
-                        for (const other of list.children) other.tabIndex = other === row ? 0 : -1;
-                    }, { signal });
-                    return row;
+        const rows = choices.map(([key, label]) => {
+            const item = make("div", "movie-track-row");
+            const row = make("button", "movie-track-option movie-track-choice");
+            row.type = "button";
+            row.setAttribute("role", "radio");
+            row.setAttribute("aria-label", label);
+            const dot = make("span", "movie-track-dot");
+            dot.append(icon(paths.check));
+            const unavailable = make("span", "movie-track-unavailable", "Not available");
+            row.append(dot, make("span", "", label), unavailable);
+            let option;
+            row.addEventListener("click", () => {
+                if (!option || pick.value === option.value) return;
+                pick.value = option.value;
+                pick.dispatchEvent(new Event("change"));
+                if (pick === ctx.subtitlePick) syncSubtitles();
+                else sync();
+            }, { signal });
+            row.addEventListener("focus", () => {
+                if (option) setTabStop(row);
+            }, { signal });
+            item.append(row);
+            const action = findAction(key, label);
+            let download, downloadIcon, spinner;
+            if (action) {
+                download = button("movie-track-icon", action.label, paths.download, {}, () => {
+                    download.focus({ preventScroll: true });
+                    if (download.getAttribute("aria-disabled") !== "true") action.run(download);
                 });
-                if (focusedIndex < 0) list.replaceChildren(...nextRows);
-                else {
-                    list.append(...nextRows);
-                    (nextRows[next.findIndex(option => (option.dataset.language ?? option.value) === focusedValue)]
-                        ?? nextRows[0] ?? sheets.audio.close)
-                        .focus({ preventScroll: true });
-                    previousRows.forEach(row => row.remove());
-                }
+                download.title = action.label;
+                if (action.dialog) download.setAttribute("aria-haspopup", "dialog");
+                downloadIcon = download.firstElementChild;
+                spinner = make("span", "movie-track-spinner");
+                spinner.setAttribute("aria-hidden", "true");
+                download.append(spinner);
+                item.append(download);
             }
-            const activeRow = list.contains(document.activeElement) ? document.activeElement
-                : list.children[options.findIndex(option => option.value === pick.value)] ?? list.firstElementChild;
-            options.forEach((option, index) => {
-                const row = list.children[index];
-                row.setAttribute("aria-checked", String(pick.value === option.value));
-                row.tabIndex = row === activeRow ? 0 : -1;
-            });
+            list.append(item);
+            return {
+                row,
+                sync(options) {
+                    option = options.find(candidate => (candidate.dataset.language ?? "off") === key);
+                    row.disabled = !option;
+                    row.setAttribute("aria-disabled", String(row.disabled));
+                    row.setAttribute("aria-checked", String(!!option && pick.value === option.value));
+                    unavailable.hidden = !!option;
+                    if (option) row.removeAttribute("title");
+                    else row.title = unavailable.textContent;
+                    if (download) {
+                        const busy = pick === ctx.subtitlePick && !!searchingLanguage;
+                        const spinning = busy && searchingLanguage === key && !option;
+                        download.setAttribute("aria-disabled", String(busy));
+                        downloadIcon.toggleAttribute("hidden", spinning);
+                        spinner.hidden = !spinning;
+                        if (option && document.activeElement === download) row.focus({ preventScroll: true });
+                        download.hidden = !!option;
+                    }
+                }
+            };
+        });
+        function setTabStop(active) {
+            for (const {row} of rows) row.tabIndex = row === active ? 0 : -1;
+        }
+        function sync() {
+            const options = [...pick.options];
+            const focused = document.activeElement;
+            for (const item of rows) item.sync(options);
+            const enabled = rows.map(({row}) => row).filter(row => !row.disabled);
+            const tabStop = enabled.find(row => row === document.activeElement) ??
+                enabled.find(row => row.getAttribute("aria-checked") === "true") ?? enabled[0];
+            setTabStop(tabStop);
+            if (rows.some(({row}) => row === focused && row.disabled))
+                (tabStop ?? sheets.audio.close).focus({ preventScroll: true });
         }
         sync();
         return sync;
     }
-    const syncAudio = trackList(audio, ctx.audioPick, "Audio track");
-    if (!ctx.audioPick) audio.append(make("p", "", "Default audio"));
+    const audioChoices = ctx.originalLanguage === "en"
+        ? [["en", "English (original)"], languages[1]]
+        : [["original", "Original"], ...languages];
+    const syncAudio = trackList(audio, ctx.audioPick, "Audio track", audioChoices, key => key !== "original" && ctx.findAudio && {
+        label: `Find ${key === "en" ? "English" : "Hungarian"} audio`,
+        run: opener => ctx.findAudio(opener, key), dialog: true
+    });
     const soundOptions = audio.querySelector(".movie-sound-options");
     if (soundOptions) audio.append(soundOptions);
-    const syncSubtitleRows = trackList(subtitles, ctx.subtitlePick, "Subtitle track");
+    const syncSubtitleRows = trackList(subtitles, ctx.subtitlePick, "Subtitle track", [["off", "Off"], ...languages],
+        (key, label) => key !== "off" && {
+            label: `Find ${label} subtitles`, run: () => void ctx.subtitleSearch.run(key)
+        });
+    subtitles.append(searchStatus);
     const sizeLabel = make("label", "movie-subtitle-size", "Subtitle size");
     const size = make("select");
     for (const label of subtitleSizes) size.add(new Option(label, label.toLowerCase()));
@@ -451,9 +480,13 @@ export function buildPlayerUi(ctx) {
     subtitles.append(subtitleAnnouncement);
 
     const timing = make("section", "movie-track-col movie-subtitle-timing");
+    const timingControls = make("fieldset", "movie-timing-settings");
     const timingFields = make("div", "movie-timing-fields");
-    const bitmapNote = make("p", "", "Timing is unavailable for image subtitles.");
-    timing.append(make("h4", "", "Timing"), bitmapNote, timingFields, sizeLabel);
+    const timingNote = make("p");
+    timingNote.id = "movie-subtitle-timing-note";
+    timingControls.setAttribute("aria-label", "Subtitle timing");
+    timingControls.append(timingFields, sizeLabel);
+    timing.append(make("h4", "", "Timing"), timingNote, timingControls);
     sheets.audio.body.append(timing);
     let timingKey, shift = 0, speed = 0;
     let stopHold = () => {};
@@ -470,6 +503,7 @@ export function buildPlayerUi(ctx) {
         const reset = button("movie-track-icon", "Reset subtitle " + label.toLowerCase(), paths.reset, {}, () => set(0));
         reset.title = reset.getAttribute("aria-label");
         function set(value) {
+            if (timingControls.disabled) return;
             write(Math.min(limit, Math.max(-limit, value)));
             if (timingKey) {
                 try {
@@ -530,11 +564,15 @@ export function buildPlayerUi(ctx) {
         const selected = ctx.subtitlePick?.selectedOptions[0];
         const language = selected?.dataset.language;
         const bitmap = !!language && ctx.burnedSubtitle === Number(selected.value);
-        if (!language && timing.contains(document.activeElement))
+        const disabled = !language || bitmap;
+        if (disabled && timing.contains(document.activeElement))
             subtitles.querySelector("[aria-checked='true']")?.focus({ preventScroll: true });
-        timing.hidden = !language;
-        timingFields.hidden = sizeLabel.hidden = bitmap;
-        bitmapNote.hidden = !bitmap;
+        if (disabled) stopHold();
+        timingControls.disabled = disabled;
+        if (disabled) timingControls.setAttribute("aria-describedby", timingNote.id);
+        else timingControls.removeAttribute("aria-describedby");
+        timingNote.hidden = !disabled;
+        timingNote.textContent = bitmap ? "Timing is unavailable for image subtitles." : "Select a text subtitle to adjust timing.";
         const key = language && !bitmap && ctx.itemId != null
             ? "familyhub.movie.subtitle-timing.v1:" + JSON.stringify([ctx.itemId, language]) : undefined;
         if (key !== timingKey) {
@@ -548,28 +586,19 @@ export function buildPlayerUi(ctx) {
         speedControl();
         refreshCueTiming();
     }
-    function syncDownload() {
-        const missing = ctx.subtitleSearch?.missing().length > 0;
-        // Keep the focused action until the user moves on after the last download.
-        download.hidden = !missing && document.activeElement !== download;
-        download.setAttribute("aria-disabled", String(searching || !missing));
-    }
-    let searching = false, announcedTrack;
-    function subtitleStatus(text, working = false) {
-        searching = working;
+    function subtitleStatus(text, language) {
+        searchingLanguage = language;
         searchStatus.textContent = text;
-        syncDownload();
+        syncSubtitleRows();
     }
     function syncSubtitles() {
         syncSubtitleRows();
         syncTiming();
-        syncDownload();
         const label = ctx.subtitlePick?.selectedOptions[0]?.text;
         if (openSheet === "audio" && label && label !== announcedTrack)
             subtitleAnnouncement.textContent = `Subtitles: ${label}`;
         announcedTrack = label;
     }
-    download.addEventListener("blur", () => queueMicrotask(syncDownload), { signal });
     signal.addEventListener("abort", () => stopHold(), { once: true });
     function toggleSheet(name, focusTarget) {
         if (openSheet === name) return closeSheet();
@@ -847,7 +876,7 @@ export function buildPlayerUi(ctx) {
     }
     function focusable(container) {
         return [...container.querySelectorAll("button, input, select, summary")].filter(control =>
-            !control.disabled && control.tabIndex >= 0 && control.getClientRects().length &&
+            !control.matches(":disabled") && control.tabIndex >= 0 && control.getClientRects().length &&
             getComputedStyle(control).visibility === "visible" &&
             (!control.closest("details:not([open])") || control.matches("summary")));
     }
@@ -894,8 +923,8 @@ export function buildPlayerUi(ctx) {
         }
         if (inSheet) {
             const group = target.closest("[role='radiogroup']");
-            if (arrow && openSheet === "audio" && group) {
-                const radios = [...group.querySelectorAll("[role='radio']")];
+            if (arrow && openSheet === "audio" && group && target.matches("[role='radio']")) {
+                const radios = [...group.querySelectorAll("[role='radio']:not([aria-disabled='true'])")];
                 const step = key === "arrowdown" || key === "arrowright" ? 1 : -1;
                 const index = radios.indexOf(target) + step;
                 if (radios[index] || !tv || key === "arrowleft" || key === "arrowright") {

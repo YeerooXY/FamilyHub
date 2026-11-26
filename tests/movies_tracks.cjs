@@ -12,7 +12,7 @@ const pilot = { Id: "ep", Type: "Episode", Name: "Pilot", SeriesName: "Show", Se
     ImageTags: { Thumb: "missing" }, BackdropImageTags: ["missing"], SeriesThumbImageTag: "inherited" };
 const finale = { Id: "ep2", Type: "Episode", Name: "Finale", SeriesName: "Far Shore", SeriesId: "far-shore" };
 const streams = [
-    { Type: "Audio", Index: 1, Language: "eng", DisplayTitle: "English stereo" },
+    { Type: "Audio", Index: 1, Language: "eng", DisplayTitle: "English stereo", IsOriginal: true },
     { Type: "Audio", Index: 2, Language: "hun", DisplayTitle: "Hungarian stereo", IsExternal: true },
     { Type: "Subtitle", Index: 3, Language: "hu-HU", DisplayTitle: "Hungarian", IsTextSubtitleStream: true },
     { Type: "Subtitle", Index: 4, Language: "eng", DisplayTitle: "English", IsTextSubtitleStream: true }
@@ -236,9 +236,9 @@ async function check(browser, options) {
     if (browser.browserType() === chromium)
         await page.waitForFunction(() => [...document.querySelector("video").textTracks]
             .find(track => track.language === "hu-HU").cues?.length === 1);
-    assert.equal(await checkedIn("Audio track").innerText(), "Hungarian, added");
+    assert.equal(await checkedIn("Audio track").innerText(), "Hungarian");
     await group("Subtitle track").getByRole("radio", { name: "Off", exact: true }).click();
-    await group("Audio track").getByRole("radio", { name: "English stereo", exact: true }).click();
+    await group("Audio track").getByRole("radio", { name: "English (original)", exact: true }).click();
     await back.waitFor();
     await group("Audio track").waitFor();
     await focused(checkedIn("Audio track"));
@@ -247,7 +247,13 @@ async function check(browser, options) {
     await closePlayer(twoPlay, two);
     const onePlay = await playMovieDetails(page, one, "One language");
     await openTracks();
-    assert.equal(await group("Audio track").getByRole("radio").count(), 1);
+    const audioRows = group("Audio track");
+    assert.deepEqual(await audioRows.getByRole("radio").evaluateAll(rows => rows.map(row => row.getAttribute("aria-label"))),
+        ["English (original)", "Hungarian"]);
+    const missing = audioRows.getByRole("radio", {name: "Hungarian", exact: true});
+    assert.equal(await missing.getAttribute("aria-disabled"), "true");
+    assert.match(await missing.innerText(), /Not available/);
+    assert.equal(await audioRows.getByRole("button", {name: "Find Hungarian audio"}).isVisible(), true);
     await page.getByText("Hungarian audio unavailable. Using the default track.").waitFor();
     await closePlayer(onePlay, one);
     assert.deepEqual(requestedTracks, [2, 1]);
@@ -284,7 +290,7 @@ async function check(browser, options) {
     await setMedia({ currentTime: 210 }, ["seeked"]);
     await setMedia({ currentTime: 215, paused: true }, ["pause"]);
     await openTracks();
-    await group("Audio track").getByRole("radio", { name: "English stereo", exact: true }).click();
+    await group("Audio track").getByRole("radio", { name: "English (original)", exact: true }).click();
     await focused(checkedIn("Audio track"));
     assert.equal(await setMedia({ duration: 1200, currentTime: 0, paused: true }, ["loadedmetadata"]), 215);
     await setMedia({ paused: false }, ["playing"]);

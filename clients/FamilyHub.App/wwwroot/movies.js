@@ -97,6 +97,11 @@ async function subtitleRows(streams, videoPath, readLineCount) {
         const matches = streams.filter(track => track.Type === "Subtitle" && trackLanguage(track) === language);
         const text = matches.filter(textSubtitle);
         if (text.length < 2) return text[0] ?? matches.find(bitmapSubtitle);
+        const sidecar = video && text.find(track => {
+            const name = track.Path?.split(/[/\\]/).pop().toLowerCase();
+            return name === `${video}.${language}.srt`;
+        });
+        if (sidecar) return sidecar;
         const named = video ? text.filter(track => languageCodes[language].some(code =>
             filenameStem(track.Path) === `${video}.${code}`)) : [];
         const candidates = named.length ? named : text;
@@ -313,8 +318,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         try { return await Promise.race([call(method, ...args), stopped]); }
         finally { bounded.removeEventListener("abort", cancel); }
     }, signal);
-    function addAudio(item, opener, parent, signal) {
-        addAudioDialog({parent, opener, item, signal, onJob: () => scheduleDownloads(0),
+    function addAudio(item, opener, parent, signal, language) {
+        addAudioDialog({parent, opener, item, signal, language, onJob: () => scheduleDownloads(0),
             call: async (method, ...args) => {
                 const reply = await call(method, ...args);
                 if (method === "MovieAddAudio" && reply?.id) pendingAudioJobs.add(reply.id);
@@ -561,15 +566,23 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const audioLanguage = prefs.audio;
             const audio = (source.MediaStreams || []).filter(s => s.Type === "Audio");
             const internalAudio = audio.filter(track => !track.IsExternal);
-            const originalCode = source.OriginalLanguage ?? freshItem?.OriginalLanguage ?? item.OriginalLanguage;
-            const original = audio.find(track => track.IsOriginal) ?? (originalCode && internalAudio.find(track =>
-                track.Language && audioLanguageName(track.Language) === audioLanguageName(originalCode))) ??
-                internalAudio.find(track => /\boriginal\b/i.test(track.DisplayTitle ?? "")) ?? internalAudio[0] ?? audio[0];
+            if (freshItem?.OriginalLanguage && freshItem.OriginalLanguage !== item.OriginalLanguage)
+                item = {...item, OriginalLanguage: freshItem.OriginalLanguage};
+            const originalCode = source.OriginalLanguage ?? item.OriginalLanguage;
+            const originalName = audioLanguageName(originalCode);
+            const knownOriginalLanguage = trackLanguage({Language: originalCode}) ??
+                (originalName !== "Language unknown" ? "original" : undefined);
+            const original = audio.find(track => track.IsOriginal) ?? (knownOriginalLanguage
+                ? internalAudio.find(track => knownOriginalLanguage === "original" ? audioLanguageName(track.Language) === originalName
+                    : trackLanguage(track) === knownOriginalLanguage)
+                : internalAudio.find(track => /\boriginal\b/i.test(track.DisplayTitle ?? "")));
+            const originalLanguage = trackLanguage(original) ??
+                (audioLanguageName(original?.Language) !== "Language unknown" ? "original" : knownOriginalLanguage);
             const preferredAudio = preferredTrack(audio, audioLanguage === "default" ? "en" : audioLanguage);
             const defaultAudio = audio.find(track => track.Index === source.DefaultAudioStreamIndex)?.Index ??
                 audio.find(track => track.IsDefault)?.Index ?? audio[0]?.Index;
             const defaultSubtitle = source.DefaultSubtitleStreamIndex;
-            const requestedAudio = audioIndex ?? preferredAudio?.Index ?? original?.Index;
+            const requestedAudio = audioIndex ?? preferredAudio?.Index ?? original?.Index ?? internalAudio[0]?.Index ?? audio[0]?.Index;
             selectedAudio = forceTranscode ? audioIndex ?? defaultAudio : defaultAudio;
             let direct = !forceTranscode && !limit && source.SupportsDirectPlay;
             // A static stream leaves audio selection to the browser. Ask Jellyfin to select the track on multi-audio files.
@@ -643,23 +656,31 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             if (burnedSubtitle == null && subtitles.some(track => track.Index === wantedSubtitle && !textSubtitle(track)))
                 return play(item, opener, {...options, audioIndex: selectedAudio, sourceId: source.Id, position: resume,
                     burnedSubtitle: wantedSubtitle});
-            const keptAudio = audio.length === 1 ? audio : audio.filter(track => trackLanguage(track) || track === original);
-            const audioPick = audio.length ? select("Audio track",
-                keptAudio.map(track => [track.Index, track === original && !trackLanguage(track)
-                    ? `Original (${audioLanguageName(track.Language)})` : track.IsExternal ? audioLanguageName(track.Language) + ", added"
-                    : track.DisplayTitle || audioLanguageName(track.Language)])) : null;
-            if (audioPick) {
-                audioPick.value = String(selectedAudio);
-                audioPick.onchange = () => {
-                    const index = Number(audioPick.value);
-                    const keepBitmap = playback.subtitleOverride != null || trackLanguage(audio.find(track => track.Index === index)) !== "hu";
-                    return play(item, opener, { sheet: "audio", audioIndex: index,
-                        position: metadataLoaded ? media.currentTime : resume, paused: media.paused,
-                        subtitleIndex: playback.subtitleOverride, burnedSubtitle: keepBitmap ? burnedSubtitle : undefined,
-                        dataSaver: playback.dataSaver, forceTranscode: options.forceTranscode,
-                        sourceId: forceTranscode ? source.Id : undefined });
-                };
+            const audioPick = select("Audio track", []);
+            const alternateAudio = originalLanguage === "hu" ? audio.filter(track => track !== original) : audio;
+            const audioLanguages = originalLanguage === "en" ? ["en", "hu"] : ["original", "en", "hu"];
+            for (const language of audioLanguages) {
+                let track;
+                if (language === "original") track = original;
+                else if (language === "en" && originalLanguage === "en" && original) track = original;
+                else if (alternateAudio.includes(selectedAudioTrack) && trackLanguage(selectedAudioTrack) === language)
+                    track = selectedAudioTrack;
+                else track = preferredTrack(alternateAudio, language);
+                if (!track) continue;
+                const option = new Option(language === "original" ? "Original" : labels[language], track.Index);
+                option.dataset.language = language;
+                audioPick.add(option);
             }
+            audioPick.value = String(selectedAudio);
+            audioPick.onchange = () => {
+                const index = Number(audioPick.value);
+                const keepBitmap = playback.subtitleOverride != null || trackLanguage(audio.find(track => track.Index === index)) !== "hu";
+                return play(item, opener, { sheet: "audio", audioIndex: index,
+                    position: metadataLoaded ? media.currentTime : resume, paused: media.paused,
+                    subtitleIndex: playback.subtitleOverride, burnedSubtitle: keepBitmap ? burnedSubtitle : undefined,
+                    dataSaver: playback.dataSaver, forceTranscode: options.forceTranscode,
+                    sourceId: forceTranscode ? source.Id : undefined });
+            };
             const subtitlePick = select("Subtitle track", [[-1, "Off"]]);
             const notice = el("p");
             notice.setAttribute("role", "status");
@@ -805,8 +826,6 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const subtitlePath = `Items/${encodeURIComponent(subtitleItem)}`;
             const remote = subtitlePath + "/RemoteSearch/Subtitles/";
             const subtitleSearch = {
-                missing: () => [subtitleLanguage, subtitleLanguage === "en" ? "hu" : "en"]
-                    .filter(language => !preferredTrack(subtitles, language)),
                 message(error) {
                     return error instanceof SubtitleSearchError ? error.message : "Could not search for subtitles. Try again.";
                 },
@@ -881,9 +900,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         if (automatic && playback.subtitleOverride == null) {
                             initialSubtitle = addedIndex;
                             playback.setSubtitles(undefined);
-                        } else if (automatic || burnedSubtitle != null) {
+                        } else {
                             playback.setSubtitles(preferredTrack(subtitles, trackLanguage(prior))?.Index ?? -1);
-                        } else playback.setSubtitles(addedIndex);
+                        }
                         ui.syncSubtitles();
                         return;
                     }
@@ -895,11 +914,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             };
             let searchingSubtitles = false;
             subtitleSearch.run = async (language, automatic = false) => {
-                if (!language || searchingSubtitles || playerSignal.aborted) return;
+                if (!languageCodes[language] || searchingSubtitles || playerSignal.aborted || preferredTrack(subtitles, language)) return;
                 const subtitleCode = language === "hu" ? "hun" : "eng";
                 const name = labels[language];
                 searchingSubtitles = true;
-                ui.subtitleStatus(`Searching for ${name} subtitles…`, true);
+                ui.subtitleStatus(`Searching for ${name} subtitles`, language);
                 let best;
                 try {
                     const found = await subtitleSearch.find(subtitleCode, automatic);
@@ -907,10 +926,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     if (found) {
                         best = found.sort((a, b) => (b.DownloadCount ?? 0) - (a.DownloadCount ?? 0) ||
                             (b.CommunityRating ?? 0) - (a.CommunityRating ?? 0))[0];
-                        ui.subtitleStatus(`Adding ${name} subtitles…`, true);
                         await subtitleSearch.add(best, subtitleCode, automatic);
                     }
-                    if (!playerSignal.aborted) ui.subtitleStatus(`${name} subtitles added.`);
+                    if (!playerSignal.aborted) ui.subtitleStatus("Found");
                 } catch (error) {
                     if (!playerSignal.aborted) ui.subtitleStatus(best
                         ? "Could not add subtitles. Try again or ask an admin to check subtitle permissions and storage."
@@ -946,7 +964,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             ui = buildPlayerUi({ media, surface: player, back, signal: playerSignal, subtitleSearch, itemId: item.Id,
                 fullscreenEnabled: nativeFullscreen || document.fullscreenEnabled || document.webkitFullscreenEnabled, isFullscreen, setFullscreen,
                 title: numbered ? `S${item.ParentIndexNumber}:E${item.IndexNumber} “${item.Name}”` : item.Name,
-                kicker: item.SeriesName, audioPick, subtitlePick, audioSync, notice, burnedSubtitle });
+                kicker: item.SeriesName, audioPick, subtitlePick, audioSync, notice, burnedSubtitle, originalLanguage,
+                findAudio: (opener, language) => addAudio(item, opener, player, playerSignal, language) });
             playback.showJobToast = ui.hint;
             player.replaceChildren(media, ui.root);
             enterPlayer();

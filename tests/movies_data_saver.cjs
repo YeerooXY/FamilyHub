@@ -140,7 +140,7 @@ async function check(browser, name, options) {
         const tracks = page.getByRole("button", { name: "Audio & Subtitles", exact: true });
         const audio = page.getByRole("radiogroup", { name: "Audio track" });
         const subtitle = page.getByRole("radiogroup", { name: "Subtitle track" });
-        const hungarian = audio.getByRole("radio", { name: "Hungarian, added", exact: true });
+        const hungarian = audio.getByRole("radio", { name: "Hungarian", exact: true });
         const english = subtitle.getByRole("radio", { name: "English", exact: true });
         const setQuality = (dataSaver, profile = "alex") => page.evaluate(async ({ jellyfin, profile, dataSaver }) => {
             const { readMoviePreferences, saveMoviePreferences } = await import("/movies.js");
@@ -158,7 +158,7 @@ async function check(browser, name, options) {
         await video.evaluate(el => { el.currentTime = 387; el.pause(); });
         await tracks.press("Enter");
         await hungarian.press("Enter");
-        await audio.getByRole("radio", { name: "Hungarian, added", checked: true }).waitFor();
+        await audio.getByRole("radio", { name: "Hungarian", exact: true, checked: true }).waitFor();
         await english.press("Enter");
         await position(387);
         await page.evaluate(() => {

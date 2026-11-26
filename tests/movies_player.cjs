@@ -24,9 +24,17 @@ async function verify(browser, profile, options) {
             media.play = async () => { paused = false; media.dispatchEvent(new Event("play")); };
             media.pause = () => { paused = true; media.dispatchEvent(new Event("pause")); };
             let fullscreen = false;
+            const pick = () => {
+                const label = document.createElement("label"), select = document.createElement("select");
+                label.append(select);
+                return select;
+            };
+            const audioPick = pick(), subtitlePick = pick();
+            subtitlePick.add(new Option("Off", -1));
             const ui = buildPlayerUi({
                 media, surface, back: document.createElement("button"), signal: new AbortController().signal,
                 title: "The movie", notice: document.createElement("p"),
+                audioPick, subtitlePick,
                 fullscreenEnabled: true, isFullscreen: () => fullscreen,
                 setFullscreen: async on => { fullscreen = on; return true; }
             });
@@ -91,6 +99,12 @@ async function verify(browser, profile, options) {
         const sheet = page.getByRole("dialog", {name: "Audio & Subtitles"});
         await (options.hasTouch ? tracks.tap() : tracks.click());
         await page.waitForFunction(() => [...document.styleSheets].some(style => style.href?.endsWith("/movie-player.css")));
+        const audioRows = sheet.getByRole("radiogroup", {name: "Audio track"}).getByRole("radio");
+        const subtitleRows = sheet.getByRole("radiogroup", {name: "Subtitle track"}).getByRole("radio");
+        const labels = rows => rows.evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label")));
+        assert.deepEqual(await labels(audioRows), ["Original", "English", "Hungarian"]);
+        assert.deepEqual(await labels(subtitleRows), ["Off", "English", "Hungarian"]);
+        assert.equal(await sheet.getByRole("heading", {name: "Timing", exact: true}).isVisible(), true);
         const panel = await sheet.boundingBox();
         const viewport = page.viewportSize();
         assert.ok(Math.abs(panel.x + panel.width / 2 - viewport.width / 2) < 1);

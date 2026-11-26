@@ -104,7 +104,7 @@ export function audioJobResults(job, call) {
 
 export const audioJobRunning = job => ["Waiting", "Matching audio", "Writing audio"].includes(job.state);
 
-export function addAudioDialog({parent, opener, item, signal, call, onJob}) {
+export function addAudioDialog({parent, opener, item, signal, call, onJob, language: initialLanguage = "hu"}) {
     const dialog = movieDialog(parent, opener, "Add audio track", signal);
     const title = make("p", item.Name), notice = make("p"), list = make("div"), result = make("div");
     const jobStatus = make("p");
@@ -119,6 +119,7 @@ export function addAudioDialog({parent, opener, item, signal, call, onJob}) {
     const languages = ["hu", "en", "de", "fr", "it", "es", "pt", "ja", "pl", "cs", "sk", "ro", "uk", "ru", "zh"];
     for (const code of languages) language.add(new Option(audioLanguage(code), code));
     language.add(new Option("Other language", "other"));
+    language.value = initialLanguage;
     languageLabel.append(language);
     const otherLabel = make("label", "Three-letter language code"), other = make("input");
     other.pattern = "[A-Za-z]{3}";

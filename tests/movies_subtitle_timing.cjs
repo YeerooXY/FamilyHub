@@ -3,14 +3,16 @@ const path = require("node:path");
 const { chromium } = require(require.resolve("playwright", {paths: [process.cwd(), path.resolve(__dirname, "../../agent-dock")]}));
 const { jellyfin, cors, moviePage, playMovieDetails } = require("./movies_fixture.cjs");
 
-const titles = [{Id: "film", Name: "Timing Test", Type: "Movie"}, {Id: "other", Name: "Other Title", Type: "Movie"}];
+const titles = [{Id: "film", Name: "Timing Test", Type: "Movie"}, {Id: "other", Name: "Other Title", Type: "Movie"},
+    {Id: "image", Name: "Image Subtitles", Type: "Movie"}];
 const subtitle = (Index, Language, Codec, Path) => ({Type: "Subtitle", Index, Language, Codec, Path});
 const english = [subtitle(3, "eng", "dvdsub"), subtitle(4, "en", "ass", "/video/film.en.ass"),
-    {...subtitle(5, "en-US", "srt", "/video/longer.en.srt"), LineCount: 200}];
+    {...subtitle(5, "en-US", "srt", "/video/film.eng.srt"), LineCount: 200},
+    subtitle(9, "en", "srt", "/video/film.en.srt")];
 const hungarian = [subtitle(6, "hun", "subrip"), subtitle(7, "hu-HU", "vtt")];
 const audio = [{Type: "Audio", Index: 1, Language: "eng", DisplayTitle: "English"},
     {Type: "Audio", Index: 2, Language: "jpn", IsOriginal: true}, {Type: "Audio", Index: 8, Language: "deu"}];
-const findName = "Find a subtitle for this film";
+const findName = "Find Hungarian subtitles";
 
 async function verify() {
     const browser = await chromium.launch({headless: true});
@@ -31,9 +33,13 @@ async function verify() {
             if (route.request().method() === "OPTIONS") return reply({status: 204});
             if (url.pathname.endsWith("/PlaybackInfo")) {
                 const primary = url.pathname.includes("/film/");
+                const image = url.pathname.includes("/image/");
                 return reply({json: {PlaySessionId: "play", MediaSources: [{Id: "source", Path: "/video/film.mp4",
-                    SupportsDirectPlay: true, DefaultAudioStreamIndex: 1, DefaultSubtitleStreamIndex: 5,
-                    MediaStreams: [...audio, ...english, ...(primary ? hungarian : [])]}]}});
+                    SupportsDirectPlay: true, DefaultAudioStreamIndex: 1, DefaultSubtitleStreamIndex: 9,
+                    ...(image ? {OriginalLanguage: "jpn", TranscodingUrl: "/Videos/image/stream"} : {}),
+                    MediaStreams: image ? [audio[0], subtitle(6, "hun", "pgs")]
+                        : primary ? [...audio, ...english, ...hungarian]
+                        : [audio[0], {...audio[1], Language: "hun"}, ...english]}]}});
             }
             if (url.pathname === "/Items") return reply({json: {Items: url.searchParams.get("includeItemTypes") === "Movie" ? titles : []}});
             if (/\/Subtitles\/[67]\/Stream.vtt$/.test(url.pathname)) {
@@ -77,11 +83,16 @@ async function verify() {
         };
         await open(titles[0].Name);
         assert.deepEqual(await subs.getByRole("radio").allInnerTexts(), ["Off", "English", "Hungarian"]);
-        assert.deepEqual(await audioGroup.getByRole("radio").allInnerTexts(), ["English", "Original (Japanese)"]);
+        assert.deepEqual(await audioGroup.getByRole("radio").evaluateAll(rows => rows.map(row => row.getAttribute("aria-label"))),
+            ["Original", "English", "Hungarian"]);
+        const findAudio = sheet.getByRole("button", {name: "Find Hungarian audio", exact: true});
+        assert.equal(await findAudio.isVisible(), true);
         assert.deepEqual([...ranked].sort(), [6, 7]);
-        assert.deepEqual(await video.locator("track").evaluateAll(nodes => nodes.map(node => node.src.match(/\/Subtitles\/(\d+)\//)[1])), ["4", "7"]);
+        assert.deepEqual(await video.locator("track").evaluateAll(nodes => nodes.map(node => node.src.match(/\/Subtitles\/(\d+)\//)[1])), ["9", "7"]);
         assert.equal(await radio("Off").getAttribute("aria-checked"), "true");
         assert.equal(await find.count(), 0);
+        assert.equal(await increaseShift.isDisabled(), true);
+        assert.equal(await sheet.getByText("Select a text subtitle to adjust timing.").isVisible(), true);
         assert.equal(await sheet.getByRole("button", {name: "Find subtitles", exact: true}).count(), 0);
         assert.equal(await sheet.getByRole("button", {name: "Add audio track", exact: true}).count(), 0);
         assert.equal(await sheet.getByRole("combobox", {name: "Subtitle language"}).count(), 0);
@@ -91,7 +102,12 @@ async function verify() {
         await page.keyboard.press("Tab");
         assert.equal(await focused(audioGroup.getByRole("radio", {name: "English"})), true);
         await page.keyboard.press("ArrowDown");
-        assert.equal(await focused(audioGroup.getByRole("radio", {name: "Original (Japanese)"})), true);
+        assert.equal(await focused(audioGroup.getByRole("radio", {name: "Original", exact: true})), true);
+        await page.keyboard.press("Tab");
+        assert.equal(await focused(findAudio), true);
+        await page.keyboard.press("Shift+Tab");
+        assert.equal(await focused(audioGroup.getByRole("radio", {name: "Original", exact: true})), true);
+        await page.keyboard.press("Tab");
         await page.keyboard.press("Tab");
         if (await sheet.getByText("Sound options", {exact: true}).count()) await page.keyboard.press("Tab");
         assert.equal(await focused(radio("Off")), true);
@@ -99,6 +115,7 @@ async function verify() {
         await page.keyboard.press("Space");
         assert.equal(await focused(radio("English")), true);
         assert.equal(await radio("English").getAttribute("aria-checked"), "true");
+        assert.equal(await increaseShift.isEnabled(), true);
         await sheet.getByRole("status").filter({hasText: "Subtitles: English"}).waitFor({state: "attached"});
 
         await video.evaluate(node => {
@@ -168,9 +185,23 @@ async function verify() {
         await exit();
         await open(titles[1].Name);
         assert.equal(await find.isVisible(), true);
+        assert.equal(await audioGroup.getByRole("radio", {name: "Original", exact: true}).isEnabled(), true);
+        assert.equal(await audioGroup.getByRole("radio", {name: "Hungarian", exact: true}).getAttribute("aria-disabled"), "true");
+        assert.equal(await findAudio.isVisible(), true);
         await radio("English").press("Enter");
         assert.equal(await output("Shift"), "0.0 s");
         assert.equal(await output("Speed"), "0.00 %");
+        await exit();
+        await open(titles[2].Name);
+        const missingOriginal = audioGroup.getByRole("radio", {name: "Original", exact: true});
+        assert.equal(await missingOriginal.getAttribute("aria-disabled"), "true");
+        assert.match(await missingOriginal.innerText(), /Not available/);
+        assert.equal(await audioGroup.getByRole("button").count(), 1);
+        await radio("Hungarian").press("Enter");
+        await sheet.getByText("Timing is unavailable for image subtitles.").waitFor();
+        assert.equal(await radio("Hungarian").getAttribute("aria-checked"), "true");
+        assert.equal(await focused(radio("Hungarian")), true);
+        assert.equal(await increaseShift.isDisabled(), true);
         await exit();
         await page.evaluate(async jellyfin => {
             const { saveMoviePreferences } = await import("/movies.js");

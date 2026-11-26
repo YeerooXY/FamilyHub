@@ -100,11 +100,13 @@ async function run(browser, options, scenario) {
             return page.getByRole("dialog", {name: "Audio & Subtitles"});
         };
         const sheet = await openSheet();
-        const find = sheet.getByRole("button", {name: "Find a subtitle for this film", exact: true});
-        const off = sheet.getByRole("radio", {name: "Off", exact: true});
+        const find = sheet.getByRole("button", {name: `Find ${language ?? "Hungarian"} subtitles`, exact: true});
+        const subtitles = sheet.getByRole("radiogroup", {name: "Subtitle track", exact: true});
+        const downloaded = subtitles.getByRole("radio", {name: language, exact: true});
+        const off = subtitles.getByRole("radio", {name: "Off", exact: true});
         const automatic = preference === "en" || preference === "hu";
         if (automatic) {
-            await sheet.getByText(`Searching for ${language} subtitles…`, {exact: true}).waitFor();
+            await sheet.getByText(`Searching for ${language} subtitles`, {exact: true}).waitFor();
             assert.equal(await find.getAttribute("aria-disabled"), "true");
             if (!firstResponse) await off.focus();
             releaseSearch();
@@ -121,17 +123,18 @@ async function run(browser, options, scenario) {
             assert.equal(searches, 1);
             assert.equal(await find.getAttribute("aria-disabled"), "false");
             await find.press("Enter");
-            await sheet.getByText(`${language} subtitles added.`).waitFor();
+            await sheet.getByText("Found", {exact: true}).waitFor();
             assert.equal(searches, 2);
             assert.deepEqual(saves, ["provider_srt-420"]);
-            assert.equal(await find.evaluate(node => node === document.activeElement), true);
+            assert.equal(await downloaded.evaluate(node => node === document.activeElement), true);
+            assert.equal(await off.getAttribute("aria-checked"), "true");
         } else {
-            await sheet.getByText(`${language} subtitles added.`).waitFor();
+            await sheet.getByText("Found", {exact: true}).waitFor();
             assert.equal(searches, 1);
             assert.deepEqual(saves, ["provider_srt-420"]);
             assert.equal(await video.evaluate(node => node.textTracks[0]?.mode), "hidden");
             assert.equal(await off.evaluate(row => row === document.activeElement), true);
-            assert.equal(await sheet.getByRole("radio", {name: language, exact: true}).getAttribute("aria-checked"), "true");
+            assert.equal(await downloaded.getAttribute("aria-checked"), "true");
             await sheet.getByRole("button", {name: "Close audio and subtitles"}).press("Enter");
             if (nativeFullscreen) {
                 await page.getByRole("button", {name: "Full screen", exact: true}).press("Enter");
