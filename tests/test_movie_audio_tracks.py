@@ -17,6 +17,19 @@ from test_music_web import Base
 
 
 class AudioSyncTests(unittest.TestCase):
+    def test_source_title_year_and_episode_matching(self):
+        film = {'Type': 'Movie', 'Name': 'Táncoló talpak', 'OriginalTitle': 'Happy Feet', 'ProductionYear': 2006}
+        exact = audio.source_match(film, Path('Happy.Feet.2006.1080p.mkv'), False)
+        self.assertGreater(exact, audio.source_match(film, Path('Tancolo.Talpak.dub.mka'), False))
+        self.assertEqual(audio.source_match(film, Path('Happy.Feet.2006.HUN.1080p.mka'), False), exact)
+        self.assertEqual(audio.source_match(film, Path('Happy.Feet.Two.2011.1080p.mkv'), False), 0)
+        self.assertEqual(audio.source_match(film, Path('Happy.Feet.2011.1080p.mkv'), False), 0)
+        episode = {'Type': 'Episode', 'SeriesName': 'Night Signal', 'ParentIndexNumber': 2, 'IndexNumber': 4}
+        self.assertGreater(audio.source_match(episode, Path('Night.Signal.S02E04.1080p.mkv'), False), 0)
+        self.assertGreater(audio.source_match(episode, Path('Night.Signal.S02/S02E04.mkv'), False), 0)
+        for name in ('Night.Signal.S02E03.mkv', 'Night.Signal.S01E04.mkv', 'Quiet.Port.S02E04.mkv'):
+            self.assertEqual(audio.source_match(episode, Path(name), False), 0)
+
     def signals(self, speed=1., intercept=0.):
         rng = random.Random(13)
         amplitudes = [rng.uniform(.05, 1) for _ in range(1000)]
@@ -159,19 +172,21 @@ class AudioGatewayTests(Base):
                 data = {'Id': ident, 'Name': 'Film', 'Type': 'Movie', 'Path': '/data/movies/Film.mkv'}
             return io.BytesIO(json.dumps(data).encode())
 
-        sources = '/api/movies/audio-sources?item=' + ident
+        sources = '/api/movies/audio-sources'
         route = '/api/movies/audio-track'
         get_jobs = lambda: self.go(owner, 'GET', '/api/movies/downloads').json.get('items', [])
         owner, csrf = self.sign_in_movie('sample-a')
         member, member_csrf = self.sign_in_movie('sample-b')
-        self.assertEqual(self.go(member, 'GET', sources).status_code, 403)
+        self.assertEqual(self.post(member, member_csrf, sources, json={'item': ident}).status_code, 403)
         self.assertEqual(self.post(member, member_csrf, route, json={}).status_code, 403)
-        self.assertNotEqual(self.go(self.app.test_client(), 'GET', sources).status_code, 200)
         self.assertEqual(self.go(owner, 'POST', route, json={}).status_code, 400)
         with patch('music_web.movies.urllib.request.build_opener') as opener:
             opener.return_value.open.side_effect = jellyfin
             session = self.post(owner, csrf, '/api/movies/session', json={'device': 'd' * 32}).json
-            listing = self.go(owner, 'GET', sources).json['sources']
+            target = dict(item=ident, ticket=session['media_ticket'])
+            recommended = self.post(owner, csrf, sources, json=target).json
+            self.assertEqual(recommended, {'sources': [], 'next': 0})
+            listing = self.post(owner, csrf, sources, json=dict(target, offset=recommended['next'])).json['sources']
             self.assertEqual(listing[0]['name'], 'Dub.mka')
             self.assertNotIn(str(self.imports), json.dumps(listing))
             data = dict(item=ident, source=listing[0]['id'], stream_index=0, ticket=session['media_ticket'])
@@ -202,6 +217,38 @@ class AudioGatewayTests(Base):
             self.assertEqual(self.post(owner, csrf, delete, json={'result': result['id']}).status_code, 200)
             self.assertFalse(source.exists())
             self.assertTrue(sidecar.is_file())
+
+    def test_recommends_ranked_sources_with_matching_runtime(self):
+        owner, csrf = self.sign_in_movie('sample-a')
+        ident = 'b' * 32
+        names = ('Happy.Feet.Two.2011.mkv', 'Happy.Feet.2006.1080p.mkv', 'Happy.Feet.2006.4k.mkv',
+                 'Happy.Feet.dub.mka')
+        rows = [(self.imports, self.imports / name, False) for name in names]
+        item = dict(Id=ident, Type='Movie', Name='Happy Feet', ProductionYear=2006, RunTimeTicks=6000 * 10**7)
+        calls = []
+
+        def probe(tool, path):
+            calls.append(path.name)
+            return [dict(index=1, duration=4200 if path.name == names[2] else 6000)]
+
+        with patch.object(audio, 'candidates', return_value=iter(rows)), patch.object(audio, 'probe_audio', side_effect=probe), \
+                patch.object(self.app.intake, 'tool', return_value='fixture'), \
+                patch('music_web.movies.urllib.request.build_opener') as opener:
+            def jellyfin(req, timeout):
+                if req.full_url.endswith('/AuthenticateByName'):
+                    return io.BytesIO(json.dumps(dict(User={'Id': 'viewer', 'Name': 'owner', 'Policy': {}},
+                                                      AccessToken='fixture-token')).encode())
+                self.assertTrue(req.full_url.split('?')[0].endswith('/Items/' + ident))
+                return io.BytesIO(json.dumps(item).encode())
+
+            opener.return_value.open.side_effect = jellyfin
+            session = self.post(owner, csrf, '/api/movies/session', json={'device': 'd' * 32}).json
+            post_sources = lambda **extra: self.post(owner, csrf, '/api/movies/audio-sources',
+                                                   json=dict(item=ident, ticket=session['media_ticket'], **extra)).json
+            first = post_sources()
+            self.assertEqual([row['name'] for row in first['sources']], [names[1], names[3]])
+            self.assertNotIn(names[0], calls)
+            self.assertEqual([row['name'] for row in post_sources(offset=first['next'])['sources']], list(names))
 
 
 class SearchOnlyParents(unittest.TestCase):

@@ -70,7 +70,7 @@ async function verify(browser, name, options) {
         await page.evaluate(async ({jellyfin, fixture}) => {
             const {openMovies, saveMoviePreferences} = await import("/movies.js");
             saveMoviePreferences({server:jellyfin + "/"}, {screen:"1080"});
-            const title_details = {title:"The Gentlemen", kind:"tv", season:2, runtime_minutes:440,
+            const title_details = {title:"The Gentlemen", kind:"tv", season:2, runtime_minutes:440, official_rating:"TV-MA",
                 episode_count:8, hungarian_title:"Úriemberek"};
             window.calls = [];
             window.movieSession = {url:jellyfin, user:"fixture", token:"fixture", device:"fixture", release_search_enabled:true, requests_enabled:true};
@@ -191,6 +191,7 @@ async function verify(browser, name, options) {
         assert.match(text, /Availability\s+Very easy to get/);
         assert.doesNotMatch(text, /seeder|leecher|Upload|The Pirate Bay|Knaben/);
         assert.equal(await first.locator(".movie-release-quality").getAttribute("data-level"), "web");
+        assert.equal(await first.getByRole("img", {name: "Rated TV-MA"}).getAttribute("data-level"), "18");
         assert.equal(await first.getByRole("img", {name:"Sound: Dolby Atmos"}).isVisible(), true);
         assert.equal(await guide.getByText("Times assume a 100 Mbps connection.").isVisible(), false);
         assert.equal(await page.getByRole("spinbutton").count(), 0);

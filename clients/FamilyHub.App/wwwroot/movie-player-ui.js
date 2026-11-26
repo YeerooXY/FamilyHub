@@ -4,7 +4,7 @@ import { attachSound, soundPanelWanted, SOUND_MODES, MAX_VOLUME } from "./movie-
 
 const SVG = "http://www.w3.org/2000/svg";
 const subtitleSizeKey = "familyhub.movie.subtitle-size";
-const subtitleSizes = ["Small", "Medium", "Large"];
+const subtitleSizes = [["small", "Small"], ["medium", "Medium"], ["large", "Large"], ["extra-large", "Extra large"]];
 const paths = {
     back: "M15 5l-7 7 7 7",
     close: "M6 6l12 12M18 6L6 18",
@@ -337,6 +337,7 @@ export function buildPlayerUi(ctx) {
             }));
             paint(sound.state);
         }, { signal });
+        details.open = true;
         audio.append(details);
         paint(sound.state);
     }
@@ -395,8 +396,6 @@ export function buildPlayerUi(ctx) {
                     row.setAttribute("aria-disabled", String(row.disabled));
                     row.setAttribute("aria-checked", String(!!option && pick.value === option.value));
                     unavailable.hidden = !!option;
-                    if (option) row.removeAttribute("title");
-                    else row.title = unavailable.textContent;
                     if (download) {
                         const busy = pick === ctx.subtitlePick && !!searchingLanguage;
                         const spinning = busy && searchingLanguage === key && !option;
@@ -440,18 +439,34 @@ export function buildPlayerUi(ctx) {
             label: `Find ${label} subtitles`, run: () => void ctx.subtitleSearch.run(key)
         });
     subtitles.append(searchStatus);
-    const sizeLabel = make("label", "movie-subtitle-size", "Subtitle size");
-    const size = make("select");
-    for (const label of subtitleSizes) size.add(new Option(label, label.toLowerCase()));
+    const sizeLabel = make("h4", "", "Subtitle size");
+    const size = make("div", "movie-subtitle-size");
+    sizeLabel.id = "movie-subtitle-size-label";
+    size.setAttribute("role", "radiogroup");
+    size.setAttribute("aria-labelledby", sizeLabel.id);
     let savedSize;
     try { savedSize = localStorage.getItem(subtitleSizeKey); } catch {}
-    size.value = [...size.options].some(option => option.value === savedSize) ? savedSize : "medium";
-    root.dataset.subtitleSize = size.value;
-    size.addEventListener("change", () => {
-        root.dataset.subtitleSize = size.value;
-        try { localStorage.setItem(subtitleSizeKey, size.value); } catch {}
-    }, { signal });
-    sizeLabel.append(size);
+    function paintSize(value) {
+        root.dataset.subtitleSize = value;
+        for (const row of size.children) {
+            const selected = row.dataset.value === value;
+            row.setAttribute("aria-checked", String(selected));
+            row.tabIndex = selected ? 0 : -1;
+        }
+    }
+    for (const [value, label] of subtitleSizes) {
+        const row = make("button", "movie-track-option", label);
+        row.type = "button";
+        row.dataset.value = value;
+        row.setAttribute("role", "radio");
+        row.addEventListener("click", () => {
+            paintSize(value);
+            row.focus({ preventScroll: true });
+            try { localStorage.setItem(subtitleSizeKey, value); } catch {}
+        }, { signal });
+        size.append(row);
+    }
+    paintSize(subtitleSizes.some(([value]) => value === savedSize) ? savedSize : "medium");
     if (ctx.audioSync) {
         const sync = make("div", "movie-audio-sync");
         sync.setAttribute("role", "group");
@@ -485,8 +500,8 @@ export function buildPlayerUi(ctx) {
     const timingNote = make("p");
     timingNote.id = "movie-subtitle-timing-note";
     timingControls.setAttribute("aria-label", "Subtitle timing");
-    timingControls.append(timingFields, sizeLabel);
-    timing.append(make("h4", "", "Timing"), timingNote, timingControls);
+    timingControls.append(timingFields);
+    timing.append(make("h4", "", "Timing"), timingNote, timingControls, sizeLabel, size);
     sheets.audio.body.append(timing);
     let timingKey, shift = 0, speed = 0;
     let stopHold = () => {};
@@ -565,7 +580,7 @@ export function buildPlayerUi(ctx) {
         const language = selected?.dataset.language;
         const bitmap = !!language && ctx.burnedSubtitle === Number(selected.value);
         const disabled = !language || bitmap;
-        if (disabled && timing.contains(document.activeElement))
+        if (disabled && timingControls.contains(document.activeElement))
             subtitles.querySelector("[aria-checked='true']")?.focus({ preventScroll: true });
         if (disabled) stopHold();
         timingControls.disabled = disabled;
@@ -930,7 +945,9 @@ export function buildPlayerUi(ctx) {
                 const index = radios.indexOf(target) + step;
                 if (radios[index] || !tv || key === "arrowleft" || key === "arrowright") {
                     event.preventDefault();
-                    (radios[index] ?? radios.at(step > 0 ? 0 : -1))?.focus();
+                    const next = radios[index] ?? radios.at(step > 0 ? 0 : -1);
+                    if (group === size) next?.click();
+                    else next?.focus();
                     return;
                 }
             }

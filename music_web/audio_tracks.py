@@ -1,6 +1,7 @@
 """Add external movie audio from files already present on the server."""
 from contextlib import contextmanager
 from copy import deepcopy
+from difflib import SequenceMatcher
 from functools import lru_cache
 from itertools import accumulate
 from mmap import ACCESS_READ, mmap
@@ -20,9 +21,10 @@ from tempfile import TemporaryDirectory
 from threading import Lock, Thread
 from time import monotonic
 
-from flask import abort, g, jsonify, request
+from flask import abort, g, jsonify
 
 from .movie_media import ITEM
+from .movie_search import plain
 from .resources import background_command, lower_background_priority
 from .state import state_path, write_json
 
@@ -48,6 +50,8 @@ LANGUAGES = {
     'uk': ('ukr', 'Ukrainian'), 'ru': ('rus', 'Russian'), 'zh': ('zho', 'Chinese'),
 }
 EPISODE = re.compile(r'(?<![a-z0-9])s(\d{1,2})e(\d{1,3})(?!\d|e\d)', re.I)
+SEASON = re.compile(r'(?<![a-z0-9])(?:s|season[ ._-]*)(\d{1,2})(?![a-z0-9])', re.I)
+AUDIO_SUFFIX = re.compile(r'(?:[\W_]+(?:dub(?:bed)?|audio|hun|eng|hungarian|english|magyar))+$', re.I)
 MAX_SECONDS = 6 * 3600
 PAGE = 4
 HISTORY = 32
@@ -251,6 +255,48 @@ def candidates():
 
 def source_id(path):
     return sha256(os.fsencode(path)).hexdigest()
+
+
+def source_match(item, path, folder):
+    from .movie_import import release_title
+
+    kind = item.get('Type')
+    if kind == 'Episode':
+        code = EPISODE.search(path.stem)
+        if folder or not code or (int(code[1]), int(code[2])) != (item.get('ParentIndexNumber'), item.get('IndexNumber')):
+            return 0
+    elif kind == 'Season':
+        code = SEASON.search(path.name)
+        if not folder or not code or int(code[1]) != item.get('IndexNumber'):
+            return 0
+    elif kind != 'Movie' or folder or EPISODE.search(path.stem):
+        return 0
+
+    label = path.name if folder else path.stem
+    name, year = release_title(label)
+    if not name and kind == 'Episode':
+        name, _ = release_title(path.parent.name)
+    titles = (item.get('Name'), item.get('OriginalTitle')) if kind == 'Movie' else (item.get('SeriesName'),)
+    targets = [re.findall(r'[^\W_]+', plain(title[:250])) for title in titles if isinstance(title, str) and title.strip()]
+    variants = [(name, year)]
+    trimmed = AUDIO_SUFFIX.sub('', name)
+    if trimmed and trimmed != name:
+        title, trailing_year = release_title(trimmed)
+        variants.append((title, year or trailing_year))
+    score = 0
+    for name, year in variants:
+        if kind == 'Movie' and year and item.get('ProductionYear') and int(year) != item['ProductionYear']:
+            continue
+        candidate = re.findall(r'[^\W_]+', plain(name))
+        for target in targets:
+            if not candidate or len(candidate) != len(target):
+                continue
+            if [word for word in candidate if word.isdecimal()] != [word for word in target if word.isdecimal()]:
+                continue
+            similarity = SequenceMatcher(None, ' '.join(target), ' '.join(candidate)).ratio()
+            if similarity >= 0.9:
+                score = max(score, similarity + (0.05 if year and item.get('ProductionYear') else 0))
+    return score
 
 
 def target_path(item):
@@ -458,31 +504,53 @@ def register(app, cfg, body, allow, access, audio_library):
         except (OSError, ValueError, subprocess.SubprocessError):
             return []
 
-    @app.get('/api/movies/audio-sources')
+    @app.post('/api/movies/audio-sources')
     def movie_audio_sources():
         require('sources', 18)
-        item = request.args.get('item', '')
-        offset = request.args.get('offset', '0')
-        if not re.fullmatch(ITEM, item, re.I) or not re.fullmatch(r'\d{1,4}', offset):
+        data = body(4096)
+        ident, offset = data.get('item'), data.get('offset')
+        if (not isinstance(ident, str) or not re.fullmatch(ITEM, ident, re.I)
+                or offset is not None and (type(offset) is not int or not 0 <= offset <= 8000)):
             abort(400)
+        library = audio_library(data.get('ticket'))
+        item = {}
+        if offset is None:
+            try:
+                item = library('Items/' + ident)
+            except (OSError, ValueError):
+                return jsonify(error='Could not check the library title. Try again.'), 502
+            if not isinstance(item, dict) or item.get('Id') != ident:
+                abort(404)
         _, ffprobe = tools()
         if not listing.acquire(blocking=False):
             return jsonify(error='Wait for the current source check to finish.'), 409
         try:
             rows = list_sources()
-            start = int(offset)
+            if offset is None:
+                ranked = [(source_match(item, path, folder), (root, path, folder)) for root, path, folder in rows]
+                ranked.sort(key=lambda pair: pair[0], reverse=True)
+                page = [row for score, row in ranked[:PAGE] if score]
+            else:
+                page = rows[offset:offset + PAGE]
             results = []
-            for root, path, folder in rows[start:start + PAGE]:
+            ticks = item.get('RunTimeTicks')
+            runtime = ticks / 1e7 if item.get('Type') == 'Movie' and type(ticks) is int and ticks > 0 else None
+            for root, path, folder in page:
                 if path not in probe_cache:
                     sample = next((file for _, file, group in rows
                                    if folder and not group and file.parent == path and EPISODE.search(file.stem)), path)
                     probe_cache[path] = safe_streams(ffprobe, sample)
                 streams = probe_cache[path]
+                if runtime and not any(stream.get('duration') and abs(stream['duration'] - runtime) <= runtime * 0.1
+                                       for stream in streams):
+                    continue
                 if streams:
                     results.append(dict(id=source_id(path), name=str(path.relative_to(root)) if path != root else root.name,
                                         location='Imports' if root == SOURCES[-1] else 'Completed downloads',
                                         folder=folder, streams=streams))
-            return jsonify(sources=results, next=start + PAGE if start + PAGE < len(rows) else None)
+            next_page = (0 if len(results) < len(rows) else None) if offset is None else (
+                offset + PAGE if offset + PAGE < len(rows) else None)
+            return jsonify(sources=results, next=next_page)
         finally:
             listing.release()
 

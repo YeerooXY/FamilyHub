@@ -168,8 +168,8 @@
     public Task<string> MovieDownloads() => SendMovieRequest("/api/movies/downloads");
 
     [JSInvokable]
-    public Task<string> MovieAudioSources(string item, int offset) =>
-        SendMovieRequest("/api/movies/audio-sources?item=" + Uri.EscapeDataString(item) + "&offset=" + offset);
+    public Task<string> MovieAudioSources(string item, int? offset) =>
+        SendMovieRequest("/api/movies/audio-sources", new { item, offset, ticket = mediaTicket });
 
     [JSInvokable]
     public Task<string> MovieAddAudio(string item, string source, int streamIndex, string language, string title) =>

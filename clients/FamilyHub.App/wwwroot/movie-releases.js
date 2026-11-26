@@ -158,6 +158,19 @@ export function videoQualityTier(height) {
     return pictureTier(height);
 }
 
+export function ageRatingBadge(value) {
+    if (typeof value !== "string" || !value.trim()) return null;
+    const label = value.trim();
+    const rating = label.toUpperCase().replace(/^(?:US|GB|HU)[-\s]+/, "");
+    const level = /^(?:U|G|PG|TV-Y7?|TV-G|TV-PG|6)$/.test(rating) ? "general" :
+        /^(?:12A?|13|PG-13|TV-14)$/.test(rating) ? "12" :
+        /^(?:15|16)$/.test(rating) ? "16" : /^(?:18|R|NC-17|TV-MA)$/.test(rating) ? "18" : "other";
+    const badge = chip("movie-chip movie-age-rating", label, level);
+    badge.setAttribute("role", "img");
+    badge.setAttribute("aria-label", "Rated " + label);
+    return badge;
+}
+
 export function formatMinutes(value) {
     if (!(value > 0)) return "";
     const minutes = Math.max(1, Math.round(value));
@@ -338,6 +351,8 @@ export function buildReleaseSearch(search, signal, download, showDetails, {prefe
             badges.className = "movie-release-top";
             if (sortBy === "best" && index === 0 && row.seeders >= 20 && row.quality.rank >= 3) badges.append(chip("movie-release-pick", "Recommended"));
             badges.append(chip("movie-release-quality", row.quality.label, row.quality.tier));
+            const rating = ageRatingBadge(row.rating);
+            if (rating) badges.append(rating);
             appendSoundChip(badges, releaseSound(row.title), icon);
             if (row.kind) badges.append(chip("movie-release-kind", row.kind));
             if (row.site) badges.append(chip("movie-release-kind", row.site));
@@ -517,6 +532,7 @@ export function buildReleaseSearch(search, signal, download, showDetails, {prefe
             if (episodes && height > 0 && item.max_height > height) quality.label = `${height}p–${item.max_height}p`;
             const name = episodes ? `${title} · Season ${item.number}` : displayTitle(title);
             const row = { title, name, height, size, length, lengthEstimated, mismatch, kind, audio, episodes, quality,
+                rating: item.official_rating || details.official_rating,
                 seeders: number(item.seeders), guid: item.guid, indexerId: item.indexerId, site: item.site, url: item.url };
             const key = row.site ? `${row.site}\n${row.url}` : `${row.title.toLowerCase().replace(/[^a-z0-9]+/g, "")}\n${Math.round((row.size || 0) / 1e8)}`;
             const previous = matches.get(key);

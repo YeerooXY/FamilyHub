@@ -53,6 +53,13 @@ async function check(browser, profile, options) {
         const episode = series.getByRole("button", {name: /^1\. Pilot/});
         await episode.waitFor();
         assert.equal(await focused(season(1)), true);
+        assert.equal(await episode.locator(".movie-release-quality").getAttribute("data-level"), "web");
+        assert.deepEqual(await series.locator(".movie-hero-art").evaluate(art => {
+            const backdrop = art.getBoundingClientRect();
+            const section = art.closest(".movie-show-detail").getBoundingClientRect();
+            return [backdrop.top - section.top, backdrop.left, innerWidth - backdrop.right,
+                getComputedStyle(art).borderRadius];
+        }), [0, 0, 0, "0px"], `${profile}: series backdrop geometry`);
 
         const desktop = options.viewport.width >= 1280;
         if (desktop) {

@@ -393,9 +393,6 @@ async function render(browser, label, options) {
     assert.equal(await page.locator(".movie-series").count(), 0);
 
     const show = shelves.locator('[data-item-id="s"]');
-    await page.evaluate(() => document.addEventListener("animationstart", event => {
-        if (event.target.matches(".movie-series") && event.animationName === "movie-arrive") window.seriesAnimated = true;
-    }));
     await show.press("Space");
     const seriesView = page.getByRole("region", {name:"Harbour Town", exact:true});
     await seriesView.locator(".movie-loading-pill").first().waitFor();
@@ -405,9 +402,8 @@ async function render(browser, label, options) {
     holdEpisodes();
     const retry = seriesView.getByRole("button", {name:"Retry library check"});
     await retry.waitFor();
-    if (options.reducedMotion === "reduce")
-        assert.equal(await seriesView.evaluate(node => getComputedStyle(node).animationName), "none");
-    else await page.waitForFunction(() => window.seriesAnimated === true);
+    assert.equal(await seriesView.evaluate(node => getComputedStyle(node).animationName), "none",
+        `${label}: full-bleed series details open without a page transition`);
     assert.equal(await focus(seriesView.getByRole("heading", {name:"Harbour Town", exact:true})), true);
     assert.equal(await seriesView.getByText("Not in library", {exact:true}).count(), 0);
     await capture("library-check-error");

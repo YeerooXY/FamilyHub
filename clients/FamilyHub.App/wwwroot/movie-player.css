@@ -266,22 +266,21 @@ body[data-effects="off"] .movie-track-spinner { animation: none; }
     border-radius: 999px;
 }
 .movie-timing-controls output { color: #f2efff; font-size: .875rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.movie-sheet-tracks #movie-subtitle-size-label { margin-top: .65rem; }
 .movie-sheet-tracks .movie-subtitle-size {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: .5rem;
-    margin-top: .45rem;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: .25rem;
 }
-.movie-sheet-tracks .movie-subtitle-size select {
-    min-height: var(--movie-target, 44px);
-    min-width: 0;
-    padding-inline: .5rem;
+.movie-library .movie-sheet-tracks .movie-subtitle-size button {
+    padding: .25rem;
     border: 1px solid #ffffff36;
-    border-radius: .5rem;
-    background: #23252c;
-    color: #fff;
-    font: inherit;
+    text-align: center;
+}
+.movie-sheet-tracks .movie-subtitle-size button::before { content: none; }
+.movie-library .movie-sheet-tracks .movie-subtitle-size button[aria-checked="true"] {
+    border-color: #c4b3ff;
+    background: #c8b9ff20;
 }
 .movie-sheet-tracks .movie-sound-options { margin-block: .25rem; }
 .movie-sheet-tracks .movie-sound-options summary {
@@ -300,12 +299,13 @@ body[data-effects="off"] .movie-track-spinner { animation: none; }
     border-radius: 0;
     background: transparent;
     color: #fff;
-    font: 500 clamp(1.05rem, 3vmin, 2.1rem)/1.25 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font: 500 var(--movie-cue-size, clamp(1.05rem, 3vmin, 2.1rem))/1.25 "Helvetica Neue", Helvetica, Arial, sans-serif;
     overflow-wrap: anywhere;
     text-shadow: 0 1px 3px #000, 0 2px 7px #000, 0 0 2px #000;
 }
-.movie-ui[data-subtitle-size="small"] .movie-ui-sub { font-size: clamp(.9rem, 2.35vmin, 1.6rem); }
-.movie-ui[data-subtitle-size="large"] .movie-ui-sub { font-size: clamp(1.3rem, 3.7vmin, 2.65rem); }
+.movie-ui[data-subtitle-size="small"] { --movie-cue-size: clamp(.9rem, 2.35vmin, 1.6rem); }
+.movie-ui[data-subtitle-size="large"] { --movie-cue-size: clamp(1.3rem, 3.7vmin, 2.65rem); }
+.movie-ui[data-subtitle-size="extra-large"] { --movie-cue-size: clamp(1.55rem, 4.4vmin, 3.2rem); }
 .movie-player-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 
 @media (max-width: 650px) {

@@ -80,6 +80,10 @@ Administrator checks also apply to catalogue edits, undo, bulk resolutions, repo
 
 Movie audio routes require an active FamilyHub session, administrator membership and a profile on the movie downloads allowlist. Mutations use bounded JSON and CSRF. Starting a job also checks the media grant against the issuing session. Server-side source IDs resolve within the completed downloads and imports roots. Jellyfin supplies the destination through the server-side movie session. The worker opens media through no-follow descriptors, restricts FFmpeg and FFprobe to local files and known formats, and runs one batch at a time. Job history stays in `STATE_DIR`. Source deletion checks both stored file identities and probes the published audio again.
 
+`POST /api/movies/audio-sources` requires CSRF, a session-bound media grant and the existing administrator, allowlist and rate-limit checks. The initial request reads the target metadata through the viewer's Jellyfin session. Results contain source IDs, relative names and stream metadata. Each response probes at most four files.
+
+`GET /api/movies/related` keeps the mapped-profile and rate-limit checks. Filtered film records carry only TMDB IDs, titles and years for matching against the viewer's library. The client displays those records only after verifying a library match through the existing Jellyfin lookup.
+
 `GET /api/server/seeding` remains admin-only and reads the local torrent snapshot. The existing recorder timer applies the one-time share-limit backfill and sets limits on new movie and TV torrents. It sends validated hashes to the configured private qBittorrent endpoint through its cookie session with redirects disabled and bounded timeouts. The policy requires an explicit Stop action before writing limits. Recorder errors use fixed messages and keep credentials and upstream responses out of logs.
 
 The recorder removes up to 20 torrents per run from the movie and TV categories after observing them stopped at a 2.0× ratio or 14 days of seeding. It commits each candidate to local SQLite history before posting its hash to qBittorrent with `deleteFiles=false`. This preserves the download files and imported library links. The read-only Seeding endpoint adds aggregate `finished.goal` and `finished.no_demand` counts for confirmed removals and uses qBittorrent's all-time counters for transfer totals. Failed requests leave the history and the next sample checks whether removal succeeded before retrying.
@@ -203,7 +207,7 @@ DELETE,GET,PUT /api/listening/rooms/<key>
 POST /api/listening/rooms/<key>/join
 GET /api/listening/summary
 GET /api/listening/wrapped
-GET /api/movies/audio-sources
+POST /api/movies/audio-sources
 POST /api/movies/audio-track
 POST /api/movies/audio-track/<job_id>/delete-source
 POST /api/movies/download

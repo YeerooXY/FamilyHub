@@ -1,7 +1,7 @@
 import { buildPlayerUi, watchPlayerIdle } from "./movie-player-ui.js";
 import { addAudioDialog, audioJobResults, audioJobRunning, audioLanguage as audioLanguageName } from "./movie-audio-ui.js";
 import { movieAudioSync } from "./movie-audio-sync.js";
-import { appendSoundChip, buildReleaseSearch, cleanResultTitle, formatMinutes, librarySound, releaseSound, videoQualityTier } from "./movie-releases.js";
+import { ageRatingBadge, appendSoundChip, buildReleaseSearch, cleanResultTitle, formatMinutes, librarySound, releaseSound, videoQualityTier } from "./movie-releases.js";
 import { createServiceStatus } from "./service-status.js";
 
 // AbortSignal.timeout needs Chromium 103; older televisions (webOS) need this form.
@@ -300,6 +300,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     };
     const status = el("p");
     status.setAttribute("role", "status");
+    status.className = "movie-load-status";
+    const relatedFailure = "Related films are unavailable";
     const player = el("section"), library = el("div");
     player.className = "movie-player";
     player.tabIndex = -1;
@@ -382,6 +384,40 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     const searchPath = "M21 21l-4.3-4.3M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z";
     const heartPath = "M20.8 5.6a4.8 4.8 0 0 0-6.8 0l-2 2-2-2a4.8 4.8 0 0 0-6.8 6.8L12 21l8.8-8.6a4.8 4.8 0 0 0 0-6.8Z";
     const quietMotion = () => document.body.dataset.effects === "off" || matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const playbackNotice = el("div"), playbackMessage = el("p");
+    let noticeTimer, noticeOpener;
+    function clearPlaybackNotice() {
+        if (playbackNotice.contains(document.activeElement))
+            (noticeOpener?.isConnected && !noticeOpener.closest("[hidden]") ? noticeOpener : browse).focus({preventScroll: true});
+        clearTimeout(noticeTimer);
+        playbackNotice.hidden = true;
+        playbackMessage.textContent = "";
+        noticeOpener = undefined;
+    }
+    const dismissNotice = button("", clearPlaybackNotice);
+    dismissNotice.setAttribute("aria-label", "Dismiss playback notice");
+    dismissNotice.title = "Dismiss playback notice";
+    dismissNotice.append(icon("m6 6 12 12M18 6 6 18"));
+    playbackNotice.className = "movie-playback-notice";
+    playbackNotice.hidden = true;
+    playbackMessage.setAttribute("role", "status");
+    playbackNotice.append(icon("M12 8v5m0 3h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z"), playbackMessage, dismissNotice);
+    host.append(playbackNotice);
+    function scheduleNoticeDismissal() {
+        clearTimeout(noticeTimer);
+        noticeTimer = setTimeout(() => {
+            if (!playbackNotice.contains(document.activeElement)) clearPlaybackNotice();
+        }, 8000);
+    }
+    playbackNotice.addEventListener("focusout", scheduleNoticeDismissal);
+    life.signal.addEventListener("abort", () => clearTimeout(noticeTimer), {once: true});
+    function showPlaybackNotice(message, opener) {
+        status.textContent = "";
+        noticeOpener = opener;
+        playbackNotice.hidden = false;
+        playbackMessage.textContent = message;
+        scheduleNoticeDismissal();
+    }
     function report(action, playback, media) {
         const data = { ItemId: playback.item.Id, MediaSourceId: playback.source.Id,
             PlaySessionId: playback.id, PositionTicks: Math.round(media.currentTime * 1e7),
@@ -495,6 +531,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }
     async function play(item, opener, options = {}) {
         if (!active || preview || item.Demo) return;
+        clearPlaybackNotice();
         const previous = playerItem;
         playerItem = item;
         playerOpener = opener;
@@ -585,8 +622,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             ]);
             if (!active || rev !== selection) return;
             let result = resultInfo;
-            const resume = position ?? (freshItem?.UserData?.PlaybackPositionTicks || 0) / 1e7;
-            failure = result?.ErrorCode === "NoCompatibleStream" ? "The server found no compatible stream." :
+            const resume = position ?? (freshItem?.UserData?.PlaybackPositionTicks ?? item.UserData?.PlaybackPositionTicks ?? 0) / 1e7;
+            if (result) failure = result.ErrorCode === "NoCompatibleStream" ? "The server found no compatible stream." :
                 "The server did not provide a playable version.";
             let source = result?.MediaSources?.[0];
             if (!source) throw Error();
@@ -658,10 +695,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             if (!direct && !hls && resume > 0) {
                 await leavePlayer();
                 if (!active || rev !== selection) return;
-                status.textContent = "This device cannot resume this video. Continue on another device.";
                 note("cannot-resume");
                 library.hidden = false;
+                toolbar.hidden = !!seriesView;
                 opener?.focus();
+                showPlaybackNotice("This device cannot resume this video. Continue on another device.", opener);
                 stop();
                 playerItem = playerOpener = undefined;
                 publishNavigation("back");
@@ -762,14 +800,20 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     audioIndex != null && audioIndex !== selectedAudio ? "Selected audio track unavailable. Using the default track." : ""
                 ].filter(Boolean).join(" ");
             };
+            function chooseSubtitle(index, override) {
+                const burn = subtitles.find(track => track.Index === index && !textSubtitle(track))?.Index;
+                if (burn !== burnedSubtitle) {
+                    const position = metadataLoaded || media.currentTime > 0 ? media.currentTime : resume;
+                    return play(item, opener, { sheet: "audio", focusSubtitle: true,
+                        sourceId: source.Id, audioIndex: selectedAudio, subtitleIndex: index, burnedSubtitle: burn,
+                        forceTranscode: options.forceTranscode, position,
+                        paused: media.paused, dataSaver: playback.dataSaver });
+                }
+                playback.setSubtitles(override);
+            }
             subtitlePick.onchange = () => {
                 const index = Number(subtitlePick.value);
-                const burn = subtitles.find(track => track.Index === index && !textSubtitle(track))?.Index;
-                if (burn !== burnedSubtitle) return play(item, opener, { sheet: "audio", focusSubtitle: true,
-                    sourceId: source.Id, audioIndex: selectedAudio, subtitleIndex: index, burnedSubtitle: burn,
-                    forceTranscode: options.forceTranscode, position: metadataLoaded ? media.currentTime : resume,
-                    paused: media.paused, dataSaver: playback.dataSaver });
-                playback.setSubtitles(index);
+                return chooseSubtitle(index, index);
             };
             current = playback; video = media;
             let metadataLoaded = false;
@@ -925,8 +969,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         if (!track || playerSignal.aborted) continue;
                         const ranked = await subtitleRows(refreshed, source.Path ?? item.Path, readLineCount);
                         if (playerSignal.aborted) return;
-                        const currentIndex = Number(subtitlePick.value);
-                        const prior = subtitles.find(stream => stream.Index === currentIndex);
+                        const prior = subtitles.find(stream => stream.Index === Number(subtitlePick.value));
                         for (const stream of subtitles) {
                             if (ranked.some(candidate => candidate.Index === stream.Index && candidate.Path === stream.Path)) continue;
                             const textTrack = textTracks.get(stream.Index);
@@ -940,9 +983,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         const addedIndex = preferredTrack(subtitles, code)?.Index ?? -1;
                         if (automatic && playback.subtitleOverride == null) {
                             initialSubtitle = addedIndex;
-                            playback.setSubtitles(undefined);
+                            if (chooseSubtitle(addedIndex, undefined)) return;
                         } else {
-                            playback.setSubtitles(preferredTrack(subtitles, trackLanguage(prior))?.Index ?? -1);
+                            const retained = prior && subtitles.find(stream => prior.Path
+                                ? prior.Path === stream.Path : prior.Index === stream.Index && trackLanguage(prior) === trackLanguage(stream));
+                            const selected = (retained ?? preferredTrack(subtitles, trackLanguage(prior)))?.Index ?? -1;
+                            if (playback.subtitleOverride == null) initialSubtitle = selected;
+                            if (chooseSubtitle(selected, playback.subtitleOverride == null ? undefined : selected)) return;
                         }
                         ui.syncSubtitles();
                         return;
@@ -1059,11 +1106,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             if (active && rev === selection) {
                 await leavePlayer();
                 if (!active || rev !== selection) return;
-                status.textContent = failure + " Try again using the play button.";
                 note("open-failed", method, diagnostics());
                 library.hidden = false;
                 toolbar.hidden = !!seriesView;
                 opener?.focus();
+                showPlaybackNotice(failure, opener);
                 stop();
                 playerItem = playerOpener = undefined;
                 publishNavigation("back");
@@ -1090,6 +1137,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         return node;
     };
     const titleKey = item => item.SeriesId || item.Id;
+    const playedAt = item => Date.parse(item.UserData?.LastPlayedDate) || 0;
     function seriesCardItem(item) {
         if (!item.SeriesId || !item.SeriesName) return item;
         return { ...item, Id: item.SeriesId, Name: item.SeriesName, Type: "Series", SeriesName: undefined,
@@ -1107,6 +1155,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }
     function closeSeries(focus, fromHistory = false, keepFocus = false) {
         if (!seriesView) return;
+        clearPlaybackNotice();
+        if (status.textContent === relatedFailure) status.textContent = "";
         const { section, opener, controller, fromResults, scrollTop, parent } = seriesView;
         seriesView = parent;
         controller.abort();
@@ -1192,6 +1242,36 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             header.append(back, intro);
             section.append(header, list, credit);
         }
+        let updateDescription;
+        if (!isSeries && !isCollection) {
+            const dialog = el("dialog"), full = el("p"), title = el("h3", "Description");
+            dialog.className = "movie-description-dialog";
+            title.id = heading.id + "-description";
+            dialog.setAttribute("aria-labelledby", title.id);
+            const close = button("Close", () => dialog.close());
+            const read = button("Read full description", () => {
+                full.textContent = overview.textContent;
+                dialog.showModal();
+            });
+            read.className = "movie-description-more";
+            read.hidden = true;
+            overview.classList.add("movie-film-overview");
+            overview.after(read);
+            dialog.append(title, full, close);
+            section.append(dialog);
+            updateDescription = () => {
+                if (dialog.open) return;
+                const clipped = overview.scrollHeight > overview.clientHeight;
+                if (!clipped && document.activeElement === read) heading.focus({preventScroll: true});
+                read.hidden = !clipped;
+            };
+            dialog.addEventListener("close", updateDescription, {signal});
+            if (globalThis.ResizeObserver) {
+                const resize = new ResizeObserver(updateDescription);
+                resize.observe(overview);
+                signal.addEventListener("abort", () => resize.disconnect(), {once: true});
+            } else window.addEventListener("resize", updateDescription, {signal});
+        }
         section.addEventListener("keydown", event => {
             if (event.key === "Escape" && !event.target.closest("dialog, select")) { event.stopPropagation(); closeSeries(); }
         });
@@ -1205,7 +1285,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         results.classList.remove("movie-screen-entry");
         toolbar.hidden = true;
         browse.hidden = results.hidden = true;
-        section.scrollIntoView({block: "start"});
+        if (isCollection) section.scrollIntoView({block: "start"});
+        else scrollHost.scrollTop = 0;
 
         if (isCollection) {
             shelf("Titles", "Movie,Series", false, list, "", signal, {params: {parentId: item.Id}});
@@ -1236,7 +1317,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             if (!isSeries) setTitleLogo(item, heading);
             overview.textContent = item.Overview ?? "";
             overview.hidden = !item.Overview;
-            if (isSeries) facts.replaceChildren(...[...(item.Genres ?? []).slice(0, 3), titleRating(item)].filter(Boolean).map(chip));
+            updateDescription?.();
+            if (isSeries) facts.replaceChildren(...[...(item.Genres ?? []).slice(0, 3).map(chip), titleRating(item)].filter(Boolean));
             else renderFilmFacts(item, facts);
             renderCast(item, cast);
         }
@@ -1258,20 +1340,47 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         });
         if (!isSeries) {
             if (!demo) {
-                let relatedHeading;
+                const relatedTitle = "More like this";
+                const related = el("section"), relatedHeader = el("div"), relatedHeading = el("h2", relatedTitle);
+                const action = button("", () => {
+                    action.focus({preventScroll: true});
+                    void retry();
+                });
+                action.className = "movie-title-retry";
+                action.title = relatedFailure + ". Retry";
+                action.setAttribute("aria-label", action.title);
+                action.append(icon("M20 7v5h-5M4 17v-5h5m-5 0a8 8 0 0 1 14-5l2 5m0 0a8 8 0 0 1-14 5l-2-5"));
+                action.hidden = related.hidden = true;
+                related.className = "movie-shelf";
+                related.dataset.format = "related";
+                relatedHeader.className = "movie-related-header";
+                relatedHeader.append(relatedHeading, action);
+                related.append(relatedHeader);
+                list.append(related);
+                let loaded = false;
+                action.addEventListener("blur", () => {
+                    if (!loaded) return;
+                    action.hidden = true;
+                    related.hidden = !related.querySelector(".movie-shelf-lane");
+                });
                 const retry = async () => {
+                    if (loaded || action.getAttribute("aria-disabled") === "true") return;
+                    action.setAttribute("aria-disabled", "true");
                     try {
-                        relatedHeading = await loadRelated(item, list, signal);
-                        if (!signal.aborted) relatedOutage.clear();
+                        const found = await loadRelated(item, related, relatedTitle, signal);
+                        if (signal.aborted) return;
+                        loaded = true;
+                        if (status.textContent === relatedFailure) status.textContent = "";
+                        action.hidden = document.activeElement !== action;
+                        related.hidden = !found && action.hidden;
                     } catch {
-                        if (!signal.aborted) relatedOutage.show();
+                        if (signal.aborted) return;
+                        related.hidden = action.hidden = false;
+                        if (status.textContent !== relatedFailure) status.textContent = relatedFailure;
+                    } finally {
+                        action.setAttribute("aria-disabled", String(loaded));
                     }
                 };
-                const relatedOutage = createServiceStatus({
-                    title: "Related films are unavailable", label: "Retry related films", retry,
-                    focus: () => relatedHeading ?? heading
-                });
-                list.after(relatedOutage.card);
                 void details.then(retry, retry);
             }
             return;
@@ -1510,18 +1619,27 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }
     const streamsOf = item => (item.MediaStreams?.length ? item.MediaStreams : item.MediaSources?.[0]?.MediaStreams) ?? [];
     const videoOf = item => streamsOf(item).find(stream => stream.Type === "Video");
-    function renderFilmFacts(item, facts) {
+    function libraryQuality(item) {
         const video = videoOf(item);
-        const height = video?.Height, width = video?.Width;
-        const quality = height >= 4320 || width >= 7680 ? "8K" :
-            height >= 2160 || width >= 3840 ? "4K" : height > 0 ? height + "p" : "";
-        facts.replaceChildren(...[item.ProductionYear, titleRating(item),
-            formatMinutes(item.RunTimeTicks / 6e8), quality].filter(Boolean).map(chip));
+        const height = video?.Width >= 7680 ? Math.max(video.Height || 0, 4320) :
+            video?.Width >= 3840 ? Math.max(video.Height || 0, 2160) : video?.Height;
+        if (!(height > 0)) return null;
+        const badge = chip(height >= 4320 ? "8K" : height >= 2160 ? "4K" : height + "p");
+        badge.classList.add("movie-release-quality");
+        badge.dataset.level = videoQualityTier(height);
+        return badge;
+    }
+    function titleFacts(item, rating) {
+        const runtime = formatMinutes(item.RunTimeTicks / 6e8);
+        return [item.ProductionYear && chip(item.ProductionYear), rating, runtime && chip(runtime), libraryQuality(item)].filter(Boolean);
+    }
+    function renderFilmFacts(item, facts) {
+        facts.replaceChildren(...titleFacts(item, titleRating(item)));
         appendSoundChip(facts, librarySound(streamsOf(item)), icon);
     }
     function titleRating(item) {
-        return item.OfficialRating || (Number.isFinite(item.CommunityRating) && item.CommunityRating > 0
-            ? item.CommunityRating.toFixed(1) : "");
+        return ageRatingBadge(item.OfficialRating) ??
+            (Number.isFinite(item.CommunityRating) && item.CommunityRating > 0 ? chip(item.CommunityRating.toFixed(1)) : null);
     }
     function setTitleLogo(item, heading, name = item.Name) {
         const tag = item.ImageTags?.Logo;
@@ -1547,6 +1665,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const heading = el("h3", "Cast"), names = el("ul");
         for (const actor of actors) {
             const row = el("li"), portrait = el("span");
+            row.tabIndex = 0;
             portrait.className = "movie-cast-portrait";
             portrait.setAttribute("aria-hidden", "true");
             portrait.style.setProperty("--art-hue", titleHue(actor.Name));
@@ -1566,12 +1685,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         }
         target.replaceChildren(heading, names);
     }
-    async function loadRelated(item, list, signal) {
+    async function loadRelated(item, section, title, signal) {
         const id = String(item.ProviderIds?.Tmdb ?? item.ProviderIds?.TMDb ?? "");
         if (!/^[1-9]\d{0,9}$/.test(id) || signal.aborted) return;
         const reply = await boundedCall(signal, "MovieRelated", id);
         if (!Array.isArray(reply?.matches)) throw Error("Invalid related films");
-        const matches = reply.matches;
+        const libraryMatches = Array.isArray(reply.library_matches) ? reply.library_matches : [];
+        const matches = [...libraryMatches, ...reply.matches];
         if (!matches.length || signal.aborted) return;
         const owned = new Map(), matchedTitle = new Map();
         const index = movie => {
@@ -1597,12 +1717,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             }, signal);
         }
         if (signal.aborted) return;
-        const title = "More like this", section = el("section"), rows = el("div");
-        section.className = "movie-shelf";
-        section.dataset.format = "related";
+        const rows = el("div");
         rows.className = "movie-cards";
         for (const match of matches) {
             const local = owned.get(String(match.id)) ?? matchedTitle.get(searchTitle(match.title) + ":" + match.year);
+            if (!local && libraryMatches.includes(match)) continue;
             const pick = local ? card(local, "related") : card({
                 Name: match.title, Id: "tmdb-" + match.id, Type: "Movie", ProductionYear: match.year
             }, "related", () => {
@@ -1612,15 +1731,14 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             if (!local) chainImages(pick.querySelector("img"), [match.backdrop, match.poster].filter(Boolean));
             rows.append(pick);
         }
+        if (!rows.childElementCount) return;
         const {lane, update} = shelfLane(rows, title, signal);
         const credit = el("p", "Film data from TMDB. " + tmdbAttribution);
         credit.className = "movie-matches-credit";
-        const heading = el("h2", title);
-        heading.tabIndex = -1;
-        section.append(heading, lane, credit);
-        list.append(section);
+        section.append(lane, credit);
+        section.hidden = false;
         update();
-        return heading;
+        return true;
     }
     function audioAction(item, signal) {
         const action = button("", event => addAudio(item, event.currentTarget, library, signal));
@@ -1693,7 +1811,14 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             title.append(name);
             content.append(title);
             const runtime = formatMinutes(episode?.RunTimeTicks / 6e8 || details?.runtime);
-            if (runtime) content.append(el("span", runtime));
+            const quality = episode && libraryQuality(episode);
+            if (runtime || quality) {
+                const facts = el("span");
+                facts.className = "movie-episode-facts";
+                if (runtime) facts.append(runtime);
+                if (quality) facts.append(quality);
+                content.append(facts);
+            }
             action.append(frame, content);
             if (episode) {
                 action.dataset.episodeId = episode.Id;
@@ -1856,8 +1981,15 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const title = seriesCardItem(item);
         const continuingEpisode = format === "resume" && item.Type === "Episode";
         const display = continuingEpisode ? item : title;
-        const name = continuingEpisode && item.SeriesName ? `${item.SeriesName}, ${item.Name}` : display.Name;
-        const b = button("", () => findRelease ? findRelease() : openSeries(title, b, item.ParentIndexNumber));
+        const name = continuingEpisode ? item.SeriesName || title.Name : display.Name;
+        const episodeLabel = continuingEpisode && Number.isInteger(item.IndexNumber)
+            ? (item.ParentIndexNumber > 0 ? `Season ${item.ParentIndexNumber}, episode ${item.IndexNumber}` :
+                `Episode ${item.IndexNumber}`) : "";
+        const b = button("", () => {
+            if (findRelease) findRelease();
+            else if (continuingEpisode && !preview && !item.Demo) void play(item, b);
+            else openSeries(title, b, item.ParentIndexNumber);
+        });
         b.className = "movie-card";
         b.dataset.itemId = display.Id;
         if (title.ProductionYear) b.dataset.year = String(title.ProductionYear);
@@ -1875,7 +2007,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             artwork.append(check);
             b.setAttribute("aria-label", `${name}, in your library`);
         }
-        const watched = progressOf(item);
+        const watched = format === "resume" ? Math.max(1, Math.min(99, progressOf(item))) : progressOf(item);
         if (watched > 0 && watched < 100) {
             const track = el("span"), fill = el("span");
             track.className = "movie-progress";
@@ -1883,12 +2015,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             fill.style.width = watched + "%";
             track.append(fill);
             artwork.append(track);
-            if (format === "resume") b.setAttribute("aria-label", `${name}, ${watched}% watched`);
+            if (format === "resume") b.setAttribute("aria-label", [name, episodeLabel, `${watched}% watched`].filter(Boolean).join(", "));
         }
         const caption = el("span"), titleText = el("span", name);
         caption.className = "movie-caption";
         titleText.className = "movie-card-name";
         caption.append(titleText);
+        if (episodeLabel) caption.append(el("small", episodeLabel));
         if (format === "favorites") {
             const heart = el("span");
             heart.className = "movie-card-heart";
@@ -2076,16 +2209,34 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const previousItems = state.items;
             try {
                 const fetchPage = batch ? request : searchLibrary;
-                const page = await (extra.page?.() ?? fetchPage(resume ? "UserItems/Resume" : "Items", {userId: session.user,
+                const params = {userId: session.user,
                     recursive:true, includeItemTypes:type, startIndex:reset ? 0 : offset, limit:20, enableUserData:true, enableImages:true, enableImageTypes:"Primary,Thumb,Backdrop,Logo", imageTypeLimit:1,
                     ...(term ? {searchTerm:term, fields:"MediaStreams"} : {}),
                     ...(resume ? {mediaTypes:"Video"} : {sortBy:"SortName",sortOrder:"Ascending"}),
-                    ...extra.params}, undefined, bounded));
+                    ...extra.params};
+                const [page, episodes] = await Promise.all([
+                    extra.page?.() ?? fetchPage(resume ? "UserItems/Resume" : "Items", params, undefined, bounded),
+                    // Jellyfin's Resume feed honours hidden library preferences and can be filled by films.
+                    resume && !preview ? request("Items", {...params, includeItemTypes: "Episode",
+                        filters: "IsResumable", sortBy: "DatePlayed", sortOrder: "Descending"}, undefined, bounded).catch(() => null) : null
+                ]);
                 if (!active || signal.aborted) return;
                 // A completed toggle replaces the list while an older shelf request can still be in flight.
                 if (format === "favorites" && state.items !== previousItems) return;
                 if (!Array.isArray(page?.Items)) throw Error("Invalid library page");
-                const items = page.Items.filter(item => type.split(",").includes(item.Type) && (!extra.accept || extra.accept(item)));
+                const episodeItems = Array.isArray(episodes?.Items) ? episodes.Items.filter(item => item.Type === "Episode") : [];
+                let items = [...page.Items, ...episodeItems].filter(item =>
+                    type.split(",").includes(item.Type) && (!extra.accept || extra.accept(item)));
+                if (resume) {
+                    items.sort((a, b) => playedAt(b) - playedAt(a));
+                    const seen = new Set();
+                    items = items.filter(item => {
+                        const key = titleKey(item);
+                        if (seen.has(key)) return false;
+                        seen.add(key);
+                        return true;
+                    }).slice(0, params.limit);
+                }
                 if (reset && !grid && state.loaded && !state.failed &&
                     JSON.stringify(state.items.slice(0, items.length)) === JSON.stringify(items) &&
                     (offset > page.Items.length ? quiet : state.items.length === items.length)) return;
@@ -2850,7 +3001,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     const fields = "Overview,Genres,ProviderIds,DateCreated,MediaStreams";
     const titleTypes = "Movie,Series";
     const resumeShelf = shelf("Continue watching", "Movie,Episode", true, browse, "", life.signal,
-        {singlePage: true, params: {fields}});
+        {singlePage: true, params: {fields}, accept: item =>
+            !item.IsMissing && item.LocationType !== "Virtual" && !item.UserData?.Played &&
+            (item.UserData?.PlaybackPositionTicks > 0 || item.UserData?.PlayedPercentage > 0)});
     const favoriteShelf = shelf("My list", titleTypes, false, browse, "", life.signal,
         {format: "favorites", params: {fields, isFavorite: true}, accept: item => item.UserData?.IsFavorite === true});
     const recentShelf = shelf("Recently added", titleTypes, false, browse, "", life.signal,
@@ -3108,8 +3261,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const previous = heroPager.querySelector('[aria-current="true"]');
         const current = [...heroPager.children].find(dot => dot.dataset.itemId === titleKey(heroPick)) ?? null;
         if (previous === current) return;
+        const outgoingFill = previous?.querySelector(".movie-hero-dot-fill");
+        if (outgoingFill) outgoingFill.style.setProperty("--movie-dot-fill", getComputedStyle(outgoingFill).transform);
         cancelHeroRotation();
         previous?.removeAttribute("aria-current");
+        current?.querySelector(".movie-hero-dot-fill").style.removeProperty("--movie-dot-fill");
         current?.setAttribute("aria-current", "true");
     }
 
@@ -3138,12 +3294,14 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const logoItem = pick.ImageTags?.Logo ? pick : pick.ParentLogoImageTag ? {Id: pick.ParentLogoItemId, ImageTags: {Logo: pick.ParentLogoImageTag}} : title;
         setTitleLogo(logoItem.Id ? logoItem : title, heading, heroName(pick));
         featured.setAttribute("aria-labelledby", heading.id);
-        const facts = [pick.ProductionYear, pick.OfficialRating, formatMinutes(pick.RunTimeTicks / 6e8),
-            ...(pick.Genres ?? []).slice(0, 3)].filter(Boolean);
+        const facts = titleFacts(pick, ageRatingBadge(pick.OfficialRating || existingTitle?.OfficialRating));
+        const genres = (pick.Genres ?? []).slice(0, 3);
+        if (genres.length) facts.push(el("span", genres.join(", ")));
         body.append(heading);
         if (facts.length) {
-            const meta = el("p", facts.join(", "));
+            const meta = el("div");
             meta.className = "movie-hero-meta";
+            meta.append(...facts);
             body.append(meta);
         }
         if (pick.Overview) {

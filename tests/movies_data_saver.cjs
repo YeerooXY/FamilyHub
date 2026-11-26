@@ -165,8 +165,10 @@ async function check(browser, name, options) {
         await tracks.press("Enter");
         await hungarian.press("Enter");
         await audio.getByRole("radio", { name: "Hungarian", exact: true, checked: true }).waitFor();
+        const beforeSubtitle = await video.elementHandle();
         await english.press("Enter");
         await position(387);
+        assert.equal(await video.evaluate((node, previous) => node === previous && node.paused, beforeSubtitle), true);
         await page.evaluate(() => {
             window.focusLost = false;
             window.focusWatch = setInterval(() => { window.focusLost ||= document.activeElement === document.body; }, 5);

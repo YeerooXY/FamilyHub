@@ -24,6 +24,8 @@ async function check(browser, profile, options) {
         const expectedFacts = ["2026", "PG", "1 h 50 min", "4K", "DDP 5.1"];
         await film.getByRole("img", {name: "Sound: Dolby Digital Plus 5.1"}).waitFor();
         assert.deepEqual(await film.locator(".movie-title-facts .movie-chip").allTextContents(), expectedFacts);
+        assert.equal(await film.getByRole("img", {name: "Rated PG", exact: true}).getAttribute("data-level"), "general");
+        assert.equal(await film.locator(".movie-title-facts .movie-release-quality").getAttribute("data-level"), "4k-web");
         assert.equal(await film.getByText("A pilot finds an abandoned station.").isVisible(), true);
         assert.equal(await film.getByRole("button", {name: /^(?:Download|Add to library)$/}).count(), 0);
 
@@ -40,9 +42,22 @@ async function check(browser, profile, options) {
         await page.keyboard.press("Shift+Tab");
         assert.equal(await focused(play), true);
         const more = film.getByRole("heading", {name: "More like this", exact: true});
-        await film.getByRole("button", {name: "Retry related films", exact: true}).press("Enter");
-        await more.waitFor();
-        await page.waitForFunction(node => node === document.activeElement, await more.elementHandle());
+        const retryName = "Related films are unavailable. Retry";
+        const retry = film.getByRole("button", {name: retryName, exact: true});
+        await retry.waitFor();
+        assert.equal(await more.isVisible(), true);
+        assert.equal(await retry.getAttribute("title"), retryName);
+        assert.equal(await retry.textContent(), "");
+        assert.equal(await retry.locator("svg").count(), 1);
+        assert.equal(await film.getByText("Manual retry").count(), 0);
+        assert.equal(await page.locator(".movie-load-status").textContent(), "Related films are unavailable");
+        assert.equal((await retry.boundingBox()).height, options.viewport.width >= 1600 ? 60 : 44);
+        await retry.press("Enter");
+        await film.getByRole("button", {name: "Second Orbit, in your library", exact: true}).waitFor();
+        assert.equal(await focused(retry), true);
+        assert.equal(await page.locator(".movie-load-status").textContent(), "");
+        await page.keyboard.press("Tab");
+        assert.equal(await retry.isVisible(), false);
         await film.getByRole("button", {name: "Back to titles"}).press("Enter");
         const myList = home.locator('.movie-shelf[data-format="favorites"]');
         assert.equal(await myList.getByRole("button", {name: "First Orbit"}).isVisible(), true);
@@ -53,19 +68,39 @@ async function check(browser, profile, options) {
         const owned = related.getByRole("button", {name: "Second Orbit, in your library", exact: true});
         const missing = related.getByRole("button", {name: "Find releases for Outer Station 1", exact: true});
         await owned.waitFor();
+        assert.equal(await related.getByText("Untitled Home Alone Film").count(), 0);
         assert.equal(await more.count(), 1);
         assert.equal(await owned.locator(".movie-card-owned svg").count(), 1);
         assert.equal(await owned.evaluate(node => node.parentElement.firstElementChild === node), true);
         const desktop = options.viewport.width >= 1280;
-        for (const width of desktop ? [1280, 1920, 2560, 3840] : [options.viewport.width]) {
-            if (desktop) await page.setViewportSize({width, height: 850});
+        for (const [width, height] of desktop ? [[1280, 720], [1920, 1080], [2000, 1040], [2560, 1440], [3840, 2160]]
+            : [[options.viewport.width, options.viewport.height]]) {
+            if (desktop) await page.setViewportSize({width, height});
             const expectedWidth = width > 1920 ? "3840" : "1920";
             await page.waitForFunction(expectedWidth => {
                 const art = document.querySelector(".movie-film-detail:not([hidden]) .movie-hero-art");
                 return art?.src && new URL(art.src).searchParams.get("maxWidth") === expectedWidth;
             }, expectedWidth);
             assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${profile} ${width}`);
+            const layout = await film.evaluate(node => {
+                const image = node.querySelector(".movie-hero-art");
+                const art = image.getBoundingClientRect(), header = document.querySelector(".app-header").getBoundingClientRect();
+                const documentScroll = document.scrollingElement ?? document.documentElement;
+                const host = node.closest(".workspace > main") ?? documentScroll;
+                return {top: art.top - header.bottom, left: art.left, right: innerWidth - art.right,
+                    bottom: art.bottom - node.getBoundingClientRect().bottom,
+                    viewportBottom: innerHeight - art.bottom,
+                    radius: getComputedStyle(image).borderRadius, fit: getComputedStyle(image).objectFit,
+                    overflow: host.scrollHeight - host.clientHeight,
+                    pageOverflow: documentScroll.scrollHeight - documentScroll.clientHeight};
+            });
+            assert.deepEqual([layout.top, layout.left, layout.right, layout.bottom, layout.radius, layout.fit],
+                [0, 0, 0, 0, "0px", "cover"], `${profile} ${width}x${height}`);
             if (desktop) {
+                const innerOverflow = await related.locator(".movie-shelf-scroll").evaluate(node => node.scrollHeight - node.clientHeight);
+                assert.ok(layout.overflow <= 1 && innerOverflow <= 1 && layout.pageOverflow <= 1,
+                    `${profile} ${width}x${height} ${JSON.stringify(layout)}`);
+                assert.equal(layout.viewportBottom, 0, "backdrop reaches the bottom of the viewport");
                 const cards = await related.locator(".movie-shelf-scroll").evaluate(node => {
                     const frame = node.getBoundingClientRect();
                     const boxes = [...node.querySelectorAll(".movie-card")].map(card => card.getBoundingClientRect());
@@ -75,6 +110,49 @@ async function check(browser, profile, options) {
                 assert.equal(cards.full, 5);
                 assert.ok(cards.peek >= .1 && cards.peek <= .2, `peek is ${cards.peek}`);
             }
+        }
+        if (desktop) {
+            const cast = film.locator(".movie-cast li").first();
+            const checkOutline = async (target, width) => {
+                await page.waitForFunction(({node, width}) => {
+                    const style = getComputedStyle(node);
+                    return style.outlineStyle === "solid" && style.outlineWidth === width && style.outlineColor === "rgb(255, 255, 255)";
+                }, {node: await target.elementHandle(), width});
+            };
+            for (const target of [owned, play, favorite, cast, film.getByRole("button", {name: "Back to titles"})]) {
+                await target.hover();
+                await checkOutline(target, "4px");
+                await page.mouse.move(0, 0);
+                await page.keyboard.press("Tab");
+                await target.focus();
+                await checkOutline(target, "4px");
+            }
+            await page.setViewportSize({width: 1280, height: 560});
+            assert.equal(await film.evaluate(node => {
+                const host = node.closest(".workspace > main") ?? document.scrollingElement ?? document.documentElement;
+                return host.scrollHeight > host.clientHeight;
+            }), true);
+            await page.setViewportSize({width: 1280, height: 720});
+            await play.hover();
+            await checkOutline(play, "2px");
+            await page.mouse.move(0, 0);
+            await page.clock.install();
+            await play.press("Enter");
+            const notice = page.locator(".movie-playback-notice");
+            await notice.getByRole("status").filter({hasText: "The server did not return playback information."}).waitFor();
+            assert.equal(await notice.evaluate(node => getComputedStyle(node).position), "fixed");
+            assert.equal(await focused(play), true);
+            const dismiss = notice.getByRole("button", {name: "Dismiss playback notice"});
+            await dismiss.focus();
+            await page.clock.fastForward(8100);
+            assert.equal(await notice.isVisible(), true);
+            await dismiss.press("Enter");
+            assert.equal(await notice.isVisible(), false);
+            assert.equal(await focused(play), true);
+            await play.press("Enter");
+            await notice.waitFor();
+            await page.clock.fastForward(8100);
+            assert.equal(await notice.isVisible(), false);
         }
         await owned.focus();
         await page.keyboard.press("ArrowRight");
@@ -90,6 +168,16 @@ async function check(browser, profile, options) {
         assert.equal(await sequel.locator(".movie-hero-art").getAttribute("src"), null);
         const automatic = await sequel.evaluate(node => node.style.getPropertyValue("--movie-hero-start"));
         assert.equal(automatic, "#603b26");
+        if (desktop) {
+            const read = sequel.getByRole("button", {name: "Read full description"});
+            await read.press("Enter");
+            const description = sequel.getByRole("dialog", {name: "Description"});
+            await description.waitFor();
+            assert.equal(await description.locator("p").textContent(), await sequel.locator(".movie-film-overview").textContent());
+            await page.keyboard.press("Escape");
+            await description.waitFor({state: "hidden"});
+            assert.equal(await focused(read), true);
+        }
         await sequel.getByRole("button", {name: "Back to titles"}).press("Enter");
         assert.equal(await focused(owned), true);
 

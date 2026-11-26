@@ -110,7 +110,12 @@ async function verify() {
         assert.equal(await focused(audioGroup.getByRole("radio", {name: "Original", exact: true})), true);
         await page.keyboard.press("Tab");
         await page.keyboard.press("Tab");
-        if (await sheet.getByText("Sound options", {exact: true}).count()) await page.keyboard.press("Tab");
+        const soundOptions = sheet.getByText("Sound options", {exact: true});
+        if (await soundOptions.count()) {
+            assert.equal(await focused(soundOptions), true);
+            await page.keyboard.press("Enter");
+            await page.keyboard.press("Tab");
+        }
         assert.equal(await focused(radio("Off")), true);
         await page.keyboard.press("ArrowDown");
         await page.keyboard.press("Space");
@@ -197,9 +202,21 @@ async function verify() {
         const missingOriginal = audioGroup.getByRole("radio", {name: "Original", exact: true});
         assert.equal(await missingOriginal.getAttribute("aria-disabled"), "true");
         assert.match(await missingOriginal.innerText(), /Not available/);
+        assert.equal(await missingOriginal.getAttribute("title"), null);
         assert.equal(await audioGroup.getByRole("button").count(), 1);
+        const previousVideo = await video.elementHandle();
+        await previousVideo.evaluate(node => {
+            Object.defineProperty(node, "currentTime", {value: 600, writable: true});
+        });
         await radio("Hungarian").press("Enter");
         await sheet.getByText("Timing is unavailable for image subtitles.").waitFor();
+        assert.equal(await video.evaluate((node, previous) => {
+            Object.defineProperties(node, {
+                duration: {value: 3600}, currentTime: {value: 0, writable: true}
+            });
+            node.dispatchEvent(new Event("loadedmetadata"));
+            return node !== previous && node.currentTime === 600 && node.paused;
+        }, previousVideo), true);
         assert.equal(await radio("Hungarian").getAttribute("aria-checked"), "true");
         assert.equal(await focused(radio("Hungarian")), true);
         assert.equal(await increaseShift.isDisabled(), true);

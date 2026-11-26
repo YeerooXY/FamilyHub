@@ -175,7 +175,11 @@ class MovieRequests(Base):
         search.status = 200
         accepted = io.BytesIO(b'{"id":1,"status":2}')
         accepted.status = 201
-        opener.return_value.open.side_effect = [search, upstream_json({'title': title, 'runtime': 115}), accepted]
+        opener.return_value.open.side_effect = [search, upstream_json({
+            'title': title, 'runtime': 115, 'releases': {'results': [
+                {'iso_3166_1': 'US', 'release_dates': [{'certification': ''}, {'certification': 'PG'}]}
+            ]}
+        }), accepted]
         client, selection = self.select('sample-a')
         token = selection['csrf_token']
 
@@ -185,6 +189,7 @@ class MovieRequests(Base):
         self.assertEqual(urllib.parse.parse_qs(query)['query'], [title])
         self.assertEqual([(item['id'], item['year']) for item in reply.json['results']], [(9394, '1970'), (11829, '1971')])
         self.assertEqual(reply.json['runtime_minutes'], 115)
+        self.assertEqual(reply.json['title_details']['official_rating'], 'PG')
         self.assertNotIn('hungarian_title', reply.json['title_details'])
 
         reply = self.post(client, token, '/api/movies/request', json={'kind': 'movie', 'id': 9394})

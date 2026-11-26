@@ -32,22 +32,28 @@ class MovieRelated(test_music_web.Base):
     def test_collection_first_with_stable_deduplication_and_cache(self, opener):
         sequel = {'id': 44, 'title': 'Sequel', 'poster_path': '/valid.jpg', 'backdrop_path': '/scene.jpg',
                   'release_date': '2021-01-01'}
+        recommendation = {**sequel, 'id': 47, 'title': 'Recommendation'}
         opener.return_value.open.side_effect = [
             tmdb_reply({'belongs_to_collection': {'id': 202}, 'recommendations': {'results': [
-                sequel, {'id': 42, 'title': 'Current film'}, {'id': 47, 'title': 'Recommendation'},
-                {'id': 51, 'title': 'Adult film', 'adult': True}
+                sequel, {'id': 42, 'title': 'Current film'}, recommendation,
+                {**sequel, 'id': 51, 'title': 'Adult film', 'adult': True},
+                {**sequel, 'id': 52, 'title': 'Untitled Home Alone Film'},
+                {**sequel, 'id': 53, 'title': 'Coming Later', 'release_date': '2999-01-01'},
+                {**sequel, 'id': 54, 'title': 'Missing date', 'release_date': ''},
+                {**sequel, 'id': 55, 'title': 'Invalid date', 'release_date': '2021-02-30'},
             ]}}),
             tmdb_reply({'parts': [None, {'id': 42, 'title': 'Current film'}, sequel,
-                                  {'id': 40, 'title': 'Prequel', 'poster_path': '//example.test/a.jpg'}]}),
+                                  {**sequel, 'id': 40, 'title': 'Prequel', 'poster_path': '//example.test/a.jpg'}]}),
         ]
         viewer = self.viewer()
         result = self.go(viewer, 'GET', self.route)
         self.assertEqual(result.status_code, 200)
         matches = result.json['matches']
-        self.assertEqual([film['id'] for film in matches], [44, 40, 47])
+        self.assertEqual([film['id'] for film in matches], [44, 47])
         self.assertEqual(matches[0]['poster'], 'https://image.tmdb.org/t/p/w342/valid.jpg')
         self.assertEqual(matches[0]['backdrop'], 'https://image.tmdb.org/t/p/w780/scene.jpg')
-        self.assertIsNone(matches[1]['poster'])
+        self.assertEqual([film['id'] for film in result.json['library_matches']], [40, 52, 53, 54, 55])
+        self.assertEqual(set(result.json['library_matches'][0]), {'id', 'title', 'year'})
         self.assertNotIn('fixture-secret', result.get_data(as_text=True))
         self.assertEqual(self.go(viewer, 'GET', self.route).json, result.json)
         calls = opener.return_value.open.call_args_list

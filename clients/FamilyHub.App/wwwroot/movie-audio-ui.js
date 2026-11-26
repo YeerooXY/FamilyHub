@@ -137,7 +137,8 @@ export function addAudioDialog({parent, opener, item, signal, call, onJob, langu
         try { return await call(...args); }
         catch { return {error: "The server did not respond. Try again."}; }
     };
-    let offset = 0, timer, loading = false, previous;
+    let offset = null, timer, loading = false, previous;
+    const shown = new Set();
     function show(job) {
         const signature = JSON.stringify(job);
         if (signature === previous) return;
@@ -166,6 +167,7 @@ export function addAudioDialog({parent, opener, item, signal, call, onJob, langu
         loading = true;
         more.setAttribute("aria-disabled", "true");
         if (!source.options.length) notice.textContent = "Checking server files…";
+        const recommended = offset === null;
         const reply = await request("MovieAudioSources", item.Id, offset);
         if (!dialog.open) return;
         loading = false;
@@ -176,18 +178,24 @@ export function addAudioDialog({parent, opener, item, signal, call, onJob, langu
             more.hidden = false;
             return;
         }
+        const hadSelection = !!source.value;
+        let preferredStream;
         for (const file of reply.sources) {
-            if (file.folder && !["Episode", "Season"].includes(item.Type)) continue;
+            if (shown.has(file.id) || file.folder && !["Episode", "Season"].includes(item.Type)) continue;
+            shown.add(file.id);
             const group = make("optgroup");
-            group.label = `${file.name} · ${file.location}${file.folder ? " · Season folder" : ""}`;
+            group.label = `${file.name} (${file.location}${file.folder ? ", season folder" : ""})`;
             for (const stream of file.streams) {
                 const details = [audioLanguage(stream.language), stream.codec?.toUpperCase(),
                     stream.channels && `${stream.channels} ch`, stream.duration && `${Math.round(stream.duration / 60)} min`];
-                group.append(new Option(details.filter(Boolean).join(" · "), `${file.id}:${stream.index}`));
+                const option = new Option(details.filter(Boolean).join(", "), `${file.id}:${stream.index}`);
+                if (!source.options.length && !preferredStream && details[0] === audioLanguage(language.value))
+                    preferredStream = option;
+                group.append(option);
             }
             source.append(group);
         }
-        if (!source.value && source.options.length) source.selectedIndex = 0;
+        if (!hadSelection && source.options.length) source.selectedIndex = preferredStream?.index ?? 0;
         updateSource();
         start.disabled = !source.options.length;
         if (reply.next == null && document.activeElement === more)
@@ -197,7 +205,8 @@ export function addAudioDialog({parent, opener, item, signal, call, onJob, langu
         offset = reply.next;
         notice.textContent = source.options.length ? "" : offset == null
             ? "No audio sources found. Place a file in Imports or finish a server download."
-            : "No audio sources on this page.";
+            : recommended ? "No matching sources found. Show more sources to check other files."
+                : "No audio sources on this page.";
     }
     form.onsubmit = async event => {
         event.preventDefault();
@@ -221,6 +230,7 @@ export function addAudioDialog({parent, opener, item, signal, call, onJob, langu
     dialog.addEventListener("close", () => clearTimeout(timer), {once: true});
     signal.addEventListener("abort", () => clearTimeout(timer), {once: true});
     start.disabled = true;
+    more.hidden = true;
     load();
     request("MovieDownloads").then(reply => {
         if (!dialog.open || previous || start.getAttribute("aria-disabled") === "true") return;

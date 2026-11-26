@@ -2,6 +2,7 @@
 
 The key stays on the server. Artwork addresses use image.tmdb.org.
 """
+from datetime import date
 import json
 import re
 import urllib.parse
@@ -20,6 +21,18 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def image_url(base, path):
     return base + path if isinstance(path, str) and re.fullmatch(r'/[\w.-]{4,80}', path) else None
+
+
+def released_film(row, match):
+    released = row.get('release_date')
+    if not match['poster'] or re.match(r'^untitled\b', match['title'], re.I):
+        return False
+    if not isinstance(released, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', released):
+        return False
+    try:
+        return date.fromisoformat(released) <= date.today()
+    except ValueError:
+        return False
 
 
 def parse(reply, limit=6):

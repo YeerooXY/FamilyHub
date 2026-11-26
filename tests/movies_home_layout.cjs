@@ -1,7 +1,9 @@
 const assert = require("node:assert/strict");
+const {constants, setPriority} = require("node:os");
 const path = require("node:path");
 const { chromium } = require(require.resolve("playwright", {paths: [process.cwd(), path.resolve(__dirname, "../../agent-dock")]}));
 const { jellyfin, movieHomeFixture } = require("./movies_fixture.cjs");
+setPriority(constants.priority.PRIORITY_BELOW_NORMAL);
 
 const widths = [[1280, 850], [1440, 900], [1920, 1080], [2560, 1440], [3840, 2160]];
 const near = (actual, expected, message) => assert.ok(Math.abs(actual - expected) <= 1, `${message}: ${actual} vs ${expected}`);
@@ -102,6 +104,10 @@ async function checkWidth(browser, width, height) {
         const logo = page.locator(".movie-hero-logo");
         await logo.waitFor();
         assert.match(await page.locator(".movie-hero-art").getAttribute("src"), new RegExp(`maxWidth=${width > 1920 ? 3840 : 1920}$`));
+        const meta = page.locator(".movie-hero-meta");
+        assert.deepEqual(await meta.locator(".movie-chip").allTextContents(), ["2001", "PG-13", "1 h 20 min", "1080p"]);
+        assert.equal(await meta.getByRole("img", {name: "Rated PG-13"}).getAttribute("data-level"), "12");
+        assert.equal(await meta.locator(".movie-release-quality").getAttribute("data-level"), "web");
 
         const compact = shelf(page, "Collections");
         const small = await measure(compact);
@@ -114,11 +120,20 @@ async function checkWidth(browser, width, height) {
         const hero = await page.locator(".movie-hero").evaluate(node => ({
             height: node.getBoundingClientRect().height,
             titleLeft: node.querySelector(".movie-hero-title").getBoundingClientRect().left,
+            titleSize: parseFloat(getComputedStyle(node.querySelector(".movie-hero-title")).fontSize),
+            logoHeight: node.querySelector(".movie-hero-logo").getBoundingClientRect().height,
+            descriptionSize: parseFloat(getComputedStyle(node.querySelector(".movie-hero-overview")).fontSize),
             controlHeights: [...node.querySelectorAll(".movie-hero-actions button")].map(button => button.getBoundingClientRect().height)
         }));
         near(hero.titleLeft, initial.firstLeft, "hero title alignment");
         assert.ok(hero.height >= .50 * height && hero.height <= .56 * height, "hero height");
-        for (const controlHeight of hero.controlHeights) near(controlHeight, width >= 1600 ? 52 : 44, "hero control height");
+        for (const controlHeight of hero.controlHeights)
+            near(controlHeight, width >= 1600 ? Math.min(104, width * .0405) : 44, "hero control height");
+        if (width >= 1920) {
+            assert.ok(hero.titleSize >= (width === 1920 ? 100 : 135));
+            assert.ok(hero.descriptionSize >= (width === 1920 ? 28 : 31));
+            near(hero.logoHeight, height * .12 > 224 ? 224 : height * .12, "hero logo height");
+        }
         assert.equal(hero.controlHeights.length, 3);
         assert.equal(await compact.getByRole("button", {name:/^(Previous|Next) collections$/}).count(), 0);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
@@ -247,6 +262,28 @@ async function checkHero(browser) {
             return animation?.playState === "running" && animation.currentTime > time;
         }, {selector: heroFillSelector, time}, {timeout: 5000});
         const current = () => pager.locator('[aria-current="true"]').getAttribute("aria-label");
+        const checkDotHandoff = async (outgoing, incoming) => {
+            for (const [dot, grows] of [[outgoing, false], [incoming, true]]) {
+                const samples = await dot.locator(".movie-hero-dot").evaluate(async node => {
+                    const width = () => node.getBoundingClientRect().width;
+                    width();
+                    const transition = node.getAnimations().find(animation => animation.transitionProperty === "width");
+                    if (!transition) return null;
+                    transition.pause();
+                    await transition.ready;
+                    transition.currentTime = 75;
+                    const first = width();
+                    transition.currentTime = 250;
+                    const second = width();
+                    transition.play();
+                    return {first, second, duration: transition.effect.getTiming().duration};
+                });
+                assert.ok(samples, "dot has a width transition");
+                assert.ok([samples.first, samples.second].every(value => value > 4 && value < 28), JSON.stringify(samples));
+                assert.ok(grows ? samples.second > samples.first : samples.first > samples.second, JSON.stringify(samples));
+                assert.equal(samples.duration, 350);
+            }
+        };
         const labels = await dots.evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label")));
         assert.equal(labels.length, 5);
         assert.equal(new Set(labels).size, labels.length);
@@ -299,6 +336,7 @@ async function checkHero(browser) {
         await waitForProgress(hovered);
         await fill.evaluate(node => { node.getAnimations()[0].currentTime = 8800; });
         await pager.locator('[aria-current="true"]').and(dots.nth(1)).waitFor();
+        await checkDotHandoff(dots.first(), dots.nth(1));
         assert.equal(await focusIs(search), true);
         assert.equal(await hero.getByRole("status").textContent(), "");
         assert.equal(await slide.locator(".movie-hero-art").evaluate(art => art.complete && art.naturalWidth > 0), true);
@@ -312,6 +350,7 @@ async function checkHero(browser) {
         assert.equal(await fillScale(fill), 0);
         await dots.first().press("Space");
         await pager.locator('[aria-current="true"]').and(dots.first()).waitFor();
+        await checkDotHandoff(dots.nth(1), dots.first());
         assert.equal(await assertPaused("selecting another dot starts its fill empty"), 0);
         assert.equal(await focusIs(dots.first()), true);
         assert.equal(await hero.getByRole("status").textContent(), labels[0].slice(5));
@@ -354,6 +393,9 @@ async function checkQuiet(browser, reducedMotion) {
         assert.equal(await fill.evaluate(node => node.getAnimations().length), 0);
         await dots.nth(1).press("Enter");
         assert.equal(await dots.nth(1).getAttribute("aria-current"), "true");
+        assert.deepEqual(await pager.locator(".movie-hero-dot").evaluateAll(nodes => nodes.slice(0, 2).map(node => [
+            node.getBoundingClientRect().width, node.getAnimations().length
+        ])), [[4, 0], [28, 0]]);
         assert.equal(await focusIs(dots.nth(1)), true);
         assert.equal(await fillScale(fill), 1);
         assert.equal(await fill.evaluate(node => node.getAnimations().length), 0);

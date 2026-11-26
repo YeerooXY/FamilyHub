@@ -9,8 +9,10 @@ const app = "http://familyhub.test";
 const jellyfin = "https://jellyfin.test";
 const show = { Id: "series", Type: "Series", Name: "Show", ImageTags: { Thumb: "inherited" } };
 const pilot = { Id: "ep", Type: "Episode", Name: "Pilot", SeriesName: "Show", SeriesId: show.Id,
+    ParentIndexNumber: 1, IndexNumber: 1, UserData: {PlayedPercentage: 20},
     ImageTags: { Thumb: "missing" }, BackdropImageTags: ["missing"], SeriesThumbImageTag: "inherited" };
-const finale = { Id: "ep2", Type: "Episode", Name: "Finale", SeriesName: "Far Shore", SeriesId: "far-shore" };
+const finale = { Id: "ep2", Type: "Episode", Name: "Finale", SeriesName: "Far Shore", SeriesId: "far-shore",
+    ParentIndexNumber: 1, IndexNumber: 2, UserData: {PlayedPercentage: 40} };
 const streams = [
     { Type: "Audio", Index: 1, Language: "eng", DisplayTitle: "English stereo", IsOriginal: true },
     { Type: "Audio", Index: 2, Language: "hun", DisplayTitle: "Hungarian stereo", IsExternal: true },
@@ -188,8 +190,8 @@ async function check(browser, options) {
     await bare(moviesShelf.getByRole("button", {name: "FamilyHub Sample 1080p", exact: true}), "F");
     await bare(moviesShelf.getByRole("button", {name: "FamilyHub Sample 4K HEVC", exact: true}), "F");
     await image(shelf("Series").getByRole("button", {name: "Show", exact: true}), "/Items/series/Images/Thumb", 2 / 3);
-    await image(resumeShelf.getByRole("button", {name: "Show, Pilot", exact: true}), "/Items/series/Images/Thumb", 16 / 9);
-    await bare(resumeShelf.getByRole("button", {name: "Far Shore, Finale", exact: true}), "F");
+    await image(resumeShelf.getByRole("button", {name: "Show, Season 1, episode 1, 20% watched", exact: true}), "/Items/series/Images/Thumb", 16 / 9);
+    await bare(resumeShelf.getByRole("button", {name: "Far Shore, Season 1, episode 2, 40% watched", exact: true}), "F");
     const twoPlay = await playMovieDetails(page, two, "Two languages");
     await back.waitFor();
     // The player fills the window; controls follow the Netflix-style layout and start on Play.

@@ -702,25 +702,30 @@ def register_movies(app, cfg, body, allow, session_is_live):
                      if type(collection_id) is int and 0 < collection_id < 10**10 else [])
             recommendations = movie.get('recommendations')
             recommendations = recommendations.get('results') if isinstance(recommendations, dict) else []
-            rows = []
+            rows, library_matches = [], {}
             seen = {int(ident)}
             for group in (parts, recommendations):
                 for row in group[:100] if isinstance(group, list) else ():
                     if not isinstance(row, dict) or row.get('adult') is True:
                         continue
                     parsed = tmdb.parse({'results': [{**row, 'media_type': 'movie'}]})
-                    if parsed and parsed[0]['id'] > 0 and parsed[0]['id'] not in seen:
-                        parsed[0]['backdrop'] = tmdb.image_url(tmdb.BACKDROP, row.get('backdrop_path'))
-                        rows.append(parsed[0])
-                        seen.add(parsed[0]['id'])
-                    if len(rows) == 20:
-                        return rows
-            return rows
+                    if not parsed or parsed[0]['id'] <= 0 or parsed[0]['id'] in seen:
+                        continue
+                    match = parsed[0]
+                    if not tmdb.released_film(row, match):
+                        library_matches.setdefault(match['id'], {key: match[key] for key in ('id', 'title', 'year')})
+                        continue
+                    library_matches.pop(match['id'], None)
+                    seen.add(match['id'])
+                    if len(rows) < 20:
+                        match['backdrop'] = tmdb.image_url(tmdb.BACKDROP, row.get('backdrop_path'))
+                        rows.append(match)
+            return dict(matches=rows, library_matches=list(library_matches.values()))
 
         matches = cached_search(('tmdb-related', ident), 3600, related)
         if matches is None:
             return jsonify(error='Related films are unavailable.'), 503
-        return jsonify(matches=matches)
+        return jsonify(matches)
 
     def catalogue_seasons(ident, key):
         rows = tmdb_get(f'tv/{ident}', key).get('seasons')
@@ -748,6 +753,21 @@ def register_movies(app, cfg, body, allow, session_is_live):
         hungarian = movie_search.clean_query(localized.get('title' if kind == 'movie' else 'name'))
         details = dict(runtime_minutes=None, episode_count=None, hungarian_title=hungarian)
         positive = lambda value: value if type(value) is int and value > 0 else None
+        certifications = localized.get('releases' if kind == 'movie' else 'contentRatings')
+        regions = certifications.get('results') if isinstance(certifications, dict) else None
+        if isinstance(regions, list):
+            for country in ('US', 'HU', 'GB'):
+                region = next((entry for entry in regions
+                               if isinstance(entry, dict) and entry.get('iso_3166_1') == country), {})
+                dates = region.get('release_dates') if kind == 'movie' else [region]
+                if not isinstance(dates, list):
+                    continue
+                field = 'certification' if kind == 'movie' else 'rating'
+                rating = next((entry[field].strip() for entry in dates if isinstance(entry, dict)
+                               and isinstance(entry.get(field), str) and 0 < len(entry[field].strip()) <= 12), None)
+                if rating:
+                    details['official_rating'] = rating
+                    break
         if kind == 'movie':
             details['runtime_minutes'] = positive(localized.get('runtime'))
             return details

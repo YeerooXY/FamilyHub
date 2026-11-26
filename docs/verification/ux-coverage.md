@@ -1,5 +1,23 @@
 # Interface verification
 
+## 26 November 2026 Movies & TV 1.6.2
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Film details, full backdrop, long description, related titles and retry | never | never | never | never | never | Source check, 26 Nov 2026 | never |
+| Series details, full backdrop, seasons and episodes | never | never | never | never | never | Source check, 26 Nov 2026 | never |
+| Audio & Subtitles, sound disclosure, subtitle size, import and selection | never | never | never | never | never | Source check, 26 Nov 2026 | never |
+| Add audio track, matching sources, expanded list, empty and retry | never | never | never | never | never | Source check, 26 Nov 2026 | never |
+| Playback failure notice, dismissal and timeout | never | never | never | never | never | Source check, 26 Nov 2026 | never |
+| Home hero and Continue watching, films and episodes | never | never | never | never | never | Source check, 26 Nov 2026 | never |
+| Release rows, title age rating when available | never | never | never | never | never | Source check, 26 Nov 2026 | never |
+
+The retry keeps focus and announces the failure through the Movies status region. The playback notice appears immediately, announces the message through its status, and returns focus to the playback control on dismissal when needed. It expires after eight seconds while unfocused. Hero dots change width and opacity over 350 ms with ease-in-out. Starting a new selection interrupts the current transition from its current size. Reduced motion and Effects off switch the dots immediately. Automatic rotation leaves focus in place. Manual selection keeps focus on the dot and announces the selected title.
+
+The browser fixtures cover the five film viewport sizes, details on Chromium and WebKit device profiles, hero sizing and motion, related retry focus, and grouped episode playback. Paddock execution, visual inspection, screen-reader speech and physical-device checks are pending.
+
+The sound disclosure and subtitle size update immediately with focus on the activated control. Subtitle import uses the existing status region and moves focus from the hidden search button to the newly available track. The source dialog uses its status region and keeps focus on Show more sources while more pages remain. The final page moves focus to the source picker if there are results, or to Close if the list is empty.
+
 ## 26 November 2026 Admin finished torrents
 
 | Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |

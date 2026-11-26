@@ -66,9 +66,15 @@ const app = "http://t.test";
             }
             await slider.fill("150");
             await tracks.press("Enter");
-            await page.getByText("Sound options", {exact: true}).click();
-            await page.getByRole("radio", { name: "Night mode" }).click();
-            assert.equal(await page.getByRole("radio", { name: "Night mode" }).getAttribute("aria-checked"), "true");
+            const summary = page.getByText("Sound options", {exact: true});
+            const night = page.getByRole("radio", { name: "Night mode" });
+            assert.equal(await summary.evaluate(node => node.parentElement.open), true);
+            await night.waitFor();
+            await summary.press("Enter");
+            assert.equal(await night.isVisible(), false);
+            await summary.press("Space");
+            await night.click();
+            assert.equal(await night.getAttribute("aria-checked"), "true");
             assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("familyhub.movie.sound.v1"))), { volume: 1.5, muted: false, mode: "night", device: "" });
             await page.getByRole("button", { name: "Close audio and subtitles" }).press("Enter");
             assert.equal(await tracks.evaluate(node => node === document.activeElement), true);

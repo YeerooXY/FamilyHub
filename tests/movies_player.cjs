@@ -105,6 +105,10 @@ async function verify(browser, profile, options) {
         assert.deepEqual(await labels(audioRows), ["Original", "English", "Hungarian"]);
         assert.deepEqual(await labels(subtitleRows), ["Off", "English", "Hungarian"]);
         assert.equal(await sheet.getByRole("heading", {name: "Timing", exact: true}).isVisible(), true);
+        const size = sheet.getByRole("radiogroup", {name: "Subtitle size"});
+        assert.deepEqual(await size.getByRole("radio").allTextContents(), ["Small", "Medium", "Large", "Extra large"]);
+        const medium = size.getByRole("radio", {name: "Medium"});
+        assert.equal(await medium.getAttribute("aria-checked"), "true");
         const panel = await sheet.boundingBox();
         const viewport = page.viewportSize();
         assert.ok(Math.abs(panel.x + panel.width / 2 - viewport.width / 2) < 1);
@@ -116,6 +120,12 @@ async function verify(browser, profile, options) {
             assert.ok(Math.abs(panel.y + panel.height / 2 - viewport.height / 2) < 1);
         }
         assert.equal(await button("Close audio and subtitles").evaluate(node => node === document.activeElement), true);
+        await medium.press("ArrowRight");
+        await page.keyboard.press("ArrowRight");
+        const extraLarge = size.getByRole("radio", {name: "Extra large"});
+        assert.equal(await focused(extraLarge), true);
+        assert.equal(await extraLarge.getAttribute("aria-checked"), "true");
+        assert.equal(await page.evaluate(() => localStorage.getItem("familyhub.movie.subtitle-size")), "extra-large");
         await button("Close audio and subtitles").press("Enter");
         assert.equal(await focused(tracks), true);
         await page.keyboard.press("Space");

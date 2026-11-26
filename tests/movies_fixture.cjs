@@ -73,7 +73,7 @@ async function useMovieBridge(page) {
     });
 }
 
-async function moviePage(page, {shell = false} = {}) {
+async function moviePage(page, {shell = false, nested = false} = {}) {
     await useMovieBridge(page);
     await page.route("**/*", route => {
         const {hostname} = new URL(route.request().url());
@@ -84,19 +84,22 @@ async function moviePage(page, {shell = false} = {}) {
         const name = new URL(route.request().url()).pathname.slice(1);
         if (name) return route.fulfill({path: movieAssetPath(name)});
         return route.fulfill({contentType: "text/html", body: `
+            ${nested ? '<!doctype html>' : ''}
             <meta name="viewport" content="width=device-width,initial-scale=1">
             <link rel="stylesheet" href="/shell.css"><link rel="stylesheet" href="/movies.css"><link rel="stylesheet" href="/service-status.css">
-            <style>html,body{height:auto;min-height:100dvh;overflow:auto}body{display:block;padding:1rem;background:#0b0d12}</style>
+            ${nested ? '' : '<style>html,body{height:auto;min-height:100dvh;overflow:auto}body{display:block;padding:1rem;background:#0b0d12}</style>'}
             ${shell ? '<link rel="stylesheet" href="/app-native.css"><link rel="stylesheet" href="/hub.css">' + movieFixtureHeader : ''}
             ${shell
                 // The app hosts Movies inside the workspace that names the current app; hub.css keys on it.
-                ? '<div class="workspace" data-app-view="Movies &amp; TV"><main class="movie-library"></main></div>'
+                ? '<div class="workspace" data-app-view="Movies &amp; TV">' + (nested
+                    ? '<main><div class="service-status-stage"><div class="movie-library"></div></div></main>'
+                    : '<main class="movie-library"></main>') + '</div>'
                 : '<main class="movie-library"></main>'}`});
     });
     await page.goto(app);
 }
 
-async function movieHomeFixture(page, {preview = false, matches = []} = {}) {
+async function movieHomeFixture(page, {preview = false, matches = [], resumeItems} = {}) {
     await moviePage(page, {shell: true});
     const library = await page.evaluate(async () => (await import("/movies.js")).moviePreviewLibrary());
     const favoriteWrites = [];
@@ -120,6 +123,14 @@ async function movieHomeFixture(page, {preview = false, matches = []} = {}) {
             return route.fulfill({headers, json: {Items, TotalRecordCount: Items.length}});
         }
         if (url.pathname === "/Items" || url.pathname === "/UserItems/Resume") {
+            if (resumeItems && url.pathname === "/UserItems/Resume") {
+                const Items = resumeItems.filter(item => item.Type === "Movie");
+                return route.fulfill({headers, json: {Items, TotalRecordCount: Items.length}});
+            }
+            if (resumeItems && params.get("includeItemTypes") === "Episode" && params.get("filters") === "IsResumable") {
+                const Items = resumeItems.filter(item => item.Type === "Episode");
+                return route.fulfill({headers, json: {Items, TotalRecordCount: Items.length}});
+            }
             const group = library.find(item => item.Id === params.get("parentId"))?.ChildIds;
             const types = params.get("includeItemTypes")?.split(",");
             const term = params.get("searchTerm")?.toLowerCase();
@@ -132,9 +143,18 @@ async function movieHomeFixture(page, {preview = false, matches = []} = {}) {
             const start = Number(params.get("startIndex") ?? 0), limit = Number(params.get("limit") ?? items.length);
             return route.fulfill({headers, json: {Items: items.slice(start, start + limit), TotalRecordCount: items.length}});
         }
+        const item = resumeItems?.find(item => url.pathname === "/Items/" + item.Id);
+        if (item) return route.fulfill({headers, json: item});
+        if (resumeItems?.some(item => url.pathname === `/Items/${item.Id}/PlaybackInfo`)) {
+            return route.fulfill({headers, json: {PlaySessionId: "resume-session",
+                MediaSources: [{Id: "source", Container: "mp4", SupportsDirectPlay: true, MediaStreams: []}]}});
+        }
+        if (resumeItems && /^\/(?:Videos\/|Sessions\/)/.test(url.pathname)) return route.fulfill({headers, status: 204});
         return route.fulfill({headers, status: 404});
     });
     library[0].ImageTags.Logo = "logo";
+    library[0].OfficialRating = "PG-13";
+    library[0].MediaStreams = [{Type: "Video", Height: 1080, Width: 1920}];
     library.slice(0, 18).forEach((item, i) => { item.UserData.PlayedPercentage = 10 + i; });
     await page.evaluate(async ({preview, jellyfin, matches}) => {
         const {openMovies} = await import("/movies.js");
@@ -153,7 +173,7 @@ async function movieHomeFixture(page, {preview = false, matches = []} = {}) {
 }
 
 async function movieDetailFixture(page) {
-    await moviePage(page, {shell: true});
+    await moviePage(page, {shell: true, nested: true});
     const film = (Id, Name, Tmdb, extra = {}) => ({
         Id, Name, Type: "Movie", ProviderIds: {Tmdb}, Genres: ["Science Fiction"], ImageTags: {},
         UserData: {IsFavorite: false}, ...extra
@@ -161,9 +181,11 @@ async function movieDetailFixture(page) {
     const filmA = film("film-a", "First Orbit", "101", {Overview: "A pilot finds an abandoned station.",
         ImageTags: {Primary: "poster", Logo: "logo"}, BackdropImageTags: ["backdrop"],
         RunTimeTicks: 110 * 6e8, ProductionYear: 2026, OfficialRating: "PG",
+        People: Array.from({length: 6}, (_, i) => ({Type: "Actor", Name: `Film Actor ${i + 1}`, Role: "Crew member"})),
         MediaStreams: [{Type: "Video", Width: 3840, Height: 1600},
             {Type: "Audio", IsDefault: true, Channels: 6, Codec: "eac3"}]});
-    const filmB = film("film-b", "Second Orbit", "102", {ImageTags: {Logo: "missing"}, Genres: ["Comedy"]});
+    const filmB = film("film-b", "Second Orbit", "102", {ImageTags: {Logo: "missing"}, Genres: ["Comedy"],
+        Overview: "The crew follows conflicting signals through a network of abandoned stations. ".repeat(12).trim()});
     const show = {Id: "show-a", Name: "Night Signal", Type: "Series", ProviderIds: {Tmdb: "201"},
         Overview: "A radio operator listens for a missing crew.", Genres: ["Mystery"], OfficialRating: "TV-14",
         ImageTags: {Primary: "poster"}, BackdropImageTags: ["backdrop"], UserData: {IsFavorite: false},
@@ -171,7 +193,8 @@ async function movieDetailFixture(page) {
             {Type: "Actor", Name: "Morgan Lee", Role: "Jo"}, ...Array.from({length: 11}, (_, i) => ({Type: "Actor", Name: `Actor ${i + 3}`}))]};
     const emptyShow = {...show, Id: "show-b", Name: "Quiet Port", ProviderIds: {Tmdb: "202"}, BackdropImageTags: [], People: []};
     const library = [filmA, filmB, show, emptyShow], favoriteWrites = [];
-    const matches = [{id: 102, title: filmB.Name}, ...Array.from({length: 8}, (_, i) => ({id: 103 + i, title: `Outer Station ${i + 1}`}))];
+    const matches = Array.from({length: 8}, (_, i) => ({id: 103 + i, title: `Outer Station ${i + 1}`}));
+    const libraryMatches = [{id: 102, title: filmB.Name}, {id: 200, title: "Untitled Home Alone Film"}];
     await page.route(jellyfin + "/**", route => {
         const {pathname, searchParams} = new URL(route.request().url());
         if (route.request().method() === "OPTIONS") return route.fulfill({status: 204, headers: cors});
@@ -201,13 +224,14 @@ async function movieDetailFixture(page) {
         if (episodes) return items([1, 2].map(ParentIndexNumber => ({
             Type: "Episode", Id: episodes[1] + "-episode-" + ParentIndexNumber, SeriesId: episodes[1],
             Name: ParentIndexNumber === 1 ? "Pilot" : "Return", ParentIndexNumber, IndexNumber: 1,
+            MediaStreams: ParentIndexNumber === 1 ? [{Type: "Video", Height: 1080}] : [],
             ImageTags: {Primary: "still"}, UserData: ParentIndexNumber === 1 ? {PlayedPercentage: 30} : {}
         })));
         if (pathname === "/UserItems/Resume" || pathname === "/Genres") return items([]);
         if (pathname === "/Sessions/Logout") return route.fulfill({status: 204, headers: cors});
         return route.fulfill({status: 404, headers: cors});
     });
-    await page.evaluate(async ({jellyfin, matches}) => {
+    await page.evaluate(async ({jellyfin, matches, libraryMatches}) => {
         const {openMovies, saveMoviePreferences} = await import("/movies.js");
         const host = document.querySelector(".movie-library");
         const viewer = {server: jellyfin + "/", profile: "fixture"};
@@ -219,7 +243,7 @@ async function movieDetailFixture(page) {
                     window.failNextRelated = false;
                     return JSON.stringify({error: "Related films are unavailable."});
                 }
-                return JSON.stringify({matches: args[0] === "101" ? matches : []});
+                return JSON.stringify(args[0] === "101" ? {matches, library_matches: libraryMatches} : {matches: []});
             }
             if (method === "MovieMatches") return JSON.stringify({seasons: [
                 {number: 1, episode_count: 1}, {number: 2, episode_count: 1}
@@ -234,7 +258,7 @@ async function movieDetailFixture(page) {
                 {url: jellyfin, user: "u", token: "t", release_search_enabled: true}, bridge, viewer);
         };
         await window.openDetailFixture("auto");
-    }, {jellyfin, matches});
+    }, {jellyfin, matches, libraryMatches});
     await page.getByRole("searchbox").waitFor();
     return favoriteWrites;
 }

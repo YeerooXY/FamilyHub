@@ -68,9 +68,12 @@ verifyMovieProfiles(async (browser, profile, options) => {
         const handlers = {
             MovieDownloads: () => ({available: true, items: started ? [job] : []}),
             MovieAudioSources: (item, offset) => {
-                if (item !== movie.Id || offset !== 0) throw Error("Unexpected source request");
-                return {sources: [{id: "b".repeat(64), name: "In Time dub.mkv", location: "Imports",
-                    streams: [{index: 3, language: "hun", codec: "ac3", channels: 6, duration: 6000}]}], next: null};
+                if (item !== movie.Id || ![null, 0].includes(offset)) throw Error("Unexpected source request");
+                const best = {id: "b".repeat(64), name: "In Time dub.mkv", location: "Imports",
+                    streams: [{index: 1, language: "eng", codec: "aac", channels: 2, duration: 6000},
+                        {index: 3, language: "hun", codec: "ac3", channels: 6, duration: 6000}]};
+                const other = {...best, id: "c".repeat(64), name: "Happy Feet Two.mkv", location: "Completed downloads"};
+                return offset === null ? {sources: [best], next: 0} : {sources: [other, best], next: null};
             },
             MovieAddAudio: (item, source, index, code, title) => {
                 if (item !== movie.Id || source !== "b".repeat(64) || index !== 3 || code !== "hu" || title !== "Hungarian")
@@ -112,9 +115,18 @@ verifyMovieProfiles(async (browser, profile, options) => {
     await findAudio.press("Space");
     await focused(close);
     const start = sheet.getByRole("button", {name: "Start matching"});
-    await sheet.getByRole("option", {name: /Hungarian.*AC3.*6 ch/}).waitFor({state: "attached"});
+    const sources = sheet.getByRole("combobox", {name: /Source and audio stream/});
+    await sheet.getByRole("option", {name: /Hungarian.*AC3.*6 ch/}).first().waitFor({state: "attached"});
+    assert.equal(await sources.inputValue(), "b".repeat(64) + ":3");
+    assert.deepEqual(await sources.locator("optgroup").evaluateAll(nodes => nodes.map(node => node.label)),
+        ["In Time dub.mkv (Imports)"]);
     assert.equal(await language.inputValue(), "hu");
     await page.screenshot({path: path.join(output, profile + "-sources.png")});
+    await sheet.getByRole("button", {name: "Show more sources"}).press("Enter");
+    await sources.locator('optgroup[label^="Happy Feet Two"]').waitFor({state: "attached"});
+    assert.equal(await sources.locator("optgroup").count(), 2);
+    assert.equal(await sources.inputValue(), "b".repeat(64) + ":3");
+    await focused(sources);
     await start.press("Enter");
     await sheet.getByText("Audio moved 1.2 s earlier. Confidence high.").waitFor();
     await focused(start);

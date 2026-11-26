@@ -133,7 +133,18 @@ async function verify(browser, profile, options) {
         assert.equal(await english.getAttribute("aria-disabled"), "true");
         await hungarian.evaluate(row => row.click());
         assert.equal(await off.getAttribute("aria-checked"), "true");
-        const position = await video.evaluate(node => node.currentTime);
+        const pausedBefore = await video.evaluate(node => {
+            // The short cue fixture still decodes at its native position.
+            Object.defineProperty(node, "currentTime", {value: 600, writable: true});
+            return node.paused;
+        });
+        const checkPlayback = async paused => {
+            assert.deepEqual(await video.evaluate(node => [
+                node === window.originalVideo && node.src === window.originalVideoSrc,
+                Math.abs(node.currentTime - 600) <= 2,
+                node.paused
+            ]), [true, true, paused]);
+        };
         await findHungarian.press("Enter");
         await status("Searching for Hungarian subtitles");
         assert.equal(englishAttempts, 0);
@@ -151,6 +162,7 @@ async function verify(browser, profile, options) {
         finishSearch();
         finishSave();
         await status("Found");
+        await checkPlayback(pausedBefore);
         assert.equal(lastLanguage, "hun");
         assert.equal(englishAttempts, 0);
         assert.equal(savedId, "provider_srt-hun-42");
@@ -162,9 +174,8 @@ async function verify(browser, profile, options) {
         assert.equal(await off.getAttribute("aria-checked"), "true");
         await hungarian.press("Space");
         assert.equal(await video.evaluate(node => [...node.textTracks].find(track => track.language === "hun").mode), "hidden");
-        if (decodeVideo) {
-            assert.ok(await video.evaluate((node, position) => !node.paused && node.currentTime > position, position));
-        } else {
+        await checkPlayback(pausedBefore);
+        if (!decodeVideo) {
             await video.evaluate(node => {
                 const track = [...node.textTracks].find(track => track.language === "hun");
                 Object.defineProperty(track, "activeCues", {value: [{text: "Hungarian fixture cue"}]});
@@ -172,6 +183,7 @@ async function verify(browser, profile, options) {
             });
         }
         await page.getByText("Hungarian fixture cue").waitFor();
+        await video.evaluate(node => node.pause());
         await findEnglish.press("Space");
         await status("Subtitle provider is not set up. Ask an admin to configure the OpenSubtitles API key.");
         assert.equal(await page.getByText("HTTP 503").count(), 0);
@@ -186,12 +198,16 @@ async function verify(browser, profile, options) {
         assert.equal(await focused(findEnglish), true);
         await page.keyboard.press("Enter");
         await status("Found");
+        await checkPlayback(true);
         assert.equal(await english.getAttribute("aria-checked"), "false");
         assert.equal(await hungarian.getAttribute("aria-checked"), "true");
         assert.equal(await focused(english), true);
         assert.equal(playbackRequests, 1);
         assert.equal(await video.evaluate(node => node === window.originalVideo && node.src === window.originalVideoSrc), true);
         await findEnglish.waitFor({state: "hidden"});
+        await english.press("Enter");
+        assert.equal(await english.getAttribute("aria-checked"), "true");
+        await checkPlayback(true);
         assert.equal(await page.evaluate(() => window.subtitleFallbacks), 5);
         await close.press("Enter");
         assert.equal(await focused(tracks), true);
