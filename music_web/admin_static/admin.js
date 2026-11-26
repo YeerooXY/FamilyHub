@@ -105,10 +105,8 @@ function torrentRow(item, download, goal, snapshot) {
   title.textContent = item.subtitle ? `${item.title} · ${item.subtitle}` : item.title || item.name;
   title.title = item.name;
   const speed = snapshot.stale ? 0 : download ? item.dl_speed : item.up_speed;
-  const idle = item.state === 'Stalled seeding';
   tag.className = 'tag';
-  tag.textContent = download ? item.state : idle ? 'Seeding idle' :
-    !item.complete ? speed > 0 ? 'Uploading' : 'Waiting to seed' : item.state;
+  tag.textContent = download || item.complete ? item.state : speed > 0 ? 'Uploading' : 'Waiting to seed';
   header.append(title, tag);
   content.append(header);
   node.append(artwork(item, snapshot.posters_enabled), content);
@@ -122,6 +120,8 @@ function torrentRow(item, download, goal, snapshot) {
   if (speed > 0) {
     const mb = speed / 1048576;
     detail.append(part(download ? 'Down' : 'Up', mb >= 1 ? `${mb.toFixed(1)} MB/s` : `${Math.ceil(speed / 1024)} KB/s`));
+  } else if (!download) {
+    detail.append(part('Up', snapshot.stale || speed == null ? 'Unavailable' : '0 KB/s'));
   }
   if (fraction != null) {
     const bar = document.createElement('div'), fill = document.createElement('i');
@@ -153,7 +153,11 @@ function render(snapshot) {
     : snapshot.global_ratio >= goal ? `${goal.toFixed(1)}× goal reached` : 'No downloads recorded.';
   $('global-detail').textContent = `${gb(snapshot.total_uploaded)} uploaded · ${gb(snapshot.total_downloaded)} downloaded · ${detail}`;
   const downloads = snapshot.items.filter(item => !item.complete);
-  const seeds = snapshot.items.filter(item => item.complete || item.uploaded > 0);
+  const seedOrder = {Seeding: 0, Waiting: 1};
+  const seeds = snapshot.items.filter(item => item.complete || item.uploaded > 0)
+    .sort((left, right) => (seedOrder[left.state] ?? 2) - (seedOrder[right.state] ?? 2));
+  const seedingCount = seeds.filter(item => item.state === 'Seeding').length;
+  $('seeding-count').textContent = `${seedingCount} ${seedingCount === 1 ? 'title' : 'titles'} seeding`;
   $('download-items').replaceChildren(...downloads.map(item => torrentRow(item, true, goal, snapshot)));
   $('seed-items').replaceChildren(...seeds.map(item => torrentRow(item, false, goal, snapshot)));
   $('downloads-empty').hidden = downloads.length > 0;
@@ -162,7 +166,7 @@ function render(snapshot) {
   const sampleTime = new Date(snapshot.last_sample_at);
   $('sample-time').textContent = Number.isNaN(+sampleTime) ? '' : `Last sampled ${sampleTime.toLocaleTimeString()}`;
   const activeDownloads = downloads.filter(item => item.state === 'Downloading').length;
-  const activeSeeds = seeds.filter(item => item.state === 'Seeding' || item.up_speed > 0).length;
+  const activeSeeds = seeds.filter(item => item.up_speed > 0).length;
   const status = snapshot.stale ? 'Showing a reading from more than two minutes ago.'
     : `${downloads.length} unfinished · ${activeDownloads} downloading · ${activeSeeds} uploading`;
   if ($('status').textContent !== status) $('status').textContent = status;

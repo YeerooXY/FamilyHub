@@ -8,6 +8,7 @@ from .state import state_path
 
 
 GOAL = 2.0
+SEEDING_SECONDS = 14 * 24 * 60 * 60
 DATABASE = '.torrent-ratio.sqlite3'
 STATES = {
     'uploading': 'Seeding', 'forcedUP': 'Seeding', 'stalledUP': 'Stalled seeding', 'queuedUP': 'Queued to seed',
@@ -21,6 +22,19 @@ STATES = {
 
 def ratio(value):
     return max(0.0, float(value)) if type(value) in (int, float) and math.isfinite(value) else 0.0
+
+
+def seeding_state(state, share_ratio, seeding_time, complete):
+    if complete:
+        if share_ratio >= GOAL:
+            return 'Goal reached'
+        if state in {'pausedUP', 'stoppedUP'}:
+            return 'Stopped, no demand' if (seeding_time or 0) >= SEEDING_SECONDS else 'Stopped'
+        if state == 'queuedUP':
+            return 'Waiting'
+        if state in {'uploading', 'forcedUP', 'stalledUP'}:
+            return 'Seeding'
+    return STATES.get(state, 'Unknown')
 
 
 def snapshot(config):
@@ -39,7 +53,7 @@ def snapshot(config):
             rows = db.execute(f'''
                 SELECT s.hash, s.name, s.state, s.ratio, s.uploaded, s.downloaded, s.complete,
                        {', '.join(column if column in columns else f'NULL AS {column}'
-                                  for column in ('progress', 'size', 'dl_speed', 'up_speed'))},
+                                  for column in ('progress', 'size', 'dl_speed', 'up_speed', 'seeding_time'))},
                        r.observed_at AS reached_goal_at
                 FROM last_seen s LEFT JOIN reached_goal r ON s.hash = r.hash
                 WHERE s.present = 1 ORDER BY s.name COLLATE NOCASE, s.hash
@@ -48,7 +62,12 @@ def snapshot(config):
         stale = (datetime.now(timezone.utc) - sampled_at).total_seconds() > 120
     except (sqlite3.Error, ValueError, TypeError):
         return unavailable
-    items = [dict(row) | {'state': STATES.get(row['state'], 'Unknown'), 'ratio': ratio(row['ratio'])} for row in rows]
+    items = []
+    for row in rows:
+        item = dict(row)
+        item['ratio'] = ratio(item['ratio'])
+        item['state'] = seeding_state(item['state'], item['ratio'], item.pop('seeding_time'), item['complete'])
+        items.append(item)
     uploaded = sum(max(0, item['uploaded']) for item in items if type(item['uploaded']) is int)
     downloaded = sum(max(0, item['downloaded']) for item in items if type(item['downloaded']) is int)
     return dict(available=True, goal=GOAL, last_sample_at=sampled_at.isoformat(), stale=stale, items=items,

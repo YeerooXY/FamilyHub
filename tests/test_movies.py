@@ -408,7 +408,7 @@ class MovieDownloads(Base):
                    ratio=2.01, uploaded=2010, downloaded=1000, progress=1)
         sample(path, [row, dict(row, hash='b' * 40)], old)
         with sqlite3.connect(path) as db:
-            for column in ('progress', 'size', 'dl_speed', 'up_speed'):
+            for column in ('progress', 'size', 'dl_speed', 'up_speed', 'seeding_time'):
                 db.execute(f'ALTER TABLE last_seen DROP COLUMN {column}')
         db.close()
         self.assertTrue(self.go(client, 'GET', route).json['stale'])
@@ -417,7 +417,7 @@ class MovieDownloads(Base):
         response = self.go(client, 'GET', route)
         self.assertEqual(response.headers['Cache-Control'], 'no-store')
         self.assertEqual(response.json, dict(available=True, goal=2.0, stale=False, last_sample_at=now,
-            items=[dict(hash=row['hash'], name=row['name'], title=row['name'], state='Stalled seeding', ratio=0.003,
+            items=[dict(hash=row['hash'], name=row['name'], title=row['name'], state='Seeding', ratio=0.003,
                         uploaded=3, downloaded=1000, reached_goal_at=old, complete=1, progress=1,
                         dl_speed=0, up_speed=0, size=1000)],
             total_uploaded=3, total_downloaded=1000, global_ratio=0.003, posters_enabled=True))

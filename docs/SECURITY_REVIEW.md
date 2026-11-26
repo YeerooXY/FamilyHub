@@ -78,6 +78,8 @@ Administrator checks also apply to catalogue edits, undo, bulk resolutions, repo
 
 Movie audio routes require an active FamilyHub session, administrator membership and a profile on the movie downloads allowlist. Mutations use bounded JSON and CSRF. Starting a job also checks the media grant against the issuing session. Server-side source IDs resolve within the completed downloads and imports roots. Jellyfin supplies the destination through the server-side movie session. The worker opens media through no-follow descriptors, restricts FFmpeg and FFprobe to local files and known formats, and runs one batch at a time. Job history stays in `STATE_DIR`. Source deletion checks both stored file identities and probes the published audio again.
 
+`GET /api/server/seeding` remains admin-only and reads the local torrent snapshot. The existing recorder timer applies the one-time share-limit backfill and sets limits on new movie and TV torrents. It sends validated hashes to the configured private qBittorrent endpoint through its cookie session with redirects disabled and bounded timeouts. The policy requires an explicit Stop action before writing limits. Recorder errors use fixed messages and keep credentials and upstream responses out of logs.
+
 Read-only searches and stream preparation can populate caches and start bounded server work. Share download uses GET for passwordless recipients and consumes its allowance on redemption. GET and HEAD on the share landing page preserve that allowance. The inventory below lists Flask rules with GET's implicit HEAD and default OPTIONS omitted.
 
 ## Implementation checks

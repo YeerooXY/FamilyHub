@@ -1,5 +1,13 @@
 # Interface verification
 
+## 26 November 2026 Admin per-torrent seeding goals
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Admin Seeding summary, active, waiting, goal reached, stopped, stale and empty | never | never | never | never | never | Source check, 26 Nov 2026 | never |
+
+The admin browser fixture covers the capped meter, real ratio, upload speeds, state order and active count. Headless execution and physical-device checks are pending.
+
 ## 26 November 2026 Movies & TV 1.6.0 details
 
 | Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
