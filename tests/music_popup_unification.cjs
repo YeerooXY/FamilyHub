@@ -75,6 +75,8 @@ async function geometry(surface) {
     }, styleProperties);
 }
 
+function sceneSurfaceName(name) { return name.endsWith('/update'); }
+
 function checkGeometry(metrics, name, phone, connect) {
     const {style, box, title, close, rows} = metrics;
     const anchored = name.endsWith('/profile-menu');
@@ -82,7 +84,12 @@ function checkGeometry(metrics, name, phone, connect) {
     const near = (actual, expected, label) => assert.ok(Math.abs(actual - expected) < 0.11,
         name + ' ' + label + ' was ' + actual + ', expected ' + expected);
     if (connect && !anchored && !centered) {
-        assert.deepEqual(style, connect.style, name + ' surface');
+        // The update dialog keeps its night-sky scene instead of the standard dark panel fill.
+        const sceneSurface = name.endsWith('/update');
+        const {backgroundColor, backgroundImage, ...shape} = style;
+        const {backgroundColor: panelColor, backgroundImage: panelImage, ...panelShape} = connect.style;
+        if (sceneSurface) assert.deepEqual(shape, panelShape, name + ' surface');
+        else assert.deepEqual(style, connect.style, name + ' surface');
         if (metrics.backdrop !== null) assert.equal(metrics.backdrop, connect.backdrop, name + ' backdrop');
         near(close.width, connect.close.width, 'close target width');
         near(close.height, connect.close.height, 'close target height');
@@ -90,7 +97,7 @@ function checkGeometry(metrics, name, phone, connect) {
         if (title.height === connect.title.height)
             near(title.text.y - metrics.header.y, connect.title.text.y - connect.header.y, 'heading baseline');
     }
-    assert.equal(style.backgroundColor, phone ? 'rgb(31, 31, 31)' : 'rgb(18, 18, 18)', name);
+    if (!sceneSurfaceName(name)) assert.equal(style.backgroundColor, phone ? 'rgb(31, 31, 31)' : 'rgb(18, 18, 18)', name);
     assert.equal(style.borderTopLeftRadius, anchored || centered ? '12px' : phone ? '18px' : '8px', name);
     assert.equal(style.borderTopWidth, '0px', name);
     assert.equal(style.animationName, 'none', name + ' reduced motion');

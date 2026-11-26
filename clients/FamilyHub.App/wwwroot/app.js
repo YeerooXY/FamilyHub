@@ -233,7 +233,7 @@ window.familyhub.prepareChrome = async () => {
         await new Promise(requestAnimationFrame);
     }
 };
-let chromeHeader, chromeObserver, chromeSignature, chromeScheduled = false;
+let chromeHeader, chromeObserver, chromeSignature, chromeScheduled = false, chromeRequest = 0;
 window.familyhub.syncChrome = () => {
     if (document.activeElement !== document.body && !document.activeElement.getClientRects().length) document.getElementById('q')?.focus();
     const header = document.querySelector('.app-header');
@@ -253,24 +253,30 @@ window.familyhub.syncChrome = () => {
         const signature = JSON.stringify([rects,devicePixelRatio,innerWidth,innerHeight]);
         if (signature === chromeSignature) return;
         chromeSignature = signature;
+        const request = ++chromeRequest;
         try {
             const chrome = await DotNet.invokeMethodAsync('FamilyHub.App','UpdateWindowChrome',rects,devicePixelRatio);
+            if (request !== chromeRequest) return;
             applyWindowChrome(chrome);
-        } catch { chromeSignature = null; }
+            // The insets can move controls without changing the header's size.
+            window.familyhub.syncChrome();
+        } catch { if (request === chromeRequest) chromeSignature = null; }
     });
 };
 window.familyhub.refreshChrome = () => {
     chromeSignature = null;
+    chromeRequest++;
     window.familyhub.syncChrome();
 };
-window.addEventListener('resize', () => window.familyhub.syncChrome());
-// Leaving movie full screen resizes the window before the native title bar is back; the first update then reports
-// "unsupported" and the same size is not asked again, which left a duplicate caption strip above the header.
 let chromeSettle;
-window.addEventListener('resize', () => {
+function refreshAfterWindowChange() {
+    window.familyhub.refreshChrome();
+    // Caption metrics can settle after the presenter and WebView size change.
     clearTimeout(chromeSettle);
     chromeSettle = setTimeout(window.familyhub.refreshChrome, 300);
-});
+}
+window.addEventListener('resize', refreshAfterWindowChange);
+window.addEventListener('chrome-refresh', refreshAfterWindowChange);
 document.addEventListener('focusin', () => window.familyhub.syncChrome());
 
 function normalizeTheme(theme) {

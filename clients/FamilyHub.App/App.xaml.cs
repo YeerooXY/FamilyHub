@@ -31,7 +31,7 @@ public partial class App : Application
             if (window.Handler?.PlatformView is Microsoft.UI.Xaml.Window nativeWindow)
             {
                 nativeWindow.AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "FamilyHub.ico"));
-                Services.WindowsWindowChrome.Initialize(nativeWindow);
+                Services.WindowsWindowChrome.Initialize(nativeWindow, mainPage.RefreshWindowChrome);
             }
         };
 #endif

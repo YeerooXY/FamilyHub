@@ -10,7 +10,7 @@ const build = project.match(/<ApplicationVersion>([^<]+)/)[1];
 const history = 'https://github.com/YeerooXY/FamilyHub/releases';
 
 async function audit(browserType, viewport, scenario, expected, historyKey) {
-    const browser = await browserType.launch();
+    const browser = await browserType.launch({headless: true});
     try {
         const page = await fixturePage(browser, viewport);
         page.setDefaultTimeout(10000);
@@ -26,7 +26,7 @@ async function audit(browserType, viewport, scenario, expected, historyKey) {
         await page.locator('#open-settings').click();
         await page.locator('#settings-about').click();
         const status = page.locator('#settings-update-status');
-        await page.waitForFunction(text => document.getElementById('settings-update-status')?.textContent.trim() === text, expected);
+        await status.and(page.getByText(expected, {exact: true})).waitFor();
         assert.equal(await status.getAttribute('role'), 'status');
         assert.equal(await page.locator('#installed-app-version').innerText(), `${version} · Build ${build} · Windows (x64)`);
         const release = page.locator('#settings-release-history');
@@ -42,7 +42,10 @@ async function audit(browserType, viewport, scenario, expected, historyKey) {
         assert.equal(await page.getByRole('button', {name: 'Change server', exact: true}).evaluate(node => node === document.activeElement), true);
         assert.equal(await status.evaluate(node => node.closest('section').scrollWidth <= node.closest('section').clientWidth), true);
         const checked = await (await page.request.get(origin + '/fixture/update-check')).json();
-        assert.equal(checked.count, 1, 'Settings and startup issued separate update checks');
+        const published = ['update', 'update-current', 'update-old'].includes(scenario);
+        assert.equal(checked.count, Number(published), 'Only published releases should check the mirror once');
+        // The offered update also loads its release notes from the public endpoint.
+        if (scenario !== 'update') assert.equal(checked.publicRequests, 1, 'Settings and startup issued separate public checks');
         assert.deepEqual(errors, []);
     } finally {
         await closeScenario(browser);
@@ -50,7 +53,7 @@ async function audit(browserType, viewport, scenario, expected, historyKey) {
 }
 
 async function publicPopup(browserType, viewport, background) {
-    const browser = await browserType.launch();
+    const browser = await browserType.launch({headless: true});
     try {
         const page = await fixturePage(browser, viewport);
         page.setDefaultTimeout(10000);

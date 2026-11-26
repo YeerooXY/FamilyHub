@@ -36,10 +36,10 @@ internal static class WindowsWindowChrome
     {
         if (on)
         {
-            if (movieWindow is not null) return true;
             if (Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Handler?.PlatformView
                 is not Microsoft.UI.Xaml.Window window) return false;
             var appWindow = window.AppWindow;
+            if (appWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen) return true;
             var handle = WinRT.Interop.WindowNative.GetWindowHandle(window);
             var placement = new WindowPlacement { Length = (uint)Marshal.SizeOf<WindowPlacement>() };
             if (!GetWindowPlacement(handle, ref placement)) return false;
@@ -50,21 +50,37 @@ internal static class WindowsWindowChrome
         }
         if (movieWindow is { } previous)
         {
+            movieWindow = null;
+            if (previous.Window.AppWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen) return false;
             previous.Window.AppWindow.SetPresenter(previous.Presenter);
             SetWindowPlacement(previous.Handle, previous.Placement);
             if (AppWindowTitleBar.IsCustomizationSupported())
                 ConfigureTitleBar(previous.Window);
-            movieWindow = null;
         }
         return false;
     }
 
-    public static void Initialize(Microsoft.UI.Xaml.Window window)
+    public static void Initialize(Microsoft.UI.Xaml.Window window, Action<bool> refreshChrome)
     {
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
             DwmSetWindowAttribute(WinRT.Interop.WindowNative.GetWindowHandle(window), DwmwaBorderColor, 0, sizeof(uint));
         if (AppWindowTitleBar.IsCustomizationSupported())
             ConfigureTitleBar(window);
+
+        window.AppWindow.Changed += (appWindow, args) =>
+        {
+            if (!args.DidPresenterChange) return;
+            window.DispatcherQueue.TryEnqueue(() =>
+            {
+                var fullscreen = appWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
+                if (!fullscreen)
+                {
+                    if (movieWindow?.Window == window) movieWindow = null;
+                    if (AppWindowTitleBar.IsCustomizationSupported()) ConfigureTitleBar(window);
+                }
+                refreshChrome(fullscreen);
+            });
+        };
     }
 
     public static WindowChromeMetrics Update(MainPage page, FrameworkElement? webView,
@@ -79,7 +95,7 @@ internal static class WindowsWindowChrome
             return WindowChromeMetrics.Unsupported;
 
         var titleBar = window.AppWindow.TitleBar;
-        if (!window.ExtendsContentIntoTitleBar)
+        if (!window.ExtendsContentIntoTitleBar || !titleBar.ExtendsContentIntoTitleBar)
             ConfigureTitleBar(window);
 
         var height = titleBar.Height;
@@ -119,6 +135,7 @@ internal static class WindowsWindowChrome
     {
         window.ExtendsContentIntoTitleBar = true;
         var titleBar = window.AppWindow.TitleBar;
+        if (!titleBar.ExtendsContentIntoTitleBar) titleBar.ExtendsContentIntoTitleBar = true;
         titleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
         titleBar.BackgroundColor = titleBar.InactiveBackgroundColor = Microsoft.UI.Colors.Black;
         titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;

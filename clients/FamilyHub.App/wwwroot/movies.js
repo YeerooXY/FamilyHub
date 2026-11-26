@@ -419,6 +419,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     let windowFullscreen = false, leavingPlayer = false;
     const isFullscreen = () => nativeFullscreen ? windowFullscreen :
         (document.fullscreenElement ?? document.webkitFullscreenElement) === player;
+    if (nativeFullscreen) window.addEventListener("chrome-refresh", event => {
+        if (typeof event.detail !== "boolean" || windowFullscreen === event.detail) return;
+        windowFullscreen = event.detail;
+        player.dispatchEvent(new Event("movie-fullscreenchange"));
+    }, {signal: life.signal});
     function setFullscreen(on) {
         if (on && leavingPlayer) return Promise.resolve(false);
         if (fullscreenRequest) return fullscreenRequest;

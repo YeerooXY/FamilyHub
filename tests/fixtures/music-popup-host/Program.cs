@@ -63,10 +63,15 @@ app.MapPost("/fixture/startup/{scenario}", (string scenario) =>
     FixtureApi.PlaylistPaused = false;
     FixtureApi.AlbumLookups = 0;
     Interlocked.Exchange(ref FixtureApi.UpdateChecks, 0);
+    Interlocked.Exchange(ref FixtureApi.PublicUpdateRequests, 0);
     FixtureLauncher.LastAddress = null;
     FixtureApi.Startup = scenario;
 });
-app.MapGet("/fixture/update-check", () => new { Count = Volatile.Read(ref FixtureApi.UpdateChecks), FixtureLauncher.LastAddress });
+app.MapGet("/fixture/update-check", () => new {
+    Count = Volatile.Read(ref FixtureApi.UpdateChecks),
+    PublicRequests = Volatile.Read(ref FixtureApi.PublicUpdateRequests),
+    FixtureLauncher.LastAddress
+});
 app.MapPost("/fixture/server-health/{state}", (string state) => FixtureApi.HealthState = state);
 app.MapPost("/fixture/outage/{state}", (string state) => { FixtureApi.Outage = state; });
 app.MapPost("/fixture/similar-release", () => FixtureApi.SimilarRelease.TrySetResult());
@@ -255,6 +260,7 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
     public static volatile string HealthState = "ready";
     public static volatile string Outage = "";
     public static int UpdateChecks;
+    public static int PublicUpdateRequests;
     public static volatile TaskCompletionSource SimilarRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public static volatile int PlaylistStep;
     public static volatile bool PlaylistPaused;
@@ -285,6 +291,14 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
     private bool qualityReplacing;
     private bool unofficialReplacing;
     private static readonly string ReleaseHash = new('a', 64);
+    private const int ReleaseSize = 32 * 1024 * 1024;
+    private static string? UpdateVersion(string scenario) => scenario switch
+    {
+        "update" or "update-offline" or "update-background" => "9.9.9",
+        "update-current" => AppUpdater.CurrentVersion,
+        "update-old" => "0.0.1",
+        _ => null
+    };
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
     {
         var path = request.RequestUri!.AbsolutePath;
@@ -450,31 +464,25 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
         }
         if (request.RequestUri!.Host == "api.github.com" && path.EndsWith("/releases/latest", StringComparison.Ordinal))
         {
-            if (Startup == "update-failed") return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
-            if (Startup is not ("update-offline" or "update-background")) return new HttpResponseMessage(HttpStatusCode.NotFound);
+            Interlocked.Increment(ref PublicUpdateRequests);
+            var scenario = Startup;
+            if (scenario == "update-failed") return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            if (UpdateVersion(scenario) is not { } version) return new HttpResponseMessage(HttpStatusCode.NotFound);
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(JsonSerializer.Serialize(new {
-                    tag_name = "v9.9.9",
-                    assets = new[] { new { name = "FamilyHub-Music-Windows-9.9.9.zip", state = "uploaded",
-                        size = 32 * 1024 * 1024, digest = "sha256:" + ReleaseHash } }
+                    tag_name = "v" + version,
+                    assets = new[] { new { name = $"FamilyHub-Music-Windows-{version}.zip", state = "uploaded",
+                        size = ReleaseSize, digest = "sha256:" + ReleaseHash } }
                 }), Encoding.UTF8, "application/json")
             };
         }
         if (path == "/api/app-updates/windows-x64")
         {
             Interlocked.Increment(ref UpdateChecks);
-            if (Startup == "update-failed") return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
-            var version = Startup switch
-            {
-                "update" => "9.9.9",
-                "update-current" => AppUpdater.CurrentVersion,
-                "update-old" => "0.0.1",
-                _ => null
-            };
-            if (version is null) return new HttpResponseMessage(HttpStatusCode.NotFound);
+            if (UpdateVersion(Startup) is not { } version) return new HttpResponseMessage(HttpStatusCode.NotFound);
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(
-                new AppRelease(version, ReleaseHash, 32 * 1024 * 1024, "/api/app-updates/windows-x64/" + ReleaseHash)),
+                new AppRelease(version, ReleaseHash, ReleaseSize, "/api/app-updates/windows-x64/" + ReleaseHash)),
                 Encoding.UTF8, "application/json") };
         }
         if (path == "/api/home/radio")

@@ -14,6 +14,22 @@ public partial class MainPage : ContentPage
     private readonly Services.DiscordPresence discord;
     private long? lastFocusRequest;
 
+    internal async void RefreshWindowChrome(bool fullscreen)
+    {
+        if (blazorWebView.Handler?.PlatformView is not Microsoft.UI.Xaml.Controls.WebView2 web ||
+            web.CoreWebView2 is not { } engine) return;
+        try
+        {
+            await engine.ExecuteScriptAsync(fullscreen
+                ? "window.dispatchEvent(new CustomEvent('chrome-refresh', { detail: true }))"
+                : "window.dispatchEvent(new CustomEvent('chrome-refresh', { detail: false }))");
+        }
+        catch (Exception error) when (error is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            // The WebView can close while a presenter notification is queued.
+        }
+    }
+
     private async Task ReportWindowFocusAsync()
     {
         var now = Environment.TickCount64;

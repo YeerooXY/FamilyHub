@@ -834,6 +834,7 @@ export function buildPlayerUi(ctx) {
     }
     for (const type of ["fullscreenchange", "webkitfullscreenchange"])
         document.addEventListener(type, syncFullscreen, { signal });
+    surface.addEventListener("movie-fullscreenchange", syncFullscreen, { signal });
     syncFullscreen();
 
     // TV remotes use the arrows to move between controls and scrub on the seek bar.

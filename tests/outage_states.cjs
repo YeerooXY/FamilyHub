@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
+const { constants, setPriority } = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { app, jellyfin, cors, moviePage } = require("./movies_fixture.cjs");
@@ -12,7 +13,7 @@ const { chromium, webkit, devices } = require(require.resolve("playwright", {
 const fixture = new URL(process.env.OUTAGE_FIXTURE_URL || "http://127.0.0.1:38870");
 assert.ok(["127.0.0.1", "localhost", "[::1]"].includes(fixture.hostname));
 const origin = fixture.origin;
-const output = path.join(root, "docs/verification/outage-states-2026-11-25");
+const output = path.join(root, ".local/outage-states-2026-11-25");
 const assets = path.join(root, "clients/FamilyHub.App/wwwroot");
 const adminAssets = path.join(root, "music_web/admin_static");
 
@@ -176,7 +177,8 @@ async function scriptScreens(browser, profile, options) {
             const resource = new URL(route.request().url()).pathname;
             if (resource === "/api/server/seeding") {
                 return offline ? route.fulfill({ status: 503 })
-                    : route.fulfill({ json: { available: true, goal: 2, total_downloaded: 0, total_uploaded: 0, items: [] } });
+                    : route.fulfill({ json: { available: true, goal: 2, global_ratio: 0, total_downloaded: 0,
+                        total_uploaded: 0, last_sample_at: "2026-11-26T12:00:00Z", stale: false, items: [] } });
             }
             if (resource === "/admin") return route.fulfill({ path: path.join(adminAssets, "admin.html") });
             if (resource.startsWith("/admin/")) {
@@ -186,14 +188,14 @@ async function scriptScreens(browser, profile, options) {
             return route.fallback();
         });
         await page.goto(app + "/admin");
-        const admin = await verifyCard(page, "Retry seeding");
+        const admin = await verifyCard(page, "Retry torrent activity");
         await capture(page, profile, "web-admin");
-        await checkWidths(page, "Retry seeding");
+        await checkWidths(page, "Retry torrent activity");
         await admin.focus();
         offline = false;
         await admin.press("Enter");
         await admin.waitFor({ state: "hidden" });
-        assert.equal(await page.evaluate(() => document.activeElement.id), "global-title");
+        assert.equal(await page.evaluate(() => document.activeElement.id), "downloads-title");
 
         await moviePage(page);
         await page.addStyleTag({ url: "/files.css" });
@@ -251,6 +253,7 @@ async function scriptScreens(browser, profile, options) {
 }
 
 async function main() {
+    setPriority(constants.priority.PRIORITY_BELOW_NORMAL);
     const ready = () => fetch(origin + "/fixture/update-check", { signal: AbortSignal.timeout(500), redirect: "error" })
         .then(response => response.ok, () => false);
     let host;
