@@ -55,7 +55,14 @@ def main():
         manifest = release / (platform + '.json')
         data = json.loads(manifest.read_text(encoding='utf-8'))
         files.extend((manifest, release / data['file']))
-    subprocess.run(['scp', *options, *map(str, files), host + ':' + incoming + '/'], check=True, cwd=ROOT)
+    def cleanup():
+        # A refused or failed deploy must not leave its upload in the server's small /tmp.
+        subprocess.run([*ssh, 'sudo -n rm -rf ' + incoming], cwd=ROOT)
+    try:
+        subprocess.run(['scp', *options, *map(str, files), host + ':' + incoming + '/'], check=True, cwd=ROOT)
+    except BaseException:
+        cleanup()
+        raise
     remote = (
         f'incoming = {incoming!r}\nplatforms = {platforms!r}\n'
         f'web_files = {web_files!r}\nassets_only = {args.assets_only!r}\nallow_busy = {args.allow_busy!r}\nallow_playing = {args.allow_playing!r}\n' + r'''
@@ -190,9 +197,14 @@ except Exception:
 shutil.rmtree(incoming)
 print(json.dumps({'version':data['version'],'backup':str(backup),'sha256':data['sha256']}))
 ''')
-    result = subprocess.run([*ssh, 'sudo -n python3 -'], input=remote, text=True,
-                            encoding='utf-8', capture_output=True, timeout=120, cwd=ROOT)
+    try:
+        result = subprocess.run([*ssh, 'sudo -n python3 -'], input=remote, text=True,
+                                encoding='utf-8', capture_output=True, timeout=120, cwd=ROOT)
+    except BaseException:
+        cleanup()
+        raise
     if result.returncode:
+        cleanup()
         raise RuntimeError(result.stderr)
     print(result.stdout.strip())
 
