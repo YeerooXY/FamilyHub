@@ -28,7 +28,7 @@ _inflight = {}
 
 def wanted_tiers():
     now = time.time()
-    return [q for q, at in _wanted.items() if now - at < WANTED_SECONDS]
+    return [q for q, at in _wanted.copy().items() if now - at < WANTED_SECONDS]
 
 
 def copy_path(item, digest, quality):
@@ -129,7 +129,9 @@ class Warmer:
         self.stop = threading.Event()
         threading.Thread(target=self.work, name='opus-warm', daemon=True).start()
 
-    def now_playing(self, source_id):
+    def now_playing(self, source_id, quality=None):
+        if quality in TIERS:
+            _wanted[quality] = time.time()
         now = time.monotonic()
         if self._recent(source_id, now):
             return

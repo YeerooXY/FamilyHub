@@ -7,6 +7,7 @@ import math
 import struct
 import shutil
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from unittest import mock
 import unittest
 
@@ -42,6 +43,38 @@ class OpusWarmerTests(unittest.TestCase):
 
 
 class CachedMobileAudio(Base):
+    def test_play_streams_verified_original_while_warmups_are_busy(self):
+        _, _, _, original = native.NativeMusicApi.recording(self)
+        clients = [self.signed_in()[0] for _ in range(3)]
+        warmups_ready = threading.Barrier(3)
+        release = threading.Event()
+        path = f"/api/library/{native.FIRST}/playback-info"
+
+        def blocked_encode(*args, **kwargs):
+            warmups_ready.wait(timeout=5)
+            release.wait(5)
+            raise ValueError("fixture encode failed")
+
+        with mock.patch.object(mobile_audio, "prepare", side_effect=blocked_encode) as prepare, ThreadPoolExecutor(2) as pool:
+            warmups = [pool.submit(self.go, client, "GET", path + "?lead=20") for client in clients[:2]]
+            try:
+                warmups_ready.wait(timeout=5)
+                foreground = clients[2]
+                busy = self.go(foreground, "GET", path + "?lead=20")
+                self.assertEqual(busy.status_code, 503)
+                self.assertIn("preparation is busy", busy.json["error"])
+                for params in ("?stream=1", "?lead=0"):
+                    info = self.go(foreground, "GET", path + params)
+                    self.assertEqual(info.status_code, 200, info.data)
+                    track = info.json
+                    self.assertEqual(track["playback_source_sha256"], hashlib.sha256(original).hexdigest())
+                    with self.go(self.app.test_client(), "GET", track["stream_url"]) as stream:
+                        self.assertEqual(stream.data, original)
+                self.assertEqual(prepare.call_count, 2)
+            finally:
+                release.set()
+            self.assertEqual([warmup.result().status_code for warmup in warmups], [503, 503])
+
     def test_cached_copy_does_not_wait_for_unrelated_encoder(self):
         digest = "a" * 64
         path = os.path.join(self.ws, f".{mobile_audio.TIERS['normal'][1]}-{digest}.opus")
@@ -95,7 +128,7 @@ class MobileAudio(Base):
         with self.go(client, "GET", f"/api/library/{native.FIRST}/download") as response:
             original = response.data
         with mock.patch.object(self.intake, "run", wraps=self.intake.run) as encode:
-            info = self.go(client, "GET", f"/api/library/{native.FIRST}/playback-info")
+            info = self.go(client, "GET", f"/api/library/{native.FIRST}/playback-info?lead=20")
             self.assertEqual(info.status_code, 200, info.data)
             track = info.json
             self.assertEqual(track["playback_version"], "opus96-v2")
@@ -124,14 +157,14 @@ class MobileAudio(Base):
         self.recording()
         client, _ = self.signed_in()
         with mock.patch.object(mobile_audio, "prepare", side_effect=ValueError("encode failed")):
-            self.assertEqual(self.go(client, "GET", f"/api/library/{native.FIRST}/playback-info").status_code, 503)
+            self.assertEqual(self.go(client, "GET", f"/api/library/{native.FIRST}/playback-info?lead=20").status_code, 503)
 
     def test_smaller_original_is_delivered_without_increasing_mobile_data(self):
         self.recording()
         client, _ = self.signed_in()
         # The tiny transport fixture is shorter than a loudness measurement window.
         with mock.patch.object(mobile_audio, 'measure_loudness', return_value={'input_i':-14,'input_tp':-3}):
-            track = self.go(client, "GET", f"/api/library/{native.FIRST}/playback-info").json
+            track = self.go(client, "GET", f"/api/library/{native.FIRST}/playback-info?lead=20").json
         self.assertEqual(track["download_url"], f"/api/library/{native.FIRST}/download")
 
     def test_codec_overshoot_reencodes_before_publishing(self):
@@ -184,7 +217,7 @@ class MobileAudio(Base):
         self.assertEqual(self.go(client, "GET", stale_invalid).status_code, 400)
 
         # Default (no quality parameter) uses normal (96 kbps, opus96-v2)
-        info_default = self.go(client, "GET", f"/api/library/{native.FIRST}/playback-info")
+        info_default = self.go(client, "GET", f"/api/library/{native.FIRST}/playback-info?lead=20")
         self.assertEqual(info_default.status_code, 200)
         track_default = info_default.json
         self.assertEqual(track_default["playback_version"], "opus96-v2")
@@ -200,7 +233,7 @@ class MobileAudio(Base):
         self.assertEqual(track_normal["download_size"], track_default["download_size"])
 
         # Low quality (48 kbps, opus48-v2)
-        info_low = self.go(client, "GET", f"/api/library/{native.FIRST}/playback-info?quality=low")
+        info_low = self.go(client, "GET", f"/api/library/{native.FIRST}/playback-info?quality=low&lead=20")
         self.assertEqual(info_low.status_code, 200)
         track_low = info_low.json
         self.assertEqual(track_low["playback_version"], "opus48-v2")
@@ -209,7 +242,7 @@ class MobileAudio(Base):
             self.assertEqual(audio_low.status_code, 200)
 
         # High quality (160 kbps, opus160-v2)
-        info_high = self.go(client, "GET", f"/api/library/{native.FIRST}/playback-info?quality=high")
+        info_high = self.go(client, "GET", f"/api/library/{native.FIRST}/playback-info?quality=high&lead=20")
         self.assertEqual(info_high.status_code, 200)
         track_high = info_high.json
         self.assertEqual(track_high["playback_version"], "opus160-v2")

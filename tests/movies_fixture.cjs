@@ -189,7 +189,7 @@ async function movieHomeFixture(page, {preview = false, matches = [], resumeItem
     return {library, favoriteWrites};
 }
 
-async function movieDetailFixture(page) {
+async function movieDetailFixture(page, {denseSeries = false} = {}) {
     await moviePage(page, {shell: true, nested: true});
     const film = (Id, Name, Tmdb, extra = {}) => ({
         Id, Name, Type: "Movie", ProviderIds: {Tmdb}, Genres: ["Science Fiction"], ImageTags: {},
@@ -237,18 +237,26 @@ async function movieDetailFixture(page) {
         }
         const item = library.find(item => pathname === "/Items/" + item.Id);
         if (item) return json(item);
+        if (denseSeries && pathname === "/Items/show-a-extra-0")
+            return json({Id: "show-a-extra-0", Name: "Signal 2", Type: "Episode"});
         const episodes = /^\/Shows\/(show-[ab])\/Episodes$/.exec(pathname);
-        if (episodes) return items([1, 2].map(ParentIndexNumber => ({
+        if (episodes) return items([...([1, 2].map(ParentIndexNumber => ({
             Type: "Episode", Id: episodes[1] + "-episode-" + ParentIndexNumber, SeriesId: episodes[1],
             Name: ParentIndexNumber === 1 ? "Pilot" : "Return", ParentIndexNumber, IndexNumber: 1,
             MediaStreams: ParentIndexNumber === 1 ? [{Type: "Video", Height: 1080}] : [],
+            RunTimeTicks: 46 * 6e8, Overview: "The crew receives a radio signal.",
             ImageTags: {Primary: "still"}, UserData: ParentIndexNumber === 1 ? {PlayedPercentage: 30} : {}
-        })));
+        }))), ...(denseSeries && episodes[1] === "show-a" ? Array.from({length: 18}, (_, i) => ({
+            Type: "Episode", Id: `show-a-extra-${i}`, SeriesId: "show-a", ParentIndexNumber: 1,
+            IndexNumber: i + 2, Name: `Signal ${i + 2}`, Overview: "The crew searches the coastline.",
+            MediaStreams: [{Type: "Video", Height: [720, 2160, 2160, 2160][i % 4],
+                VideoRangeType: ["SDR", "SDR", "HDR10", "DOVI"][i % 4]}], ImageTags: {Primary: "still"}
+        })) : [])]);
         if (pathname === "/UserItems/Resume" || pathname === "/Genres") return items([]);
         if (pathname === "/Sessions/Logout") return route.fulfill({status: 204, headers: cors});
         return route.fulfill({status: 404, headers: cors});
     });
-    await page.evaluate(async ({jellyfin, matches, libraryMatches}) => {
+    await page.evaluate(async ({jellyfin, matches, libraryMatches, denseSeries}) => {
         const {openMovies, saveMoviePreferences} = await import("/movies.js");
         const host = document.querySelector(".movie-library");
         const viewer = {server: jellyfin + "/", profile: "fixture"};
@@ -269,16 +277,24 @@ async function movieDetailFixture(page) {
                 {number: 1, episode_count: 1}, {number: 2, episode_count: 1}
             ]});
             if (method === "MovieSeasonEpisodes") return JSON.stringify({episodes: []});
+            if (method === "MovieAudioSources") return JSON.stringify({sources: [], next: null});
+            if (method === "MovieDownloads" && denseSeries) return JSON.stringify({available: true, items: [{
+                id: "failed-audio", item: "show-a-extra-0", name: "Adding Hungarian audio to Signal 2", state: "Failed",
+                progress: 1, results: [{title: "Signal 2", state: "Failed", error: "Choose a different source from the library video."}]
+            }, {
+                id: "running-audio", item: "show-a-extra-1", name: "Adding Hungarian audio to Signal 3",
+                state: "Matching audio", progress: .4, results: []
+            }]});
             return JSON.stringify({results: []});
         }};
         window.openDetailFixture = async style => {
             if (window.movies) await window.movies.close();
             saveMoviePreferences(viewer, {backgroundStyle: style, screen: "1080"});
             window.movies = window.openMovieFixture(openMovies, host,
-                {url: jellyfin, user: "u", token: "t", release_search_enabled: true}, bridge, viewer);
+                {url: jellyfin, user: "u", token: "t", release_search_enabled: true, downloads_enabled: denseSeries}, bridge, viewer);
         };
         await window.openDetailFixture("auto");
-    }, {jellyfin, matches, libraryMatches});
+    }, {jellyfin, matches, libraryMatches, denseSeries});
     await page.getByRole("searchbox").waitFor();
     return favoriteWrites;
 }

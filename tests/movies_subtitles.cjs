@@ -128,7 +128,7 @@ async function verify(browser, profile, options) {
         const english = subtitles.getByRole("radio", {name: "English", exact: true});
         const off = subtitles.getByRole("radio", {name: "Off", exact: true});
         const status = message => sheet.getByRole("status").filter({hasText: message}).waitFor();
-        assert.equal(await findHungarian.getAttribute("title"), "Find Hungarian subtitles");
+        assert.equal(await findHungarian.getAttribute("title"), null);
         assert.equal(await hungarian.getAttribute("aria-disabled"), "true");
         assert.equal(await english.getAttribute("aria-disabled"), "true");
         await hungarian.evaluate(row => row.click());

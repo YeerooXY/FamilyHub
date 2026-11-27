@@ -87,7 +87,7 @@ async function verify(browser, profile, options) {
         assert.equal(await card.locator(".movie-youtube-match").getAttribute("data-level"), "same");
         assert.equal(await trailer.locator(".movie-youtube-match").getAttribute("data-level"), "different");
         assert.equal(await focused(watch), true);
-        assert.deepEqual(await cards.locator(".movie-release-block").evaluateAll(nodes => nodes.map(node =>
+        assert.deepEqual(await cards.locator(".movie-release-block > .movie-release-quality").evaluateAll(nodes => nodes.map(node =>
             [node.textContent, node.dataset.level]).sort()), [
             ["1080p", "web"], ["1440p", "web"], ["480p", "tv"], ["4K", "4k-web"], ["720p", "hd"]
         ]);
@@ -110,7 +110,7 @@ async function verify(browser, profile, options) {
         if (options.hasTouch) await sd.tap();
         else await sd.press("Enter");
         assert.equal(await focused(sd), true);
-        assert.deepEqual(await cards.locator(".movie-release-block").allTextContents(), ["480p"]);
+        assert.deepEqual(await cards.locator(".movie-release-block > .movie-release-quality").allTextContents(), ["480p"]);
         await filter.getByRole("button", {name: /^All /}).press("Space");
         assert.equal(await cards.count(), 5);
         await watch.press("Enter");

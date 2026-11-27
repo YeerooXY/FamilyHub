@@ -38,8 +38,9 @@ async function check(browser, profile, options) {
             assert.equal(await badge.getAttribute("data-level"), label, message);
             assert.deepEqual(await badge.evaluate(node => {
                 const style = getComputedStyle(node);
-                return [style.width, style.height, style.borderTopWidth, style.borderTopColor, style.borderRadius, style.backgroundColor];
-            }), ["40px", "40px", "4px", "rgb(0, 0, 0)", "50%", fill], message);
+                return [style.width, style.height, parseFloat(style.borderTopWidth) > 0, style.borderTopColor,
+                    style.borderRadius, style.backgroundColor, style.boxShadow.includes("rgb(0, 0, 0)") && style.boxShadow.includes("inset")];
+            }), ["40px", "40px", true, fill, "50%", fill, true], message);
             if (label === "X") {
                 const [left, right] = await badge.evaluate(node => ["::before", "::after"].map(part => getComputedStyle(node, part).transform));
                 assert.ok(left !== "none" && right !== "none" && left !== right, message);

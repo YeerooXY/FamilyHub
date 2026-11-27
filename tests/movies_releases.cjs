@@ -92,6 +92,13 @@ async function openReleaseFixture(page, {shell = false, sources = fixture} = {})
                 ]} : {results:[]});
                 if (method === "MovieRequest") return JSON.stringify({state:"approved"});
                 if (method === "MovieVideaSearch") return JSON.stringify({results:[]});
+                if (method === "MovieSourceIcon") return "";
+                if (method === "MovieSlowReleases") return new Promise(resolve => window.finishMoreSites = () => resolve(JSON.stringify({results: [
+                    {title:"First result 1080p", size:2e9, seeders:12},
+                    {title:"Later result 1080p", size:3e9, seeders:5},
+                    {title:"Later HD 720p", size:1e9, seeders:5}
+                ]})));
+                if (method === "MovieCancelSlowReleases") return "{}";
                 if (method === "MovieMatches" && term === "Late artwork") return new Promise(resolve => {
                     window.finishArtwork = () => resolve(JSON.stringify({matches:[
                         {id:91, kind:"movie", title:"Late artwork", poster:"/movie-art/movie.jpg", runtime:95}
@@ -113,6 +120,9 @@ async function openReleaseFixture(page, {shell = false, sources = fixture} = {})
                 if (method !== "MovieReleaseSearch") return "";
                 if (term === "Late artwork") return JSON.stringify({results:[{title:"Late artwork 1080p AAC 2.0"}]});
                 if (term === "Slow search") return new Promise(resolve => window.finishSlow = () => resolve(JSON.stringify({results:fixture})));
+                if (term === "More sites") return JSON.stringify({slow_sources: 1, results: [
+                    {title:"First result 1080p", size:2e9, seeders:2}
+                ]});
                 if (term === "Ripper Street") return JSON.stringify({
                     title_details: {title: term, kind: "tv", tmdb_id: 74},
                     results: [
@@ -197,7 +207,7 @@ async function verify(browser, name, options) {
         const guideToggle = page.getByRole("button", {name:"Quality guide"});
         assert.equal(await guide.getByRole("table").isVisible(), false);
         await guideToggle.press("Space");
-        await guide.getByText("Original 4K disc video", {exact:true}).waitFor();
+        await guide.getByText("HDR, Dolby Vision or original 4K disc video", {exact:true}).waitFor();
         assert.equal(await focus(guideToggle), true);
         await guideToggle.press("Enter");
         assert.equal(await guide.getByRole("table").isVisible(), false);
@@ -206,14 +216,18 @@ async function verify(browser, name, options) {
         assert.equal(await rows.count(), 10);
         assert.equal(await rows.first().getAttribute("data-tier"), "web");
         const text = await first.innerText();
-        assert.match(text, /1080p\s+Web/);
+        assert.match(text, /1080p/);
+        assert.equal(await first.locator(".movie-release-source").textContent(), "Web");
         assert.match(text, /Season 2/);
         assert.match(text, /Size\s+16\.1 GB/);
         assert.match(text, /Download time\s+about 23 min/);
         assert.match(text, /Availability\s+Available/);
         assert.doesNotMatch(text, /seeder|leecher/);
-        const indexers = rows.locator(".movie-release-top .movie-release-indexer");
+        const indexers = rows.filter({hasNot: page.locator(".movie-release-indexer-badge svg")})
+            .locator(".movie-release-block .movie-release-indexer");
         assert.equal(await indexers.count(), 9);
+        await page.waitForFunction(() => calls.some(([method, id]) => method === "MovieSourceIcon" && id === 1));
+        assert.equal(await first.locator(".movie-release-indexer-monogram").isVisible(), true);
         for (const [name, monogram, color] of indexerBadges) {
             const badges = indexers.filter({has: page.getByText(name, {exact: true})});
             const expectedCount = name === "The Pirate Bay" ? 2 : 1;
@@ -235,8 +249,8 @@ async function verify(browser, name, options) {
         assert.equal(await raw.textContent(), pack);
         assert.equal(await focus(expand), true);
         await expand.press("Space");
-        assert.equal(await raw.isVisible(), false);
-        assert.match(await rows.filter({has:page.locator(".movie-release-block[data-level='4k-remux']")}).innerText(),
+        await raw.waitFor({state:"hidden"});
+        assert.match(await rows.filter({has:page.locator(".movie-release-block > [data-level='4k-remux']")}).innerText(),
             /4K\s+Remux.*May never finish.*Unavailable/s);
         const action = first.getByRole("button", {name: /^Download The Gentlemen/});
         assert.equal(await action.getAttribute("aria-disabled"), "true");
@@ -245,8 +259,8 @@ async function verify(browser, name, options) {
         const otherSources = page.getByText("Other watch and download options", {exact:true});
         const trailer = rows.filter({has: page.getByRole("heading", {name:"The Gentlemen trailer"})});
         await trailer.getByRole("link", {name:"Watch on YouTube"}).waitFor();
-        assert.equal(await trailer.locator(".movie-release-top").getByText("YouTube", {exact: true}).count(), 1);
-        assert.equal(await trailer.locator(".movie-release-indexer").count(), 0);
+        assert.equal(await trailer.locator(".movie-release-block").getByText("YouTube", {exact: true}).count(), 1);
+        assert.equal(await trailer.locator(".movie-release-indexer-badge svg").count(), 1);
         await trailer.getByText("Shorter than the season", {exact:true}).waitFor();
         await otherSources.press("Enter");
         assert.deepEqual((await page.evaluate(() => calls)).filter(([method]) => method === "MovieFind"), [["MovieFind", title]]);
@@ -284,12 +298,35 @@ async function verify(browser, name, options) {
         assert.equal(await page.locator(".is-checking").count(), 0);
         assert.equal(await result.count(), 0);
         assert.equal(await focus(query), true);
+        await search("More sites");
+        const moreStatus = page.getByRole("status").filter({hasText: /^Searching 1 more site…$/});
+        await moreStatus.waitFor();
+        assert.equal(await page.locator(".is-checking").count(), 1);
+        const fullHD = page.getByRole("button", {name:/^1080p /});
+        await fullHD.press("Enter");
+        const firstDownload = rows.first().getByRole("button", {name:/^Download First result/});
+        await firstDownload.focus();
+        await page.evaluate(() => finishMoreSites());
+        await page.getByRole("status").filter({hasText:/^2 results added\. 2 results$/}).waitFor();
+        assert.equal(await focus(firstDownload), true);
+        assert.equal(await rows.count(), 2);
+        assert.equal(await result.locator(".movie-release").count(), 3);
+        assert.equal(await page.getByRole("button", {name:/^720p 1$/}).count(), 1);
+        await moreStatus.waitFor({state:"hidden"});
+        await search("More sites");
+        await moreStatus.waitFor();
+        await page.getByRole("button", {name:"Clear", exact:true}).click();
+        await page.waitForFunction(() => calls.some(([method]) => method === "MovieCancelSlowReleases"));
+        await page.evaluate(() => finishMoreSites());
+        assert.equal(await result.count(), 0);
         if (name === "chromium-1280") {
             await search("Ripper Street");
             await result.getByText("Complete series", {exact: true}).waitFor();
             const parsed = await rows.evaluateAll(nodes => Object.fromEntries(nodes.map(row => [
                 row.querySelector(".movie-release-name").textContent.replace(/^Ripper[ .]Street[ .]/, ""),
-                [row.querySelector(".movie-release-block").textContent, row.querySelector(".movie-release-kind").textContent]
+                [[row.querySelector(".movie-release-block > .movie-release-quality").textContent,
+                    row.querySelector(".movie-release-source")?.textContent].filter(Boolean).join(" "),
+                    row.querySelector(".movie-release-kind").textContent]
             ])));
             assert.deepEqual(parsed["Complete.Series.4.EN.SUB.MPEG4.x264.WEBRIP.[MPup]"], ["SD Web", "Season 4"]);
             assert.deepEqual(parsed["Season 1-3 S01-S03 720p BluRay x264-MIXED"], ["720p Blu-ray", "Seasons 1 to 3"]);

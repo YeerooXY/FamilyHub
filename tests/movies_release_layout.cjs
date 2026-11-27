@@ -30,7 +30,7 @@ async function check(browser, profile, options) {
     page.setDefaultTimeout(7000);
     try {
         await openReleaseFixture(page, {shell: true, sources});
-        const phone = options.viewport.width <= 700;
+        const phone = options.viewport.width <= 900;
         const target = options.viewport.width >= 1600 ? 60 : 44;
         const query = page.getByRole("searchbox", {name: "Search movies and TV"});
         await query.fill(title);
@@ -51,9 +51,9 @@ async function check(browser, profile, options) {
         assert.equal(await query.inputValue(), title);
         const filenames = rows.locator(".movie-release-name");
         assert.deepEqual(await filenames.allTextContents(), expectedOrder, profile);
-        assert.deepEqual(await rows.first().evaluate(row => [...row.children].filter(child => !child.hidden)
+        assert.deepEqual(await rows.first().evaluate(row => [...row.children].filter(child => !child.classList.contains("movie-release-disclosure"))
             .map(child => child.className)), [
-            "movie-art movie-release-row-poster", "movie-release-quality movie-release-block", "movie-release-head", "movie-release-stat movie-release-size",
+            "movie-art movie-release-row-poster", "movie-release-block", "movie-release-head", "movie-release-stat movie-release-size",
             "movie-release-stat movie-release-time", "movie-release-stat movie-release-health", "movie-release-actions"
         ]);
         const geometry = await results.evaluate(node => {
@@ -62,7 +62,8 @@ async function check(browser, profile, options) {
             const host = node.closest(".workspace > main");
             const legend = rail.querySelector(".movie-release-legend");
             return {left: left.left, railBottom: left.bottom, railRight: left.right, contentTop: right.top,
-                contentLeft: right.left, right: right.right, width: innerWidth, fraction: left.width / node.clientWidth,
+                contentLeft: right.left, right: right.right, width: node.getBoundingClientRect().right, railWidth: left.width,
+                gutter: getComputedStyle(host).scrollbarGutter, railGutter: getComputedStyle(rail).scrollbarGutter,
                 sticky: getComputedStyle(rail).position === "sticky", legendScroll: legend.scrollWidth > legend.clientWidth,
                 scroll: Math.max(document.documentElement.scrollWidth - innerWidth, host.scrollWidth - host.clientWidth)};
         });
@@ -84,7 +85,7 @@ async function check(browser, profile, options) {
         }
         if (phone) {
             assert.equal(geometry.railBottom, geometry.contentTop, profile);
-            assert.equal(geometry.legendScroll, true, profile);
+            if (options.viewport.width <= 700) assert.equal(geometry.legendScroll, true, profile);
             const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
             const [switcher, search] = await Promise.all([
                 page.locator("#open-hub").boundingBox(), page.locator(".app-header .movie-search").boundingBox()
@@ -102,7 +103,8 @@ async function check(browser, profile, options) {
                     lines: range.getClientRects().length,
                     height: box.height,
                     lineHeight: parseFloat(getComputedStyle(button).lineHeight),
-                    boxes: [...row.children].filter(child => !child.hidden).map(child => child.getBoundingClientRect().toJSON())
+                    boxes: [...row.children].filter(child => !child.classList.contains("movie-release-disclosure"))
+                        .map(child => child.getBoundingClientRect().toJSON())
                 };
             }));
             for (const {title, fits, lines, height, lineHeight, boxes} of rowGeometry) {
@@ -114,7 +116,9 @@ async function check(browser, profile, options) {
         } else {
             assert.equal(geometry.sticky, true, profile);
             assert.equal(geometry.railRight, geometry.contentLeft, profile);
-            assert.ok(geometry.fraction >= .22 && geometry.fraction <= .26, profile);
+            const expectedWidth = Math.max(208, Math.min(options.viewport.width * .18, 320));
+            assert.ok(Math.abs(geometry.railWidth - expectedWidth) <= 1, profile);
+            assert.deepEqual([geometry.gutter, geometry.railGutter], ["stable", "stable"], profile);
         }
         if ([1280, 2000].includes(options.viewport.width)) {
             await query.focus();
@@ -136,9 +140,11 @@ async function check(browser, profile, options) {
         }
         assert.equal(await rows.evaluateAll(nodes => nodes.every(row => {
             const poster = row.querySelector(".movie-release-row-poster").getBoundingClientRect();
-            const quality = row.querySelector(".movie-release-block").getBoundingClientRect();
-            return Math.abs(poster.height - quality.height) <= 1 && Math.abs(poster.height * 2 / 3 - poster.width) <= 1 &&
-                poster.right <= quality.left;
+            const block = row.querySelector(".movie-release-block");
+            const quality = block.querySelector(".movie-release-quality").getBoundingClientRect();
+            const source = block.querySelector(".movie-release-indexer")?.getBoundingClientRect();
+            return Math.abs(poster.height * 2 / 3 - poster.width) <= 1 && poster.right <= quality.left &&
+                (!source || quality.bottom <= source.top);
         })), true);
         const columns = row => row.evaluate(node => [
             ".movie-release-row-poster", ".movie-release-block", ".movie-release-head", ".movie-release-actions"
@@ -187,12 +193,15 @@ async function check(browser, profile, options) {
             }).map(node => node.textContent), target), [], profile);
 
         const guide = rail.getByRole("button", {name: "Quality guide"});
+        const guideBody = results.locator(".movie-quality-guide");
+        assert.equal(await guide.getAttribute("title"), null);
         await guide.press("Enter");
         assert.equal(await guide.getAttribute("aria-expanded"), "true");
         assert.equal(await rail.getByRole("table").isVisible(), true);
         assert.equal(await focused(guide), true);
+        assert.equal(await guideBody.getAttribute("data-expanded"), "");
         await guide.press("Space");
-        assert.equal(await rail.getByRole("table").isVisible(), false);
+        await guideBody.waitFor({state: "hidden"});
         const first = rows.first();
         assert.equal(await rows.nth(3).getByRole("img", {name: "Sound: Dolby Atmos"}).count(), 1);
 
@@ -202,9 +211,13 @@ async function check(browser, profile, options) {
         assert.equal(await raw.isVisible(), false);
         await file.press("Enter");
         assert.equal(await file.getAttribute("aria-expanded"), "true");
+        await raw.waitFor();
         assert.equal(await raw.innerText(), faster);
+        assert.equal(await raw.getAttribute("data-expanded"), "");
+        if (options.reducedMotion !== "reduce")
+            assert.match(await raw.evaluate(node => getComputedStyle(node).transitionProperty), /grid-template-rows/);
         await file.press("Space");
-        assert.equal(await raw.isVisible(), false);
+        await raw.waitFor({state: "hidden"});
         const action = first.getByRole("button", {name: /^Download /});
         const nextAction = rows.nth(1).getByRole("button", {name: /^Download /});
         await action.press("ArrowDown");
@@ -230,6 +243,8 @@ async function check(browser, profile, options) {
         const duration = () => first.evaluate(node => getComputedStyle(node).transitionDuration);
         await page.emulateMedia({reducedMotion: "reduce"});
         assert.equal(await duration(), "0s");
+        for (const content of [guideBody, raw])
+            assert.equal(await content.evaluate(node => getComputedStyle(node).transitionDuration), "0s");
         await page.emulateMedia({reducedMotion: "no-preference"});
         await page.evaluate(() => { document.body.dataset.effects = "off"; });
         assert.equal(await duration(), "0s");

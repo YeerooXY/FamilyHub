@@ -193,7 +193,7 @@ async function checkVidea(browser, name, options, screenshots) {
     const cards = list.getByRole("listitem");
     await cards.last().waitFor();
     assert.equal(await focused(submit), true);
-    const qualities = ["1080p Web", "1080p", "720p Web"];
+    const qualities = ["1080p", "1080p", "720p"];
     assert.deepEqual(await cards.locator(".movie-release-quality").allTextContents(), qualities);
     assert.deepEqual(await cards.locator(".movie-release-health .movie-release-stat-value").allTextContents(),
         ["Available", "Available", "Available"]);
@@ -238,7 +238,7 @@ async function checkVidea(browser, name, options, screenshots) {
     await query.press("Enter");
     const season = cards.filter({hasText: "10 episodes"});
     const seasonAction = season.getByRole("button", {name: /^Download Most Wanted A hajsza, Season 2, 10 episodes/});
-    await season.getByText("360p–1080p Web", {exact: true}).waitFor();
+    await season.getByText("360p–1080p", {exact: true}).waitFor();
     assert.equal(await cards.count(), 1);
     assert.equal(await season.getByRole("link").count(), 0);
     await seasonAction.focus();

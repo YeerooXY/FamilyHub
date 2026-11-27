@@ -172,6 +172,7 @@ public sealed class FamilyHubApiException(string message, int statusCode, bool s
 {
     public int StatusCode { get; } = statusCode;
     public bool RequiresSignIn => StatusCode == 401 || staleSession;
+    public TimeSpan? RetryAfter { get; init; }
 }
 
 public sealed record SearchPage

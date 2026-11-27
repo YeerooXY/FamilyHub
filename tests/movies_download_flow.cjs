@@ -116,6 +116,12 @@ async function verify(browser, profile, options) {
         const subs = dialog.getByRole("switch", {name: "Hungarian subtitles"});
         await download.click();
         await dialog.waitFor();
+        const qualityStyle = badge => badge.evaluate(node => {
+            const style = getComputedStyle(node);
+            return [node.dataset.level, style.backgroundImage, style.backgroundColor, style.borderTopColor, style.boxShadow];
+        });
+        assert.deepEqual(await qualityStyle(dialog.locator(".movie-release-quality")),
+            await qualityStyle(row.locator(".movie-release-block > .movie-release-quality")));
         assert.equal(await focused(confirm), true);
         assert.equal(await sound.isChecked(), false);
         assert.equal(await subs.isChecked(), true);

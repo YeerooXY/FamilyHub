@@ -29,7 +29,9 @@ internal static class PlaybackFlowChecks
         FamilyHubApi Api(Uri origin) => new(origin, new NetworkStub(async request =>
         {
             object value;
-            if (request.Method == HttpMethod.Head && request.RequestUri!.AbsolutePath.StartsWith("/api/jobs/job/media/", StringComparison.Ordinal))
+            // Streams are probed with HEAD before the player opens them.
+            if (request.Method == HttpMethod.Head && (request.RequestUri!.AbsolutePath.StartsWith("/api/jobs/job/media/", StringComparison.Ordinal)
+                || request.RequestUri.AbsolutePath == current.DownloadUrl))
                 return new(HttpStatusCode.OK);
             if (request.RequestUri!.AbsolutePath == "/api/jobs")
             {

@@ -128,7 +128,7 @@ export function releaseKind(title, catalogue = []) {
 
 const TIERS = [
     ["8k", "8K", "Eight times HD picture; most are upscaled from 4K or less"],
-    ["4k-remux", "4K Remux", "Original 4K disc video"],
+    ["4k-remux", "4K HDR or Remux", "HDR, Dolby Vision or original 4K disc video"],
     ["4k-bluray", "4K Blu-ray", "Compressed 4K disc video"],
     ["4k-web", "4K Web", "4K streaming copy"],
     ["remux", "1080p Remux", "Original HD disc video"],
@@ -163,12 +163,18 @@ function releaseQuality(title, height, size, length) {
     const tv = /\b(?:[hp]dtv|tvrip)\b/i.test(title);
     const dvd = /\b(?:dvd(?:[ ._-]?rip)?|dvd[59])\b/i.test(title);
     const sd = /\b(?:xvid|mpeg[ ._-]?4)\b/i.test(title);
+    const premium = height >= 2160 && height < 4320 ? /\b(?:DV|DOVI|Dolby[ ._-]?Vision)\b/i.test(title) ? "Dolby Vision" :
+        /\b(?:HDR(?:10)?|HLG)\b/i.test(title) ? "HDR" : remux ? "Remux" : "" : "";
     const source = camera ? "Camera copy" : tv ? "TV" : dvd ? "DVD" : remux ? "Remux" : bluray ? "Blu-ray" : web ? "Web" : "";
     let tier = pictureTier(height);
     if (camera) tier = "poor";
     else if (!height && (source || sd)) tier = "tv";
-    else if (height >= 1080 && height < 4320 && (remux || bluray)) {
-        tier = (height >= 2160 ? "4k-" : "") + (remux ? "remux" : bluray ? "bluray" : "web");
+    else if (premium) {
+        tier = videoQualityTier(height, true);
+    } else if (height >= 1080 && height < 2160 && remux) {
+        tier = "remux";
+    } else if (height >= 1080 && height < 4320 && bluray) {
+        tier = height >= 2160 ? "4k-bluray" : "bluray";
     }
     if (tier === "unknown" && length > 0 && size > 0) {
         const mbps = size * 8 / (length * 60 * 1e6);
@@ -177,14 +183,14 @@ function releaseQuality(title, height, size, length) {
             ?? (mbps <= 30 ? "high-quality 1080p" : "4K or untouched disc");
         return {tier: "estimated", label: `Estimated: ${estimate} (from size and length)`, source};
     }
-    const picture = height >= 4320 ? "8K" : height >= 2160 ? "4K" : height ? `${height}p` : "";
-    const label = camera ? "Camera copy" : [picture || (tier === "tv" ? "SD" : ""), source].filter(Boolean).join(" ")
+    const picture = height >= 4320 ? "8K" : height >= 2160 ? ["4K", premium].filter(Boolean).join(" ") : height ? `${height}p` : "";
+    const label = camera ? "Camera copy" : [picture || (tier === "tv" ? "SD" : ""), source !== premium && source].filter(Boolean).join(" ")
         || (length > 0 ? "Size needed to estimate quality" : "Quality unknown");
-    return {tier, label, source};
+    return {tier, label, source, picture};
 }
 
-export function videoQualityTier(height) {
-    return pictureTier(height);
+export function videoQualityTier(height, premium = false) {
+    return premium && height >= 2160 && height < 4320 ? "4k-remux" : pictureTier(height);
 }
 
 export function ratingBadge(rawRating) {
@@ -278,7 +284,7 @@ function downloadOptions(parent, opener, signal, identity, row, {icon, chainImag
     const pills = document.createElement("div"), stats = document.createElement("div");
     pills.className = stats.className = "movie-confirm-line";
     appendSoundChip(pills, row.sound, icon);
-    pills.append(chip("movie-chip movie-release-quality", row.picture, row.tier));
+    pills.append(chip("movie-chip movie-release-quality", row.picture, row.quality.tier));
     for (const [, value, name, tone, level] of releaseStats(row)) {
         const cell = chip(`movie-release-${name}`, "");
         cell.append(chip(`movie-release-stat-value ${tone}`, value, level));
@@ -356,7 +362,7 @@ function downloadOptions(parent, opener, signal, identity, row, {icon, chainImag
 }
 
 export function buildReleaseSearch(search, signal, download, {term, screen, icon, searchTitle, titleHue, chainImages, palette,
-    preferences, save, downloadProgress, watchLink, onResults, matchTitle, seriesSeasons, searchButton}) {
+    preferences, save, downloadProgress, watchLink, onResults, onSlowSources, sourceIcon, matchTitle, seriesSeasons, searchButton}) {
     const panel = document.createElement("section");
     panel.className = "movie-releases";
     panel.hidden = true;
@@ -371,12 +377,12 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
                     <div class="movie-release-legend" role="group" aria-label="Quality"></div>
                     <button type="button" class="movie-release-icon" aria-label="Quality guide" aria-expanded="false" aria-controls="movie-release-guide"></button>
                 </div>
-                <div class="movie-quality-guide" id="movie-release-guide" hidden>
+                <div class="movie-quality-guide movie-release-disclosure" id="movie-release-guide" aria-hidden="true" inert><div><div>
                     <table class="movie-quality-table">
                         <thead><tr><th scope="col">Label</th><th scope="col">Meaning</th></tr></thead><tbody></tbody>
                     </table>
                     <p class="movie-web-meta">Times assume a ${ASSUMED_MBPS} Mbps connection.</p>
-                </div>
+                </div></div></div>
                 <p class="movie-web-meta" data-release-availability hidden>Ask the server owner to enable downloads for your profile.</p>
             </aside>
             <div class="movie-release-content">
@@ -411,7 +417,7 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         name && searchTitle(name) === row.artKey) &&
         (!row.artTitle.year || !(identity.year ?? searched.year) ||
             Number(row.artTitle.year) === Number(identity.year ?? searched.year));
-    const tiers = [["all", "All"], ["8k", "8K"], ["4k-remux", "4K Remux"], ["4k-web", "4K"], ["web", "1080p"],
+    const tiers = [["all", "All"], ["8k", "8K"], ["4k-remux", "4K HDR or Remux"], ["4k-web", "4K"], ["web", "1080p"],
         ["hd", "720p"], ["tv", "SD"], ["poor", "Camera copy"], ["unknown", "Unknown"]];
     const tierOrder = new Map(tiers.map(([tier], index) => [tier, index]));
     const legend = panel.querySelector(".movie-release-legend");
@@ -432,28 +438,30 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         });
         return [tier, entry];
     }));
-    function filterRows() {
+    function filterRows(added = 0) {
         let count = 0;
         for (const row of list.children) {
             row.hidden = selectedTier !== "all" && row.dataset.tier !== selectedTier;
             if (!row.hidden) count++;
         }
         for (const [tier, entry] of tierButtons) entry.setAttribute("aria-pressed", String(tier === selectedTier));
-        const message = count === 1 ? "1 result" : count ? `${count} results` : "No results at this quality";
+        const total = count === 1 ? "1 result" : count ? `${count} results` : "No results at this quality";
+        const message = added ? `${added} ${added === 1 ? "result" : "results"} added. ${total}` : total;
         if (visibleCount.textContent !== message) visibleCount.textContent = message;
     }
+    function toggleDisclosure(button, content) {
+        const open = content.toggleAttribute("data-expanded");
+        button.setAttribute("aria-expanded", String(open));
+        content.setAttribute("aria-hidden", String(!open));
+        content.toggleAttribute("inert", !open);
+    }
     guideButton.append(icon("M12 11v5m0-8h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z"));
-    guideButton.title = "Quality guide";
-    guideButton.addEventListener("click", () => {
-        guide.hidden = !guide.hidden;
-        guideButton.setAttribute("aria-expanded", String(!guide.hidden));
-        guideButton.focus({preventScroll: true});
-    });
+    guideButton.addEventListener("click", () => toggleDisclosure(guideButton, guide));
 
     const guideTable = guide.querySelector("tbody");
     for (const [id, label, meaning] of TIERS) {
         const row = guideTable.insertRow();
-        row.insertCell().append(chip("movie-release-quality", label, id));
+        row.insertCell().append(chip("movie-chip movie-release-quality", label, id));
         row.insertCell().textContent = meaning;
     }
 
@@ -542,8 +550,9 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         image.decoding = "async";
         image.loading = "lazy";
         image.referrerPolicy = "no-referrer";
-        const quality = chip("movie-release-quality movie-release-block", row.picture, row.quality.tier);
-        if (row.source) quality.append(" ", chip("movie-release-source", row.source));
+        const sourceBlock = document.createElement("div");
+        sourceBlock.className = "movie-release-block";
+        sourceBlock.append(chip("movie-chip movie-release-quality", row.picture, row.quality.tier));
         const head = document.createElement("div"), title = document.createElement("h3");
         head.className = "movie-release-head";
         title.className = "movie-release-title";
@@ -552,22 +561,39 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         badges.className = "movie-release-top";
         appendSoundChip(badges, row.sound, icon);
         if (row.kind) badges.append(chip("movie-release-kind", row.kind));
-        if (row.site) badges.append(chip("movie-release-kind", row.site));
+        if (row.source && !row.picture.endsWith(row.source)) badges.append(chip("movie-release-source", row.source));
         if (row.audio.includes("hu")) badges.append(chip("movie-release-kind", "Hungarian audio listed"));
-        if (row.indexer) {
-            const key = row.indexer.toLowerCase();
-            const [monogram, color, label = row.indexer] = sourceBadges.get(key) ??
-                [[...row.indexer.toUpperCase()][0], sourcePalette[titleHue(key) % sourcePalette.length]];
+        const provider = row.site || row.indexer;
+        if (provider) {
+            const key = provider.toLowerCase();
+            const [monogram, color, label = provider] = sourceBadges.get(key) ??
+                [[...provider.toUpperCase()][0], sourcePalette[titleHue(key) % sourcePalette.length]];
             const source = document.createElement("div");
             source.className = "movie-release-indexer";
             source.id = `movie-release-indexer-${index}`;
             const disc = chip("movie-release-indexer-badge", "");
             disc.setAttribute("aria-hidden", "true");
-            disc.style.backgroundColor = color;
-            disc.append(chip("movie-release-indexer-monogram", monogram));
+            if (youtube) {
+                disc.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1.5" y="5" width="21" height="14" rx="4.5" fill="#FF0033"/><path d="M10 8.8v6.4l5.4-3.2z" fill="#fff"/></svg>';
+            } else {
+                disc.style.setProperty("--movie-source-color", color);
+                const fallback = chip("movie-release-indexer-monogram", monogram);
+                disc.append(fallback);
+                if (Number.isInteger(row.indexerId) && row.indexerId > 0 && sourceIcon) {
+                    const favicon = document.createElement("img");
+                    favicon.alt = "";
+                    favicon.hidden = true;
+                    favicon.onload = () => { favicon.hidden = false; fallback.hidden = true; };
+                    favicon.onerror = () => { favicon.hidden = true; fallback.hidden = false; };
+                    disc.append(favicon);
+                    void sourceIcon(row.indexerId).then(url => {
+                        if (!signal.aborted && /^data:image\/(?:png|x-icon);base64,/.test(url)) favicon.src = url;
+                    });
+                }
+            }
             source.append(chip("movie-visually-hidden", "From "), disc, chip("movie-release-indexer-name", label));
             item.setAttribute("aria-describedby", source.id);
-            badges.append(source);
+            sourceBlock.append(source);
         }
         if (youtube) {
             const seconds = row.video.duration ?? row.video.seconds;
@@ -591,16 +617,16 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         file.setAttribute("aria-label", `File name for ${row.name}`);
         file.setAttribute("aria-expanded", "false");
         raw.id = `movie-release-file-${index}`;
-        raw.className = "movie-release-name";
-        raw.hidden = true;
+        raw.className = "movie-release-name movie-release-disclosure";
+        raw.setAttribute("aria-hidden", "true");
+        raw.setAttribute("inert", "");
         file.setAttribute("aria-controls", raw.id);
         file.append(icon("M5 9l7 7 7-7"));
-        file.addEventListener("click", () => {
-            raw.hidden = !raw.hidden;
-            file.setAttribute("aria-expanded", String(!raw.hidden));
-            file.focus({preventScroll: true});
-        });
-        raw.textContent = row.fileName;
+        file.addEventListener("click", () => toggleDisclosure(file, raw));
+        const rawContent = document.createElement("div"), rawName = document.createElement("div");
+        rawName.textContent = row.fileName;
+        rawContent.append(rawName);
+        raw.append(rawContent);
         const warnings = [row.mismatch ? "This file is unusually small for a 1080p video of this length." : "",
             row.size > 40 * gib ? "This file uses over 40 GB of server space." : ""].filter(Boolean);
         if (warnings.length) head.append(chip("movie-release-note", warnings.join(" ")));
@@ -698,7 +724,7 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         };
         if (youtube) row.setArtwork({poster: row.video.thumbnail?.startsWith?.("https://") ? row.video.thumbnail : null});
         else row.setArtwork(sharesPoster(row) ? identity : null);
-        item.append(art, quality, head, size, time, health, actions);
+        item.append(art, sourceBlock, head, size, time, health, actions);
         if (!youtube) item.append(raw);
         return item;
     }
@@ -715,20 +741,29 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
             outage.show();
             return true;
         }
-        details = reply.title_details || {};
-        updateIdentity();
-        const hasSeriesRange = reply.results.some(item => {
+        try {
+            const visible = await applyResults(reply.results, false, signal, reply.title_details);
+            if (!signal.aborted && panel.isConnected && Number.isInteger(reply.slow_sources) && reply.slow_sources > 0)
+                onSlowSources?.(reply.slow_sources);
+            return visible;
+        } finally { busy = false; }
+    }
+    async function applyResults(incoming, append, requestSignal, titleDetails) {
+        if (!append) {
+            details = titleDetails || {};
+            updateIdentity();
+        }
+        const hasSeriesRange = incoming.some(item => {
             if (item?.site || typeof item?.title !== "string") return false;
             const span = releaseSeasons(item.title.replaceAll("_", " "));
             return span && span[0] !== span[1];
         });
         const seasons = hasSeriesRange && identity.kind !== "movie" ? await seriesSeasons(identity).catch(() => []) : [];
-        if (signal.aborted || !panel.isConnected) return false;
-        busy = false;
-        if (panel.querySelector("dialog[open]") || rows.some(row => row.pending)) return true;
+        if (requestSignal.aborted || signal.aborted || !panel.isConnected) return false;
+        if (!append && (panel.querySelector("dialog[open]") || rows.some(row => row.pending))) return true;
         const previousRows = new Map(rows.map(row => [row.orderKey, row]));
         const distinct = new Map();
-        for (const item of reply.results) {
+        for (const item of incoming) {
             if (typeof item?.title !== "string") continue;
             const title = cleanResultTitle(item.title);
             if (!title) continue;
@@ -754,7 +789,7 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
             const tier = ["4k-remux", "poor", "tv"].includes(quality.tier) ? quality.tier : videoQualityTier(height);
             const source = quality.tier === "poor" || youtube ? "" : quality.source || (item.site ? "Web" : "");
             const picture = episodes && height > 0 && item.max_height > height ? `${height}p–${item.max_height}p`
-                : quality.tier === "poor" ? quality.label : height ? (height >= 4320 ? "8K" : height >= 2160 ? "4K" : `${height}p`)
+                : quality.tier === "poor" ? quality.label : quality.picture ? quality.picture
                 : quality.tier === "tv" ? "SD" : quality.tier === "estimated" ? quality.label : "Unknown quality";
             const sound = releaseSound(title);
             const seeders = number(item.seeders);
@@ -765,7 +800,8 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
                 tier, picture, source, indexer, sound, video: youtube ? item : null,
                 seconds: downloadSeconds(size, seeders), unavailable: !item.site && seeders === 0,
                 seeders, guid: item.guid, indexerId: item.indexerId, site: item.site, url: item.url };
-            const key = row.site ? `${row.site}\n${row.url}` : `${row.title.toLowerCase().replace(/[^a-z0-9]+/g, "")}\n${Math.round((row.size || 0) / 1e8)}`;
+            const key = row.site ? `${row.site}\n${row.url}` : `${row.title.toLowerCase().replace(/[^a-z0-9]+/g, "")}\n${row.size ?? 0}`;
+            if (append && previousRows.has(key)) continue;
             row.orderKey = key;
             row.sent = previousRows.get(key)?.sent;
             const previous = distinct.get(key);
@@ -773,9 +809,14 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
             if (!previous || (preferReference ? row.guid : (row.seeders ?? -1) > (previous.seeders ?? -1)))
                 distinct.set(key, row);
         }
-        rows = [...distinct.values()].sort(compare);
-        if (!rows.length && results.contains(document.activeElement)) searchButton.focus({preventScroll: true});
-        else if (list.contains(document.activeElement)) heading.focus({preventScroll: true});
+        const added = [...distinct.values()].sort(compare);
+        const start = append ? rows.length : 0;
+        if (append && !added.length) return false;
+        rows = append ? [...rows, ...added] : added;
+        if (!append) {
+            if (!rows.length && results.contains(document.activeElement)) searchButton.focus({preventScroll: true});
+            else if (list.contains(document.activeElement)) heading.focus({preventScroll: true});
+        }
         results.hidden = !rows.length;
         panel.hidden = results.hidden && outage.card.hidden;
         for (const [tier, entry] of tierButtons) {
@@ -784,9 +825,11 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
             entry.hidden = !count && ["poor", "unknown"].includes(tier) && !entry.matches(":focus");
             if (entry.hidden && selectedTier === tier) selectedTier = "all";
         }
-        list.replaceChildren(...rows.map(renderRow));
-        filterRows();
-        onResults(details, !results.hidden);
+        const nodes = added.map((row, index) => renderRow(row, start + index));
+        if (append) list.append(...nodes);
+        else list.replaceChildren(...nodes);
+        filterRows(append ? added.length : 0);
+        onResults(details, !results.hidden, append);
         requestAnimationFrame(() => {
             if (!signal.aborted && panel.isConnected) loadRowArtwork();
         });
@@ -804,7 +847,7 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
     function updateProgress() {
         for (const row of rows) row.updateProgress();
     }
-    return {element: panel, load, setMatches, updateProgress};
+    return {element: panel, load, append: (incoming, requestSignal) => applyResults(incoming, true, requestSignal), setMatches, updateProgress};
 }
 
 

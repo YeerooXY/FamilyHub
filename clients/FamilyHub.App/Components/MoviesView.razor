@@ -144,6 +144,45 @@
     [JSInvokable]
     public Task<string> MovieReleaseSearch(string query) => SendMovieRequest("/api/movies/releases", new { query });
 
+    private (int Id, CancellationTokenSource Cancel)? slowRelease;
+
+    [JSInvokable]
+    public async Task<string> MovieSlowReleases(string query, int searchId)
+    {
+        if (closed.IsCancellationRequested || movieApi is not { } api || !ReferenceEquals(api, Session.Api)) return "{}";
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(closed.Token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(35));
+        slowRelease?.Cancel.Cancel();
+        slowRelease = (searchId, timeout);
+        try
+        {
+            var reply = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post,
+                "/api/movies/releases?slow=1", new { query }, cancellationToken: timeout.Token);
+            return ReferenceEquals(api, Session.Api) && !timeout.IsCancellationRequested ? reply.GetRawText() : "{}";
+        }
+        catch (Exception error) when (error is FamilyHubApiException or HttpRequestException or OperationCanceledException
+            or InvalidDataException or ObjectDisposedException or System.Text.Json.JsonException) { return "{}"; }
+        finally { if (slowRelease is { } active && ReferenceEquals(active.Cancel, timeout)) slowRelease = null; }
+    }
+
+    [JSInvokable]
+    public string MovieCancelSlowReleases(int searchId)
+    {
+        if (slowRelease is { } active && active.Id == searchId) active.Cancel.Cancel();
+        return "{}";
+    }
+
+    [JSInvokable]
+    public async Task<string> MovieSourceIcon(int indexerId)
+    {
+        if (indexerId <= 0 || closed.IsCancellationRequested || movieApi is not { } api || !ReferenceEquals(api, Session.Api)) return "";
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(closed.Token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        try { return await api.GetImageAsync($"/api/movies/source-icon/{indexerId}", timeout.Token, favicon: true); }
+        catch (Exception error) when (error is FamilyHubApiException or HttpRequestException or OperationCanceledException
+            or InvalidDataException or ObjectDisposedException or IOException) { return ""; }
+    }
+
     [JSInvokable]
     public Task<string> MovieDownload(string guid, int indexerId, string title, bool hungarianAudio, bool hungarianSubtitles) =>
         SendMovieRequest("/api/movies/download", new { guid, indexer_id = indexerId, title,

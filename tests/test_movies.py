@@ -2,6 +2,8 @@
 import io
 import json
 import sqlite3
+import struct
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 import urllib.error
@@ -142,7 +144,7 @@ class MovieSeasons(Base):
             upstream_json({'results': [{'media_type': 'tv', 'id': 42, 'name': 'Harbour Town',
                                         'first_air_date': '2019-01-01'}]}),
             upstream_json({'seasons': [{'season_number': n, 'episode_count': 3} for n in range(1, 7)]}),
-            upstream_json({'episodes': [{'episode_number': 1, 'name': 'Across the bay', 'runtime': 42},
+            upstream_json({'episodes': [{'episode_number': 1, 'name': 'Across the bay', 'runtime': 42, 'overview': 'A boat leaves the harbour.'},
                                         {'episode_number': 2, 'name': 'The bridge', 'runtime': True}]})]
         results = self.post(client, selection['csrf_token'], '/api/movies/matches',
                             json={'query': 'tmdb:tv:title:2019:Harbour Town'})
@@ -156,8 +158,8 @@ class MovieSeasons(Base):
                              json={'series': 42, 'season': 2})
         self.assertEqual(episodes.status_code, 200)
         self.assertEqual(episodes.json['episodes'], [
-            dict(number=1, name='Across the bay', runtime=42, still=None),
-            dict(number=2, name='The bridge', runtime=None, still=None)])
+            dict(number=1, name='Across the bay', runtime=42, overview='A boat leaves the harbour.', still=None),
+            dict(number=2, name='The bridge', runtime=None, overview='', still=None)])
 
 
 class MovieRequests(Base):
@@ -311,7 +313,7 @@ class MovieReleaseSearch(Base):
                 self.assertEqual(reply.status_code, status)
         self.assertEqual(logs.output, ['INFO:music_web.movies:Release search results=1 unavailable_sources=1'])
         self.assertEqual(reply.json, {'unavailable': 1, 'results': [dict(
-            title='Regular Show S01', source='The Pirate Bay', size=123, seeders=82, leechers=14)]})
+            title='Regular Show S01', source='The Pirate Bay', size=123, seeders=82, leechers=14, indexerId=3)]})
 
     @patch('music_web.movies.urllib.request.build_opener')
     def test_season_search_falls_back_to_title_without_mixing_seasons_or_episodes(self, opener):
@@ -331,6 +333,69 @@ class MovieReleaseSearch(Base):
         self.assertEqual(reply.status_code, 200)
         self.assertEqual({row['title'] for row in reply.json['results']}, {wanted})
         self.assertEqual(opener.return_value.open.call_count, 4)
+
+
+class MovieSlowReleaseSearch(Base):
+    extra = {**MovieReleaseSearch.extra, 'MOVIE_RELEASE_SEARCH': {
+        **MovieReleaseSearch.extra['MOVIE_RELEASE_SEARCH'], 'slow_indexer_ids': [1, 0, False, '9', 8, 8, 9, 10, 11, 12]}}
+    select = MovieSessions.select
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_slow_sources_follow_the_normal_search_and_share_its_rate_limit(self, opener):
+        calls = []
+
+        def lookup(req, timeout):
+            params = urllib.parse.parse_qs(urllib.parse.urlsplit(req.full_url).query)
+            indexer, = map(int, params['indexerIds'])
+            self.assertEqual(params['query'], ['Harbour Town S02'])
+            calls.append((indexer, timeout))
+            phase = 'slow' if indexer >= 8 else 'fast'
+            title = f'Harbour Town S02 {phase}'
+            return upstream_json([dict(title=title, indexer=f'Site {indexer}', guid=phase)])
+
+        opener.return_value.open.side_effect = lookup
+        client, selected = self.select('sample-a')
+        send = lambda suffix='': self.post(client, selected['csrf_token'], '/api/movies/releases' + suffix,
+                                            json={'query': 'Harbour Town S2'})
+        self.assertEqual(send('?slow=1').status_code, 404)
+        for _ in range(6):
+            calls.clear()
+            fast = send().json
+            self.assertEqual(sorted(calls), [(1, 4), (3, 4)])
+            self.assertEqual(fast['slow_sources'], 4)
+            self.assertEqual([row['title'] for row in fast['results']], ['Harbour Town S02 fast'])
+            calls.clear()
+            slow = send('?slow=1').json
+            self.assertEqual(sorted(indexer for indexer, _ in calls), [8, 9, 10, 11])
+            self.assertTrue(all(26 < timeout <= 30 for _, timeout in calls))
+            self.assertEqual([row['title'] for row in slow['results']], ['Harbour Town S02 slow'])
+            self.assertEqual(slow['results'][0]['indexerId'], 8)
+            self.assertEqual(len(slow['results'][0]['guid']), 24)
+            self.assertEqual(send('?slow=1').status_code, 404)
+        self.assertEqual(send().status_code, 429)
+
+    @patch('music_web.movies.fetch_source_icon')
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_source_icon_is_profile_scoped_cached_and_raster_only(self, opener, fetch):
+        def chunk(kind, data):
+            return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
+        png = (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 6, 0, 0, 0))
+               + chunk(b'IDAT', zlib.compress(b'\0\xff\0\0\xff')) + chunk(b'IEND', b''))
+        opener.return_value.open.side_effect = lambda *_a, **_kw: upstream_json({'indexerUrls': ['https://index.example/']})
+        fetch.side_effect = [png, b'<svg/>']
+        client, _ = self.select('sample-a')
+        other, _ = self.select('sample-b')
+        path = '/api/movies/source-icon/'
+        self.assertEqual(self.go(other, 'GET', path + '8').status_code, 404)
+        self.assertEqual(self.go(client, 'GET', path + '12').status_code, 404)
+        opener.assert_not_called()
+        for _ in range(2):
+            reply = self.go(client, 'GET', path + '8')
+            self.assertEqual((reply.status_code, reply.mimetype, reply.data), (200, 'image/png', png))
+            self.assertIn('max-age=2592000', reply.headers['Cache-Control'])
+        fetch.assert_called_once_with('https://index.example/')
+        self.assertEqual((Path(self.ws) / '.movie-source-icons' / '8.icon').read_bytes(), png)
+        self.assertEqual(self.go(client, 'GET', path + '9').status_code, 404)
 
 
 class MovieLocalizedSearch(Base):

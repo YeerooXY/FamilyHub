@@ -82,6 +82,8 @@ Movie audio routes require an active FamilyHub session, administrator membership
 
 `POST /api/movies/audio-sources` requires CSRF, a session-bound media grant and the existing administrator, allowlist and rate-limit checks. The initial request reads the target metadata through the viewer's Jellyfin session. Results contain source IDs, relative names and stream metadata. Each response probes at most four files.
 
+`GET /api/movies/source-icon/<indexer_id>` answers only for configured indexer IDs and profiles with release search. The server fetches the site's favicon from the indexer's Prowlarr base URL without forwarding client data, accepts raster icons up to 64 KB (SVG is refused), caches them on disk for 30 days and answers 404 on any failure.
+
 `GET /api/movies/related` keeps the mapped-profile and rate-limit checks. Filtered film records carry only TMDB IDs, titles and years for matching against the viewer's library. The client displays those records only after verifying a library match through the existing Jellyfin lookup.
 
 `GET /api/server/seeding` remains admin-only and reads the local torrent snapshot. The existing recorder timer applies the one-time share-limit backfill and sets limits on new movie and TV torrents. It sends validated hashes to the configured private qBittorrent endpoint through its cookie session with redirects disabled and bounded timeouts. The policy requires an explicit Stop action before writing limits. Recorder errors use fixed messages and keep credentials and upstream responses out of logs.
@@ -223,6 +225,8 @@ POST /api/movies/releases
 POST /api/movies/report
 POST /api/movies/request
 POST /api/movies/request-search
+GET /api/movies/source-icon/<int:indexer_id>
+GET /api/movies/title-details
 POST /api/movies/season-episodes
 POST /api/movies/session
 POST /api/movies/subtitle

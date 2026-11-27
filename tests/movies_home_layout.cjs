@@ -303,7 +303,7 @@ async function checkHero(browser) {
         assert.equal(new Set(labels).size, labels.length);
         assert.equal(labels[0], "Show Midnight Meridian (Demo)");
         assert.equal(await current(), labels[0]);
-        assert.equal(await dots.first().getAttribute("title"), labels[0]);
+        assert.equal(await dots.first().getAttribute("title"), null);
         const pill = dots.first().locator(".movie-hero-dot");
         const {width, height} = await pill.boundingBox();
         assert.deepEqual([width, height], [28, 6]);

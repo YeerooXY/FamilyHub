@@ -1356,7 +1356,7 @@ public sealed class MusicSession
                 {
                     preparation.CancelAfter(TimeSpan.FromMinutes(10));
                     var recording = await EnsureServerRecordingAsync(original, preparation.Token, background: true, prefetch: true);
-                    track = await PlaybackEditionAsync(recording, api, quality, preparation.Token);
+                    track = await PlaybackEditionAsync(recording, api, quality, preparation.Token, lead: 1, background: true);
                 }
                 EnsureCurrent(version);
                 Progress = new(0, track.DownloadSize);
@@ -1745,6 +1745,11 @@ public sealed class MusicSession
         EnsureCurrent(version);
         if (info.Id != track.Id || info.StreamUrl.Length == 0) throw new InvalidDataException("The stream link does not match this recording.");
         var stream = api.ResolveUri(info.StreamUrl).AbsoluteUri;
+        if (lead <= 0)
+        {
+            await api.CheckPlaybackStreamAsync(stream, cancellationToken, background);
+            EnsureCurrent(version);
+        }
         playbackRecords[stream] = info;
         return stream;
     }

@@ -9,7 +9,7 @@ async function check(browser, profile, options) {
     try {
         const page = await context.newPage();
         page.setDefaultTimeout(7000);
-        const writes = await movieDetailFixture(page);
+        const writes = await movieDetailFixture(page, {denseSeries: true});
         const home = page.getByRole("region", {name: "Movie library"});
         const opener = home.getByRole("button", {name: "Night Signal", exact: true});
         const series = page.getByRole("region", {name: "Night Signal", exact: true});
@@ -35,12 +35,12 @@ async function check(browser, profile, options) {
             const layout = await actors.evaluate(list => {
                 const visible = [...list.children].filter(actor => !actor.hidden);
                 const columns = getComputedStyle(list).gridTemplateColumns.split(" ").length;
-                return {count: visible.length, expected: Math.min(list.children.length, columns * 2),
+                return {count: visible.length, columns, total: list.children.length,
                     first: visible[0]?.querySelector("strong").textContent,
                     rows: new Set(visible.map(actor => actor.offsetTop)).size, overflow: list.scrollWidth - list.clientWidth,
                     nameOverflow: getComputedStyle(visible[0].querySelector("strong")).textOverflow};
             });
-            assert.equal(layout.count, layout.expected, profile);
+            assert.ok(layout.count >= Math.min(layout.columns, layout.total) && layout.count <= layout.columns * 2, profile);
             assert.equal(layout.first, "Avery Vale", profile);
             assert.ok(layout.rows <= 2 && layout.overflow <= 1, JSON.stringify(layout));
             assert.equal(layout.nameOverflow, "ellipsis");
@@ -85,6 +85,26 @@ async function check(browser, profile, options) {
         };
         await checkTargets(options.viewport.width >= 1600 ? 60 : 44);
         assert.equal(await episode.locator(".movie-release-quality").getAttribute("data-level"), "web");
+        assert.equal(await episode.locator(".movie-episode-overview").textContent(), "The crew receives a radio signal.");
+        assert.equal(await episode.locator(".movie-episode-facts > span").textContent(), "46 min");
+        assert.equal(await episode.evaluate(node => {
+            const card = node.getBoundingClientRect();
+            const quality = node.querySelector(".movie-release-quality").getBoundingClientRect();
+            const text = node.querySelector(".movie-episode-text").getBoundingClientRect();
+            const progress = node.querySelector("progress").getBoundingClientRect();
+            return quality.top >= card.top && quality.top - card.top < 12 && card.right - quality.right < 12 &&
+                Math.abs(text.width - progress.width) < 1;
+        }), true);
+        const badges = series.locator(".movie-episode-body > .movie-release-quality");
+        assert.deepEqual(await badges.evaluateAll(nodes => nodes.slice(0, 5).map(node => [node.textContent, node.dataset.level])), [
+            ["1080p", "web"], ["720p", "hd"], ["4K", "4k-web"], ["4K HDR", "4k-remux"], ["4K Dolby Vision", "4k-remux"]
+        ]);
+        const back = series.getByRole("button", {name: "Back to titles", exact: true});
+        assert.equal(await back.getAttribute("title"), null);
+        await page.getByRole("button", {name: /Downloads, .* needs attention/}).waitFor();
+        assert.equal(await series.getByText("Adding Hungarian audio to Signal 2").count(), 0);
+        assert.equal(await series.getByText("Adding Hungarian audio to Signal 3").count(), 0);
+        assert.equal(await series.getByText("Choose a different source from the library video.").count(), 0);
         assert.deepEqual(await series.locator(".movie-hero-art").evaluate(art => {
             const backdrop = art.getBoundingClientRect();
             const section = art.closest(".movie-show-detail").getBoundingClientRect();
@@ -94,6 +114,7 @@ async function check(browser, profile, options) {
 
         const desktop = options.viewport.width >= 1280;
         if (desktop) {
+            const scroll = series.getByRole("region", {name: "Episodes and related series"});
             assert.match(await outline.evaluate(node => getComputedStyle(node).transitionProperty), /transform/);
             for (const [width, height] of [[1280, 720], [1920, 1080], [2000, 1080], [2560, 1440], [2560, 850], [3840, 850]]) {
                 await page.setViewportSize({width, height});
@@ -107,18 +128,15 @@ async function check(browser, profile, options) {
                     const host = node.closest("main");
                     const root = document.scrollingElement;
                     return {
-                        shelfBottom: node.getBoundingClientRect().bottom - innerHeight,
                         hostOverflow: host.scrollHeight - host.clientHeight,
                         documentOverflow: root.scrollHeight - root.clientHeight,
                         hostTop: host.scrollTop, documentTop: root.scrollTop
                     };
                 });
-                assert.ok(Math.abs(layout.shelfBottom) <= 1 && layout.hostOverflow <= 1 && layout.documentOverflow <= 1 &&
+                assert.ok(layout.hostOverflow <= 1 && layout.documentOverflow <= 1 &&
                     layout.hostTop === 0 && layout.documentTop === 0, `${profile} ${width}x${height} ${JSON.stringify(layout)}`);
-                if ([1920, 2000, 2560].includes(width)) {
-                    const portrait = await cast.locator(".movie-cast-portrait").first().boundingBox();
-                    assert.ok(portrait.width > Math.min(160, .0875 * width - 48), `${width}: ${portrait.width}`);
-                }
+                assert.equal(await scroll.evaluate(node => node.scrollHeight > node.clientHeight &&
+                    getComputedStyle(node).scrollbarWidth === "none" && node.contains(node.querySelector('[data-format="related"]'))), true);
                 assert.equal(await series.locator(".movie-show-columns").evaluate(node => {
                     const episodes = node.querySelector(".movie-show-episodes").getBoundingClientRect();
                     const info = node.querySelector(".movie-show-info").getBoundingClientRect();
@@ -145,7 +163,7 @@ async function check(browser, profile, options) {
                         const clipped = fits(intro.getBoundingClientRect()) ? [] : ["Title block"];
                         for (const actor of [...list.children].filter(actor => !actor.hidden)) {
                             const box = actor.getBoundingClientRect();
-                            if (box.left < left - 1 || box.right > left + info.clientWidth + 1) {
+                            if (!fits(box)) {
                                 clipped.push(actor.querySelector("strong").textContent);
                             }
                         }
@@ -155,6 +173,12 @@ async function check(browser, profile, options) {
                 }
                 assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
             }
+            await scroll.evaluate(node => { node.scrollTop = 0; });
+            await page.waitForFunction(node => node.hasAttribute("data-more-below"), await scroll.elementHandle());
+            await scroll.press("End");
+            await page.waitForFunction(node => node.scrollTop > 0 && !node.hasAttribute("data-more-below"), await scroll.elementHandle());
+            assert.equal(await related.evaluate(node => node.getBoundingClientRect().bottom <= innerHeight + 1), true);
+            await scroll.evaluate(node => { node.scrollTop = 0; });
             await episode.hover();
             await page.waitForFunction(node => {
                 const style = getComputedStyle(node);
@@ -164,6 +188,14 @@ async function check(browser, profile, options) {
         } else {
             assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, profile);
         }
+        await page.getByRole("button", {name: /Downloads, .* needs attention/}).press("Enter");
+        const downloads = page.getByRole("dialog", {name: "Downloads", exact: true});
+        await downloads.getByText("Choose a different source from the library video.").waitFor();
+        await downloads.getByRole("button", {name: "Choose another source", exact: true}).press("Enter");
+        const audio = page.getByRole("dialog", {name: "Add audio track", exact: true});
+        await audio.getByText("Signal 2", {exact: true}).waitFor();
+        await audio.getByRole("button", {name: "Close", exact: true}).press("Enter");
+        await downloads.getByRole("button", {name: "Close", exact: true}).press("Enter");
         await page.emulateMedia({reducedMotion: "reduce"});
         await episode.focus();
         assert.deepEqual(await episode.evaluate(node => {

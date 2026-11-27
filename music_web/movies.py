@@ -1,25 +1,38 @@
 """Issue a regular Jellyfin session for the active FamilyHub profile."""
 import http.client
 import html
+import ipaddress
+import io
 import json
 import time
 import logging
 import re
 import secrets
 import shutil
+import socket
 import sqlite3
+import ssl
+import struct
 import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import Future, ThreadPoolExecutor
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 from threading import Lock
 from time import monotonic
 
-from flask import g, jsonify, request, session
+from flask import Response, g, jsonify, request, session
 
 from . import audio_tracks, feedback, movie_import, movie_media, movie_search, movie_subtitles, tmdb, tmdb_stills, torrent_seeding
 from .catalog_search import NoRedirect
 from .movie_youtube_downloads import DEFAULT_DIR, MAX_PENDING, YouTubeDownloads
+from .state import state_path
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 
 log = logging.getLogger('music_web.movies')
@@ -137,6 +150,68 @@ def service_url(value, schemes=('http', 'https')):
     return ''
 
 
+ICON_BYTES = 64 * 1024
+ICON_AGE = 30 * 86400
+
+
+def icon_type(data):
+    if len(data) > ICON_BYTES:
+        return None
+    if (len(data) >= 45 and data.startswith(b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR')
+            and all(0 < n <= 512 for n in struct.unpack_from('>II', data, 16))
+            and data.endswith(b'\x00\x00\x00\x00IEND\xaeB`\x82')):
+        mime, formats = 'image/png', ('PNG',)
+    elif len(data) >= 22 and data.startswith(b'\0\0\1\0'):
+        count, = struct.unpack_from('<H', data, 4)
+        end = 6 + count * 16
+        if not 0 < count <= 32 or end > len(data):
+            return None
+        for pos in range(6, end, 16):
+            size, offset = struct.unpack_from('<II', data, pos + 8)
+            if offset < end or size < 12 or offset + size > len(data):
+                return None
+            entry = data[offset:offset + size]
+            if entry.startswith(b'\x89PNG'):
+                if icon_type(entry) != 'image/png':
+                    return None
+            elif struct.unpack_from('<I', entry)[0] not in (12, 40, 52, 56, 108, 124):
+                return None
+        mime, formats = 'image/x-icon', ('ICO',)
+    else:
+        return None
+    if Image is not None:
+        try:
+            with Image.open(io.BytesIO(data), formats=formats) as raster:
+                raster.load()
+        except (OSError, ValueError, SyntaxError, IndexError, struct.error, Image.DecompressionBombError):
+            return None
+    return mime
+
+
+def fetch_source_icon(base):
+    origin = urllib.parse.urlsplit(base)
+    port = origin.port or (443 if origin.scheme == 'https' else 80)
+    if origin.scheme not in ('http', 'https') or not origin.hostname or origin.username is not None or port not in (80, 443):
+        return None
+    addresses = [ipaddress.ip_address(info[4][0]) for info in
+                 socket.getaddrinfo(origin.hostname, port, type=socket.SOCK_STREAM)]
+    # Pin the resolved address so a DNS change or redirect cannot send the request to a private service.
+    if not addresses or any(not address.is_global or address.is_multicast or address.is_reserved for address in addresses):
+        return None
+    connection = http.client.HTTPConnection(str(addresses[0]), port, timeout=4)
+    try:
+        connection.connect()
+        if origin.scheme == 'https':
+            connection.sock = ssl.create_default_context().wrap_socket(connection.sock, server_hostname=origin.hostname)
+        connection.request('GET', '/favicon.ico', headers={'Host': origin.netloc, 'Accept': 'image/png, image/x-icon'})
+        reply = connection.getresponse()
+        if reply.status != 200:
+            return None
+        return reply.read(ICON_BYTES + 1)
+    finally:
+        connection.close()
+
+
 def download_item(row):
     progress = max(0, min(1, float(row['progress'])))
     state, name = row['state'], row['name']
@@ -194,7 +269,12 @@ def register_movies(app, cfg, body, allow, session_is_live):
         lambda path: subtitle_imported(path) if subtitle_imported else False)
     releases = cfg.get('MOVIE_RELEASE_SEARCH') or {}
     prowlarr = service_url(releases.get('url', 'http://127.0.0.1:9696'))
-    indexers = tuple(dict.fromkeys(i for i in releases.get('indexer_ids', []) if type(i) is int and i > 0))[:8]
+    normal_ids = tuple(dict.fromkeys(i for i in releases.get('indexer_ids', []) if type(i) is int and i > 0))
+    indexers = normal_ids[:8]
+    slow_ids = releases.get('slow_indexer_ids') or []
+    slow_indexers = tuple(dict.fromkeys(i for i in slow_ids if type(i) is int and i > 0 and i not in normal_ids))[:4] if isinstance(slow_ids, list) else ()
+    configured_indexers = indexers + slow_indexers
+    slow_followups = {}
     requests = cfg.get('MOVIE_REQUESTS') or {}
     downloads = cfg.get('MOVIE_DOWNLOADS') or {}
     qb = downloads.get('qbittorrent') or {}
@@ -221,7 +301,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
         return user if type(user) is int and user > 1 and list(profiles.values()).count(user) == 1 else None
 
     def release_access():
-        return bool(prowlarr and releases.get('api_key') and indexers and g.user in releases.get('profiles', [])
+        return bool(prowlarr and releases.get('api_key') and configured_indexers and g.user in releases.get('profiles', [])
                     and g.user in cfg.get('JELLYFIN_PROFILES', {}))
 
     def download_access():
@@ -460,6 +540,52 @@ def register_movies(app, cfg, body, allow, session_is_live):
             return jsonify(error='Prowlarr could not send this release. Try again.'), 503
         return jsonify(state='sent')
 
+    @app.get('/api/movies/source-icon/<int:indexer_id>')
+    def movie_source_icon(indexer_id):
+        if not release_access() or indexer_id not in configured_indexers:
+            return '', 404
+
+        def fetch():
+            stored = state_path(cfg, '.movie-source-icons') / f'{indexer_id}.icon'
+            try:
+                if stored.is_file() and time.time() - stored.stat().st_mtime < ICON_AGE:
+                    with stored.open('rb') as stream:
+                        data = stream.read(ICON_BYTES + 1)
+                    if mime := icon_type(data):
+                        return data, mime
+                req = urllib.request.Request(f'{prowlarr}/api/v1/indexer/{indexer_id}',
+                    headers={'X-Api-Key': releases['api_key'], 'Accept': 'application/json'})
+                with urllib.request.build_opener(NoRedirect).open(req, timeout=4) as reply:
+                    settings = json.loads(reply.read(65537))
+                bases = settings.get('indexerUrls') if isinstance(settings, dict) else None
+                base_url = bases[0] if isinstance(bases, list) and bases and isinstance(bases[0], str) else ''
+                if not base_url or len(base_url) > 2048:
+                    return None
+                data = fetch_source_icon(base_url)
+                mime = icon_type(data) if data else None
+                if not mime:
+                    return None
+                stored.parent.mkdir(parents=True, exist_ok=True)
+                with NamedTemporaryFile(dir=stored.parent, delete=False) as stream:
+                    partial = Path(stream.name)
+                    try:
+                        stream.write(data)
+                        stream.close()
+                        partial.replace(stored)
+                    finally:
+                        stream.close()
+                        partial.unlink(missing_ok=True)
+                return data, mime
+            except (OSError, ValueError, http.client.HTTPException):
+                return None
+
+        icon = cached_search(('source-icon', indexer_id), 15, fetch)
+        if not icon:
+            return '', 404
+        data, mime = icon
+        return Response(data, content_type=mime, headers={'Cache-Control': f'private, max-age={ICON_AGE}',
+                        'X-Content-Type-Options': 'nosniff'})
+
     @app.post('/api/movies/releases')
     def movie_releases():
         if not release_access():
@@ -467,8 +593,17 @@ def register_movies(app, cfg, body, allow, session_is_live):
         query = movie_search.clean_query(body().get('query'))
         if query is None:
             return jsonify(error='Enter a title of 2 to 120 characters.'), 400
-        if not allow('movie-release-search:' + g.user, 6, 60):
+        slow = request.args.get('slow') == '1'
+        phase_key = g.user, query.casefold()
+        if slow:
+            with search_lock:
+                permitted = slow_followups.pop(phase_key, 0) > monotonic()
+            if not permitted or not slow_indexers:
+                return jsonify(error='Search for the title before checking more sources.'), 404
+        elif not allow('movie-release-search:' + g.user, 6, 60):
             return jsonify(error='Wait a minute before searching again.'), 429
+        phase_indexers = slow_indexers if slow else indexers
+        deadline = monotonic() + 30
 
         season_query = SEASON_QUERY.fullmatch(query)
         title = season_query[1] if season_query else query
@@ -476,11 +611,14 @@ def register_movies(app, cfg, body, allow, session_is_live):
         wanted_words = movie_search.words(title)
 
         def search_indexer(ids, term):
+            timeout = deadline - monotonic() if slow else 4 if season is not None else 8
+            if timeout <= 0:
+                return None
             params = urllib.parse.urlencode({'query': term, 'type': 'search', 'indexerIds': ids, 'limit': 50}, doseq=True)
             req = urllib.request.Request(prowlarr + '/api/v1/search?' + params,
                 headers={'X-Api-Key': releases['api_key'], 'Accept': 'application/json'})
             try:
-                with urllib.request.build_opener(NoRedirect).open(req, timeout=4 if season is not None else 8) as reply:
+                with urllib.request.build_opener(NoRedirect).open(req, timeout=timeout) as reply:
                     rows = json.loads(reply.read(1024 * 1024))
                 return [dict(title=cleaned[:250], source=row.get('indexer', '')[:80], size=row.get('size'),
                              seeders=row.get('seeders'), leechers=row.get('leechers'),
@@ -508,21 +646,21 @@ def register_movies(app, cfg, body, allow, session_is_live):
         def lookup_hungarian(user):
             metadata = source_details(query, user)
             alias = metadata.get('hungarian_title')
-            if not alias:
+            if not alias or not phase_indexers:
                 return metadata, []
             term = alias if season is None else f'{alias} S{season:02d}'
-            page = cached_search(('releases', term), 60, lambda: search_indexer(indexers, term))
+            page = cached_search(('releases', phase_indexers, term), 60, lambda: search_indexer(phase_indexers, term))
             if page is not None and season is not None:
                 words = movie_search.words(alias)
                 page = [row for row in page if season_pack(row['title'], words, season)]
             return metadata, page
 
-        with ThreadPoolExecutor(max_workers=len(indexers) + 1) as pool:
+        with ThreadPoolExecutor(max_workers=len(phase_indexers) + 1) as pool:
             alternate = pool.submit(lookup_hungarian, user) if (user := request_user()) is not None else None
-            pages = list(pool.map(lookup, indexers))
+            pages = list(pool.map(lookup, phase_indexers))
             metadata, extra = alternate.result() if alternate else ({}, [])
         unavailable = pages.count(None)
-        all_failed = unavailable == len(indexers) and not extra
+        all_failed = bool(phase_indexers) and unavailable == len(phase_indexers) and not extra
         unavailable += extra is None
         rows, seen = [], set()
         for page in [*pages, extra]:
@@ -534,7 +672,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
                     seen.add(guid)
                 rows.append(stored.copy())
         log.info('Release search results=%d unavailable_sources=%d', len(rows), unavailable)
-        if all_failed:
+        if all_failed and (slow or not slow_indexers):
             return jsonify(error='The sources did not respond. Try again.'), 503
         with grab_lock:
             now = monotonic()
@@ -544,13 +682,24 @@ def register_movies(app, cfg, body, allow, session_is_live):
             for row in rows:
                 guid, indexer = row.pop('guid'), row.pop('indexerId')
                 torrent_title, torrent_hash = row.pop('torrent_title'), row.pop('torrent_hash')
-                if isinstance(guid, str) and 0 < len(guid) <= 8192 and type(indexer) is int and indexer in indexers:
+                if type(indexer) is int and indexer in phase_indexers:
+                    row['indexerId'] = indexer
+                if isinstance(guid, str) and 0 < len(guid) <= 8192 and 'indexerId' in row:
                     ref = secrets.token_urlsafe(18)
                     grab_refs[ref] = (g.user, indexer, guid, now + 1800, torrent_title, torrent_hash)
                     row.update(guid=ref, indexerId=indexer)
             while len(grab_refs) > 10000:
                 del grab_refs[next(iter(grab_refs))]
-        return jsonify(results=rows, unavailable=unavailable, **({'title_details': metadata} if metadata else {}))
+        reply = dict(results=rows, unavailable=unavailable)
+        if metadata:
+            reply['title_details'] = metadata
+        if not slow and slow_indexers:
+            with search_lock:
+                slow_followups[phase_key] = monotonic() + 120
+                while len(slow_followups) > 256:
+                    del slow_followups[next(iter(slow_followups))]
+            reply['slow_sources'] = len(slow_indexers)
+        return jsonify(reply)
 
     @app.post('/api/movies/matches')
     def movie_matches():
@@ -626,8 +775,10 @@ def register_movies(app, cfg, body, allow, session_is_live):
             if picture is None and time.monotonic() < deadline:
                 picture = stills.fetch(series, season, number, row.get('still_path'))
             name = row.get('name')
+            overview = row.get('overview')
             runtime = row.get('runtime')
             return dict(number=number, name=name[:200] if isinstance(name, str) else '',
+                        overview=overview[:2000] if isinstance(overview, str) else '',
                         runtime=runtime if type(runtime) is int and 0 < runtime < 1000 else None,
                         still=stills.data_url(picture))
 

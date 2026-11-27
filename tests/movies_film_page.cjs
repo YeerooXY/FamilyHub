@@ -55,7 +55,7 @@ async function check(browser, profile, options) {
         const retry = film.getByRole("button", {name: retryName, exact: true});
         await retry.waitFor();
         assert.equal(await more.isVisible(), true);
-        assert.equal(await retry.getAttribute("title"), retryName);
+        assert.equal(await retry.getAttribute("title"), null);
         assert.equal(await retry.textContent(), "");
         assert.equal(await retry.locator("svg").count(), 1);
         assert.equal(await film.getByText("Manual retry").count(), 0);
@@ -178,7 +178,7 @@ async function check(browser, profile, options) {
                     return style.outlineStyle === "solid" && style.outlineWidth === width && style.outlineColor === "rgb(255, 255, 255)";
                 }, {node: await target.elementHandle(), width});
             };
-            for (const target of [owned, play, favorite, cast, film.getByRole("button", {name: "Back to titles"})]) {
+            for (const target of [owned, play, cast]) {
                 await target.hover();
                 await checkOutline(target, "4px");
                 await page.mouse.move(0, 0);
@@ -186,6 +186,20 @@ async function check(browser, profile, options) {
                 await target.focus();
                 await checkOutline(target, "4px");
             }
+            const back = film.getByRole("button", {name: "Back to titles"});
+            for (const target of [back, favorite, nextPage]) assert.equal(await target.getAttribute("title"), null);
+            await back.evaluate(node => node.addEventListener("click", event => event.stopImmediatePropagation(), {capture: true, once: true}));
+            await back.click();
+            assert.equal(await back.evaluate(node => getComputedStyle(node).outlineStyle), "none");
+            await heading.focus();
+            await page.keyboard.press("Shift+Tab");
+            assert.equal(await focused(back), true);
+            await checkOutline(back, "4px");
+            await nextPage.click();
+            const range = page.getByText(/^Showing titles \d+ to \d+ of \d+\.$/);
+            await range.waitFor({state: "attached"});
+            assert.equal(await range.evaluate(node => node.classList.contains("movie-visually-hidden") &&
+                getComputedStyle(node).clipPath === "inset(50%)"), true);
             await page.setViewportSize({width: 1280, height: 560});
             assert.equal(await film.evaluate(node => {
                 const host = node.closest(".workspace > main") ?? document.scrollingElement ?? document.documentElement;

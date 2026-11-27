@@ -323,6 +323,34 @@ for (var run = 0; run < 100; run++)
         "Play after a terminal failure restarted the song at zero");
 }
 {
+    var session = new MusicSession { Stream = true };
+    session.StreamErrors.Enqueue(new FamilyHubApiException(503) { RetryAfter = TimeSpan.FromMilliseconds(550) });
+    session.StreamErrors.Enqueue(new FamilyHubApiException(409));
+    var primary = new WindowsAudioPlayer { StreamDuration = 180 };
+    var player = new MusicPlayer(session);
+    player.AttachDecks(primary, null);
+    var restored = tracks[1] with { Duration = 180, Saved = true };
+    player.RestoreResume(new() { TrackIds = [restored.Id], Index = 0, Position = 35 }, [restored]);
+    var start = System.Diagnostics.Stopwatch.StartNew();
+    await player.ToggleAsync();
+    Check(player.Playing && player.Current?.Id == restored.Id && primary.StartedAt == 35
+        && session.StreamRequests == 3 && session.RecordingRefreshes == 1 && start.ElapsedMilliseconds >= 2000,
+        "The restored song did not start after retrying playback-info and refreshing the changed recording");
+}
+{
+    var (session, player) = Setup();
+    var restored = tracks[1] with { Duration = 180 };
+    player.RestoreResume(new() { TrackIds = [restored.Id], Index = 0, Position = 35 }, [restored]);
+    var primary = WindowsAudioPlayer.Last!;
+    primary.LocalDuration = 180;
+    primary.IgnoreNextSeek = true;
+    await player.ToggleAsync();
+    Check(player.Playing && primary.StartedAt == 0 && player.CaptureResume()?.Position == 0,
+        "A failed restored-position seek blocked playback or retained the stale position");
+    Check(session.Observations.Any(entry => entry.Stage == "resume_failed" && entry.Position == 35),
+        "Resume failure diagnostics lost the attempted position");
+}
+{
     var session = new MusicSession();
     var primary = new WindowsAudioPlayer { LocalDuration = 180 };
     var player = new MusicPlayer(session);
@@ -333,26 +361,20 @@ for (var run = 0; run < 100; run++)
     Check(player.PlaybackInterrupted, "An unexpected native stop was mistaken for user pause");
     primary.IgnoreNextSeek = true;
     await player.SetTransportPlayingAsync(true);
-    Check(!player.Playing && primary.StartedAt is null && player.CaptureResume()?.Position == 35,
-        "An unconfirmed native seek started playback or discarded the checkpoint");
+    Check(player.Playing && primary.StartedAt == 0 && player.CaptureResume()?.Position == 0,
+        "An unconfirmed native seek blocked playback or kept the stale checkpoint");
     var failed = session.Stages.Last(entry => entry.Stage == "play").Action;
     Check(session.Observations.Contains((failed, "resume_seek", 35)) &&
         session.Observations.Contains((failed, "resume_failed", 35)), "Resume telemetry lost the failed checkpoint");
-    await player.SetTransportPlayingAsync(true);
-    await player.SetTransportPlayingAsync(true);
-    Check(player.Playing && primary.StartedAt == 35,
-        "Play after an unconfirmed native seek restarted at zero");
-    var retried = session.Stages.Last(entry => entry.Stage == "play").Action;
-    Check(session.Observations.Contains((retried, "resume_applied", 35)), "Resume telemetry lost the confirmed position");
     primary.Tick(1);
     await player.SetTransportPlayingAsync(false);
     await player.SetTransportPlayingAsync(false);
-    Check(!player.PlaybackRequested && player.Position == 36, "Duplicate Pause restarted playback or lost a deliberate pause");
+    Check(!player.PlaybackRequested && player.Position == 1, "Duplicate Pause restarted playback or lost a deliberate pause");
     await player.SetTransportPlayingAsync(true);
-    Check(player.Playing && player.Position == 36, "Play from deliberate pause reloaded the source");
+    Check(player.Playing && player.Position == 1, "Play from deliberate pause reloaded the source");
     primary.SuspendWithoutFailure();
     await player.SetTransportPlayingAsync(false);
-    Check(!player.PlaybackRequested && !player.Playing && player.CaptureResume()?.Position == 36,
+    Check(!player.PlaybackRequested && !player.Playing && player.CaptureResume()?.Position == 1,
         "Explicit Pause after an interruption restarted playback or lost its checkpoint");
 }
 {
@@ -848,7 +870,11 @@ namespace FamilyHub.Client.Core
         public bool? Autoplay { get; init; }
         public bool IsValid => TrackIds.Count > 0 && Index >= 0 && Index < TrackIds.Count && double.IsFinite(Position);
     }
-    public sealed class FamilyHubApiException : Exception { }
+    public sealed class FamilyHubApiException(int statusCode) : Exception
+    {
+        public int StatusCode { get; } = statusCode;
+        public TimeSpan? RetryAfter { get; init; }
+    }
 }
 namespace FamilyHub.App.Services
 {
@@ -882,6 +908,8 @@ namespace FamilyHub.App.Services
         public long CacheFreeBytes { get; set; } = long.MaxValue;
         public bool DelayUpcoming { get; set; }
         public int StreamRequests { get; private set; }
+        public Queue<FamilyHubApiException> StreamErrors { get; } = new();
+        public int RecordingRefreshes { get; private set; }
         public int PrefetchRequests { get; private set; }
         public List<(MusicTrack Track, CancellationToken Token)> UpcomingDownloads { get; } = [];
         public List<(string Action, string Stage)> Stages { get; } = [];
@@ -905,6 +933,7 @@ namespace FamilyHub.App.Services
         public Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken token, bool allowPreview = false,
             bool background = false, bool prefetch = false, string? action = null, bool fallback = false)
         {
+            if (fallback) RecordingRefreshes++;
             if (!prefetch) return Task.FromResult(track);
             if (!background || allowPreview) throw new Exception("Next-song acquisition must request a saved copy at low priority");
             PrefetchRequests++;
@@ -915,6 +944,7 @@ namespace FamilyHub.App.Services
         public Task<string> StreamPlaybackAsync(MusicTrack track, double lead, CancellationToken token, bool background = false, string? action = null)
         {
             StreamRequests++;
+            if (StreamErrors.TryDequeue(out var error)) return Task.FromException<string>(error);
             return Task.FromResult("https://music.test/stream");
         }
         public Task<string> CachePlaybackAsync(MusicTrack track, CancellationToken token, double lead = 0, bool background = false, bool upcoming = false)

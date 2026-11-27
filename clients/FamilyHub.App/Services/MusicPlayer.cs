@@ -22,6 +22,7 @@ public sealed class MusicPlayer(MusicSession session)
     private string? standbyWarmupAction;
     private long? streamRecoveryVersion;
     private static readonly int[] streamRetryDelays = [1000, 3000, 8000];
+    private static readonly int[] playbackOpenRetryDelays = [500, 1500, 3000];
     private readonly Dictionary<IAudioDeck, PlayAction> playActions = [];
     private sealed class PlayAction(long started)
     {
@@ -363,22 +364,20 @@ public sealed class MusicPlayer(MusicSession session)
             if (position > owner.Duration + .5) throw new InvalidOperationException("The saved position is outside this audio source.");
             await SeekDeckAsync(Math.Clamp(position, 0, Math.Max(0, owner.Duration - .25)), confirm: true);
             if (version != requestVersion || !ReferenceEquals(deck, owner) || !sourceReady) return;
-            resumePosition = null;
-            if (resumeStartPending)
-            {
-                resumeStartPending = false;
-                owner.SetPlaying(PlaybackRequested);
-            }
             TracePlayback(owner, "resume_applied", owner.SeekPosition);
         }
         catch (Exception error) when (error is IOException or InvalidOperationException or OperationCanceledException or TimeoutException)
         {
-            if (version == requestVersion && ReferenceEquals(deck, owner))
-            {
-                resumePosition ??= position;
-                TracePlayback(owner, "resume_failed", position);
-                HandleDeckFailure(owner);
-            }
+            if (version != requestVersion || !ReferenceEquals(deck, owner) || !sourceReady) return;
+            lastListeningPosition = 0;
+            lastListeningPosition = TracePosition(owner);
+            TracePlayback(owner, "resume_failed", position);
+        }
+        resumePosition = null;
+        if (resumeStartPending)
+        {
+            resumeStartPending = false;
+            owner.SetPlaying(PlaybackRequested);
         }
     }
 
@@ -943,20 +942,46 @@ public sealed class MusicPlayer(MusicSession session)
         }
         if (!session.Connected) throw new InvalidOperationException("This song is not downloaded on this device. Connect to play it.");
         var saved = await session.EnsureServerRecordingAsync(track, token, session.CanStream, background, action: action?.Id, fallback: fallback);
+        async Task<string> OpenWithRetry(Func<MusicTrack, Task<string>> open)
+        {
+            var refresh = false;
+            for (var attempt = 0; ; attempt++)
+            {
+                token.ThrowIfCancellationRequested();
+                try
+                {
+                    if (refresh)
+                    {
+                        saved = await session.EnsureServerRecordingAsync(saved, token, allowPreview: session.CanStream,
+                            background: background, action: action?.Id, fallback: true);
+                        refresh = false;
+                    }
+                    return await open(saved);
+                }
+                catch (FamilyHubApiException error) when (error.StatusCode is 503 or 409 && attempt < playbackOpenRetryDelays.Length)
+                {
+                    refresh |= error.StatusCode == 409;
+                    var delay = Math.Max(playbackOpenRetryDelays[attempt], error.RetryAfter?.TotalMilliseconds ?? 0);
+                    await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(delay, TimeSpan.FromDays(1).TotalMilliseconds)), token);
+                }
+            }
+        }
+        Task<string> OpenStream(MusicTrack recording) => session.StreamPlaybackAsync(recording, 0, token, background, action?.Id);
         if (session.CanStream && (!fallback || !ReferenceEquals(saved, track)))
         {
-            try { return await session.StreamPlaybackAsync(saved, 0, token, background, action?.Id); }
-            catch (Exception error) when (!fallback && !directStream && error is (InvalidDataException or FamilyHubApiException or HttpRequestException))
+            try { return await OpenWithRetry(OpenStream); }
+            catch (Exception error) when (!fallback && !directStream && error is (InvalidDataException or HttpRequestException
+                or FamilyHubApiException { StatusCode: not (503 or 409) }))
             {
                 Report(action, "stream_failed");
                 if (action is not null) action.Fallback = true;
                 Report(action, "fallback");
                 saved = await session.EnsureServerRecordingAsync(saved, token, allowPreview: true, background: background,
                     action: action?.Id, fallback: true);
-                return await session.StreamPlaybackAsync(saved, 0, token, background, action?.Id);
+                return await OpenWithRetry(OpenStream);
             }
         }
-        return await session.CachePlaybackAsync(saved, token, background: background);
+        return await OpenWithRetry(recording => session.CachePlaybackAsync(recording, token, background: background));
     }
     internal void PlaybackNetworkChanged()
     {

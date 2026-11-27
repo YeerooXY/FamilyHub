@@ -465,6 +465,9 @@ def create_app(test_config=None):
                 and request.endpoint in ('edit_metadata', 'undo_metadata')):
             identifier = request.view_args['identifier']
             library_index.update({identifier: ()})
+        # Site icons are public favicons cached on disk for 30 days; keep their long cache header.
+        keep_cache = request.endpoint == "movie_source_icon" and resp.status_code == 200
+        cache = resp.headers.get("Cache-Control")
         resp.headers.update({
             "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
                                        "connect-src 'self'; form-action 'self'; frame-ancestors 'none'; "
@@ -472,6 +475,8 @@ def create_app(test_config=None):
             "X-Content-Type-Options": "nosniff",
             "Permissions-Policy": "camera=(), microphone=(), geolocation=()", "Cache-Control": "no-store",
             "Strict-Transport-Security": "max-age=31536000"})
+        if keep_cache and cache:
+            resp.headers["Cache-Control"] = cache
         if request.endpoint == "admin_page":
             resp.headers["Content-Security-Policy"] = resp.headers["Content-Security-Policy"].replace(
                 "img-src 'self';", "img-src 'self' https://image.tmdb.org;")
@@ -3164,7 +3169,6 @@ def create_app(test_config=None):
         return track, target
 
     phone_encodes = threading.BoundedSemaphore(2)
-    listener_encodes = threading.BoundedSemaphore(2)
 
     def mobile_record(source_id, digest=None, quality="normal", lead=0, streaming=False):
         if quality not in mobile_audio.TIERS:
@@ -3180,25 +3184,31 @@ def create_app(test_config=None):
             raise ApiError("Recording changed. Refresh the library.", 409)
         if streaming and "/playback-source/" in track["download_url"]:
             return track, original
-        needs_encode = not os.path.lexists(mobile_audio.copy_path(item["item"], source_hash, quality))
+        path = mobile_audio.copy_path(item["item"], source_hash, quality)
+        needs_encode = not os.path.lexists(path)
+        original_track = dict(track, playback_source_sha256=source_hash)
+        # A listener pressing play never waits for (or is refused by) a missing phone copy: the
+        # verified original streams while the copy warms. Background downloads still get the copy.
         urgent = not background_activity() and lead <= 0
-        if needs_encode and streaming and lead <= 0:
-            # The verified listening edition can stream while optional smaller copies warm later.
-            return track, original
-        slots = listener_encodes if urgent else phone_encodes
-        if needs_encode and not slots.acquire(blocking=False):
+        if needs_encode and urgent:
+            if opus_warmer:
+                opus_warmer.now_playing(source_id, quality)
+            return original_track, original
+        if needs_encode and not phone_encodes.acquire(blocking=False):
             raise ApiError("Mobile audio preparation is busy. Try again.", 503)
         previous_background = getattr(app.intake.CONTROL, 'background', False)
         previous_priority = getattr(app.intake.CONTROL, 'priority', None)
         app.intake.CONTROL.background = not urgent
         app.intake.CONTROL.priority = lambda: 0 if urgent else 1
         try:
-            path = mobile_audio.prepare(app.intake, item["item"], original, source_hash, urgent=urgent,
-                                        requested=not urgent, quality=quality, title=track['title'], lead=lead)
+            if needs_encode or lead > 0:
+                path = mobile_audio.prepare(app.intake, item["item"], original, source_hash, requested=True,
+                                            quality=quality, title=track['title'], lead=lead)
+            else:
+                app.intake.regular_file(path, "mobile audio")
             track["playback_version"] = mobile_audio.TIERS[quality][1]
             if os.path.getsize(path) >= track["download_size"]:
-                track["playback_source_sha256"] = source_hash
-                return track, original
+                return original_track, original
             # Installed clients validate this legacy route name. The metadata and MIME
             # type identify the actual Opus file; keeping the URL preserves compatibility.
             download_url = f"/api/library/{source_id}/playback/{source_hash}/audio.m4a"
@@ -3212,16 +3222,20 @@ def create_app(test_config=None):
                 measured = profile(app.intake, item["item"], {"audio": {
                     "sha256": track["download_sha256"], "duration": track["duration"], "file": path}}, measure=True)
             except (OSError, ValueError, app.intake.IntakeError):
+                if urgent:
+                    return original_track, original
                 raise ApiError("Could not measure mobile audio. Try again.", 503)
             track.update(lufs=measured["lufs"], true_peak=measured["true_peak"],
                          over_peak=track["over_peak"] or measured["true_peak"] > 0,
                          playback_gain_db=min(12, -16 - measured["lufs"], -1.5 - measured["true_peak"]))
             return track, path
         except (OSError, ValueError, app.intake.IntakeError):
+            if urgent:
+                return original_track, original
             raise ApiError("Could not prepare mobile audio. Try again.", 503)
         finally:
             if needs_encode:
-                slots.release()
+                phone_encodes.release()
             app.intake.CONTROL.background = previous_background
             app.intake.CONTROL.priority = previous_priority
 
@@ -3283,9 +3297,10 @@ def create_app(test_config=None):
         if not background_activity():
             resources.presence(listener_identity(), "listening")
         quality = request.args.get("quality", "normal")
-        playback_diagnostics.record(g.user, request.args.get("play_action"), "stream_requested")
+        action = request.args.get("play_action") if request.method == "GET" else None
+        playback_diagnostics.record(g.user, action, "stream_requested")
         track, path = mobile_record(source_id, digest, quality=quality)
-        playback_diagnostics.record(g.user, request.args.get("play_action"), "stream_response_ready")
+        playback_diagnostics.record(g.user, action, "stream_response_ready")
         return send_file(path, conditional=True,
                          etag=track["download_sha256"], max_age=0)
 
@@ -3302,8 +3317,9 @@ def create_app(test_config=None):
         track, path = library_record(item, allow_unfinished=digest is not None, source_only=digest is not None)
         if digest is not None and digest != track["download_sha256"]:
             raise ApiError("Recording changed. Refresh the library.", 409)
-        playback_diagnostics.record(g.user, request.args.get("play_action"), "stream_requested")
-        playback_diagnostics.record(g.user, request.args.get("play_action"), "stream_response_ready")
+        action = request.args.get("play_action") if request.method == "GET" else None
+        playback_diagnostics.record(g.user, action, "stream_requested")
+        playback_diagnostics.record(g.user, action, "stream_response_ready")
         return send_file(path, conditional=True, etag=track["download_sha256"], max_age=0,
                          as_attachment=True, download_name=source_id + track["download_extension"])
 

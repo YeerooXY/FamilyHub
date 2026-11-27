@@ -281,6 +281,12 @@ public sealed class FamilyHubApi : IDisposable
         }
     }
 
+    public async Task CheckPlaybackStreamAsync(string path, CancellationToken cancellationToken, bool background = false)
+    {
+        using var response = await SendAsync(HttpMethod.Head, path, null, cancellationToken, background: background);
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
     // Background refreshes: null when the list has not changed since this connection last read it.
     public async Task<List<MusicTrack>?> GetLibraryIfChangedAsync(CancellationToken cancellationToken = default, bool background = false) =>
         (await GetIfChangedAsync<LibraryResponse>("/api/library", cancellationToken, background))?.Results;
@@ -463,13 +469,14 @@ public sealed class FamilyHubApi : IDisposable
         return await GetImageAsync("/api/artwork/" + id, cancellationToken);
     }
 
-    public async Task<string> GetImageAsync(string path, CancellationToken cancellationToken = default)
+    public async Task<string> GetImageAsync(string path, CancellationToken cancellationToken = default, bool favicon = false)
     {
         using var response = await SendAsync(HttpMethod.Get, path, null, cancellationToken, background: true);
         await EnsureSuccessAsync(response, cancellationToken);
         var mime = response.Content.Headers.ContentType?.MediaType?.ToLowerInvariant();
-        const int maximum = 2 * 1024 * 1024;
-        if (mime is not ("image/jpeg" or "image/png" or "image/webp") || response.Content.Headers.ContentLength > maximum)
+        var maximum = favicon ? 64 * 1024 : 2 * 1024 * 1024;
+        var supported = favicon ? mime is "image/png" or "image/x-icon" : mime is "image/jpeg" or "image/png" or "image/webp";
+        if (!supported || response.Content.Headers.ContentLength > maximum)
             throw new InvalidDataException("The server returned unsupported artwork.");
         using var output = new MemoryStream();
         await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -486,6 +493,7 @@ public sealed class FamilyHubApi : IDisposable
             "image/jpeg" => bytes.Length >= 3 && bytes[0] == 255 && bytes[1] == 216 && bytes[2] == 255,
             "image/png" => bytes.AsSpan().StartsWith(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }),
             "image/webp" => bytes.Length >= 12 && bytes.AsSpan(0, 4).SequenceEqual("RIFF"u8) && bytes.AsSpan(8, 4).SequenceEqual("WEBP"u8),
+            "image/x-icon" => bytes.AsSpan().StartsWith(new byte[] { 0, 0, 1, 0 }),
             _ => false
         };
         if (!valid) throw new InvalidDataException("The server returned invalid artwork.");
@@ -604,7 +612,9 @@ public sealed class FamilyHubApi : IDisposable
             catch (JsonException) { }
             catch (IOException) { }
         }
-        throw new FamilyHubApiException(message, (int)response.StatusCode, staleSession);
+        var retry = response.Headers.RetryAfter;
+        var wait = retry?.Delta ?? (retry?.Date is { } retryAt ? retryAt - DateTimeOffset.UtcNow : (TimeSpan?)null);
+        throw new FamilyHubApiException(message, (int)response.StatusCode, staleSession) { RetryAfter = wait };
     }
 
     private static string FindHtmlAttribute(string html, string tag, string key, string expected, string attribute)

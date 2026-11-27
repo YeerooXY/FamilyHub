@@ -379,7 +379,6 @@ export function buildPlayerUi(ctx) {
                     download.focus({ preventScroll: true });
                     if (download.getAttribute("aria-disabled") !== "true") action.run(download);
                 });
-                download.title = action.label;
                 if (action.dialog) download.setAttribute("aria-haspopup", "dialog");
                 downloadIcon = download.firstElementChild;
                 spinner = make("span", "movie-track-spinner");
@@ -516,7 +515,6 @@ export function buildPlayerUi(ctx) {
         const output = make("output");
         output.setAttribute("aria-label", label + " value");
         const reset = button("movie-track-icon", "Reset subtitle " + label.toLowerCase(), paths.reset, {}, () => set(0));
-        reset.title = reset.getAttribute("aria-label");
         function set(value) {
             if (timingControls.disabled) return;
             write(Math.min(limit, Math.max(-limit, value)));
@@ -541,7 +539,6 @@ export function buildPlayerUi(ctx) {
                 if (!repeated || event.detail === 0) set(read() + direction * (event.shiftKey ? 10 : 1));
                 repeated = false;
             });
-            control.title = control.getAttribute("aria-label");
             control.addEventListener("pointerdown", event => {
                 if (event.button !== 0 || !event.isPrimary) return;
                 control.focus({ preventScroll: true });

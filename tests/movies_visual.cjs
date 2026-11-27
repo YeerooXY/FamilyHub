@@ -126,7 +126,8 @@ async function render(browser, label, options) {
         }
         if (url.pathname === "/Shows/s/Episodes") {
             await episodesGate;
-            assert.ok([null, "MediaStreams"].includes(url.searchParams.get("fields")), "episode fields stay limited to MediaStreams");
+            assert.deepEqual(url.searchParams.get("fields")?.split(",").sort(), ["MediaStreams", "Overview"],
+                "episode details request the quality and overview fields");
             if (failEpisodes) return route.fulfill({headers, status: 502});
             return list(imported ? [...episodes, {...episodes[4], Id: "new", Name: "Return to port", ParentIndexNumber: 3}] : episodes);
         }
@@ -506,7 +507,7 @@ async function render(browser, label, options) {
     if (desktop) {
         await checkDetailFrame(seriesView);
         await checkCastNames(seriesView);
-        assert.ok(await relatedSeries.evaluate(node => Math.abs(node.getBoundingClientRect().bottom - innerHeight) <= 1));
+        assert.equal(await relatedSeries.evaluate(node => node.closest(".movie-show-episodes") !== null), true);
     }
     await capture("series");
     const nextSeasons = seriesView.getByRole("button", {name:"Next seasons"});
