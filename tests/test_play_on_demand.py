@@ -168,10 +168,18 @@ class ListenerAdmissionTests(Base):
                 'stage': 'client_exit', 'reason': 'other', 'importance': 'unknown',
                 'exception': 'InvalidOperationException', 'frames': ['<LoadAsync>d__12.MoveNext', 'Render']
             }).json, {'ok': True})
+            self.assertEqual(self.post(client, token, endpoint, json=report | {
+                'exception': 'JSException', 'frames': ['TaskAwaiter.ThrowForNonSuccess'],
+                'app_frame': 'Music.OnAfterRenderAsync', 'js_identifier': 'familyhub.fitTitle',
+                'js_message': 'JavaScript type error.',
+            }).json, {'ok': True})
         self.assertEqual([record.getMessage() for record in logs.records], [
             'client_exit reason=freezer importance=cached age_s=312 screen_off_s=140 exception=none',
             'client_exit reason=other importance=unknown age_s=unknown screen_off_s=unknown '
             'exception=InvalidOperationException frames=<LoadAsync>d__12.MoveNext,Render',
+            'client_exit reason=freezer importance=cached age_s=312 screen_off_s=140 exception=JSException '
+            'frames=TaskAwaiter.ThrowForNonSuccess app_frame=Music.OnAfterRenderAsync '
+            'js_identifier=familyhub.fitTitle js_message="JavaScript type error."',
         ])
         self.assertEqual(self.go(client, 'GET', endpoint).json, {'actions': []})
 
@@ -193,6 +201,15 @@ class ListenerAdmissionTests(Base):
                 {'exception': 'Exception', 'frames': ['Render'] * 4},
                 {'exception': 'Exception', 'frames': ['C:\\Users\\name\\Private.cs']},
                 {'exception': 'Exception', 'frames': ['Run\nother log line']},
+                {'app_frame': 'Music.OnAfterRenderAsync'},
+                {'exception': 'JSException', 'app_frame': 'x' * 97},
+                {'exception': 'JSException', 'app_frame': 'Music.Render\nother log line'},
+                {'exception': 'Exception', 'js_identifier': 'familyhub.fitTitle'},
+                {'exception': 'JSException', 'js_identifier': 'familyhub.' + 'x' * 57},
+                {'exception': 'JSException', 'js_identifier': URL},
+                {'exception': 'JSException', 'js_message': 'x' * 161},
+                {'exception': 'JSException', 'js_message': 'Unexpected profile value: sample-a'},
+                {'exception': 'JSException', 'js_message': URL + '?ticket=private'},
                 {'song': 'fixture song'},
             ):
                 with self.subTest(invalid=invalid):
@@ -225,7 +242,8 @@ class ListenerAdmissionTests(Base):
                                       'reason': 'ERROR_CODE_TIMEOUT'})
         self.assertEqual(events[-1], {'stage': 'client_native_error', 'client_ms': 51, 'position_ms': 49051})
         for stage in ('resume_seek', 'resume_failed', 'resume_applied', 'screen_off', 'screen_on',
-                      'next_warmup_start', 'next_warmup_finish', 'next_warmup_failed'):
+                      'next_warmup_start', 'next_warmup_finish', 'next_warmup_failed',
+                      'stream_retry', 'stream_skipped'):
             self.assertEqual(report(stage, 750, position_ms=50400).status_code, 200)
             latest = self.go(client, 'GET', endpoint).json['actions'][0]['events'][-1]
             self.assertEqual(latest, {'stage': 'client_' + stage, 'client_ms': 750, 'position_ms': 50400})

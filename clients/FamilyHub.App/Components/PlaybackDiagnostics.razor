@@ -147,7 +147,7 @@
                 .Where(row => !nextIds.Contains(row.action.Action))
                 .Select(row => $"#playback-diagnostics > details:nth-of-type({row.index + 1})").ToArray();
             if (removed.Length > 0)
-                await JS.InvokeVoidAsync("familyhub.focusIfWithin", string.Join(", ", removed), "playback-diagnostics-refresh");
+                await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.focusIfWithin", string.Join(", ", removed), "playback-diagnostics-refresh");
         }
         local = recent;
         actions = next;
@@ -214,6 +214,8 @@
         "next_warmup_start" => "Started preparing the next song",
         "next_warmup_finish" => "Next song ready on this device",
         "next_warmup_failed" => "Could not prepare the next song",
+        "stream_retry" => "Retrying from the last playback position",
+        "stream_skipped" => "Skipped the song after playback retries failed",
         "checkpoint" => "Player position saved",
         "early_end" => "Stream ended early",
         "native_ended" => "Audio player reached the end",
@@ -271,6 +273,8 @@
     private static string Summary(PlayAction action, MusicSession.PlaybackObservation[]? observations)
     {
         int? Time(string name) => action.Events.FirstOrDefault(e => e.Stage == name)?.ClientMs;
+        if (observations?.Any(item => item.Stage == "stream_skipped") == true || Time("client_stream_skipped").HasValue)
+            return "Skipped after playback retries failed.";
         var first = Time("client_position_advanced");
         var retry = Time("client_fallback_position_advanced");
         var started = first ?? retry;

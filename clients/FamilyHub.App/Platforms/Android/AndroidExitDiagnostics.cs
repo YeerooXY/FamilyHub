@@ -5,7 +5,9 @@ using System.Text.RegularExpressions;
 using Android.App;
 using Android.Content;
 using Android.OS;
+using FamilyHub.App.Services;
 using FamilyHub.Client.Core;
+using Microsoft.JSInterop;
 
 namespace FamilyHub.App;
 
@@ -25,7 +27,8 @@ internal static class AndroidExitDiagnostics
     private static int sending;
 
     private sealed record Exit(int Pid, long Timestamp, string Reason, string Importance, int? Age, int? SinceScreenOff);
-    private sealed record Failure(int Pid, long Timestamp, string Type, string[] Frames);
+    private sealed record Failure(int Pid, long Timestamp, string Type, string[] Frames,
+        string? AppFrame = null, string? JsIdentifier = null, string? JsMessage = null);
 
     internal static string? LastExitReason
     {
@@ -146,12 +149,17 @@ internal static class AndroidExitDiagnostics
             if (error is AggregateException) error = error.GetBaseException();
             var type = error.GetType().Name;
             if (!Regex.IsMatch(type, @"\A[A-Za-z_][A-Za-z0-9_`]{0,95}\z")) type = "Exception";
-            var frames = (new StackTrace(error, fNeedFileInfo: false).GetFrames() ?? []).Take(3)
-                .Select(frame => frame.GetMethod())
+            var methods = (new StackTrace(error, fNeedFileInfo: false).GetFrames() ?? [])
+                .Select(frame => frame.GetMethod()).ToArray();
+            var frames = methods.Take(3)
                 .Select(method => method?.DeclaringType is { } declaringType ? $"{declaringType.Name}.{method.Name}" : method?.Name)
                 .Where(name => name is not null && Regex.IsMatch(name, @"\A[A-Za-z_.<>][A-Za-z0-9_.<>`|]{0,95}\z"))
                 .Select(name => name!).ToArray();
-            var failure = new Failure(Android.OS.Process.MyPid(), Now(), type, frames);
+            var appFrame = methods.Select(AppMethod).FirstOrDefault(name => name is not null);
+            var js = error as JSException;
+            var failure = new Failure(Android.OS.Process.MyPid(), Now(), type, frames, appFrame,
+                js is null ? null : PlaybackInterop.Identify(js),
+                js is null ? null : PlaybackInterop.Describe(js));
             lock (exceptionLock)
             {
                 using var edit = preferences?.Edit();
@@ -160,6 +168,16 @@ internal static class AndroidExitDiagnostics
             }
         }
         catch (Exception) { }
+    }
+
+    private static string? AppMethod(System.Reflection.MethodBase? method)
+    {
+        if (method?.DeclaringType is not { } type || type.Namespace?.StartsWith("FamilyHub.", StringComparison.Ordinal) != true)
+            return null;
+        var name = Regex.Match(method.Name == "MoveNext" ? type.Name : method.Name, @"<([A-Za-z_][A-Za-z0-9_]*)>");
+        while (type.Name.StartsWith('<') && type.DeclaringType is { } outer) type = outer;
+        var frame = $"{type.Name}.{(name.Success ? name.Groups[1].Value : method.Name)}";
+        return Regex.IsMatch(frame, @"\A[A-Za-z_][A-Za-z0-9_.`]{0,95}\z") ? frame : null;
     }
 
     internal static void PrepareManagedFailure()
@@ -209,7 +227,10 @@ internal static class AndroidExitDiagnostics
             age_s = exit?.Age,
             screen_off_s = exit?.SinceScreenOff,
             exception = failure?.Type,
-            frames = failure?.Frames ?? []
+            frames = failure?.Frames ?? [],
+            app_frame = failure?.AppFrame,
+            js_identifier = failure?.JsIdentifier,
+            js_message = failure?.JsMessage
         }, timeout.Token, background: true);
     }
 

@@ -175,6 +175,7 @@ public partial class MainPage : ContentPage
         // Leave headroom under the server's 15-second expiry, even on a metered idle connection.
         var playingOrConnecting = player.PlaybackRequested || player.RemotePlaying || session.HandoffPending;
         UpdatePlaybackNetwork();
+        session.FlushPlaybackDiagnostics();
         session.IdleHeartbeatSeconds = !playingOrConnecting && MeteredConnection() ? 10 : 5;
         var interval = TimeSpan.FromSeconds(session.IdleHeartbeatSeconds);
         if (activityTimer.Interval != interval) activityTimer.Interval = interval;
@@ -364,7 +365,11 @@ public partial class MainPage : ContentPage
         };
         pathMonitor.Start();
 #endif
-        Connectivity.Current.ConnectivityChanged += (_, _) => Dispatcher.Dispatch(UpdatePlaybackNetwork);
+        Connectivity.Current.ConnectivityChanged += (_, _) => Dispatcher.Dispatch(() =>
+        {
+            UpdatePlaybackNetwork();
+            session.FlushPlaybackDiagnostics();
+        });
         UpdatePlaybackNetwork();
 #if WINDOWS
         this.discord = discord;

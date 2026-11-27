@@ -169,7 +169,7 @@ else if (loadFailed)
         var returnId = opener ?? "sheet-lyrics";
         opener = null;
         await ExpandedChanged.InvokeAsync(false);
-        await JS.InvokeVoidAsync("familyhub.focusVisible", returnId, "player-more", "show-queue");
+        await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.focusVisible", returnId, "player-more", "show-queue");
     }
 
     private async Task Seek(double time)
@@ -184,11 +184,12 @@ else if (loadFailed)
         if (!Expanded || lyrics is null) { revealed = -1; return; }
         if (revealed == -1)
         {
-            await JS.InvokeVoidAsync("familyhub.bindPopupSheet", "lyrics-view", "lyrics-close");
-            await JS.InvokeVoidAsync("familyhub.focus", "lyrics-close");
+            if (!await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.bindPopupSheet", "lyrics-view", "lyrics-close")
+                || !await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.focus", "lyrics-close")) return;
+            revealed = -2;
         }
-        if (active >= 0 && active != revealed) { revealed = active; await JS.InvokeVoidAsync("familyhub.revealLyric", "lyric-" + active); }
-        else if (revealed == -1) revealed = -2;
+        if (active >= 0 && active != revealed && await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.revealLyric", "lyric-" + active))
+            revealed = active;
     }
 
     public void Dispose() { Player.Changed -= Changed; Session.Changed -= Changed; loading?.Cancel(); }

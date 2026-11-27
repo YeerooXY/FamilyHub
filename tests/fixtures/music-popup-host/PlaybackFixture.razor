@@ -1,0 +1,35 @@
+@using FamilyHub.App.Components.Pages
+@using FamilyHub.App.Services
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@implements IDisposable
+@inject MusicSession Session
+@inject MusicPlayer Player
+@inject FixtureDeck Deck
+
+<Music />
+<div id="fixture-playback" data-opens="@Deck.Opens" data-track="@Player.Current?.Id"
+     data-position="@Player.Position" data-state="@(Player.Playing ? "playing" : "paused")">
+    <button id="fixture-start" @onclick="Start">Start playback</button>
+    <button id="fixture-background" @onclick="Background">Background playback</button>
+    <button id="fixture-interrupt" @onclick="Interrupt">Interrupt stream</button>
+    <button id="fixture-resume" @onclick="Resume">Resume app</button>
+</div>
+
+@code {
+    protected override void OnInitialized() => Player.Changed += Changed;
+    private void Changed() => _ = InvokeAsync(StateHasChanged);
+    private Task Start() => Player.PlayAsync(Session.Library[0], Session.Library.Take(2));
+    private void Background()
+    {
+        FixtureApi.BlockPlaybackDiagnostics = true;
+        Player.UiActive = Session.UiActive = false;
+    }
+    private void Interrupt() => Deck.Interrupt(Deck.Opens == 1 ? 37 : 44);
+    private void Resume()
+    {
+        FixtureApi.BlockPlaybackDiagnostics = false;
+        Player.UiActive = Session.UiActive = true;
+    }
+    public void Dispose() => Player.Changed -= Changed;
+}

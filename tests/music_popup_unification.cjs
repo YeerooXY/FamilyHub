@@ -860,9 +860,73 @@ async function fixturePage(browser, options) {
 
 module.exports = {origin, runWithFixture, fixturePage};
 
+async function playbackRecovery() {
+    const browser = await chromium.launch({headless: true});
+    const page = await fixturePage(browser, devices['Pixel 7']);
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    const trigger = name => page.locator('#fixture-' + name).evaluate(button => button.click());
+    const first = '00000000001', next = '00000000002';
+    const playing = (opens, position, track = first, state = 'playing') =>
+        page.waitForFunction(([opens, position, track, state]) => {
+            const value = document.getElementById('fixture-playback')?.dataset;
+            return value && Number(value.opens) === opens && Number(value.position) === position &&
+                value.track === track && value.state === state;
+        }, [opens, position, track, state], {timeout: 13000});
+    const diagnostics = async () => (await page.request.get(origin + '/fixture/playback-diagnostics')).json();
+    try {
+        assert((await page.request.post(origin + '/fixture/startup/playback-recovery')).ok());
+        assert((await page.request.get(origin + '/fixture/playback-diagnostics')).ok(),
+            'Rebuild MusicPopupHost with the playback recovery fixture before running this suite');
+        assert((await page.goto(origin + '/outage/playback')).ok());
+        await page.locator('#fixture-playback').waitFor();
+        await page.locator('.hub-card.hub-music').tap();
+        await page.locator('#play').waitFor();
+        await trigger('start');
+        await playing(1, 0);
+        await page.waitForFunction(async () => {
+            const result = await fetch('/fixture/playback-diagnostics');
+            return (await result.json()).some(event => event.stage === 'play');
+        }, null, {polling: 100});
+        await trigger('background');
+        await page.evaluate(() => familyhub.setNativeActive(false));
+        for (const [opens, position] of [[2, 37], [3, 44], [4, 44]]) {
+            await trigger('interrupt');
+            await playing(opens, position);
+        }
+        await trigger('interrupt');
+        await playing(5, 0, next);
+        assert(!(await diagnostics()).some(event => ['stream_failed', 'stream_retry', 'failed', 'stream_skipped'].includes(event.stage)));
+
+        await page.evaluate(() => familyhub.setNativeActive(true));
+        await trigger('resume');
+        await page.locator('#play').click();
+        await playing(5, 0, next, 'paused');
+        await page.waitForFunction(async () => {
+            const result = await fetch('/fixture/playback-diagnostics');
+            return (await result.json()).some(event => event.stage === 'stream_skipped');
+        }, null, {polling: 100});
+        const rows = await diagnostics();
+        const action = rows.find(event => event.stage === 'stream_skipped').action;
+        const stages = rows.filter(event => event.action === action);
+        assert(stages.some(event => event.stage === 'stream_failed'));
+        assert(stages.some(event => event.stage === 'failed'));
+        assert.deepEqual(stages.filter(event => event.stage === 'stream_retry').map(event => event.position_ms), [37000, 44000, 44000]);
+        assert.deepEqual(errors, []);
+        console.log('PASS Android fixture: stream resume, skip and queued diagnostics');
+    } finally {
+        try {
+            await page.request.post(origin + '/fixture/startup/none');
+        } finally {
+            await browser.close();
+        }
+    }
+}
+
 if (require.main === module) {
     runWithFixture(async () => {
         const requested = process.env.POPUP_PROFILES?.split(',');
+        if (!before && (!requested || requested.includes('android-chrome-390'))) await playbackRecovery();
         for (const profile of profiles.filter(([name]) => !requested || requested.includes(name))) await audit(...profile);
     }).catch(error => { console.error(error); process.exitCode = 1; });
 }

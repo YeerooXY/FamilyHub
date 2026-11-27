@@ -20,11 +20,17 @@
     private ElementReference slider;
     private DotNetObjectReference<SeekBar>? visibility;
     private IJSObjectReference? observer;
+    private bool bindingObserver;
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender) return;
-        visibility = DotNetObjectReference.Create(this);
-        observer = await JS.InvokeAsync<IJSObjectReference>("familyhub.observeSeekBar", slider, visibility);
+        if (observer is not null || bindingObserver) return;
+        bindingObserver = true;
+        try
+        {
+            visibility ??= DotNetObjectReference.Create(this);
+            observer = await PlaybackInterop.InvokeOrAsync<IJSObjectReference?>(JS, "familyhub.observeSeekBar", null, slider, visibility);
+        }
+        finally { bindingObserver = false; }
     }
     [JSInvokable] public void SeekVisibility(bool visible) => Player.SetSeekBarVisible(visible);
     private double? preview;
@@ -65,7 +71,8 @@
         if (observer is not null)
         {
             try { await observer.InvokeVoidAsync("disconnect"); await observer.DisposeAsync(); }
-            catch (JSDisconnectedException) { }
+            catch (Exception error) when (PlaybackInterop.IsUnavailable(error))
+            { PlaybackInterop.Report("familyhub.observeSeekBar.disconnect", error); }
         }
         visibility?.Dispose(); Player.SetSeekBarVisible(false);
     }

@@ -22,9 +22,11 @@
     private long requestVersion;
     private string? error;
     protected override void OnInitialized() { token = lifetime.Token; _ = Poll(); }
-    protected override Task OnAfterRenderAsync(bool firstRender) => requests.Count > 0
-        ? JS.InvokeVoidAsync("familyhub.bindPopupSheet", "listening-request", "listening-request-close").AsTask()
-        : Task.CompletedTask;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Session.UiActive && requests.Count > 0)
+            await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.bindPopupSheet", "listening-request", "listening-request-close");
+    }
     private async Task Poll()
     {
         while (!token.IsCancellationRequested)
@@ -39,7 +41,8 @@
                     var result = await api.RequestJsonAsync<ListeningPokes>(HttpMethod.Get, "/api/listening/pokes", cancellationToken: timeout.Token, background: true);
                     if (ReferenceEquals(api, Session.Api) && user == Session.User && version == requestVersion)
                     {
-                        if (requests.FirstOrDefault() is { } old && !result.Requests.Any(p => p.Id == old.Id)) await JS.InvokeVoidAsync("familyhub.focusIfWithin", ".listening-poke", "listen-together");
+                        if (requests.FirstOrDefault() is { } old && !result.Requests.Any(p => p.Id == old.Id))
+                            await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.focusIfWithin", ".listening-poke", "listen-together");
                         await InvokeAsync(() => { requests = result.Requests; sourceIdentity = identity; StateHasChanged(); });
                     }
                 }

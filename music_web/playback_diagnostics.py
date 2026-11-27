@@ -18,6 +18,7 @@ NATIVE_STAGES = frozenset({
     "buffer_recovered", "native_ready", "unexpected_pause", "native_paused", "native_suppressed",
     "player_error", "native_error", "interrupted", "resume_seek", "resume_applied", "resume_failed",
     "screen_off", "screen_on", "next_warmup_start", "next_warmup_finish", "next_warmup_failed",
+    "stream_retry", "stream_skipped",
 })
 
 EXIT_STAGES = frozenset({"client_exit"})
@@ -32,14 +33,22 @@ EXIT_IMPORTANCE = frozenset({
 })
 EXCEPTION_TYPE = re.compile(r"[A-Za-z_][A-Za-z0-9_`]{0,95}")
 FRAME_METHOD = re.compile(r"[A-Za-z_.<>][A-Za-z0-9_.<>`|]{0,95}")
+APP_METHOD = re.compile(r"[A-Za-z_][A-Za-z0-9_.`]{0,95}")
+JS_IDENTIFIER = re.compile(r"(?:familyhub|FamilyHub[A-Za-z]{1,24})\.[A-Za-z_][A-Za-z0-9_.]{0,55}")
+JS_MESSAGES = frozenset({
+    "JavaScript function was unavailable.", "JavaScript type error.",
+    "JavaScript reference error.", "JavaScript invocation failed.",
+})
 
 
 def record_client_exit(data):
-    if data.keys() - {"stage", "reason", "importance", "age_s", "screen_off_s", "exception", "frames"}:
+    if data.keys() - {"stage", "reason", "importance", "age_s", "screen_off_s", "exception", "frames",
+                      "app_frame", "js_identifier", "js_message"}:
         return False
     reason, importance = data.get("reason"), data.get("importance")
     age, screen_off = data.get("age_s"), data.get("screen_off_s")
     kind, frames = data.get("exception"), data.get("frames", [])
+    app_frame, js_identifier, js_message = (data.get(key) for key in ("app_frame", "js_identifier", "js_message"))
     if (not isinstance(reason, str) or reason not in EXIT_REASONS
             or not isinstance(importance, str) or importance not in EXIT_IMPORTANCE
             or any(value is not None and (type(value) is not int or not 0 <= value <= 2147483647)
@@ -47,12 +56,24 @@ def record_client_exit(data):
             or (age is not None and screen_off is not None and screen_off > age)
             or (kind is not None and (not isinstance(kind, str) or not EXCEPTION_TYPE.fullmatch(kind)))
             or not isinstance(frames, list) or len(frames) > 3 or (kind is None and frames)
-            or any(not isinstance(frame, str) or not FRAME_METHOD.fullmatch(frame) for frame in frames)):
+            or any(not isinstance(frame, str) or not FRAME_METHOD.fullmatch(frame) for frame in frames)
+            or (app_frame is not None and (kind is None or not isinstance(app_frame, str) or not APP_METHOD.fullmatch(app_frame)))
+            or (js_identifier is not None and (kind != "JSException" or not isinstance(js_identifier, str)
+                                               or not JS_IDENTIFIER.fullmatch(js_identifier)))
+            or (js_message is not None and (kind != "JSException" or not isinstance(js_message, str)
+                                            or len(js_message) > 160 or js_message not in JS_MESSAGES))):
         return False
+    details = " frames=" + ",".join(frames) if frames else ""
+    if app_frame is not None:
+        details += " app_frame=" + app_frame
+    if js_identifier is not None:
+        details += " js_identifier=" + js_identifier
+    if js_message is not None:
+        details += ' js_message="' + js_message + '"'
     log.info("client_exit reason=%s importance=%s age_s=%s screen_off_s=%s exception=%s%s",
              reason, importance, age if age is not None else "unknown",
              screen_off if screen_off is not None else "unknown", kind or "none",
-             " frames=" + ",".join(frames) if frames else "")
+             details)
     return True
 
 # AndroidX Media3 1.8 PlaybackException names. Never retain free-form player or network errors.

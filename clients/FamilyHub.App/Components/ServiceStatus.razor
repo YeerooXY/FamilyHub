@@ -48,20 +48,28 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!Active && !configured) return;
+        var identifier = "import";
         try
         {
-            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./service-status.js");
-            await module.InvokeVoidAsync("configureServiceStatus", card, Active, AutoRetry);
-            if (!Active) await module.InvokeVoidAsync("showServiceRecovery", RecoveryTarget ?? FocusTarget);
+            module ??= await JS.InvokeAsync<IJSObjectReference>(identifier, "./service-status.js");
+            identifier = "configureServiceStatus";
+            await module.InvokeVoidAsync(identifier, card, Active, AutoRetry);
+            if (!Active)
+            {
+                identifier = "showServiceRecovery";
+                await module.InvokeVoidAsync(identifier, RecoveryTarget ?? FocusTarget);
+            }
             configured = Active;
         }
-        catch (JSDisconnectedException) { }
+        catch (Exception error) when (PlaybackInterop.IsUnavailable(error))
+        { PlaybackInterop.Report(identifier, error); }
     }
 
     public async ValueTask DisposeAsync()
     {
         if (module is null) return;
         try { await module.DisposeAsync(); }
-        catch (JSDisconnectedException) { }
+        catch (Exception error) when (PlaybackInterop.IsUnavailable(error))
+        { PlaybackInterop.Report("service-status.dispose", error); }
     }
 }

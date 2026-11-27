@@ -24,12 +24,13 @@ var feedbackDrafts = Path.Combine(repo, ".local", "popup-feedback-drafts", Guid.
 builder.Services.AddRazorComponents().AddInteractiveServerComponents()
     .AddHubOptions(options => options.MaximumReceiveMessageSize = 256 * 1024);
 builder.Services.AddScoped<MusicSession>(_ => MakeSession(repo));
+builder.Services.AddScoped(_ => new FixtureDeck());
 builder.Services.AddSingleton(new FeedbackDrafts(feedbackDrafts));
 builder.Services.AddSingleton(_ => new PublicAppReleases(new HttpClient(new FixtureApi([]))));
 builder.Services.AddScoped(service => {
     var player = new MusicPlayer(service.GetRequiredService<MusicSession>());
     typeof(MusicPlayer).GetMethod("AttachDecks", BindingFlags.Instance | BindingFlags.NonPublic)!
-        .Invoke(player, new object?[] { new FixtureDeck(), null });
+        .Invoke(player, new object?[] { service.GetRequiredService<FixtureDeck>(), null });
     if (FixtureApi.Startup == "outage-lyrics")
         typeof(MusicPlayer).GetProperty("Current")!.SetValue(player, service.GetRequiredService<MusicSession>().Library[0]);
     return player;
@@ -61,6 +62,8 @@ app.MapPost("/fixture/startup/{scenario}", (string scenario) =>
     FixtureApi.SimilarRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
     FixtureApi.PlaylistStep = 0;
     FixtureApi.PlaylistPaused = false;
+    FixtureApi.BlockPlaybackDiagnostics = false;
+    FixtureApi.PlaybackDiagnostics.Clear();
     FixtureApi.AlbumLookups = 0;
     Interlocked.Exchange(ref FixtureApi.UpdateChecks, 0);
     Interlocked.Exchange(ref FixtureApi.PublicUpdateRequests, 0);
@@ -84,6 +87,7 @@ app.MapPost("/fixture/wordle-member/{count:int}/{submitted:bool}", (int count, b
 });
 app.MapGet("/fixture/wordle-activity", () => Results.Text(FixtureApi.WordleActivity, "application/json"));
 app.MapGet("/fixture/feedback-submission", () => Results.Text(FixtureApi.FeedbackSubmission, "application/json"));
+app.MapGet("/fixture/playback-diagnostics", () => FixtureApi.PlaybackDiagnostics.ToArray());
 app.MapGet("/fixture/feedback-draft", () => Results.Json(Directory.Exists(feedbackDrafts) && Directory.EnumerateFiles(feedbackDrafts, "*.json").Any()));
 
 app.MapStaticAssets();
@@ -196,8 +200,12 @@ static class PlatformStubs
     public static bool OnMainThread(ref bool __result) { __result = true; return false; }
     public static bool CachedFile(MusicTrack track, CancellationToken token, ref Task<string> __result)
     {
-        __result = FixtureApi.Startup == "similar-preparing" && track.Id == "00000000001"
-            ? DelayFileAsync(token) : Task.FromResult("fixture.mp3");
+        __result = FixtureApi.Startup switch
+        {
+            "playback-recovery" => Task.FromResult($"https://music.fixture.test/fixture/audio/{track.Id}"),
+            "similar-preparing" when track.Id == "00000000001" => DelayFileAsync(token),
+            _ => Task.FromResult("fixture.mp3")
+        };
         return false;
     }
     private static async Task<string> DelayFileAsync(CancellationToken token)
@@ -219,7 +227,7 @@ sealed class FixtureDeck : IAudioDeck
 {
     public event Action? Changed;
     public event Action? Ended { add { } remove { } }
-    public event Action<string>? Failed { add { } remove { } }
+    public event Action<string>? Failed;
     public bool Opening => false;
     public bool PlaybackRequested => Playing;
     public bool Playing { get; private set; }
@@ -227,11 +235,23 @@ sealed class FixtureDeck : IAudioDeck
     public double Duration { get; } = FixtureApi.Startup == "seek-localized" ? 317.5 : 203;
     public double Volume { get; set; }
     public bool TransportEnabled { private get; set; }
-    public void PlayFile(string path, string title, string artist, bool play = true, bool background = false) => SetPlaying(play);
+    public int Opens { get; private set; }
+    public void PlayFile(string path, string title, string artist, bool play = true, bool background = false)
+    {
+        Opens++;
+        SetPlaying(play);
+    }
     public void SetPlaying(bool play) { Playing = play; Changed?.Invoke(); }
     public void RefreshPosition() { }
     public Task SeekAsync(double seconds) { Position = seconds; return Task.CompletedTask; }
     public void Stop() { Playing = false; Position = 0; }
+    public void Interrupt(double position)
+    {
+        Position = position;
+        Changed?.Invoke();
+        Playing = false; Position = 0;
+        Failed?.Invoke("Fixture stream ended early");
+    }
 }
 
 sealed class FixtureLauncher : ILauncher
@@ -259,6 +279,8 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
     public static volatile string Startup = "none";
     public static volatile string HealthState = "ready";
     public static volatile string Outage = "";
+    public static volatile bool BlockPlaybackDiagnostics;
+    public static readonly System.Collections.Concurrent.ConcurrentQueue<JsonElement> PlaybackDiagnostics = new();
     public static int UpdateChecks;
     public static int PublicUpdateRequests;
     public static volatile TaskCompletionSource SimilarRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -302,6 +324,13 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
     {
         var path = request.RequestUri!.AbsolutePath;
+        if (Startup == "playback-recovery" && path == "/api/playback/diagnostics" && request.Method == HttpMethod.Post)
+        {
+            if (BlockPlaybackDiagnostics)
+                return new(HttpStatusCode.TooManyRequests) { Content = new StringContent("""{"error":"Fixture diagnostics unavailable"}""", Encoding.UTF8, "application/json") };
+            PlaybackDiagnostics.Enqueue(JsonSerializer.Deserialize<JsonElement>(await request.Content!.ReadAsStringAsync(token)));
+            return new(HttpStatusCode.OK) { Content = new StringContent("""{"ok":true}""", Encoding.UTF8, "application/json") };
+        }
         if (Startup == "outage-connect" && path == "/api/connect")
             throw new HttpRequestException("Fixture server unavailable");
         if (Outage == "on" && path == "/api/uploads")

@@ -15,6 +15,7 @@ internal sealed class MauiAudioDeck : IAudioDeck
     private TaskCompletionSource? nativeSeek;
 #endif
     private MediaSource? pendingSource;
+    private MediaSource? endedSource;
     private readonly IDispatcherTimer positionTimer;
     public double FastPositionWindow { get; set; }
     public event Action? Changed;
@@ -41,6 +42,7 @@ internal sealed class MauiAudioDeck : IAudioDeck
         {
             if (stage is "native_ready" or "native_ended" or "native_error") nativeSeek?.TrySetResult();
             DiagnosticObserved?.Invoke(stage, position, reason);
+            if (stage == "native_ended") QueueEnd(native: true);
         });
         media.HandlerChanging += (_, _) =>
         {
@@ -69,19 +71,7 @@ internal sealed class MauiAudioDeck : IAudioDeck
                 Changed?.Invoke();
             });
         };
-        media.MediaEnded += (_, _) =>
-        {
-            var endedSource = media.Source;
-            // Toolkit still writes its stopped state after raising MediaEnded. Advance after that callback unwinds.
-            media.Dispatcher.Dispatch(() =>
-            {
-                if (endedSource is null || !ReferenceEquals(media.Source, endedSource) || Opening || !PlaybackRequested) return;
-#if ANDROID
-                if (AudioRouting.Player(media) is { PlaybackState: not NativeEnded }) return;
-#endif
-                Ended?.Invoke();
-            });
-        };
+        media.MediaEnded += (_, _) => QueueEnd();
         media.MediaFailed += (_, _) =>
         {
             var failedSource = media.Source;
@@ -96,13 +86,28 @@ internal sealed class MauiAudioDeck : IAudioDeck
             });
         };
     }
+    private void QueueEnd(bool native = false)
+    {
+        var source = media.Source;
+        // Wait for Toolkit's end callback to finish writing its stopped state.
+        media.Dispatcher.Dispatch(() =>
+        {
+            if (source is null || !ReferenceEquals(media.Source, source) || ReferenceEquals(endedSource, source)
+                || !PlaybackRequested || pendingSource is not null || !native && Opening) return;
+#if ANDROID
+            if (AudioRouting.Player(media) is { PlaybackState: not NativeEnded }) return;
+#endif
+            endedSource = source;
+            Ended?.Invoke();
+        });
+    }
     public void PlayFile(string path, string title, string artist, bool play = true, bool background = false)
     {
         if (media.Handler is null) throw new InvalidOperationException("The audio player is not ready. Reopen the app and try again.");
 #if ANDROID
         nativeSeek?.TrySetResult();
 #endif
-        PlaybackRequested = play;
+        endedSource = null; PlaybackRequested = play;
         media.MetadataTitle = title; media.MetadataArtist = artist; media.ShouldAutoPlay = play;
         var streaming = path.StartsWith("https://", StringComparison.Ordinal);
         if (!streaming)
@@ -122,6 +127,7 @@ internal sealed class MauiAudioDeck : IAudioDeck
     }
     public void SetPlaying(bool play)
     {
+        if (play && !PlaybackRequested) endedSource = null;
         PlaybackRequested = play; media.ShouldAutoPlay = play;
         if (play) { media.Play(); positionTimer.Start(); } else { media.Pause(); positionTimer.Stop(); }
     }
@@ -173,7 +179,7 @@ internal sealed class MauiAudioDeck : IAudioDeck
 #if ANDROID
         nativeSeek?.TrySetResult();
 #endif
-        positionTimer.Stop(); pendingSource = null; PlaybackRequested = false; media.Stop(); media.Source = null;
+        positionTimer.Stop(); pendingSource = null; endedSource = null; PlaybackRequested = false; media.Stop(); media.Source = null;
     }
 }
 #endif

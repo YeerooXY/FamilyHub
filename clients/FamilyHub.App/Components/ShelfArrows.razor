@@ -11,5 +11,6 @@
     [Parameter, EditorRequired] public string Label { get; set; } = "";
     [Parameter] public RenderFragment? ChildContent { get; set; }
     private Task Scroll(int direction) => JS.InvokeVoidAsync("familyhub.scrollShelf", Target, direction).AsTask();
-    protected override Task OnAfterRenderAsync(bool firstRender) => JS.InvokeVoidAsync("familyhub.watchShelf", Target).AsTask();
+    protected override async Task OnAfterRenderAsync(bool firstRender) =>
+        await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.watchShelf", Target);
 }

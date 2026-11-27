@@ -198,7 +198,8 @@ for (var run = 0; run < 100; run++)
     primary.Tick(6);
     var action = session.Stages.Last(entry => entry.Stage == "play").Action;
     primary.RaiseFailed();
-    Check(player.Current == sequence[2] && primary.Path == "fixture" && primary.StartedAt == 6,
+    for (var i = 0; i < 150 && !primary.Playing; i++) await Task.Delay(10);
+    Check(player.Current == sequence[2] && primary.Path?.StartsWith("https://") == true && primary.StartedAt == 6,
         "Current stream recovery lost the track or playhead");
     Check(session.Stages.Contains((action, "stream_failed")) && session.Stages.Contains((action, "fallback_playing")),
         "Current stream recovery lost its action correlation");
@@ -258,27 +259,56 @@ for (var run = 0; run < 100; run++)
     var standby = new WindowsAudioPlayer();
     var player = new MusicPlayer(session) { AutoDj = false };
     player.AttachDecks(primary, standby);
+    var outgoing = tracks[0] with { Duration = 120 };
     var saved = tracks[1] with { Saved = true };
-    await player.PlayAsync(tracks[0], [tracks[0], saved]);
+    await player.PlayAsync(outgoing, [outgoing, saved]);
     Check(session.UpcomingDownloads.Single().Track == saved && standby.Path is null
         && session.Observations.Any(row => row.Stage == "next_warmup_failed"), "A saved song bypassed the cache limit");
     primary.Tick(113);
     Check(session.UpcomingDownloads.Count == 1 && standby.Path?.StartsWith("https://") == true,
         "A full cache prevented conservative stream preparation");
+    standby.RaiseFailed();
+    player.UiActive = false;
+    primary.Tick(7);
+    primary.RaiseEnded();
+    Check(player.Current?.Id == saved.Id && primary.Path?.StartsWith("https://") == true && player.Playing,
+        "Native end did not open the next stream directly after both warmup attempts failed");
+}
+{
+    var session = new MusicSession { Stream = true, HomeConnection = true, DelayUpcoming = true };
+    var primary = new WindowsAudioPlayer { StreamDuration = 120 };
+    var player = new MusicPlayer(session) { AutoDj = false, UiActive = false };
+    player.AttachDecks(primary, new WindowsAudioPlayer());
+    var outgoing = tracks[0] with { Duration = 120 };
+    var saved = tracks[1] with { Saved = true };
+    await player.PlayAsync(outgoing, [outgoing, saved]);
+    var pending = session.UpcomingDownloads.Single();
+    var cacheReads = session.CacheReads;
+    primary.Tick(120);
+    primary.RaiseEnded();
+    Check(pending.Token.IsCancellationRequested && session.CacheReads == cacheReads && session.StreamRequests == 2
+        && player.Current?.Id == saved.Id && player.Playing, "Native end waited for an unfinished warmup");
 }
 {
     var session = new MusicSession { Stream = true };
-    var primary = new WindowsAudioPlayer { LocalDuration = 180 };
+    var primary = new WindowsAudioPlayer { StreamDuration = 180, LocalDuration = 180 };
     var player = new MusicPlayer(session);
     player.AttachDecks(primary, null);
     var preview = tracks[0] with { Duration = 180, PlaybackVersion = "preview-hls" };
-    await player.PlayAsync(preview, [preview, tracks[1]]);
+    await player.PlayAsync(preview);
     primary.Tick(30);
     player.UiActive = false;
     primary.RaiseEnded();
-    Check(player.Current?.Id == preview.Id && primary.Path == "fixture" && primary.StartedAt == 30,
+    for (var i = 0; i < 150 && primary.StartedAt != 30; i++) await Task.Delay(10);
+    Check(player.Current?.Id == preview.Id && primary.Path?.StartsWith("https://") == true && primary.StartedAt == 30,
         "An early preview end advanced the queue or restarted at zero");
     primary.Tick(2);
+    primary.RaiseFailed(resetPosition: true);
+    for (var i = 0; i < 500 && !primary.Playing; i++) await Task.Delay(10);
+    Check(primary.Playing && primary.StartedAt == 32, "The second retry lost the last position after a native reset");
+    primary.RaiseFailed(resetPosition: true);
+    for (var i = 0; i < 1000 && !primary.Playing; i++) await Task.Delay(10);
+    Check(primary.Playing && primary.StartedAt == 32, "The third retry lost the last position after a native reset");
     primary.RaiseFailed(resetPosition: true);
     Check(!player.PlaybackRequested && player.CaptureResume()?.Position == 32,
         "A terminal playback failure lost the last position");
@@ -594,7 +624,7 @@ Check(Math.Abs(CrossfadeEnvelope.Smooth(0, 1, .015) - (1 - Math.Exp(-1))) < .000
     await player.PlayAsync(tracks[0], tracks);
     session.FailPlayback = true; player.RepeatMode = "off";
     Check(nextDeck.Title is null, "Failed preparation unexpectedly loaded the standby deck");
-    session.FailPlayback = false; await Task.Delay(10200); currentDeck.Tick(1);
+    session.FailPlayback = false; currentDeck.Tick(5);
     Check(nextDeck.Title == tracks[1].Title, "Failed upcoming preparation was never retried");
 }
 {
@@ -866,7 +896,12 @@ namespace FamilyHub.App.Services
             StageTimes[(action, stage)] = elapsed;
         }
         public string? LocalPath(MusicTrack track) => Delay || Stream ? null : FailPlayback ? "fail" : "fixture";
-        public Task<string?> GetCachedPlaybackPathAsync(MusicTrack track, CancellationToken token) => Task.FromResult<string?>(null);
+        public int CacheReads { get; private set; }
+        public Task<string?> GetCachedPlaybackPathAsync(MusicTrack track, CancellationToken token)
+        {
+            CacheReads++;
+            return Task.FromResult<string?>(null);
+        }
         public Task<MusicTrack> EnsureServerRecordingAsync(MusicTrack track, CancellationToken token, bool allowPreview = false,
             bool background = false, bool prefetch = false, string? action = null, bool fallback = false)
         {
@@ -956,8 +991,8 @@ namespace FamilyHub.App.Services
         public void RaiseEnded() => Ended?.Invoke();
         public void RaiseFailed(bool resetPosition = false)
         {
-            PlaybackRequested = false;
             if (resetPosition) { Position = 0; Changed?.Invoke(); }
+            PlaybackRequested = false;
             Failed?.Invoke("Fixture stream failed");
         }
         public void Seek(double seconds) { Position = seconds; Seeks++; Changed?.Invoke(); }

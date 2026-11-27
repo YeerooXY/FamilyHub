@@ -242,14 +242,17 @@ class NativeMusicApi(Base):
             self.assertEqual(outside.status_code, 416)
 
     def test_stream_link_plays_without_cookie_only_with_its_ticket(self):
-        self.recording()
+        _, _, _, data = self.recording()
         client, _ = self.signed_in()
-        info = self.go(client, 'GET', '/api/library/' + FIRST + '/playback-info?quality=max').json
+        info = self.go(client, 'GET', '/api/library/' + FIRST + '/playback-info?stream=1').json
         stream = info['stream_url']
         self.assertTrue(stream.startswith('/api/library/' + FIRST + '/download?'))
         anonymous = self.app.test_client()
         self.assertEqual(self.go(anonymous, 'GET', stream).status_code, 200)
-        self.assertEqual(self.go(anonymous, 'GET', stream, headers={'Range': 'bytes=0-3'}).status_code, 206)
+        with self.go(anonymous, 'GET', stream, headers={'Range': 'bytes=12-23'}) as resumed:
+            self.assertEqual(resumed.status_code, 206)
+            self.assertEqual(resumed.headers['Content-Range'], f'bytes 12-23/{len(data)}')
+            self.assertEqual(resumed.data, data[12:24])
         forged = stream[:-1] + ('0' if stream[-1] != '0' else '1')
         self.assertEqual(self.go(anonymous, 'GET', forged).status_code, 401)
         other = stream.replace(FIRST, 'local-' + '0' * 16, 1)

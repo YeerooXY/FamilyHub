@@ -38,6 +38,7 @@ public sealed class MusicSession
         {
             if (uiActive == value) return;
             uiActive = value;
+            if (value) FlushPlaybackDiagnostics();
             UiActiveChanged?.Invoke();
         }
     }
@@ -1132,6 +1133,7 @@ public sealed class MusicSession
         lastServerAnswer = Environment.TickCount64;
         Connected = true;
         reconnectUntil = null;
+        FlushPlaybackDiagnostics();
         if (recovered) Changed?.Invoke();
     }
 
@@ -1536,7 +1538,6 @@ public sealed class MusicSession
     internal void RecordPlaybackObservation(string id, string stage, double position, string? reason)
     {
         if (string.IsNullOrEmpty(User) || string.IsNullOrEmpty(Server) || !double.IsFinite(position)) return;
-        var api = Connected ? Api : null;
         var now = DateTimeOffset.UtcNow;
         long elapsed;
         position = Math.Clamp(position, 0, 86400);
@@ -1555,10 +1556,10 @@ public sealed class MusicSession
             PersistPlaybackAttempt(updated);
             elapsed = (long)(now - updated.Started).TotalMilliseconds;
         }
-        if (api is not null && stage != "checkpoint" && !stage.StartsWith("notification_", StringComparison.Ordinal)
+        if (stage != "checkpoint" && !stage.StartsWith("notification_", StringComparison.Ordinal)
             && elapsed is >= 0 and <= 3600000)
-            _ = SendPlaybackStageAsync(api, id, stage, elapsed, (int)(position * 1000),
-                stage.StartsWith("native_", StringComparison.Ordinal) ? reason : null);
+            QueuePlaybackDiagnostic(new(id, stage, elapsed, (int)(position * 1000),
+                stage.StartsWith("native_", StringComparison.Ordinal) ? reason : null));
     }
 
     private void PersistPlaybackAttempt(LocalPlaybackAttempt attempt)
@@ -1587,25 +1588,108 @@ public sealed class MusicSession
             if (stage is "failed" or "cancelled" && attempt.Observations is { Length: > 0 })
                 PersistPlaybackAttempt(attempt);
         }
-        if (Connected && Api is { } api)
-            _ = SendPlaybackStageAsync(api, action, stage, elapsed);
+        QueuePlaybackDiagnostic(new(action, stage, elapsed, null, null));
     }
-    private static async Task SendPlaybackStageAsync(FamilyHubApi api, string action, string stage, long elapsed,
-        int? positionMs = null, string? reason = null)
+
+    private sealed record PendingPlaybackDiagnostic(string Action, string Stage, long Elapsed, int? PositionMs, string? Reason);
+    private sealed class PlaybackDiagnosticQueue(IEnumerable<PendingPlaybackDiagnostic> pending)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        public readonly Queue<PendingPlaybackDiagnostic> Pending = new(pending);
+        public bool Sending;
+    }
+    private readonly Dictionary<string, PlaybackDiagnosticQueue> playbackDiagnosticQueues = [];
+    private string PlaybackDiagnosticKey => PlaybackLogKey + ":pending";
+
+    private PlaybackDiagnosticQueue PlaybackDiagnosticsFor(string key)
+    {
+        if (playbackDiagnosticQueues.TryGetValue(key, out var queue)) return queue;
+        PendingPlaybackDiagnostic[] pending = [];
         try
         {
-            object payload = (positionMs, reason) switch
+            pending = JsonSerializer.Deserialize<PendingPlaybackDiagnostic[]>(Preferences.Default.Get(key, "[]")) ?? [];
+        }
+        catch (Exception error) when (error is JsonException or IOException or UnauthorizedAccessException or InvalidOperationException) { }
+        return playbackDiagnosticQueues[key] = new(pending.TakeLast(128));
+    }
+
+    private static void PersistPlaybackDiagnostics(string key, PlaybackDiagnosticQueue queue)
+    {
+        try { Preferences.Default.Set(key, JsonSerializer.Serialize(queue.Pending)); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException) { }
+    }
+
+    private void QueuePlaybackDiagnostic(PendingPlaybackDiagnostic diagnostic)
+    {
+        if (string.IsNullOrEmpty(User) || string.IsNullOrEmpty(Server)) return;
+        var key = PlaybackDiagnosticKey;
+        lock (playbackDiagnosticQueues)
+        {
+            var queue = PlaybackDiagnosticsFor(key);
+            if (queue.Pending.Count >= 128) queue.Pending.Dequeue();
+            queue.Pending.Enqueue(diagnostic);
+            PersistPlaybackDiagnostics(key, queue);
+        }
+        FlushPlaybackDiagnostics();
+    }
+
+    internal void FlushPlaybackDiagnostics()
+    {
+        if (!Connected || Api is not { } api || string.IsNullOrEmpty(User) || string.IsNullOrEmpty(Server)) return;
+        var key = PlaybackDiagnosticKey;
+        PlaybackDiagnosticQueue queue;
+        lock (playbackDiagnosticQueues)
+        {
+            queue = PlaybackDiagnosticsFor(key);
+            if (queue.Sending || queue.Pending.Count == 0) return;
+            queue.Sending = true;
+        }
+        _ = FlushPlaybackDiagnosticsAsync(api, key, queue);
+    }
+
+    private async Task FlushPlaybackDiagnosticsAsync(FamilyHubApi api, string key, PlaybackDiagnosticQueue queue)
+    {
+        try
+        {
+            while (true)
             {
-                (null, _) => new { action, stage, elapsed_ms = elapsed },
-                (_, null) => new { action, stage, elapsed_ms = elapsed, position_ms = positionMs },
-                _ => new { action, stage, elapsed_ms = elapsed, position_ms = positionMs, reason }
-            };
-            await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, PlaybackDiagnosticsPath, payload, timeout.Token, background: true);
+                PendingPlaybackDiagnostic entry;
+                lock (playbackDiagnosticQueues)
+                {
+                    if (!Connected || !ReferenceEquals(api, Api) || !queue.Pending.TryPeek(out var next))
+                    {
+                        queue.Sending = false;
+                        return;
+                    }
+                    entry = next;
+                }
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                try
+                {
+                    await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, PlaybackDiagnosticsPath, new
+                    {
+                        action = entry.Action, stage = entry.Stage, elapsed_ms = entry.Elapsed,
+                        position_ms = entry.PositionMs, reason = entry.Reason
+                    }, timeout.Token, background: true).ConfigureAwait(false);
+                }
+                catch (FamilyHubApiException error) when (error.StatusCode is 400 or 404 or 405)
+                {
+                    // An older server may reject a new diagnostic stage.
+                }
+                lock (playbackDiagnosticQueues)
+                {
+                    if (ReferenceEquals(queue.Pending.TryPeek(out var head) ? head : null, entry))
+                    {
+                        queue.Pending.Dequeue();
+                        PersistPlaybackDiagnostics(key, queue);
+                    }
+                }
+            }
         }
         catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException
-            or ObjectDisposedException or JsonException or IOException or InvalidDataException) { }
+            or ObjectDisposedException or JsonException or IOException or InvalidDataException)
+        {
+            lock (playbackDiagnosticQueues) queue.Sending = false;
+        }
     }
 
     public string? LastExitReason =>

@@ -64,7 +64,7 @@
         {
             if (await TakeOver(source))
             {
-                await JS.InvokeVoidAsync("familyhub.handFocusTo", "#remote-now-playing", "play");
+                await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.handFocusTo", "#remote-now-playing", "play");
                 device = null;
             }
         }
@@ -107,7 +107,7 @@
     {
         if (token.IsCancellationRequested || !ReferenceEquals(device, snapshot)) return;
         // This bar stands in for the player bar, which shows again once it goes: focus follows to Play.
-        await JS.InvokeVoidAsync("familyhub.handFocusTo", "#remote-now-playing", "play");
+        await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.handFocusTo", "#remote-now-playing", "play");
         if (token.IsCancellationRequested || !ReferenceEquals(device, snapshot)) return;
         device = null;
         StateHasChanged();
@@ -146,7 +146,7 @@
     {
         var visible = Device?.Track is not null;
         Player.SetRemotePeek(visible);
-        if (visible) await JS.InvokeVoidAsync("familyhub.fitTitle");
+        if (visible) await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.fitTitle");
     }
     public void Dispose() { StopWatching(); Player.SetRemotePeek(false); }
 }

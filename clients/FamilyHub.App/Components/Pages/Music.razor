@@ -904,14 +904,14 @@ else
 
     private async Task BackFromSettings()
     {
-        if (settingsDrilled && await JS.InvokeAsync<bool>("familyhub.isPhone"))
+        if (settingsDrilled && await PlaybackInterop.InvokeOrAsync(JS, "familyhub.isPhone", PhoneVolume))
         {
-            await JS.InvokeVoidAsync("familyhub.focus", "settings-exit");
+            await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.focus", "settings-exit");
             settingsDrilled = false;
             pendingFocus = "settings-" + settingsSection;
             return;
         }
-        await JS.InvokeVoidAsync("familyhub.focus", "content");
+        await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.focus", "content");
         if (viewHistory.CanBack) await StepHistory(false);
         else await Navigate("Hub");
         pendingFocus = "profile-toggle";
@@ -1180,7 +1180,7 @@ else
         {
             if (startupUpdate is not null && release is null)
             {
-                if (updateDialogOpened) await JS.InvokeVoidAsync("familyhub.closeDialog", "update-dialog");
+                if (updateDialogOpened) await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.closeDialog", "update-dialog");
                 updateFocusPending = true;
             }
             updateNoticeDismissed = false; updateDialogOpened = false;
@@ -1384,7 +1384,7 @@ else
     private async Task PlayerArea()
     {
         if (Player.Current is null) { await QuickStart(); return; }
-        if (!playerExpanded && await JS.InvokeAsync<bool>("familyhub.isPhone")) { playerExpanded = true; pendingFocus = "player-collapse"; return; }
+        if (!playerExpanded && await PlaybackInterop.InvokeOrAsync(JS, "familyhub.isPhone", false)) { playerExpanded = true; pendingFocus = "player-collapse"; return; }
         await OpenQueueFromPlayer();
     }
     private bool playerExpanded;
@@ -1392,7 +1392,7 @@ else
     private bool lyricsOpen, lyricsAvailable;
     private async Task LyricsAvailabilityChanged(bool available)
     {
-        if (!available) await JS.InvokeVoidAsync("familyhub.focusIfWithin", "#sheet-lyrics", "listen-together");
+        if (!available) await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.focusIfWithin", "#sheet-lyrics", "listen-together");
         lyricsAvailable = available;
     }
     private void OpenLyricsFromSheet() { playerToolsOpen = false; SetLyricsOpen(true); }
@@ -1416,7 +1416,7 @@ else
         playerToolsOpen = refreshPlayerSongActions = true;
         pendingFocus = "player-options-close";
     }
-    private async Task ClosePlayerTools() { playerToolsOpen = false; await JS.InvokeVoidAsync("familyhub.focusVisible", "player-more", "show-queue"); }
+    private async Task ClosePlayerTools() { playerToolsOpen = false; await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.focusVisible", "player-more", "show-queue"); }
     private Task TogglePlayback() => Player.FollowingHost ? Together.ToggleLocalPauseAsync() : Player.Current is null && !Player.RemoteActive ? QuickStart() : RunPlayback(Player.ToggleAsync);
     private Task QuickStart() => RunPlaybackAt(async requestedAt =>
     {
@@ -1669,7 +1669,7 @@ else
     }
     protected override async Task OnInitializedAsync()
     {
-        Session.Changed += Changed; Player.Changed += PlayerChanged;
+        Session.Changed += Changed; Session.UiActiveChanged += ActiveChanged; Player.Changed += PlayerChanged;
         BackNavigation.Handler = async () => { var handled = false; await InvokeAsync(async () => handled = await StepBack()); return handled; };
         await Session.InitializeAsync(); server = Session.Server;
     }
@@ -1729,120 +1729,117 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && splash == SplashState.Showing) _ = RunSplash();
+        if (musicDisposed || !Session.UiActive && chromeReady) return;
+        ValueTask<bool> RenderJs(string identifier, params object?[] args) => PlaybackInterop.TryInvokeVoidAsync(JS, identifier, args);
         var fullscreen = AppFullscreen;
         if (SupportsAppFullscreen && renderedAppFullscreen != fullscreen)
         {
-            var firstFullscreenRender = renderedAppFullscreen is null;
-            renderedAppFullscreen = fullscreen;
-            if (firstFullscreenRender)
-            {
-                resizeReference ??= DotNetObjectReference.Create(this);
-                await JS.InvokeVoidAsync("familyhub.bindAppFullscreen", resizeReference);
-            }
-            await JS.InvokeVoidAsync("familyhub.refreshAppFullscreen", fullscreen);
+            resizeReference ??= DotNetObjectReference.Create(this);
+            if ((renderedAppFullscreen is not null || await RenderJs("familyhub.bindAppFullscreen", resizeReference))
+                && await RenderJs("familyhub.refreshAppFullscreen", fullscreen)) renderedAppFullscreen = fullscreen;
         }
-        if (firstRender && splash == SplashState.Showing) _ = RunSplash();
         var identity = string.IsNullOrEmpty(Session.User) || Session.NeedsProfileSelection ? "" : AppearanceKey;
         if (feedbackProfile != identity)
         {
-            feedbackProfile = identity;
             var scope = identity.Length == 0 ? "" : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity)));
-            await JS.InvokeVoidAsync("familyhub.feedback.useProfile", scope);
+            if (await RenderJs("familyhub.feedback.useProfile", scope)) feedbackProfile = identity;
         }
         if (!EntryScreen && Session.MessageLevel == "success" && shownConfirmation != Session.MessageRevision)
         {
             shownConfirmation = Session.MessageRevision;
-            await JS.InvokeVoidAsync("FamilyHubNotices.toast", Session.Message);
+            await RenderJs("FamilyHubNotices.toast", Session.Message);
         }
         if (!chromeReady)
         {
             if (preparingChrome) return;
             preparingChrome = true;
-            await JS.InvokeVoidAsync("familyhub.prepareChrome");
+            await RenderJs("familyhub.prepareChrome");
             chromeReady = true;
             await InvokeAsync(StateHasChanged);
             return;
         }
         if (wasDownloading && Session.DownloadingId is null)
-            await JS.InvokeVoidAsync("familyhub.restoreFocus", "pause-download", view == "Playlists" && Selected is not null ? "keep-playlist" : "content");
+            await RenderJs("familyhub.restoreFocus", "pause-download", view == "Playlists" && Selected is not null ? "keep-playlist" : "content");
         wasDownloading = Session.DownloadingId is not null;
         if (profileAvatarStart is { } avatarStart)
         {
             profileAvatarStart = null;
-            await JS.InvokeVoidAsync("familyhub.centerProfileAvatar", avatarStart);
+            await RenderJs("familyhub.centerProfileAvatar", avatarStart);
         }
-        if (pendingFocus is { } target && (!EntryScreen || target is not ("artist-mappings-title" or "catalogue-review-title" or "view-title"))) { pendingFocus = null; await JS.InvokeVoidAsync("familyhub.focus", target); }
+        if (pendingFocus is { } target && (!EntryScreen || target is not ("artist-mappings-title" or "catalogue-review-title" or "view-title"))
+            && await RenderJs("familyhub.focus", target) && pendingFocus == target) pendingFocus = null;
         if (AppUpdater.Platform is not null && !updateCheckInFlight && updateCheckOrigin != Session.Server)
             _ = CheckStartupUpdate(Session.Server);
         if (updateFocusPending)
         {
             updateFocusPending = false;
-            await JS.InvokeVoidAsync("familyhub.restoreFocus", "settings-app-update", "settings-release-history");
-            await JS.InvokeVoidAsync("familyhub.restoreFocus", "header-update", "profile-toggle");
+            await RenderJs("familyhub.restoreFocus", "settings-app-update", "settings-release-history");
+            await RenderJs("familyhub.restoreFocus", "header-update", "profile-toggle");
         }
         if (startupUpdate is not null && !updateNoticeDismissed && !updateDialogOpened)
-        { updateDialogOpened = true; await JS.InvokeVoidAsync("familyhub.showDialog", "update-dialog", "update-later"); }
-        if (deletePlaylistOpen) { deletePlaylistOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "delete-playlist-dialog", "cancel-delete-playlist"); }
-        if (createPlaylistOpen) { createPlaylistOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "create-playlist-dialog", "create-playlist-heading", "create-playlist"); }
-        if (preloadOpen) { preloadOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "preload-dialog", "preload-" + preloadQuality, "keep-playlist"); }
-        if (songPickerOpen) { songPickerOpen = false; await JS.InvokeVoidAsync("familyhub.showDialog", "add-song-dialog", "add-song-filter"); }
+        { updateDialogOpened = true; await RenderJs("familyhub.showDialog", "update-dialog", "update-later"); }
+        if (deletePlaylistOpen) { deletePlaylistOpen = false; await RenderJs("familyhub.showDialog", "delete-playlist-dialog", "cancel-delete-playlist"); }
+        if (createPlaylistOpen) { createPlaylistOpen = false; await RenderJs("familyhub.showDialog", "create-playlist-dialog", "create-playlist-heading", "create-playlist"); }
+        if (preloadOpen) { preloadOpen = false; await RenderJs("familyhub.showDialog", "preload-dialog", "preload-" + preloadQuality, "keep-playlist"); }
+        if (songPickerOpen) { songPickerOpen = false; await RenderJs("familyhub.showDialog", "add-song-dialog", "add-song-filter"); }
         HashSet<string> pickerRows = songPickerShown ? SongPickerMatches.Take(60).Select(song => "add-saved-song-" + song.Id).ToHashSet() : [];
         foreach (var removed in songPickerRows.Except(pickerRows))
-            await JS.InvokeVoidAsync("familyhub.restoreFocus", removed, songPickerShown ? "add-song-filter" : "playlist-menu-toggle");
+            await RenderJs("familyhub.restoreFocus", removed, songPickerShown ? "add-song-filter" : "playlist-menu-toggle");
         songPickerRows = pickerRows;
-        await JS.InvokeVoidAsync("familyhub.syncChrome");
-        await JS.InvokeVoidAsync("familyhub.observePanel");
-        await JS.InvokeVoidAsync("familyhub.tintPlaylistHeader");
-        await JS.InvokeVoidAsync("familyhub.observePlaylistHero");
-        await JS.InvokeVoidAsync("familyhub.fitTitle");
-        if (!playerExpanded) await JS.InvokeVoidAsync("familyhub.bindMiniSwipe");
+        await RenderJs("familyhub.syncChrome");
+        await RenderJs("familyhub.observePanel");
+        await RenderJs("familyhub.tintPlaylistHeader");
+        await RenderJs("familyhub.observePlaylistHero");
+        await RenderJs("familyhub.fitTitle");
+        if (!playerExpanded) await RenderJs("familyhub.bindMiniSwipe");
         if (playerToolsOpen)
         {
-            await JS.InvokeVoidAsync("familyhub.bindPopupSheet", "player-options", "player-options-close");
+            await RenderJs("familyhub.bindPopupSheet", "player-options", "player-options-close");
             if (refreshPlayerSongActions && playerSongActions is not null)
             {
                 refreshPlayerSongActions = false;
                 await playerSongActions.Refresh();
             }
         }
-        if (profileMenu) await JS.InvokeVoidAsync("familyhub.showDialog", "profile-menu", "profile-menu-close", "profile-toggle");
+        if (profileMenu) await RenderJs("familyhub.showDialog", "profile-menu", "profile-menu-close", "profile-toggle");
         if (!updatePollingBound)
         {
-            updatePollingBound = true;
             resizeReference ??= DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("familyhub.bindUpdatePolling", resizeReference);
+            updatePollingBound = await RenderJs("familyhub.bindUpdatePolling", resizeReference);
         }
-        await JS.InvokeVoidAsync("familyhub.bindSidebarResize", resizeReference);
-        if (hadSearchMore && nextSearchOffset is null && view == "Search") await JS.InvokeVoidAsync("familyhub.restoreFocus", "search-more", "results");
+        await RenderJs("familyhub.bindSidebarResize", resizeReference);
+        if (hadSearchMore && nextSearchOffset is null && view == "Search") await RenderJs("familyhub.restoreFocus", "search-more", "results");
         hadSearchMore = nextSearchOffset is not null;
         var observerKey = $"{view}:{searchVersion}:{nextSearchOffset}:{searching}:{loadingMore}";
         if (searchObserverKey != observerKey)
         {
-            searchObserverKey = observerKey;
-            await JS.InvokeVoidAsync("familyhub.observeSearch", view == "Search" && nextSearchOffset is not null && !searching && !loadingMore && !moreSearchFailed ? resizeReference : null, searchVersion);
+            if (await RenderJs("familyhub.observeSearch", view == "Search" && nextSearchOffset is not null && !searching && !loadingMore && !moreSearchFailed ? resizeReference : null, searchVersion)) searchObserverKey = observerKey;
         }
         if (!EntryScreen && Session.Connected && Session.PlaybackPreferences.SpotifySubscribed is null && spotifyAsked.Add(Session.Server + "\n" + Session.User))
-            await JS.InvokeVoidAsync("familyhub.showDialog", "spotify-question-dialog", "spotify-yes");
-        if (themes.Count == 0) themes = await JS.InvokeAsync<List<ThemeOption>>("familyhub.themeOptions");
+            await RenderJs("familyhub.showDialog", "spotify-question-dialog", "spotify-yes");
+        if (themes.Count == 0) themes = await PlaybackInterop.InvokeOrAsync(JS, "familyhub.themeOptions", themes);
         if (appearanceProfile != AppearanceKey)
         {
             var profile = AppearanceKey;
-            appearanceProfile = profile;
             playlistCollection = new([], []);
-            var appearance = await JS.InvokeAsync<Appearance>("familyhub.loadAppearance", profile);
-            var collection = await JS.InvokeAsync<PlaylistCollection>("familyhub.loadPlaylistCollection", profile);
+            var appearance = await PlaybackInterop.InvokeOrAsync<Appearance?>(JS, "familyhub.loadAppearance", null, profile);
+            var collection = await PlaybackInterop.InvokeOrAsync<PlaylistCollection?>(JS, "familyhub.loadPlaylistCollection", null, profile);
             if (profile != AppearanceKey) return;
-            playlistCollection = collection;
-            theme = appearance.Theme; sidebarCollapsed = appearance.Collapsed; themeEffects = appearance.Effects; sidebarWidth = appearance.Width;
-            await InvokeAsync(StateHasChanged);
+            if (appearance is not null && collection is not null)
+            {
+                appearanceProfile = profile;
+                playlistCollection = collection;
+                theme = appearance.Theme; sidebarCollapsed = appearance.Collapsed; themeEffects = appearance.Effects; sidebarWidth = appearance.Width;
+                await InvokeAsync(StateHasChanged);
+            }
         }
         var screen = EntryScreen ? (Session.NeedsProfileSelection && view != "Settings" ? "profiles" : "connect") : view.ToLowerInvariant();
         if (renderedView != screen)
         {
-            renderedView = screen;
-            await JS.InvokeVoidAsync("familyhub.view", screen);
+            if (await RenderJs("familyhub.view", screen)) renderedView = screen;
         }
-        if (!EntryScreen && pendingReveal is { } reveal) { pendingReveal = null; await JS.InvokeVoidAsync("familyhub.revealWhenReady", reveal); }
+        if (!EntryScreen && pendingReveal is { } reveal) { pendingReveal = null; await RenderJs("familyhub.revealWhenReady", reveal); }
         if (!string.IsNullOrEmpty(Session.User) && (appliedProfile != Session.Server + Session.User || appliedPreferences != Session.PlaybackPreferences))
         {
             if (appliedProfile != Session.Server + Session.User) unmutedVolume = Session.PlaybackPreferences.Volume > 0 ? Session.PlaybackPreferences.Volume : 1;
@@ -1854,11 +1851,12 @@ else
         if (renderedSearching != searching)
         {
             renderedSearching = searching;
-            await JS.InvokeVoidAsync("familyhub.retainFocus", "q");
+            await RenderJs("familyhub.retainFocus", "q");
         }
-        if (playlistTransitionPending) { playlistTransitionPending = false; await JS.InvokeVoidAsync("familyhub.finishPlaylistTransition"); }
+        if (playlistTransitionPending) { playlistTransitionPending = false; await RenderJs("familyhub.finishPlaylistTransition"); }
     }
     private void Changed() => _ = InvokeAsync(StateHasChanged);
+    private void ActiveChanged() { if (Session.UiActive) Changed(); }
     // The player reports progress five times a second. The seek bar and lyrics follow it
     // themselves; this page redraws only when something it shows changes.
     private object? playerState;
@@ -1867,16 +1865,16 @@ else
         var state = (Player.Current?.Id, Player.Playing, Player.Seeking, Player.PlaybackRequested, Player.Preparing, Player.CanSeek, Player.FollowingHost,
             Player.RemoteActive, Player.RemotePeek, Player.Queue.Count, Player.QueueIndex, NextTrack?.Id, Player.Shuffle, Player.RepeatMode, Player.Volume, Player.AudioOutputId, Together.LocallyPaused);
         if (Equals(state, playerState)) return;
-        if (Player.Current is not { Saved: true })
-            await JS.InvokeVoidAsync("familyhub.focusIfWithin", ".player-tools .trim-request", "recommend-similar");
-        if (Player.Current is null)
-            await JS.InvokeVoidAsync("familyhub.focusIfWithin", "#sheet-add-playlist,#sheet-queue,#sheet-lyrics", "listen-together");
+        if (Session.UiActive && Player.Current is not { Saved: true })
+            await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.focusIfWithin", ".player-tools .trim-request", "recommend-similar");
+        if (Session.UiActive && Player.Current is null)
+            await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.focusIfWithin", "#sheet-add-playlist,#sheet-queue,#sheet-lyrics", "listen-together");
         playerState = state; StateHasChanged();
     });
     // Android Back gives the open dialog or Settings the first chance to handle it.
     private async Task<bool> StepBack()
     {
-        if (await JS.InvokeAsync<bool>("familyhub.closeTopLayer")) return true;
+        if (await PlaybackInterop.InvokeOrAsync(JS, "familyhub.closeTopLayer", false)) return true;
         if (EntryScreen)
         {
             if (protectedProfile is not null && view != "Settings") { ClosePasswordCard(); StateHasChanged(); return true; }
@@ -1885,7 +1883,14 @@ else
         }
         if (view == "Preferences") await BackFromSettings();
         else if (playerToolsOpen) await ClosePlayerTools();
-        else if (lyricsOpen) await JS.InvokeVoidAsync("familyhub.press", "lyrics-close");
+        else if (lyricsOpen)
+        {
+            if (!await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.press", "lyrics-close"))
+            {
+                SetLyricsOpen(false);
+                pendingFocus = "show-queue";
+            }
+        }
         else if (playerExpanded) CollapsePlayer();
         else if (profileMenu) { profileMenu = false; pendingFocus = "profile-toggle"; }
         else if (view == "Playlists" && Selected is not null) await AllPlaylists();
@@ -1895,7 +1900,7 @@ else
         StateHasChanged();
         return true;
     }
-    public void Dispose() { musicDisposed = true; if (BackNavigation.Handler is not null) BackNavigation.Handler = null; updateChecksStopped = true; _ = JS.InvokeVoidAsync("familyhub.stopUpdatePolling"); resizeReference?.Dispose(); radioCancellation?.Cancel(); radioCancellation?.Dispose(); recommendationLookup?.Cancel(); CancelAlbumLookup(); CancelSearch(); Session.Changed -= Changed; Player.Changed -= PlayerChanged; }
+    public void Dispose() { musicDisposed = true; if (BackNavigation.Handler is not null) BackNavigation.Handler = null; updateChecksStopped = true; _ = PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.stopUpdatePolling"); resizeReference?.Dispose(); radioCancellation?.Cancel(); radioCancellation?.Dispose(); recommendationLookup?.Cancel(); CancelAlbumLookup(); CancelSearch(); Session.Changed -= Changed; Session.UiActiveChanged -= ActiveChanged; Player.Changed -= PlayerChanged; }
     private void RememberView(string tab)
     {
         if (view == tab) return;

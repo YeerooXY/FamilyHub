@@ -87,6 +87,13 @@ if not assets_only:
                 watching=[]
             if watching:
                 raise RuntimeError(f'Playback is active on {len(watching)} device(s). Retry after it ends, or pass --allow-playing.')
+        if not allow_playing:
+            # Music also streams through this service. Its resource line, written every 30 s, says when someone is listening.
+            lines=subprocess.run(['journalctl','-u',service,'--since','-75 s','-o','cat','--no-pager'],
+                capture_output=True,text=True).stdout.splitlines()
+            presence=[line for line in lines if 'resource presence=' in line]
+            if presence and 'presence=listening' in presence[-1]:
+                raise RuntimeError('Someone is listening to music. Retry after it ends, or pass --allow-playing.')
 backup=pathlib.Path('/usr/local/lib/familyhub')/('before-native-updates-'+str(time.time_ns()))
 backup.mkdir(mode=0o700)
 originals={}

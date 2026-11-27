@@ -109,7 +109,7 @@
     {
         var keys = radioSeeds.Select(seed => seed.Key).ToList();
         foreach (var key in renderedRadioKeys.Except(keys))
-            await JS.InvokeVoidAsync("familyhub.restoreFocus", RadioId(key), keys.Count > 0 ? RadioId(keys[0]) : "home-radio-title");
+            await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.restoreFocus", RadioId(key), keys.Count > 0 ? RadioId(keys[0]) : "home-radio-title");
         renderedRadioKeys = keys;
     }
 

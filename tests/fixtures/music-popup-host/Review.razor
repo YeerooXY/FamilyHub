@@ -16,6 +16,7 @@
 <body>
     <div id="app">
         @if (Screen is null || Screen == "app") { <Music @rendermode="new InteractiveServerRenderMode(prerender: false)" /> }
+        else if (Screen == "playback") { <PlaybackFixture @rendermode="new InteractiveServerRenderMode(prerender: false)" /> }
         else { <OutageFixture Screen="@Screen" @rendermode="new InteractiveServerRenderMode(prerender: false)" /> }
     </div>
     <script src="/paddock-theme.js"></script>
