@@ -14,7 +14,7 @@ const paths = {
     plus: "M5 12h14m-7-7v14",
     reset: "M4 11a8 8 0 1 1 2 7M4 5v6h6",
     play: "M8 4.5v15l12-7.5z",
-    pause: "M7 4h4v16H7zM13 4h4v16h-4z",
+    pause: "M5.5 4h4v16h-4zM14.5 4h4v16h-4z",
     skip: ["M12 5a8 8 0 1 1-7.4 5", "M14.5 2.5L12 5l2.5 2.5"],
     next: ["M5 5v14l10-7z", "M19 5v14"],
     episodes: ["M8 4h12v12H8z", "M4 8v12h12"],
@@ -59,7 +59,7 @@ function icon(shape, { flip = false, label = "" } = {}) {
     return svg;
 }
 
-function clock(seconds) {
+export function clock(seconds) {
     if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
     const total = Math.floor(seconds), h = Math.floor(total / 3600), m = Math.floor(total % 3600 / 60), s = total % 60;
     return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
@@ -94,14 +94,23 @@ export function watchPlayerIdle(surface, signal, onIdle, onWake) {
         surface.classList.add("movie-cursor-idle");
         onIdle?.();
     }
-    function show() {
+    function show(delay = 3000) {
         surface.classList.remove("movie-cursor-idle");
         onWake?.();
         clearTimeout(timer);
-        timer = setTimeout(hide, 3000);
+        timer = setTimeout(hide, delay);
     }
-    for (const type of ["pointermove", "pointerdown", "touchstart", "focusin", "focusout"])
-        surface.addEventListener(type, show, {passive: true, signal});
+    // Hiding the controls changes what is under a still cursor, and the browser then sends a
+    // pointermove without any movement. Only real movement wakes the controls, or they never hide.
+    let lastX = null, lastY = null;
+    surface.addEventListener("pointermove", event => {
+        if (event.clientX === lastX && event.clientY === lastY) return;
+        lastX = event.clientX;
+        lastY = event.clientY;
+        show();
+    }, {passive: true, signal});
+    for (const type of ["pointerdown", "touchstart", "focusin", "focusout"])
+        surface.addEventListener(type, () => show(), {passive: true, signal});
     document.addEventListener("keydown", event => {
         if (surface.contains(event.target) || event.target === document.body) show();
     }, {capture: true, signal});
@@ -161,7 +170,11 @@ export function buildPlayerUi(ctx) {
         media.currentTime = Math.min(Math.max(0, media.currentTime + seconds), end);
         show();
     };
-    const toggle = () => { if (media.paused) media.play().catch(() => {}); else media.pause(); show(); };
+    const toggle = () => {
+        const starting = media.paused;
+        if (starting) media.play().catch(() => {}); else media.pause();
+        show(starting ? 1000 : undefined);
+    };
     const rewind = button("movie-ui-skip", "Back 10 seconds", paths.skip, { label: "10" }, () => skip(-10));
     const forward = button("movie-ui-skip", "Forward 10 seconds", paths.skip, { flip: true, label: "10" }, () => skip(10));
     const playPause = button("movie-ui-play", "Play", paths.play, {}, toggle);
@@ -222,13 +235,11 @@ export function buildPlayerUi(ctx) {
     const fullscreenAvailable = !/iPhone|iPod/.test(navigator.userAgent) &&
         (ctx.fullscreenEnabled || document.fullscreenEnabled || document.webkitFullscreenEnabled);
     const episodesButton = button("movie-ui-action", "Episodes", paths.episodes, {}, () => toggleSheet("episodes"));
-    episodesButton.append(make("span", "", "Episodes"));
     episodesButton.hidden = true;
     const tracksButton = button("movie-ui-action", "Audio & Subtitles", paths.subtitles, {}, () => toggleSheet("audio"));
     const sound = soundPanelWanted() ? attachSound(media, { signal }) : null;
     root.classList.toggle("movie-hardware-volume", !sound);
     const nextButton = button("movie-ui-action", "Next episode", paths.next, {}, () => nextEpisode?.play());
-    nextButton.append(make("span", "", "Next episode"));
     nextButton.hidden = true;
     const actions = make("div", "movie-ui-actions");
     actions.append(episodesButton, nextButton, tracksButton, fullscreen);
@@ -716,6 +727,8 @@ export function buildPlayerUi(ctx) {
     }, () => {
         root.classList.remove("movie-idle");
     });
+    // Pressing play: the controls leave after a second instead of the usual three.
+    media.addEventListener("play", () => show(1000), { signal });
     // Subtitles: draw the active cues just above the bottom of the picture, and above the seek row while the controls show.
     const entities = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&nbsp;": " " };
     let watched = [], frame, drawnText;

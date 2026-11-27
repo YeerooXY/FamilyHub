@@ -8,7 +8,7 @@
 
 .movie-ui > .movie-ui-bottom {
     grid-row: 3;
-    padding: clamp(1rem, 5vh, 3rem) clamp(.55rem, 3vw, 2.75rem) max(.45rem, env(safe-area-inset-bottom));
+    padding: clamp(1rem, 5vh, 3rem) clamp(.55rem, 3vw, 2.75rem) max(clamp(.6rem, 2.2vh, 1.4rem), env(safe-area-inset-bottom));
     background: linear-gradient(to bottom, transparent, #000e 44%, #000 90%);
 }
 
@@ -42,11 +42,63 @@
 .movie-ui :is(.movie-ui-play, .movie-ui-skip) .movie-icon { overflow: visible; }
 .movie-ui .movie-ui-play .movie-icon { fill: currentColor; }
 .movie-ui .movie-icon-number { -webkit-user-select: none; user-select: none; }
-@media (hover: hover) {
-    .movie-library .movie-ui :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play, .movie-sheet-close):hover {
-        background: #ffffff1a;
-    }
+/* Hover: the button itself lights up and names itself just above, instead of a box behind it. */
+.movie-library .movie-ui .movie-ui-transport :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play) {
+    position: relative;
+    color: #ffffffd9;
+    transition: color 120ms ease-out, filter 120ms ease-out;
 }
+.movie-library .movie-ui .movie-ui-transport :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play) > .movie-icon {
+    transition: transform 120ms ease-out;
+}
+@media (hover: hover) and (pointer: fine) {
+    .movie-library .movie-ui :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play, .movie-sheet-close):hover {
+        background: transparent;
+    }
+    .movie-library .movie-ui .movie-ui-transport :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play):hover {
+        color: #fff;
+        filter: drop-shadow(0 0 6px #ffffffa6);
+    }
+    .movie-library .movie-ui .movie-ui-transport :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play):hover > .movie-icon {
+        transform: scale(1.1);
+    }
+    .movie-library .movie-ui .movie-ui-transport :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play)::after {
+        content: attr(aria-label);
+        position: absolute;
+        /* Above the seek row, so the name never covers the bar or the times. */
+        bottom: calc(100% + 4rem);
+        left: 50%;
+        translate: -50% .25rem;
+        width: max-content;
+        max-width: 16rem;
+        color: #fff;
+        font-size: .8rem;
+        font-weight: 600;
+        line-height: 1.2;
+        white-space: nowrap;
+        text-shadow: 0 1px 3px #000, 0 0 8px #000c;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease-out, translate 120ms ease-out;
+    }
+    .movie-library .movie-ui .movie-ui-mid > :first-child::after { left: 0; translate: 0 .25rem; }
+    .movie-library .movie-ui .movie-ui-actions > :last-child::after { left: auto; right: 0; translate: 0 .25rem; }
+    .movie-library .movie-ui .movie-ui-transport :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play):hover::after {
+        opacity: 1;
+        translate: -50% 0;
+        transition-delay: 150ms;
+    }
+    .movie-library .movie-ui .movie-ui-mid > :first-child:hover::after,
+    .movie-library .movie-ui .movie-ui-actions > :last-child:hover::after { translate: 0 0; }
+    .movie-ui.movie-idle .movie-ui-transport ::after { opacity: 0 !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .movie-library .movie-ui .movie-ui-transport :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play),
+    .movie-library .movie-ui .movie-ui-transport :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play) > .movie-icon,
+    .movie-library .movie-ui .movie-ui-transport :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play)::after { transition: none !important; }
+    .movie-library .movie-ui .movie-ui-transport :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play):hover > .movie-icon { transform: none; }
+}
+body[data-effects="off"] .movie-library .movie-ui .movie-ui-transport :is(.movie-ui-action, .movie-ui-skip, .movie-ui-play) { filter: none !important; transition: none; }
 
 .movie-ui .movie-ui-seekrow { gap: clamp(.35rem, 1.35vw, 1.25rem); }
 .movie-ui .movie-ui-seekrow :is(.movie-ui-elapsed, .movie-ui-remaining) {
