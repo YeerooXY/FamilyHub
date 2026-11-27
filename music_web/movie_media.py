@@ -24,7 +24,9 @@ QUERY_SECRET = re.compile(r'^(?:api[_-]?key|token|access[_-]?token|x-emby-token|
 URI_ATTRIBUTE = re.compile(r'\bURI="([^"\r\n]+)"')
 WEBVIEW_ORIGINS = {'https://0.0.0.1', 'http://0.0.0.1', 'app://0.0.0.1', 'https://app.localhost', 'null'}
 LIBRARY_READ = re.compile(rf'(?:Items(?:/{ITEM})?|UserItems/Resume|Genres|Shows/NextUp|Shows/{ITEM}/Episodes|Items/{ITEM}/RemoteSearch/Subtitles/[a-z]{{3}})')
-LIBRARY_WRITE = re.compile(rf'(?:Items/{ITEM}/PlaybackInfo|Sessions/Playing(?:/Progress|/Stopped)?|Items/{ITEM}/RemoteSearch/Subtitles/[A-Za-z0-9._~%+-]{{1,500}})')
+DISMISS_ID = r'(?:[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})'
+HIDE_RESUME = re.compile(rf'UserItems/({DISMISS_ID})/HideFromResume')
+LIBRARY_WRITE = re.compile(rf'(?:{HIDE_RESUME.pattern}|Items/{ITEM}/PlaybackInfo|Sessions/Playing(?:/Progress|/Stopped)?|Items/{ITEM}/RemoteSearch/Subtitles/[A-Za-z0-9._~%+-]{{1,500}})')
 FAVORITE = re.compile(rf'UserFavoriteItems/({ITEM})')
 LIBRARY_PRIVATE_FIELDS = {'path', 'encoderpath', 'directstreamurl', 'password', 'pw'}
 # A two-hour film has thousands of segment lines and each carries Jellyfin's full query string (about 1.4 MB for 4,300 lines).
@@ -88,7 +90,36 @@ def library_json(value, base_path):
     return value
 
 
-def register(app, base, body, allow, session_is_live, refresh_key=None, subtitle_imported=None):
+def mark_dismissed_items(result, hidden, resource, params):
+    if not hidden or not isinstance(result, dict):
+        return
+    resume = hidden.get('resume', {})
+    next_up = hidden.get('next_up', {})
+    items = result.get('Items')
+    is_feed = resource in ('UserItems/Resume', 'Shows/NextUp') or (
+        resource == 'Items' and ('filters', 'isresumable') in [(key.lower(), val.lower()) for key, val in params])
+    visible = []
+    for item in items if isinstance(items, list) else [result]:
+        if isinstance(item, dict):
+            item_id = item.get('Id')
+            user_data = item.get('UserData')
+            ticks = (user_data.get('PlaybackPositionTicks') or 0) if isinstance(user_data, dict) else 0
+            if isinstance(item_id, str) and resume.get(item_id.lower()) == ticks:
+                item['FamilyHubResumeHidden'] = True
+                if is_feed:
+                    continue
+            series = item.get('SeriesId')
+            if (resource == 'Shows/NextUp' and isinstance(series, str) and isinstance(item_id, str)
+                    and next_up.get(series.lower()) == item_id.lower()):
+                continue
+        visible.append(item)
+    if isinstance(items, list) and len(items) != len(visible):
+        result['Items'] = visible
+        if isinstance(result.get('TotalRecordCount'), int):
+            result['TotalRecordCount'] = max(0, result['TotalRecordCount'] - len(items) + len(visible))
+
+
+def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_key=None, subtitle_imported=None):
     grants = {}
     lock = Lock()
     base_path = urllib.parse.urlsplit(base).path
@@ -146,11 +177,19 @@ def register(app, base, body, allow, session_is_live, refresh_key=None, subtitle
         resource, query, payload = (data.get(key) for key in ('path', 'query', 'payload'))
         rule = LIBRARY_READ if payload is None else LIBRARY_WRITE
         favorite = FAVORITE.fullmatch(resource) if isinstance(resource, str) else None
-        if not isinstance(resource, str) or not (favorite or rule.fullmatch(resource)) or not isinstance(query, str):
+        hide_resume = HIDE_RESUME.fullmatch(resource) if isinstance(resource, str) else None
+        hide_next = resource == 'Shows/NextUp' and payload is not None
+        if not isinstance(resource, str) or not (favorite or hide_next or rule.fullmatch(resource)) or not isinstance(query, str):
             abort(400)
         if payload is not None and not isinstance(payload, dict):
             abort(400)
         if favorite and (query or not isinstance(payload, dict) or set(payload) != {'favorite'} or type(payload['favorite']) is not bool):
+            abort(400)
+        if hide_resume and (query != 'hide=true' or set(payload) != {'positionTicks'}
+                            or type(payload['positionTicks']) is not int or not 0 <= payload['positionTicks'] <= 2**53 - 1):
+            abort(400)
+        if hide_next and (query or set(payload) != {'seriesId', 'episodeId'} or
+                          any(not isinstance(value, str) or not re.fullmatch(DISMISS_ID, value) for value in payload.values())):
             abort(400)
         if '/RemoteSearch/Subtitles/' in resource:
             subtitle = urllib.parse.unquote(resource.rsplit('/', 1)[1])
@@ -162,6 +201,9 @@ def register(app, base, body, allow, session_is_live, refresh_key=None, subtitle
             abort(429)
         headers = {'Authorization': grant.authorization, 'Accept': 'application/json', 'Content-Type': 'application/json'}
         try:
+            if hide_next:
+                movie_dismissals(grant.profile, 'next_up', payload['seriesId'], payload['episodeId'])
+                return jsonify(result=None)
             params = [('userId', grant.viewer) if key.casefold() == 'userid' else (key, val)
                       for key, val in urllib.parse.parse_qsl(query, max_num_fields=100) if not QUERY_SECRET.fullmatch(key)]
             if payload is None and resource.startswith('Shows/'):
@@ -174,14 +216,29 @@ def register(app, base, body, allow, session_is_live, refresh_key=None, subtitle
                 viewer = urllib.parse.quote(grant.viewer, safe='')
                 req = urllib.request.Request(f'{base}/Users/{viewer}/FavoriteItems/{favorite[1]}', headers=headers,
                                              method='POST' if payload['favorite'] else 'DELETE')
+            elif hide_resume:
+                params = [('hide', 'true'), ('userId', grant.viewer)]
+                req = urllib.request.Request(base + '/' + resource + '?' + urllib.parse.urlencode(params),
+                                             headers=headers, data=b'')
             else:
                 req = urllib.request.Request(base + '/' + resource + '?' + urllib.parse.urlencode(params), headers=headers,
                                              data=json.dumps(payload).encode() if payload is not None else None)
-            with urllib.request.build_opener(NoRedirect).open(req, timeout=8) as upstream:
-                raw = upstream.read((4 << 20) + 1)
+            try:
+                with urllib.request.build_opener(NoRedirect).open(req, timeout=8) as upstream:
+                    raw = upstream.read((4 << 20) + 1)
+            except urllib.error.HTTPError as error:
+                if not hide_resume or error.code not in (404, 405):
+                    raise
+                # Stock Jellyfin versions without this action still allow a profile-only dismissal.
+                error.close()
+                raw = b''
             if len(raw) > 4 << 20:
                 raise ValueError('Movie library response is too large')
             result = json.loads(raw) if raw else None
+            if hide_resume:
+                movie_dismissals(grant.profile, 'resume', hide_resume[1], payload['positionTicks'])
+            if payload is None:
+                mark_dismissed_items(result, movie_dismissals(grant.profile), resource, params)
             if subtitle_imported and re.fullmatch(rf'Items/{ITEM}(?:/PlaybackInfo)?', resource) and isinstance(result, dict):
                 for source in result.get('MediaSources') or []:
                     if not isinstance(source, dict) or not subtitle_imported(source.get('Path')):

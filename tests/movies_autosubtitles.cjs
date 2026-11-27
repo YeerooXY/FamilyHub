@@ -152,7 +152,7 @@ async function run(browser, options, scenario) {
             await video.waitFor({state: "detached"});
             if (nativeFullscreen) assert.deepEqual(await page.evaluate(() => window.fullscreenCalls), [true, false, true, false]);
             await page.getByRole("region", {name: title, exact: true})
-                .getByRole("button", {name: /^(Play|Resume)$/}).press("Enter");
+                .getByRole("button", {name: /^(Play$|Continue\b)/}).press("Enter");
             await video.waitFor();
             await openSheet();
             assert.equal(await find.getAttribute("aria-disabled"), "false");

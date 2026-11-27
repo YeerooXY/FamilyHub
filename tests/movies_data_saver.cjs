@@ -232,7 +232,7 @@ async function check(browser, name, options) {
         await hint.waitFor();
         await page.getByRole("button", { name: "Back to movies" }).press("Enter");
         await page.getByRole("region", { name: item.Name, exact: true })
-            .getByRole("button", { name: /^(Play|Resume)$/ }).press("Enter");
+            .getByRole("button", { name: /^(Play$|Continue\b)/ }).press("Enter");
         await position(125);
         capped(1_000_000, 480, true);
         assert.equal(await hint.count(), 0, "Auto should show its hint once per profile");

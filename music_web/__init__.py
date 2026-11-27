@@ -3724,7 +3724,15 @@ def create_app(test_config=None):
             return bool(active and active['user'] == user and active['expiry'] > time.time()
                         and (not require_profile_passwords or user in password_hashes))
 
-    register_movies(app, cfg, body, allow, session_is_live)
+    def movie_dismissals(profile, kind=None, item=None, marker=None):
+        if profile_store is None:
+            return {}
+        if kind is None:
+            return profile_store.movie_dismissals(profile)
+        with catalogue_lock:
+            return profile_store.movie_dismissals(profile, kind, item, marker)
+
+    register_movies(app, cfg, body, allow, session_is_live, movie_dismissals)
     from .files import register_files
     register_files(app, cfg, body, allow, lambda: g.user in cfg['ADMIN_USERS'],
                    lambda: not family_mode or g.user in password_hashes, csrf.exempt)

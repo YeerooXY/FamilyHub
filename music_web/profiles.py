@@ -146,11 +146,26 @@ class ProfileStore:
             preferences.update(changes)
             data["preferences"][profile_id] = preferences
             self.write(data)
+        preferences.pop("movie_dismissals", None)
         return preferences
 
     def subscription_history(self):
         return {user: [dict(event) for event in events]
                 for user, events in self.read().get("subscription_history", {}).items()}
+
+    def movie_dismissals(self, profile_id, kind=None, item=None, marker=None):
+        if kind is None:
+            return deepcopy(self._load()["preferences"].get(profile_id, {}).get("movie_dismissals", {}))
+        data = self.read()
+        self._find(profile_id, data)
+        hidden = data["preferences"].setdefault(profile_id, {}).setdefault("movie_dismissals", {})
+        entries = hidden.setdefault(kind, {})
+        entries.pop(item, None)
+        entries[item] = marker
+        # Keep the latest 100 removals of each kind.
+        for old in list(entries)[:-100]:
+            del entries[old]
+        self.write(data)
 
     def playback(self, profile_id, value=None):
         self.get(profile_id)

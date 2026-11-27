@@ -54,7 +54,8 @@ async function check(browser, profile, options) {
 
         const favorite = series.getByRole("button", {name: "My list: Night Signal"});
         await page.keyboard.press("Tab");
-        assert.equal(await focused(series.getByRole("button", {name: "Resume", exact: true})), true);
+        const continueEpisode = series.getByRole("button", {name: "Continue S1 E1 from 13:48", exact: true});
+        assert.equal(await focused(continueEpisode), true);
         await page.keyboard.press("Tab");
         assert.equal(await focused(favorite), true);
         await page.keyboard.press("Space");
@@ -65,8 +66,34 @@ async function check(browser, profile, options) {
         await season(1).focus();
         await page.keyboard.press("Tab");
         assert.equal(await focused(season(2)), true);
+        const layout = () => series.evaluate(node => {
+            const rect = selector => {
+                const {x, y, width, height} = node.querySelector(selector).getBoundingClientRect();
+                return [x, y, width, height];
+            };
+            return {height: document.documentElement.scrollHeight, list: rect(".movie-season-list"),
+                picker: rect(".movie-season-picker"), info: rect(".movie-show-info")};
+        });
+        await page.evaluate(() => { window.slowDetailSeason = 2; });
+        const before = await layout();
         await page.keyboard.press("Space");
+        const skeleton = series.locator(".movie-episode-loading");
+        await skeleton.waitFor();
+        assert.deepEqual(await layout(), before);
+        assert.equal(await focused(season(2)), true);
+        const loading = series.getByRole("status").filter({hasText: "Loading episodes"});
+        assert.equal(await loading.count(), 1);
+        assert.equal(await loading.evaluate(node => getComputedStyle(node).clipPath), "inset(50%)");
+        assert.equal(await skeleton.locator(".movie-episode-body").first().locator(".movie-loading-block").count(), 4);
+        const shimmer = skeleton.locator(".movie-loading-block").first();
+        assert.equal(await shimmer.evaluate(node => getComputedStyle(node).animationName),
+            options.reducedMotion === "reduce" ? "none" : "movie-episode-shimmer");
+        await page.evaluate(() => { document.body.dataset.effects = "off"; });
+        assert.equal(await shimmer.evaluate(node => getComputedStyle(node).animationName), "none");
+        await page.evaluate(() => { delete document.body.dataset.effects; window.finishDetailSeason(); });
         await series.getByRole("button", {name: "1. Return"}).waitFor();
+        await skeleton.waitFor({state: "detached"});
+        await series.getByRole("status").filter({hasText: "1 episode loaded"}).waitFor({state: "attached"});
         assert.equal(await focused(season(2)), true);
         assert.equal(await season(2).getAttribute("aria-pressed"), "true");
         assert.notEqual(await outline.evaluate(node => node.style.transform), oldOffset);
@@ -214,7 +241,7 @@ async function check(browser, profile, options) {
         const noCast = page.getByRole("region", {name: "Quiet Port"});
         await noCast.getByRole("button", {name: "Season 1", exact: true}).waitFor();
         assert.equal(await noCast.getByRole("heading", {name: "Cast"}).count(), 0);
-        assert.equal(await noCast.getByRole("button", {name: "Resume", exact: true}).isVisible(), true);
+        assert.equal(await noCast.getByRole("button", {name: "Continue S1 E1 from 13:48", exact: true}).isVisible(), true);
         assert.equal(await page.evaluate(() => document.activeElement !== document.body), true);
         await noCast.getByRole("button", {name: "Back to titles", exact: true}).press("Enter");
         assert.equal(await focused(quietPort), true);

@@ -261,12 +261,12 @@ def read_downloads(qb, cfg=None):
     return dict(available=False, reason='The download server is unavailable.')
 
 
-def register_movies(app, cfg, body, allow, session_is_live):
+def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals):
     base = service_url(cfg.get('JELLYFIN_INTERNAL_URL', 'http://127.0.0.1:8096'))
     public = service_url(cfg.get('JELLYFIN_PUBLIC_URL'), ('https',))
     subtitle_imported = None
-    issue_media, audio_library = movie_media.register(app, base, body, allow, session_is_live, cfg.get('JELLYFIN_API_KEY'),
-        lambda path: subtitle_imported(path) if subtitle_imported else False)
+    issue_media, audio_library = movie_media.register(app, base, body, allow, session_is_live, movie_dismissals,
+        cfg.get('JELLYFIN_API_KEY'), lambda path: subtitle_imported(path) if subtitle_imported else False)
     releases = cfg.get('MOVIE_RELEASE_SEARCH') or {}
     prowlarr = service_url(releases.get('url', 'http://127.0.0.1:9696'))
     normal_ids = tuple(dict.fromkeys(i for i in releases.get('indexer_ids', []) if type(i) is int and i > 0))

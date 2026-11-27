@@ -137,6 +137,8 @@ Existing wording flagged during the review. The introduction in `docs/FILES.md` 
 
 The authenticated POST to `/api/playback/diagnostics` accepts the `client_exit` stage. It logs allow-listed Android exit reasons and importance, relative timings, and up to three managed method names with the exception type. The existing request limits and CSRF checks apply.
 
+The existing `POST /api/movies/library` route forwards the exact `UserItems/{itemId}/HideFromResume` action with the grant's Jellyfin viewer and `hide=true`. Continue watching dismissals are stored under the issuing FamilyHub profile. Next Up writes stay local and match a series and its current episode. The route inventory is unchanged.
+
 The following rules are registered with family mode enabled. Feature flags and profile mappings can make individual routes unavailable.
 
 ```text

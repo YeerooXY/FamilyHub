@@ -347,8 +347,13 @@ async function render(browser, label, options) {
     const selected = continueCards.locator(".movie-card:focus");
     const selectedId = await selected.getAttribute("data-item-id");
     await page.keyboard.press("ArrowUp");
-    assert.equal(await continueCards.locator(".movie-card-details:focus").evaluate(button =>
+    assert.equal(await continueCards.locator(".movie-continue-menu-button:focus").evaluate(button =>
         button.previousElementSibling.dataset.itemId), selectedId);
+    if (options.hasTouch) {
+        await continueCards.locator(".movie-continue-menu-button:focus").tap();
+        await continueCards.getByRole("menuitem", {name: "More info"}).waitFor();
+        await page.keyboard.press("Escape");
+    }
     await page.keyboard.press("ArrowUp");
     assert.equal(await page.evaluate(() => document.activeElement.closest(".movie-hero-actions") !== null), true);
     const shelfNext = movieShelf.getByRole("button", {name:"Next movies"});
@@ -381,7 +386,7 @@ async function render(browser, label, options) {
     const film = moviesCards.filter({hasText:"The Long Way Home"});
     await film.click();
     const details = page.getByRole("region", {name:"The Long Way Home", exact:true});
-    const resume = details.getByRole("button", {name:"Resume", exact:true});
+    const resume = details.getByRole("button", {name:"Continue from 40:00", exact:true});
     await resume.waitFor();
     assert.equal(await details.getByRole("button", {name:"Add audio track for The Long Way Home"}).count(), 0);
     await details.getByRole("button", {name:"Delete source file"}).waitFor();
@@ -495,7 +500,8 @@ async function render(browser, label, options) {
     (await seriesView.locator(".movie-episode-still").first().evaluate(geometry)).forEach((size, axis) =>
         assert.ok(Math.abs(size - stillSize[axis]) <= .5, label + " loading and loaded episode stills differ"));
     await page.waitForFunction(img => img.naturalWidth > 0, await image.elementHandle());
-    await seriesView.getByRole("button", {name:"Resume", exact:true}).waitFor();
+    const continueEpisode = seriesView.getByRole("button", {name:"Continue S1 E2 from 14:48", exact:true});
+    await continueEpisode.waitFor();
     await seriesView.getByRole("list", {name:"Cast", exact:true}).waitFor();
     const seriesPoster = seriesView.locator(".movie-title-intro .movie-art img");
     await page.waitForFunction(image => image.naturalWidth > 0, await seriesPoster.elementHandle());
@@ -524,13 +530,14 @@ async function render(browser, label, options) {
     await seriesView.locator('[data-season="2"]').waitFor();
     assert.equal(await season(2).getAttribute("data-downloading"), null);
     assert.equal(await season(6).getAttribute("data-downloading"), "");
-    await seriesView.getByRole("button", {name:"Play", exact:true}).waitFor();
+    await continueEpisode.waitFor();
     await season(3).press("Enter");
     const find3 = seriesView.getByRole("button", {name:"Find season 3", exact:true});
     await find3.waitFor();
     imported = true;
     await page.evaluate(() => dispatchEvent(new Event("focus")));
-    await seriesView.getByRole("button", {name:"Play", exact:true}).waitFor();
+    await seriesView.getByRole("button", {name: "1. Return to port", exact: true}).waitFor();
+    await continueEpisode.waitFor();
     assert.equal(await season(3).getAttribute("aria-pressed"), "true");
     await season(4).press("Enter");
     const find = seriesView.getByRole("button", {name:"Find season 4", exact:true});

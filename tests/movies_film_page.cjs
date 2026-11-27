@@ -188,6 +188,13 @@ async function check(browser, profile, options) {
             }
             const back = film.getByRole("button", {name: "Back to titles"});
             for (const target of [back, favorite, nextPage]) assert.equal(await target.getAttribute("title"), null);
+            const background = await back.evaluate(node => getComputedStyle(node).backgroundColor);
+            await back.hover();
+            await page.waitForFunction(node => {
+                const transform = getComputedStyle(node.firstElementChild).transform;
+                return transform !== "none" && new DOMMatrix(transform).e === -3;
+            }, await back.elementHandle());
+            assert.equal(await back.evaluate(node => getComputedStyle(node).backgroundColor), background);
             await back.evaluate(node => node.addEventListener("click", event => event.stopImmediatePropagation(), {capture: true, once: true}));
             await back.click();
             assert.equal(await back.evaluate(node => getComputedStyle(node).outlineStyle), "none");

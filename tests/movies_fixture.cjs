@@ -109,7 +109,7 @@ async function moviePage(page, {shell = false, nested = false} = {}) {
 async function movieHomeFixture(page, {preview = false, matches = [], resumeItems, nextUp = [], played = [], downloads = false} = {}) {
     await moviePage(page, {shell: true});
     const library = await page.evaluate(async () => (await import("/movies.js")).moviePreviewLibrary());
-    const favoriteWrites = [];
+    const favoriteWrites = [], hiddenResume = new Set(), hiddenNext = new Map();
     await page.route(jellyfin + "/**", route => {
         const url = new URL(route.request().url()), params = url.searchParams;
         const headers = cors;
@@ -129,19 +129,31 @@ async function movieHomeFixture(page, {preview = false, matches = [], resumeItem
             const Items = [...new Set(library.flatMap(item => item.Genres))].map(Name => ({Name}));
             return route.fulfill({headers, json: {Items, TotalRecordCount: Items.length}});
         }
-        if (url.pathname === "/Shows/NextUp")
-            return route.fulfill({headers, json: {Items: nextUp, TotalRecordCount: nextUp.length}});
+        const resumeId = /^\/UserItems\/([^/]+)\/HideFromResume$/.exec(url.pathname)?.[1];
+        if (resumeId && route.request().method() === "POST") {
+            hiddenResume.add(resumeId);
+            return route.fulfill({headers, status: 204});
+        }
+        if (url.pathname === "/Shows/NextUp") {
+            if (route.request().method() === "POST") {
+                const {seriesId, episodeId} = route.request().postDataJSON();
+                hiddenNext.set(seriesId, episodeId);
+                return route.fulfill({headers, status: 204});
+            }
+            const Items = nextUp.filter(item => hiddenNext.get(item.SeriesId) !== item.Id);
+            return route.fulfill({headers, json: {Items, TotalRecordCount: Items.length}});
+        }
         if (url.pathname === "/Items" || url.pathname === "/UserItems/Resume") {
             if (params.get("filters") === "IsPlayed") {
                 const Items = played.filter(item => item.SeriesId === params.get("parentId"));
                 return route.fulfill({headers, json: {Items, TotalRecordCount: Items.length}});
             }
             if (resumeItems && url.pathname === "/UserItems/Resume") {
-                const Items = resumeItems.filter(item => item.Type === "Movie");
+                const Items = resumeItems.filter(item => item.Type === "Movie" && !hiddenResume.has(item.Id));
                 return route.fulfill({headers, json: {Items, TotalRecordCount: Items.length}});
             }
             if (resumeItems && params.get("includeItemTypes") === "Episode" && params.get("filters") === "IsResumable") {
-                const Items = resumeItems.filter(item => item.Type === "Episode");
+                const Items = resumeItems.filter(item => item.Type === "Episode" && !hiddenResume.has(item.Id));
                 return route.fulfill({headers, json: {Items, TotalRecordCount: Items.length}});
             }
             const group = library.find(item => item.Id === params.get("parentId"))?.ChildIds;
@@ -273,10 +285,14 @@ async function movieDetailFixture(page, {denseSeries = false} = {}) {
                 ]});
                 return JSON.stringify(args[0] === "101" ? {matches, library_matches: libraryMatches} : {matches: []});
             }
-            if (method === "MovieMatches") return JSON.stringify({seasons: [
+            if (method === "MovieMatches") return JSON.stringify({series_id: 201, seasons: [
                 {number: 1, episode_count: 1}, {number: 2, episode_count: 1}
             ]});
-            if (method === "MovieSeasonEpisodes") return JSON.stringify({episodes: []});
+            if (method === "MovieSeasonEpisodes") {
+                if (args[1] === window.slowDetailSeason)
+                    await new Promise(resolve => { window.finishDetailSeason = resolve; });
+                return JSON.stringify({episodes: []});
+            }
             if (method === "MovieAudioSources") return JSON.stringify({sources: [], next: null});
             if (method === "MovieDownloads" && denseSeries) return JSON.stringify({available: true, items: [{
                 id: "failed-audio", item: "show-a-extra-0", name: "Adding Hungarian audio to Signal 2", state: "Failed",
@@ -302,7 +318,7 @@ async function movieDetailFixture(page, {denseSeries = false} = {}) {
 async function playMovieDetails(page, card, title) {
     await card.press("Enter");
     const details = page.getByRole("region", {name: title, exact: true});
-    const play = details.getByRole("button", {name: /^(Play|Resume)$/});
+    const play = details.getByRole("button", {name: /^(Play$|Continue\b)/});
     await play.press("Enter");
     return play;
 }

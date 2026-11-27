@@ -146,7 +146,8 @@ class DeploymentGuidance(unittest.TestCase):
 class MovieGrants(Base):
     extra = {'FAMILY_PROFILES': True, 'JELLYFIN_PUBLIC_URL': 'https://movies.test',
              'JELLYFIN_INTERNAL_URL': 'http://127.0.0.1:8096/jellyfin',
-             'JELLYFIN_PROFILES': {'sample-a': {'username': 'viewer', 'password': 'fixture-password'}},
+             'JELLYFIN_PROFILES': {'sample-a': {'username': 'viewer', 'password': 'fixture-password'},
+                                  'sample-b': {'username': 'other-viewer', 'password': 'fixture-password'}},
              'MOVIE_DOWNLOADS': {'profiles': ['sample-a']}}
     item = 'a' * 32
 
@@ -155,8 +156,8 @@ class MovieGrants(Base):
         csrf = self.go(client, 'GET', '/api/connect').json['csrf_token']
         return client, self.post(client, csrf, '/api/profile/select', json=self.profile_credentials(name)).json['csrf_token']
 
-    def grant(self, client, csrf, opener):
-        login = {'User': {'Id': 'viewer-id', 'Name': 'viewer', 'Policy': {'IsAdministrator': False}},
+    def grant(self, client, csrf, opener, viewer='viewer'):
+        login = {'User': {'Id': viewer + '-id', 'Name': viewer, 'Policy': {'IsAdministrator': False}},
                  'AccessToken': 'upstream-secret'}
         opener.return_value.open.return_value = io.BytesIO(json.dumps(login).encode())
         response = self.post(client, csrf, '/api/movies/session', json={'device': '1' * 32})
@@ -202,6 +203,68 @@ class MovieGrants(Base):
         for invalid in [{'query': 'userId=other', 'payload': {'favorite': True}}, {'payload': {'favorite': 'false'}}, {'payload': None}]:
             self.assertEqual(self.post(client, csrf, '/api/movies/library', json={**data, **invalid}).status_code, 400)
         opener.assert_not_called()
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_resume_dismissal_uses_only_the_allowed_viewer_action(self, opener):
+        client, csrf = self.select()
+        movie = self.grant(client, csrf, opener)
+        route = '/api/movies/library'
+        path = f'UserItems/{self.item}/HideFromResume'
+        data = dict(ticket=movie['media_ticket'], path=path, query='hide=true', payload={'positionTicks': 120000000})
+        opener.reset_mock()
+        for invalid in ({'path': path + '/anything'}, {'path': f'UserItems/{"-" * 32}/HideFromResume'},
+                        {'query': 'hide=false'}, {'query': 'hide=true&userId=other'},
+                        {'payload': None}, {'payload': {'positionTicks': True}}):
+            self.assertEqual(self.post(client, csrf, route, json={**data, **invalid}).status_code, 400)
+        opener.assert_not_called()
+        upstream = opener.return_value.open
+        upstream.return_value = io.BytesIO()
+        self.assertEqual(self.post(client, csrf, route, json=data).json, {'result': None})
+        req = upstream.call_args.args[0]
+        self.assertTrue(req.full_url.endswith(f'/{path}?hide=true&userId=viewer-id'))
+        self.assertEqual((req.get_method(), req.data), ('POST', b''))
+
+        upstream.side_effect = urllib.error.HTTPError(req.full_url, 404, 'Not found', {}, None)
+        self.assertEqual(self.post(client, csrf, route, json=data).json, {'result': None})
+        upstream.side_effect = None
+        entry = {'Id': self.item, 'UserData': {'PlaybackPositionTicks': 120000000}}
+        for resource, query, expected in [
+                ('UserItems/Resume', '', []), ('Items', 'filters=IsResumable', []),
+                ('Items', f'ids={self.item}', [{**entry, 'FamilyHubResumeHidden': True}])]:
+            upstream.return_value = io.BytesIO(json.dumps({'Items': [entry], 'TotalRecordCount': 1}).encode())
+            reply = self.post(client, csrf, route, json={**data, 'path': resource, 'query': query, 'payload': None})
+            self.assertEqual(reply.json['result'], {'Items': expected, 'TotalRecordCount': len(expected)})
+        entry['UserData']['PlaybackPositionTicks'] += 1
+        upstream.return_value = io.BytesIO(json.dumps({'Items': [entry]}).encode())
+        reply = self.post(client, csrf, route, json={**data, 'path': 'UserItems/Resume', 'query': '', 'payload': None})
+        self.assertEqual(reply.json['result']['Items'], [entry])
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_next_up_dismissal_is_profile_scoped_and_expires_when_the_episode_changes(self, opener):
+        client, csrf = self.select()
+        movie = self.grant(client, csrf, opener)
+        other, other_csrf = self.select('sample-b')
+        other_movie = self.grant(other, other_csrf, opener, 'other-viewer')
+        route = '/api/movies/library'
+        episode_id = 'b' * 32
+        data = dict(ticket=movie['media_ticket'], path='Shows/NextUp', query='',
+                    payload={'seriesId': self.item, 'episodeId': episode_id})
+        opener.reset_mock()
+        self.assertEqual(self.post(other, other_csrf, route, json=data).status_code, 404)
+        self.assertEqual(self.post(client, csrf, route, json={**data, 'payload': {'seriesId': self.item}}).status_code, 400)
+        self.assertEqual(self.post(client, csrf, route, json=data).json, {'result': None})
+        opener.assert_not_called()
+        entry = {'Id': episode_id, 'SeriesId': self.item, 'Type': 'Episode'}
+        successor = {**entry, 'Id': 'c' * 32}
+        fresh, fresh_csrf = self.select()
+        fresh_movie = self.grant(fresh, fresh_csrf, opener)
+        for profile, token, ticket, item, expected in [
+                (fresh, fresh_csrf, fresh_movie['media_ticket'], entry, []),
+                (other, other_csrf, other_movie['media_ticket'], entry, [entry]),
+                (fresh, fresh_csrf, fresh_movie['media_ticket'], successor, [successor])]:
+            opener.return_value.open.return_value = io.BytesIO(json.dumps({'Items': [item], 'TotalRecordCount': 1}).encode())
+            reply = self.post(profile, token, route, json={**data, 'ticket': ticket, 'payload': None})
+            self.assertEqual(reply.json['result'], {'Items': expected, 'TotalRecordCount': len(expected)})
 
     @patch('music_web.movies.urllib.request.build_opener')
     def test_media_rewrites_playlist_and_revokes_ticket(self, opener):

@@ -1,4 +1,4 @@
-import { buildPlayerUi, watchPlayerIdle } from "./movie-player-ui.js";
+import { buildPlayerUi, clock, watchPlayerIdle } from "./movie-player-ui.js";
 import { addAudioDialog, audioJobResults, audioJobRunning, audioLanguage as audioLanguageName } from "./movie-audio-ui.js";
 import { movieAudioSync } from "./movie-audio-sync.js";
 import { appendSoundChip, buildReleaseSearch, cleanResultTitle, displayTitle, formatMinutes, librarySound, ratingBadge, releaseKind, releaseSeasons, videoQualityTier } from "./movie-releases.js";
@@ -24,7 +24,7 @@ function loadingShape(className, ...children) {
     return node;
 }
 
-function movieLoading(kind) {
+function movieLoading(kind, count = 3) {
     const block = (className = "") => loadingShape("movie-loading-block " + className);
     const repeated = (count, make) => Array.from({length: count}, make);
     let parts;
@@ -40,16 +40,18 @@ function movieLoading(kind) {
             ...repeated(3, () => block("movie-loading-pill"))))];
     } else {
         const list = el("ol");
-        list.append(...repeated(3, () => {
+        list.append(...repeated(count, () => {
             const row = el("li");
             row.append(loadingShape("movie-episode-body", block("movie-episode-still"),
-                loadingShape("movie-episode-text", block("movie-loading-line"), block("movie-loading-label"))));
+                loadingShape("movie-episode-text", block("movie-loading-line"), block("movie-loading-label"),
+                    block("movie-loading-progress"))));
             return row;
         }));
-        parts = [loadingShape("movie-season", loadingShape("movie-season-header",
-            block("movie-loading-label"), block("movie-loading-action")), list)];
+        parts = [loadingShape("movie-season", list)];
     }
-    const node = loadingShape(kind === "home" ? "movie-loading movie-home-skeleton" : "movie-loading", ...parts);
+    const node = loadingShape(
+        kind === "home" ? "movie-loading movie-home-skeleton" : kind === "episodes" ? "movie-loading movie-episode-loading" : "movie-loading",
+        ...parts);
     node.setAttribute("aria-hidden", "true");
     return node;
 }
@@ -438,6 +440,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     const playPath = "M7 4.5v15l12-7.5z";
     const searchPath = "M21 21l-4.3-4.3M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z";
     const detailsPath = "M12 16v-4m0-4h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z";
+    const removePath = "m9 9 6 6m0-6-6 6M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z";
     const heartPath = "M20.8 5.6a4.8 4.8 0 0 0-6.8 0l-2 2-2-2a4.8 4.8 0 0 0-6.8 6.8L12 21l8.8-8.6a4.8 4.8 0 0 0 0-6.8Z";
     const quietMotion = () => document.body.dataset.effects === "off" || matchMedia("(prefers-reduced-motion: reduce)").matches;
     const backdropPalettes = new Map();
@@ -1275,10 +1278,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         let target = focus || (opener.dataset.downloadRow !== undefined && !downloadTray.hidden ? downloadToggle : opener);
         if (!keepFocus) {
             if (!focus && target === opener && (!opener.isConnected || opener.closest("[hidden], [inert]"))) {
-                const candidates = [...destination.querySelectorAll(".movie-card, .movie-card-details, .movie-hero-details")]
+                const candidates = [...destination.querySelectorAll(".movie-card, .movie-continue-menu-button, .movie-hero-details")]
                     .filter(node => node.dataset.itemId === opener.dataset.itemId && !node.closest("[hidden], [inert]"));
                 const kind = opener.matches(".movie-card") ? ".movie-card" :
-                    opener.matches(".movie-card-details") ? ".movie-card-details" : ".movie-hero-details";
+                    opener.matches(".movie-continue-menu-button") ? ".movie-continue-menu-button" : ".movie-hero-details";
                 const replacement = !fromResults && job && opener.hasAttribute("data-pending-download") &&
                     browseShelves.flatMap(shelf => shelf.items).map(seriesCardItem)
                         .find(item => sameDownloadedTitle(job.item, item));
@@ -1464,10 +1467,36 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             return;
         }
         const demo = preview || item.Demo;
-        const playButton = playAction(isSeries ? null : item);
+        const playButton = playAction(isSeries ? null : item, true);
         const favorite = demo || job ? null : favoriteAction(item, detailStatus, original);
         playButton.prepend(icon(playPath));
-        if (!demo) actions.append(playButton, ...[favorite].filter(Boolean));
+        let selectedMovie = isSeries ? null : item, continuing, removed;
+        const remove = button("", () => {
+            if (!continuing) return;
+            remove.focus({preventScroll: true});
+            void dismissContinue(continuing, remove, detailStatus, entry => {
+                removed = entry.Id;
+                selectedMovie = entry;
+                if (document.activeElement === remove) playButton.focus({preventScroll: true});
+                view.syncContinue();
+            });
+        });
+        remove.className = "movie-continue-remove";
+        remove.setAttribute("aria-label", removeContinueLabel);
+        remove.append(icon(removePath));
+        remove.hidden = true;
+        if (!demo) actions.append(playButton, remove, ...[favorite].filter(Boolean));
+        view.syncContinue = () => {
+            if (demo || job || signal.aborted) return;
+            continuing = resumeShelf.items.find(entry => titleKey(entry) === titleKey(item));
+            const next = continuing ?? selectedMovie;
+            if (continuing) removed = undefined;
+            if (!continuing && document.activeElement === remove)
+                (next ? playButton : heading).focus({preventScroll: true});
+            remove.hidden = !continuing;
+            playButton.setMovie(next, Boolean(continuing), next?.Id === removed || next?.FamilyHubResumeHidden);
+        };
+        view.syncContinue();
         if (!demo && !job && !isSeries && session.downloads_enabled) list.before(audioJobSlot(item));
         const trackStatus = el("p");
         if (job) {
@@ -1555,7 +1584,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const posterChanged = detail.ImageTags?.Primary && detail.ImageTags.Primary !== item.ImageTags?.Primary;
             Object.assign(item, {...detail, UserData: {...detail.UserData, ...item.UserData}});
             if (posterChanged) intro.firstElementChild.replaceWith(cardArtwork(item));
-            if (!isSeries) playButton.setMovie(item);
+            if (!isSeries) view.syncContinue();
             markFavorite(favorite, isFavorite(item));
             updateDetails();
         });
@@ -1682,12 +1711,6 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             selectedSeason = number;
             for (const [n, pill] of pills) pill.setAttribute("aria-pressed", String(n === number));
             updateSeasonArrows();
-            const season = available.get(number);
-            const owned = season?.episodes.length ? season.episodes : job ? [] : episodes ?? [];
-            const next = owned.find(episode => progressOf(episode) > 0 && !episode.UserData?.Played) ??
-                owned.find(episode => !episode.UserData?.Played) ?? owned[0];
-            if (!next && document.activeElement === playButton) seasonFocus().focus({preventScroll: true});
-            playButton.setMovie(next);
         }
         const libraryOutage = createServiceStatus({
             detail: "Reconnect to check your library for episodes.", label: "Retry library check",
@@ -1702,6 +1725,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             retry: () => choose(selectedSeason), focus: seasonFocus, automatic: true
         });
         list.after(libraryOutage.card, metadataOutage.card, episodeOutage.card);
+        const episodeStatus = el("p");
+        episodeStatus.className = "movie-visually-hidden";
+        episodeStatus.setAttribute("role", "status");
+        list.before(episodeStatus);
         const seasonLoading = movieLoading("seasons");
         seasonLoading.hidden = true;
         seasons.after(seasonLoading);
@@ -1721,6 +1748,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         }
         function renderSeason(number) {
             const season = available.get(number);
+            const owned = season?.episodes.length ? season.episodes : job ? [] : episodes ?? [];
+            selectedMovie = owned.find(episode => hasResumePosition(episode) && !episode.FamilyHubResumeHidden) ??
+                owned.find(episode => !episode.UserData?.Played) ?? owned[0];
+            if (!selectedMovie && !continuing && document.activeElement === playButton) seasonFocus().focus({preventScroll: true});
+            if (job) playButton.setMovie(selectedMovie);
+            else view.syncContinue();
             const focus = document.activeElement;
             const focused = list.contains(focus);
             const key = focused && focus.dataset.episodeId;
@@ -1743,24 +1776,40 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             selectSeason(number);
             const change = ++revision;
             list.setAttribute("aria-busy", "true");
+            list.setAttribute("data-season-switch", "");
             const waiting = !pictures.has(number) && tmdbId;
             if (waiting) {
                 if (list.contains(document.activeElement)) seasonFocus().focus({preventScroll: true});
-                list.replaceChildren(movieLoading("episodes"));
-                summary.textContent = "Loading episodes…";
-                await withinMovieLoad(bounded => loadSeason(number, bounded), signal);
+                const previous = list.querySelector(".movie-season[data-season]");
+                if (previous) previous.inert = true;
+                if (episodeStatus.textContent !== "Loading episodes…") episodeStatus.textContent = "Loading episodes…";
+                const timer = setTimeout(() => {
+                    if (signal.aborted || change !== revision || list.querySelector(".movie-episode-loading")) return;
+                    const count = previous?.querySelector("ol").childElementCount || 3;
+                    list.append(movieLoading("episodes", count));
+                }, 250);
+                try {
+                    await withinMovieLoad(bounded => loadSeason(number, bounded), signal);
+                } finally {
+                    clearTimeout(timer);
+                }
             }
             if (signal.aborted || change !== revision) return;
             renderSeason(number);
             list.hidden = false;
             summarize();
             list.removeAttribute("aria-busy");
+            list.removeAttribute("data-season-switch");
+            if (!waiting || pictures.has(number)) {
+                const count = list.querySelector(".movie-season > ol")?.childElementCount ?? 0;
+                episodeStatus.textContent = plural(count, "episode") + " loaded";
+            } else episodeStatus.textContent = "";
         }
         function summarize() {
             summary.textContent = episodes && metadata && !available.size ? "No seasons available." : "";
         }
         async function load(quiet, requestSignal = signal) {
-            if (busy || signal.aborted) return;
+            if (busy || signal.aborted || list.hasAttribute("data-season-switch")) return;
             busy = true;
             let episodeLoading;
             if (!quiet) {
@@ -1808,7 +1857,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     const first = available.has(number) ? number : numbers[0];
                     const change = revision;
                     await loadSeason(first, bounded);
-                    if (bounded.aborted || change !== revision) return;
+                    if (bounded.aborted || change !== revision || list.hasAttribute("data-season-switch")) return;
                     const removedFocus = lane.contains(document.activeElement) && !numbers.some(n => pills.get(n) === document.activeElement);
                     if (removedFocus) heading.focus({preventScroll: true});
                     for (const [n, pill] of pills) {
@@ -1844,7 +1893,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 busy = false;
                 seasonLoading.hidden = true;
                 episodeLoading?.remove();
-                list.removeAttribute("aria-busy");
+                if (!list.hasAttribute("data-season-switch")) list.removeAttribute("aria-busy");
             }
         }
         view.refreshProgress = () => load(true);
@@ -1878,15 +1927,40 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const ready = Promise.all([relatedReady, load(false, prepareSignal)]);
         return reveal(ready, seasonFocus);
     }
-    function playAction(item) {
-        const action = button("", () => { if (item && action.getAttribute("aria-disabled") !== "true") void play(item, action); });
-        const label = el("span");
+    function hasResumePosition(item) {
+        return item && !item.UserData?.Played && (item.UserData?.PlaybackPositionTicks > 0 || progressOf(item) > 0);
+    }
+    function playAction(item, titlePage = false) {
+        let start;
+        const action = button("", () => {
+            if (item && action.getAttribute("aria-disabled") !== "true")
+                void play(item, action, start ? {position: 0} : undefined);
+        });
+        const label = el("span"), where = el("small"), words = document.createTextNode("");
+        where.className = "movie-continue-position";
+        where.hidden = true;
+        label.append(words, where);
         action.append(label);
-        action.setMovie = movie => {
+        action.setMovie = (movie, continuing = false, fromStart = false) => {
             item = movie;
-            action.hidden = !movie;
-            const text = movie && progressOf(movie) > 0 && !movie.UserData?.Played ? "Resume" : "Play";
-            if (label.textContent !== text) label.textContent = text;
+            start = fromStart;
+            action.hidden = !item;
+            const resume = !start && (continuing || hasResumePosition(item));
+            const text = resume ? titlePage ? "Continue" : "Resume" : "Play";
+            if (words.data !== text) words.data = text;
+            where.hidden = !titlePage || !resume;
+            if (where.hidden) {
+                action.removeAttribute("aria-label");
+                return;
+            }
+            const episode = item.Type === "Episode" && Number.isInteger(item.ParentIndexNumber) && Number.isInteger(item.IndexNumber)
+                ? `S${item.ParentIndexNumber} E${item.IndexNumber}` : "";
+            const ticks = item.UserData?.PlaybackPositionTicks ||
+                (item.RunTimeTicks ?? 0) * (item.UserData?.PlayedPercentage ?? 0) / 100;
+            const location = [episode, ticks > 0 && "from " + clock(ticks / 1e7)].filter(Boolean).join(" ");
+            if (where.textContent !== location) where.textContent = location;
+            where.hidden = !location;
+            action.setAttribute("aria-label", location ? `${text} ${location}` : text);
         };
         action.setMovie(item);
         action.className = "movie-hero-play";
@@ -1898,11 +1972,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             if (running !== wasRunning) action.firstElementChild.replaceWith(icon(running ? downloadPath : playPath));
             if (running) {
                 const text = percent + "%";
-                if (label.textContent !== text) label.textContent = text;
+                if (words.data !== text) words.data = text;
+                where.hidden = true;
                 action.setAttribute("aria-label", "Downloading " + Math.floor(percent / 10) * 10 + "%");
             } else {
                 action.setMovie(movie || item);
-                action.removeAttribute("aria-label");
             }
             if (running || !movie) action.setAttribute("aria-disabled", "true");
             else action.removeAttribute("aria-disabled");
@@ -2470,6 +2544,55 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const age = Date.now() - Date.parse(item.DateCreated);
         return age >= 0 && age < 14 * 86400000;
     };
+    const removeContinueLabel = "Remove from Continue watching";
+    let closeContinueMenu;
+    const removingContinue = new Set();
+    async function dismissContinue(item, control, message, done) {
+        const key = titleKey(item);
+        if (removingContinue.has(key)) return;
+        removingContinue.add(key);
+        control.setAttribute("aria-disabled", "true");
+        message.textContent = "";
+        try {
+            if (item.FamilyHubNextUp) {
+                await request("Shows/NextUp", {}, {seriesId: item.SeriesId, episodeId: item.Id}, null);
+            } else {
+                await request(`UserItems/${encodeURIComponent(item.Id)}/HideFromResume`, {hide: true},
+                    {positionTicks: item.UserData?.PlaybackPositionTicks ?? 0}, null);
+            }
+            if (!active) return;
+            const {cards, items, heading} = resumeShelf;
+            const tile = cards.get(key);
+            resumeShelf.items = items.filter(entry => titleKey(entry) !== key);
+            cards.delete(key);
+            if (tile?.contains(document.activeElement)) {
+                const visible = [...tile.parentElement.children].filter(node => !node.inert);
+                const index = visible.indexOf(tile);
+                const next = visible[index + 1] ?? visible[index - 1];
+                if (next) tile.closest(".movie-shelf-lane").revealCard(next, true);
+                (next?.querySelector(".movie-card") ?? heading).focus({preventScroll: true});
+            }
+            done?.(item);
+            homeStatus.textContent = `Removed ${item.SeriesName || item.Name} from Continue watching`;
+            if (tile?.isConnected && !tile.closest("[hidden]") && !quietMotion() && tile.animate) {
+                tile.inert = true;
+                const width = tile.offsetWidth + "px";
+                const collapse = tile.animate([{width, flexBasis: width, opacity: 1},
+                    {width: 0, flexBasis: 0, opacity: 0}], {duration: 150, easing: "ease-out", fill: "forwards"});
+                await collapse.finished.catch(() => {});
+                collapse.cancel();
+            }
+            if (active) renderHome();
+        } catch {
+            if (active) message.textContent = "Could not remove this title. Try again.";
+        } finally {
+            removingContinue.delete(key);
+            control.removeAttribute("aria-disabled");
+        }
+    }
+    document.addEventListener("pointerdown", event => closeContinueMenu?.(true, event.target), {signal: life.signal});
+    window.addEventListener("resize", () => closeContinueMenu?.(true), {signal: life.signal});
+
     function card(item, format, findRelease, pendingDownload) {
         const title = seriesCardItem(item);
         const continuing = format === "resume";
@@ -2548,13 +2671,77 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         if (!continuing || preview || item.Demo) return b;
         const tile = el("div");
         tile.className = "movie-resume-card";
-        const details = button("", () => openSeries(title, details, item.ParentIndexNumber));
-        details.className = "movie-card-details";
-        details.dataset.itemId = title.Id;
-        details.dataset.titleKey = titleKey(item);
-        details.setAttribute("aria-label", `Details for ${name}`);
-        details.append(icon(detailsPath));
-        tile.append(b, details);
+        const menu = el("div");
+        menu.className = "movie-continue-menu";
+        menu.setAttribute("role", "menu");
+        menu.setAttribute("aria-label", `Options for ${name}`);
+        menu.hidden = true;
+        const more = button("", () => {
+            if (more.getAttribute("aria-disabled") === "true") return;
+            if (!menu.hidden) return close(true);
+            closeContinueMenu?.();
+            tile.closest(".movie-shelf-lane").revealCard(tile, true);
+            menu.hidden = false;
+            menu.style.left = menu.style.top = "0px";
+            const origin = menu.getBoundingClientRect();
+            const bounds = more.getBoundingClientRect();
+            const width = document.documentElement.clientWidth;
+            const left = Math.max(8, Math.min(bounds.right - origin.width, width - origin.width - 8));
+            const top = bounds.bottom + origin.height + 4 <= window.innerHeight
+                ? bounds.bottom + 4 : Math.max(8, bounds.top - origin.height - 4);
+            menu.style.left = left - origin.left + "px";
+            menu.style.top = top - origin.top + "px";
+            more.setAttribute("aria-expanded", "true");
+            closeContinueMenu = close;
+            remove.focus({preventScroll: true});
+        });
+        more.className = "movie-continue-menu-button";
+        more.dataset.itemId = title.Id;
+        more.dataset.titleKey = titleKey(item);
+        more.setAttribute("aria-label", `More options for ${name}`);
+        more.setAttribute("aria-haspopup", "menu");
+        more.setAttribute("aria-expanded", "false");
+        more.append(icon("M12 5h.01M12 12h.01M12 19h.01"));
+        function close(restoreFocus = false, outside) {
+            if (outside && (menu.contains(outside) || more.contains(outside))) return;
+            closeContinueMenu = undefined;
+            if (restoreFocus && menu.contains(document.activeElement)) {
+                more.focus({preventScroll: true});
+                if (outside) requestAnimationFrame(() => {
+                    if (document.activeElement === document.body && more.isConnected && !more.closest("[hidden], [inert]"))
+                        more.focus({preventScroll: true});
+                });
+            }
+            menu.hidden = true;
+            more.setAttribute("aria-expanded", "false");
+        }
+        const remove = button(removeContinueLabel, () => {
+            close(true);
+            void dismissContinue(item, more, continueError);
+        });
+        const info = button("More info", () => {
+            close(true);
+            openSeries(title, more, item.ParentIndexNumber);
+        });
+        remove.prepend(icon(removePath));
+        info.prepend(icon(detailsPath));
+        for (const action of [remove, info]) {
+            action.setAttribute("role", "menuitem");
+            action.tabIndex = -1;
+        }
+        menu.append(remove, info);
+        menu.addEventListener("keydown", event => {
+            if (event.key === "Escape") close(true);
+            else if (event.key === "ArrowUp" || event.key === "ArrowDown")
+                (event.target === remove ? info : remove).focus({preventScroll: true});
+            else return;
+            event.preventDefault();
+            event.stopPropagation();
+        });
+        menu.addEventListener("focusout", event => {
+            if (!menu.hidden && !menu.contains(event.relatedTarget)) close();
+        });
+        tile.append(b, more, menu);
         return tile;
     }
     function shelfLane(rows, title, signal, related = false) {
@@ -2754,7 +2941,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 if (node !== next) rows.insertBefore(node, next);
                 next = node.nextElementSibling;
             }
-            section.hidden = !keep.size && !shelf.failed;
+            section.hidden = !keep.size && !shelf.failed && focused !== heading;
             shelf.updateArrows();
         }
         if (fallback && (document.activeElement === document.body || !focused.isConnected || focused.closest("[hidden]"))) {
@@ -2762,7 +2949,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const imported = pendingTitle && owned.find(item => sameDownloadedTitle(pendingTitle, item));
             const replacement = original?.isConnected ? original : visible.get(focusKey) ?? visible.get(imported?.Id);
             const control = replacement?.matches(".movie-resume-card")
-                ? replacement.querySelector(focused.matches(".movie-card-details") ? ".movie-card-details" : ".movie-card")
+                ? replacement.querySelector(focused.matches(".movie-continue-menu-button") ? ".movie-continue-menu-button" : ".movie-card")
                 : replacement;
             (control || (!fallback.closest("[hidden]") ? fallback : submit)).focus({preventScroll: true});
         }
@@ -2816,7 +3003,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 ]);
                 if (!active || signal.aborted) return;
                 // A completed toggle replaces the list while an older shelf request can still be in flight.
-                if (format === "favorites" && state.items !== previousItems) return;
+                if ((format === "favorites" || resume) && state.items !== previousItems) return;
                 if (!Array.isArray(page?.Items)) throw Error("Invalid library page");
                 const episodeItems = Array.isArray(episodes?.Items) ? episodes.Items.filter(item => item.Type === "Episode") : [];
                 let items = [...page.Items, ...episodeItems].filter(item =>
@@ -2835,7 +3022,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         if (item.Type !== "Episode" || !item.SeriesId || item.IsMissing || item.LocationType === "Virtual" ||
                             item.UserData?.Played || seen.has(titleKey(item))) continue;
                         seen.add(titleKey(item));
-                        upcoming.push(item);
+                        upcoming.push({...item, FamilyHubNextUp: true});
                     }
                     const dated = await Promise.all(upcoming.map(async item => {
                         // The series may have a newer play date than its upcoming episode.
@@ -2845,7 +3032,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         }, undefined, bounded).catch(() => null);
                         return [item, Math.max(playedAt(item), playedAt(history?.Items?.[0] ?? {}))];
                     }));
-                    if (!active || signal.aborted || bounded.aborted) return;
+                    if (!active || signal.aborted || bounded.aborted || state.items !== previousItems) return;
                     items = [...items.map(item => [item, playedAt(item)]), ...dated]
                         .sort((a, b) => b[1] - a[1]).slice(0, params.limit).map(([item]) => item);
                 }
@@ -3824,6 +4011,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         {singlePage: true, params: {fields}, accept: item =>
             !item.IsMissing && item.LocationType !== "Virtual" && !item.UserData?.Played &&
             (item.UserData?.PlaybackPositionTicks > 0 || item.UserData?.PlayedPercentage > 0)});
+    const continueError = el("p");
+    continueError.className = "movie-favorite-status";
+    continueError.setAttribute("role", "status");
+    resumeShelf.heading.after(continueError);
+    resumeShelf.heading.addEventListener("blur", () => {
+        if (!resumeShelf.items.length && !resumeShelf.failed) resumeShelf.section.hidden = true;
+    });
     const favoriteShelf = shelf("My list", titleTypes, false, browse, "", life.signal,
         {format: "favorites", params: {fields, isFavorite: true}, accept: item => item.UserData?.IsFavorite === true});
     const recentShelf = shelf("Recently added", titleTypes, false, browse, "", life.signal,
@@ -4023,6 +4217,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
 
     function renderHome() {
         placeBrowseCards();
+        for (let view = seriesView; view; view = view.parent) view.syncContinue?.();
         const resume = resumeShelf.items.find(item => progressOf(item) > 0);
         const candidates = new Map();
         if (resume) candidates.set(titleKey(resume), resume);
@@ -4265,14 +4460,14 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     library.addEventListener("keydown", event => {
         const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
         const page = {PageUp: -5, PageDown: 5}[event.key];
-        const details = event.target.closest?.(".movie-card-details");
+        const details = event.target.closest?.(".movie-continue-menu-button");
         const tile = event.target.closest?.(".movie-resume-card");
         const current = details ? tile.querySelector(".movie-card") : event.target;
         const navigate = ".movie-card, .movie-hero-actions button, .movie-download-toggle";
         if ((!arrows && !page) || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !current.matches?.(navigate)) return;
         if (tile && (details ? arrows?.[1] === 1 : arrows?.[1] === -1)) {
             event.preventDefault();
-            (details ? current : tile.querySelector(".movie-card-details")).focus({preventScroll: true});
+            (details ? current : tile.querySelector(".movie-continue-menu-button")).focus({preventScroll: true});
             return;
         }
         const catalogue = seriesView?.section ?? (browse.hidden ? results : browse);
@@ -4295,7 +4490,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         }
         if (!target) return;
         event.preventDefault();
-        if (target.matches(".movie-card")) target.closest(".movie-shelf-lane")?.revealCard?.(target);
+        if (target.matches(".movie-card"))
+            target.closest(".movie-shelf-lane")?.revealCard?.(target.closest(".movie-resume-card") ?? target);
         target.focus({ preventScroll: true });
         if (arrows?.[1] && target !== downloadToggle)
             (target.closest(".movie-shelf-lane") ?? featured).scrollIntoView({block: "nearest"});
