@@ -23,7 +23,7 @@ TICKET = re.compile(r'[A-Za-z0-9_-]{43}')
 QUERY_SECRET = re.compile(r'^(?:api[_-]?key|token|access[_-]?token|x-emby-token|x-mediabrowser-token)$', re.I)
 URI_ATTRIBUTE = re.compile(r'\bURI="([^"\r\n]+)"')
 WEBVIEW_ORIGINS = {'https://0.0.0.1', 'http://0.0.0.1', 'app://0.0.0.1', 'https://app.localhost', 'null'}
-LIBRARY_READ = re.compile(rf'(?:Items(?:/{ITEM})?|UserItems/Resume|Genres|Shows/{ITEM}/Episodes|Items/{ITEM}/RemoteSearch/Subtitles/[a-z]{{3}})')
+LIBRARY_READ = re.compile(rf'(?:Items(?:/{ITEM})?|UserItems/Resume|Genres|Shows/NextUp|Shows/{ITEM}/Episodes|Items/{ITEM}/RemoteSearch/Subtitles/[a-z]{{3}})')
 LIBRARY_WRITE = re.compile(rf'(?:Items/{ITEM}/PlaybackInfo|Sessions/Playing(?:/Progress|/Stopped)?|Items/{ITEM}/RemoteSearch/Subtitles/[A-Za-z0-9._~%+-]{{1,500}})')
 FAVORITE = re.compile(rf'UserFavoriteItems/({ITEM})')
 LIBRARY_PRIVATE_FIELDS = {'path', 'encoderpath', 'directstreamurl', 'password', 'pw'}

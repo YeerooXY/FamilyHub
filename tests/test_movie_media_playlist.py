@@ -35,3 +35,9 @@ class LongFilmPlaylistTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class LibraryAllowlistTests(unittest.TestCase):
+    def test_next_up_is_readable(self):
+        self.assertTrue(movie_media.LIBRARY_READ.fullmatch('Shows/NextUp'))
+        self.assertIsNone(movie_media.LIBRARY_WRITE.fullmatch('Shows/NextUp'))

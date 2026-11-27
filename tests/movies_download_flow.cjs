@@ -118,7 +118,7 @@ async function verify(browser, profile, options) {
         assert.equal(await subs.isChecked(), true);
         assert.equal(await dialog.getByRole("switch").count(), 2);
         assert.equal(await dialog.getByText("Added automatically", {exact: true}).isVisible(), true);
-        assert.equal(await dialog.getByRole("img", {name: "Rated 12"}).isVisible(), true);
+        assert.equal(await dialog.getByRole("img", {name: "Age rating 12"}).isVisible(), true);
         const layout = await dialog.evaluate(panel => {
             const style = getComputedStyle(panel);
             const sections = panel.querySelectorAll(".movie-confirm-summary, .movie-confirm-option, .movie-confirm-buttons");

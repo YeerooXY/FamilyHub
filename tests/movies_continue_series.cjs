@@ -20,7 +20,7 @@ const episode = (series, SeriesName, IndexNumber, day, percent) => ({
     try {
         const page = await browser.newPage({viewport: {width: 1280, height: 850}});
         const requests = [];
-        page.on("request", request => requests.push(new URL(request.url()).pathname));
+        page.on("request", request => requests.push(new URL(request.url())));
         await stubMovieHls(page);
         await page.addInitScript(() => {
             HTMLMediaElement.prototype.play = () => Promise.resolve();
@@ -28,17 +28,22 @@ const episode = (series, SeriesName, IndexNumber, day, percent) => ({
             Object.defineProperty(HTMLMediaElement.prototype, "src", {set() {}});
         });
         await movieHomeFixture(page, {resumeItems: [
-            {Id: "film-resume", Type: "Movie", Name: "First Orbit", UserData: userData(25, 35)},
+            {Id: "film-resume", Type: "Movie", Name: "First Orbit", UserData: userData(25, 35, 350)},
             episode("night", "Night Signal", 2, 23, 30),
             episode("quiet", "Quiet Port", 1, 24, 10),
             episode("night", "Night Signal", 3, 26, 40),
             {...episode("quiet", "Quiet Port", 2, 27, 100), UserData: {...userData(27, 100), Played: true}}
+        ], nextUp: [
+            {...episode("night", "Night Signal", 4, 28, 0)},
+            {...episode("harbour", "Harbour Town", 4, 22, 0), Name: "The Move", ParentIndexNumber: 2}
+        ], played: [
+            {...episode("harbour", "Harbour Town", 3, 27, 100), UserData: {...userData(27, 100), Played: true}}
         ]});
         const shelf = page.getByRole("region", {name: "Movie library"}).locator('.movie-shelf[data-format="resume"]');
         const cards = shelf.locator(".movie-card");
-        await cards.nth(2).waitFor();
-        assert.deepEqual(await cards.locator(".movie-card-name").allTextContents(), ["Night Signal", "First Orbit", "Quiet Port"]);
-        assert.deepEqual(await cards.locator("small").allTextContents(), ["Season 1, episode 3", "Season 1, episode 1"]);
+        await cards.nth(3).waitFor();
+        assert.deepEqual(await cards.locator(".movie-card-name").allTextContents(), ["Harbour Town", "Night Signal", "First Orbit", "Quiet Port"]);
+        assert.deepEqual(await cards.locator("small").allTextContents(), ["S2 E4, The Move", "S1 E3, Part 3", "S1 E1, Part 1"]);
         assert.deepEqual(await cards.locator(".movie-progress > span").evaluateAll(nodes => nodes.map(node => node.style.width)),
             ["40%", "35%", "10%"]);
         assert.equal(await cards.first().locator(".movie-art").evaluate(node => {
@@ -46,17 +51,45 @@ const episode = (series, SeriesName, IndexNumber, day, percent) => ({
             return Math.abs(width / height - 16 / 9) < .02;
         }), true);
 
-        await cards.first().press("Enter");
-        await page.getByRole("button", {name: "Back to movies"}).waitFor();
-        assert.ok(requests.includes("/Items/night-3/PlaybackInfo"));
-        assert.equal(requests.some(pathname => pathname.includes("NextUp") || pathname.includes("night-2/PlaybackInfo")), false);
-        const time = await page.locator(".movie-player video").evaluate(video => {
-            video.dispatchEvent(new Event("loadedmetadata"));
-            return video.currentTime;
-        });
-        assert.equal(time, 1200);
-        await page.getByRole("button", {name: "Back to movies"}).press("Enter");
-        await page.waitForFunction(() => document.activeElement?.dataset.itemId === "night-3");
+        const next = requests.find(url => url.pathname === "/Shows/NextUp");
+        assert.equal(next.searchParams.get("enableResumable"), "false");
+        assert.equal(next.searchParams.get("disableFirstEpisode"), "true");
+        for (const key of ["userId", "fields", "limit"]) assert.ok(next.searchParams.get(key), key);
+        assert.ok(requests.some(url => url.pathname === "/Items" && url.searchParams.get("parentId") === "harbour" &&
+            url.searchParams.get("filters") === "IsPlayed" && url.searchParams.get("sortBy") === "DatePlayed"));
+        const back = page.getByRole("button", {name: "Back to movies"});
+        for (const [id, key, seconds] of [["night-3", "Enter", 1200], ["film-resume", "Space", 350], ["harbour-4", null, 0]]) {
+            const card = cards.and(page.locator(`[data-item-id="${id}"]`));
+            if (key) await card.press(key);
+            else await card.click();
+            await back.waitFor();
+            assert.ok(requests.some(url => url.pathname === `/Items/${id}/PlaybackInfo`));
+            const time = await page.locator(".movie-player video").evaluate(video => {
+                video.dispatchEvent(new Event("loadedmetadata"));
+                return video.currentTime;
+            });
+            assert.equal(time, seconds, id);
+            await back.press("Enter");
+            await page.waitForFunction(id => document.activeElement?.dataset.itemId === id, id);
+        }
+        assert.equal(requests.some(url => /night-[24]\/PlaybackInfo/.test(url.pathname)), false);
+        const details = shelf.getByRole("button", {name: "Details for First Orbit"});
+        const filmCard = cards.and(page.locator('[data-item-id="film-resume"]'));
+        for (const [width, target, outline] of [[1280, 44, "2px"], [1920, 60, "4px"]]) {
+            await page.setViewportSize({width, height: 1080});
+            await filmCard.press("ArrowUp");
+            assert.deepEqual(await details.evaluate(node =>
+                [node === document.activeElement, node.offsetWidth, node.offsetHeight, getComputedStyle(node).outlineWidth]),
+            [true, target, target, outline]);
+            await page.keyboard.press("Shift+Tab");
+            assert.equal(await filmCard.evaluate(node => node === document.activeElement), true);
+            await page.keyboard.press("Tab");
+            assert.equal(await details.evaluate(node => node === document.activeElement), true);
+        }
+        await details.press("Enter");
+        const film = page.getByRole("region", {name: "First Orbit"});
+        await film.getByRole("button", {name: "Back to titles"}).press("Enter");
+        assert.equal(await details.evaluate(node => node === document.activeElement), true);
     } finally {
         await browser.close();
     }

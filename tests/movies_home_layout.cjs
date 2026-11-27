@@ -109,7 +109,7 @@ async function checkWidth(browser, width, height) {
         for (const label of ["2001", "1 h 20 min"]) {
             assert.equal(await meta.getByText(label, {exact: true}).evaluate(node => node.classList.contains("movie-chip")), false);
         }
-        assert.equal(await meta.getByRole("img", {name: "Rated 12"}).textContent(), "12");
+        assert.equal(await meta.getByRole("img", {name: "Age rating 12"}).textContent(), "12");
         assert.equal(await meta.locator(".movie-release-quality").getAttribute("data-level"), "web");
         assert.equal(await meta.locator(".movie-release-quality").evaluate(node => {
             const style = getComputedStyle(node);
@@ -149,6 +149,8 @@ async function checkWidth(browser, width, height) {
         await checkHover(row, 4, 1.08);
         const posters = shelf(page, "Movies");
         for (const [shelfRow, ratio] of [[posters, 2 / 3], [row, 16 / 9]]) {
+            assert.equal(await shelfRow.locator(".movie-caption").first().evaluate(node =>
+                getComputedStyle(node).backgroundColor), "rgb(0, 0, 0)");
             const size = await shelfRow.locator(".movie-card").first().evaluate(card => {
                 const art = card.querySelector(".movie-art").getBoundingClientRect();
                 const progress = card.querySelector(".movie-progress")?.getBoundingClientRect();
@@ -408,6 +410,7 @@ async function checkQuiet(browser, reducedMotion) {
         assert.equal(await fill.evaluate(node => node.getAnimations().length), 0);
         assert.equal(await hero.locator(".movie-hero-slide").evaluate(node => node.getAnimations().length), 0);
         const row = shelf(page, "Continue watching");
+        assert.deepEqual(await row.locator(".movie-card small").allTextContents(), ["S1 E2, The Crossing", "S1 E3, First Light"]);
         const first = row.locator(".movie-card").first();
         await first.hover();
         assert.deepEqual(await row.getByRole("button", {name: "Next continue watching"}).evaluate(node => {

@@ -159,14 +159,15 @@ export function videoQualityTier(height) {
 export function ratingBadge(rawRating) {
     if (typeof rawRating !== "string" && typeof rawRating !== "number") return null;
     const rating = String(rawRating).trim().toUpperCase().replace(/^(?:US|GB|HU)[-\s]+/, "");
-    const level = /^(?:U|G|PG|TV-Y(?:7(?:-FV)?)?|TV-G|6)$/.test(rating) ? "6" :
-        /^(?:12A?|PG-13|TV-PG)$/.test(rating) ? "12" :
+    const level = /^(?:KN|U|G|TV-Y|TV-G)$/.test(rating) ? "KN" :
+        /^(?:6|PG|TV-Y7(?:-FV)?|TV-PG)$/.test(rating) ? "6" :
+        /^(?:12A?|PG-13)$/.test(rating) ? "12" :
         /^(?:15|16|R|TV-14)$/.test(rating) ? "16" :
-        /^(?:18|NC-17|TV-MA)$/.test(rating) ? "18" : rating === "KN" ? "KN" : null;
+        /^(?:18|NC-17|TV-MA)$/.test(rating) ? "18" : /^(?:X|R18)$/.test(rating) ? "X" : null;
     if (!level) return null;
-    const badge = chip("movie-chip movie-age-rating", level, level);
+    const badge = chip("movie-chip movie-age-rating", level === "KN" || level === "X" ? "" : level, level);
     badge.setAttribute("role", "img");
-    badge.setAttribute("aria-label", level === "KN" ? "Rated no age limit" : `Rated ${level}`);
+    badge.setAttribute("aria-label", level === "KN" ? "Suitable for all ages" : level === "X" ? "Adults only" : `Age rating ${level}`);
     return badge;
 }
 

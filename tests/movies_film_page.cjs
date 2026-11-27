@@ -28,7 +28,7 @@ async function check(browser, profile, options) {
         assert.equal(await film.getByText(/TMDB/).count(), 0);
         assert.equal(await film.getByRole("heading", {name: "Cast", exact: true}).count(), 0);
         assert.equal(await film.getByRole("list", {name: "Cast", exact: true}).count(), 1);
-        assert.equal(await film.getByRole("img", {name: "Rated 6", exact: true}).textContent(), "6");
+        assert.equal(await film.getByRole("img", {name: "Age rating 6", exact: true}).textContent(), "6");
         assert.equal(await film.locator(".movie-title-facts .movie-release-quality").getAttribute("data-level"), "4k-web");
         assert.equal(await film.locator(".movie-title-facts :is(.movie-release-quality, .movie-sound-chip)").evaluateAll(
             badges => badges.every(badge => {
@@ -60,7 +60,10 @@ async function check(browser, profile, options) {
         assert.equal(await retry.locator("svg").count(), 1);
         assert.equal(await film.getByText("Manual retry").count(), 0);
         assert.equal(await page.locator(".movie-load-status").textContent(), "Related films are unavailable");
-        assert.equal((await retry.boundingBox()).height, options.viewport.width >= 1600 ? 60 : 44);
+        const retryTarget = options.viewport.width >= 1600 ? 60 : 44;
+        assert.deepEqual(await retry.evaluate(node => [node.offsetWidth, node.offsetHeight]), [retryTarget, retryTarget]);
+        const retryBox = await retry.boundingBox();
+        assert.ok(Math.min(retryBox.width, retryBox.height) >= retryTarget - 0.01, `${profile}: retry target`);
         await retry.press("Enter");
         await film.getByRole("button", {name: "Second Orbit, in your library", exact: true}).waitFor();
         assert.equal(await focused(retry), true);
@@ -144,7 +147,7 @@ async function check(browser, profile, options) {
             const peek = cards.nth(5);
             const nextPage = related.getByRole("button", {name: "Next more like this"});
             assert.equal(await nextPage.evaluate(node => getComputedStyle(node).backgroundColor), "rgba(0, 0, 0, 0)");
-            assert.equal((await nextPage.boundingBox()).height, 60);
+            assert.equal(await nextPage.evaluate(node => node.offsetHeight), 60);
             await page.waitForFunction(card => card.tabIndex === -1, await peek.elementHandle());
             const point = await peek.evaluate(node => {
                 const card = node.getBoundingClientRect(), frame = node.closest(".movie-shelf-scroll").getBoundingClientRect();

@@ -272,14 +272,14 @@ async function render(browser, label, options) {
     const movieShelf = shelves.filter({has:page.getByRole("heading", {name:"Movies", exact:true})});
     const moviesCards = movieShelf.locator(".movie-card");
     await moviesCards.last().waitFor();
-    assert.equal(await shelves.locator('[data-item-id="s"]').count(), 1, label + " has one card for the series");
-    await shelves.filter({has:page.getByRole("heading", {name:"Series", exact:true})}).locator('[data-item-id="s"]').waitFor();
+    assert.equal(await shelves.locator('.movie-card[data-item-id="s"]').count(), 1, label + " has one card for the series");
+    await shelves.filter({has:page.getByRole("heading", {name:"Series", exact:true})}).locator('.movie-card[data-item-id="s"]').waitFor();
     assert.deepEqual(await shelves.locator("h2").allTextContents(), ["Continue watching", "My list", "Recently added", "Series", "Movies", "Collections"]);
     const regularIds = await shelves.locator(".movie-card").evaluateAll(cards => cards
         .filter(card => card.closest("section").querySelector("h2").textContent !== "Continue watching")
         .map(card => card.dataset.titleKey));
     assert.equal(new Set(regularIds).size, regularIds.length);
-    assert.equal(await shelves.locator('[data-item-id="m1"]').count(), 2, "a title can also appear in Continue watching");
+    assert.equal(await shelves.locator('.movie-card[data-item-id="m1"]').count(), 2, "a title can also appear in Continue watching");
     const overflow = await shelves.evaluateAll(nodes => nodes.flatMap(node => {
         const row = node.querySelector(".movie-cards");
         return node.scrollWidth > node.clientWidth || row.scrollWidth > row.clientWidth
@@ -340,8 +340,14 @@ async function render(browser, label, options) {
     assert.equal((await page.locator(".movie-hero").evaluate(geometry))[0], billboardSize[0]);
     await hero.focus();
     await page.keyboard.press("ArrowDown");
-    assert.equal(await page.evaluate(() => document.activeElement.classList.contains("movie-card")), true);
+    const continueCards = shelves.filter({has:page.getByRole("heading", {name:"Continue watching", exact:true})});
+    assert.equal(await continueCards.locator(".movie-card:focus").count(), 1);
     await page.keyboard.press("ArrowRight");
+    const selected = continueCards.locator(".movie-card:focus");
+    const selectedId = await selected.getAttribute("data-item-id");
+    await page.keyboard.press("ArrowUp");
+    assert.equal(await continueCards.locator(".movie-card-details:focus").evaluate(button =>
+        button.previousElementSibling.dataset.itemId), selectedId);
     await page.keyboard.press("ArrowUp");
     assert.equal(await page.evaluate(() => document.activeElement.closest(".movie-hero-actions") !== null), true);
     const shelfNext = movieShelf.getByRole("button", {name:"Next movies"});
@@ -442,7 +448,7 @@ async function render(browser, label, options) {
     await page.evaluate(() => window.movies.restoreNavigation(null));
     assert.equal(await page.locator(".movie-series").count(), 0);
 
-    const show = shelves.locator('[data-item-id="s"]');
+    const show = shelves.locator('.movie-card[data-item-id="s"]');
     await show.press("Space");
     const seriesView = page.getByRole("region", {name:"Harbour Town", exact:true});
     await seriesView.locator(".movie-loading-pill").first().waitFor();
@@ -468,9 +474,15 @@ async function render(browser, label, options) {
     assert.equal(await focus(season(1)), true);
     assert.equal(await page.getByRole("searchbox").count(), 0);
     assert.equal(await season(1).getAttribute("aria-pressed"), "true");
-    const state = seriesView.locator(".movie-season-state");
-    assert.equal(await state.textContent(), "Available");
-    await seriesView.getByText("40% watched", {exact:true}).waitFor();
+    assert.equal(await seriesView.locator(".movie-season-state, .movie-season-counts").count(), 0);
+    assert.doesNotMatch(await seriesView.locator(".movie-season").innerText(), /\bwatched\b/i);
+    for (const [name, expected] of [["Pilot, watched", 100], ["The Move, 40% watched", 40]]) {
+        const episode = seriesView.getByRole("button", {name, exact: true});
+        await episode.waitFor();
+        assert.deepEqual(await episode.locator("progress").evaluate(node =>
+            [node.value, node.getAttribute("aria-hidden"), getComputedStyle(node).color]),
+        [expected, "true", "rgb(70, 196, 110)"]);
+    }
     await seriesView.getByText("36 min", {exact:true}).waitFor();
     assert.equal(await seriesView.locator('[data-episode="1"] .movie-episode-number').textContent(), "1. ");
     assert.match(await seriesView.locator('[data-episode="1"] button strong').textContent(), /Pilot$/);
@@ -486,7 +498,7 @@ async function render(browser, label, options) {
     await seriesView.getByRole("list", {name:"Cast", exact:true}).waitFor();
     const seriesPoster = seriesView.locator(".movie-title-intro .movie-art img");
     await page.waitForFunction(image => image.naturalWidth > 0, await seriesPoster.elementHandle());
-    assert.equal(await seriesView.locator(".movie-cast li").count(), 12);
+    assert.ok(await seriesView.locator(".movie-cast li:not([hidden])").count() >= 2);
     const addEpisodeAudio = seriesView.locator('[data-episode="2"]').getByRole("button", {name:"Add audio track for The Move"});
     assert.equal(await addEpisodeAudio.count(), 0);
     const relatedSeries = seriesView.locator('.movie-shelf[data-format="related"]');

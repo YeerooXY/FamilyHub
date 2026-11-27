@@ -2,16 +2,12 @@ const assert = require("node:assert/strict");
 const {moviePage, reviewMovieProfiles} = require("./movies_fixture.cjs");
 
 const cases = [
-    ["KN", "KN", "no age limit"], [6, "6"], ["12", "12"], ["16", "16"], ["18", "18"],
-    ["G", "6"], ["PG", "6"], ["PG-13", "12"], ["R", "16"], ["NC-17", "18"],
-    ["TV-Y", "6"], ["TV-Y7", "6"], ["TV-G", "6"], ["TV-PG", "12"], ["TV-14", "16"], ["TV-MA", "18"],
-    ["U", "6"], ["GB PG", "6"], ["12A", "12"], ["GB-15", "16"], [" hu-12 ", "12"],
+    ["KN", "KN"], [6, "6"], ["12", "12"], ["16", "16"], ["18", "18"], ["X", "X"],
+    ["G", "KN"], ["PG", "6"], ["PG-13", "12"], ["R", "16"], ["NC-17", "18"],
+    ["TV-Y", "KN"], ["TV-Y7", "6"], ["TV-G", "KN"], ["TV-PG", "6"], ["TV-14", "16"], ["TV-MA", "18"],
+    ["U", "KN"], ["GB PG", "6"], ["12A", "12"], ["GB-15", "16"], ["R18", "X"], [" hu-12 ", "12"],
     ["NR", null], ["Unrated", null], ["", null], [13, null], [null, null], [false, null]
 ];
-const rings = {
-    KN: "rgb(73, 214, 129)", 6: "rgb(73, 214, 129)", 12: "rgb(255, 218, 85)",
-    16: "rgb(255, 154, 82)", 18: "rgb(255, 101, 115)"
-};
 
 async function check(browser, profile, options) {
     const page = await browser.newPage(options);
@@ -28,20 +24,26 @@ async function check(browser, profile, options) {
                 container.append(wrapper);
             });
         }, cases.map(([raw]) => raw));
-        for (const [index, [raw, label, accessible = label]] of cases.entries()) {
+        for (const [index, [raw, label]] of cases.entries()) {
             const wrapper = page.getByTestId(`rating-${index}`);
             const message = `${profile} ${JSON.stringify(raw)}`;
             if (!label) {
                 assert.equal(await wrapper.locator("*").count(), 0, message);
                 continue;
             }
-            const badge = wrapper.getByRole("img", {name: `Rated ${accessible}`, exact: true});
-            assert.equal(await badge.textContent(), label, message);
+            const accessible = label === "KN" ? "Suitable for all ages" : label === "X" ? "Adults only" : `Age rating ${label}`;
+            const fill = label === "KN" ? "rgb(122, 201, 67)" : ["X", "18"].includes(label) ? "rgb(228, 38, 44)" : "rgb(255, 204, 0)";
+            const badge = wrapper.getByRole("img", {name: accessible, exact: true});
+            assert.equal(await badge.textContent(), ["KN", "X"].includes(label) ? "" : label, message);
             assert.equal(await badge.getAttribute("data-level"), label, message);
             assert.deepEqual(await badge.evaluate(node => {
                 const style = getComputedStyle(node);
                 return [style.width, style.height, style.borderTopWidth, style.borderTopColor, style.borderRadius, style.backgroundColor];
-            }), ["40px", "40px", "4px", rings[label], "50%", "rgb(21, 21, 28)"], message);
+            }), ["40px", "40px", "4px", "rgb(0, 0, 0)", "50%", fill], message);
+            if (label === "X") {
+                const [left, right] = await badge.evaluate(node => ["::before", "::after"].map(part => getComputedStyle(node, part).transform));
+                assert.ok(left !== "none" && right !== "none" && left !== right, message);
+            }
         }
         const badge = page.getByTestId("rating-0").getByRole("img");
         await badge.evaluate(node => node.parentElement.style.setProperty("--movie-rating-size", "32px"));

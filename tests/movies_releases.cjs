@@ -164,7 +164,7 @@ async function verify(browser, name, options) {
         const heading = page.locator(".movie-release-identity h2");
         await page.getByRole("heading", {name:"The Gentlemen (2024)", exact:true}).waitFor();
         assert.equal(await page.getByText(/\d+ releases found|source did not answer/).count(), 0);
-        assert.equal(await page.locator(".movie-release-rail").getByRole("img", {name:"Rated 18"}).textContent(), "18");
+        assert.equal(await page.locator(".movie-release-rail").getByRole("img", {name:"Age rating 18"}).textContent(), "18");
         assert.equal(await page.getByRole("searchbox").count(), 1);
         assert.equal(await page.getByRole("heading", {name:"In your library", exact:true}).isVisible(), false);
         assert.equal(await focus(submit), true);
@@ -342,7 +342,7 @@ async function verify(browser, name, options) {
         assert.deepEqual(await page.evaluate(() => calls.filter(call => call[0] === "MovieDownload")),
             [["MovieDownload", "reference-a", 1, pack, true, false], ["MovieDownload", "reference-a", 1, pack, true, true]]);
         await page.clock.fastForward(3200);
-        await page.locator(".movie-season-state").filter({hasText:"Downloading 42%"}).waitFor();
+        await page.waitForFunction(node => node.getAttribute("aria-description")?.startsWith("Downloading 42%"), await season.elementHandle());
         assert.equal(await focus(season), true);
     } finally { await page.close(); }
 }

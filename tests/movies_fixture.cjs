@@ -106,7 +106,7 @@ async function moviePage(page, {shell = false, nested = false} = {}) {
     await page.goto(app);
 }
 
-async function movieHomeFixture(page, {preview = false, matches = [], resumeItems, downloads = false} = {}) {
+async function movieHomeFixture(page, {preview = false, matches = [], resumeItems, nextUp = [], played = [], downloads = false} = {}) {
     await moviePage(page, {shell: true});
     const library = await page.evaluate(async () => (await import("/movies.js")).moviePreviewLibrary());
     const favoriteWrites = [];
@@ -129,7 +129,13 @@ async function movieHomeFixture(page, {preview = false, matches = [], resumeItem
             const Items = [...new Set(library.flatMap(item => item.Genres))].map(Name => ({Name}));
             return route.fulfill({headers, json: {Items, TotalRecordCount: Items.length}});
         }
+        if (url.pathname === "/Shows/NextUp")
+            return route.fulfill({headers, json: {Items: nextUp, TotalRecordCount: nextUp.length}});
         if (url.pathname === "/Items" || url.pathname === "/UserItems/Resume") {
+            if (params.get("filters") === "IsPlayed") {
+                const Items = played.filter(item => item.SeriesId === params.get("parentId"));
+                return route.fulfill({headers, json: {Items, TotalRecordCount: Items.length}});
+            }
             if (resumeItems && url.pathname === "/UserItems/Resume") {
                 const Items = resumeItems.filter(item => item.Type === "Movie");
                 return route.fulfill({headers, json: {Items, TotalRecordCount: Items.length}});
@@ -150,9 +156,10 @@ async function movieHomeFixture(page, {preview = false, matches = [], resumeItem
             const start = Number(params.get("startIndex") ?? 0), limit = Number(params.get("limit") ?? items.length);
             return route.fulfill({headers, json: {Items: items.slice(start, start + limit), TotalRecordCount: items.length}});
         }
-        const item = resumeItems?.find(item => url.pathname === "/Items/" + item.Id);
+        const playable = [...(resumeItems ?? []), ...nextUp];
+        const item = playable.find(item => url.pathname === "/Items/" + item.Id);
         if (item) return route.fulfill({headers, json: item});
-        if (resumeItems?.some(item => url.pathname === `/Items/${item.Id}/PlaybackInfo`)) {
+        if (playable.some(item => url.pathname === `/Items/${item.Id}/PlaybackInfo`)) {
             return route.fulfill({headers, json: {PlaySessionId: "resume-session",
                 MediaSources: [{Id: "source", Container: "mp4", SupportsDirectPlay: true, MediaStreams: []}]}});
         }

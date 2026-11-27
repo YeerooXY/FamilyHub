@@ -31,13 +31,25 @@ async function check(browser, profile, options) {
         assert.equal(await related.getByRole("button", {name: "Find releases for Distant Signal"}).count(), 1);
         assert.equal(await page.evaluate(() => window.detailCalls.some(call =>
             call[0] === "MovieRelated" && call[1] === "201" && call[2] === "tv")), true);
-        assert.equal(await actors.evaluate(list => list.scrollWidth > list.clientWidth &&
-            [...list.children].every(actor => actor.offsetTop === list.firstElementChild.offsetTop)), true);
-        assert.equal(await cast.locator("li").count(), 12);
+        const checkCast = async () => {
+            const layout = await actors.evaluate(list => {
+                const visible = [...list.children].filter(actor => !actor.hidden);
+                const columns = getComputedStyle(list).gridTemplateColumns.split(" ").length;
+                return {count: visible.length, expected: Math.min(list.children.length, columns * 2),
+                    first: visible[0]?.querySelector("strong").textContent,
+                    rows: new Set(visible.map(actor => actor.offsetTop)).size, overflow: list.scrollWidth - list.clientWidth,
+                    nameOverflow: getComputedStyle(visible[0].querySelector("strong")).textOverflow};
+            });
+            assert.equal(layout.count, layout.expected, profile);
+            assert.equal(layout.first, "Avery Vale", profile);
+            assert.ok(layout.rows <= 2 && layout.overflow <= 1, JSON.stringify(layout));
+            assert.equal(layout.nameOverflow, "ellipsis");
+        };
+        await checkCast();
         assert.equal(await cast.getByText("Skipped Director").count(), 0);
         assert.ok(await cast.getByText("Avery Vale").locator("..").locator("img").getAttribute("src"));
         assert.equal(await cast.getByText("Morgan Lee").locator("..").locator(".movie-cast-portrait").textContent(), "ML");
-        assert.equal(await series.getByRole("img", {name: "Rated 16", exact: true}).textContent(), "16");
+        assert.equal(await series.getByRole("img", {name: "Age rating 16", exact: true}).textContent(), "16");
         assert.equal(await series.getByText("Mystery", {exact: true}).count(), 1);
 
         const favorite = series.getByRole("button", {name: "My list: Night Signal"});
@@ -62,9 +74,16 @@ async function check(browser, profile, options) {
         await page.keyboard.press("Shift+Tab");
         assert.equal(await focused(season(1)), true);
         await page.keyboard.press("Enter");
-        const episode = series.getByRole("button", {name: /^1\. Pilot/});
+        const episode = series.getByRole("button", {name: "Pilot, 30% watched", exact: true});
         await episode.waitFor();
         assert.equal(await focused(season(1)), true);
+        const checkTargets = async target => {
+            for (const control of [season(1), episode]) {
+                const size = await control.evaluate(node => Math.min(node.offsetWidth, node.offsetHeight));
+                assert.ok(size >= target, `${profile}: ${size}px target, expected at least ${target}px`);
+            }
+        };
+        await checkTargets(options.viewport.width >= 1600 ? 60 : 44);
         assert.equal(await episode.locator(".movie-release-quality").getAttribute("data-level"), "web");
         assert.deepEqual(await series.locator(".movie-hero-art").evaluate(art => {
             const backdrop = art.getBoundingClientRect();
@@ -76,8 +95,14 @@ async function check(browser, profile, options) {
         const desktop = options.viewport.width >= 1280;
         if (desktop) {
             assert.match(await outline.evaluate(node => getComputedStyle(node).transitionProperty), /transform/);
-            for (const [width, height] of [[1280, 720], [1920, 1080], [2560, 1440], [2560, 850], [3840, 850]]) {
+            for (const [width, height] of [[1280, 720], [1920, 1080], [2000, 1080], [2560, 1440], [2560, 850], [3840, 850]]) {
                 await page.setViewportSize({width, height});
+                await checkTargets(width >= 1600 ? 60 : 44);
+                await actors.evaluate(list => new Promise(resolve => {
+                    const resize = new ResizeObserver(() => { resize.disconnect(); resolve(); });
+                    resize.observe(list);
+                }));
+                await checkCast();
                 const layout = await related.evaluate(node => {
                     const host = node.closest("main");
                     const root = document.scrollingElement;
@@ -90,9 +115,9 @@ async function check(browser, profile, options) {
                 });
                 assert.ok(Math.abs(layout.shelfBottom) <= 1 && layout.hostOverflow <= 1 && layout.documentOverflow <= 1 &&
                     layout.hostTop === 0 && layout.documentTop === 0, `${profile} ${width}x${height} ${JSON.stringify(layout)}`);
-                if ([1920, 2560].includes(width)) {
+                if ([1920, 2000, 2560].includes(width)) {
                     const portrait = await cast.locator(".movie-cast-portrait").first().boundingBox();
-                    assert.ok(Math.abs(portrait.width - (width === 1920 ? 120 : 160)) <= 1);
+                    assert.ok(portrait.width > Math.min(160, .0875 * width - 48), `${width}: ${portrait.width}`);
                 }
                 assert.equal(await series.locator(".movie-show-columns").evaluate(node => {
                     const episodes = node.querySelector(".movie-show-episodes").getBoundingClientRect();
@@ -118,18 +143,12 @@ async function check(browser, profile, options) {
                             box.right <= left + info.clientWidth + 1 && box.bottom <= top + info.clientHeight + 1;
                         const intro = info.querySelector(".movie-title-intro");
                         const clipped = fits(intro.getBoundingClientRect()) ? [] : ["Title block"];
-                        const scrollLeft = list.scrollLeft;
-                        const listLeft = list.getBoundingClientRect().left;
-                        const listRight = listLeft + list.clientWidth;
-                        for (const actor of list.children) {
-                            // Reveal each card horizontally while leaving the vertical position untouched.
-                            list.scrollLeft += Math.max(0, actor.getBoundingClientRect().right - listRight);
+                        for (const actor of [...list.children].filter(actor => !actor.hidden)) {
                             const box = actor.getBoundingClientRect();
-                            if (!fits(box) || box.left < listLeft - 1 || box.right > listRight + 1) {
+                            if (box.left < left - 1 || box.right > left + info.clientWidth + 1) {
                                 clipped.push(actor.querySelector("strong").textContent);
                             }
                         }
-                        list.scrollLeft = scrollLeft;
                         return clipped;
                     });
                     assert.deepEqual(clipped, [], `${profile} ${width}x${height} clipped series info`);
