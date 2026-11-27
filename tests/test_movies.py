@@ -11,6 +11,7 @@ import urllib.parse
 from unittest.mock import patch
 from test_music_web import Base
 from test_torrent_ratio_audit import sample
+from music_web.movie_metadata import SECOND, chapter_segments, merge_segments, parse_guide, segment
 
 
 def upstream_json(payload, status=200):
@@ -131,6 +132,90 @@ class MovieSessions(Base):
         self.assertEqual(response.json['result']['Items'], [episode])
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(opener.return_value.open.call_args.args[0].full_url).query)
         self.assertEqual(query, {'userId': ['viewer-id'], 'fields': ['Overview'], 'isMissing': ['false']})
+
+    @patch('music_web.movie_metadata.build_opener')
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_playback_metadata_checks_grant_and_merges_cached_episode_fallback(self, opener, external):
+        client, selection = self.select('sample-a')
+        item_id, series_id = 'b' * 32, 'a' * 32
+        jellyfin_intro = segment('Intro', 20 * SECOND, 50 * SECOND)
+        item = {'Type': 'Episode', 'SeriesId': series_id, 'ParentIndexNumber': 2, 'IndexNumber': 5,
+                'RunTimeTicks': 1200 * SECOND, 'Chapters': [
+                    {'Name': 'previously', 'StartPositionTicks': 0}, {'Name': 'OP', 'StartPositionTicks': 20 * SECOND},
+                    {'Name': 'Main story', 'StartPositionTicks': 90 * SECOND}]}
+        parent = {'Type': 'Series', 'ProviderIds': {'Imdb': 'tt1234567'}}
+        opener.return_value.open.side_effect = [
+            upstream_json(dict(User={'Id': 'viewer-id', 'Name': 'viewer', 'Policy': {'IsAdministrator': False}},
+                               AccessToken='test-token')),
+            *(upstream_json(row) for _ in range(2) for row in (item, {'Items': [jellyfin_intro]}, parent))]
+        external.return_value.open.return_value = upstream_json({'intro': {'start_sec': 0, 'end_sec': 50},
+            'outro': {'start_sec': 1110, 'end_sec': 1200}, 'post_credits': {'start_sec': 1160, 'end_sec': 1200}})
+        ticket = self.launch(client, selection).json['media_ticket']
+        data = {'ticket': ticket, 'path': 'MediaSegments/' + item_id, 'query': '', 'payload': None}
+        send = lambda **changes: self.post(client, selection['csrf_token'], '/api/movies/library', json={**data, **changes})
+        self.assertEqual(send(query='userId=other').status_code, 400)
+        self.assertEqual(send(payload={}).status_code, 400)
+        self.assertEqual(send(ticket='invalid').status_code, 404)
+        for _ in range(2):
+            self.assertEqual(send().json['result'], [segment('Recap', 0, 20 * SECOND), jellyfin_intro,
+                                                    segment('Outro', 1110 * SECOND, 1160 * SECOND)])
+        external.return_value.open.assert_called_once()
+        call = external.return_value.open.call_args
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(call.args[0].full_url).query)
+        self.assertEqual(query, {'imdb_id': ['tt1234567'], 'season': ['2'], 'episode': ['5']})
+        self.assertLessEqual(call.kwargs['timeout'], 3)
+        self.assertIsNone(call.args[0].get_header('Authorization'))
+        self.assertEqual(opener.return_value.open.call_args_list[1].args[0].full_url.split('?', 1)[1],
+                         'userId=viewer-id')
+
+    @patch('music_web.movie_metadata.build_opener')
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_playback_metadata_timeout_and_guide_cache(self, opener, external):
+        client, selection = self.select('sample-a')
+        item_id = 'b' * 32
+        episode = {'Type': 'Episode', 'ParentIndexNumber': 2, 'IndexNumber': 5, 'ProviderIds': {'Imdb': 'tt1234567'}}
+        film = {'Type': 'Movie', 'OfficialRating': 'PG-13', 'ProviderIds': {'IMDb': 'tt7654321'}}
+        opener.return_value.open.side_effect = [
+            upstream_json(dict(User={'Id': 'viewer-id', 'Name': 'viewer', 'Policy': {'IsAdministrator': False}},
+                               AccessToken='test-token')),
+            upstream_json(episode), upstream_json({'Items': []}), upstream_json(film), upstream_json(film), upstream_json(film)]
+        guide = b'<h3>Content rating</h3><div><span>Violence &amp; Gore:</span><strong>Moderate</strong></div>'
+        external.return_value.open.side_effect = [TimeoutError(), io.BytesIO(guide), io.BytesIO(b'<h1>Parents guide</h1>')]
+        ticket = self.launch(client, selection).json['media_ticket']
+
+        def send(kind):
+            return self.post(client, selection['csrf_token'], '/api/movies/library', json={
+                'ticket': ticket, 'path': kind + '/' + item_id, 'query': '', 'payload': None})
+
+        with self.assertLogs('music_web.movie_metadata', 'WARNING') as logs:
+            self.assertEqual(send('MediaSegments').json, {'result': []})
+        self.assertIn('source=IntroDB cause=TimeoutError', logs.output[0])
+        with patch('music_web.movies.monotonic', return_value=100) as clock:
+            expected = {'result': {'Rating': 'PG-13', 'Categories': {'violence': 'moderate'}}}
+            self.assertEqual(send('ParentalGuide').json, expected)
+            clock.return_value += 30 * 86400 - 1
+            self.assertEqual(send('ParentalGuide').json, expected)
+            clock.return_value += 1
+            self.assertEqual(send('ParentalGuide').json, {'result': {'Rating': 'PG-13', 'Categories': {}}})
+        self.assertEqual(external.return_value.open.call_count, 3)
+
+    def test_chapter_names_boundaries_and_segment_priority(self):
+        chapters = [dict(Name=name, StartPositionTicks=at * SECOND) for at, name in [
+            (0, ' OP '), (5, ' Previously '), (9, 'OPENING'), (249, 'Recap'), (490, 'Introduction'),
+            (500, 'eD'), (510, 'End Credits')]]
+        rows = list(chapter_segments(chapters, 520 * SECOND))
+        self.assertEqual([(row['Type'], row['StartTicks'] // SECOND, row['EndTicks'] // SECOND) for row in rows],
+                         [('Intro', 0, 5), ('Intro', 9, 249), ('Outro', 500, 510), ('Outro', 510, 520)])
+        jellyfin = segment('Recap', 0, 5 * SECOND)
+        self.assertEqual(merge_segments(('Jellyfin', [jellyfin]), ('MKV chapters', rows)), [jellyfin, *rows[1:]])
+
+    def test_guide_summary_reads_only_supported_categories_and_severities(self):
+        self.assertEqual(parse_guide('''<script>Violence &amp; Gore: Severe</script><h3>Content rating</h3>
+            <div>Violence &amp; Gore:</div><div>Moderate</div><p>Profanity: Severe</p>
+            <p>Frightening &amp; Intense Scenes: Mild</p><p>Sex &amp; Nudity: None</p>
+            <p>Alcohol, Drugs &amp; Smoking: Severe</p>'''),
+            {'violence': 'moderate', 'language': 'severe', 'frightening': 'mild', 'nudity': 'none'})
+        self.assertEqual(parse_guide('<h1>Parents guide</h1>'), {})
 
 
 class MovieSeasons(Base):

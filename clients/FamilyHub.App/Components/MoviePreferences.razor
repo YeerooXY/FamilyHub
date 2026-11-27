@@ -53,6 +53,22 @@
             <option value="en">English</option>
         </select>
     </div>
+    <label class="setting-row movie-playback-toggle" for="movie-auto-skip-intro">
+        <span>Skip intros automatically</span>
+        <input id="movie-auto-skip-intro" type="checkbox" role="switch" @bind="preferences.AutoSkipIntro" @bind:after="Save" disabled="@(!ready)" />
+    </label>
+    <label class="setting-row movie-playback-toggle" for="movie-auto-skip-recap">
+        <span>Skip recaps automatically</span>
+        <input id="movie-auto-skip-recap" type="checkbox" role="switch" @bind="preferences.AutoSkipRecap" @bind:after="Save" disabled="@(!ready)" />
+    </label>
+    <label class="setting-row movie-playback-toggle" for="movie-auto-next">
+        <span>Play the next episode automatically</span>
+        <input id="movie-auto-next" type="checkbox" role="switch" @bind="preferences.AutoNext" @bind:after="Save" disabled="@(!ready)" />
+    </label>
+    <label class="setting-row movie-playback-toggle" for="movie-parental-guide">
+        <span>Show the parental guide</span>
+        <input id="movie-parental-guide" type="checkbox" role="switch" @bind="preferences.ParentalGuide" @bind:after="Save" disabled="@(!ready)" />
+    </label>
     <div class="setting-row">
         <label for="movie-home-background">Preset colour</label>
         <select id="movie-home-background" @bind="preferences.HomeBackground" @bind:after="Save" disabled="@(!ready)">
@@ -86,6 +102,10 @@
         public string HomeBackground { get; set; } = "auto";
         public string BackgroundStyle { get; set; } = "auto";
         public bool LayoutPreview { get; set; }
+        public bool AutoSkipIntro { get; set; }
+        public bool AutoSkipRecap { get; set; }
+        public bool AutoNext { get; set; } = true;
+        public bool ParentalGuide { get; set; }
         public bool? DownloadAudio { get; set; }
         public bool? DownloadSubtitles { get; set; }
     }

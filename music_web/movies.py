@@ -37,7 +37,9 @@ except ImportError:
 
 log = logging.getLogger('music_web.movies')
 # Playback diagnostics use fixed labels and a restricted media-error vocabulary.
-REPORT_KINDS = {'playback-error', 'open-failed', 'progress-save-failed', 'cannot-resume', 'started', 'stopped'}
+REPORT_KINDS = {'playback-error', 'open-failed', 'progress-save-failed', 'cannot-resume', 'started', 'stopped',
+                'segments-unavailable', 'segment-seek-failed', 'next-episode-unavailable', 'resume-position-unavailable',
+                'parental-guide-unavailable'}
 PROBLEMS = REPORT_KINDS - {'started', 'stopped'}
 REPORT_METHODS = {'', 'DirectPlay', 'DirectStream', 'Transcode'}
 HLS_ERROR_TYPES = {'networkError', 'mediaError', 'keySystemError', 'muxError', 'otherError'}
@@ -264,9 +266,6 @@ def read_downloads(qb, cfg=None):
 def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals):
     base = service_url(cfg.get('JELLYFIN_INTERNAL_URL', 'http://127.0.0.1:8096'))
     public = service_url(cfg.get('JELLYFIN_PUBLIC_URL'), ('https',))
-    subtitle_imported = None
-    issue_media, audio_library = movie_media.register(app, base, body, allow, session_is_live, movie_dismissals,
-        cfg.get('JELLYFIN_API_KEY'), lambda path: subtitle_imported(path) if subtitle_imported else False)
     releases = cfg.get('MOVIE_RELEASE_SEARCH') or {}
     prowlarr = service_url(releases.get('url', 'http://127.0.0.1:9696'))
     normal_ids = tuple(dict.fromkeys(i for i in releases.get('indexer_ids', []) if type(i) is int and i > 0))
@@ -308,10 +307,6 @@ def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals):
         return (g.user in cfg['ADMIN_USERS'] and g.user in downloads.get('profiles', [])
                 and g.user in cfg.get('JELLYFIN_PROFILES', {}))
 
-    audio_items = audio_tracks.register(app, cfg, body, allow, download_access, audio_library)
-    subtitle_provider = movie_subtitles.register(app, cfg, body, allow, audio_library)
-    subtitle_imported = movie_import.start(cfg, service_url(qb.get('url')), base, subtitle_provider)
-
     def cached_search(key, ttl, fetch):
         with search_lock:
             stored = search_cache.get(key)
@@ -339,6 +334,13 @@ def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals):
         finally:
             with search_lock:
                 del search_pending[key]
+
+    subtitle_imported = None
+    issue_media, audio_library = movie_media.register(app, base, body, allow, session_is_live, movie_dismissals,
+        cfg.get('JELLYFIN_API_KEY'), lambda path: subtitle_imported(path) if subtitle_imported else False, cached_search)
+    audio_items = audio_tracks.register(app, cfg, body, allow, download_access, audio_library)
+    subtitle_provider = movie_subtitles.register(app, cfg, body, allow, audio_library)
+    subtitle_imported = movie_import.start(cfg, service_url(qb.get('url')), base, subtitle_provider)
 
     @app.get('/api/movies/downloads')
     def movie_downloads():
@@ -1157,7 +1159,12 @@ def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals):
                        label('hlsType', HLS_ERROR_TYPES), label('hlsDetails', HLS_ERROR_DETAILS), flag('hlsFatal'),
                        number('audioIndex', -1, 65535), flag('hlsLoaded'), number('httpStatus', 100, 599), flag('forced'))
         else:
-            report_log('movie client %s profile=%s method=%s', kind, g.user, method or '-')
+            reason = diagnostics.get('reason') if isinstance(diagnostics, dict) else None
+            if reason in ('timeout', 'invalid_response', 'request_failed') and kind in {
+                    'segments-unavailable', 'next-episode-unavailable', 'resume-position-unavailable', 'parental-guide-unavailable'}:
+                report_log('movie client %s profile=%s method=%s reason=%s', kind, g.user, method or '-', reason)
+            else:
+                report_log('movie client %s profile=%s method=%s', kind, g.user, method or '-')
         return '', 204
 
     @app.post('/api/movies/find')

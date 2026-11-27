@@ -141,6 +141,14 @@ export function watchPlayerIdle(surface, signal, onIdle, onWake) {
  * @param {HTMLElement} ctx.notice  status line for track fallbacks
  * @param {AbortSignal} ctx.signal  aborts every listener
  */
+// How the user last interacted before the player opened: a player started by a click or tap begins in pointer mode,
+// so its controls hide on schedule instead of waiting for a keyboard focus ring that was never shown.
+let openedByPointer = false;
+if (typeof document !== "undefined") {
+    document.addEventListener("pointerdown", () => { openedByPointer = true; }, {capture: true, passive: true});
+    document.addEventListener("keydown", () => { openedByPointer = false; }, {capture: true});
+}
+
 export function buildPlayerUi(ctx) {
     const { media, surface, back, signal } = ctx;
     const stylesheet = new URL("./movie-player.css", import.meta.url).href;
@@ -152,7 +160,11 @@ export function buildPlayerUi(ctx) {
         document.head.append(link);
     }
     const root = make("div", "movie-ui");
+    if (openedByPointer) root.classList.add("movie-pointer");
     let dragging = false, openSheet = null, nextEpisode = null;
+    let segments = [], segmentsReady = false, activeSkip, skipOpener, lastInteraction = -Infinity;
+    const skipped = new Set();
+    const skipLabels = {Intro: "intro", Recap: "recap", Outro: "credits"};
 
     const button = (className, label, shape, options, run) => {
         const b = make("button", className);
@@ -247,7 +259,7 @@ export function buildPlayerUi(ctx) {
     const tracksButton = button("movie-ui-action", "Audio & Subtitles", paths.subtitles, {}, () => toggleSheet("audio"));
     const sound = soundPanelWanted() ? attachSound(media, { signal }) : null;
     root.classList.toggle("movie-hardware-volume", !sound);
-    const nextButton = button("movie-ui-action", "Next episode", paths.next, {}, () => nextEpisode?.play());
+    const nextButton = button("movie-ui-action", "Next episode", paths.next, {}, playNext);
     nextButton.hidden = true;
     const actions = make("div", "movie-ui-actions");
     actions.append(episodesButton, nextButton, tracksButton, fullscreen);
@@ -255,6 +267,198 @@ export function buildPlayerUi(ctx) {
     transport.append(mid, actions);
     const bottom = make("div", "movie-ui-bottom");
     bottom.append(seekRow, transport);
+    const skipSegment = button("movie-segment-skip", "Skip intro", null, {}, () => jumpSegment(activeSkip));
+    skipSegment.hidden = true;
+    skipSegment.tabIndex = -1;
+    skipSegment.setAttribute("aria-hidden", "true");
+
+    const nextCard = make("section", "movie-next-card");
+    nextCard.setAttribute("aria-label", "Next episode");
+    nextCard.hidden = true;
+    const nextStill = make("div", "movie-next-still"), nextDetails = make("div", "movie-next-details");
+    const nextNumber = make("p", "movie-next-number"), nextTitle = make("h3", "movie-next-title");
+    const nextOverview = make("p", "movie-next-overview");
+    const nextCount = make("span", "movie-next-count");
+    nextCount.setAttribute("aria-hidden", "true");
+    const playNow = button("movie-next-primary", "Play now", null, {}, playNext);
+    playNow.append(nextCount, make("span", "", "Play now"));
+    const watchCredits = button("movie-next-dismiss", "Watch credits", null, {}, () => {
+        dismissedNext = true;
+        hideNext();
+    });
+    watchCredits.textContent = "Watch credits";
+    nextDetails.append(nextNumber, nextTitle, nextOverview, playNow, watchCredits);
+    nextCard.append(nextStill, nextDetails);
+    let nextTimer, nextRunningAt, nextRemaining = 10000, dismissedNext = false, hoveringNext = false;
+
+    const guide = make("section", "movie-parental-guide");
+    guide.setAttribute("aria-label", "Parental guide");
+    guide.hidden = true;
+    const guideBadge = make("div", "movie-guide-badge"), guideCategories = make("ul", "movie-guide-categories");
+    guideCategories.setAttribute("role", "list");
+    guide.append(guideBadge, guideCategories);
+    const guideAnnouncement = make("p", "movie-player-sr");
+    guideAnnouncement.setAttribute("role", "status");
+    let guideTimer;
+
+    function jumpSegment(row, automatic = false) {
+        if (!row) return;
+        const key = `${row.Type}:${row.StartTicks}:${row.EndTicks}`;
+        if (automatic) skipped.add(key);
+        let end = row.EndTicks;
+        for (const adjacent of segments) {
+            if (adjacent.Type === row.Type && adjacent.StartTicks <= end) end = Math.max(end, adjacent.EndTicks);
+        }
+        try {
+            media.currentTime = Math.min(end / 1e7, duration());
+            if (automatic) showShortcut(`Skipped ${skipLabels[row.Type]}`);
+            updatePlaybackOverlays();
+        } catch {
+            ctx.segmentSeekFailed?.();
+            if (!automatic) showShortcut("Could not skip. Try again.");
+        }
+    }
+    function updateSkip(row) {
+        if (activeSkip === row) return;
+        const wasVisible = Boolean(activeSkip);
+        activeSkip = row;
+        if (row) {
+            const label = `Skip ${skipLabels[row.Type]}`;
+            skipSegment.textContent = label;
+            skipSegment.setAttribute("aria-label", label);
+            skipSegment.hidden = false;
+            skipSegment.removeAttribute("aria-hidden");
+            skipSegment.tabIndex = 0;
+            skipSegment.classList.add("is-visible");
+            const focused = document.activeElement;
+            if (!wasVisible && innerWidth >= 1600 && !sound && !openSheet && !dragging && retry.hidden &&
+                !surface.querySelector("dialog[open]") && performance.now() - lastInteraction > 3000 &&
+                [playPause, surface, document.body].includes(focused)) {
+                skipOpener = focused === playPause ? playPause : null;
+                root.classList.remove("movie-pointer");
+                skipSegment.focus({preventScroll: true});
+            }
+        } else {
+            if (document.activeElement === skipSegment) {
+                show();
+                (skipOpener || playPause).focus({preventScroll: true});
+            }
+            skipOpener = null;
+            skipSegment.tabIndex = -1;
+            skipSegment.setAttribute("aria-hidden", "true");
+            skipSegment.classList.remove("is-visible");
+        }
+    }
+
+    function updateNextCountdown() {
+        clearTimeout(nextTimer);
+        const now = performance.now();
+        if (nextRunningAt != null) nextRemaining = Math.max(0, nextRemaining - (now - nextRunningAt));
+        nextRunningAt = undefined;
+        if (nextCard.hidden || !ctx.autoNext) return;
+        const seconds = Math.ceil(nextRemaining / 1000);
+        if (nextCount.textContent !== String(seconds)) {
+            nextCount.textContent = String(seconds);
+            nextCount.style.setProperty("--movie-next-turn", `${seconds / 10}turn`);
+        }
+        if (hoveringNext || nextCard.contains(document.activeElement) || openSheet || document.hidden ||
+            surface.querySelector("dialog[open]") || media.paused && !media.ended || media.seeking) return;
+        if (nextRemaining === 0) { playNext(); return; }
+        nextRunningAt = now;
+        nextTimer = setTimeout(updateNextCountdown, nextRemaining - (seconds - 1) * 1000);
+    }
+    function hideNext() {
+        if (nextCard.hidden) return;
+        if (nextEpisode) nextButton.hidden = false;
+        if (nextCard.contains(document.activeElement)) {
+            show();
+            (nextEpisode ? nextButton : playPause).focus({preventScroll: true});
+        }
+        nextCard.hidden = true;
+        hoveringNext = false;
+        updateNextCountdown();
+        nextRemaining = 10000;
+    }
+    function playNext() {
+        if (!nextEpisode) return;
+        const {play} = nextEpisode;
+        dismissedNext = true;
+        hideNext();
+        play();
+    }
+    for (const type of ["pointerenter", "pointerleave"]) nextCard.addEventListener(type, event => {
+        if (event.pointerType === "touch") return;
+        hoveringNext = type === "pointerenter";
+        updateNextCountdown();
+    }, {signal});
+    let lastPointer = "";
+    document.addEventListener("pointerdown", event => { lastPointer = event.pointerType; }, {signal, capture: true});
+    document.addEventListener("pointermove", event => { lastPointer = event.pointerType; }, {signal, capture: true, passive: true});
+    nextCard.addEventListener("focusin", updateNextCountdown, {signal});
+    nextCard.addEventListener("focusout", () => queueMicrotask(() => {
+        if (!signal.aborted) updateNextCountdown();
+    }), {signal});
+    document.addEventListener("visibilitychange", updateNextCountdown, {signal});
+
+    function updatePlaybackOverlays() {
+        const total = duration(), at = Math.min(total, media.currentTime) * 1e7;
+        const within = row => row.StartTicks <= at && at < row.EndTicks;
+        const currentSegment = total && segments.find(row => skipLabels[row.Type] && within(row));
+        const auto = currentSegment && ((currentSegment.Type === "Intro" && ctx.autoSkipIntro) ||
+            (currentSegment.Type === "Recap" && ctx.autoSkipRecap));
+        if (auto && !media.paused && !media.seeking &&
+            !skipped.has(`${currentSegment.Type}:${currentSegment.StartTicks}:${currentSegment.EndTicks}`)) {
+            jumpSegment(currentSegment, true);
+            return;
+        }
+        const outros = segments.filter(row => row.Type === "Outro");
+        const inOutro = outros.length ? outros.some(row => within(row) ||
+            media.ended && row.StartTicks <= at && row.EndTicks >= at - 1e6) :
+            total > 0 && media.currentTime >= total - 30;
+        const offerNext = nextEpisode && !dismissedNext && segmentsReady && inOutro && !openSheet;
+        // The next-episode card already offers "Play now" and "Watch credits"; a third "Skip credits" choice would compete with it.
+        updateSkip(currentSegment && !(offerNext && currentSegment.Type === "Outro") ? currentSegment : undefined);
+        if (!offerNext) {
+            hideNext();
+        } else if (nextCard.hidden) {
+            nextCard.hidden = false;
+            if (document.activeElement === nextButton) playNow.focus({preventScroll: true});
+            nextButton.hidden = true;
+            // Touch screens leave a sticky :hover after a tap; only a real mouse pauses the countdown by hovering.
+            hoveringNext = lastPointer === "mouse" && nextCard.matches(":hover");
+            updateNextCountdown();
+        }
+    }
+
+    function startGuide(badge, levels) {
+        const categories = {violence: "Violence", language: "Language", frightening: "Frightening scenes", nudity: "Nudity"};
+        const spoken = [];
+        if (badge) {
+            guideBadge.append(badge);
+            spoken.push(badge.getAttribute("aria-label"));
+        }
+        for (const [key, label] of Object.entries(categories)) {
+            const level = levels?.[key];
+            const steps = ["none", "mild", "moderate", "severe"].indexOf(level);
+            if (steps < 0) continue;
+            const row = make("li", "movie-guide-category");
+            row.setAttribute("aria-label", `${label}: ${level}`);
+            const name = make("span", "", label), marks = make("span", "movie-guide-marks");
+            name.setAttribute("aria-hidden", "true");
+            marks.setAttribute("aria-hidden", "true");
+            for (let index = 0; index < 3; index++) marks.append(make("span", index < steps ? "is-filled" : ""));
+            row.append(name, marks);
+            guideCategories.append(row);
+            spoken.push(row.getAttribute("aria-label"));
+        }
+        if (!spoken.length) return;
+        guide.hidden = false;
+        guideAnnouncement.textContent = spoken.join(". ");
+        guideTimer = setTimeout(() => {
+            guide.hidden = true;
+            guideAnnouncement.textContent = "";
+        }, 6000);
+    }
 
     // Sheets: Audio & Subtitles and Episodes. One is open at a time; each has one named close control.
     const sheets = {};
@@ -666,6 +870,7 @@ export function buildPlayerUi(ctx) {
         if (openSheet === name) return closeSheet();
         const previous = openSheet && sheets[openSheet];
         openSheet = name;
+        updatePlaybackOverlays();
         sheets[name].node.hidden = false;
         ctx.subtitleSync?.panel(name === "audio");
         if (name === "audio") { syncAudio(); syncSubtitles(); }
@@ -689,6 +894,7 @@ export function buildPlayerUi(ctx) {
         sheet.node.hidden = true;
         stopHold();
         show();
+        updatePlaybackOverlays();
     }
     for (const sheet of Object.values(sheets)) {
         sheet.opener.setAttribute("aria-expanded", "false");
@@ -740,11 +946,12 @@ export function buildPlayerUi(ctx) {
         clearTimeout(shortcutTimer);
         shortcutTimer = setTimeout(() => { shortcutStatus.textContent = ""; }, 1200);
     }
-    root.append(surfaceLayer, subs, spinnerRoot, message, top, bottom, shortcutStatus, audioSheet);
+    root.append(surfaceLayer, subs, spinnerRoot, message, top, bottom, skipSegment, nextCard, guide, guideAnnouncement, shortcutStatus, audioSheet);
 
     // Controls hide a few seconds after the last touch, playing or paused. Reduced motion only removes the fade, not the hiding.
     // A keyboard or remote focus ring keeps them up so the focused control stays visible.
     root.addEventListener("pointerdown", event => {
+        lastInteraction = performance.now();
         root.classList.add("movie-pointer");
         const sheet = openSheet && sheets[openSheet];
         if (sheet && !sheet.node.contains(event.target) && !sheet.opener.contains(event.target))
@@ -833,7 +1040,12 @@ export function buildPlayerUi(ctx) {
         for (const track of watched) track.removeEventListener("cuechange", drawCues);
     });
 
-    signal.addEventListener("abort", () => { clearTimeout(tapTimer); clearTimeout(shortcutTimer); });
+    signal.addEventListener("abort", () => {
+        clearTimeout(tapTimer);
+        clearTimeout(shortcutTimer);
+        clearTimeout(nextTimer);
+        clearTimeout(guideTimer);
+    });
 
     // Seek bar.
     const duration = () => Number.isFinite(media.duration) && media.duration > 0 ? media.duration : 0;
@@ -847,6 +1059,7 @@ export function buildPlayerUi(ctx) {
         remaining.textContent = clock(left);
         elapsed.textContent = clock(dragging ? Number(seek.value) : at);
         seek.setAttribute("aria-valuetext", `${clock(dragging ? Number(seek.value) : at)} of ${clock(total)}`);
+        updatePlaybackOverlays();
     }
     function showTip() {
         const total = duration();
@@ -893,6 +1106,10 @@ export function buildPlayerUi(ctx) {
         ["seeking", () => busy(true)], ["seeked", () => busy(false)], ["ended", () => { busy(false); sync(); }],
         ["canplay", () => busy(false)], ["timeupdate", paint], ["durationchange", paint], ["loadedmetadata", paint]])
         media.addEventListener(type, run, { signal });
+    for (const type of ["play", "playing", "pause", "seeking", "seeked", "ended"]) media.addEventListener(type, () => {
+        updatePlaybackOverlays();
+        updateNextCountdown();
+    }, {signal});
     function syncFullscreen() {
         const hide = !fullscreenAvailable || ctx.appFullscreen?.() === true;
         if (hide && document.activeElement === fullscreen) playPause.focus({preventScroll: true});
@@ -907,7 +1124,8 @@ export function buildPlayerUi(ctx) {
     syncFullscreen();
 
     // TV remotes use the arrows to move between controls and scrub on the seek bar.
-    const rows = () => [[back], [seek], [playPause, rewind, forward, episodesButton, nextButton, tracksButton, fullscreen].filter(b => !b.hidden)];
+    const rows = () => [[back], ...(!nextCard.hidden ? [[playNow], [watchCredits]] : []),
+        ...(activeSkip ? [[skipSegment]] : []), [seek], [playPause, rewind, forward, episodesButton, nextButton, tracksButton, fullscreen].filter(b => !b.hidden)];
     function moveFocus(target, key) {
         const sheetNode = openSheet && sheets[openSheet].node;
         if (sheetNode?.contains(target)) {
@@ -958,6 +1176,7 @@ export function buildPlayerUi(ctx) {
         const sheet = openSheet && sheets[openSheet].node;
         const inSheet = sheet && sheet.contains(target);
         const tv = innerWidth >= 1600 && !sound;
+        lastInteraction = performance.now();
         if (key === "tab" || key === "enter" && !event.altKey || arrow && (tv || inSheet))
             root.classList.remove("movie-pointer");
         if (key === "tab" && !event.altKey) {
@@ -1015,6 +1234,7 @@ export function buildPlayerUi(ctx) {
             if (tv && arrow && moveFocus(target, event.key)) event.preventDefault();
             return;
         }
+        if ((key === " " || key === "spacebar") && target.closest(".movie-segment-skip, .movie-next-card button")) return;
         if (key === " " || key === "spacebar" || key === "k" || key === "enter" && !target.closest("button")) {
             event.preventDefault();
             if (!event.repeat) toggle();
@@ -1066,7 +1286,7 @@ export function buildPlayerUi(ctx) {
                 row.type = "button";
                 const number = episode.IndexNumber != null ? `${episode.IndexNumber}. ` : "";
                 row.append(make("span", "movie-episode-name", number + episode.Name));
-                const watched = episode.UserData?.PlayedPercentage;
+                const watched = episode.RunTimeTicks > 0 && episode.RunTimeTicks < 120 * 1e7 ? 0 : episode.UserData?.PlayedPercentage;
                 if (watched > 0 && watched < 100) {
                     const bar = make("span", "movie-progress"), fill = make("span");
                     bar.setAttribute("aria-hidden", "true");
@@ -1075,16 +1295,34 @@ export function buildPlayerUi(ctx) {
                     row.append(bar);
                 }
                 if (episode.Id === currentId) row.setAttribute("aria-current", "true");
-                row.addEventListener("click", () => play(episode), { signal });
+                row.addEventListener("click", () => play(episode, row), { signal });
                 body.append(row);
             }
         },
-        setNext(episode, play) {
-            nextEpisode = episode ? { play: () => play(episode), name: episode.Name } : null;
+        setNext(episode, play, artwork) {
+            nextEpisode = episode ? { play: () => play(episode) } : null;
             if (!episode && nextButton === document.activeElement) tracksButton.focus({ preventScroll: true });
             nextButton.hidden = !episode;
-            if (episode) nextButton.setAttribute("aria-label", "Next episode: " + episode.Name);
+            if (episode) {
+                nextButton.setAttribute("aria-label", "Next episode: " + episode.Name);
+                nextTitle.textContent = episode.Name;
+                const numbered = episode.ParentIndexNumber != null && episode.IndexNumber != null;
+                nextNumber.textContent = numbered ? `S${episode.ParentIndexNumber} E${episode.IndexNumber}` : "";
+                nextOverview.textContent = episode.Overview || "";
+                nextStill.replaceChildren(...(artwork ? [artwork] : []));
+                nextStill.hidden = !artwork;
+                nextCount.hidden = !ctx.autoNext;
+            }
+            updatePlaybackOverlays();
         },
+        setSegments(rows) {
+            segments = Array.isArray(rows) ? rows.filter(row => row && Object.prototype.hasOwnProperty.call(skipLabels, row.Type) &&
+                Number.isSafeInteger(row.StartTicks) && Number.isSafeInteger(row.EndTicks) &&
+                row.StartTicks >= 0 && row.StartTicks < row.EndTicks) : [];
+            segmentsReady = true;
+            updatePlaybackOverlays();
+        },
+        startGuide,
         say(text) { if (retry.hidden) failure.textContent = text; busy(false); show(); },
         showFailure(reason, run) {
             failure.textContent = reason;

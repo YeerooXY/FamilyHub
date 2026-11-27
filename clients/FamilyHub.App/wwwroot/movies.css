@@ -463,6 +463,20 @@ body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--ca
     overflow: auto;
 }
 .movie-audio-dialog::backdrop { background: #000a; }
+.movie-library .movie-resume-dialog { width: min(30rem, calc(100% - 2rem)); padding: clamp(.85rem, 3vw, 1.5rem); }
+.movie-resume-summary { display: grid; grid-template-columns: clamp(3.5rem, 20vw, 6rem) minmax(0, 1fr); gap: 1rem; align-items: center; margin-block-end: 1rem; }
+.movie-resume-summary .movie-art { border-radius: .55rem; }
+.movie-resume-summary p { margin: .35rem 0; }
+.movie-resume-summary .movie-progress { position: static; display: block; border-radius: 999px; overflow: hidden; margin-block-start: .8rem; }
+.movie-resume-actions { display: grid; gap: .5rem; }
+.movie-library .movie-resume-dialog button { min-height: var(--movie-target); padding: .4em .8em; border-radius: 999px; }
+.movie-library .movie-resume-dialog .movie-resume-close { display: block; margin: 0 0 .45rem auto; }
+.movie-library .movie-resume-actions button:first-child { background: #f8f7fb; color: #14151c; }
+.movie-library .movie-resume-dialog button:focus-visible { outline: 3px solid #a8b5ff; outline-offset: 2px; }
+@media (min-width: 1920px) {
+    .movie-library .movie-resume-dialog { font-size: 1.2rem; }
+    .movie-library .movie-resume-dialog button:focus-visible { outline-width: 4px; }
+}
 .movie-audio-dialog header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
 .movie-audio-dialog h2 { margin: 0; font-size: 1.2rem; }
 .movie-audio-dialog form, .movie-audio-dialog label { display: grid; gap: .45rem; }

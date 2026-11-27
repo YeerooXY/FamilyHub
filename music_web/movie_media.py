@@ -1,6 +1,7 @@
 """Stream Jellyfin media using an expiring media grant and upstream header authentication."""
 import http.client
 import json
+import logging
 import re
 import secrets
 import time
@@ -13,6 +14,7 @@ from dataclasses import dataclass
 from flask import Response, abort, g, jsonify, request, session
 
 from .catalog_search import NoRedirect
+from . import movie_metadata
 
 
 ITEM = r'[0-9a-f-]{32,36}'
@@ -25,12 +27,14 @@ URI_ATTRIBUTE = re.compile(r'\bURI="([^"\r\n]+)"')
 WEBVIEW_ORIGINS = {'https://0.0.0.1', 'http://0.0.0.1', 'app://0.0.0.1', 'https://app.localhost', 'null'}
 LIBRARY_READ = re.compile(rf'(?:Items(?:/{ITEM})?|UserItems/Resume|Genres|Shows/NextUp|Shows/{ITEM}/Episodes|Items/{ITEM}/RemoteSearch/Subtitles/[a-z]{{3}})')
 DISMISS_ID = r'(?:[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})'
+PLAYBACK_METADATA = re.compile(rf'(MediaSegments|ParentalGuide)/({DISMISS_ID})')
 HIDE_RESUME = re.compile(rf'UserItems/({DISMISS_ID})/HideFromResume')
 LIBRARY_WRITE = re.compile(rf'(?:{HIDE_RESUME.pattern}|Items/{ITEM}/PlaybackInfo|Sessions/Playing(?:/Progress|/Stopped)?|Items/{ITEM}/RemoteSearch/Subtitles/[A-Za-z0-9._~%+-]{{1,500}})')
 FAVORITE = re.compile(rf'UserFavoriteItems/({ITEM})')
 LIBRARY_PRIVATE_FIELDS = {'path', 'encoderpath', 'directstreamurl', 'password', 'pw'}
 # A two-hour film has thousands of segment lines and each carries Jellyfin's full query string (about 1.4 MB for 4,300 lines).
 MAX_PLAYLIST_BYTES = 8 << 20
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -119,7 +123,8 @@ def mark_dismissed_items(result, hidden, resource, params):
             result['TotalRecordCount'] = max(0, result['TotalRecordCount'] - len(items) + len(visible))
 
 
-def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_key=None, subtitle_imported=None):
+def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_key=None, subtitle_imported=None,
+             cached_lookup=None):
     from .audio_tracks import opened, target_path
     from .movie_subtitles import LANGUAGES
     from .subtitle_sync import timing_snapshot
@@ -158,7 +163,7 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
         if not grant or (grant.profile, grant.sid) != owner:
             abort(404)
 
-        def call(resource, params=None, refresh=False):
+        def call(resource, params=None, refresh=False, *, timeout=8):
             if live_grant(ticket) is not grant:
                 raise PermissionError('Movie session ended')
             query = urllib.parse.urlencode(dict(params or {}, userId=grant.viewer))
@@ -169,7 +174,7 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
                 headers['Authorization'] = grant.authorization
             req = urllib.request.Request(base + '/' + resource + '?' + query,
                                          data=b'' if refresh else None, headers=headers)
-            with urllib.request.build_opener(NoRedirect).open(req, timeout=8) as upstream:
+            with urllib.request.build_opener(NoRedirect).open(req, timeout=timeout) as upstream:
                 raw = upstream.read((4 << 20) + 1)
             if len(raw) > 4 << 20:
                 raise ValueError('Movie library response is too large')
@@ -188,7 +193,10 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
         favorite = FAVORITE.fullmatch(resource) if isinstance(resource, str) else None
         hide_resume = HIDE_RESUME.fullmatch(resource) if isinstance(resource, str) else None
         hide_next = resource == 'Shows/NextUp' and payload is not None
-        if not isinstance(resource, str) or not (favorite or hide_next or rule.fullmatch(resource)) or not isinstance(query, str):
+        metadata = PLAYBACK_METADATA.fullmatch(resource) if isinstance(resource, str) else None
+        if not isinstance(resource, str) or not (metadata or favorite or hide_next or rule.fullmatch(resource)) or not isinstance(query, str):
+            abort(400)
+        if metadata and (payload is not None or query):
             abort(400)
         if payload is not None and not isinstance(payload, dict):
             abort(400)
@@ -210,6 +218,31 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
             abort(429)
         headers = {'Authorization': grant.authorization, 'Accept': 'application/json', 'Content-Type': 'application/json'}
         try:
+            if metadata:
+                kind, item_id = metadata.groups()
+                library = audio_library(data['ticket'])
+                # Resolve the item as the grant's viewer before querying item-level or external metadata.
+                item = library('Items/' + item_id, timeout=2.5)
+                if not isinstance(item, dict) or item.get('Type') not in ('Movie', 'Episode'):
+                    log.warning('movie metadata unavailable kind=%s cause=missing_item', kind)
+                    abort(404)
+
+                def series():
+                    series_id = item.get('SeriesId')
+                    if item['Type'] == 'Episode' and isinstance(series_id, str) and re.fullmatch(DISMISS_ID, series_id):
+                        try:
+                            parent = library('Items/' + series_id, timeout=1.5)
+                            if isinstance(parent, dict) and parent.get('Type') == 'Series':
+                                return parent
+                        except (OSError, ValueError, RecursionError) as error:
+                            log.warning('movie metadata unavailable kind=%s cause=series_%s', kind, type(error).__name__)
+                    return {}
+
+                if kind == 'MediaSegments':
+                    return jsonify(result=movie_metadata.media_segments(library, item_id, item, cached_lookup, series))
+                rating = item.get('OfficialRating') or series().get('OfficialRating')
+                return jsonify(result={'Rating': rating if isinstance(rating, str) and len(rating) <= 32 else None,
+                                       'Categories': movie_metadata.parental_guide(item, cached_lookup)})
             if hide_next:
                 movie_dismissals(grant.profile, 'next_up', payload['seriesId'], payload['episodeId'])
                 return jsonify(result=None)
@@ -279,7 +312,9 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
                             if isinstance(language, str) and any(language.lower() in codes for codes in LANGUAGES.values()):
                                 track['FamilyHubSubtitleTiming'] = {'method': 'release', 'state': 'idle'}
             return jsonify(result=library_json(result, base_path))
-        except (OSError, ValueError, RecursionError):
+        except (OSError, ValueError, RecursionError) as error:
+            if metadata:
+                log.warning('movie metadata unavailable kind=%s cause=%s', metadata[1], type(error).__name__)
             abort(502)
 
     @app.post('/api/movies/media/close')

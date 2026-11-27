@@ -510,6 +510,13 @@ select option { background:#12141a; color:#f3f4f7; }
 .settings-page .app-update .theme-label { padding:0; }
 .settings-page .app-update .quality-help { width:100%; padding:0; margin:0; }
 @media(max-width:900px) { .settings-page .setting-row { grid-template-columns:minmax(0,1fr); gap:10px; margin-bottom:22px; } }
+.settings-page .movie-playback-toggle { grid-template-columns:minmax(0,1fr) auto; min-height:44px; margin:0; color:var(--ink); cursor:pointer; }
+.settings-page .movie-playback-toggle input { margin:0 .6rem 0 0; }
+.settings-page .movie-playback-toggle:focus-within { outline:2px solid var(--focus, #a8b5ff); outline-offset:2px; border-radius:6px; }
+@media (min-width:1920px) {
+    .settings-page .movie-playback-toggle { min-height:60px; }
+    .settings-page .movie-playback-toggle:focus-within { outline-width:4px; }
+}
 @media(max-width:720px) {
  .workspace[data-app-view="Preferences"] > main { padding:0; border-radius:0; }
  .settings-shell { grid-template-columns:minmax(0,1fr); border:0; border-radius:0; }

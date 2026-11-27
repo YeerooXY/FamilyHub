@@ -1,5 +1,5 @@
 import { buildPlayerUi, clock, watchPlayerIdle } from "./movie-player-ui.js";
-import { addAudioDialog, audioJobResults, audioJobRunning, audioLanguage as audioLanguageName } from "./movie-audio-ui.js";
+import { addAudioDialog, audioJobResults, audioJobRunning, audioLanguage as audioLanguageName, movieDialog } from "./movie-audio-ui.js";
 import { movieAudioSync } from "./movie-audio-sync.js";
 import { appendSoundChip, buildReleaseSearch, cleanResultTitle, displayTitle, formatMinutes, librarySound, ratingBadge, releaseKind, releaseSeasons, videoQualityTier } from "./movie-releases.js";
 import { createServiceStatus } from "./service-status.js";
@@ -185,6 +185,10 @@ function normalizeMoviePreferences(prefs) {
         subtitles: ["off", "hu", "en"].includes(prefs?.subtitles) ? prefs.subtitles : "default",
         dataSaver: dataChoices.includes(prefs?.dataSaver) ? prefs.dataSaver : "auto",
         screen: screenChoices.includes(prefs?.screen) ? prefs.screen : "auto",
+        ...(prefs?.autoSkipIntro === true ? {autoSkipIntro: true} : {}),
+        ...(prefs?.autoSkipRecap === true ? {autoSkipRecap: true} : {}),
+        ...(prefs?.autoNext === false ? {autoNext: false} : {}),
+        ...(prefs?.parentalGuide === true ? {parentalGuide: true} : {}),
         ...(typeof prefs?.downloadAudio === "boolean" ? {downloadAudio: prefs.downloadAudio} : {}),
         ...(typeof prefs?.downloadSubtitles === "boolean" ? {downloadSubtitles: prefs.downloadSubtitles} : {}),
         ...(["preset", "backdrop"].includes(prefs?.backgroundStyle) ? {backgroundStyle: prefs.backgroundStyle} : {}),
@@ -347,11 +351,15 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     const send = (kind, method, title, minutes, diagnostics = null) =>
         Promise.resolve(app.invokeMethodAsync("MovieEvent", kind, method ?? "", title ?? "", minutes ?? null, diagnostics)).catch(() => {});
     const note = (kind, method = "", diagnostics = null) => {
-        const key = kind + ":" + method + ":" + (diagnostics?.forced ?? "");
+        const key = kind + ":" + method + ":" + (diagnostics?.forced ?? diagnostics?.reason ?? "");
         if (!active || performance.now() - (lastNote.get(key) ?? -6e4) < 6e4) return;
         lastNote.set(key, performance.now());
         send(kind, method, "", null, diagnostics);
     };
+    const noteLookupFailure = (kind, error, method) => note(kind, method, {
+        reason: error?.name === "AbortError" ? "timeout" : error instanceof SyntaxError || error instanceof TypeError
+            ? "invalid_response" : "request_failed"
+    });
     const status = el("p");
     status.setAttribute("role", "status");
     status.className = "movie-load-status";
@@ -511,6 +519,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         scheduleNoticeDismissal();
     }
     function report(action, playback, media) {
+        const runtime = playback.source.RunTimeTicks || playback.item.RunTimeTicks || media.duration * 1e7;
+        if (isShortMovie(runtime)) return;
         const data = { ItemId: playback.item.Id, MediaSourceId: playback.source.Id,
             PlaySessionId: playback.id, PositionTicks: Math.round(media.currentTime * 1e7),
             IsPaused: media.paused, CanSeek: media.seekable.length > 0, PlayMethod: playback.method };
@@ -522,7 +532,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         pendingReportsByItem.set(data.ItemId, pending);
         reports = pending;
     }
-    // Episodes of a series, fetched once per series for the Episodes sheet and Next Episode.
+    // Episodes of a series for the Episodes sheet and the next episode.
     async function localEpisodes(id, signal, season) {
         const items = [];
         let startIndex = 0, page;
@@ -532,14 +542,15 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 fields: "MediaStreams,Overview",
                 ...(season == null ? {} : {season})
             }, undefined, signal);
-            if (!Array.isArray(page?.Items)) throw Error("Invalid episodes");
+            if (!Array.isArray(page?.Items)) throw new TypeError("Invalid episodes");
             items.push(...page.Items.filter(item => !item.IsMissing && item.LocationType !== "Virtual"));
             startIndex += page.Items.length;
         } while (page.Items.length && startIndex < page.TotalRecordCount);
         return items;
     }
     function seriesEpisodes(item) {
-        return withinMovieLoad(signal => localEpisodes(item.SeriesId, signal), life.signal).catch(() => null);
+        return withinMovieLoad(signal => localEpisodes(item.SeriesId, signal), life.signal).then(items => items.sort((a, b) =>
+            (a.ParentIndexNumber ?? 0) - (b.ParentIndexNumber ?? 0) || (a.IndexNumber ?? 0) - (b.IndexNumber ?? 0)));
     }
     // The Android WebView relies on the full-window layout and MovieScreen for landscape and system bars.
     const nativeFullscreen = host.dataset.nativeFullscreen === "true";
@@ -586,9 +597,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }
     const subtitleAttempts = new Set();
     let playerLife = null;
-    let playerItem, playerOpener;
+    let playerItem, playerOpener, resumeRequest, guideStarted = false;
     async function closePlayback(keepFocus = false, fromHistory = false) {
         if (!playerItem) return;
+        resumeRequest?.abort();
         const opener = playerOpener;
         playerItem = playerOpener = undefined;
         const closing = ++selection;
@@ -622,31 +634,89 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         playerLife = null;
         player.replaceChildren();
     }
+    const isShortMovie = ticks => ticks > 0 && ticks < 120 * 1e7;
+    const savedPosition = (item, fresh) => ((fresh?.UserData ?? item.UserData)?.PlaybackPositionTicks ?? 0) / 1e7;
+    async function readResume(item, signal) {
+        await pendingReportsByItem.get(item.Id);
+        return withinMovieLoad(bounded => request("Items/" + item.Id, {userId: session.user}, undefined, bounded), signal)
+            .then(fresh => fresh ?? item).catch(error => {
+                if (!signal.aborted) noteLookupFailure("resume-position-unavailable", error);
+                return item;
+            });
+    }
+    function chooseResume(item, opener, signal, position, total) {
+        return new Promise(resolve => {
+            const content = el("div"), details = el("div"), bar = el("span"), fill = el("span"), actions = el("div");
+            const resume = button("Resume", () => dialog.close("resume"));
+            const restart = button("Start over", () => dialog.close("restart"));
+            const close = button("Close", () => dialog.close());
+            close.className = "movie-resume-close";
+            actions.className = "movie-resume-actions";
+            actions.append(resume, restart);
+            bar.className = "movie-progress";
+            bar.setAttribute("aria-hidden", "true");
+            fill.style.width = (position / total * 100) + "%";
+            bar.append(fill);
+            const left = Math.round((total - position) / 60);
+            const timeLeft = el("p", left < 1 ? "Less than a minute left" : `About ${plural(left, "minute")} left`);
+            const question = el("p", "Pick up where you left off?");
+            question.id = "movie-resume-question";
+            timeLeft.id = "movie-resume-remaining";
+            details.append(el("h2", "Welcome back"), question, bar, timeLeft);
+            const summary = el("div");
+            summary.className = "movie-resume-summary";
+            summary.append(cardArtwork(item), details);
+            content.append(close, summary, actions);
+            const dialog = movieDialog(player.contains(opener) ? player : host, opener, "Welcome back", signal,
+                {content, initialFocus: resume, className: "movie-audio-dialog movie-resume-dialog"});
+            dialog.setAttribute("aria-describedby", `${question.id} ${timeLeft.id}`);
+            dialog.addEventListener("close", () => resolve(dialog.returnValue), {once: true});
+            signal.addEventListener("abort", () => resolve(""), {once: true});
+            dialog.addEventListener("keydown", event => {
+                if (innerWidth >= 1920 && ["ArrowUp", "ArrowDown"].includes(event.key)) {
+                    const buttons = [close, resume, restart];
+                    const next = buttons[buttons.indexOf(document.activeElement) + (event.key === "ArrowDown" ? 1 : -1)];
+                    if (next) { event.preventDefault(); next.focus(); }
+                }
+            });
+        });
+    }
     async function play(item, opener, options = {}) {
         cancelSlowSearch?.();
         if (!active || preview || item.Demo) return;
-        clearPlaybackNotice();
-        const previous = playerItem;
-        playerItem = item;
-        playerOpener = opener;
-        if (!options.fromHistory && previous?.Id !== item.Id) publishNavigation(previous ? "replace" : "open");
+        resumeRequest?.abort();
         const { audioIndex, position, paused, sourceId, burnedSubtitle } = options;
+        const attempt = options.askResume && position == null ? new AbortController() : null;
+        resumeRequest = attempt;
+        const requestSignal = attempt?.signal ?? life.signal;
         const forceTranscode = options.forceTranscode || burnedSubtitle != null;
-        if (player.contains(document.activeElement)) player.focus({ preventScroll: true });
-        stop();
-        const rev = selection;
+        let rev = selection, opened = false;
         const prefs = readMoviePreferences(preferenceViewer);
         prefs.dataSaver = options.dataSaver ?? prefs.dataSaver;
         const opening = "Opening " + item.Name + "…";
-        if (player.classList.contains("movie-expanded")) {
-            status.textContent = "";
-            const loading = el("p", opening);
-            loading.className = "movie-ui-message movie-ui-line";
-            loading.setAttribute("role", "status");
-            player.append(loading);
-            playerLife = new AbortController();
-            watchPlayerIdle(player, playerLife.signal);
-        } else status.textContent = opening;
+        function openPlayer() {
+            opened = true;
+            clearPlaybackNotice();
+            const previous = playerItem;
+            if (!previous || item.Type === "Movie" && previous.Id !== item.Id) guideStarted = false;
+            playerItem = item;
+            playerOpener = opener;
+            if (!options.fromHistory && previous?.Id !== item.Id) publishNavigation(previous ? "replace" : "open");
+            if (player.contains(document.activeElement)) player.focus({ preventScroll: true });
+            stop();
+            rev = selection;
+            if (player.classList.contains("movie-expanded")) {
+                status.textContent = "";
+                const loading = el("p", opening);
+                loading.className = "movie-ui-message movie-ui-line";
+                loading.setAttribute("role", "status");
+                player.append(loading);
+                playerLife = new AbortController();
+                watchPlayerIdle(player, playerLife.signal);
+            } else status.textContent = opening;
+        }
+        if (!attempt) openPlayer();
+        else if (!playerItem) status.textContent = opening;
         const media = el("video");
         // Chromium-based players (Android WebView, Windows WebView2, Chrome, Edge) answer "maybe" for HLS, but their
         // built-in HLS player rejects our transcodes (media error 4 on every transcoded film: owner phone and Windows,
@@ -671,7 +741,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 await loadHls();
             const network = connectionRevision;
             const quality = await qualityFor(prefs.dataSaver);
-            if (!active || rev !== selection) return;
+            if (!active || rev !== selection || requestSignal.aborted) return;
             const limit = dataLimits[quality];
             const configuredScreen = movieScreen(prefs.screen);
             const maxHeight = Math.min(configuredScreen.height, limit?.height ?? Infinity);
@@ -704,23 +774,31 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 ...(limit?.audioBitrate ? { MaxAudioChannels: 2 } : {}),
                 EnableDirectPlay: !forceTranscode && !limit && index == null, EnableDirectStream: !forceTranscode && !limit,
                 EnableTranscoding: true }, signal);
-            const readResume = async () => {
-                await pendingReportsByItem.get(item.Id);
-                if (active && rev === selection)
-                    return withinMovieLoad(signal => request("Items/" + item.Id, {userId: session.user}, undefined, signal), life.signal)
-                        .catch(() => item);
-            };
             const [resultInfo, freshItem] = await Promise.all([
-                withinMovieLoad(signal => playbackInfo(sourceId, forceTranscode ? audioIndex : undefined, signal), life.signal),
-                position == null ? readResume() : null
+                withinMovieLoad(signal => playbackInfo(sourceId, forceTranscode ? audioIndex : undefined, signal), requestSignal),
+                position == null ? readResume(item, requestSignal) : null
             ]);
-            if (!active || rev !== selection) return;
+            if (!active || rev !== selection || requestSignal.aborted) return;
             let result = resultInfo;
-            const resume = position ?? (freshItem?.UserData?.PlaybackPositionTicks ?? item.UserData?.PlaybackPositionTicks ?? 0) / 1e7;
             if (result) failure = result.ErrorCode === "NoCompatibleStream" ? "The server found no compatible stream." :
                 "The server did not provide a playable version.";
             let source = result?.MediaSources?.[0];
             if (!source) throw Error();
+            const runtime = source.RunTimeTicks || freshItem?.RunTimeTicks || item.RunTimeTicks;
+            let resume = position ?? (isShortMovie(runtime) ? 0 : savedPosition(item, freshItem));
+            if (attempt) {
+                const promptOpener = options.promptOpener ?? opener;
+                if (!promptOpener?.isConnected || promptOpener.closest("[hidden]")) return;
+                const total = runtime / 1e7;
+                if (resume > 120 && resume < total * .95) {
+                    const choice = await chooseResume(item, promptOpener, requestSignal, resume, total);
+                    if (!choice || !active || rev !== selection || requestSignal.aborted) return;
+                    if (choice === "restart") resume = 0;
+                }
+                if (resumeRequest === attempt) resumeRequest = undefined;
+                openPlayer();
+            }
+            if (freshItem) item = {...item, RunTimeTicks: runtime, OfficialRating: freshItem.OfficialRating || item.OfficialRating};
             const audioLanguage = prefs.audio;
             const audio = (source.MediaStreams || []).filter(s => s.Type === "Audio");
             const internalAudio = audio.filter(track => !track.IsExternal);
@@ -889,6 +967,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             }
             populateSubtitles();
             const playback = { item, source, id: result.PlaySessionId, dataSaver: prefs.dataSaver, method };
+            const watchGuide = prefs.parentalGuide && !guideStarted && ["Movie", "Episode"].includes(item.Type);
+            const guideRating = item.OfficialRating || (item.Type === "Episode" && seriesView?.item.Id === item.SeriesId
+                ? seriesView.item.OfficialRating : undefined);
+            let guideLookup;
             playback.setSubtitles = (index) => {
                 playback.subtitleOverride = index;
                 const selected = index ?? initialSubtitle;
@@ -939,6 +1021,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     report("", playback, media);
                     send("started", playback.method, item.Name, Math.floor(media.currentTime / 60));
                     app.invokeMethodAsync("MovieStarted").catch(() => {});
+                    if (guideLookup) void guideLookup.then(guide => {
+                        if (current !== playback || guideStarted || media.ended) return;
+                        guideStarted = true;
+                        ui.startGuide(ratingBadge(guideRating || guide?.Rating), guide?.Categories);
+                    });
                 }
                 status.textContent = "";
             };
@@ -951,7 +1038,6 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 if (current !== playback || !playback.started) return;
                 report("/Stopped", playback, media);
                 playback.started = false;
-                if (playback.next) play(playback.next, opener);
             };
             let ui, recovering = false;
             const failed = (type = hlsError?.type) => {
@@ -1243,6 +1329,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 fullscreenEnabled: nativeFullscreen || document.fullscreenEnabled || document.webkitFullscreenEnabled, isFullscreen, setFullscreen, appFullscreen,
                 title: numbered ? `S${item.ParentIndexNumber}:E${item.IndexNumber} “${item.Name}”` : item.Name,
                 kicker: item.SeriesName, audioPick, subtitlePick, audioSync, notice, burnedSubtitle, originalLanguage,
+                autoSkipIntro: prefs.autoSkipIntro, autoSkipRecap: prefs.autoSkipRecap, autoNext: prefs.autoNext !== false,
+                segmentSeekFailed: () => note("segment-seek-failed", method),
                 findAudio: (opener, language) => addAudio(item, opener, player, playerSignal, language) });
             playback.showJobToast = ui.hint;
             player.replaceChildren(media, ui.root);
@@ -1250,16 +1338,25 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             playback.setSubtitles(options.subtitleIndex);
             ui.syncSubtitles();
             autoSubtitles();
+            if (["Movie", "Episode"].includes(item.Type)) {
+                const metadata = (kind, reportKind) => withinMovieLoad(signal => request(`${kind}/${item.Id}`, {}, undefined, signal), playerSignal)
+                    .catch(error => { if (!playerSignal.aborted) noteLookupFailure(reportKind, error, method); });
+                void metadata("MediaSegments", "segments-unavailable").then(segments => {
+                    if (!playerSignal.aborted) ui.setSegments(segments);
+                });
+                if (watchGuide) guideLookup = metadata("ParentalGuide", "parental-guide-unavailable");
+            }
             if (item.Type === "Episode" && item.SeriesId) {
                 seriesEpisodes(item).then(list => {
-                    if (current !== playback || !list) return;
+                    if (current !== playback) return;
                     const season = item.ParentIndexNumber == null ? list :
                         list.filter(episode => episode.ParentIndexNumber === item.ParentIndexNumber);
-                    ui.setEpisodes(season, item.Id, next => play(next, opener));
+                    ui.setEpisodes(season, item.Id, (next, promptOpener) => play(next, opener, {askResume: true, promptOpener}));
                     const index = list.findIndex(episode => episode.Id === item.Id);
                     const after = index < 0 ? undefined : list[index + 1];
-                    playback.next = after;
-                    ui.setNext(after, next => play(next, opener));
+                    ui.setNext(after, next => play(next, opener), after && cardArtwork(after));
+                }).catch(error => {
+                    if (!playerSignal.aborted) noteLookupFailure("next-episode-unavailable", error, method);
                 });
             }
             ui.playButton.focus();
@@ -1292,7 +1389,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             }
             if (network !== connectionRevision) void playback.refreshQuality();
         } catch {
-            if (active && rev === selection) {
+            if (active && rev === selection && !requestSignal.aborted) {
+                if (!opened) {
+                    note("open-failed", method, diagnostics());
+                    if (current) current.showJobToast?.(failure + " Try again.");
+                    else showPlaybackNotice(failure + " Try again.", opener);
+                    return;
+                }
                 await leavePlayer();
                 if (!active || rev !== selection) return;
                 note("open-failed", method, diagnostics());
@@ -1304,9 +1407,16 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 playerItem = playerOpener = undefined;
                 publishNavigation("back");
             }
+        } finally {
+            attempt?.abort();
+            if (attempt && resumeRequest === attempt) {
+                resumeRequest = undefined;
+                if (!opened && status.textContent === opening) status.textContent = "";
+            }
         }
     }
     function progressOf(item) {
+        if (isShortMovie(item.RunTimeTicks)) return 0;
         const data = item.UserData;
         if (data?.PlayedPercentage > 0) return Math.round(data.PlayedPercentage);
         return item.RunTimeTicks > 0 && data?.PlaybackPositionTicks > 0
@@ -2023,13 +2133,14 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         return reveal(ready, seasonFocus);
     }
     function hasResumePosition(item) {
-        return item && !item.UserData?.Played && (item.UserData?.PlaybackPositionTicks > 0 || progressOf(item) > 0);
+        return item && !isShortMovie(item.RunTimeTicks) && !item.UserData?.Played &&
+            (item.UserData?.PlaybackPositionTicks > 0 || progressOf(item) > 0);
     }
-    function playAction(item, titlePage = false) {
-        let start;
+    function playAction(item, titlePage = false, hero = false) {
+        let start, direct;
         const action = button("", () => {
             if (item && action.getAttribute("aria-disabled") !== "true")
-                void play(item, action, start ? {position: 0} : undefined);
+                void play(item, action, start ? {position: 0} : {askResume: !direct});
         });
         const label = el("span"), where = el("small"), words = document.createTextNode("");
         where.className = "movie-continue-position";
@@ -2041,6 +2152,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             start = fromStart;
             action.hidden = !item;
             const resume = !start && (continuing || hasResumePosition(item));
+            // The hero and the title page's "Continue from …" button already say where playback resumes: no second question.
+            direct = (hero || titlePage) && resume;
             const text = resume ? titlePage ? "Continue" : "Resume" : "Play";
             if (words.data !== text) words.data = text;
             where.hidden = !titlePage || !resume;
@@ -2278,10 +2391,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         rows.sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
         for (const {index, episode, details} of rows) {
             const entry = el("li"), frame = el("span"), content = el("span");
-            const action = episode ? button("", () => play(episode, action)) : el("div");
+            const action = episode ? button("", () => play(episode, action, {askResume: true})) : el("div");
             action.className = "movie-episode-body";
             entry.dataset.episode = index ?? "";
-            if (episode) entry.dataset.episodeState = episode.UserData?.Played ? "watched" : "ready";
+            if (episode) entry.dataset.episodeState = episode.UserData?.Played && !isShortMovie(episode.RunTimeTicks) ? "watched" : "ready";
             frame.className = "movie-episode-still";
             frame.setAttribute("aria-hidden", "true");
             const image = el("img"), tag = episode?.ImageTags?.Primary ?? episode?.ImageTags?.Thumb;
@@ -2319,7 +2432,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             if (quality) action.append(quality);
             if (episode) {
                 action.dataset.episodeId = episode.Id;
-                const played = episode.UserData?.Played, percent = played ? 100 : Math.max(0, Math.min(100, progressOf(episode)));
+                const played = entry.dataset.episodeState === "watched", percent = played ? 100 : Math.max(0, Math.min(100, progressOf(episode)));
                 const progress = el("progress");
                 progress.max = 100;
                 progress.value = percent;
@@ -3111,6 +3224,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 let items = [...page.Items, ...episodeItems].filter(item =>
                     type.split(",").includes(item.Type) && (!extra.accept || extra.accept(item)));
                 if (resume) {
+                    items = items.filter(item => !isShortMovie(item.RunTimeTicks));
                     items.sort((a, b) => playedAt(b) - playedAt(a));
                     const seen = new Set();
                     items = items.filter(item => {
@@ -3121,7 +3235,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     });
                     const upcoming = [];
                     for (const item of Array.isArray(nextUp?.Items) ? nextUp.Items : []) {
-                        if (item.Type !== "Episode" || !item.SeriesId || item.IsMissing || item.LocationType === "Virtual" ||
+                        if (item.Type !== "Episode" || !item.SeriesId || item.IsMissing || item.LocationType === "Virtual" || isShortMovie(item.RunTimeTicks) ||
                             item.UserData?.Played || seen.has(titleKey(item))) continue;
                         seen.add(titleKey(item));
                         upcoming.push({...item, FamilyHubNextUp: true});
@@ -4439,7 +4553,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         details.dataset.itemId = titleKey(pick);
         if (!continuing) details.append(icon(detailsPath));
         if (pick.Type !== "Series" && !preview) {
-            const play = playAction(pick, true);
+            const play = playAction(pick, true, true);
             play.setAttribute("aria-describedby", heading.id);
             play.prepend(icon(playPath));
             actions.append(play);
@@ -4495,7 +4609,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 const watched = new Map();
                 const watchedTitles = new Map([...moviesShelf.items, ...tvShelf.items, ...resumeShelf.items].map(item => [titleKey(item), item]));
                 for (const item of watchedTitles.values()) {
-                    const plays = item.UserData?.PlayCount || Number(item.UserData?.Played || progressOf(item) > 0);
+                    const plays = isShortMovie(item.RunTimeTicks) ? 0 :
+                        item.UserData?.PlayCount || Number(item.UserData?.Played || progressOf(item) > 0);
                     for (const genre of item.Genres ?? []) {
                         const key = searchTitle(genre);
                         watched.set(key, (watched.get(key) ?? 0) + plays);
@@ -4608,6 +4723,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             (target.closest(".movie-shelf-lane") ?? featured).scrollIntoView({block: "nearest"});
     });
     return { connectionChanged, async restoreNavigation(value, keepFocus = false) {
+        resumeRequest?.abort();
         await homeLoad;
         if (!active || preview) return;
         const route = value ? JSON.parse(value) : {};
@@ -4635,6 +4751,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }, async close() {
         if (!active) return;
         active = false;
+        resumeRequest?.abort();
         const leaving = leavePlayer();
         life.abort();
         stop();
