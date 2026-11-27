@@ -267,7 +267,7 @@ async function render(browser, label, options) {
     await page.locator(".movie-hero-play").waitFor();
     await page.locator(".movie-card").first().waitFor();
     assert.equal(await page.locator("body").evaluate(node => node.scrollWidth <= innerWidth), true, label + " overflows horizontally");
-    assert.equal(await page.locator(".movie-hero-play").innerText(), "Resume");
+    assert.equal(await page.locator(".movie-hero-play").innerText(), "Continue\nfrom 40:00");
     assert.ok(await page.locator(".movie-progress").count() >= 2, label + " shows progress");
     const shelves = page.locator(".movie-shelf:not([hidden])");
     const movieShelf = shelves.filter({has:page.getByRole("heading", {name:"Movies", exact:true})});

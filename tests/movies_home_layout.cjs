@@ -328,7 +328,7 @@ async function checkHero(browser) {
         const hovered = await assertPaused("hover pauses the fill");
         assert.ok(hovered > 0, "hover holds a partly filled pill");
         assert.equal(await current(), labels[0], "hover keeps the current slide");
-        const play = slide.getByRole("button", {name: "Resume"});
+        const play = slide.getByRole("button", {name: /^Continue/});
         await play.focus();
         await page.mouse.move(0, 0);
         assert.equal(await assertPaused("focus pauses the fill"), hovered);
@@ -378,7 +378,7 @@ async function checkHero(browser) {
         for (const item of library.slice(1)) item.BackdropImageTags = [];
         await page.evaluate(() => window.dispatchEvent(new Event("focus")));
         await pager.waitFor({state: "hidden"});
-        assert.equal(await focusIs(slide.getByRole("button", {name: "Resume"})), true);
+        assert.equal(await focusIs(slide.getByRole("button", {name: /^Continue/})), true);
         await search.focus();
         assert.equal(await fill.count(), 0);
         assert.equal(await slide.locator("h2").textContent(), labels[0].slice(5));

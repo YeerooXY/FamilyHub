@@ -2593,6 +2593,78 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     document.addEventListener("pointerdown", event => closeContinueMenu?.(true, event.target), {signal: life.signal});
     window.addEventListener("resize", () => closeContinueMenu?.(true), {signal: life.signal});
 
+    // The three-dots menu shared by Continue watching cards and the Home banner.
+    function continueMenu(item, name, openInfo, beforeOpen) {
+        const menu = el("div");
+        menu.className = "movie-continue-menu";
+        menu.setAttribute("role", "menu");
+        menu.setAttribute("aria-label", `Options for ${name}`);
+        menu.hidden = true;
+        const more = button("", () => {
+            if (more.getAttribute("aria-disabled") === "true") return;
+            if (!menu.hidden) return close(true);
+            closeContinueMenu?.();
+            beforeOpen?.();
+            menu.hidden = false;
+            menu.style.left = menu.style.top = "0px";
+            const origin = menu.getBoundingClientRect();
+            const bounds = more.getBoundingClientRect();
+            const width = document.documentElement.clientWidth;
+            const left = Math.max(8, Math.min(bounds.right - origin.width, width - origin.width - 8));
+            const top = bounds.bottom + origin.height + 4 <= window.innerHeight
+                ? bounds.bottom + 4 : Math.max(8, bounds.top - origin.height - 4);
+            menu.style.left = left - origin.left + "px";
+            menu.style.top = top - origin.top + "px";
+            more.setAttribute("aria-expanded", "true");
+            closeContinueMenu = close;
+            remove.focus({preventScroll: true});
+        });
+        more.setAttribute("aria-label", `More options for ${name}`);
+        more.setAttribute("aria-haspopup", "menu");
+        more.setAttribute("aria-expanded", "false");
+        more.append(icon("M12 5h.01M12 12h.01M12 19h.01"));
+        function close(restoreFocus = false, outside) {
+            if (outside && (menu.contains(outside) || more.contains(outside))) return;
+            closeContinueMenu = undefined;
+            if (restoreFocus && menu.contains(document.activeElement)) {
+                more.focus({preventScroll: true});
+                if (outside) requestAnimationFrame(() => {
+                    if (document.activeElement === document.body && more.isConnected && !more.closest("[hidden], [inert]"))
+                        more.focus({preventScroll: true});
+                });
+            }
+            menu.hidden = true;
+            more.setAttribute("aria-expanded", "false");
+        }
+        const remove = button(removeContinueLabel, () => {
+            close(true);
+            void dismissContinue(item, more, continueError);
+        });
+        const info = button("More info", () => {
+            close(true);
+            openInfo();
+        });
+        remove.prepend(icon(removePath));
+        info.prepend(icon(detailsPath));
+        for (const action of [remove, info]) {
+            action.setAttribute("role", "menuitem");
+            action.tabIndex = -1;
+        }
+        menu.append(remove, info);
+        menu.addEventListener("keydown", event => {
+            if (event.key === "Escape") close(true);
+            else if (event.key === "ArrowUp" || event.key === "ArrowDown")
+                (event.target === remove ? info : remove).focus({preventScroll: true});
+            else return;
+            event.preventDefault();
+            event.stopPropagation();
+        });
+        menu.addEventListener("focusout", event => {
+            if (!menu.hidden && !menu.contains(event.relatedTarget)) close();
+        });
+        return {more, menu};
+    }
+
     function card(item, format, findRelease, pendingDownload) {
         const title = seriesCardItem(item);
         const continuing = format === "resume";
@@ -2671,76 +2743,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         if (!continuing || preview || item.Demo) return b;
         const tile = el("div");
         tile.className = "movie-resume-card";
-        const menu = el("div");
-        menu.className = "movie-continue-menu";
-        menu.setAttribute("role", "menu");
-        menu.setAttribute("aria-label", `Options for ${name}`);
-        menu.hidden = true;
-        const more = button("", () => {
-            if (more.getAttribute("aria-disabled") === "true") return;
-            if (!menu.hidden) return close(true);
-            closeContinueMenu?.();
-            tile.closest(".movie-shelf-lane").revealCard(tile, true);
-            menu.hidden = false;
-            menu.style.left = menu.style.top = "0px";
-            const origin = menu.getBoundingClientRect();
-            const bounds = more.getBoundingClientRect();
-            const width = document.documentElement.clientWidth;
-            const left = Math.max(8, Math.min(bounds.right - origin.width, width - origin.width - 8));
-            const top = bounds.bottom + origin.height + 4 <= window.innerHeight
-                ? bounds.bottom + 4 : Math.max(8, bounds.top - origin.height - 4);
-            menu.style.left = left - origin.left + "px";
-            menu.style.top = top - origin.top + "px";
-            more.setAttribute("aria-expanded", "true");
-            closeContinueMenu = close;
-            remove.focus({preventScroll: true});
-        });
+        const {more, menu} = continueMenu(item, name, () => openSeries(title, more, item.ParentIndexNumber),
+            () => tile.closest(".movie-shelf-lane").revealCard(tile, true));
         more.className = "movie-continue-menu-button";
         more.dataset.itemId = title.Id;
         more.dataset.titleKey = titleKey(item);
-        more.setAttribute("aria-label", `More options for ${name}`);
-        more.setAttribute("aria-haspopup", "menu");
-        more.setAttribute("aria-expanded", "false");
-        more.append(icon("M12 5h.01M12 12h.01M12 19h.01"));
-        function close(restoreFocus = false, outside) {
-            if (outside && (menu.contains(outside) || more.contains(outside))) return;
-            closeContinueMenu = undefined;
-            if (restoreFocus && menu.contains(document.activeElement)) {
-                more.focus({preventScroll: true});
-                if (outside) requestAnimationFrame(() => {
-                    if (document.activeElement === document.body && more.isConnected && !more.closest("[hidden], [inert]"))
-                        more.focus({preventScroll: true});
-                });
-            }
-            menu.hidden = true;
-            more.setAttribute("aria-expanded", "false");
-        }
-        const remove = button(removeContinueLabel, () => {
-            close(true);
-            void dismissContinue(item, more, continueError);
-        });
-        const info = button("More info", () => {
-            close(true);
-            openSeries(title, more, item.ParentIndexNumber);
-        });
-        remove.prepend(icon(removePath));
-        info.prepend(icon(detailsPath));
-        for (const action of [remove, info]) {
-            action.setAttribute("role", "menuitem");
-            action.tabIndex = -1;
-        }
-        menu.append(remove, info);
-        menu.addEventListener("keydown", event => {
-            if (event.key === "Escape") close(true);
-            else if (event.key === "ArrowUp" || event.key === "ArrowDown")
-                (event.target === remove ? info : remove).focus({preventScroll: true});
-            else return;
-            event.preventDefault();
-            event.stopPropagation();
-        });
-        menu.addEventListener("focusout", event => {
-            if (!menu.hidden && !menu.contains(event.relatedTarget)) close();
-        });
         tile.append(b, more, menu);
         return tile;
     }
@@ -4288,7 +4295,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const favoriteTitle = existingTitle ?? {...title, UserData: undefined};
         const saved = isFavorite(favoriteTitle);
         const background = backgroundFor(pick);
-        const identity = JSON.stringify([pick, saved, background, readMoviePreferences(preferenceViewer).backgroundStyle, innerWidth > 1920]);
+        const identity = JSON.stringify([pick, saved, background, readMoviePreferences(preferenceViewer).backgroundStyle, innerWidth > 1920,
+            resumeShelf.items.some(entry => titleKey(entry) === titleKey(pick))]);
         heroPick = pick;
         if (featured.dataset.selection === identity && !featured.hidden) return;
         const focusClass = heroSlide?.contains(document.activeElement) ? document.activeElement.className : "";
@@ -4322,14 +4330,21 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             overview.className = "movie-hero-overview";
             body.append(overview);
         }
-        const details = button("", () => openSeries(title, details, pick.ParentIndexNumber));
-        const detailsLabel = pick.Type === "Series" && !preview ? "Seasons" : "Details";
-        details.className = "movie-hero-details";
+        // A banner title from Continue watching gets the same three-dots menu as its card.
+        const continuing = !preview && !pick.Demo && resumeShelf.items.some(entry => titleKey(entry) === titleKey(pick));
+        let details, menu;
+        if (continuing) {
+            ({more: details, menu} = continueMenu(pick, heroName(pick), () => openSeries(title, details, pick.ParentIndexNumber)));
+            details.className = "movie-hero-details movie-hero-more";
+        } else {
+            details = button("", () => openSeries(title, details, pick.ParentIndexNumber));
+            details.className = "movie-hero-details";
+            details.setAttribute("aria-label", pick.Type === "Series" && !preview ? "Seasons" : "Details");
+        }
         details.dataset.itemId = titleKey(pick);
-        details.setAttribute("aria-label", detailsLabel);
-        details.append(icon(detailsPath));
+        if (!continuing) details.append(icon(detailsPath));
         if (pick.Type !== "Series" && !preview) {
-            const play = playAction(pick);
+            const play = playAction(pick, true);
             play.setAttribute("aria-describedby", heading.id);
             play.prepend(icon(playPath));
             actions.append(play);
@@ -4340,6 +4355,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         }
         if (preview || pick.Type !== "Series") actions.append(details);
         controls.append(actions);
+        if (menu) controls.append(menu);
         body.append(controls);
         const watched = progressOf(pick);
         if (watched > 0 && watched < 100) {
