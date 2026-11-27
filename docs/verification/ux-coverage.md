@@ -52,10 +52,10 @@ Live measurements are pending. At each scale, compare `AppWindow.TitleBar.Height
 
 | Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Release results, loading, empty and retry | never | never | never | never | never | Source check, 26 Nov 2026, concept D | never |
-| Release results, desktop and TV rail, tier counts and quality guide | never | never | never | never | never | Source check, 26 Nov 2026, concept D | never |
-| Release results, phone poster strip, tier counts and quality guide | never | never | never | never | never | Source check, 26 Nov 2026, concept D | never |
-| Release rows, per-title artwork, file name disclosure, pending download, receipt and retry | never | never | never | never | never | Source check, 27 Nov 2026, 1.6.4 | never |
+| Release results, loading, empty and retry | never | never | never | never | never | Source check, 27 Nov 2026, 1.6.5 | never |
+| Release results, desktop and TV rail, quality filters and guide | never | never | never | never | never | Source check, 27 Nov 2026, 1.6.5 | never |
+| Release results, phone poster strip, quality filters and guide | never | never | never | never | never | Source check, 27 Nov 2026, 1.6.5 | never |
+| Release and YouTube rows, artwork, file name disclosure, download, receipt and retry | never | never | never | never | never | Source check, 27 Nov 2026, 1.6.5 | never |
 | Home hero facts and release rail, mapped age symbol and unknown rating | never | never | never | never | never | Source check, 26 Nov 2026 | never |
 | Film detail facts and compact desktop related shelf | never | never | never | never | never | Source check, 26 Nov 2026 | never |
 | Series title facts and episode fullscreen viewport | never | never | never | never | never | Source check, 26 Nov 2026 | never |
@@ -63,9 +63,9 @@ Live measurements are pending. At each scale, compare `AppWindow.TitleBar.Height
 | Library cards and film details, sound chips | never | never | never | never | never | Source check, 26 Nov 2026, Home theme | never |
 | Movies preferences, My screen | never | never | never | never | never | Source check, 26 Nov 2026, current branch | never |
 
-`tests/movies_release_layout.cjs` checks the rail and rows at 1280, 1920 and 2560 px, the 1920 px TV profile, and emulated tablet and phone profiles. The fixtures cover poster and search field uniqueness, display-only tier counts, the fixed order for two screen settings, file disclosure, focus, overflow, outline and target size. The matching title shelf fixture checks five full cards and a peek at 1280, 1920 and 2560 px. `tests/movies_rating_badge.cjs` checks rating mappings, accessible names, ring colours and scaling.
+`tests/movies_release_layout.cjs` covers poster and search field uniqueness, tier counts and filtering, sort order, file disclosure, focus, overflow and target size. The search fixtures cover a single loading status, season pack labels and shared YouTube rows.
 
-The guide and file name open immediately and keep focus on their disclosure buttons. Their expanded states are available to assistive technology. Tier counts and age symbols are static. The row outline fades in or out over 160 ms with ease-out and reverses from its current colour when interrupted. Reduced motion and Effects off make the outline immediate. The download button keeps focus as it changes to Added or Try again. Its status announces the receipt or failure and the adjoining progress indicator shows the queue value.
+The guide and file name open immediately and keep focus on their disclosure buttons. A quality filter applies immediately, keeps focus on the chip and announces the visible result count. The shared search status announces “Searching…” when lookup starts. Reduced motion and Effects off stop the spinner animation. The row outline fades over 160 ms with ease-out and reverses from its current colour when interrupted. The download button keeps focus as it changes to Added or Try again.
 
 Player fixtures cover the screen cap and a stricter server limit. Paddock execution, visual inspection, screen-reader speech and physical-device verification are pending.
 
@@ -75,7 +75,7 @@ Player fixtures cover the screen cap and a stricter server limit. Paddock execut
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Torrent Download options, initial, cancelled, retry and submitted | never | never | never | never | never | Source check, 26 Nov 2026, current branch | never |
 
-The existing release browser fixture exercises unchecked defaults, Escape, focus return, Tab, Space, Enter and retaining choices on retry. The dialog uses the shared native modal with immediate state changes and the existing release status messages. Rendered browser and physical-device checks are pending.
+The switches keep focus on the input. Their native checked state is announced, and the row outline appears for keyboard focus. The thumb slides over 180 ms with ease-out and reverses from its current position when toggled again. Reduced motion and Effects off make the change immediate. The browser fixture covers pointer and keyboard focus. Rendered checks are pending.
 
 ## 26 November 2026 Admin per-torrent seeding goals
 
@@ -107,6 +107,7 @@ The film and series fixture suites cover headless Chromium and WebKit desktop an
 | Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Home, loading, empty library and retry | never | never | never | never | never | Source check, 25 Nov 2026 | never |
+| Recently added, pending download, import and shelf return | never | never | never | never | never | Source check, 27 Nov 2026, 1.6.5 | never |
 | Home title search, empty results and release handoff | never | never | never | never | never | Source check, 25 Nov 2026 | never |
 | Movies settings, Layout preview, background style and preset colour | never | never | never | never | never | Source check, 26 Nov 2026 | never |
 | Preview library and collection titles | never | never | never | never | never | Source check, 25 Nov 2026 | never |

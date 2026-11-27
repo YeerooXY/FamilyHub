@@ -60,47 +60,59 @@ async function verify(browser, profile, options) {
         const search = page.getByRole("searchbox");
         await search.fill(title);
         await search.press("Enter");
-        await page.getByRole("heading", {name: "YouTube", exact: true}).waitFor();
-        const list = page.getByRole("list", {name: "YouTube videos"});
+        const searching = page.getByRole("status").filter({hasText: /^Searching…$/});
+        await searching.waitFor();
+        await page.waitForFunction(() => typeof window.sendMetadata === "function");
+        assert.equal(await page.locator(".is-checking").count(), 1);
+        await page.evaluate(results => window.sendMetadata(results), metadata);
+        const list = page.getByRole("list", {name: "Release results"});
         const cards = list.getByRole("listitem");
-        const card = cards.first();
+        const video = name => cards.filter({has: page.getByRole("heading", {name, exact: true})});
+        const card = video(title), trailer = video("Rail & Snow's Trailer");
         await card.getByRole("heading", {name: title, exact: true}).waitFor();
-        await page.getByText("A Train Through the Alps: 1 h 30 min", {exact:true}).waitFor();
-        await cards.nth(2).getByRole("heading", {name:"Rail & Snow's Trailer"}).waitFor();
+        await searching.waitFor({state: "hidden"});
+        await trailer.waitFor();
         assert.equal(await cards.count(), 5);
         assert.equal(await list.locator("details").count(), 0);
         assert.equal(await focused(page.getByRole("button", {name: "Search", exact: true})), true);
-        await page.getByRole("status").filter({hasText: "5 titles found."}).waitFor();
+        await page.getByRole("status").filter({hasText: /^5 results$/}).waitFor();
         const watch = card.getByRole("link", {name: "Watch on YouTube"});
         const download = card.getByRole("button", {name: `Download ${title}`});
         await watch.focus();
-        await page.evaluate(results => window.sendMetadata(results), metadata);
         await card.getByText("Alpine Film Archive, 1 h 29 min, 34,182 views", {exact: true}).waitFor();
         await card.getByText("Same length", {exact:true}).waitFor();
-        await cards.nth(1).getByText("Longer than the film", {exact:true}).waitFor();
-        await cards.nth(2).getByText("Shorter than the film", {exact:true}).waitFor();
-        await cards.nth(4).getByText("Shorter than the film", {exact:true}).waitFor();
+        await video(videos[1][1]).getByText("Longer than the film", {exact:true}).waitFor();
+        await trailer.getByText("Shorter than the film", {exact:true}).waitFor();
+        await video(videos[4][1]).getByText("Shorter than the film", {exact:true}).waitFor();
         assert.equal(await card.locator(".movie-youtube-match").getAttribute("data-level"), "same");
-        assert.equal(await cards.nth(2).locator(".movie-youtube-match").getAttribute("data-level"), "different");
+        assert.equal(await trailer.locator(".movie-youtube-match").getAttribute("data-level"), "different");
         assert.equal(await focused(watch), true);
-        assert.deepEqual(await cards.locator(".movie-release-quality").evaluateAll(nodes => nodes.map(node =>
-            [node.textContent, node.dataset.level])), [
-            ["4K", "4k-web"], ["1440p", "web"], ["1080p", "web"], ["720p", "hd"], ["480p", "tv"]
+        assert.deepEqual(await cards.locator(".movie-release-block").evaluateAll(nodes => nodes.map(node =>
+            [node.textContent, node.dataset.level]).sort()), [
+            ["1080p", "web"], ["1440p", "web"], ["480p", "tv"], ["4K", "4k-web"], ["720p", "hd"]
         ]);
-        await page.waitForFunction(() => [...document.querySelectorAll(".movie-youtube-art img")].every(
-            img => img.complete && img.naturalWidth > 0));
-        assert.equal(await card.evaluate((node, phone) => {
-            const art = node.querySelector(".movie-youtube-art").getBoundingClientRect();
-            const body = node.querySelector(".movie-youtube-content").getBoundingClientRect();
-            return phone ? art.bottom <= body.top : art.right <= body.left;
-        }, options.viewport.width <= 600), true);
+        await page.waitForFunction(img => img.complete && img.naturalWidth > 0, await card.locator("img").elementHandle());
+        assert.equal(await card.evaluate(node => {
+            const art = node.querySelector(".movie-release-row-poster").getBoundingClientRect();
+            const quality = node.querySelector(".movie-release-block").getBoundingClientRect();
+            const head = node.querySelector(".movie-release-head").getBoundingClientRect();
+            return art.right <= quality.left && quality.right <= head.left;
+        }), true);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
-        assert.equal(await card.locator("svg").count(), 1);
+        assert.equal(await watch.locator("svg").count(), 1);
         assert.equal(await watch.getAttribute("href"), url(videos[0][0]));
         assert.equal(await watch.getAttribute("target"), "_blank");
         await list.scrollIntoViewIfNeeded();
         await page.screenshot({path: path.join(output, profile + "-youtube.png"), fullPage: true, scale: "css"});
 
+        const filter = page.getByRole("group", {name: "Quality"});
+        const sd = filter.getByRole("button", {name: /^SD /});
+        if (options.hasTouch) await sd.tap();
+        else await sd.press("Enter");
+        assert.equal(await focused(sd), true);
+        assert.deepEqual(await cards.locator(".movie-release-block").allTextContents(), ["480p"]);
+        await filter.getByRole("button", {name: /^All /}).press("Space");
+        assert.equal(await cards.count(), 5);
         await watch.press("Enter");
         assert.equal(await focused(watch), true);
         assert.deepEqual(await page.evaluate(() => calls.at(-1)), ["MovieOpenLink", url(videos[0][0])]);
@@ -128,7 +140,7 @@ async function verify(browser, profile, options) {
             window.queue = [{name, progress: .45, state: "Downloading"}];
             window.finishDownload({state: "sent"});
         }, title);
-        const sent = card.getByText("Sent to the server");
+        const sent = card.getByRole("button", {name: "Added " + title});
         await sent.waitFor();
         await page.clock.fastForward(3200);
         // 1.6.4: active downloads show in the floating tray instead of an inline list.

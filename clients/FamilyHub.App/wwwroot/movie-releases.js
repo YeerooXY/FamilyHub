@@ -10,10 +10,12 @@ function number(value) {
 }
 
 function resolution(title) {
-    const height = title.match(/\b(4320|2160|1440|1080|720|576|480)[pi]\b/i)?.[1];
+    const height = title.match(/\b(4320|2160|1440|1080|720|576|540|480)[pi]\b/i)?.[1];
     if (height) return Number(height);
     if (/\b8K\b/i.test(title)) return 4320;
-    return /\b(?:4K|UHD)\b/i.test(title) ? 2160 : 0;
+    if (/\b(?:4K|UHD)\b/i.test(title)) return 2160;
+    if (/\bFHD\b/i.test(title)) return 1080;
+    return /(?<!DTS[ ._-])\bHD\b/i.test(title) ? 720 : 0;
 }
 
 const audioFormats = {
@@ -87,14 +89,26 @@ export function appendSoundChip(target, sound, icon) {
 }
 
 /** What the release holds when it is a series: one episode, a whole season, or several seasons. */
-export function releaseKind(title) {
-    if (/\bS\d{1,3}\s*[-–]\s*S?\d{1,3}\b/i.test(title) || /\b(?:complete|full)[ ._-]*(?:series|collection)\b/i.test(title)
-        || /\b(?:full[ ._-]+hun|teljes[ ._-]+sorozat)\b/i.test(title)
-        || /\bseasons?[ ._-]*\d+[ ._-]*(?:-|to|&)[ ._-]*\d+\b/i.test(title)) return "Complete series";
+export function releaseSeasons(title) {
+    const range = title.match(/\bS(\d{1,3})[ ._]*[-–][ ._]*S?(\d{1,3})\b/i) ||
+        title.match(/\b(?:seasons?|series)[ ._-]*(\d{1,3})[ ._-]*(?:-|–|to)[ ._-]*(\d{1,3})\b/i);
+    if (range && Number(range[1]) <= Number(range[2])) return [Number(range[1]), Number(range[2])];
+    const single = title.match(/\bS(\d{1,3})\b/i) ||
+        title.match(/\b(?:season|(?:complete|full)[ ._-]+series)[ ._-]*(\d{1,3})\b/i);
+    return single ? [Number(single[1]), Number(single[1])] : null;
+}
+
+export function releaseKind(title, catalogue = []) {
     const episode = title.match(/\bS(\d{1,3})[ ._-]*E(\d{1,3})\b/i) || title.match(/\b(\d{1,3})x(\d{2,3})\b/);
     if (episode) return `One episode, S${String(Number(episode[1])).padStart(2, "0")}E${String(Number(episode[2])).padStart(2, "0")}`;
-    const season = title.match(/\bS(\d{1,3})\b/i) || title.match(/\bseason[ ._-]*(\d{1,3})\b/i);
-    return season ? `Full season ${Number(season[1])}` : "";
+    const span = releaseSeasons(title);
+    if (span) {
+        const [first, last] = span;
+        if (first === last) return `Season ${first}`;
+        if (catalogue.length && catalogue.every(number => number >= first && number <= last)) return "Complete series";
+        return `Seasons ${first} to ${last}`;
+    }
+    return /\b(?:(?:complete|full)[ ._-]+series|teljes[ ._-]+sorozat)\b/i.test(title) ? "Complete series" : "";
 }
 
 const TIERS = [
@@ -106,7 +120,7 @@ const TIERS = [
     ["bluray", "1080p Blu-ray", "Compressed HD disc video"],
     ["web", "1080p Web", "HD streaming copy"],
     ["hd", "720p", "Smaller HD picture"],
-    ["tv", "TV or DVD", "TV recording or DVD copy"],
+    ["tv", "SD", "Standard-definition video"],
     ["poor", "Camera copy", "Filmed in a cinema"]
 ];
 
@@ -131,12 +145,14 @@ function releaseQuality(title, height, size, length) {
     const remux = /\bremux\b/i.test(title);
     const bluray = /\b(?:blu[ ._-]?ray|bdrip|brrip)\b/i.test(title);
     const web = /\b(?:web[ ._-]?dl|web[ ._-]?rip|web)\b/i.test(title);
-    const tv = /\b(?:[hp]dtv|dvd[ ._-]?(?:rip)?|dvd[59])\b/i.test(title);
-    const source = camera ? "Camera copy" : tv ? "TV or DVD" : remux ? "Remux" : bluray ? "Blu-ray" : web ? "Web" : "";
+    const tv = /\b(?:[hp]dtv|tvrip)\b/i.test(title);
+    const dvd = /\b(?:dvd(?:[ ._-]?rip)?|dvd[59])\b/i.test(title);
+    const sd = /\b(?:xvid|mpeg[ ._-]?4)\b/i.test(title);
+    const source = camera ? "Camera copy" : tv ? "TV" : dvd ? "DVD" : remux ? "Remux" : bluray ? "Blu-ray" : web ? "Web" : "";
     let tier = pictureTier(height);
     if (camera) tier = "poor";
-    else if (tv) tier = "tv";
-    else if (source && (!height || height >= 1080) && height < 4320) {
+    else if (!height && (source || sd)) tier = "tv";
+    else if (height >= 1080 && height < 4320 && (remux || bluray)) {
         tier = (height >= 2160 ? "4k-" : "") + (remux ? "remux" : bluray ? "bluray" : "web");
     }
     if (tier === "unknown" && length > 0 && size > 0) {
@@ -147,7 +163,7 @@ function releaseQuality(title, height, size, length) {
         return {tier: "estimated", label: `Estimated: ${estimate} (from size and length)`, source};
     }
     const picture = height >= 4320 ? "8K" : height >= 2160 ? "4K" : height ? `${height}p` : "";
-    const label = camera ? "Camera copy" : tv ? "TV or DVD" : [picture, tier === "hd" ? "" : source].filter(Boolean).join(" ")
+    const label = camera ? "Camera copy" : [picture || (tier === "tv" ? "SD" : ""), source].filter(Boolean).join(" ")
         || (length > 0 ? "Size needed to estimate quality" : "Quality unknown");
     return {tier, label, source};
 }
@@ -199,7 +215,7 @@ export function availability(seeders) {
 /** A readable name for the tile: the title, then the year when the release name has one. */
 export function displayTitle(name) {
     const spaced = name.replace(/[[(].*?[\])]/g, " ").replace(/[._]+/g, " ");
-    const cut = spaced.search(/\b(?:19|20)\d{2}\b|\bS\d{1,3}(?:E\d{1,3})?\b|\b(?:2160|1440|1080|720|576|480)[pi]\b|\bseasons?\b|\bcomplete\b|\b(?:uhd|bluray|blu-ray|web-?dl|webrip|hdtv|remux)\b/i);
+    const cut = spaced.search(/\b(?:19|20)\d{2}\b|\bS\d{1,3}(?:E\d{1,3})?\b|\b\d{3,4}[pi]\b|\bseasons?[ .-]*\d|\b(?:complete|full)[ .-]+series\b|\bcomplete(?=\s+S\d)|\b(?:[48]k|uhd|fhd|bluray|blu-ray|web[ -]?dl|web[ -]?rip|hdtv|dvdrip|xvid|mpeg4|remux|x26[45]|h26[45])\b|\bHD(?=$|[ -]+(?:web|blu|hdtv|x26[45]|h26[45]))/i);
     const title = (cut > 0 ? spaced.slice(0, cut) : spaced).replace(/\s+/g, " ").trim();
     const year = name.match(/(?:^|[ ._([])((?:19|20)\d{2})(?=[ ._)\]]|$)/)?.[1];
     return (title || name) + (year && cut > 0 ? ` (${year})` : "");
@@ -325,7 +341,7 @@ function downloadOptions(parent, opener, signal, identity, row, {icon, chainImag
 }
 
 export function buildReleaseSearch(search, signal, download, {term, screen, icon, searchTitle, titleHue, chainImages, palette,
-    preferences, save, downloadProgress, watchLink, onResults, matchTitle}) {
+    preferences, save, downloadProgress, watchLink, onResults, matchTitle, seriesSeasons, searchButton}) {
     const panel = document.createElement("section");
     panel.className = "movie-releases";
     panel.hidden = true;
@@ -349,8 +365,8 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
                 <p class="movie-web-meta" data-release-availability hidden>Ask the server owner to enable downloads for your profile.</p>
             </aside>
             <div class="movie-release-content">
-                <p class="movie-source-note movie-release-empty" role="status" hidden>No releases found. Try another title.</p>
-                <ul class="movie-source-list" role="list" aria-label="Release results"></ul>
+                <p class="movie-source-note movie-release-count" role="status" aria-atomic="true"></p>
+                <ul id="movie-release-rows" class="movie-source-list" role="list" aria-label="Release results"></ul>
             </div>
         </div>`;
     const results = panel.querySelector(".movie-release-results");
@@ -359,12 +375,12 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
     const guide = panel.querySelector(".movie-quality-guide");
     const guideButton = panel.querySelector('[aria-controls="movie-release-guide"]');
     const list = panel.querySelector("ul");
-    const empty = panel.querySelector(".movie-release-empty");
+    const visibleCount = panel.querySelector(".movie-release-count");
     const canDownload = typeof download === "function";
     panel.querySelector("[data-release-availability]").hidden = canDownload;
     const outage = createServiceStatus({
         detail: "Reconnect to search for releases.", label: "Retry release lookup", retry: load,
-        focus: () => heading, automatic: true
+        focus: () => results.hidden ? searchButton : heading, automatic: true
     });
     panel.prepend(outage.card);
     let rows = [], busy = false, matches = [], details = {}, identity = {}, usedPoster;
@@ -380,16 +396,37 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         name && searchTitle(name) === row.artKey) &&
         (!row.artTitle.year || !(identity.year ?? searched.year) ||
             Number(row.artTitle.year) === Number(identity.year ?? searched.year));
-    const tiers = [["8k", "8K"], ["4k-remux", "4K Remux"], ["4k-web", "4K"], ["web", "1080p"], ["hd", "720p and below"]];
+    const tiers = [["all", "All"], ["8k", "8K"], ["4k-remux", "4K Remux"], ["4k-web", "4K"], ["web", "1080p"],
+        ["hd", "720p"], ["tv", "SD"], ["poor", "Camera copy"], ["unknown", "Unknown"]];
     const tierOrder = new Map(tiers.map(([tier], index) => [tier, index]));
     const legend = panel.querySelector(".movie-release-legend");
-    const tierCounts = new Map(tiers.map(([tier, label]) => {
-        const entry = chip("movie-release-tier movie-release-quality", label, tier);
+    let selectedTier = "all";
+    const tierButtons = new Map(tiers.map(([tier, label]) => {
+        const entry = document.createElement("button");
+        entry.type = "button";
+        entry.className = "movie-release-tier movie-release-quality";
+        entry.dataset.level = tier;
+        entry.setAttribute("aria-controls", list.id);
         const count = chip("movie-release-tier-count", "0");
-        entry.append(" ", count);
+        entry.append(label, " ", count);
         legend.append(entry);
-        return [tier, count];
+        entry.addEventListener("click", () => {
+            entry.focus({preventScroll: true});
+            selectedTier = selectedTier === tier ? "all" : tier;
+            filterRows();
+        });
+        return [tier, entry];
     }));
+    function filterRows() {
+        let count = 0;
+        for (const row of list.children) {
+            row.hidden = selectedTier !== "all" && row.dataset.tier !== selectedTier;
+            if (!row.hidden) count++;
+        }
+        for (const [tier, entry] of tierButtons) entry.setAttribute("aria-pressed", String(tier === selectedTier));
+        const message = count === 1 ? "1 result" : count ? `${count} results` : "No results at this quality";
+        if (visibleCount.textContent !== message) visibleCount.textContent = message;
+    }
     guideButton.append(icon("M12 11v5m0-8h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z"));
     guideButton.title = "Quality guide";
     guideButton.addEventListener("click", () => {
@@ -444,6 +481,7 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
 
     function loadRowArtwork() {
         for (const row of rows) {
+            if (row.site === "YouTube") continue;
             if (sharesPoster(row)) {
                 row.setArtwork(identity);
                 continue;
@@ -466,16 +504,21 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
     list.addEventListener("keydown", event => {
         if (event.altKey || event.ctrlKey || event.metaKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
         const row = event.target.closest(".movie-release");
-        const next = event.key === "ArrowDown" ? row?.nextElementSibling : row?.previousElementSibling;
-        if (!next) return;
+        const visible = [...list.children].filter(item => !item.hidden);
+        const next = visible[visible.indexOf(row) + (event.key === "ArrowDown" ? 1 : -1)];
+        const target = next?.querySelector(event.target.matches(".movie-release-file") ? ".movie-release-file" :
+            event.target.matches("a") ? "a" : ".movie-release-action") ?? next?.querySelector(".movie-release-action");
+        if (!target) return;
         event.preventDefault();
-        next.querySelector(event.target.matches(".movie-release-file") ? ".movie-release-file" : ".movie-release-action").focus();
+        target.focus();
     });
 
     function renderRow(row, index) {
         const item = document.createElement("li");
         item.className = "movie-release";
         item.dataset.tier = row.tier;
+        const youtube = row.site === "YouTube";
+        if (youtube) item.dataset.source = row.site;
         const art = chip("movie-art movie-release-row-poster", "");
         const image = document.createElement("img");
         art.setAttribute("aria-hidden", "true");
@@ -484,7 +527,7 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         image.decoding = "async";
         image.loading = "lazy";
         image.referrerPolicy = "no-referrer";
-        const quality = chip("movie-release-quality movie-release-block", row.picture, row.tier);
+        const quality = chip("movie-release-quality movie-release-block", row.picture, row.quality.tier);
         if (row.source) quality.append(" ", chip("movie-release-source", row.source));
         const head = document.createElement("div"), title = document.createElement("h3");
         head.className = "movie-release-head";
@@ -496,7 +539,21 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         if (row.kind) badges.append(chip("movie-release-kind", row.kind));
         if (row.site) badges.append(chip("movie-release-kind", row.site));
         if (row.audio.includes("hu")) badges.append(chip("movie-release-kind", "Hungarian audio listed"));
-        head.append(title, badges);
+        if (youtube) {
+            const seconds = row.video.duration ?? row.video.seconds;
+            const ratio = seconds / (details.runtime_minutes * 60);
+            if (ratio > 0 && Number.isFinite(ratio) && !details.runtime_estimated) {
+                const same = ratio >= .9 && ratio <= 1.1;
+                const what = details.kind === "tv" ? (details.season == null ? "series" : "season") : "film";
+                badges.append(chip("movie-youtube-match", same ? "Same length" : `${ratio < .9 ? "Shorter" : "Longer"} than the ${what}`,
+                    same ? "same" : "different"));
+            }
+            const views = row.video.view_count;
+            const meta = [row.video.uploader || row.video.channel, formatMinutes(seconds / 60),
+                Number.isFinite(views) ? `${views.toLocaleString("en")} ${views === 1 ? "view" : "views"}` : ""].filter(Boolean).join(", ");
+            if (meta) head.append(chip("movie-web-meta", meta));
+        }
+        head.prepend(title, badges);
 
         const file = document.createElement("button"), raw = document.createElement("div");
         file.type = "button";
@@ -514,11 +571,10 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
             file.focus({preventScroll: true});
         });
         raw.textContent = row.fileName;
-        if (row.site === "YouTube") raw.append(watchLink(row.url));
         const warnings = [row.mismatch ? "This file is unusually small for a 1080p video of this length." : "",
             row.size > 40 * gib ? "This file uses over 40 GB of server space." : ""].filter(Boolean);
         if (warnings.length) head.append(chip("movie-release-note", warnings.join(" ")));
-        head.append(file);
+        if (!youtube) head.append(file);
 
         const stat = ([name, value, className, tone, level]) => {
             const cell = document.createElement("div");
@@ -539,7 +595,7 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         progress.max = 1;
         progress.setAttribute("aria-label", `Download progress for ${row.name}`);
         progress.hidden = true;
-        const label = () => row.episodes ? `${row.name}, ${row.kind}`
+        const label = () => youtube ? row.name : row.episodes ? `${row.name}, ${row.kind}`
             : `${row.name}, ${row.quality.label}, ${row.size ? (row.size / gib).toFixed(1) + " GB" : "size unknown"}`;
         const allowed = canDownload && (row.guid || row.site && (row.url || row.episodes));
         const actionLabel = chip("movie-release-action-label", "");
@@ -589,6 +645,7 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         });
         const actions = document.createElement("div");
         actions.className = "movie-release-actions";
+        if (youtube) actions.append(watchLink(row.url));
         actions.append(action, progress, receipt);
         const releaseIdentity = () => sharesPoster(row) ? identity : {
             ...row.artTitle, kind: releaseKind(row.title) ? "tv" : "movie", ...row.match, tmdb_id: row.match?.id
@@ -609,33 +666,51 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
                 updateAction();
             }
         };
-        row.setArtwork(sharesPoster(row) ? identity : null);
-        item.append(art, quality, head, size, time, health, actions, raw);
+        if (youtube) row.setArtwork({poster: row.video.thumbnail?.startsWith?.("https://") ? row.video.thumbnail : null});
+        else row.setArtwork(sharesPoster(row) ? identity : null);
+        item.append(art, quality, head, size, time, health, actions);
+        if (!youtube) item.append(raw);
         return item;
     }
     async function load() {
-        if (busy) return true;
+        if (busy || panel.querySelector("dialog[open]") || rows.some(row => row.pending)) return true;
         busy = true;
         let reply;
         try { reply = await search(); }
         catch { reply = { error: "Release search is unavailable. Try again." }; }
         if (signal.aborted || !panel.isConnected) return false;
-        busy = false;
         if (reply?.error || !Array.isArray(reply?.results)) {
+            busy = false;
             panel.hidden = false;
             outage.show();
             return true;
         }
         details = reply.title_details || {};
+        updateIdentity();
+        const hasSeriesRange = reply.results.some(item => {
+            if (item?.site || typeof item?.title !== "string") return false;
+            const span = releaseSeasons(item.title.replaceAll("_", " "));
+            return span && span[0] !== span[1];
+        });
+        const seasons = hasSeriesRange && identity.kind !== "movie" ? await seriesSeasons(identity).catch(() => []) : [];
+        if (signal.aborted || !panel.isConnected) return false;
+        busy = false;
+        if (panel.querySelector("dialog[open]") || rows.some(row => row.pending)) return true;
+        const previousRows = new Map(rows.map(row => [row.orderKey, row]));
         const distinct = new Map();
         for (const item of reply.results) {
             if (typeof item?.title !== "string") continue;
             const title = cleanResultTitle(item.title);
             if (!title) continue;
+            const youtube = item.site === "YouTube";
             const episodes = item.site === "Videa" && Array.isArray(item.episodes) && item.episodes.length ? item.episodes : null;
-            const height = number(item.height) || resolution(title), size = number(item.size);
+            const tags = title.replaceAll("_", " ");
+            const height = number(item.height) || resolution(tags), size = number(item.size);
+            const name = youtube ? title : episodes ? `${title}, Season ${item.number}` : displayTitle(title);
+            const artTitle = titleParts(episodes ? title : name);
+            const artKey = searchTitle(artTitle.title);
             const kind = episodes ? `${episodes.length} ${episodes.length === 1 ? "episode" : "episodes"}`
-                : details.kind === "movie" ? "" : releaseKind(title);
+                : youtube || details.kind === "movie" ? "" : releaseKind(tags, sharesPoster({artKey, artTitle}) ? seasons : []);
             const isSeriesPack = details.kind === "tv" && kind === "Complete series";
             const length = isSeriesPack ? details.series_minutes || (details.season == null ? details.runtime_minutes : null)
                 : details.runtime_minutes;
@@ -645,46 +720,54 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
             const mismatch = !lengthEstimated && !oneEpisode && height === 1080 && comparisonLength > 0
                 && size > 0 && size / comparisonLength < 3e6;
             const audio = Object.keys(audioMarkers).filter(language => (episodes || [item]).every(video => audioMarkers[language].test(video?.title)));
-            const quality = releaseQuality(episodes ? "" : title, height, size, comparisonLength);
-            const tier = quality.tier === "4k-remux" ? quality.tier :
-                ["poor", "tv", "estimated", "unknown"].includes(quality.tier) ? "hd" : videoQualityTier(height);
-            const source = quality.source || (item.site ? "Web" : "");
+            const quality = releaseQuality(youtube || episodes ? "" : tags, height, size, comparisonLength);
+            const tier = ["4k-remux", "poor", "tv"].includes(quality.tier) ? quality.tier : videoQualityTier(height);
+            const source = quality.tier === "poor" || youtube ? "" : quality.source || (item.site ? "Web" : "");
             const picture = episodes && height > 0 && item.max_height > height ? `${height}p–${item.max_height}p`
-                : quality.tier === "estimated" ? quality.label : height ? (height >= 4320 ? "8K" : height >= 2160 ? "4K" : `${height}p`) : "Unknown quality";
-            const name = episodes ? `${title}, Season ${item.number}` : displayTitle(title);
-            const artTitle = titleParts(episodes ? title : name);
+                : quality.tier === "poor" ? quality.label : height ? (height >= 4320 ? "8K" : height >= 2160 ? "4K" : `${height}p`)
+                : quality.tier === "tv" ? "SD" : quality.tier === "estimated" ? quality.label : "Unknown quality";
             const sound = releaseSound(title);
             const seeders = number(item.seeders);
-            const row = { title, fileName: item.title, name, artTitle, artKey: searchTitle(artTitle.title),
-                season: item.number, height: episodes ? number(item.max_height) || height : height, size, mismatch, kind, audio, episodes, quality,
-                tier: tier === "unknown" ? "hd" : tier, picture, source, sound,
+            const row = { title, fileName: item.title, name, artTitle, artKey,
+                season: item.number, seasons: kind ? releaseSeasons(tags) : null,
+                height: episodes ? number(item.max_height) || height : height, size, mismatch, kind, audio, episodes, quality,
+                tier, picture, source, sound, video: youtube ? item : null,
                 seconds: downloadSeconds(size, seeders), unavailable: !item.site && seeders === 0,
                 seeders, guid: item.guid, indexerId: item.indexerId, site: item.site, url: item.url };
             const key = row.site ? `${row.site}\n${row.url}` : `${row.title.toLowerCase().replace(/[^a-z0-9]+/g, "")}\n${Math.round((row.size || 0) / 1e8)}`;
             row.orderKey = key;
+            row.sent = previousRows.get(key)?.sent;
             const previous = distinct.get(key);
             const preferReference = canDownload && previous && Boolean(row.guid) !== Boolean(previous.guid);
             if (!previous || (preferReference ? row.guid : (row.seeders ?? -1) > (previous.seeders ?? -1)))
                 distinct.set(key, row);
         }
         rows = [...distinct.values()].sort(compare);
-        results.hidden = panel.hidden = !rows.length && outage.card.hidden;
-        updateIdentity();
-        for (const [tier, count] of tierCounts) count.textContent = rows.filter(row => row.tier === tier).length;
+        if (!rows.length && results.contains(document.activeElement)) searchButton.focus({preventScroll: true});
+        else if (list.contains(document.activeElement)) heading.focus({preventScroll: true});
+        results.hidden = !rows.length;
+        panel.hidden = results.hidden && outage.card.hidden;
+        for (const [tier, entry] of tierButtons) {
+            const count = tier === "all" ? rows.length : rows.filter(row => row.tier === tier).length;
+            entry.lastElementChild.textContent = count;
+            entry.hidden = !count && ["poor", "unknown"].includes(tier) && !entry.matches(":focus");
+            if (entry.hidden && selectedTier === tier) selectedTier = "all";
+        }
         list.replaceChildren(...rows.map(renderRow));
-        empty.hidden = rows.length > 0;
+        filterRows();
         onResults(details, !results.hidden);
         requestAnimationFrame(() => {
             if (!signal.aborted && panel.isConnected) loadRowArtwork();
         });
         outage.clear();
+        panel.hidden = results.hidden;
         return !panel.hidden;
     }
     function setMatches(list) {
         matches = Array.isArray(list) ? list : [];
         if (!results.hidden) {
             updateIdentity();
-            for (const row of rows) if (sharesPoster(row)) row.setArtwork(identity);
+            for (const row of rows) if (row.site !== "YouTube" && sharesPoster(row)) row.setArtwork(identity);
         }
     }
     function updateProgress() {

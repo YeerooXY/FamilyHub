@@ -103,7 +103,7 @@ async function check(browser, outcome) {
         assert.equal(await page.getByRole("heading", {name:"Download options"}).count(), 0);
         await watch.press("Enter");
         assert.deepEqual(await page.evaluate(() => window.calls.at(-1)), ["MovieOpenLink", "https://www.youtube.com/watch?v=aaaaaaaaaaa"]);
-        await page.getByRole("heading", {name:"YouTube", exact:true}).waitFor();
+        await page.getByRole("list", {name:"Release results"}).waitFor();
         await page.getByRole("heading", {name:"Előzetes"}).waitFor();
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true, "no sideways scroll");
     } else {
@@ -193,7 +193,7 @@ async function checkVidea(browser, name, options, screenshots) {
     const cards = list.getByRole("listitem");
     await cards.last().waitFor();
     assert.equal(await focused(submit), true);
-    const qualities = ["1080p Web", "1080p Web", "720p Web"];
+    const qualities = ["1080p Web", "1080p", "720p Web"];
     assert.deepEqual(await cards.locator(".movie-release-quality").allTextContents(), qualities);
     assert.deepEqual(await cards.locator(".movie-release-health .movie-release-stat-value").allTextContents(),
         ["Available", "Available", "Available"]);

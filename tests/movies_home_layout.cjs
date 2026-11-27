@@ -228,7 +228,7 @@ async function checkWidth(browser, width, height) {
             await page.keyboard.press("Escape");
             assert.equal(await query.inputValue(), "");
             assert.equal(await focusIs(query), true);
-            near(await scrollLeft(row), step, "home shelf position restored");
+            near(await scrollLeft(row), 0, "home shelf resets after search");
 
             await query.fill("Moon Signal");
             const find = page.getByRole("button", {name:/Find releases for Moon Signal/});
@@ -237,10 +237,15 @@ async function checkWidth(browser, width, height) {
             await find.press("Enter");
             await page.waitForFunction(() => window.movieCalls.some(([method, term]) => method === "MovieReleaseSearch" && term === "Moon Signal 2022"));
             await page.keyboard.press("Escape");
-            await row.locator(".movie-card").nth(5).press("Enter");
+            await viewport(posters).evaluate(node => { node.scrollLeft = 150; });
+            assert.ok(await scrollLeft(posters) > 0);
+            const opener = row.locator(".movie-card").nth(5);
+            await opener.press("Enter");
             assert.equal(await query.isVisible(), false);
             await page.getByRole("button", {name:"Back to titles"}).press("Enter");
-            assert.equal(await focusIs(row.locator(".movie-card").nth(5)), true);
+            assert.equal(await focusIs(opener), true);
+            near(await scrollLeft(posters), 0, "other shelves reset");
+            assert.ok(await scrollLeft(row) > 0 && await scrollLeft(row) < step, "only enough scroll to reveal the focused card");
         }
     } finally { await page.close(); }
 }

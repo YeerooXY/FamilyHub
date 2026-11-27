@@ -181,7 +181,7 @@ async function render(browser, label, options) {
                     return JSON.stringify({episodes: [{number: 1, name: season === 1 ? "Pilot" : season === 3 ? "Return to port" : "Across the Bay", still, runtime: 42},
                         {number: 2, name: "Episode 2", still: null}]});
                 }
-                if (method === "MovieDownloads") return JSON.stringify({available:true, items:[
+                if (method === "MovieDownloads") return JSON.stringify({available:true, items:window.emptyDownloads ? [] : [
                     {name:"Harbour.Town.S06.1080p", progress:.3, state:"Downloading", eta:125},
                     {name:"The Golden Hour on the Last Day of the Year Before the River Froze", progress:.4, state:"Downloading"},
                     {name:"Harbour Lights 2008", progress:1, state:"Seeding", ratio:1.25},
@@ -555,13 +555,17 @@ async function render(browser, label, options) {
     else await find.press("Enter");
     assert.equal(await page.getByRole("searchbox").inputValue(), "Harbour Town S04");
     assert.equal(await focus(page.getByRole("button", {name:"Search", exact:true})), true);
-    await page.getByRole("list", {name:"Release results"}).getByText("Full season 4").waitFor();
+    await page.getByRole("list", {name:"Release results"}).getByText("Season 4", {exact:true}).waitFor();
     assert.equal(await page.evaluate(() => window.releaseQuery), "Harbour Town S04");
     await capture("search");
 
     empty = true;
     failResume = true;
-    await page.evaluate(async () => { await window.movies.close(); window.movies = window.openMovieHome(); });
+    await page.evaluate(async () => {
+        await window.movies.close();
+        window.emptyDownloads = true;
+        window.movies = window.openMovieHome();
+    });
     const resumeRetry = page.getByRole("button", {name:"Retry continue watching", exact:true});
     await resumeRetry.waitFor();
     await capture("home-error");

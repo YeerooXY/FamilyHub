@@ -3,7 +3,7 @@ const {cors, jellyfin, moviePage, verifyMovieProfiles} = require("./movies_fixtu
 
 const movie = "Harbor Night", show = "Snow Line";
 const filmRelease = "Harbor.Night.2025.1080p.WEB-DL.DDP5.1";
-const seasonRelease = "Snow.Line.S02.1080p.WEB-DL";
+const seasonRelease = "Snow.Line.S02-S03.1080p.WEB-DL";
 const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300"><rect width="200" height="300" fill="#344466"/></svg>';
 const picture = "data:image/svg+xml," + encodeURIComponent(svg);
 const held = "https://art.test/film-backdrop.svg";
@@ -16,10 +16,12 @@ async function openFixture(page) {
         if (route.request().method() === "OPTIONS") return route.fulfill({status: 204, headers: cors});
         const url = new URL(route.request().url());
         const name = url.searchParams.get("searchTerm");
-        const items = owned.has(name) ? [{
-            Id: name === movie ? "film" : "series", Name: name, Type: name === movie ? "Movie" : "Series",
-            ProductionYear: 2025, ProviderIds: {Tmdb: name === movie ? 71 : 72}
-        }] : owned.has(show) && url.pathname === "/Shows/series/Episodes" ? [{
+        const items = url.pathname === "/Items" ? [...owned].filter(title =>
+            (!name || title === name) && (url.searchParams.get("includeItemTypes") || "").includes(title === movie ? "Movie" : "Series")
+        ).map(title => ({
+            Id: title === movie ? "film" : "series", Name: title, Type: title === movie ? "Movie" : "Series", DateCreated: new Date().toISOString(),
+            ProductionYear: 2025, ProviderIds: {Tmdb: title === movie ? 71 : 72}
+        })) : owned.has(show) && url.pathname === "/Shows/series/Episodes" ? [{
             Id: "episode", Name: "The crossing", IndexNumber: 1, ParentIndexNumber: 2, Type: "Episode"
         }] : [];
         return route.fulfill({headers: cors, json: {Items: items, TotalRecordCount: items.length}});
@@ -44,7 +46,8 @@ async function openFixture(page) {
             const release = (title, size, guid) => ({title, size, seeders: 50, guid, indexerId: 1});
             const answers = {
                 MovieDownloads: {available: true, items: window.queue},
-                MovieMatches: args[0]?.startsWith?.("tmdb:tv:") ? {series_id: 72, seasons: [{number: 2, episode_count: 2}]} :
+                MovieMatches: args[0]?.startsWith?.("tmdb:tv:") ? {series_id: 72,
+                    seasons: [2, 3, 4].map(number => ({number, episode_count: 2}))} :
                     {matches: [{id: identity.tmdb_id, title, year: 2025, kind: identity.kind, poster: picture}]},
                 MovieReleaseSearch: {title_details: identity, results: series ? [release(seasonRelease, 5 * 1024 ** 3, "season")] : [
                     release(filmRelease, 5 * 1024 ** 3, "film"),
@@ -167,10 +170,34 @@ async function verify(browser, profile, options) {
         if (reduced || effectsOff) assert.equal(await dialog.evaluate(node => getComputedStyle(node).animationName), "none");
         assert.equal(await fits(), true);
         assert.equal(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth), true);
+        const soundRow = dialog.locator(".movie-confirm-option").filter({has: page.getByRole("switch", {name: "Hungarian audio"})});
+        assert.equal(await soundRow.locator(".movie-confirm-switch").evaluate(node =>
+            getComputedStyle(node, "::after").transitionDuration), reduced || effectsOff ? "0s" : "0.18s");
+        if (options.hasTouch) await soundRow.tap();
+        else await soundRow.click();
+        assert.equal(await sound.isChecked(), true);
+        assert.equal(await soundRow.evaluate(node => getComputedStyle(node).outlineStyle), "none");
+        await soundRow.click();
+        assert.equal(await sound.isChecked(), false);
+        await confirm.focus();
         for (const action of [sound, subs, cancel, confirm]) {
             await page.keyboard.press("Tab");
             assert.equal(await focused(action), true);
         }
+        await sound.press("Tab");
+        await page.keyboard.press("Shift+Tab");
+        const outline = await soundRow.evaluate(node => {
+            const style = getComputedStyle(node);
+            return {declared: style.getPropertyValue("--confirm-outline").trim(), style: style.outlineStyle,
+                color: style.outlineColor, width: parseFloat(style.outlineWidth), pixel: 1 / devicePixelRatio};
+        });
+        const expectedWidth = viewport.width >= 1600 ? 4 : 2;
+        assert.equal(outline.declared, `${expectedWidth}px`);
+        assert.equal(outline.style, "solid");
+        assert.equal(outline.color, "rgb(255, 255, 255)");
+        // Browsers can snap the computed outline to physical pixels at fractional scale.
+        assert.ok(Math.abs(outline.width - expectedWidth) < outline.pixel, `${profile} switch focus outline: ${outline.width}px`);
+        await confirm.focus();
         for (const action of [cancel, subs, sound, confirm]) {
             await page.keyboard.press("Shift+Tab");
             assert.equal(await focused(action), true);
@@ -212,6 +239,12 @@ async function verify(browser, profile, options) {
 
         await film.getByRole("button", {name: "Back to titles"}).click();
         await page.getByRole("searchbox").press("Escape");
+        const recent = page.locator('.movie-shelf[data-format="recent"]');
+        const pendingFilm = recent.locator('.movie-card[data-pending-download]').filter({hasText: movie});
+        await pendingFilm.waitFor();
+        assert.equal(await recent.locator(".movie-card-name").first().textContent(), movie);
+        assert.equal(await pendingFilm.locator("img").getAttribute("src"), picture);
+        assert.equal(await pendingFilm.locator(".movie-download-progress > span").evaluate(node => node.style.transform), "scaleX(0.42)");
         await page.getByRole("button", {name: "Downloads, 1 active"}).press("Enter");
         const downloading = page.getByRole("dialog", {name: "Downloads"}).getByRole("button", {name: movie, exact: true});
         await downloading.waitFor();
@@ -232,7 +265,10 @@ async function verify(browser, profile, options) {
         assert.equal(await play.getAttribute("data-downloading"), null);
 
         await film.getByRole("button", {name: "Back to titles"}).click();
+        await recent.locator('.movie-card[data-item-id="film"]').waitFor();
+        assert.equal(await pendingFilm.count(), 0);
         await search(page, show + " S02");
+        await page.getByText("Seasons 2 to 3", {exact: true}).waitFor();
         await page.locator(".movie-release-action").first().click();
         await confirm.press("Enter");
         const seriesPage = page.locator(".movie-show-detail");
@@ -240,7 +276,26 @@ async function verify(browser, profile, options) {
         const pill = seriesPage.getByRole("button", {name: "Season 2", exact: true});
         assert.equal(await focused(pill), true);
         assert.equal(await pill.getAttribute("data-downloading"), "");
+        assert.equal(await seriesPage.getByRole("button", {name: "Season 3", exact: true}).getAttribute("data-downloading"), "");
+        assert.equal(await seriesPage.getByRole("button", {name: "Season 4", exact: true}).getAttribute("data-downloading"), null);
         await seriesPage.locator('li[data-episode-state="downloading"]').first().waitFor();
+        await page.evaluate(name => {
+            window.queue = [{name, progress: .55, state: "Downloading"},
+                {name: "Snow.Line.S03.720p.WEBRip", progress: .37, state: "Downloading"},
+                {name: "Coastal.Signal.FHD.WEBRip", progress: .25, state: "Downloading"}];
+        }, seasonRelease);
+        await page.clock.fastForward(3200);
+        await seriesPage.getByRole("button", {name: "Back to titles"}).click();
+        await page.getByRole("searchbox").press("Escape");
+        const queuedShow = recent.getByRole("button", {name: show, exact: true});
+        assert.equal(await queuedShow.count(), 1);
+        const fallback = recent.getByRole("button", {name: "Coastal Signal", exact: true});
+        assert.equal(await fallback.locator(".movie-art").getAttribute("data-initial"), "C");
+        assert.equal(await fallback.locator("img").getAttribute("src"), null);
+        await queuedShow.press("Enter");
+        await seriesPage.waitFor();
+        await pill.waitFor();
+        assert.equal(await focused(pill), true);
         makeOwned(show);
         await page.evaluate(name => { window.queue = [{name, progress: 1, state: "Finished"}]; }, seasonRelease);
         await page.clock.fastForward(3200);

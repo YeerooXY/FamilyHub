@@ -15,7 +15,7 @@ const sources = [...fixture,
     {title: higher, size: 4e9, seeders: 20}
 ];
 const expectedOrder = [faster, equallyFast, episode, pack, fixture[2].title, highest, higher,
-    ...[7, 6, 9, 8, 3, 5, 4].map(index => fixture[index].title)];
+    ...[7, 6, 8, 9, 3, 5, 4].map(index => fixture[index].title)];
 const desktop = [
     ["desktop-1280", {width: 1280, height: 720}],
     ["desktop-1920", {width: 1920, height: 1080}],
@@ -44,7 +44,7 @@ async function check(browser, profile, options) {
         assert.equal(await results.locator(".movie-release-size .movie-download-progress").count(), 0);
         assert.equal(await rail.getByRole("heading", {name: "The Gentlemen (2024)"}).count(), 1);
         assert.equal(await results.locator(".movie-release-poster").count(), 1);
-        assert.equal(await results.locator(".movie-release-row-poster img").count(), expectedOrder.length);
+        assert.equal(await results.locator(".movie-release-row-poster img").count(), expectedOrder.length + 1);
         await page.waitForFunction(img => img.naturalWidth > 0, await rail.locator("img").elementHandle());
         assert.equal(await page.getByRole("searchbox").count(), 1);
         assert.equal(await page.locator(".app-header").getByRole("searchbox").count(), 1);
@@ -67,11 +67,11 @@ async function check(browser, profile, options) {
                 scroll: Math.max(document.documentElement.scrollWidth - innerWidth, host.scrollWidth - host.clientWidth)};
         });
         assert.equal(geometry.left, 0, profile);
-        assert.ok(Math.abs(geometry.right - geometry.width) <= 1, profile);
+        assert.ok(Math.abs(geometry.right - Math.min(geometry.width, geometry.contentLeft + 1664)) <= 1, profile);
         assert.ok(geometry.scroll <= 1, profile);
         if (phone) {
             assert.equal(geometry.railBottom, geometry.contentTop, profile);
-            assert.equal(geometry.legendScroll, false, profile);
+            assert.equal(geometry.legendScroll, true, profile);
             const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
             const [switcher, search] = await Promise.all([
                 page.locator("#open-hub").boundingBox(), page.locator(".app-header .movie-search").boundingBox()
@@ -127,22 +127,47 @@ async function check(browser, profile, options) {
             return Math.abs(poster.height - quality.height) <= 1 && Math.abs(poster.height * 2 / 3 - poster.width) <= 1 &&
                 poster.right <= quality.left;
         })), true);
+        const columns = row => row.evaluate(node => [
+            ".movie-release-row-poster", ".movie-release-block", ".movie-release-head", ".movie-release-actions"
+        ].map(selector => {
+            const {left, width} = node.querySelector(selector).getBoundingClientRect();
+            return [left, width];
+        }));
+        const video = rows.filter({has: page.getByRole("link", {name: "Watch on YouTube"})});
+        assert.deepEqual(await columns(video), await columns(rows.first()), profile);
         const legend = rail.getByRole("group", {name: "Quality"});
-        const entries = legend.locator(".movie-release-tier");
-        assert.equal(await entries.count(), 5);
-        assert.equal(await legend.locator("button, [role=button], [tabindex], [aria-pressed]").count(), 0);
-        assert.equal(await rail.locator("button").count(), 1);
+        const entries = legend.getByRole("button");
+        assert.equal(await entries.count(), 9);
         assert.equal(await rail.locator("input").count(), 0);
         let total = 0;
         for (const entry of await entries.all()) {
             const tier = await entry.getAttribute("data-level");
             const count = Number(await entry.locator(".movie-release-tier-count").textContent());
-            assert.equal(count,
+            assert.equal(count, tier === "all" ? expectedOrder.length + 1 :
                 await list.locator(`[data-tier="${tier}"]`).count(), profile);
-            total += count;
+            if (tier !== "all") total += count;
         }
-        assert.equal(total, expectedOrder.length);
-        assert.deepEqual(await results.locator("button").evaluateAll((nodes, target) =>
+        assert.equal(total, expectedOrder.length + 1);
+        const all = legend.getByRole("button", {name: /^All /});
+        const sd = legend.getByRole("button", {name: /^SD /});
+        const count = results.getByRole("status");
+        assert.equal(await all.getAttribute("aria-pressed"), "true");
+        await sd.press("Space");
+        assert.equal(await focused(sd), true);
+        assert.equal(await sd.getAttribute("aria-pressed"), "true");
+        assert.equal(await rows.count(), 1);
+        assert.equal(await count.filter({hasText: /^1 result$/}).count(), 1);
+        assert.equal(await sd.locator(".movie-release-tier-count").textContent(), "1");
+        await sd.press("Enter");
+        assert.equal(await focused(sd), true);
+        assert.equal(await all.getAttribute("aria-pressed"), "true");
+        assert.equal(await rows.count(), expectedOrder.length + 1);
+        const hd = legend.getByRole("button", {name: /^720p /});
+        await hd.press("Enter");
+        await all.press("Space");
+        assert.equal(await focused(all), true);
+        assert.equal(await rows.count(), expectedOrder.length + 1);
+        assert.deepEqual(await results.locator("button, a").evaluateAll((nodes, target) =>
             nodes.filter(node => {
                 const {width, height} = node.getBoundingClientRect();
                 return width && height && (width < target || height < target);

@@ -92,6 +92,8 @@ async function openReleaseFixture(page, {shell = false, sources = fixture} = {})
                         {id: 92, kind: "movie", title: "Foreign Harbour", poster: "/movie-art/movie-alt.jpg"}
                     ]}));
                 });
+                if (method === "MovieMatches" && term === "tmdb:tv:74")
+                    return JSON.stringify({seasons: [1, 2, 3, 4, 5].map(number => ({number}))});
                 if (method === "MovieMatches") return JSON.stringify(term === "Browse releases" ? {matches:
                     Array.from({length:10}, (_, i) => ({id:50 + i, kind:"movie", title:`Browse film ${i + 1}`}))
                 } : term === "The Gentlemen S2" ? {matches:[
@@ -101,6 +103,18 @@ async function openReleaseFixture(page, {shell = false, sources = fixture} = {})
                 if (method !== "MovieReleaseSearch") return "";
                 if (term === "Late artwork") return JSON.stringify({results:[{title:"Late artwork 1080p AAC 2.0"}]});
                 if (term === "Slow search") return new Promise(resolve => window.finishSlow = () => resolve(JSON.stringify({results:fixture})));
+                if (term === "Ripper Street") return JSON.stringify({
+                    title_details: {title: term, kind: "tv", tmdb_id: 74},
+                    results: [
+                        "Ripper.Street.Complete.Series.4.EN.SUB.MPEG4.x264.WEBRIP.[MPup]",
+                        "Ripper Street Season 1-3 S01-S03 720p BluRay x264-MIXED",
+                        "Ripper.Street.Complete.S01-05.720p",
+                        "Ripper Street S05 HDTV", "Ripper Street S04 DVDRip", "Ripper Street S04 XviD",
+                        "Ripper Street S04 576p", "Ripper Street S04 540p", "Ripper Street S04 2160p",
+                        "Ripper Street S04 UHD", "Ripper Street S04 1080i", "Ripper Street S04 FHD", "Ripper Street S04 HD",
+                        "Ripper Street S04"
+                    ].map(title => ({title}))
+                });
                 if (term === "Many releases") return JSON.stringify({results:Array.from({length: 10}, (_, index) =>
                     ({title: `Release ${index + 1} 1080p`, size: 1e9, seeders: 50}))});
                 if (term === "Poster search") return JSON.stringify({
@@ -179,11 +193,11 @@ async function verify(browser, name, options) {
         assert.equal(await guide.getByRole("table").isVisible(), false);
         const rows = result.getByRole("listitem");
         const first = rows.filter({has:page.getByRole("img", {name:"Sound: Dolby Atmos"})});
-        assert.equal(await rows.count(), 9);
+        assert.equal(await rows.count(), 10);
         assert.equal(await rows.first().getAttribute("data-tier"), "web");
         const text = await first.innerText();
         assert.match(text, /1080p\s+Web/);
-        assert.match(text, /Full season 2/);
+        assert.match(text, /Season 2/);
         assert.match(text, /Size\s+16\.1 GB/);
         assert.match(text, /Download time\s+about 23 min/);
         assert.match(text, /Availability\s+Available/);
@@ -205,9 +219,10 @@ async function verify(browser, name, options) {
         await page.screenshot({path:path.join(output, name + "-releases.png"), fullPage:true});
 
         const otherSources = page.getByText("Other watch and download options", {exact:true});
+        const trailer = rows.filter({has: page.getByRole("heading", {name:"The Gentlemen trailer"})});
+        await trailer.getByRole("link", {name:"Watch on YouTube"}).waitFor();
+        await trailer.getByText("Shorter than the season", {exact:true}).waitFor();
         await otherSources.press("Enter");
-        await page.getByRole("heading", {name:"The Gentlemen trailer"}).waitFor();
-        await page.getByText("Shorter than the season", {exact:true}).waitFor();
         assert.deepEqual((await page.evaluate(() => calls)).filter(([method]) => method === "MovieFind"), [["MovieFind", title]]);
         const request = page.getByRole("button", {name:"Request season 2: The Gentlemen (2024)"});
         await request.press("Space");
@@ -236,10 +251,28 @@ async function verify(browser, name, options) {
         assert.equal(await rows.count(), 10);
         await search("Slow search");
         await page.waitForFunction(() => typeof finishSlow === "function");
+        await page.getByRole("status").filter({hasText: /^Searching…$/}).waitFor();
+        assert.equal(await page.locator(".is-checking").count(), 1);
         await page.getByRole("button", {name:"Clear", exact:true}).click();
         await page.evaluate(() => finishSlow());
+        assert.equal(await page.locator(".is-checking").count(), 0);
         assert.equal(await result.count(), 0);
         assert.equal(await focus(query), true);
+        if (name === "chromium-1280") {
+            await search("Ripper Street");
+            await result.getByText("Complete series", {exact: true}).waitFor();
+            const parsed = await rows.evaluateAll(nodes => Object.fromEntries(nodes.map(row => [
+                row.querySelector(".movie-release-name").textContent.replace(/^Ripper[ .]Street[ .]/, ""),
+                [row.querySelector(".movie-release-block").textContent, row.querySelector(".movie-release-kind").textContent]
+            ])));
+            assert.deepEqual(parsed["Complete.Series.4.EN.SUB.MPEG4.x264.WEBRIP.[MPup]"], ["SD Web", "Season 4"]);
+            assert.deepEqual(parsed["Season 1-3 S01-S03 720p BluRay x264-MIXED"], ["720p Blu-ray", "Seasons 1 to 3"]);
+            assert.deepEqual(parsed["Complete.S01-05.720p"], ["720p", "Complete series"]);
+            for (const [tag, label] of Object.entries({HDTV:"SD TV", DVDRip:"SD DVD", XviD:"SD", "576p":"576p",
+                "540p":"540p", "2160p":"4K", UHD:"4K", "1080i":"1080p", FHD:"1080p", HD:"720p"}))
+                assert.equal(parsed[(tag === "HDTV" ? "S05 " : "S04 ") + tag][0], label, tag);
+            assert.equal(parsed.S04[0], "Unknown quality");
+        }
         const count = await page.evaluate(() => calls.length);
         await search("Catalogued Show Season 2");
         const local = page.getByRole("button", {name:"Catalogued Show", exact:true});
