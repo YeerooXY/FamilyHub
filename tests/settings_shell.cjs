@@ -49,6 +49,7 @@ verifyShell(async (page, phone) => {
         await select(id, 'Enter');
         await panel.locator(control).waitFor();
         if (id === 'about') {
+            assert.match(await panel.locator(control).textContent(), /^\d+\.\d+\.\d+ \(build \d+\), .+$/);
             const attribution = panel.locator('#settings-tmdb-credit');
             await attribution.waitFor();
             assert.equal(await attribution.locator('strong').textContent(), 'TMDB');

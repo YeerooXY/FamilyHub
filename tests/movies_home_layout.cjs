@@ -434,11 +434,86 @@ async function checkQuiet(browser, reducedMotion) {
     } finally { await page.close(); }
 }
 
+async function checkDownloads(browser) {
+    const page = await browser.newPage({viewport: {width: 1920, height: 1080}, reducedMotion: "reduce"});
+    try {
+        const resumeItems = [2026, 1998].map((ProductionYear, index) => ({
+            Id: "resume-" + index, Name: "Harbor Night", ProductionYear, Type: "Movie", UserData: {PlayedPercentage: 40}
+        }));
+        resumeItems.push({Id: "resume-episode", Name: "The Harbour", Type: "Episode", SeriesId: "harbour-town",
+            SeriesName: "Harbour Town", ParentIndexNumber: 7, IndexNumber: 2, UserData: {PlayedPercentage: 40}});
+        await movieHomeFixture(page, {downloads: true, resumeItems});
+        const hero = page.locator(".movie-hero"), heroTop = () => hero.evaluate(node => node.getBoundingClientRect().top);
+        const tray = page.locator(".movie-download-toggle");
+        const panel = page.getByRole("dialog", {name: "Downloads"});
+        const resume = shelf(page, "Continue watching").locator(".movie-card");
+        await hero.waitFor();
+        await resume.nth(1).waitFor();
+        const top = await heroTop();
+        const card = resume.and(page.locator('[data-item-id="resume-0"]'));
+        const normal = resume.and(page.locator('[data-item-id="resume-1"]'));
+        const otherSeason = resume.and(page.locator('[data-item-id="resume-episode"]'));
+        await otherSeason.waitFor();
+        const height = locator => locator.evaluate(node => node.offsetHeight);
+        const before = await height(card);
+        assert.equal(await tray.isVisible(), false);
+        const title = await card.locator(".movie-card-name").textContent();
+        await page.evaluate(title => {
+            window.queue = [
+                {name: title.replaceAll(" ", ".") + ".2026.1080p.WEB-DL", progress: .42, state: "Downloading", eta: 1077 * 60},
+                {name: "Harbour.Town.S06.1080p.WEB-DL", progress: .28, state: "Downloading", eta: 100 * 60}
+            ];
+            document.dispatchEvent(new Event("visibilitychange"));
+        }, title);
+        await tray.waitFor();
+        assert.equal(await heroTop(), top);
+        assert.equal(await page.locator(".movie-catalogue .movie-downloads").count(), 0);
+        assert.equal(await tray.getAttribute("aria-label"), "Downloads, 2 active");
+        assert.equal(await tray.locator(".movie-download-count").textContent(), "2");
+        assert.equal(await tray.evaluate(node => node.style.getPropertyValue("--download-percent")), "35");
+        assert.equal((await tray.boundingBox()).height, 60);
+        const badge = card.locator(".movie-download-badge");
+        await badge.waitFor();
+        assert.equal(await normal.locator(".movie-download-badge").isVisible(), false);
+        assert.equal(await otherSeason.locator(".movie-download-badge").isVisible(), false);
+        assert.deepEqual(await badge.evaluate(node => {
+            const readable = node.querySelector(".movie-visually-hidden");
+            const copy = node.cloneNode(true);
+            copy.querySelector(".movie-visually-hidden").remove();
+            return [copy.textContent, getComputedStyle(readable).clipPath];
+        }), ["", "inset(50%)"]);
+        assert.equal(await card.getAttribute("aria-describedby"), await badge.locator(".movie-visually-hidden").getAttribute("id"));
+        assert.equal(await badge.locator(".movie-visually-hidden").textContent(), "Downloading, 40%");
+        near(await height(card), before, "card height after download");
+        near(await height(card), await height(normal), "download and normal card heights");
+
+        const lastShelfCard = page.locator(".movie-browse .movie-shelf:not([hidden]) .movie-card").last();
+        await lastShelfCard.press("ArrowDown");
+        assert.equal(await focusIs(tray), true);
+        assert.equal(await tray.evaluate(node => getComputedStyle(node).outlineWidth), "4px");
+        await tray.press("Enter");
+        assert.equal(await focusIs(panel.getByRole("button", {name: "Close"})), true);
+        assert.equal(await panel.evaluate(node => node.getAnimations({subtree: true}).length), 0);
+        await panel.getByRole("button", {name: title + " (2026)", exact: true}).waitFor();
+        await panel.getByRole("button", {name: "Harbour Town, Season 6", exact: true}).waitFor();
+        assert.equal(await panel.getByText("about 18 h left", {exact: true}).isVisible(), true);
+        assert.equal(await panel.getByText("about 1 h 40 min left", {exact: true}).isVisible(), true);
+        assert.doesNotMatch(await panel.innerText(), /WEB-DL|1080p|1077/);
+        await page.keyboard.press("Escape");
+        assert.equal(await panel.isVisible(), false);
+        assert.equal(await focusIs(tray), true);
+        await tray.press("Enter");
+        await panel.getByRole("button", {name: "Close"}).press("Enter");
+        assert.equal(await focusIs(tray), true);
+    } finally { await page.close(); }
+}
+
 (async () => {
     const browser = await chromium.launch({headless: true});
     try {
         for (const [width, height] of widths) await checkWidth(browser, width, height);
         await checkHero(browser);
+        await checkDownloads(browser);
         await checkQuiet(browser, "reduce");
         await checkQuiet(browser, "no-preference");
     } finally { await browser.close(); }

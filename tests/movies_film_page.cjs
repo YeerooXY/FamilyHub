@@ -226,13 +226,20 @@ async function check(browser, profile, options) {
         assert.equal(automatic, "#603b26");
         const read = sequel.locator(".movie-description-more");
         const description = sequel.locator(".movie-film-overview");
-        await read.waitFor();
+        const expand = sequel.getByRole("button", {name: "Show full description"});
+        await expand.waitFor();
         const collapsedHeight = (await description.boundingBox()).height;
-        assert.equal(await read.getAttribute("aria-label"), "Show full description");
-        await read.press("Enter");
+        if (options.hasTouch && options.viewport.width <= 600) {
+            assert.equal(await expand.evaluate(node => {
+                const box = node.getBoundingClientRect();
+                const target = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+                return getComputedStyle(node).opacity === "1" && node.contains(target);
+            }), true, profile + " shows the chevron before any touch");
+            await expand.tap();
+        } else await expand.press("Enter");
         assert.equal(await read.getAttribute("aria-expanded"), "true");
         assert.equal(await read.getAttribute("aria-label"), "Show less");
-        assert.equal(await focused(read), true);
+        if (!options.hasTouch || options.viewport.width > 600) assert.equal(await focused(read), true);
         await page.waitForFunction(node => node.clientHeight >= node.scrollHeight - 1, await description.elementHandle());
         assert.ok((await description.boundingBox()).height > collapsedHeight);
         await read.press("Space");

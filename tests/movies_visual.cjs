@@ -305,12 +305,11 @@ async function render(browser, label, options) {
     assert.equal(await shelves.getByRole("button", {name:/Add audio track/}).count(), 0);
     assert.equal(await page.getByRole("region", {name:"Audio tracks"}).count(), 0);
     assert.equal(await page.getByRole("button", {name:"Delete source file"}).count(), 0);
-    const strip = page.getByRole("region", {name:"Downloading"});
-    await strip.waitFor();
+    await page.getByRole("button", {name: "Downloads, 2 active"}).waitFor();
     assert.equal(await page.evaluate(() => {
         const width = selector => document.querySelector(selector).getBoundingClientRect().width;
         const toolbar = document.querySelector(".app-header .movie-toolbar");
-        return width(".movie-downloads") === width(".movie-hero") && width(".movie-toolbar") > 0 &&
+        return !document.querySelector(".movie-catalogue .movie-downloads") && width(".movie-toolbar") > 0 &&
             width(".movie-toolbar") <= width(".header-search") && getComputedStyle(toolbar).boxShadow === "none";
     }), true);
     if (options.viewport.width === 390) {
@@ -319,8 +318,10 @@ async function render(browser, label, options) {
         assert.equal(await card.evaluate(node => {
             const caption = node.querySelector(".movie-card-name");
             const badge = node.querySelector(".movie-download-badge");
+            const art = node.querySelector(".movie-art");
             const line = parseFloat(getComputedStyle(caption).lineHeight);
-            return caption.clientHeight <= 2 * line + 1 && badge.getBoundingClientRect().top >= caption.getBoundingClientRect().bottom;
+            return caption.clientHeight <= 2 * line + 1 && art.contains(badge) &&
+                badge.getBoundingClientRect().height > 0 && badge.getBoundingClientRect().bottom <= art.getBoundingClientRect().bottom;
         }), true);
         await card.screenshot({path: path.join(out, label + "-long-card.png"), animations: "disabled"});
         await page.evaluate(() => document.querySelector(".movie-shelf-scroll:has([data-item-id=m17])").scrollLeft = 0);

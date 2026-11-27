@@ -82,9 +82,20 @@
 .movie-chip[hidden] { display: none; }
 .movie-library .movie-more { min-width: var(--movie-target); min-height: var(--movie-target); }
 .movie-season ol { display: grid; gap: .3rem; list-style: none; padding: 0; margin: .3rem 0 0; }
-.movie-download-badge { display: block; padding: 0 .7rem .6rem; font-size: .85em; }
-.movie-download-badge[hidden] { display: none; }
-.movie-download-badge .movie-download-progress { display: block; margin: .35rem 0 0; }
+.movie-download-badge {
+    position: absolute;
+    inset: .35rem .35rem auto auto;
+    display: grid;
+    place-items: center;
+    width: 1.8rem;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: #10141b;
+    color: #fff;
+}
+.movie-download-badge[hidden], .movie-art > .movie-download-progress[hidden] { display: none; }
+.movie-art:has(.movie-download-badge:not([hidden])) > .movie-card-heart { inset-inline-end: 2.5rem; }
+.movie-art:has(> .movie-progress) > .movie-download-progress { display: none; }
 
 /* Billboard. */
 .movie-library .movie-hero {
@@ -228,21 +239,88 @@ body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--ca
 .movie-more { margin-top: .85rem; }
 .movie-library p[role="status"]:empty { margin: 0; }
 .movie-catalogue { min-width: 0; }
-.movie-library .movie-downloads { margin: 0 0 1rem; padding: .5rem .75rem; border-block: 1px solid #ffffff26; }
-.movie-catalogue:has(> .movie-series:not([hidden])) > .movie-downloads,
-.movie-catalogue:has(.movie-external[data-release-layout]) > .movie-downloads { display: none; }
+.movie-download-tray {
+    --movie-tray-bottom: calc(max(.85rem, env(safe-area-inset-bottom)) + var(--movie-tray-player, 0px) + var(--movie-tray-clearance, 0px));
+    position: fixed;
+    z-index: 5;
+    inset: auto max(1rem, calc(env(safe-area-inset-right) + .5rem)) var(--movie-tray-bottom) auto;
+    color: #fff;
+}
+.movie-library .movie-download-toggle {
+    display: grid;
+    place-items: center;
+    width: var(--movie-target);
+    height: var(--movie-target);
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: #26223c;
+    color: #fff;
+    transition: none;
+}
+.movie-download-toggle .movie-download-ring { width: 80%; height: 80%; }
+.movie-download-ring-track { stroke: #ffffff40; stroke-width: 1.5; }
+.movie-download-ring-fill {
+    stroke: #a8c7ff;
+    stroke-dasharray: var(--download-percent, 0) 100;
+    stroke-linecap: butt;
+    stroke-width: 1.5;
+    transform: rotate(-90deg);
+    transform-origin: center;
+}
+.movie-download-ring path { transform: scale(.64); transform-origin: center; }
+.movie-download-count {
+    position: absolute;
+    inset: -.35rem -.35rem auto auto;
+    min-width: 1.25rem;
+    padding: .1rem .25rem;
+    border-radius: 999px;
+    background: #dce7ff;
+    color: #15172a;
+    font-size: .75rem;
+    font-weight: 700;
+    line-height: 1rem;
+    text-align: center;
+    pointer-events: none;
+}
+.movie-downloads {
+    position: absolute;
+    inset: auto 0 calc(100% + .6rem) auto;
+    box-sizing: border-box;
+    width: min(22rem, calc(100vw - max(1rem, env(safe-area-inset-left)) - max(1rem, calc(env(safe-area-inset-right) + .5rem))));
+    max-height: min(26rem, calc(100dvh - var(--movie-tray-bottom) - var(--movie-target) - .6rem - max(4rem, env(safe-area-inset-top))));
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: .65rem;
+    border: 1px solid #555168;
+    border-radius: .85rem;
+    background: #1b1828;
+    box-shadow: 0 .6rem 1.75rem #0009;
+}
+.movie-downloads-header { display: flex; align-items: center; justify-content: space-between; gap: .65rem; padding-inline-start: .4rem; }
 .movie-downloads h2 { margin: 0; font-size: 1rem; }
-.movie-downloads ul { display: grid; gap: .35rem; margin: .3rem 0 0; padding: 0; list-style: none; }
-.movie-downloads li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(4rem, 20%) auto; align-items: center; gap: .2rem 1rem; overflow-wrap: anywhere; }
-.movie-downloads li .movie-download-progress { margin: 0; }
-.movie-downloads p { margin: 0; color: #ffffffb8; font-size: .9rem; }
-@media (max-width: 640px) {
-    .movie-downloads li { grid-template-columns: minmax(0, 1fr) auto; }
-    .movie-downloads li strong { grid-column: 1 / -1; }
+.movie-downloads ul { display: grid; gap: .35rem; margin: .35rem 0 0; padding: 0; list-style: none; }
+.movie-downloads li { position: relative; }
+.movie-library .movie-downloads li button {
+    display: grid;
+    gap: .2rem;
+    width: 100%;
+    min-height: var(--movie-target);
+    padding: .55rem .65rem 1rem;
+    border: 1px solid #ffffff28;
+    border-radius: .55rem;
+    background: #28243a;
+    color: #fff;
+    text-align: start;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
-.movie-download-progress { height: .3rem; margin: .65rem 0 .5rem; border-radius: 1rem; background: #ffffff26; overflow: hidden; }
+.movie-library .movie-downloads-header button { min-width: var(--movie-target); min-height: var(--movie-target); }
+.movie-downloads li button span { color: #d8d3e4; font-size: .85rem; }
+.movie-download-progress { display: block; height: .25rem; border-radius: 1rem; background: #ffffff26; overflow: hidden; }
+.movie-downloads li .movie-download-progress { position: absolute; inset: auto .65rem .5rem; pointer-events: none; }
+.movie-art > .movie-download-progress { position: absolute; inset: auto 0 0; border-radius: 0; }
 .movie-download-progress span { display: block; height: 100%; transform-origin: left; background: #89b4ff; }
-}
 .movie-library video { margin-top: .75rem; }
 :is(.movie-library, .header-search) .movie-search {
     display: flex;
@@ -1003,6 +1081,7 @@ body.native-titlebar { --movie-header-icon-left: calc(32px + var(--window-contro
 .movie-film-detail .movie-film-overview {
     display: block;
     min-width: 0;
+    max-height: 4.5em;
     max-height: 3lh;
     overflow: hidden;
     color: #e4e8f1;
@@ -1025,8 +1104,12 @@ body.native-titlebar { --movie-header-icon-left: calc(32px + var(--window-contro
 .movie-library .movie-film-description button[hidden] { display: none; }
 .movie-description-more svg { transition: transform 230ms ease-out; }
 .movie-description-more[aria-expanded="true"] svg { transform: rotate(180deg); }
-@media (hover: hover) and (pointer: fine) and (max-width: 1599px) {
+@media (hover: hover) and (pointer: fine) and (min-width: 721px) and (max-width: 1599px) {
     .movie-film-description:not(:hover, :focus-within, [data-expanded]) .movie-description-more { opacity: 0; }
+}
+@media (hover: none), (pointer: coarse), (any-pointer: coarse), (max-width: 720px) {
+    .movie-film-overview { flex: 1; }
+    .movie-library .movie-film-description .movie-description-more { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
     .movie-library .movie-film-description :is(p, button, svg) { transition: none; }
@@ -1797,7 +1880,7 @@ body[data-effects="off"] .movie-release-results button { transition: none; trans
 .movie-confirm-option input:focus { outline: none; }
 @media (min-width: 1600px) {
     .movie-download-confirm { --confirm-target: clamp(60px, 4vw, 76px); --confirm-outline: 4px; }
-    .movie-library :is(.movie-download-entry .movie-hero-play, .movie-download-card button):focus-visible {
+    .movie-library :is(.movie-download-entry .movie-hero-play, .movie-download-tray button):focus-visible {
         outline: 4px solid #fff;
         outline-offset: 3px;
     }
@@ -1891,47 +1974,19 @@ body[data-effects="off"] .movie-release-results button { transition: none; trans
 .movie-season [data-episode-state="downloading"] .movie-episode-still img { visibility: hidden; }
 @keyframes movie-download-shimmer { to { background-position: -60% 0; } }
 @keyframes movie-download-spin { to { transform: rotate(1turn); } }
-.movie-downloads li.movie-download-card { display: block; }
-.movie-library .movie-download-card button {
-    display: flex;
-    align-items: center;
-    gap: .85rem;
-    width: min(100%, 24rem);
-    min-height: var(--movie-target);
-    padding: .65rem .85rem;
-    text-align: start;
-    white-space: normal;
-    color: #fff;
-    background: #26223c;
-    border: 1px solid #ffffff28;
-    border-radius: .8rem;
-}
-.movie-download-circle {
-    position: relative;
-    display: grid;
-    place-items: center;
-    flex: none;
-    width: 3.1rem;
-    aspect-ratio: 1;
-    font-weight: 650;
-    font-family: ui-rounded, "Segoe UI", system-ui, sans-serif;
-    font-variant-numeric: tabular-nums;
-}
-.movie-download-circle::before, .hub-movies .hub-download-ring {
+.hub-movies .hub-download-ring {
     border: 2px solid #b7a0ef65;
     border-top-color: #d8c6ff;
     border-radius: 50%;
     animation: movie-download-spin 1.3s linear infinite;
 }
-.movie-download-circle::before { content: ""; position: absolute; inset: 0; }
 .hub-movies .hub-download-ring { display: inline-block; width: 1rem; height: 1rem; vertical-align: middle; margin-inline-start: .4em; }
 .hub-movies .hub-download-ring[hidden] { display: none; }
 
 body[data-effects="off"] :is(.movie-download-confirm[open], .movie-library .movie-download-entry, .movie-download-entry .movie-title-intro,
     .movie-season [data-episode-state="downloading"] :is(.movie-episode-still, .movie-episode-download-icon), .hub-download-ring),
 body[data-effects="off"] .movie-hero-play[data-downloading]::before,
-body[data-effects="off"] .movie-season-pills button[data-downloading]::after,
-body[data-effects="off"] .movie-download-circle::before {
+body[data-effects="off"] .movie-season-pills button[data-downloading]::after {
     animation: none;
 }
 body[data-effects="off"] .movie-results-leaving { visibility: hidden; }
@@ -1943,5 +1998,5 @@ body[data-effects="off"] .movie-library :is(.movie-title-actions button.movie-he
     .movie-library :is(.movie-title-actions button.movie-hero-play, .movie-season-pills button)[data-downloading] { transition: none; }
     .movie-download-confirm[open], .movie-library .movie-download-entry, .movie-download-entry .movie-title-intro,
     .movie-season [data-episode-state="downloading"] :is(.movie-episode-still, .movie-episode-download-icon), .hub-download-ring,
-    .movie-hero-play[data-downloading]::before, .movie-season-pills button[data-downloading]::after, .movie-download-circle::before { animation: none; }
+    .movie-hero-play[data-downloading]::before, .movie-season-pills button[data-downloading]::after { animation: none; }
 }

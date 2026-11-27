@@ -28,7 +28,7 @@ async function audit(browserType, viewport, scenario, expected, historyKey) {
         const status = page.locator('#settings-update-status');
         await status.and(page.getByText(expected, {exact: true})).waitFor();
         assert.equal(await status.getAttribute('role'), 'status');
-        assert.equal(await page.locator('#installed-app-version').innerText(), `${version} · Build ${build} · Windows (x64)`);
+        assert.equal(await page.locator('#installed-app-version').innerText(), `${version} (build ${build}), Windows (x64)`);
         const release = page.locator('#settings-release-history');
         const install = page.locator('#settings-app-update');
         assert.equal(await install.count(), scenario === 'update' ? 1 : 0);
@@ -98,8 +98,8 @@ async function closeScenario(browser) {
 }
 
 runWithFixture(async () => {
-    await audit(chromium, {viewport: {width: 1280, height: 900}}, 'update-current', `${version} · Up to date`, 'Enter');
-    await audit(chromium, {viewport: {width: 820, height: 900}}, 'update-old', '0.0.1 · Installed version is newer', 'Space');
+    await audit(chromium, {viewport: {width: 1280, height: 900}}, 'update-current', `Up to date (${version})`, 'Enter');
+    await audit(chromium, {viewport: {width: 820, height: 900}}, 'update-old', 'Installed version is newer than 0.0.1', 'Space');
     await audit(chromium, devices['Pixel 7'], 'update', '9.9.9 available', 'Enter');
     await audit(webkit, devices['iPhone 13'], 'update-failed', 'Could not check for updates', 'Space');
     await audit(webkit, devices['Desktop Safari'], 'none', 'No release for this platform', 'Enter');

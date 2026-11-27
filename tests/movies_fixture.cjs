@@ -106,7 +106,7 @@ async function moviePage(page, {shell = false, nested = false} = {}) {
     await page.goto(app);
 }
 
-async function movieHomeFixture(page, {preview = false, matches = [], resumeItems} = {}) {
+async function movieHomeFixture(page, {preview = false, matches = [], resumeItems, downloads = false} = {}) {
     await moviePage(page, {shell: true});
     const library = await page.evaluate(async () => (await import("/movies.js")).moviePreviewLibrary());
     const favoriteWrites = [];
@@ -163,18 +163,21 @@ async function movieHomeFixture(page, {preview = false, matches = [], resumeItem
     library[0].OfficialRating = "PG-13";
     library[0].MediaStreams = [{Type: "Video", Height: 1080, Width: 1920}];
     library.slice(0, 18).forEach((item, i) => { item.UserData.PlayedPercentage = 10 + i; });
-    await page.evaluate(async ({preview, jellyfin, matches}) => {
+    await page.evaluate(async ({preview, jellyfin, matches, downloads}) => {
         const {openMovies} = await import("/movies.js");
         const host = document.querySelector(".movie-library");
         const viewer = {server: jellyfin, profile: "fixture"};
         window.movieCalls = [];
+        if (downloads) window.queue = [];
         const bridge = {invokeMethodAsync: async (method, ...args) => {
             window.movieCalls.push([method, ...args]);
+            if (method === "MovieDownloads") return JSON.stringify({available: true, items: window.queue});
             return JSON.stringify(method === "MovieMatches" ? {matches} : {results: []});
         }};
         window.movies = preview ? openMovies(host, null, bridge, viewer) :
-            window.openMovieFixture(openMovies, host, {url: jellyfin, user: "u", token: "t", release_search_enabled: matches.length > 0}, bridge, viewer);
-    }, {preview, jellyfin, matches});
+            window.openMovieFixture(openMovies, host, {url: jellyfin, user: "u", token: "t",
+                downloads_enabled: downloads, release_search_enabled: matches.length > 0}, bridge, viewer);
+    }, {preview, jellyfin, matches, downloads});
     await page.locator(".app-header .movie-search input:enabled").waitFor();
     return {library, favoriteWrites};
 }

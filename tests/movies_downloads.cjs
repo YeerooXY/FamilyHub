@@ -30,8 +30,10 @@ async function verify(browser, profile, options) {
                     return JSON.stringify({results: []});
                 }});
         }, jellyfin);
-        const panel = page.getByRole("region", {name: "Downloading"});
-        await panel.getByText("Downloading, about 3 min left").waitFor();
+        const tray = page.getByRole("button", {name: "Downloads, 1 active"});
+        await tray.press("Enter");
+        const panel = page.getByRole("dialog", {name: "Downloads"});
+        await panel.getByText("about 3 min left", {exact: true}).waitFor();
         assert.equal(await panel.getByText("The General").count(), 0);
         assert.equal(await panel.getByText(/Paused release|Failed release/).count(), 0);
         assert.equal(await panel.getByRole("progressbar").first().getAttribute("aria-valuenow"), "64");
@@ -39,20 +41,21 @@ async function verify(browser, profile, options) {
         assert.doesNotMatch(await panel.innerText(), /seeder|bytes|9143/);
         assert.equal(await page.evaluate(() => {
             const box = selector => document.querySelector(selector).getBoundingClientRect();
-            const panel = box(".movie-downloads"), catalogue = box(".movie-catalogue");
-            const shelf = document.querySelector(".movie-shelf");
-            const panelElement = document.querySelector(".movie-downloads");
-            return panel.left === catalogue.left && panel.right === catalogue.right &&
-                Boolean(panelElement.compareDocumentPosition(shelf) & Node.DOCUMENT_POSITION_FOLLOWING);
+            const panel = box(".movie-downloads"), toggle = box(".movie-download-toggle");
+            return panel.right === toggle.right && panel.bottom < toggle.top &&
+                getComputedStyle(document.querySelector(".movie-download-tray")).position === "fixed";
         }), true);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
         await page.screenshot({path: path.join(process.argv[2] || homeOutput, profile + "-downloads.png")});
 
+        const row = panel.getByRole("button", {name: "Trinity restored edition"});
+        await row.focus();
         await page.evaluate(() => {
             window.queueResponse.items[0] = {...window.queueResponse.items[0], progress: .97, state: "Almost done", eta: 18};
         });
         await page.clock.fastForward(5000);
-        await panel.getByText("Almost done, about 1 min left").waitFor();
+        await panel.getByText("about 1 min left", {exact: true}).waitFor();
+        assert.equal(await row.evaluate(node => node === document.activeElement), true);
         assert.equal(await page.evaluate(() => queueReads), 2);
 
         const setLibraryHidden = hidden => page.locator(".movie-catalogue").evaluate((node, hidden) => {
@@ -73,7 +76,7 @@ async function verify(browser, profile, options) {
         assert.equal(await page.evaluate(() => queueReads), 3);
         await page.evaluate(() => { window.queueResponse.items = []; });
         await setHidden(false);
-        await panel.waitFor({state: "hidden"});
+        await tray.waitFor({state: "hidden"});
         await page.clock.fastForward(15000);
         assert.equal(await page.evaluate(() => queueReads), 4);
 

@@ -131,9 +131,11 @@ async function verify(browser, profile, options) {
         const sent = card.getByText("Sent to the server");
         await sent.waitFor();
         await page.clock.fastForward(3200);
-        const panel = page.getByRole("region", {name: "Downloading"});
-        await panel.getByRole("listitem").getByText("Downloading", {exact: true}).waitFor();
-        assert.equal(await panel.getByRole("progressbar", {name: title}).getAttribute("aria-valuenow"), "45");
+        // 1.6.4: active downloads show in the floating tray instead of an inline list.
+        const tray = page.locator(".movie-download-toggle");
+        await tray.waitFor();
+        assert.equal(await tray.getAttribute("aria-label"), "Downloads, 1 active");
+        assert.equal(await tray.evaluate(node => node.style.getPropertyValue("--download-percent")), "45");
         assert.equal(await focused(sent), true);
         assert.deepEqual(await page.evaluate(() => calls.filter(([method]) => method === "MovieYouTubeDownload")),
             [1, 2].map(() => ["MovieYouTubeDownload", url(videos[0][0]), title]));

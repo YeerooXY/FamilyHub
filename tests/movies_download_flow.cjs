@@ -212,7 +212,8 @@ async function verify(browser, profile, options) {
 
         await film.getByRole("button", {name: "Back to titles"}).click();
         await page.getByRole("searchbox").press("Escape");
-        const downloading = page.getByRole("region", {name: "Downloading"}).getByRole("button", {name: /Harbor Night/});
+        await page.getByRole("button", {name: "Downloads, 1 active"}).press("Enter");
+        const downloading = page.getByRole("dialog", {name: "Downloads"}).getByRole("button", {name: movie, exact: true});
         await downloading.waitFor();
         assert.equal(await fits(), true);
         await Promise.all([holdImage(2), downloading.press("Enter")]);

@@ -319,7 +319,7 @@ else
                 <section class="settings-panel glass-panel" aria-labelledby="connection-settings-heading">
                     <h2 id="connection-settings-heading">Server and updates</h2>
                     <div class="setting-row"><span>Server <span class="settings-connection-state">@(Session.Connected ? "Connected" : "Offline")</span></span><button @onclick='() => Navigate("Settings")'>Change server</button></div>
-                    <div class="setting-row"><span>Installed version</span><span id="installed-app-version">@AppUpdater.CurrentVersion · Build @AppUpdater.CurrentBuild · @AppUpdater.PlatformDisplay</span></div>
+                    <div class="setting-row"><span>Installed version</span><span id="installed-app-version">@($"{AppUpdater.CurrentVersion} (build {AppUpdater.CurrentBuild}), {AppUpdater.PlatformDisplay}")</span></div>
                     <div class="setting-row"><span>Latest release</span><span id="settings-update-status" role="status">@UpdateStatus</span></div>
                     <div class="setting-row"><button id="settings-release-history" type="button" @onclick="OpenReleaseHistory">Release history</button></div>
                     <AppUpdate Id="settings-app-update" @key="Session.Server" InitialRelease="@(updateCheckOrigin == Session.Server ? startupUpdate : null)" VersionInHeading="true" />
@@ -1115,8 +1115,8 @@ else
         : serverRelease is { } release ? AppUpdater.CompareToInstalled(release) switch
         {
             > 0 => $"{release.Version} available",
-            < 0 => $"{release.Version} · Installed version is newer",
-            _ => $"{release.Version} · Up to date"
+            < 0 => $"Installed version is newer than {release.Version}",
+            _ => $"Up to date ({release.Version})"
         }
         : "No release for this platform";
 
@@ -1160,7 +1160,7 @@ else
         catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException or System.IO.InvalidDataException or System.Text.Json.JsonException)
         {
             if (!updateChecksStopped && Session.Server == origin)
-                updateStatusError = serverRelease is { } last ? $"Could not refresh · Last seen {last.Version}" : "Could not check for updates";
+                updateStatusError = serverRelease is { } last ? $"Could not refresh. Last seen: {last.Version}" : "Could not check for updates";
         }
         finally
         {
