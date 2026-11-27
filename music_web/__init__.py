@@ -3195,7 +3195,13 @@ def create_app(test_config=None):
             if opus_warmer:
                 opus_warmer.now_playing(source_id, quality)
             return original_track, original
+        # The next song in a listener's queue (lead > 0) never fails on a busy or failing encoder either: the
+        # original plays instead (a phone gave up on its next song with the screen off, 27 Nov 2026).
+        # Offline downloads (no lead) still wait for the smaller copy.
+        fallback = urgent or lead > 0
         if needs_encode and not phone_encodes.acquire(blocking=False):
+            if fallback:
+                return original_track, original
             raise ApiError("Mobile audio preparation is busy. Try again.", 503)
         previous_background = getattr(app.intake.CONTROL, 'background', False)
         previous_priority = getattr(app.intake.CONTROL, 'priority', None)
@@ -3223,7 +3229,7 @@ def create_app(test_config=None):
                 measured = profile(app.intake, item["item"], {"audio": {
                     "sha256": track["download_sha256"], "duration": track["duration"], "file": path}}, measure=True)
             except (OSError, ValueError, app.intake.IntakeError):
-                if urgent:
+                if fallback:
                     return original_track, original
                 raise ApiError("Could not measure mobile audio. Try again.", 503)
             track.update(lufs=measured["lufs"], true_peak=measured["true_peak"],
@@ -3231,7 +3237,7 @@ def create_app(test_config=None):
                          playback_gain_db=min(12, -16 - measured["lufs"], -1.5 - measured["true_peak"]))
             return track, path
         except (OSError, ValueError, app.intake.IntakeError):
-            if urgent:
+            if fallback:
                 return original_track, original
             raise ApiError("Could not prepare mobile audio. Try again.", 503)
         finally:

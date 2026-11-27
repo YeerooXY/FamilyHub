@@ -60,10 +60,11 @@ class CachedMobileAudio(Base):
             try:
                 warmups_ready.wait(timeout=5)
                 foreground = clients[2]
-                busy = self.go(foreground, "GET", path + "?lead=20")
+                # Saving for offline use waits for the smaller copy; a queued next song plays the original.
+                busy = self.go(foreground, "GET", path, headers={"X-FamilyHub-Activity": "background"})
                 self.assertEqual(busy.status_code, 503)
                 self.assertIn("preparation is busy", busy.json["error"])
-                for params in ("?stream=1", "?lead=0"):
+                for params in ("?stream=1", "?lead=0", "?lead=20"):
                     info = self.go(foreground, "GET", path + params)
                     self.assertEqual(info.status_code, 200, info.data)
                     track = info.json
@@ -73,7 +74,10 @@ class CachedMobileAudio(Base):
                 self.assertEqual(prepare.call_count, 2)
             finally:
                 release.set()
-            self.assertEqual([warmup.result().status_code for warmup in warmups], [503, 503])
+            # Upcoming songs whose encode fails fall back to the original rather than failing.
+            self.assertEqual([warmup.result().status_code for warmup in warmups], [200, 200])
+            self.assertTrue(all(warmup.result().json["playback_source_sha256"] == hashlib.sha256(original).hexdigest()
+                                for warmup in warmups))
 
     def test_cached_copy_does_not_wait_for_unrelated_encoder(self):
         digest = "a" * 64
@@ -156,8 +160,13 @@ class MobileAudio(Base):
     def test_encode_failure_publishes_no_copy(self):
         self.recording()
         client, _ = self.signed_in()
-        with mock.patch.object(mobile_audio, "prepare", side_effect=ValueError("encode failed")):
-            self.assertEqual(self.go(client, "GET", f"/api/library/{native.FIRST}/playback-info?lead=20").status_code, 503)
+        with mock.patch.object(mobile_audio, "prepare", side_effect=ValueError("encode failed")) as prepare:
+            path = f"/api/library/{native.FIRST}/playback-info"
+            self.assertEqual(self.go(client, "GET", path, headers={"X-FamilyHub-Activity": "background"}).status_code, 503)
+            upcoming = self.go(client, "GET", path + "?lead=20")
+            self.assertEqual(upcoming.status_code, 200)
+            self.assertEqual(upcoming.json["download_url"], f"/api/library/{native.FIRST}/download")
+            self.assertEqual(prepare.call_count, 2)
 
     def test_smaller_original_is_delivered_without_increasing_mobile_data(self):
         self.recording()
