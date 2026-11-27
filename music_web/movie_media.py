@@ -120,6 +120,10 @@ def mark_dismissed_items(result, hidden, resource, params):
 
 
 def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_key=None, subtitle_imported=None):
+    from .audio_tracks import opened, target_path
+    from .movie_subtitles import LANGUAGES
+    from .subtitle_sync import timing_snapshot
+
     grants = {}
     lock = Lock()
     base_path = urllib.parse.urlsplit(base).path
@@ -144,9 +148,14 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
         if grant and grant.expires > time.monotonic() and session_is_live(grant.sid, grant.profile):
             return grant
 
-    def audio_library(ticket, *, server_refresh=False):
+    def audio_library(ticket, *, server_refresh=False, current_grant=False):
+        owner = g.user, session.get('sid')
+        if current_grant:
+            with lock:
+                ticket = max((key for key, grant in grants.items() if (grant.profile, grant.sid) == owner),
+                             key=lambda key: grants[key].expires, default=None)
         grant = live_grant(ticket)
-        if not grant or (grant.profile, grant.sid) != (g.user, session.get('sid')):
+        if not grant or (grant.profile, grant.sid) != owner:
             abort(404)
 
         def call(resource, params=None, refresh=False):
@@ -239,18 +248,36 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
                 movie_dismissals(grant.profile, 'resume', hide_resume[1], payload['positionTicks'])
             if payload is None:
                 mark_dismissed_items(result, movie_dismissals(grant.profile), resource, params)
-            if subtitle_imported and re.fullmatch(rf'Items/{ITEM}(?:/PlaybackInfo)?', resource) and isinstance(result, dict):
+            if re.fullmatch(rf'Items/{ITEM}(?:/PlaybackInfo)?', resource) and isinstance(result, dict):
                 for source in result.get('MediaSources') or []:
-                    if not isinstance(source, dict) or not subtitle_imported(source.get('Path')):
+                    if not isinstance(source, dict) or not isinstance(source.get('Path'), str):
                         continue
-                    source['FamilyHubSubtitleImport'] = True
-                    video = source['Path'].rsplit('/', 1)[-1].rsplit('.', 1)[0]
-                    sidecars = {video + '.en.srt', video + '.hu.srt'}
+                    managed = bool(subtitle_imported and subtitle_imported(source['Path']))
+                    if managed:
+                        source['FamilyHubSubtitleImport'] = True
+                    parent, _, filename = source['Path'].rpartition('/')
+                    stem = filename.rsplit('.', 1)[0]
+                    timing = {f'{stem}.{code}.srt': {'method': 'unknown', 'state': 'idle'} for code in LANGUAGES} if managed else {}
+                    try:
+                        video = target_path(source)
+                        with opened(video.parent, directory=True) as folder:
+                            timing = timing_snapshot(video, folder, include_unrecorded=managed)
+                    except (OSError, ValueError, AttributeError):
+                        pass
                     for track in source.get('MediaStreams') or []:
-                        path = track.get('Path') if isinstance(track, dict) else None
-                        if (isinstance(path, str) and track.get('IsExternal') and track.get('Type') == 'Subtitle'
-                                and path.rsplit('/', 1)[-1] in sidecars):
+                        if not isinstance(track, dict) or track.get('Type') != 'Subtitle':
+                            continue
+                        path = track.get('Path')
+                        if isinstance(path, str) and track.get('IsExternal'):
+                            track_parent, _, name = path.rpartition('/')
+                            if track_parent != parent or name not in timing:
+                                continue
                             track['FamilyHubSubtitleSidecar'] = True
+                            track['FamilyHubSubtitleTiming'] = timing[name]
+                        elif managed and not track.get('IsExternal') and track.get('IsTextSubtitleStream'):
+                            language = track.get('Language')
+                            if isinstance(language, str) and any(language.lower() in codes for codes in LANGUAGES.values()):
+                                track['FamilyHubSubtitleTiming'] = {'method': 'release', 'state': 'idle'}
             return jsonify(result=library_json(result, base_path))
         except (OSError, ValueError, RecursionError):
             abort(502)

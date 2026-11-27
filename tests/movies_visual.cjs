@@ -349,6 +349,28 @@ async function render(browser, label, options) {
     await page.keyboard.press("ArrowUp");
     assert.equal(await continueCards.locator(".movie-continue-menu-button:focus").evaluate(button =>
         button.previousElementSibling.dataset.itemId), selectedId);
+    if (!options.hasTouch) {
+        // The options button shows only on hover, and hovering it keeps the tile (card and button) raised.
+        const tile = continueCards.locator(".movie-resume-card").first();
+        const tileButton = tile.locator(".movie-continue-menu-button");
+        await page.mouse.move(0, 0);
+        await hero.focus();
+        assert.equal(await tileButton.evaluate(node => getComputedStyle(node).opacity), "0");
+        await tile.locator(".movie-card").hover();
+        assert.equal(await tileButton.evaluate(node => getComputedStyle(node).opacity), "1");
+        await tileButton.hover();
+        const raised = await tile.evaluate(node => getComputedStyle(node).transform);
+        if (options.reducedMotion === "reduce") assert.equal(raised, "none");
+        else assert.notEqual(raised, "none");
+        await capture("continue-hover");
+        await page.mouse.move(0, 0);
+        await continueCards.locator(`.movie-card[data-item-id="${selectedId}"]`).focus();
+        await page.keyboard.press("ArrowUp");
+    } else {
+        const circle = await continueCards.locator(".movie-continue-menu-button").first().evaluate(node => getComputedStyle(node).backgroundImage);
+        assert.match(circle, /radial-gradient/);
+        await capture("continue-touch");
+    }
     if (options.hasTouch) {
         await continueCards.locator(".movie-continue-menu-button:focus").tap();
         await continueCards.getByRole("menuitem", {name: "More info"}).waitFor();

@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 
-from music_web import audio_tracks, movie_subtitles as subtitles
+from music_web import audio_tracks, movie_subtitle_import, movie_subtitles as subtitles, subtitle_sync
 from test_music_web import Base
 
 
@@ -20,6 +20,7 @@ ITEM = 'a' * 32
 SERIES = 'b' * 32
 LINK = 'https://dl.opensubtitles.com/download/example/subfile/Film.en.srt'
 ROUTE = '/api/movies/subtitle'
+SYNC = ROUTE + '/sync'
 CUE = '1\n00:00:01,000 --> 00:00:02,000\nCafé\n'
 CONFIG = {'OPENSUBTITLES_' + name: 'fixture-' + str(index)
           for index, name in enumerate(('API_KEY', 'USERNAME', 'PASSWORD'))}
@@ -80,6 +81,28 @@ class OpenSubtitlesTests(unittest.TestCase):
         self.assertEqual(self.http.open.call_count, 5)
         with self.assertRaisesRegex(subtitles.SubtitleError, 'unreadable subtitle'):
             subtitles.subtitle_bytes(b'<html>Invalid data</html>', 'en')
+
+    def test_moviehash_and_exact_match_rank(self):
+        data = bytes(range(256)) * 600 + b'end'
+        chunk = 1 << 16
+        expected = len(data)
+        for piece in (data[:chunk], data[-chunk:]):
+            for index in range(0, chunk, 8):
+                expected += int.from_bytes(piece[index:index + 8], 'little')
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / 'Film.mkv'
+            path.write_bytes(data)
+            with path.open('rb') as file:
+                hashed = subtitles.moviehash(file)
+            self.assertEqual(hashed, f'{expected % (1 << 64):016x}')
+            path.write_bytes(data[:chunk - 1])
+            with path.open('rb') as file:
+                self.assertIsNone(subtitles.moviehash(file))
+        self.assertEqual(subtitles.search_parameters({'ProviderIds': {'Tmdb': '123'}}, None, 'en', hashed),
+                         {'languages': 'en', 'type': 'movie', 'tmdb_id': 123, 'moviehash': hashed})
+        matched = result(2, hearing_impaired=True)
+        matched['attributes']['moviehash_match'] = True
+        self.assertEqual(subtitles.best_file([result(1, 'Film', downloads=900), matched], 'Film', 'en'), 2)
 
     def test_expired_token_is_replaced_and_vip_api_host_is_used(self):
         vip = json.load(login())
@@ -206,12 +229,21 @@ class SubtitleGatewayTests(SubtitleGateway):
         self.assertEqual(self.post(other, csrf, ROUTE, json={'item': ITEM, 'ticket': self.ticket}).status_code, 403)
         self.http.open.assert_not_called()
 
+    def test_sync_requires_csrf_and_bound_grants(self):
+        payload = {'item': ITEM, 'language': 'en', 'ticket': self.ticket}
+        self.assertEqual(self.go(self.client, 'POST', SYNC, json=payload).status_code, 400)
+        self.assertEqual(self.post(self.client, self.csrf, SYNC, json={**payload, 'language': '../en'}).status_code, 400)
+        other, csrf = self.select('sample-a')
+        self.assertEqual(self.post(other, csrf, SYNC, json=payload).status_code, 404)
+        self.assertEqual(self.go(other, 'GET', SYNC + '?item=' + ITEM).status_code, 404)
+
 
 @unittest.skipUnless(hasattr(os, 'O_PATH') and hasattr(os, 'O_NOFOLLOW'), 'Linux media paths')
 class SubtitleSidecarTests(SubtitleGateway):
     extra = {**SubtitleGateway.extra, **CONFIG, 'JELLYFIN_API_KEY': 'jellyfin-refresh'}
 
     def fixture_download(self):
+        self.enterContext(patch.object(subtitle_sync, 'start_job', return_value=True))
         self.http.open.side_effect = [login(), response({'data': [result(1)]}), response({'link': LINK}),
                                       io.BytesIO(CUE.encode('cp1252'))]
 
@@ -223,7 +255,8 @@ class SubtitleSidecarTests(SubtitleGateway):
 
         def publish(source, name, **options):
             self.assertFalse((self.root / name).exists())
-            self.assertEqual(Path(source).read_bytes(), CUE.encode())
+            if name.endswith('.srt'):
+                self.assertEqual(Path(source).read_bytes(), CUE.encode())
             return original_link(source, name, **options)
 
         with patch.object(subtitles.os, 'link', side_effect=publish):
@@ -240,7 +273,55 @@ class SubtitleSidecarTests(SubtitleGateway):
         self.assertEqual(refresh.get_header('Authorization'), 'MediaBrowser Token="jellyfin-refresh"')
         self.assertTrue(self.fetch().json['existing'])
         self.assertEqual(self.http.open.call_count, 4)
-        self.assertEqual(set(self.root.iterdir()), {video, output})
+        timing = self.root / subtitle_sync.METADATA
+        self.assertEqual(json.loads(timing.read_bytes())[output.name]['method'], 'pending')
+        self.assertEqual(set(self.root.iterdir()), {video, output, timing})
+
+    def test_sync_busy_then_replaces_sidecar_and_reports_timing(self):
+        video = self.root / 'Film.mkv'
+        video.touch()
+        output = video.with_suffix('.en.srt')
+        output.write_bytes(CUE.encode())
+        payload = {'item': ITEM, 'language': 'en'}
+        with subtitle_sync.SYNC_SLOT:
+            busy = self.post(self.client, self.csrf, SYNC, json=payload)
+        self.assertEqual(busy.status_code, 409)
+        self.assertEqual(busy.json, {'error': subtitle_sync.BUSY})
+        self.assertEqual(output.read_bytes(), CUE.encode())
+        aligned = CUE.replace('00:00:01,000', '00:00:00,500').encode()
+        with patch.object(movie_subtitle_import, 'time_subtitle', return_value=(aligned, 'audio')), \
+                patch.object(subtitle_sync, 'Thread') as thread, output.open('rb') as before:
+            self.assertEqual(self.post(self.client, self.csrf, SYNC, json=payload).status_code, 202)
+            poll = SYNC + '?item=' + ITEM
+            self.assertEqual(self.go(self.client, 'GET', poll).json, {'en': {'method': 'unknown', 'state': 'running'}})
+            self.assertEqual(self.post(self.client, self.csrf, SYNC, json=payload).status_code, 409)
+            thread.call_args.kwargs['target']()
+            self.assertEqual(before.read(), CUE.encode())
+        self.assertEqual(output.read_bytes(), aligned)
+        self.assertEqual(self.go(self.client, 'GET', poll).json, {'en': {'method': 'audio', 'state': 'idle'}})
+        self.http.open.assert_not_called()
+
+    def test_library_reports_on_demand_sidecar_timing_without_paths(self):
+        video = self.root / 'Film.mkv'
+        video.touch()
+        output = video.with_suffix('.en.srt')
+        output.write_bytes(CUE.encode())
+        with audio_tracks.opened(self.root, directory=True) as folder:
+            subtitle_sync.record_timing(video, folder, video.stat(), output.name, 'audio')
+        external = {'Type': 'Subtitle', 'IsExternal': True, 'Language': 'eng'}
+        self.item['MediaSources'] = [{'Id': ITEM, 'Path': self.item['Path'], 'MediaStreams': [
+            {**external, 'Path': '/data/movies/Film.en.srt'},
+            {**external, 'Path': '/config/Film.en.srt'},
+        ]}]
+        reply = self.post(self.client, self.csrf, '/api/movies/library', json={
+            'ticket': self.ticket, 'path': f'Items/{ITEM}', 'query': '',
+        })
+        self.assertEqual(reply.status_code, 200)
+        local, unrelated = reply.json['result']['MediaSources'][0]['MediaStreams']
+        self.assertIs(local['FamilyHubSubtitleSidecar'], True)
+        self.assertEqual(local['FamilyHubSubtitleTiming'], {'method': 'audio', 'state': 'idle'})
+        self.assertNotIn('FamilyHubSubtitleTiming', unrelated)
+        self.assertNotIn('Path', local)
 
     def test_rejects_traversal_and_links_before_provider_calls(self):
         outside = self.root / 'Elsewhere.mkv'

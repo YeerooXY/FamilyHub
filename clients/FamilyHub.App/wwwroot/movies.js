@@ -800,7 +800,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 return;
             }
             const back = button("Back to movies", () => closePlayback());
-            const subtitleUrl = track => mediaUrl(`Videos/${item.Id}/${source.Id}/Subtitles/${track.Index}/Stream.vtt`);
+            const subtitleUrl = (track, revision) => mediaUrl(`Videos/${item.Id}/${source.Id}/Subtitles/${track.Index}/Stream.vtt`,
+                revision ? {timingRevision: revision} : undefined);
             const subtitleCounts = new Map();
             function readLineCount(track) {
                 if (Number.isFinite(track.LineCount) && track.LineCount >= 0) return track.LineCount;
@@ -863,12 +864,19 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             media.referrerPolicy = "no-referrer";
             media.setAttribute("aria-label", item.Name);
             const textTracks = new Map();
-            function addSubtitleTrack(s) {
+            function addSubtitleTrack(s, revision) {
                 const track = el("track"); track.kind = "subtitles"; track.label = s.DisplayTitle || s.Language || "Subtitles";
                 track.srclang = s.Language || "und";
-                track.src = subtitleUrl(s);
+                track.src = subtitleUrl(s, revision);
                 media.append(track);
                 textTracks.set(s.Index, track.track);
+            }
+            function removeSubtitleTrack(index) {
+                const track = textTracks.get(index);
+                if (!track) return;
+                track.mode = "disabled";
+                [...media.querySelectorAll("track")].find(node => node.track === track)?.remove();
+                textTracks.delete(index);
             }
             function populateSubtitles() {
                 subtitlePick.replaceChildren(new Option("Off", -1));
@@ -1004,6 +1012,95 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const subtitleItem = /^[a-f\d]{32}$|^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(source.Id) ? source.Id : item.Id;
             const subtitlePath = `Items/${encodeURIComponent(subtitleItem)}`;
             const remote = subtitlePath + "/RemoteSearch/Subtitles/";
+            const timingJobs = new Map();
+            let timingPanelOpen = false, timingTimer, timingRequest, timingErrors = 0;
+            const timingTrack = code => subtitles.find(track => trackLanguage(track) === code);
+            function watchTiming(track, newDownload = false) {
+                if (track.FamilyHubSubtitleSidecar && (newDownload || track.FamilyHubSubtitleTiming?.state === "running")) {
+                    const code = trackLanguage(track);
+                    if (!timingJobs.has(code)) timingJobs.set(code, "running");
+                }
+            }
+            subtitles.forEach(track => watchTiming(track));
+            const syncFailure = code => `Could not resync the ${labels[code]} subtitles. Try again later.`;
+            function scheduleTimingPoll() {
+                if (!timingPanelOpen || playerSignal.aborted || timingTimer || timingRequest ||
+                    ![...timingJobs.values()].includes("running")) return;
+                timingTimer = setTimeout(pollTiming, 5000);
+            }
+            async function pollTiming() {
+                timingTimer = undefined;
+                const watching = [...timingJobs].filter(([, state]) => state === "running").map(([code]) => code);
+                const pending = {};
+                timingRequest = pending;
+                let reply;
+                try {
+                    reply = JSON.parse(await app.invokeMethodAsync("MovieSubtitleTiming", subtitleItem));
+                    if (timingRequest !== pending) return;
+                    if (!reply || reply.error) throw Error("Subtitle timing unavailable");
+                    timingErrors = 0;
+                } catch {
+                    if (timingRequest !== pending) return;
+                    if (++timingErrors < 3) {
+                        timingRequest = undefined;
+                        scheduleTimingPoll();
+                        return;
+                    }
+                    reply = {};
+                }
+                if (timingRequest !== pending || playerSignal.aborted) return;
+                timingRequest = undefined;
+                const notices = [];
+                for (const code of watching) {
+                    const timing = reply[code];
+                    if (timing?.state === "running") continue;
+                    timingJobs.delete(code);
+                    const track = timingTrack(code);
+                    if (track) track.FamilyHubSubtitleTiming = timing ?? {method: track.FamilyHubSubtitleTiming?.method, state: "failed"};
+                    if (timing?.state === "idle" && track?.FamilyHubSubtitleSidecar) {
+                        removeSubtitleTrack(track.Index);
+                        addSubtitleTrack(track, Date.now());
+                        playback.setSubtitles(playback.subtitleOverride);
+                        notices.push(`${labels[code]} subtitles resynced`);
+                    } else notices.push(syncFailure(code));
+                }
+                if (notices.length) ui.subtitleStatus(notices.join(" "), searchingSubtitles || undefined);
+                ui.syncSubtitles();
+                scheduleTimingPoll();
+            }
+            const subtitleSync = {
+                timing(code) {
+                    const track = timingTrack(code);
+                    return track && {sidecar: track.FamilyHubSubtitleSidecar,
+                        method: track.FamilyHubSubtitleTiming?.method,
+                        running: timingJobs.has(code)};
+                },
+                panel(open) {
+                    timingPanelOpen = open;
+                    if (open) scheduleTimingPoll();
+                    else {
+                        clearTimeout(timingTimer);
+                        timingTimer = timingRequest = undefined;
+                        timingErrors = 0;
+                    }
+                },
+                async run(code) {
+                    if (timingJobs.has(code) || playerSignal.aborted) return;
+                    timingJobs.set(code, "starting");
+                    ui.subtitleStatus("", searchingSubtitles || undefined);
+                    try {
+                        const reply = JSON.parse(await app.invokeMethodAsync("MovieSyncSubtitle", subtitleItem, code));
+                        if (playerSignal.aborted) return;
+                        if (reply?.state !== "running") throw Error("Subtitle sync unavailable");
+                        timingJobs.set(code, "running");
+                        scheduleTimingPoll();
+                    } catch {
+                        timingJobs.delete(code);
+                        if (!playerSignal.aborted) ui.subtitleStatus(syncFailure(code), searchingSubtitles || undefined);
+                    }
+                }
+            };
+            playerSignal.addEventListener("abort", () => subtitleSync.panel(false), {once: true});
             const subtitleSearch = {
                 message(error) {
                     return error instanceof SubtitleSearchError ? error.message : "Could not search for subtitles. Try again.";
@@ -1066,13 +1163,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         const prior = subtitles.find(stream => stream.Index === Number(subtitlePick.value));
                         for (const stream of subtitles) {
                             if (ranked.some(candidate => candidate.Index === stream.Index && candidate.Path === stream.Path)) continue;
-                            const textTrack = textTracks.get(stream.Index);
-                            if (!textTrack) continue;
-                            textTrack.mode = "disabled";
-                            [...media.querySelectorAll("track")].find(node => node.track === textTrack)?.remove();
-                            textTracks.delete(stream.Index);
+                            removeSubtitleTrack(stream.Index);
                         }
                         subtitles.splice(0, subtitles.length, ...ranked);
+                        ranked.forEach(stream => watchTiming(stream, saved?.existing === false && trackLanguage(stream) === code));
+                        scheduleTimingPoll();
                         populateSubtitles();
                         const addedIndex = preferredTrack(subtitles, code)?.Index ?? -1;
                         if (automatic && playback.subtitleOverride == null) {
@@ -1094,12 +1189,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     throw Error("Subtitle track unavailable");
                 }
             };
-            let searchingSubtitles = false;
+            let searchingSubtitles;
             subtitleSearch.run = async (language, automatic = false) => {
                 if (!languageCodes[language] || searchingSubtitles || playerSignal.aborted || preferredTrack(subtitles, language)) return;
                 const subtitleCode = language === "hu" ? "hun" : "eng";
                 const name = labels[language];
-                searchingSubtitles = true;
+                searchingSubtitles = language;
                 ui.subtitleStatus(`Searching for ${name} subtitles`, language);
                 let best;
                 try {
@@ -1116,7 +1211,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         ? "Could not add subtitles. Try again or ask an admin to check subtitle permissions and storage."
                         : subtitleSearch.message(error));
                 } finally {
-                    searchingSubtitles = false;
+                    searchingSubtitles = undefined;
                 }
             };
             function autoSubtitles() {
@@ -1144,7 +1239,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         forceTranscode: options.forceTranscode, sourceId: forceTranscode ? source.Id : undefined
                     });
             };
-            ui = buildPlayerUi({ media, surface: player, back, signal: playerSignal, subtitleSearch, itemId: item.Id,
+            ui = buildPlayerUi({ media, surface: player, back, signal: playerSignal, subtitleSearch, subtitleSync, itemId: item.Id,
                 fullscreenEnabled: nativeFullscreen || document.fullscreenEnabled || document.webkitFullscreenEnabled, isFullscreen, setFullscreen, appFullscreen,
                 title: numbered ? `S${item.ParentIndexNumber}:E${item.IndexNumber} “${item.Name}”` : item.Name,
                 kicker: item.SeriesName, audioPick, subtitlePick, audioSync, notice, burnedSubtitle, originalLanguage,

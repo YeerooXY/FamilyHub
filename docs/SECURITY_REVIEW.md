@@ -76,6 +76,8 @@ Administrator checks also apply to catalogue edits, undo, bulk resolutions, repo
 
 `POST /api/movies/subtitle` requires a mapped Movies profile, a session-bound media grant, CSRF and a per-profile rate limit. It accepts `en` and `hu`. The server reads the video path from Jellyfin, publishes without replacing existing subtitles, and uses the server's Jellyfin key only for the item refresh when that key is configured.
 
+`GET /api/movies/subtitle/sync` uses a live Movies grant for the current profile and session to look up the item through Jellyfin. It returns timing methods and job states, with a per-profile polling limit. `POST /api/movies/subtitle/sync` uses the same media grant, bounded JSON, CSRF and rate-limit checks as subtitle downloads. Only canonical English and Hungarian sidecars in the movie and TV library roots can be synced. The worker serializes alignment, uses a network-disabled Docker container with a read-only video mount, checks the output, and atomically replaces the original after checking its file identity.
+
 `POST /api/movies/download` accepts two optional booleans, `hungarian_audio` and `hungarian_subtitles`. Administrator, download allowlist, CSRF and rate-limit checks still apply. The server associates the flags with the private, profile-bound release reference using its torrent hash or release name. The importer records subtitle fallback attempts. The library relay adds booleans for matching playback sources and canonical sidecars while continuing to strip paths. Torrent sidecar inputs use bounded reads from regular files opened without following links. The worker runs OCR from private staging in an unprivileged, network-disabled container and publishes sidecars without replacing existing files.
 
 Movie audio routes require an active FamilyHub session, administrator membership and a profile on the movie downloads allowlist. Mutations use bounded JSON and CSRF. Starting a job also checks the media grant against the issuing session. Server-side source IDs resolve within the completed downloads and imports roots. Jellyfin supplies the destination through the server-side movie session. The worker opens media through no-follow descriptors, restricts FFmpeg and FFprobe to local files and known formats, and runs one batch at a time. Job history stays in `STATE_DIR`. Source deletion checks both stored file identities and probes the published audio again.
@@ -232,6 +234,7 @@ GET /api/movies/title-details
 POST /api/movies/season-episodes
 POST /api/movies/session
 POST /api/movies/subtitle
+GET,POST /api/movies/subtitle/sync
 POST /api/movies/videa-download
 POST /api/movies/videa-search
 POST /api/movies/youtube-download

@@ -1,5 +1,6 @@
 """Select and publish one English or Hungarian subtitle for a completed release."""
 from bisect import bisect_left
+from functools import lru_cache
 import json
 import logging
 import os
@@ -12,8 +13,9 @@ from uuid import uuid4
 
 from .audio_tracks import FORMATS, media_command, opened
 from .movie_subtitles import (LANGUAGES, MAX_FILE, TIMESTAMP, SubtitleError, sidecar_exists, subtitle_bytes,
-                              subtitle_text, write_sidecar)
+                              subtitle_text, read_sidecar, write_sidecar)
 from .resources import background_command
+from . import subtitle_sync
 
 
 log = logging.getLogger(__name__)
@@ -178,14 +180,32 @@ def ocr_english(paths, source):
 
 def embedded_text(ffprobe, video):
     if not ffprobe or video.suffix.lower() not in FORMATS:
-        return set()
+        return {}
     try:
         result = media_command(ffprobe, video, ['-select_streams', 's', '-show_entries',
-                               'stream=codec_name:stream_tags=language', '-of', 'json'], timeout=4, probe=True)
-        return {language(words(stream.get('tags', {}).get('language', ''))) for stream in json.loads(result)['streams']
-                if stream.get('codec_name') in {'subrip', 'ass', 'ssa', 'mov_text', 'webvtt', 'text'}}
+                               'stream=index,codec_name:stream_tags=language', '-of', 'json'], timeout=4, probe=True)
+        tracks = {}
+        for stream in json.loads(result)['streams']:
+            code = language(words((stream.get('tags') or {}).get('language', '')))
+            if (code and stream.get('codec_name') in {'subrip', 'ass', 'ssa', 'mov_text', 'webvtt', 'text'}
+                    and type(stream.get('index')) is int and stream['index'] >= 0):
+                tracks.setdefault(code, stream['index'])
+        return tracks
     except MEDIA_ERRORS:
-        return set()
+        return {}
+
+
+def extract_english(ffmpeg, video, index):
+    if not ffmpeg or index is None:
+        return None
+    try:
+        with TemporaryDirectory(prefix='movie-embedded-') as directory:
+            output = Path(directory) / 'reference.srt'
+            media_command(ffmpeg, video, ['-map', f'0:{index}', '-c:s', 'srt', '-fs', str(MAX_FILE), str(output)], timeout=30)
+            return subtitle_bytes(read_file(output, MAX_FILE), 'en')
+    except MEDIA_ERRORS + (SubtitleError,):
+        log.warning('Could not extract the embedded English subtitle.')
+        return None
 
 
 def sync_offset(data, report):
@@ -226,6 +246,45 @@ def shift_srt(data, offset):
     return CUE_TIME.sub(shift, data.decode('utf-8')).encode('utf-8')
 
 
+def silence_report(ffmpeg, video):
+    if ffmpeg and video.suffix.lower() in FORMATS:
+        try:
+            return media_command(ffmpeg, video, ['-nostats', '-map', '0:a:0', '-vn', '-sn', '-dn', '-t', '900',
+                                 '-af', 'silencedetect=noise=-35dB:d=0.6', '-f', 'null', '-'],
+                                 timeout=120, diagnostics=True)
+        except MEDIA_ERRORS:
+            pass
+    return b''
+
+
+def time_subtitle(video, folder, code, data, ffmpeg, ffprobe, *, embedded=None, report=None):
+    reference, method = None, 'audio'
+    if code == 'en':
+        tracks = embedded_text(ffprobe, video) if embedded is None else embedded
+        reference = extract_english(ffmpeg, video, tracks.get('en'))
+        if reference == data:
+            return data, 'release'
+        if reference:
+            method = 'embedded'
+    else:
+        name = f'{video.stem}.en.srt'
+        if not subtitle_sync.sync_running(video, name):
+            try:
+                english, _ = read_sidecar(folder, name)
+                english = subtitle_bytes(english, 'en')
+                if english != data:
+                    reference, method = english, 'english'
+            except (OSError, ValueError, SubtitleError):
+                pass
+    if aligned := subtitle_sync.align(video, data, reference):
+        return aligned, method
+    diagnostics = report() if report is not None else silence_report(ffmpeg, video)
+    if diagnostics and (offset := sync_offset(data, diagnostics)):
+        log.info('Shifted %s movie subtitles by %d ms.', code, offset)
+        return shift_srt(data, offset), 'offset'
+    return data, None
+
+
 def import_subtitles(video, source, paths, wanted, fallback, ffmpeg, ffprobe):
     with opened(video.parent, directory=True) as folder, opened(video) as video_fd:
         owner = os.fstat(video_fd)
@@ -239,32 +298,34 @@ def import_subtitles(video, source, paths, wanted, fallback, ffmpeg, ffprobe):
                 log.warning('Movie import could not use the %s subtitle destination.', code)
         wanted = names.keys()
         data = select_text(paths, source, wanted)
-        missing = [code for code in wanted if code not in data]
-        if missing:
-            embedded = embedded_text(ffprobe, video)
-            missing = [code for code in missing if code not in embedded]
-        if 'en' in missing and (ocr := ocr_english(paths, source)):
+        release = set(data)
+        embedded = embedded_text(ffprobe, video) if wanted else {}
+        missing = [code for code in wanted if code not in data and code not in embedded]
+        ocr = ocr_english(paths, source) if 'en' in missing else None
+        if ocr:
             data['en'] = ocr
             missing.remove('en')
         for code in missing:
             if fetched := fallback(code):
                 data[code] = fetched
-        report = b''
-        if data and ffmpeg and video.suffix.lower() in FORMATS:
+
+        @lru_cache(maxsize=1)
+        def report():
+            return silence_report(ffmpeg, video)
+
+        for code in LANGUAGES:
+            if code not in data:
+                continue
             try:
-                report = media_command(ffmpeg, video, ['-nostats', '-map', '0:a:0', '-vn', '-sn', '-dn', '-t', '900',
-                                       '-af', 'silencedetect=noise=-35dB:d=0.6', '-f', 'null', '-'],
-                                       timeout=120, diagnostics=True)
-            except MEDIA_ERRORS:
-                pass
-        for code, subtitle in data.items():
-            offset = sync_offset(subtitle, report) if report else 0
-            try:
-                write_sidecar(video, folder, owner, names[code], shift_srt(subtitle, offset) if offset else subtitle)
+                with subtitle_sync.SYNC_SLOT:
+                    if ocr is not None and code == 'en':
+                        subtitle, method = ocr, 'release'
+                    else:
+                        subtitle, method = time_subtitle(video, folder, code, data[code], ffmpeg, ffprobe,
+                                                         embedded=embedded, report=report)
+                    write_sidecar(video, folder, owner, names[code], subtitle)
+                    subtitle_sync.record_timing(video, folder, owner, names[code], method or ('release' if code in release else 'unknown'))
             except FileExistsError:
                 pass  # A concurrent writer published the sidecar first.
             except (OSError, SubtitleError):
                 log.warning('Movie import could not save the %s subtitle sidecar.', code)
-            else:
-                if offset:
-                    log.info('Movie import shifted %s subtitles by %d ms.', code, offset)

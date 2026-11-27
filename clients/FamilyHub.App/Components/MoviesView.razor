@@ -223,6 +223,14 @@
         SendMovieRequest("/api/movies/subtitle", new { item, language, ticket = mediaTicket });
 
     [JSInvokable]
+    public Task<string> MovieSyncSubtitle(string item, string language) =>
+        SendMovieRequest("/api/movies/subtitle/sync", new { item, language });
+
+    [JSInvokable]
+    public Task<string> MovieSubtitleTiming(string item) =>
+        SendMovieRequest("/api/movies/subtitle/sync?item=" + Uri.EscapeDataString(item));
+
+    [JSInvokable]
     public Task<string> MovieDeleteAudioSource(string job, string result) =>
         SendMovieRequest("/api/movies/audio-track/" + Uri.EscapeDataString(job) + "/delete-source", new { result });
 

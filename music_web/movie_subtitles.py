@@ -2,12 +2,15 @@
 import base64
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-import http.client
+from http.client import HTTPException
 import json
+import logging
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
+import struct
 from tempfile import TemporaryDirectory
 from threading import Lock
 from time import monotonic, time
@@ -15,7 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from flask import abort, g, jsonify
+from flask import abort, g, jsonify, request
 
 from .audio_tracks import fingerprint, opened, target_path
 from .catalog_search import NoRedirect
@@ -23,6 +26,7 @@ from .movie_media import ITEM
 
 
 API = 'https://api.opensubtitles.com/api/v1'
+log = logging.getLogger(__name__)
 USER_AGENT = 'FamilyHub v1.5.2'
 MAX_FILE = 2 << 20
 MAX_JSON = 4 << 20
@@ -33,7 +37,7 @@ SIGN_IN = 'The subtitle provider could not sign in. Ask an admin to check the Op
 RATE_LIMIT = 'Too many subtitle requests. Wait a moment and try again.'
 LIBRARY_UNAVAILABLE = 'The movie library is unavailable. Try again later.'
 TIMESTAMP = r'[0-9]{2}:[0-5][0-9]:[0-5][0-9],[0-9]{3}'
-SRT_START = re.compile(rf'[ \t]*[0-9]+[ \t]*\n[ \t]*{TIMESTAMP}[ \t]+-->[ \t]+{TIMESTAMP}[^\n]*\n[ \t]*\S')
+SRT_START = re.compile(rf'[ \t]*[0-9]+[ \t]*\n[ \t]*({TIMESTAMP})[ \t]+-->[ \t]+({TIMESTAMP})[^\n]*\n[ \t]*\S')
 
 
 class SubtitleError(Exception):
@@ -54,8 +58,25 @@ def provider_id(item):
     return {}
 
 
-def search_parameters(item, library, language):
+def moviehash(file):
+    chunk = 64 << 10
+    size = os.fstat(file.fileno()).st_size
+    if size < 2 * chunk:
+        return None
+    file.seek(0)
+    beginning = file.read(chunk)
+    file.seek(size - chunk)
+    ending = file.read(chunk)
+    if len(beginning) != chunk or len(ending) != chunk:
+        return None
+    total = size + sum(word for (word,) in struct.iter_unpack('<Q', beginning + ending))
+    return f'{total & 0xffffffffffffffff:016x}'
+
+
+def search_parameters(item, library, language, movie_hash=None):
     params = dict(languages=language, type='movie')
+    if movie_hash:
+        params['moviehash'] = movie_hash
     ids = provider_id(item)
     if item.get('Type') == 'Episode':
         season, episode = item.get('ParentIndexNumber'), item.get('IndexNumber')
@@ -66,11 +87,11 @@ def search_parameters(item, library, language):
         if not ids and isinstance(series, str) and re.fullmatch(ITEM, series, re.I):
             try:
                 parent = library(f'Items/{series}', {'fields': 'ProviderIds'})
-            except (OSError, http.client.HTTPException, ValueError, RecursionError):
+            except (OSError, HTTPException, ValueError, RecursionError):
                 raise SubtitleError(LIBRARY_UNAVAILABLE, 502) from None
             if isinstance(parent, dict) and parent.get('Type') == 'Series':
                 ids = {'parent_' + key: value for key, value in provider_id(parent).items()}
-    if not ids:
+    if not ids and not movie_hash:
         raise SubtitleError(NO_RESULTS, 404)
     return dict(params, **ids)
 
@@ -98,7 +119,8 @@ def best_file(results, stem, language):
             if not isinstance(name, str) or not name.lower().endswith('.srt'):
                 continue
             filename = release_name(re.sub(r'[._-]' + language + r'$', '', Path(name).stem, flags=re.I))
-            score = (release_matches or bool(target and filename == target), attrs.get('hearing_impaired') is False,
+            score = (attrs.get('moviehash_match') is True, release_matches or bool(target and filename == target),
+                     attrs.get('hearing_impaired') is False,
                      downloads if type(downloads) is int else 0, -file['file_id'])
             if best is None or score > best:
                 best = score
@@ -197,7 +219,7 @@ class OpenSubtitles:
             if not isinstance(reply, dict):
                 raise ValueError('Invalid response')
             return reply
-        except (OSError, http.client.HTTPException, ValueError, RecursionError):
+        except (OSError, HTTPException, ValueError, RecursionError):
             raise SubtitleError(UNREACHABLE, 502) from None
 
     def login(self):
@@ -283,8 +305,20 @@ def sidecar_exists(folder, name):
     return True
 
 
-def write_sidecar(video, folder, owner, name, data):
-    # Stage in the pinned directory and publish exclusively, even if another writer wins the race.
+def read_sidecar(folder, name, limit=MAX_FILE):
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=folder)
+    with open(fd, 'rb') as file:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= limit:
+            raise ValueError('Invalid subtitle file.')
+        data = file.read(limit + 1)
+        if len(data) > limit or fingerprint(os.fstat(fd)) != fingerprint(info):
+            raise ValueError('The subtitle changed while reading.')
+        return data, info
+
+
+def write_sidecar(video, folder, owner, name, data, *, expected=None):
+    # Stage in the pinned directory and publish exclusively unless replacing a known file.
     parent = Path(f'/proc/{os.getpid()}/fd/{folder}')
     with TemporaryDirectory(prefix='.subtitle-', dir=parent) as temporary:
         staging = Path(temporary) / name
@@ -299,11 +333,19 @@ def write_sidecar(video, folder, owner, name, data):
             os.fsync(fd)
             if fingerprint(os.stat(video.name, dir_fd=folder, follow_symlinks=False)) != fingerprint(owner):
                 raise SubtitleError('The video changed while fetching subtitles. Reopen the title and try again.', 409)
-            os.link(staging, name, dst_dir_fd=folder, follow_symlinks=False)
+            if expected is not None:
+                if fingerprint(os.stat(name, dir_fd=folder, follow_symlinks=False)) != fingerprint(expected):
+                    raise SubtitleError('The subtitle changed while syncing. Try again.', 409)
+                os.replace(staging, name, dst_dir_fd=folder)
+            else:
+                os.link(staging, name, dst_dir_fd=folder, follow_symlinks=False)
             os.fsync(folder)
+            return os.fstat(fd)
 
 
-def ensure_sidecar(item, library, provider, language):
+def ensure_sidecar(item, library, provider, language, start_sync):
+    from .subtitle_sync import record_timing
+
     try:
         video = target_path(item)
         name = f'{video.stem}.{language}.srt'
@@ -311,14 +353,21 @@ def ensure_sidecar(item, library, provider, language):
             owner = os.fstat(video_fd)
             if sidecar_exists(folder, name):
                 return True
-            params = search_parameters(item, library, language)
+            try:
+                with open(video_fd, 'rb', closefd=False) as file:
+                    hashed = moviehash(file)
+            except OSError:
+                hashed = None
+            params = search_parameters(item, library, language, hashed)
             data = provider.fetch(params, video.stem)
             try:
-                write_sidecar(video, folder, owner, name, data)
+                expected = write_sidecar(video, folder, owner, name, data)
             except FileExistsError:
                 if not sidecar_exists(folder, name):
                     raise
                 return True
+            record_timing(video, folder, owner, name, 'pending')
+            start_sync(video, language, owner, expected)
             return False
     except (OSError, ValueError):
         raise SubtitleError('Could not save subtitles beside this video. Ask an admin to check the library file and folder permissions.', 409) from None
@@ -333,6 +382,12 @@ def fetch_for_import(provider, lock, mark_tried, title, year, episode, source, l
     if episode:
         params.update(season_number=episode[0], episode_number=episode[1])
     try:
+        with opened(source) as fd, open(fd, 'rb', closefd=False) as file:
+            if hashed := moviehash(file):
+                params['moviehash'] = hashed
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
         with lock:
             return provider.fetch(params, source.stem)
     except SubtitleError:
@@ -340,9 +395,59 @@ def fetch_for_import(provider, lock, mark_tried, title, year, episode, source, l
 
 
 def register(app, cfg, body, allow, library_for, http=None):
+    from . import movie_subtitle_import, subtitle_sync
+
     provider = OpenSubtitles(cfg, http)
     automatic = provider if not provider.signs_in else OpenSubtitles({'OPENSUBTITLES_API_KEY': provider.key}, http)
     lock = Lock()
+    library_errors = (OSError, HTTPException, ValueError, RecursionError)
+
+    def item_request(ident):
+        if not isinstance(ident, str) or not re.fullmatch(ITEM, ident, re.I):
+            abort(400)
+
+    def check_language(language):
+        if not isinstance(language, str) or language not in LANGUAGES:
+            abort(400)
+
+    def library_item(library, ident):
+        item = library(f'Items/{ident}', {'fields': 'Path,ProviderIds'})
+        if not isinstance(item, dict) or item.get('Type') not in ('Movie', 'Episode'):
+            raise SubtitleError(NO_RESULTS, 404)
+        return item
+
+    def error_reply(error):
+        headers = {'Retry-After': str(error.retry_after)} if error.retry_after else {}
+        return jsonify(error=str(error)), error.status, headers
+
+    def start_sync(video, language, owner, expected, *, queue=False):
+        name = f'{video.stem}.{language}.srt'
+
+        def work():
+            try:
+                with opened(video.parent, directory=True) as folder, opened(video) as video_fd:
+                    raw, current = read_sidecar(folder, name)
+                    if (fingerprint(current) != fingerprint(expected)
+                            or fingerprint(os.fstat(video_fd)) != fingerprint(owner)):
+                        return False
+                    data = subtitle_bytes(raw, language)
+                    aligned, method = movie_subtitle_import.time_subtitle(
+                        video, folder, language, data, shutil.which('ffmpeg'), shutil.which('ffprobe'))
+                    if not method:
+                        if queue:
+                            subtitle_sync.record_timing(video, folder, owner, name, 'unknown')
+                        return False
+                    if aligned != data:
+                        # Jellyfin opens and converts an indexed external SRT on each request.
+                        write_sidecar(video, folder, owner, name, aligned, expected=expected)
+                    elif fingerprint(os.stat(name, dir_fd=folder, follow_symlinks=False)) != fingerprint(expected):
+                        return False
+                    return subtitle_sync.record_timing(video, folder, owner, name, method)
+            except movie_subtitle_import.MEDIA_ERRORS + (SubtitleError,):
+                log.warning('Could not resync movie subtitles.')
+                return False
+
+        return subtitle_sync.start_job(video, name, work, queue=queue)
 
     @app.post('/api/movies/subtitle')
     def movie_subtitle():
@@ -350,9 +455,8 @@ def register(app, cfg, body, allow, library_for, http=None):
             abort(403)
         data = body(2048)
         ident, language = data.get('item'), data.get('language', 'en')
-        if (not isinstance(ident, str) or not re.fullmatch(ITEM, ident, re.I)
-                or not isinstance(language, str) or language not in LANGUAGES):
-            abort(400)
+        item_request(ident)
+        check_language(language)
         library = library_for(data.get('ticket'), server_refresh=True)
         if not allow('movie-subtitle-fetch:' + g.user, 6, 60):
             return jsonify(error=RATE_LIMIT), 429, {'Retry-After': '60'}
@@ -361,21 +465,59 @@ def register(app, cfg, body, allow, library_for, http=None):
         if not lock.acquire(blocking=False):
             return jsonify(error='Another subtitle download is in progress. Try again in a moment.'), 409
         try:
-            item = library(f'Items/{ident}', {'fields': 'Path,ProviderIds'})
-            if not isinstance(item, dict) or item.get('Type') not in ('Movie', 'Episode'):
-                raise SubtitleError(NO_RESULTS, 404)
-            existing = ensure_sidecar(item, library, provider, language)
+            item = library_item(library, ident)
+            existing = ensure_sidecar(item, library, provider, language,
+                                      lambda *args: start_sync(*args, queue=True))
             try:
                 library(f'Items/{ident}/Refresh', {'MetadataRefreshMode': 'FullRefresh'}, refresh=True)
-            except (OSError, http.client.HTTPException, ValueError, RecursionError):
+            except library_errors:
                 return jsonify(added=True, existing=existing, refresh_pending=True)
             return jsonify(added=True, existing=existing, refresh_pending=False)
         except SubtitleError as error:
-            headers = {'Retry-After': str(error.retry_after)} if error.retry_after else {}
-            return jsonify(error=str(error)), error.status, headers
-        except (OSError, http.client.HTTPException, ValueError, RecursionError):
+            return error_reply(error)
+        except library_errors:
             return jsonify(error=LIBRARY_UNAVAILABLE), 502
         finally:
             lock.release()
+
+    @app.route('/api/movies/subtitle/sync', methods=['GET', 'POST'])
+    def movie_subtitle_sync():
+        if g.user not in cfg.get('JELLYFIN_PROFILES', {}):
+            abort(403)
+        write = request.method == 'POST'
+        data = body(2048) if write else request.args
+        ident, language = data.get('item'), data.get('language')
+        item_request(ident)
+        if write:
+            check_language(language)
+        library = library_for(data['ticket']) if write and 'ticket' in data else library_for(None, current_grant=True)
+        if not allow(('movie-subtitle-sync:' if write else 'movie-subtitle-status:') + g.user, 6 if write else 30, 60):
+            return jsonify(error=RATE_LIMIT), 429, {'Retry-After': '60'}
+        try:
+            item = library_item(library, ident)
+            video = target_path(item)
+            with opened(video.parent, directory=True) as folder, opened(video) as video_fd:
+                if write:
+                    name = f'{video.stem}.{language}.srt'
+                    if not sidecar_exists(folder, name):
+                        return jsonify(error='This subtitle is unavailable. Reopen the title and try again.'), 404
+                    expected = os.stat(name, dir_fd=folder, follow_symlinks=False)
+                    if not start_sync(video, language, os.fstat(video_fd), expected):
+                        return jsonify(error=subtitle_sync.BUSY), 409
+                    return jsonify(state='running'), 202
+                timing = subtitle_sync.timing_snapshot(video, folder, include_unrecorded=True)
+                states = {}
+                for code in LANGUAGES:
+                    name = f'{video.stem}.{code}.srt'
+                    try:
+                        if sidecar_exists(folder, name):
+                            states[code] = timing[name]
+                    except (OSError, SubtitleError):
+                        continue
+                return jsonify(states), 200, {'Cache-Control': 'no-store'}
+        except SubtitleError as error:
+            return error_reply(error)
+        except library_errors:
+            return jsonify(error='Could not check subtitle timing. Try again later.'), 502
 
     return automatic, lock

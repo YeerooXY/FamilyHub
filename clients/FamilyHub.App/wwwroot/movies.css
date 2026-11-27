@@ -845,12 +845,37 @@ body[data-effects="off"] .movie-library .movie-hero-pager :is(button, .movie-her
 .movie-library .movie-hero-more svg { stroke-width: 3; }
 .movie-library .movie-continue-menu-button:focus-visible,
 .movie-library .movie-continue-menu button:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
-@media (hover: hover) and (pointer: fine) and (min-width: 721px) and (max-width: 1599px) {
+/* Mouse: the options button shows only while the card is hovered or focused, so the artwork stays whole. */
+@media (hover: hover) and (pointer: fine) {
     .movie-resume-card:not(:hover, :focus-within) > .movie-continue-menu-button { opacity: 0; }
 }
-@media (any-pointer: coarse) {
-    .movie-resume-card:not(:hover, :focus-within) > .movie-continue-menu-button { opacity: 1; }
+/* Touch: always shown, but a small circle in the corner; the 44 px hit area stays. */
+@media (pointer: coarse) {
+    .movie-library button.movie-continue-menu-button {
+        inset-block-start: 0; inset-inline-end: 0;
+        background: radial-gradient(circle at 62% 38%, #10141bcc 0 .9rem, transparent calc(.9rem + 1px));
+    }
+    .movie-library button.movie-continue-menu-button svg { width: 1.05rem; height: 1.05rem; translate: 11% -11%; }
 }
+/* Continue watching: the whole tile grows, so the card and its options button move together
+   and hovering the button keeps the card raised. */
+.movie-shelf-scroll .movie-resume-card { --movie-grow: 1.08; transition: transform 210ms ease-out; }
+.movie-shelf-scroll .movie-resume-card[data-edge="first"] { transform-origin: left center; }
+.movie-shelf-scroll .movie-resume-card[data-edge="last"] { transform-origin: right center; }
+.movie-shelf-scroll .movie-resume-card[data-edge="peek"] { --movie-grow: 1; }
+.movie-library .movie-shelf-scroll .movie-resume-card > .movie-card:is(:hover, :focus-visible) { transform: none; }
+.movie-library .movie-shelf-scroll .movie-resume-card:has(> .movie-card:focus-visible) { z-index: 2; transform: scale(var(--movie-grow)); }
+@media (hover: hover) and (pointer: fine) {
+    .movie-library .movie-shelf-scroll .movie-resume-card:hover { z-index: 2; transform: scale(var(--movie-grow)); }
+    .movie-library .movie-shelf-scroll .movie-resume-card:hover > .movie-card {
+        outline: 2px solid white; outline-offset: -2px; box-shadow: 0 0 .85rem #b09aff70;
+    }
+    .movie-library .movie-cards:has(.movie-resume-card:hover) .movie-resume-card:not(:hover):has(> .movie-card:focus-visible) { transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .movie-library .movie-shelf-scroll .movie-resume-card { --movie-grow: 1; transition: none; }
+}
+body[data-effects="off"] .movie-library .movie-shelf-scroll .movie-resume-card { --movie-grow: 1; transition: none; }
 .movie-continue-menu {
     position: fixed;
     z-index: 12;

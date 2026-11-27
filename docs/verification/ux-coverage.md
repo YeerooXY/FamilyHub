@@ -6,7 +6,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Film details, full backdrop, inline description, related titles and retry | never | never | never | never | never | Source check, 27 Nov 2026, 1.6.4 | never |
 | Series details, full backdrop, seasons, episodes and related series | never | never | never | never | never | Source check, 27 Nov 2026, 1.6.4 | never |
-| Audio & Subtitles, sound disclosure, subtitle size, import and selection | never | never | never | never | never | Source check, 26 Nov 2026 | never |
+| Audio & Subtitles, sound disclosure, subtitle size, import, selection and resync | never | never | never | never | never | Source check for timing labels and resync status, 27 Nov 2026 | never |
 | Add audio track, matching sources, expanded list, empty and retry | never | never | never | never | never | Source check, 26 Nov 2026 | never |
 | Playback failure notice, dismissal and timeout | never | never | never | never | never | Source check, 26 Nov 2026 | never |
 | Home hero and Continue watching, films and episodes | never | never | never | never | never | Source check, 27 Nov 2026, 1.6.4 | never |

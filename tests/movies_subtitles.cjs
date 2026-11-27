@@ -14,9 +14,10 @@ async function verify(browser, profile, options) {
     const saveGate = new Promise(resolve => { finishSave = resolve; });
     let savedId, lastLanguage, englishAttempts = 0;
     const addedTrack = {Type: "Subtitle", IsTextSubtitleStream: true, IsExternal: true, Language: "hun",
-        DisplayTitle: "Hungarian (external)", Index: 3, Path: "/internal/trinity.hun.srt"};
+        DisplayTitle: "Hungarian (external)", Index: 3, Path: "/internal/trinity.hu.srt"};
     const englishTrack = {...addedTrack, Language: "eng", DisplayTitle: "English (external)", Index: 4,
-        Path: "/internal/trinity.en.srt"};
+        Path: "/internal/trinity.en.srt", FamilyHubSubtitleSidecar: true,
+        FamilyHubSubtitleTiming: {method: "pending", state: "running"}};
     try {
         if (!decodeVideo) await page.addInitScript(() => {
             // Windows Playwright WebKit does not decode the H.264 fixture.
@@ -35,7 +36,8 @@ async function verify(browser, profile, options) {
                 return reply({json: {PlaySessionId: "play-1", MediaSources: [{Id: "source", SupportsDirectPlay: true, MediaStreams: []}]}});
             }
             if (url.pathname === "/Items/trinity") {
-                const MediaStreams = saved && mediaReads++ > 0 ? [addedTrack] : [];
+                const MediaStreams = saved && mediaReads++ > 0
+                    ? [{...addedTrack, FamilyHubSubtitleSidecar: englishAttempts === 5}] : [];
                 if (englishAttempts === 5) MediaStreams.push(englishTrack);
                 return reply({json: {MediaSources: [{Id: "source", MediaStreams}]}});
             }
@@ -82,6 +84,18 @@ async function verify(browser, profile, options) {
             saveMoviePreferences(viewer, {subtitles: "off"});
             window.openMovieFixture(openMovies, document.querySelector("main"), {url: jellyfin, user: "fixture", token: "fixture", device: "fixture"},
                 {invokeMethodAsync: async (method, item, language) => {
+                    if (method === "MovieSubtitleTiming") {
+                        if (item !== "trinity") throw Error("Unexpected timing request");
+                        window.subtitlePolls = (window.subtitlePolls ?? 0) + 1;
+                        const state = window.subtitleTimingState ?? "running";
+                        return JSON.stringify({en: {method: state === "running" ? "pending" : window.subtitleTimingMethod ?? "embedded", state}});
+                    }
+                    if (method === "MovieSyncSubtitle") {
+                        if (item !== "trinity" || language !== "en") throw Error("Unexpected sync request");
+                        window.subtitleResyncs = (window.subtitleResyncs ?? 0) + 1;
+                        window.subtitleTimingState = "running";
+                        return JSON.stringify({state: "running"});
+                    }
                     if (method !== "MovieFetchSubtitle") return "{}";
                     if (item !== "trinity" || language !== "en") throw Error("Unexpected subtitle request");
                     const reasons = [
@@ -171,6 +185,7 @@ async function verify(browser, profile, options) {
         assert.equal(await focused(hungarian), true);
         assert.equal(await hungarian.getAttribute("aria-disabled"), "false");
         assert.equal(await hungarian.getAttribute("aria-checked"), "false");
+        assert.equal(await hungarian.locator(".movie-track-timing").isVisible(), false);
         assert.equal(await off.getAttribute("aria-checked"), "true");
         await hungarian.press("Space");
         assert.equal(await video.evaluate(node => [...node.textTracks].find(track => track.language === "hun").mode), "hidden");
@@ -209,6 +224,68 @@ async function verify(browser, profile, options) {
         assert.equal(await english.getAttribute("aria-checked"), "true");
         await checkPlayback(true);
         assert.equal(await page.evaluate(() => window.subtitleFallbacks), 5);
+        const resync = subtitles.getByRole("button", {name: "Resync English subtitles", exact: true});
+        const resyncSpinner = resync.locator(".movie-track-spinner");
+        await resyncSpinner.waitFor();
+        assert.equal(await subtitles.getByText("Checking timing", {exact: true}).count(), 1);
+        assert.equal(await subtitles.getByRole("button", {name: "Resync Hungarian subtitles"}).count(), 1);
+        await hungarian.getByText("Timing not checked", {exact: true}).waitFor();
+        assert.equal(await off.locator(".movie-track-timing").count(), 0);
+        await page.evaluate(() => { window.subtitleTimingState = "idle"; });
+        await status("English subtitles resynced");
+        assert.equal(await focused(english), true);
+        const revision = () => video.locator("track[srclang=eng]").getAttribute("src");
+        const firstRevision = await revision();
+        assert.match(firstRevision, /[?&]timingRevision=\d+/);
+        const timingLabel = english.getByText("Synced to the film's English subtitles", {exact: true});
+        await timingLabel.waitFor();
+        assert.equal(await subtitles.getByText("Synced to the film's English subtitles", {exact: true}).count(), 1);
+        const labelBox = await timingLabel.boundingBox();
+        const actionBox = await resync.boundingBox();
+        assert.ok(labelBox.x + labelBox.width <= actionBox.x);
+        assert.ok(actionBox.width >= (profile.endsWith("-2000") ? 60 : 44));
+        assert.equal(await sheet.evaluate(node => node.scrollWidth <= node.clientWidth + 1), true);
+        await page.keyboard.press("Tab");
+        assert.equal(await focused(resync), true);
+        if (profile.endsWith("-2000"))
+            assert.equal(await resync.evaluate(node => getComputedStyle(node).outlineWidth), "4px");
+        await page.keyboard.press("Shift+Tab");
+        assert.equal(await focused(english), true);
+        await page.keyboard.press("Tab");
+        await page.keyboard.press("Space");
+        await resyncSpinner.waitFor();
+        assert.equal(await focused(resync), true);
+        assert.equal(await resync.getAttribute("aria-disabled"), "true");
+        const resyncAnimating = () => resyncSpinner.evaluate(node => node.getAnimations().some(animation => animation.playState === "running"));
+        assert.equal(await resyncAnimating(), false);
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        assert.equal(await resyncAnimating(), true);
+        await page.evaluate(() => { document.body.dataset.effects = "off"; });
+        assert.equal(await resyncAnimating(), false);
+        await page.evaluate(() => { delete document.body.dataset.effects; });
+        await page.emulateMedia({reducedMotion: "reduce"});
+        await page.waitForFunction(() => window.subtitleResyncs === 1);
+        await page.evaluate(() => { window.subtitleTimingState = "idle"; window.subtitleTimingMethod = "audio"; });
+        await status("English subtitles resynced");
+        await english.getByText("Synced to the film's dialogue", {exact: true}).waitFor();
+        assert.equal(await sheet.getByRole("status").filter({hasText: "English subtitles resynced"}).count(), 1);
+        assert.notEqual(await revision(), firstRevision);
+        assert.equal(await focused(resync), true);
+        assert.equal(await english.getAttribute("aria-checked"), "true");
+        await checkPlayback(true);
+        if (profile === "chromium-1280") {
+            await page.keyboard.press("Enter");
+            await resyncSpinner.waitFor();
+            await page.waitForFunction(() => window.subtitleResyncs === 2);
+            await close.press("Enter");
+            const polls = await page.evaluate(() => window.subtitlePolls);
+            await page.waitForTimeout(5200);
+            assert.equal(await page.evaluate(() => window.subtitlePolls), polls);
+            await page.evaluate(() => { window.subtitleTimingState = "failed"; });
+            await tracks.press("Enter");
+            await status("Could not resync the English subtitles. Try again later.");
+            await resyncSpinner.waitFor({state: "hidden"});
+        }
         await close.press("Enter");
         assert.equal(await focused(tracks), true);
     } finally {

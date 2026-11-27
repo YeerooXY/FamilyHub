@@ -73,6 +73,7 @@ class SubtitleImportFileTests(unittest.TestCase):
         self.source.write_bytes(b'fixture')
         self.video = self.root / 'Example.mkv'
         self.video.write_bytes(b'fixture')
+        self.align = self.enterContext(patch.object(subtitles.subtitle_sync, 'align', return_value=None))
 
     def file(self, name, data):
         path = self.release / name
@@ -116,8 +117,10 @@ class SubtitleImportFileTests(unittest.TestCase):
             with patch.object(subtitles, 'embedded_text', return_value={'en'}):
                 subtitles.import_subtitles(self.video, self.source, [idx, sub], ['en'], fallback, None, None)
             run.assert_not_called()
+            self.align.reset_mock()
             subtitles.import_subtitles(self.video, self.source, [idx, sub], ['en'], fallback, None, None)
             run.assert_called_once()
+            self.align.assert_not_called()
             self.assertEqual(output.read_bytes(), srt(2000))
         fallback.assert_not_called()
 

@@ -261,6 +261,8 @@ body[data-effects="off"] .movie-ui > .movie-sheet-tracks { animation: none; }
     cursor: default;
 }
 .movie-track-unavailable { margin-inline-start: auto; font-size: .8rem; text-align: end; }
+.movie-track-label { min-width: 0; text-align: start; overflow-wrap: anywhere; }
+.movie-track-timing:not([hidden]) { display: block; color: #b6afc3; font-size: .8rem; font-weight: 400; }
 .movie-sheet-tracks .movie-track-choice[aria-checked="true"] {
     background: #c8b9ff15;
     border-color: #c8b9ff30;
