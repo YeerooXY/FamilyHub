@@ -1921,6 +1921,24 @@ body:has([data-release-layout]) .header-search .movie-search :is(input, button) 
         line-height: max(1.15em, 24px);
     }
 }
+/* Phones: the title gets the full width and the quality, source and kind share one line under it.
+   A narrow quality column beside the title made "Unknown quality" run into long titles (27 Nov 2026). */
+@media (max-width: 600px) {
+    .movie-library .movie-release-content li.movie-release {
+        grid-template-columns: 2.4rem repeat(3, minmax(0, 1fr));
+        grid-template-areas: "poster head head head" "poster quality quality quality" "size size time health"
+            "action action action action" "details details details details";
+        align-items: start;
+    }
+    .movie-release-row-poster { align-self: center; }
+    .movie-release-block { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; }
+    .movie-release-block > .movie-release-quality { flex: none; }
+    .movie-release-block > .movie-release-indexer { flex: 0 1 auto; }
+    .movie-external .movie-release-head .movie-release-title { font-size: 1rem; }
+    .movie-release-stat-value { overflow-wrap: break-word; }
+    /* The last card scrolls clear of the floating downloads button. */
+    .movie-release-content { padding-block-end: calc(var(--movie-target, 44px) + 2rem + env(safe-area-inset-bottom)); }
+}
 @media (prefers-reduced-motion: reduce) {
     .movie-library .movie-release-content li.movie-release,
     .movie-release-results button:not(:disabled) { transition: none; transform: none; }
