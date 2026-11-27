@@ -28,13 +28,23 @@ const fixture = [
     { title: pack, source: "The Pirate Bay", size: 17244393718, seeders: 390, leechers: 157, guid: "reference-a", indexerId: 1 },
     { title: pack, source: "Knaben", size: 17244393718, seeders: 378, leechers: 145, guid: "reference-b", indexerId: 2 },
     { title: "The Gentlemen S02 720p WEB-DL", source: "The Pirate Bay", size: 2000000000, seeders: 22, leechers: 5 },
-    { title: "The Gentlemen S02 2160p Remux", size: 30500000000, seeders: 0 },
-    { title: "The Gentlemen S02 2160p BDRip x265", size: 18000000000, seeders: 0 },
-    { title: "The Gentlemen S02 2160p WEB-DL", size: 15000000000, seeders: 0 },
-    { title: "The Gentlemen S02 1080p Remux", size: 29000000000, seeders: 0 },
-    { title: "The Gentlemen S02 1080p BluRay", size: 16000000000, seeders: 0 },
-    { title: "The Gentlemen S02 DVDRip", size: 5000000000, seeders: 0 },
-    { title: "The Gentlemen S02 HDCAM", size: 3000000000, seeders: 0 }
+    { title: "The Gentlemen S02 2160p Remux", source: "Knaben", size: 30500000000, seeders: 0 },
+    { title: "The Gentlemen S02 2160p BDRip x265", source: "LimeTorrents", size: 18000000000, seeders: 0 },
+    { title: "The Gentlemen S02 2160p WEB-DL", source: "1337x", size: 15000000000, seeders: 0 },
+    { title: "The Gentlemen S02 1080p Remux", source: "TheRARBG", size: 29000000000, seeders: 0 },
+    { title: "The Gentlemen S02 1080p BluRay", source: "EZTV", size: 16000000000, seeders: 0 },
+    { title: "The Gentlemen S02 DVDRip", source: "nCore", size: 5000000000, seeders: 0 },
+    { title: "The Gentlemen S02 HDCAM", source: "Nebula Index", size: 3000000000, seeders: 0 }
+];
+const indexerBadges = [
+    ["The Pirate Bay", "TPB", "rgb(87, 56, 42)"],
+    ["Knaben", "K", "rgb(23, 107, 112)"],
+    ["LimeTorrents", "L", "rgb(82, 115, 26)"],
+    ["1337x", "13", "rgb(163, 67, 19)"],
+    ["TheRARBG", "R", "rgb(35, 74, 145)"],
+    ["EZTV", "E", "rgb(101, 68, 144)"],
+    ["nCore", "n", "rgb(161, 47, 67)"],
+    ["Nebula Index", "N", "rgb(22, 103, 90)"]
 ];
 
 async function openReleaseFixture(page, {shell = false, sources = fixture} = {}) {
@@ -201,7 +211,21 @@ async function verify(browser, name, options) {
         assert.match(text, /Size\s+16\.1 GB/);
         assert.match(text, /Download time\s+about 23 min/);
         assert.match(text, /Availability\s+Available/);
-        assert.doesNotMatch(text, /seeder|leecher|The Pirate Bay|Knaben/);
+        assert.doesNotMatch(text, /seeder|leecher/);
+        const indexers = rows.locator(".movie-release-top .movie-release-indexer");
+        assert.equal(await indexers.count(), 9);
+        for (const [name, monogram, color] of indexerBadges) {
+            const badges = indexers.filter({has: page.getByText(name, {exact: true})});
+            const expectedCount = name === "The Pirate Bay" ? 2 : 1;
+            assert.deepEqual(await badges.evaluateAll(nodes => nodes.map(node => {
+                const disc = node.querySelector(".movie-release-indexer-badge");
+                const description = [...node.children].filter(child => child.getAttribute("aria-hidden") !== "true")
+                    .map(child => child.textContent).join("");
+                const row = node.closest(".movie-release");
+                return [disc.textContent, getComputedStyle(disc).backgroundColor, disc.getAttribute("aria-hidden"),
+                    Boolean(node.id) && document.getElementById(row.getAttribute("aria-describedby")) === node, description];
+            })), Array.from({length: expectedCount}, () => [monogram, color, "true", true, `From ${name}`]), name);
+        }
         assert.equal(await first.locator(".movie-age-rating").count(), 0);
         const raw = first.locator(".movie-release-name");
         const expand = first.getByRole("button", {name:/File name for The Gentlemen/});
@@ -221,6 +245,8 @@ async function verify(browser, name, options) {
         const otherSources = page.getByText("Other watch and download options", {exact:true});
         const trailer = rows.filter({has: page.getByRole("heading", {name:"The Gentlemen trailer"})});
         await trailer.getByRole("link", {name:"Watch on YouTube"}).waitFor();
+        assert.equal(await trailer.locator(".movie-release-top").getByText("YouTube", {exact: true}).count(), 1);
+        assert.equal(await trailer.locator(".movie-release-indexer").count(), 0);
         await trailer.getByText("Shorter than the season", {exact:true}).waitFor();
         await otherSources.press("Enter");
         assert.deepEqual((await page.evaluate(() => calls)).filter(([method]) => method === "MovieFind"), [["MovieFind", title]]);

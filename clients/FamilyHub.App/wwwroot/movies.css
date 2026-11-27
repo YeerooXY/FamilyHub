@@ -1681,6 +1681,25 @@ body:has([data-release-layout]) .header-search .movie-search :is(input, button) 
 .movie-external .movie-release-head .movie-release-title { font-size: clamp(.9rem, 1.2vw, 1.3rem); }
 .movie-release-head .movie-release-top { gap: .2rem; }
 .movie-release-head .movie-release-top > span { padding: .1rem .35rem; font-size: .78em; }
+.movie-release-indexer { display: flex; align-items: center; gap: .3em; min-width: 0; max-width: 100%; }
+.movie-release-indexer-badge {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 1.25em;
+    height: 1.25em;
+    border-radius: 50%;
+    color: #fff;
+}
+.movie-release-indexer-monogram { font-size: .62em; font-weight: 750; line-height: 1; }
+.movie-release-indexer-name {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: #c0bdcb;
+    font-size: .78em;
+}
 .movie-release-stat { display: grid; align-content: center; gap: .15rem; line-height: 1.2; }
 .movie-release-stat-label { font-size: .78em; color: #c0bdcb; }
 .movie-release-stat-value { font-weight: 650; }
@@ -1717,6 +1736,7 @@ body:has([data-release-layout]) .header-search .movie-search :is(input, button) 
 .movie-release-name { grid-column: 1 / -1; padding: .35rem; color: #cdc9da; overflow-wrap: anywhere; }
 @media (min-width: 1600px) {
     .movie-release-results { --release-outline: 4px; }
+    .movie-release-indexer-badge { width: 1.5em; height: 1.5em; }
     .movie-external[data-release-layout] .movie-release-alternatives > summary:focus-visible { outline-width: 4px; outline-offset: -4px; }
     body:has([data-release-layout]) .header-search .movie-search :is(input, button) { min-height: 60px; }
     body:has([data-release-layout]) .header-search .movie-search button { min-width: 60px; }

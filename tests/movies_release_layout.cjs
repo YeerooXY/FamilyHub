@@ -69,6 +69,19 @@ async function check(browser, profile, options) {
         assert.equal(geometry.left, 0, profile);
         assert.ok(Math.abs(geometry.right - Math.min(geometry.width, geometry.contentLeft + 1664)) <= 1, profile);
         assert.ok(geometry.scroll <= 1, profile);
+        assert.deepEqual(await rows.evaluateAll(nodes => nodes.filter(row =>
+            row.scrollWidth > row.clientWidth || getComputedStyle(row).overflowWrap !== "normal"
+        ).map(row => row.querySelector(".movie-release-title").textContent)), [], `${profile}: release rows fit without breaking words`);
+        const discs = await rows.locator(".movie-release-indexer-badge").evaluateAll(nodes => nodes.map(disc => {
+            const {width, height} = disc.getBoundingClientRect();
+            const rowFont = parseFloat(getComputedStyle(disc.closest(".movie-release")).fontSize);
+            return {width, height, rowFont, radius: getComputedStyle(disc).borderRadius};
+        }));
+        assert.ok(discs.length > 0, profile);
+        for (const {width, height, rowFont, radius} of discs) {
+            assert.ok(width === height && radius === "50%" &&
+                Math.abs(width - rowFont * (target === 60 ? 1.5 : 1.25)) < 1, `${profile}: round source badge scales with the row`);
+        }
         if (phone) {
             assert.equal(geometry.railBottom, geometry.contentTop, profile);
             assert.equal(geometry.legendScroll, true, profile);

@@ -78,6 +78,21 @@ function chip(className, text, level) {
     return node;
 }
 
+const sourceBadges = new Map([
+    ["knaben", ["K", "#176b70"]],
+    ["limetorrents", ["L", "#52731a"]],
+    ["the pirate bay", ["TPB", "#57382a"]],
+    ["1337x", ["13", "#a34313"]],
+    ["therarbg", ["R", "#234a91"]],
+    ["eztv", ["E", "#654490"]],
+    ["ncore", ["n", "#a12f43"]],
+    ["kickasstorrents.ws", ["KA", "#2f6b3a", "Kickass"]],
+    ["kickasstorrents.to", ["KA", "#2f6b3a", "Kickass"]],
+    ["uindex", ["U", "#3d5a99"]],
+    ["torrentdownload", ["TD", "#7a4a1e"]]
+]);
+const sourcePalette = ["#16675a", "#344e82", "#754274", "#795022", "#375c4a", "#654b70"];
+
 export function appendSoundChip(target, sound, icon) {
     if (!sound) return;
     const badge = chip("movie-chip movie-sound-chip", sound.label);
@@ -539,6 +554,21 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         if (row.kind) badges.append(chip("movie-release-kind", row.kind));
         if (row.site) badges.append(chip("movie-release-kind", row.site));
         if (row.audio.includes("hu")) badges.append(chip("movie-release-kind", "Hungarian audio listed"));
+        if (row.indexer) {
+            const key = row.indexer.toLowerCase();
+            const [monogram, color, label = row.indexer] = sourceBadges.get(key) ??
+                [[...row.indexer.toUpperCase()][0], sourcePalette[titleHue(key) % sourcePalette.length]];
+            const source = document.createElement("div");
+            source.className = "movie-release-indexer";
+            source.id = `movie-release-indexer-${index}`;
+            const disc = chip("movie-release-indexer-badge", "");
+            disc.setAttribute("aria-hidden", "true");
+            disc.style.backgroundColor = color;
+            disc.append(chip("movie-release-indexer-monogram", monogram));
+            source.append(chip("movie-visually-hidden", "From "), disc, chip("movie-release-indexer-name", label));
+            item.setAttribute("aria-describedby", source.id);
+            badges.append(source);
+        }
         if (youtube) {
             const seconds = row.video.duration ?? row.video.seconds;
             const ratio = seconds / (details.runtime_minutes * 60);
@@ -728,10 +758,11 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
                 : quality.tier === "tv" ? "SD" : quality.tier === "estimated" ? quality.label : "Unknown quality";
             const sound = releaseSound(title);
             const seeders = number(item.seeders);
+            const indexer = !item.site && typeof item.source === "string" ? item.source.trim() : "";
             const row = { title, fileName: item.title, name, artTitle, artKey,
                 season: item.number, seasons: kind ? releaseSeasons(tags) : null,
                 height: episodes ? number(item.max_height) || height : height, size, mismatch, kind, audio, episodes, quality,
-                tier, picture, source, sound, video: youtube ? item : null,
+                tier, picture, source, indexer, sound, video: youtube ? item : null,
                 seconds: downloadSeconds(size, seeders), unavailable: !item.site && seeders === 0,
                 seeders, guid: item.guid, indexerId: item.indexerId, site: item.site, url: item.url };
             const key = row.site ? `${row.site}\n${row.url}` : `${row.title.toLowerCase().replace(/[^a-z0-9]+/g, "")}\n${Math.round((row.size || 0) / 1e8)}`;

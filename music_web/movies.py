@@ -194,7 +194,7 @@ def register_movies(app, cfg, body, allow, session_is_live):
         lambda path: subtitle_imported(path) if subtitle_imported else False)
     releases = cfg.get('MOVIE_RELEASE_SEARCH') or {}
     prowlarr = service_url(releases.get('url', 'http://127.0.0.1:9696'))
-    indexers = tuple(dict.fromkeys(i for i in releases.get('indexer_ids', []) if type(i) is int and i > 0))[:4]
+    indexers = tuple(dict.fromkeys(i for i in releases.get('indexer_ids', []) if type(i) is int and i > 0))[:8]
     requests = cfg.get('MOVIE_REQUESTS') or {}
     downloads = cfg.get('MOVIE_DOWNLOADS') or {}
     qb = downloads.get('qbittorrent') or {}
