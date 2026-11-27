@@ -1,9 +1,12 @@
-﻿/** Keep the selected audio on a second media clock while the main element supplies the picture. */
+﻿export const AUDIO_DELAY_LIMIT = 500, AUDIO_DELAY_STEP = 25;
+export const clampAudioDelay = ms => Math.max(-AUDIO_DELAY_LIMIT, Math.min(AUDIO_DELAY_LIMIT, Math.round(ms / AUDIO_DELAY_STEP) * AUDIO_DELAY_STEP));
+
+/** Keep the selected audio on a second media clock while the main element supplies the picture. */
 export function movieAudioSync(media, { key, signal, stream, Hls, report, useAudioElement }) {
     let value = 0, companion, hls, playing = false, muted = false, correcting = false, starting = false;
     try {
         const saved = Number(localStorage.getItem(key));
-        if (Number.isFinite(saved)) value = Math.max(-2000, Math.min(2000, Math.round(saved / 100) * 100));
+        if (localStorage.getItem(key) != null && Number.isFinite(saved)) value = clampAudioDelay(saved);
     } catch {}
 
     function stop() {
@@ -85,7 +88,7 @@ export function movieAudioSync(media, { key, signal, stream, Hls, report, useAud
     return {
         get value() { return value; },
         step(ms) {
-            value = Math.max(-2000, Math.min(2000, value + ms));
+            value = clampAudioDelay(value + ms);
             try { localStorage.setItem(key, String(value)); } catch {}
             apply();
         }

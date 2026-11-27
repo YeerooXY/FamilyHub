@@ -1,10 +1,12 @@
 // Player controls. movies.js owns the video, Jellyfin and progress reporting.
 
 import { attachSound, soundPanelWanted, SOUND_MODES, MAX_VOLUME } from "./movie-sound.js";
+import { AUDIO_DELAY_LIMIT, AUDIO_DELAY_STEP } from "./movie-audio-sync.js";
 
 const SVG = "http://www.w3.org/2000/svg";
 const subtitleSizeKey = "familyhub.movie.subtitle-size";
-const subtitleSizes = [["small", "Small"], ["medium", "Medium"], ["large", "Large"], ["extra-large", "Extra large"]];
+const subtitleSizes = [["small", "Small"], ["medium", "Medium"], ["large", "Large"]];
+const subtitleBackgrounds = [["none", "None"], ["shadow", "Shadow"], ["box", "Box"]];
 const paths = {
     back: "M15 5l-7 7 7 7",
     close: "M6 6l12 12M18 6L6 18",
@@ -20,6 +22,7 @@ const paths = {
     next: ["M5 5v14l10-7z", "M19 5v14"],
     episodes: ["M8 4h12v12H8z", "M4 8v12h12"],
     subtitles: ["M4 5h16v11h-9l-4 4v-4H4z", "M7 9h10M7 12h6"],
+    style: ["M4 8h16M4 16h16", "M9 5v6M15 13v6"],
     sound: ["M4 9v6h4l5 4V5L8 9z", "M16.5 9a4.5 4.5 0 0 1 0 6"],
     soundOff: ["M4 9v6h4l5 4V5L8 9z", "M17 9.5l4 5M21 9.5l-4 5"],
     expand: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
@@ -93,6 +96,18 @@ export function subtitleBottom({ width, height, videoWidth, videoHeight, barTop 
     let edge = pictureBottom - Math.max(12, picture * 0.05);
     if (barTop !== null) edge = Math.min(edge, barTop - 8);
     return Math.max(8, Math.round(height - edge));
+}
+
+// Hides sound descriptions from a cue at render time; the subtitle file is never edited. Only whole lines go: a line of bracketed
+// descriptions, a line of music notes, or a capitalised speaker label ("NARRATOR: "). Brackets or lyrics inside a sentence stay.
+export function hideSoundDescriptions(text) {
+    return String(text ?? "")
+        .replace(/^[ \t]*(?:-[ \t]*)?(?:[[(][^[\]()]*[\])][ \t]*)+$/gm, "")
+        .split("\n")
+        .map(line => /^[\s♪♫♬#*]*$/.test(line) && /[♪♫♬]/.test(line) ? "" :
+            line.replace(/^(\s*(?:-\s*)?)[A-Z][A-Z .'-]{1,24}:\s+/, "$1"))
+        .filter(line => line.trim() && !/^\s*(?:-\s*)?[A-Z][A-Z .'-]{1,24}:\s*$/.test(line))
+        .join("\n");
 }
 
 export function watchPlayerIdle(surface, signal, onIdle, onWake) {
@@ -257,12 +272,13 @@ export function buildPlayerUi(ctx) {
     const episodesButton = button("movie-ui-action", "Episodes", paths.episodes, {}, () => toggleSheet("episodes"));
     episodesButton.hidden = true;
     const tracksButton = button("movie-ui-action", "Audio & Subtitles", paths.subtitles, {}, () => toggleSheet("audio"));
+    const styleButton = button("movie-ui-action", "Sound & subtitle style", paths.style, {}, () => toggleSheet("style"));
     const sound = soundPanelWanted() ? attachSound(media, { signal }) : null;
     root.classList.toggle("movie-hardware-volume", !sound);
     const nextButton = button("movie-ui-action", "Next episode", paths.next, {}, playNext);
     nextButton.hidden = true;
     const actions = make("div", "movie-ui-actions");
-    actions.append(episodesButton, nextButton, tracksButton, fullscreen);
+    actions.append(episodesButton, nextButton, tracksButton, styleButton, fullscreen);
     const transport = make("div", "movie-ui-transport");
     transport.append(mid, actions);
     const bottom = make("div", "movie-ui-bottom");
@@ -485,8 +501,13 @@ export function buildPlayerUi(ctx) {
     audio.append(make("h4", "", "Audio"));
     subtitles.append(make("h4", "", "Subtitles"));
     sheets.audio.body.append(audio, subtitles);
+    // Sound & subtitle style: later rounds append their own section to this body.
+    const styleSheet = makeSheet("style", "Sound & subtitle style", "Close sound and subtitle style", styleButton);
+    styleSheet.classList.add("movie-sheet-tracks", "movie-sheet-style");
+    const soundSection = make("section", "movie-track-col");
     const episodesSheet = makeSheet("episodes", "Episodes", "Close episodes", episodesButton);
     bottom.append(episodesSheet);
+    let loadOutputs = async () => {};
     if (sound) {
         const volumeRow = make("div", "movie-volume");
         const mute = button("movie-ui-action", "Mute", paths.sound, {}, () => sound.toggleMute());
@@ -542,11 +563,11 @@ export function buildPlayerUi(ctx) {
             volumeRow.addEventListener(type, () => requestAnimationFrame(placeVolumeTip), { signal });
         window.addEventListener("resize", placeVolumeTip, { signal });
         sound.onChange(paint);
-        const details = make("details", "movie-sound-options");
-        details.append(make("summary", "", "Sound options"), modes.column, outputs.column);
+        soundSection.append(modes.column, outputs.column);
         outputs.column.hidden = true;
-        details.addEventListener("toggle", async () => {
-            if (!details.open || outputs.list.childElementCount) return;
+        // Output devices are listed the first time the style sheet opens.
+        loadOutputs = async () => {
+            if (outputs.list.childElementCount) return;
             const found = sound.canPickOutput ? await sound.outputs() : [];
             if (signal.aborted) return;
             outputs.column.hidden = found.length < 2;
@@ -559,9 +580,8 @@ export function buildPlayerUi(ctx) {
                 return row;
             }));
             paint(sound.state);
-        }, { signal });
-        details.open = true;
-        audio.append(details);
+        };
+        sheets.style.body.prepend(soundSection);
         paint(sound.state);
     }
     // The hidden selects keep playback and the track rows in sync.
@@ -685,64 +705,118 @@ export function buildPlayerUi(ctx) {
         label: `Find ${key === "en" ? "English" : "Hungarian"} audio`,
         run: opener => ctx.findAudio(opener, key), dialog: true
     });
-    const soundOptions = audio.querySelector(".movie-sound-options");
-    if (soundOptions) audio.append(soundOptions);
     const syncSubtitleRows = trackList(subtitles, ctx.subtitlePick, "Subtitle track", [["off", "Off"], ...languages],
         (key, label) => key !== "off" && {
             label: `Find ${label} subtitles`, run: () => void ctx.subtitleSearch.run(key)
         });
     subtitles.append(searchStatus);
-    const sizeLabel = make("h4", "", "Subtitle size");
-    const size = make("div", "movie-subtitle-size");
-    sizeLabel.id = "movie-subtitle-size-label";
-    size.setAttribute("role", "radiogroup");
-    size.setAttribute("aria-labelledby", sizeLabel.id);
-    let savedSize;
-    try { savedSize = localStorage.getItem(subtitleSizeKey); } catch {}
-    function paintSize(value) {
-        root.dataset.subtitleSize = value;
-        for (const row of size.children) {
-            const selected = row.dataset.value === value;
-            row.setAttribute("aria-checked", String(selected));
-            row.tabIndex = selected ? 0 : -1;
-        }
-    }
-    for (const [value, label] of subtitleSizes) {
-        const row = make("button", "movie-track-option", label);
-        row.type = "button";
-        row.dataset.value = value;
-        row.setAttribute("role", "radio");
-        row.addEventListener("click", () => {
-            paintSize(value);
-            row.focus({ preventScroll: true });
-            try { localStorage.setItem(subtitleSizeKey, value); } catch {}
-        }, { signal });
-        size.append(row);
-    }
-    paintSize(subtitleSizes.some(([value]) => value === savedSize) ? savedSize : "medium");
-    if (ctx.audioSync) {
-        const sync = make("div", "movie-audio-sync");
-        sync.setAttribute("role", "group");
-        sync.setAttribute("aria-label", "Sync");
-        const output = make("output");
-        function update() {
-            const ms = ctx.audioSync.value;
-            output.textContent = ms === 0 ? "0 ms" : `${Math.abs(ms)} ms ${ms < 0 ? "earlier" : "later"}`;
-        }
-        const adjust = (step, label, text) => {
-            const action = button("movie-track-option", label, null, {}, () => {
-                action.focus({preventScroll: true});
-                ctx.audioSync.step(step);
-                update();
-            });
-            action.textContent = text;
-            return action;
+    // Subtitle style is saved per profile and per device class (TV and phone sizes differ).
+    // shortcut: the class is read once when the player opens, not on resize.
+    const styleStorageKey = `${ctx.styleKey ?? "familyhub.movie.subtitle-style"}:${innerWidth >= 1600 && !sound ? "tv" : "phone"}`;
+    const subtitleStyle = (() => {
+        let saved, legacy;
+        try { saved = JSON.parse(localStorage.getItem(styleStorageKey)); } catch {}
+        try { legacy = localStorage.getItem(subtitleSizeKey); } catch {}
+        const pick = (value, choices, fallback) => choices.some(([id]) => id === value) ? value : fallback;
+        return {
+            size: pick(saved?.size ?? (legacy === "extra-large" ? "large" : legacy), subtitleSizes, "medium"),
+            background: pick(saved?.background, subtitleBackgrounds, "shadow"),
+            hideSdh: saved?.hideSdh === true
         };
-        update();
-        sync.append(make("span", "", "Sync"), adjust(-100, "Play audio 100 ms earlier", "\u2212"), output,
-            adjust(100, "Play audio 100 ms later", "+"));
-        audio.append(sync);
+    })();
+    const look = make("section", "movie-track-col movie-subtitle-style");
+    const preview = make("div", "movie-style-preview");
+    preview.setAttribute("role", "img");
+    preview.setAttribute("aria-label", "Subtitle preview");
+    const previewStill = make("canvas", "movie-style-still");
+    const previewLine = make("span", "movie-ui-sub", "This is how subtitles look.");
+    preview.append(previewStill, previewLine);
+    const hideSdhSwitch = make("button", "movie-switch");
+    hideSdhSwitch.type = "button";
+    hideSdhSwitch.setAttribute("role", "switch");
+    hideSdhSwitch.append(make("span", "", "Hide sound descriptions"), make("span", "movie-switch-track"));
+    const segmented = (label, choices, field) => {
+        const group = make("div", "movie-segmented");
+        group.setAttribute("role", "radiogroup");
+        group.setAttribute("aria-label", label);
+        for (const [value, text] of choices) {
+            const row = make("button", "movie-track-option", text);
+            row.type = "button";
+            row.dataset.value = value;
+            row.setAttribute("role", "radio");
+            row.addEventListener("click", () => {
+                setSubtitleStyle({ [field]: value });
+                row.focus({ preventScroll: true });
+            }, { signal });
+            group.append(row);
+        }
+        group.dataset.field = field;
+        return group;
+    };
+    const size = segmented("Subtitle size", subtitleSizes, "size");
+    const background = segmented("Subtitle background", subtitleBackgrounds, "background");
+    function paintSubtitleStyle() {
+        root.dataset.subtitleSize = subtitleStyle.size;
+        root.dataset.subtitleBackground = subtitleStyle.background;
+        for (const group of [size, background])
+            for (const row of group.children) {
+                const selected = row.dataset.value === subtitleStyle[group.dataset.field];
+                row.setAttribute("aria-checked", String(selected));
+                row.tabIndex = selected ? 0 : -1;
+            }
+        hideSdhSwitch.setAttribute("aria-checked", String(subtitleStyle.hideSdh));
     }
+    function setSubtitleStyle(change) {
+        Object.assign(subtitleStyle, change);
+        try { localStorage.setItem(styleStorageKey, JSON.stringify(subtitleStyle)); } catch {}
+        paintSubtitleStyle();
+        drawnText = undefined;
+        drawCues();
+    }
+    hideSdhSwitch.addEventListener("click", () => setSubtitleStyle({ hideSdh: !subtitleStyle.hideSdh }), { signal });
+    // A frame of the current video behind the sample line; drawn once per opening, not continuously.
+    function paintPreviewStill() {
+        const width = media.videoWidth, height = media.videoHeight;
+        if (!width || !height) return;
+        previewStill.width = 320;
+        previewStill.height = Math.round(320 * height / width);
+        try { previewStill.getContext("2d").drawImage(media, 0, 0, previewStill.width, previewStill.height); } catch {}
+    }
+    look.append(make("h4", "", "Subtitle style"), size, background, preview, hideSdhSwitch);
+    paintSubtitleStyle();
+
+    // Audio delay: the existing audio pipeline only exists for an added audio track, so otherwise the controls stay off.
+    const delay = make("section", "movie-track-col movie-audio-delay");
+    const delayHead = make("div", "movie-timing-label");
+    const delayOutput = make("output");
+    delayOutput.setAttribute("aria-label", "Audio delay value");
+    delayHead.append(make("h4", "", "Audio delay"), delayOutput);
+    const delaySlider = make("input", "movie-delay-slider");
+    Object.assign(delaySlider, { type: "range", min: -AUDIO_DELAY_LIMIT, max: AUDIO_DELAY_LIMIT, step: AUDIO_DELAY_STEP, value: 0 });
+    delaySlider.setAttribute("aria-label", "Audio delay");
+    const setDelay = ms => {
+        if (!ctx.audioSync) return;
+        ctx.audioSync.step(ms - ctx.audioSync.value);
+        paintDelay();
+    };
+    function paintDelay() {
+        const ms = ctx.audioSync?.value ?? 0;
+        delayOutput.textContent = ms === 0 ? "0 ms" : `${ms < 0 ? "\u2212" : "+"}${Math.abs(ms)} ms`;
+        delaySlider.value = String(ms);
+        delaySlider.setAttribute("aria-valuetext", ms === 0 ? "No delay" : `${Math.abs(ms)} ms ${ms < 0 ? "earlier" : "later"}`);
+        delaySlider.style.setProperty("--pct", (ms + AUDIO_DELAY_LIMIT) / (2 * AUDIO_DELAY_LIMIT) * 100 + "%");
+    }
+    const delayLess = button("movie-track-icon", "Decrease audio delay", paths.minus, {}, () => setDelay((ctx.audioSync?.value ?? 0) - AUDIO_DELAY_STEP));
+    const delayMore = button("movie-track-icon", "Increase audio delay", paths.plus, {}, () => setDelay((ctx.audioSync?.value ?? 0) + AUDIO_DELAY_STEP));
+    delaySlider.addEventListener("input", () => setDelay(Number(delaySlider.value)), { signal });
+    const delayRow = make("div", "movie-delay-row");
+    delayRow.append(delayLess, delaySlider, delayMore);
+    delay.append(delayHead, delayRow);
+    if (!ctx.audioSync) {
+        for (const control of [delayLess, delayMore, delaySlider]) control.disabled = true;
+        delay.append(make("p", "", "Audio delay is available for audio tracks you add. Use Find audio in Audio & Subtitles."));
+    }
+    paintDelay();
     const subtitleAnnouncement = make("span", "movie-player-sr");
     subtitleAnnouncement.setAttribute("role", "status");
     subtitles.append(subtitleAnnouncement);
@@ -754,8 +828,8 @@ export function buildPlayerUi(ctx) {
     timingNote.id = "movie-subtitle-timing-note";
     timingControls.setAttribute("aria-label", "Subtitle timing");
     timingControls.append(timingFields);
-    timing.append(make("h4", "", "Timing"), timingNote, timingControls, sizeLabel, size);
-    sheets.audio.body.append(timing);
+    timing.append(make("h4", "", "Timing"), timingNote, timingControls);
+    sheets.style.body.append(timing, look, delay);
     let timingKey, shift = 0, speed = 0;
     let stopHold = () => {};
     const shiftControl = stepper("Shift", 600, 1, "s", () => shift, value => { shift = value; });
@@ -832,7 +906,7 @@ export function buildPlayerUi(ctx) {
         const bitmap = !!language && ctx.burnedSubtitle === Number(selected.value);
         const disabled = !language || bitmap;
         if (disabled && timingControls.contains(document.activeElement))
-            subtitles.querySelector("[aria-checked='true']")?.focus({ preventScroll: true });
+            sheets.style.close.focus({ preventScroll: true });
         if (disabled) stopHold();
         timingControls.disabled = disabled;
         if (disabled) timingControls.setAttribute("aria-describedby", timingNote.id);
@@ -874,6 +948,7 @@ export function buildPlayerUi(ctx) {
         sheets[name].node.hidden = false;
         ctx.subtitleSync?.panel(name === "audio");
         if (name === "audio") { syncAudio(); syncSubtitles(); }
+        if (name === "style") { syncTiming(); paintDelay(); paintPreviewStill(); void loadOutputs(); }
         sheets[name].opener.setAttribute("aria-expanded", "true");
         show();
         // Focus starts on the close control (or the current episode), so Escape and Enter work the same everywhere.
@@ -946,7 +1021,7 @@ export function buildPlayerUi(ctx) {
         clearTimeout(shortcutTimer);
         shortcutTimer = setTimeout(() => { shortcutStatus.textContent = ""; }, 1200);
     }
-    root.append(surfaceLayer, subs, spinnerRoot, message, top, bottom, skipSegment, nextCard, guide, guideAnnouncement, shortcutStatus, audioSheet);
+    root.append(surfaceLayer, subs, spinnerRoot, message, top, bottom, skipSegment, nextCard, guide, guideAnnouncement, shortcutStatus, audioSheet, styleSheet);
 
     // Controls hide a few seconds after the last touch, playing or paused. Reduced motion only removes the fade, not the hiding.
     // A keyboard or remote focus ring keeps them up so the focused control stays visible.
@@ -1003,7 +1078,8 @@ export function buildPlayerUi(ctx) {
         }).join("\n");
         if (text === drawnText) return;
         drawnText = text;
-        const lines = cleanCue(text).replace(/&(?:amp|lt|gt|quot|#39|nbsp);/g, entity => entities[entity]).split("\n").filter(Boolean);
+        const cleaned = cleanCue(text).replace(/&(?:amp|lt|gt|quot|#39|nbsp);/g, entity => entities[entity]);
+        const lines = (subtitleStyle.hideSdh ? hideSoundDescriptions(cleaned) : cleaned).split("\n").filter(Boolean);
         subs.replaceChildren(...lines.map(line => make("span", "movie-ui-sub", line)));
         placeSubs();
     }
@@ -1125,7 +1201,8 @@ export function buildPlayerUi(ctx) {
 
     // TV remotes use the arrows to move between controls and scrub on the seek bar.
     const rows = () => [[back], ...(!nextCard.hidden ? [[playNow], [watchCredits]] : []),
-        ...(activeSkip ? [[skipSegment]] : []), [seek], [playPause, rewind, forward, episodesButton, nextButton, tracksButton, fullscreen].filter(b => !b.hidden)];
+        ...(activeSkip ? [[skipSegment]] : []), [seek],
+        [playPause, rewind, forward, episodesButton, nextButton, tracksButton, styleButton, fullscreen].filter(b => !b.hidden)];
     function moveFocus(target, key) {
         const sheetNode = openSheet && sheets[openSheet].node;
         if (sheetNode?.contains(target)) {
@@ -1212,14 +1289,17 @@ export function buildPlayerUi(ctx) {
         }
         if (inSheet) {
             const group = target.closest("[role='radiogroup']");
-            if (arrow && openSheet === "audio" && group && target.matches("[role='radio']")) {
+            // A slider keeps its own left and right arrows, also on TV.
+            if (target.matches("input[type=range]") && (key === "arrowleft" || key === "arrowright")) return;
+            if (arrow && (openSheet === "audio" || openSheet === "style") && group && target.matches("[role='radio']") &&
+                !(tv && group.classList.contains("movie-segmented") && (key === "arrowup" || key === "arrowdown"))) {
                 const radios = [...group.querySelectorAll("[role='radio']:not([aria-disabled='true'])")];
                 const step = key === "arrowdown" || key === "arrowright" ? 1 : -1;
                 const index = radios.indexOf(target) + step;
                 if (radios[index] || !tv || key === "arrowleft" || key === "arrowright") {
                     event.preventDefault();
                     const next = radios[index] ?? radios.at(step > 0 ? 0 : -1);
-                    if (group === size) next?.click();
+                    if (group.classList.contains("movie-segmented")) next?.click();
                     else next?.focus();
                     return;
                 }

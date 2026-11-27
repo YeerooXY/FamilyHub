@@ -182,6 +182,7 @@ const dataLimits = {
 function normalizeMoviePreferences(prefs) {
     return {
         audio: ["hu", "en"].includes(prefs?.audio) ? prefs.audio : "default",
+        backupAudio: ["hu", "en"].includes(prefs?.backupAudio) && prefs.backupAudio !== prefs.audio ? prefs.backupAudio : "none",
         subtitles: ["off", "hu", "en"].includes(prefs?.subtitles) ? prefs.subtitles : "default",
         dataSaver: dataChoices.includes(prefs?.dataSaver) ? prefs.dataSaver : "auto",
         screen: screenChoices.includes(prefs?.screen) ? prefs.screen : "auto",
@@ -814,7 +815,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 : internalAudio.find(track => /\boriginal\b/i.test(track.DisplayTitle ?? "")));
             const originalLanguage = trackLanguage(original) ??
                 (audioLanguageName(original?.Language) !== "Language unknown" ? "original" : knownOriginalLanguage);
-            const preferredAudio = preferredTrack(audio, audioLanguage === "default" ? "en" : audioLanguage);
+            const preferredAudio = preferredTrack(audio, audioLanguage === "default" ? "en" : audioLanguage) ??
+                (audioLanguage === "default" ? undefined : preferredTrack(audio, prefs.backupAudio));
             const defaultAudio = audio.find(track => track.Index === source.DefaultAudioStreamIndex)?.Index ??
                 audio.find(track => track.IsDefault)?.Index ?? audio[0]?.Index;
             const defaultSubtitle = source.DefaultSubtitleStreamIndex;
@@ -1331,6 +1333,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 kicker: item.SeriesName, audioPick, subtitlePick, audioSync, notice, burnedSubtitle, originalLanguage,
                 autoSkipIntro: prefs.autoSkipIntro, autoSkipRecap: prefs.autoSkipRecap, autoNext: prefs.autoNext !== false,
                 segmentSeekFailed: () => note("segment-seek-failed", method),
+                styleKey: preferencesKey(preferenceViewer) + ":subtitle-style",
                 findAudio: (opener, language) => addAudio(item, opener, player, playerSignal, language) });
             playback.showJobToast = ui.hint;
             player.replaceChildren(media, ui.root);

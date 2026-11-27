@@ -112,11 +112,7 @@ async function verify(browser, profile, options) {
         const labels = rows => rows.evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label")));
         assert.deepEqual(await labels(audioRows), ["Original", "English", "Hungarian"]);
         assert.deepEqual(await labels(subtitleRows), ["Off", "English", "Hungarian"]);
-        assert.equal(await sheet.getByRole("heading", {name: "Timing", exact: true}).isVisible(), true);
-        const size = sheet.getByRole("radiogroup", {name: "Subtitle size"});
-        assert.deepEqual(await size.getByRole("radio").allTextContents(), ["Small", "Medium", "Large", "Extra large"]);
-        const medium = size.getByRole("radio", {name: "Medium"});
-        assert.equal(await medium.getAttribute("aria-checked"), "true");
+        assert.equal(await sheet.getByRole("heading", {name: "Timing", exact: true}).count(), 0);
         const panel = await sheet.boundingBox();
         const viewport = page.viewportSize();
         assert.ok(Math.abs(panel.x + panel.width / 2 - viewport.width / 2) < 1);
@@ -128,19 +124,44 @@ async function verify(browser, profile, options) {
             assert.ok(Math.abs(panel.y + panel.height / 2 - viewport.height / 2) < 1);
         }
         assert.equal(await button("Close audio and subtitles").evaluate(node => node === document.activeElement), true);
-        await medium.press("ArrowRight");
-        await page.keyboard.press("ArrowRight");
-        const extraLarge = size.getByRole("radio", {name: "Extra large"});
-        assert.equal(await focused(extraLarge), true);
-        assert.equal(await extraLarge.getAttribute("aria-checked"), "true");
-        assert.equal(await page.evaluate(() => localStorage.getItem("familyhub.movie.subtitle-size")), "extra-large");
         await button("Close audio and subtitles").press("Enter");
         assert.equal(await focused(tracks), true);
+
+        const styleOpener = button("Sound & subtitle style");
+        const styleSheet = page.getByRole("dialog", {name: "Sound & subtitle style"});
+        await styleOpener.press("Enter");
+        assert.equal(await sheet.count(), 0);
+        assert.equal(await focused(button("Close sound and subtitle style")), true);
+        assert.equal(await styleSheet.getByRole("heading", {name: "Timing", exact: true}).isVisible(), true);
+        const size = styleSheet.getByRole("radiogroup", {name: "Subtitle size"});
+        assert.deepEqual(await size.getByRole("radio").allTextContents(), ["Small", "Medium", "Large"]);
+        assert.deepEqual(await styleSheet.getByRole("radiogroup", {name: "Subtitle background"}).getByRole("radio").allTextContents(), ["None", "Shadow", "Box"]);
+        const medium = size.getByRole("radio", {name: "Medium"});
+        assert.equal(await medium.getAttribute("aria-checked"), "true");
+        await medium.press("ArrowRight");
+        const large = size.getByRole("radio", {name: "Large"});
+        assert.equal(await focused(large), true);
+        assert.equal(await large.getAttribute("aria-checked"), "true");
+        assert.match(await page.evaluate(() => Object.entries(localStorage).find(([key]) => key.includes("subtitle-style:"))?.[1] ?? ""), /"size":"large"/);
+        assert.equal(await page.locator(".movie-ui").getAttribute("data-subtitle-size"), "large");
+        await styleSheet.getByRole("radio", {name: "Box"}).click();
+        assert.equal(await page.locator(".movie-ui").getAttribute("data-subtitle-background"), "box");
+        const hide = styleSheet.getByRole("switch", {name: "Hide sound descriptions"});
+        await hide.press("Space");
+        assert.equal(await hide.getAttribute("aria-checked"), "true");
+        assert.equal(await focused(hide), true);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        await styleSheet.evaluate(node => Promise.all(node.getAnimations({subtree: true}).map(animation => animation.finished)));
+        await page.screenshot({path: path.join(output, profile + "-style-sheet.png"), animations: "disabled"});
+        // Only one sheet at a time; focus returns to the opener of the open one.
+        await styleSheet.getByRole("button", {name: "Close sound and subtitle style"}).press("Enter");
+        assert.equal(await focused(styleOpener), true);
+        assert.equal(await styleSheet.count(), 0);
         await page.keyboard.press("Space");
         await button("Pause").waitFor();
         assert.equal(await sheet.count(), 0);
         assert.equal(await button("Settings").count(), 0);
-        assert.equal(await focused(tracks), true);
+        assert.equal(await focused(styleOpener), true);
         await page.keyboard.press("k");
         await button("Play").waitFor();
 
@@ -173,7 +194,7 @@ async function verify(browser, profile, options) {
             await button("Exit full screen").waitFor();
             await page.keyboard.press("Escape");
             await button("Full screen").waitFor();
-            assert.equal(await focused(tracks), true);
+            assert.equal(await focused(styleOpener), true);
         }
         const input = page.getByRole("textbox", {name: "Player test input"});
         await input.press("f");

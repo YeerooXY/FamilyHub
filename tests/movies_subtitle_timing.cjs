@@ -66,8 +66,22 @@ async function verify() {
         const subs = sheet.getByRole("radiogroup", {name: "Subtitle track"});
         const radio = name => subs.getByRole("radio", {name, exact: true});
         const focused = locator => locator.evaluate(node => node === document.activeElement);
-        const output = label => sheet.getByRole("status", {name: label + " value"}).textContent();
-        const step = name => sheet.getByRole("button", {name, exact: true});
+        // Timing lives in the Sound & subtitle style sheet; choosing the track stays in Audio & Subtitles.
+        const styleOpener = page.getByRole("button", {name: "Sound & subtitle style", exact: true});
+        const style = page.getByRole("dialog", {name: "Sound & subtitle style"});
+        const closeStyle = style.getByRole("button", {name: "Close sound and subtitle style"});
+        const toStyle = async () => {
+            await page.keyboard.press("Escape");
+            await styleOpener.press("Enter");
+            await closeStyle.waitFor();
+        };
+        const toTracks = async () => {
+            await page.keyboard.press("Escape");
+            await opener.press("Enter");
+            await close.waitFor();
+        };
+        const output = label => style.getByRole("status", {name: label + " value"}).textContent();
+        const step = name => style.getByRole("button", {name, exact: true});
         const increaseShift = step("Increase subtitle shift"), increaseSpeed = step("Increase subtitle speed");
         const video = page.locator("video");
         const open = async title => {
@@ -77,7 +91,7 @@ async function verify() {
         };
         const exit = async () => {
             await page.keyboard.press("Escape");
-            assert.equal(await focused(opener), true);
+            assert.equal(await focused(opener) || await focused(styleOpener), true);
             await page.getByRole("button", {name: "Back to movies"}).press("Enter");
             await video.waitFor({state: "detached"});
             await page.getByRole("button", {name: "Back to titles", exact: true}).press("Enter");
@@ -92,11 +106,13 @@ async function verify() {
         assert.deepEqual(await video.locator("track").evaluateAll(nodes => nodes.map(node => node.src.match(/\/Subtitles\/(\d+)\//)[1])), ["9", "7"]);
         assert.equal(await radio("Off").getAttribute("aria-checked"), "true");
         assert.equal(await find.count(), 0);
-        assert.equal(await increaseShift.isDisabled(), true);
-        assert.equal(await sheet.getByText("Select a text subtitle to adjust timing.").isVisible(), true);
         assert.equal(await sheet.getByRole("button", {name: "Find subtitles", exact: true}).count(), 0);
         assert.equal(await sheet.getByRole("button", {name: "Add audio track", exact: true}).count(), 0);
         assert.equal(await sheet.getByRole("combobox", {name: "Subtitle language"}).count(), 0);
+        await toStyle();
+        assert.equal(await increaseShift.isDisabled(), true);
+        assert.equal(await style.getByText("Select a text subtitle to adjust timing.").isVisible(), true);
+        await toTracks();
         await page.waitForFunction(() => getComputedStyle(document.querySelector(".movie-sheet-tracks")).animationName === "movie-tracks-open");
         assert.equal(await close.evaluate(node => getComputedStyle(node.closest(".movie-sheet")).animationDuration), "0.2s");
         assert.equal(await focused(close), true);
@@ -121,8 +137,9 @@ async function verify() {
         await page.keyboard.press("Space");
         assert.equal(await focused(radio("English")), true);
         assert.equal(await radio("English").getAttribute("aria-checked"), "true");
-        assert.equal(await increaseShift.isEnabled(), true);
         await sheet.getByRole("status").filter({hasText: "Subtitles: English"}).waitFor({state: "attached"});
+        await toStyle();
+        assert.equal(await increaseShift.isEnabled(), true);
 
         await video.evaluate(node => {
             const track = [...node.textTracks].find(track => track.mode === "hidden");
@@ -147,7 +164,9 @@ async function verify() {
         await draw(101.20, "Later cue");
         await draw(102.20, "");
 
+        await toTracks();
         await radio("Hungarian").press("Enter");
+        await toStyle();
         assert.equal(await output("Shift"), "0.0 s");
         const hold = await increaseShift.boundingBox();
         await page.mouse.move(hold.x + hold.width / 2, hold.y + hold.height / 2);
@@ -169,8 +188,13 @@ async function verify() {
             });
             assert.equal(await output(label), limit);
         }
+        await toTracks();
         await radio("English").press("Enter");
+        await toStyle();
         assert.equal(await output("Shift"), "+1.1 s");
+        await toTracks();
+        // CSS animations run on real time, not the page clock: let the reopened sheet finish opening.
+        await sheet.evaluate(node => Promise.all(node.getAnimations({subtree: true}).map(animation => animation.finished)));
 
         for (const width of [320, 390, 1280, 1920]) {
             await page.setViewportSize({width, height: 900});
@@ -195,6 +219,7 @@ async function verify() {
         assert.equal(await audioGroup.getByRole("radio", {name: "Hungarian", exact: true}).getAttribute("aria-disabled"), "true");
         assert.equal(await findAudio.isVisible(), true);
         await radio("English").press("Enter");
+        await toStyle();
         assert.equal(await output("Shift"), "0.0 s");
         assert.equal(await output("Speed"), "0.00 %");
         await exit();
@@ -209,7 +234,6 @@ async function verify() {
             Object.defineProperty(node, "currentTime", {value: 600, writable: true});
         });
         await radio("Hungarian").press("Enter");
-        await sheet.getByText("Timing is unavailable for image subtitles.").waitFor();
         assert.equal(await video.evaluate((node, previous) => {
             Object.defineProperties(node, {
                 duration: {value: 3600}, currentTime: {value: 0, writable: true}
@@ -219,6 +243,8 @@ async function verify() {
         }, previousVideo), true);
         assert.equal(await radio("Hungarian").getAttribute("aria-checked"), "true");
         assert.equal(await focused(radio("Hungarian")), true);
+        await toStyle();
+        await style.getByText("Timing is unavailable for image subtitles.").waitFor();
         assert.equal(await increaseShift.isDisabled(), true);
         await exit();
         await page.evaluate(async jellyfin => {
@@ -227,6 +253,7 @@ async function verify() {
         }, jellyfin);
         await open(titles[0].Name);
         assert.equal(await radio("English").getAttribute("aria-checked"), "true");
+        await toStyle();
         assert.equal(await output("Shift"), "+1.1 s");
         assert.equal(await output("Speed"), "+0.10 %");
     } finally {

@@ -45,6 +45,15 @@
         </select>
     </div>
     <div class="setting-row">
+        <label for="movie-backup-audio">Backup audio</label>
+        <select id="movie-backup-audio" @bind="preferences.BackupAudio" @bind:after="Save" disabled="@(!ready)" aria-describedby="movie-backup-audio-help">
+            <option value="none">None</option>
+            <option value="hu">Hungarian</option>
+            <option value="en">English</option>
+        </select>
+    </div>
+    <p class="setting-help" id="movie-backup-audio-help">Used when a movie has no preferred audio. Has no effect while Preferred audio is Media default.</p>
+    <div class="setting-row">
         <label for="movie-preferred-subtitles">Preferred subtitles</label>
         <select id="movie-preferred-subtitles" @bind="preferences.Subtitles" @bind:after="Save" disabled="@(!ready)">
             <option value="default">Media default</option>
@@ -96,6 +105,7 @@
     {
         public Preferences() { }
         public string Audio { get; set; } = "default";
+        public string BackupAudio { get; set; } = "none";
         public string Subtitles { get; set; } = "default";
         public string DataSaver { get; set; } = "auto";
         public string Screen { get; set; } = "auto";
