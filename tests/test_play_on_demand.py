@@ -249,6 +249,28 @@ class ListenerAdmissionTests(Base):
             self.assertEqual(latest, {'stage': 'client_' + stage, 'client_ms': 750, 'position_ms': 50400})
         self.assertEqual(self.go(other, 'GET', endpoint).json['actions'], [])
 
+    def test_next_song_failures_keep_their_cause_without_free_text(self):
+        client, token = self.signed_in()
+        endpoint = '/api/playback/diagnostics'
+        action = 'b' * 32
+
+        def latest(reason):
+            with self.assertLogs('music_web', 'WARNING') as logs:
+                self.assertEqual(self.post(client, token, endpoint, json={
+                    'action': action, 'stage': 'next_warmup_failed', 'elapsed_ms': 900,
+                    'position_ms': 55000, 'reason': reason}).status_code, 200)
+            event = self.go(client, 'GET', endpoint).json['actions'][0]['events'][-1]
+            return event.get('reason'), '\n'.join(logs.output)
+
+        self.assertEqual(self.post(client, token, endpoint, json={
+            'action': action, 'stage': 'play', 'elapsed_ms': 0}).status_code, 200)
+        self.assertEqual(latest('server_busy'), ('server_busy', mock.ANY))
+        self.assertIn('next_warmup_failed at 0:55 reason=server_busy', latest('server_busy')[1])
+        self.assertEqual(latest('exception:NetworkOnMainThreadException')[0], 'exception:NetworkOnMainThreadException')
+        for invalid in ('exception:has spaces', 'exception:' + URL, URL, 'freezer'):
+            with self.subTest(invalid=invalid):
+                self.assertIsNone(latest(invalid)[0])
+
     def test_background_download_promotes_a_completed_preview_to_an_import(self):
         client, token = self.signed_in()
         with mock.patch('threading.Thread.start'):

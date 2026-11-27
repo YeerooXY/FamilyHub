@@ -38,7 +38,7 @@ from .song_analysis import register as register_song_analysis
 from .finished_audio import FinishedAudio, prepare_record, activity as finished_audio_activity
 from .playlist_artwork import PlaylistArtwork, ArtworkError
 from .playback_diagnostics import (
-    PlaybackDiagnostics, CLIENT_STAGES, NATIVE_STAGES, NATIVE_REASONS, EXIT_STAGES, record_client_exit,
+    PlaybackDiagnostics, CLIENT_STAGES, NATIVE_STAGES, NATIVE_REASONS, EXIT_STAGES, record_client_exit, native_reason,
 )
 from .lyrics import LyricsCache
 from .worker_activity import WorkerActivity, stage_summary
@@ -59,7 +59,8 @@ MAX_VERIFIED_SOURCES = 4096  # Keep a full family library warm while bounding ma
 PREVIEW_TTL = 2 * 60 * 60
 MAX_PREVIEWS = 24
 PLAYBACK_PROBLEMS = frozenset({"interrupted", "early_end", "unexpected_pause", "native_paused", "native_suppressed",
-                               "native_error", "player_error", "stream_failed", "failed", "resume_failed"})
+                               "native_error", "player_error", "stream_failed", "failed", "resume_failed",
+                               "next_warmup_failed"})
 MAX_CACHE_BYTES = 16 << 30
 MIN_FREE_BYTES = 256 << 20
 
@@ -294,7 +295,7 @@ def create_app(test_config=None):
             if type(position) is not int or not 0 <= position <= 86400000:
                 raise ApiError("Invalid playback position.")
             observation = {"position_ms": position}
-            if isinstance(reason, str) and reason in NATIVE_REASONS.get(stage, ()):
+            if native_reason(stage, reason):
                 observation["reason"] = reason
         playback_diagnostics.record(g.user, action, "client_" + stage, client_ms=elapsed, begin=True,
                                     observation=observation)

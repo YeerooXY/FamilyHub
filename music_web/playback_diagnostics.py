@@ -100,7 +100,21 @@ NATIVE_REASONS = {
         "end_of_item", "suppressed_too_long", "other",
     }),
     "native_suppressed": frozenset({"transient_audio_focus_loss", "unsuitable_audio_output", "other"}),
+    "next_warmup_failed": frozenset({
+        "timeout", "cancelled", "server_busy", "not_found", "unauthorized", "changed", "server_error", "network",
+        "storage_denied", "invalid_data", "io", "player",
+    }),
 }
+
+
+def native_reason(stage, reason):
+    """True for a known cause, or for an exception type name sent as exception:<Type> (never a message)."""
+    if not isinstance(reason, str):
+        return False
+    if reason in NATIVE_REASONS.get(stage, ()):
+        return True
+    return (stage == "next_warmup_failed" and reason.startswith("exception:")
+            and EXCEPTION_TYPE.fullmatch(reason[10:]) is not None)
 
 
 class PlaybackDiagnostics:

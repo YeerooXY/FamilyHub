@@ -1093,15 +1093,16 @@ public sealed class MusicPlayer(MusicSession session)
             cancellation.CancelAfter(Timeout.InfiniteTimeSpan);
             opened = !incomingFailed;
         }
-        catch (Exception error) when (error is OperationCanceledException or IOException or HttpRequestException
-            or InvalidOperationException or InvalidDataException or FamilyHubApiException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception error)
         {
+            // Every failure is recorded with its cause (Android exceptions included), so the server log explains it.
             if (ReferenceEquals(upcomingPreparation, cancellation) && version == requestVersion)
             {
                 if (next < queue.Count)
                 {
                     StartWarmup();
-                    RecordWarmupFailure(queue[next], warmupAction);
+                    RecordWarmupFailure(queue[next], warmupAction,
+                        FailureReason(error, cancelled: token.IsCancellationRequested));
                 }
                 preparedTrack = null;
                 if (standby is { } owner) { streamedDecks.Remove(owner); owner.Stop(); }
@@ -1122,6 +1123,22 @@ public sealed class MusicPlayer(MusicSession session)
         }
     }
 
+    // A short cause for a failed playback step: categories and exception type names only, never messages or URLs.
+    private static string FailureReason(Exception error, bool cancelled = false) => error switch
+    {
+        OperationCanceledException or TimeoutException => cancelled ? "cancelled" : "timeout",
+        FamilyHubApiException { StatusCode: 503 } => "server_busy",
+        FamilyHubApiException { StatusCode: 404 or 410 } => "not_found",
+        FamilyHubApiException { StatusCode: 401 or 403 } => "unauthorized",
+        FamilyHubApiException { StatusCode: 409 } => "changed",
+        FamilyHubApiException => "server_error",
+        HttpRequestException => "network",
+        UnauthorizedAccessException => "storage_denied",
+        InvalidDataException => "invalid_data",
+        IOException => "io",
+        _ => "exception:" + error.GetType().Name,
+    };
+
     private void FinishWarmup()
     {
         if (standbyWarmupAction is not { } action) return;
@@ -1130,11 +1147,11 @@ public sealed class MusicPlayer(MusicSession session)
         session.RecordPlaybackObservation(action, "next_warmup_finish", Position, null);
     }
 
-    private void RecordWarmupFailure(MusicTrack track, string? action = null)
+    private void RecordWarmupFailure(MusicTrack track, string? action = null, string? reason = null)
     {
         action ??= standbyWarmupAction;
         if (action is null && deck is { } owner) action = playActions.GetValueOrDefault(owner)?.Id;
-        if (action is not null) session.RecordPlaybackObservation(action, "next_warmup_failed", Position, null);
+        if (action is not null) session.RecordPlaybackObservation(action, "next_warmup_failed", Position, reason ?? "player");
         standbyWarmupAction = null;
         failedNext = track;
         warmupFailures++;

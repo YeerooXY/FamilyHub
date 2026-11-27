@@ -1559,7 +1559,8 @@ public sealed class MusicSession
         if (stage != "checkpoint" && !stage.StartsWith("notification_", StringComparison.Ordinal)
             && elapsed is >= 0 and <= 3600000)
             QueuePlaybackDiagnostic(new(id, stage, elapsed, (int)(position * 1000),
-                stage.StartsWith("native_", StringComparison.Ordinal) ? reason : null));
+                stage.StartsWith("native_", StringComparison.Ordinal) || stage == "next_warmup_failed"
+                    ? reason : null));
     }
 
     private void PersistPlaybackAttempt(LocalPlaybackAttempt attempt)
@@ -1685,9 +1686,10 @@ public sealed class MusicSession
                 }
             }
         }
-        catch (Exception error) when (error is HttpRequestException or FamilyHubApiException or OperationCanceledException
-            or ObjectDisposedException or JsonException or IOException or InvalidDataException)
+        catch (Exception)
         {
+            // Any failure, including Android (Java) exceptions, must release the queue. A queue left marked as sending
+            // dropped every later report until the app restarted (27 Nov 2026). The next report or reconnect retries.
             lock (playbackDiagnosticQueues) queue.Sending = false;
         }
     }
