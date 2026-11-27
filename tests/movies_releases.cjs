@@ -87,6 +87,11 @@ async function openReleaseFixture(page, {shell = false, sources = fixture} = {})
                         {id:91, kind:"movie", title:"Late artwork", poster:"/movie-art/movie.jpg", runtime:95}
                     ]}));
                 });
+                if (method === "MovieMatches" && term === "Foreign harbour") return new Promise(resolve => {
+                    window.finishRowArtwork = () => resolve(JSON.stringify({matches: [
+                        {id: 92, kind: "movie", title: "Foreign Harbour", poster: "/movie-art/movie-alt.jpg"}
+                    ]}));
+                });
                 if (method === "MovieMatches") return JSON.stringify(term === "Browse releases" ? {matches:
                     Array.from({length:10}, (_, i) => ({id:50 + i, kind:"movie", title:`Browse film ${i + 1}`}))
                 } : term === "The Gentlemen S2" ? {matches:[
@@ -98,6 +103,13 @@ async function openReleaseFixture(page, {shell = false, sources = fixture} = {})
                 if (term === "Slow search") return new Promise(resolve => window.finishSlow = () => resolve(JSON.stringify({results:fixture})));
                 if (term === "Many releases") return JSON.stringify({results:Array.from({length: 10}, (_, index) =>
                     ({title: `Release ${index + 1} 1080p`, size: 1e9, seeders: 50}))});
+                if (term === "Poster search") return JSON.stringify({
+                    title_details: {title: "Poster search", poster: "/movie-art/movie.jpg", kind: "movie"},
+                    results: ["Poster search 1080p WEB-DL", "Foreign harbour 1080p WEB-DL", "Foreign harbour 720p WEB-DL",
+                        "Unknown port 1080p", "Blank sky 1080p",
+                        ...Array.from({length: 5}, (_, i) => `Other port ${i + 1} 720p`)]
+                        .map((title, i) => ({title, size: (i + 1) * 1e9, seeders: 50}))
+                });
                 if (term === "Unavailable" && !window.recovered) {
                     window.recovered = true;
                     return JSON.stringify({error:"The sources did not respond. Try again."});

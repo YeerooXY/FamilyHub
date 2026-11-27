@@ -23,9 +23,18 @@ async function check(browser, profile, options) {
         await heading.locator("img").waitFor();
         const expectedFacts = ["2026", "6", "1 h 50 min", "4K", "DDP 5.1"];
         await film.getByRole("img", {name: "Sound: Dolby Digital Plus 5.1"}).waitFor();
-        assert.deepEqual(await film.locator(".movie-title-facts .movie-chip").allTextContents(), expectedFacts);
+        assert.deepEqual(await film.locator(".movie-title-facts > span").allTextContents(), expectedFacts);
+        assert.equal(await film.locator(".movie-title-facts > span:not(.movie-chip)").count(), 2);
+        assert.equal(await film.getByText(/TMDB/).count(), 0);
+        assert.equal(await film.getByRole("heading", {name: "Cast", exact: true}).count(), 0);
+        assert.equal(await film.getByRole("list", {name: "Cast", exact: true}).count(), 1);
         assert.equal(await film.getByRole("img", {name: "Rated 6", exact: true}).textContent(), "6");
         assert.equal(await film.locator(".movie-title-facts .movie-release-quality").getAttribute("data-level"), "4k-web");
+        assert.equal(await film.locator(".movie-title-facts :is(.movie-release-quality, .movie-sound-chip)").evaluateAll(
+            badges => badges.every(badge => {
+                const style = getComputedStyle(badge);
+                return style.backgroundColor === "rgba(0, 0, 0, 0)" && parseFloat(style.borderTopWidth) >= 1;
+            })), true);
         assert.equal(await film.getByText("A pilot finds an abandoned station.").isVisible(), true);
         assert.equal(await film.getByRole("button", {name: /^(?:Download|Add to library)$/}).count(), 0);
 
@@ -82,25 +91,43 @@ async function check(browser, profile, options) {
                 return art?.src && new URL(art.src).searchParams.get("maxWidth") === expectedWidth;
             }, expectedWidth);
             assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${profile} ${width}`);
+            if (desktop) await heading.focus();
             const layout = await film.evaluate(node => {
                 const image = node.querySelector(".movie-hero-art");
                 const art = image.getBoundingClientRect(), header = document.querySelector(".app-header").getBoundingClientRect();
+                const back = node.querySelector(".movie-title-back").getBoundingClientRect();
                 const documentScroll = document.scrollingElement ?? document.documentElement;
                 const host = node.closest(".workspace > main") ?? documentScroll;
+                const scrolled = [];
+                for (let ancestor = node.querySelector(".movie-title-text h2"); ancestor; ancestor = ancestor.parentElement)
+                    if (ancestor.scrollTop !== 0) scrolled.push(ancestor.className || ancestor.tagName);
                 return {top: art.top - header.bottom, left: art.left, right: innerWidth - art.right,
                     bottom: art.bottom - node.getBoundingClientRect().bottom,
                     viewportBottom: innerHeight - art.bottom,
                     radius: getComputedStyle(image).borderRadius, fit: getComputedStyle(image).objectFit,
+                    headerAndBackVisible: [header, back].every(rect =>
+                        rect.top >= 0 && rect.bottom <= innerHeight && rect.left >= 0 && rect.right <= innerWidth),
+                    scrolled,
                     overflow: host.scrollHeight - host.clientHeight,
                     pageOverflow: documentScroll.scrollHeight - documentScroll.clientHeight};
             });
             assert.deepEqual([layout.top, layout.left, layout.right, layout.bottom, layout.radius, layout.fit],
                 [0, 0, 0, 0, "0px", "cover"], `${profile} ${width}x${height}`);
             if (desktop) {
+                assert.equal(layout.headerAndBackVisible, true, `${profile} ${width}x${height}`);
+                assert.deepEqual(layout.scrolled, [], `${profile} ${width}x${height} scrolled after heading focus`);
                 const innerOverflow = await related.locator(".movie-shelf-scroll").evaluate(node => node.scrollHeight - node.clientHeight);
                 assert.ok(layout.overflow <= 1 && innerOverflow <= 1 && layout.pageOverflow <= 1,
                     `${profile} ${width}x${height} ${JSON.stringify(layout)}`);
                 assert.equal(layout.viewportBottom, 0, "backdrop reaches the bottom of the viewport");
+                assert.ok(await related.evaluate(node => Math.abs(node.getBoundingClientRect().bottom - innerHeight) <= 1));
+                assert.ok(await film.locator(".movie-title-back svg").evaluate(back =>
+                    Math.abs(back.getBoundingClientRect().left -
+                        document.querySelector("#open-hub svg").getBoundingClientRect().left) <= 1));
+                if ([1920, 2560].includes(width)) {
+                    const portrait = await film.locator(".movie-cast-portrait").first().boundingBox();
+                    assert.ok(Math.abs(portrait.width - (width === 1920 ? 120 : 160)) <= 1);
+                }
                 const cards = await related.locator(".movie-shelf-scroll").evaluate(node => {
                     const frame = node.getBoundingClientRect();
                     const boxes = [...node.querySelectorAll(".movie-card")].map(card => card.getBoundingClientRect());
@@ -112,6 +139,35 @@ async function check(browser, profile, options) {
             }
         }
         if (desktop) {
+            const viewport = related.locator(".movie-shelf-scroll");
+            const cards = viewport.locator(".movie-card");
+            const peek = cards.nth(5);
+            const nextPage = related.getByRole("button", {name: "Next more like this"});
+            assert.equal(await nextPage.evaluate(node => getComputedStyle(node).backgroundColor), "rgba(0, 0, 0, 0)");
+            assert.equal((await nextPage.boundingBox()).height, 60);
+            await page.waitForFunction(card => card.tabIndex === -1, await peek.elementHandle());
+            const point = await peek.evaluate(node => {
+                const card = node.getBoundingClientRect(), frame = node.closest(".movie-shelf-scroll").getBoundingClientRect();
+                return {x: (card.left + frame.right) / 2, y: card.top + 10};
+            });
+            await page.mouse.move(point.x, point.y);
+            await page.waitForFunction(card => getComputedStyle(card).outlineColor === "rgba(0, 0, 0, 0)", await peek.elementHandle());
+            await page.mouse.click(point.x, point.y);
+            await page.waitForFunction(card => card.tabIndex === 0, await peek.elementHandle());
+            assert.equal(await film.isVisible(), true);
+            assert.equal(await page.getByRole("searchbox").count(), 0);
+            await viewport.evaluate(node => { node.dispatchEvent(new WheelEvent("wheel")); node.scrollLeft = 0; });
+            await page.waitForFunction(card => card.tabIndex === -1, await peek.elementHandle());
+            await cards.nth(4).focus();
+            await page.keyboard.press("Tab");
+            assert.equal(await focused(nextPage), true);
+            await cards.nth(4).focus();
+            await page.keyboard.press("ArrowRight");
+            assert.equal(await focused(peek), true);
+            // The card becomes tabbable once the smooth scroll has brought it fully into view.
+            await page.waitForFunction(card => card.tabIndex === 0, await peek.elementHandle());
+            await viewport.evaluate(node => { node.dispatchEvent(new WheelEvent("wheel")); node.scrollLeft = 0; });
+            await page.waitForFunction(card => card.tabIndex === -1, await peek.elementHandle());
             const cast = film.locator(".movie-cast li").first();
             const checkOutline = async (target, width) => {
                 await page.waitForFunction(({node, width}) => {
@@ -168,16 +224,29 @@ async function check(browser, profile, options) {
         assert.equal(await sequel.locator(".movie-hero-art").getAttribute("src"), null);
         const automatic = await sequel.evaluate(node => node.style.getPropertyValue("--movie-hero-start"));
         assert.equal(automatic, "#603b26");
-        if (desktop) {
-            const read = sequel.getByRole("button", {name: "Read full description"});
-            await read.press("Enter");
-            const description = sequel.getByRole("dialog", {name: "Description"});
-            await description.waitFor();
-            assert.equal(await description.locator("p").textContent(), await sequel.locator(".movie-film-overview").textContent());
-            await page.keyboard.press("Escape");
-            await description.waitFor({state: "hidden"});
-            assert.equal(await focused(read), true);
-        }
+        const read = sequel.locator(".movie-description-more");
+        const description = sequel.locator(".movie-film-overview");
+        await read.waitFor();
+        const collapsedHeight = (await description.boundingBox()).height;
+        assert.equal(await read.getAttribute("aria-label"), "Show full description");
+        await read.press("Enter");
+        assert.equal(await read.getAttribute("aria-expanded"), "true");
+        assert.equal(await read.getAttribute("aria-label"), "Show less");
+        assert.equal(await focused(read), true);
+        await page.waitForFunction(node => node.clientHeight >= node.scrollHeight - 1, await description.elementHandle());
+        assert.ok((await description.boundingBox()).height > collapsedHeight);
+        await read.press("Space");
+        assert.equal(await read.getAttribute("aria-expanded"), "false");
+        assert.equal(await focused(read), true);
+        await page.waitForFunction(({node, height}) => Math.abs(node.getBoundingClientRect().height - height) <= 1,
+            {node: await description.elementHandle(), height: collapsedHeight});
+        await page.emulateMedia({reducedMotion: "reduce"});
+        await read.press("Enter");
+        assert.equal(await description.evaluate(node => node.getAnimations().length), 0);
+        assert.equal(await description.evaluate(node => node.clientHeight >= node.scrollHeight - 1), true);
+        await read.press("Space");
+        assert.equal(await focused(read), true);
+        await page.emulateMedia({reducedMotion: options.reducedMotion ?? "no-preference"});
         await sequel.getByRole("button", {name: "Back to titles"}).press("Enter");
         assert.equal(await focused(owned), true);
 

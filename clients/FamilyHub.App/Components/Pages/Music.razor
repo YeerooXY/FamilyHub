@@ -323,6 +323,7 @@ else
                     <div class="setting-row"><span>Latest release</span><span id="settings-update-status" role="status">@UpdateStatus</span></div>
                     <div class="setting-row"><button id="settings-release-history" type="button" @onclick="OpenReleaseHistory">Release history</button></div>
                     <AppUpdate Id="settings-app-update" @key="Session.Server" InitialRelease="@(updateCheckOrigin == Session.Server ? startupUpdate : null)" VersionInHeading="true" />
+                    <p id="settings-tmdb-credit" class="muted"><strong>TMDB</strong> <span>Film data from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</span></p>
                 </section>
             }
             else if (settingsSection == "music")

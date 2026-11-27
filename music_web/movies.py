@@ -739,23 +739,24 @@ def register_movies(app, cfg, body, allow, session_is_live):
         if g.user not in cfg.get('JELLYFIN_PROFILES', {}):
             return jsonify(error='Movies are unavailable for this profile.'), 403
         ident = request.args.get('tmdb', '')
-        if request.args.get('kind') != 'movie' or not re.fullmatch(r'[1-9][0-9]{0,9}', ident):
+        kind = request.args.get('kind')
+        if kind not in ('movie', 'tv') or not re.fullmatch(r'[1-9][0-9]{0,9}', ident):
             return jsonify(error='Choose a film from the library.'), 400
         if not allow('movie-related:' + g.user, 30, 60):
-            return jsonify(error='Wait a minute before loading related films again.'), 429
+            return jsonify(error='Wait a minute before loading related titles again.'), 429
         key = poster_key if isinstance(poster_key, str) else None
         if not key and not tmdb_token:
             return jsonify(matches=[])
 
         def related():
-            movie = tmdb_get(f'movie/{ident}', key, {'append_to_response': 'recommendations'})
-            if not movie:
+            detail = tmdb_get(f'{kind}/{ident}', key, {'append_to_response': 'recommendations'})
+            if not detail:
                 return None
-            collection = movie.get('belongs_to_collection')
+            collection = detail.get('belongs_to_collection') if kind == 'movie' else None
             collection_id = collection.get('id') if isinstance(collection, dict) else None
             parts = (tmdb_get(f'collection/{collection_id}', key).get('parts')
                      if type(collection_id) is int and 0 < collection_id < 10**10 else [])
-            recommendations = movie.get('recommendations')
+            recommendations = detail.get('recommendations')
             recommendations = recommendations.get('results') if isinstance(recommendations, dict) else []
             rows, library_matches = [], {}
             seen = {int(ident)}
@@ -763,11 +764,14 @@ def register_movies(app, cfg, body, allow, session_is_live):
                 for row in group[:100] if isinstance(group, list) else ():
                     if not isinstance(row, dict) or row.get('adult') is True:
                         continue
-                    parsed = tmdb.parse({'results': [{**row, 'media_type': 'movie'}]})
+                    if row.get('media_type', kind) != kind:
+                        continue
+                    parsed = tmdb.parse({'results': [{**row, 'media_type': kind}]})
                     if not parsed or parsed[0]['id'] <= 0 or parsed[0]['id'] in seen:
                         continue
                     match = parsed[0]
-                    if not tmdb.released_film(row, match):
+                    release = row if kind == 'movie' else {'release_date': row.get('first_air_date')}
+                    if not tmdb.released_film(release, match):
                         library_matches.setdefault(match['id'], {key: match[key] for key in ('id', 'title', 'year')})
                         continue
                     library_matches.pop(match['id'], None)
@@ -777,9 +781,10 @@ def register_movies(app, cfg, body, allow, session_is_live):
                         rows.append(match)
             return dict(matches=rows, library_matches=list(library_matches.values()))
 
-        matches = cached_search(('tmdb-related', ident), 3600, related)
+        matches = cached_search(('tmdb-related', kind, ident), 3600, related)
         if matches is None:
-            return jsonify(error='Related films are unavailable.'), 503
+            label = 'films' if kind == 'movie' else 'series'
+            return jsonify(error=f'Related {label} are unavailable.'), 503
         return jsonify(matches)
 
     def catalogue_seasons(ident, key):

@@ -1,4 +1,4 @@
-"""Offline related-film route tests. Run from tests with unittest discovery."""
+"""Offline related title route tests. Run from tests with unittest discovery."""
 import io
 import json
 from urllib.parse import parse_qs, urlsplit
@@ -70,10 +70,36 @@ class MovieRelated(test_music_web.Base):
         self.assertEqual(self.go(self.app.test_client(), 'GET', self.route).status_code, 401)
         self.assertEqual(self.go(self.viewer('sample-b'), 'GET', self.route).status_code, 403)
         viewer = self.viewer()
-        for query in ('', 'tmdb=0&kind=movie', 'tmdb=42&kind=tv', 'tmdb=1%2F2&kind=movie',
+        for query in ('', 'tmdb=0&kind=movie', 'tmdb=42&kind=person', 'tmdb=1%2F2&kind=movie',
                       'tmdb=99999999999&kind=movie'):
             self.assertEqual(self.go(viewer, 'GET', '/api/movies/related?' + query).status_code, 400)
         opener.assert_not_called()
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_series_recommendations_use_first_air_date_and_a_separate_cache(self, opener):
+        related = {'id': 43, 'name': 'Night Shift', 'first_air_date': '2021-01-01', 'poster_path': '/night.jpg'}
+        opener.return_value.open.side_effect = [
+            tmdb_reply({'recommendations': {'results': []}}),
+            tmdb_reply({'belongs_to_collection': {'id': 202}, 'recommendations': {'results': [
+                {**related, 'id': 42},
+                related, related,
+                {**related, 'id': 44, 'poster_path': None},
+                {**related, 'id': 45, 'first_air_date': '2999-01-01'},
+                {**related, 'id': 46, 'adult': True},
+                {**related, 'id': 47, 'media_type': 'movie'},
+            ]}}),
+        ]
+        viewer = self.viewer()
+        self.assertEqual(self.go(viewer, 'GET', self.route).json['matches'], [])
+        route = '/api/movies/related?tmdb=42&kind=tv'
+        result = self.go(viewer, 'GET', route)
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual([(row['id'], row['title'], row['kind'], row['year']) for row in result.json['matches']],
+                         [(43, 'Night Shift', 'tv', 2021)])
+        self.assertEqual([row['id'] for row in result.json['library_matches']], [44, 45])
+        self.assertEqual(self.go(viewer, 'GET', route).json, result.json)
+        self.assertEqual([urlsplit(call.args[0].full_url).path for call in opener.return_value.open.call_args_list],
+                         ['/3/movie/42', '/3/tv/42'])
 
     @patch('music_web.movies.urllib.request.build_opener')
     def test_timeout_is_a_bounded_generic_failure(self, opener):

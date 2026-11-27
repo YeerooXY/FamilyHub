@@ -105,9 +105,16 @@ async function checkWidth(browser, width, height) {
         await logo.waitFor();
         assert.match(await page.locator(".movie-hero-art").getAttribute("src"), new RegExp(`maxWidth=${width > 1920 ? 3840 : 1920}$`));
         const meta = page.locator(".movie-hero-meta");
-        assert.deepEqual(await meta.locator(".movie-chip").allTextContents(), ["2001", "12", "1 h 20 min", "1080p"]);
+        assert.deepEqual((await meta.locator(":scope > span").allTextContents()).slice(0, 4), ["2001", "12", "1 h 20 min", "1080p"]);
+        for (const label of ["2001", "1 h 20 min"]) {
+            assert.equal(await meta.getByText(label, {exact: true}).evaluate(node => node.classList.contains("movie-chip")), false);
+        }
         assert.equal(await meta.getByRole("img", {name: "Rated 12"}).textContent(), "12");
         assert.equal(await meta.locator(".movie-release-quality").getAttribute("data-level"), "web");
+        assert.equal(await meta.locator(".movie-release-quality").evaluate(node => {
+            const style = getComputedStyle(node);
+            return style.backgroundColor === "rgba(0, 0, 0, 0)" && parseFloat(style.borderTopWidth) >= 1;
+        }), true);
 
         const compact = shelf(page, "Collections");
         const small = await measure(compact);

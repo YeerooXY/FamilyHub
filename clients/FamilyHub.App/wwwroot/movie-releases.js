@@ -324,7 +324,7 @@ function downloadOptions(parent, opener, signal, identity, row, {icon, chainImag
 }
 
 export function buildReleaseSearch(search, signal, download, {term, screen, icon, searchTitle, titleHue, chainImages, palette,
-    preferences, save, downloadProgress, watchLink, onResults}) {
+    preferences, save, downloadProgress, watchLink, onResults, matchTitle}) {
     const panel = document.createElement("section");
     panel.className = "movie-releases";
     panel.hidden = true;
@@ -367,6 +367,18 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
     });
     panel.prepend(outage.card);
     let rows = [], busy = false, matches = [], details = {}, identity = {}, usedPoster;
+    const artworkLookups = new Map();
+    const titleParts = name => {
+        const year = /^(.*) \((\d{4})\)$/.exec(name);
+        const text = year?.[1] ?? name;
+        const title = text.replace(/\s+(?:(?:full|teljes)[ ._-]+(?:hun|eng|movie|film)|hun|eng|magyarul)$/i, "").trim();
+        return {title: title || text, year: year?.[2]};
+    };
+    const searched = titleParts(displayTitle(cleanResultTitle(term)));
+    const sharesPoster = row => [searched.title, identity.title, details.hungarian_title].some(name =>
+        name && searchTitle(name) === row.artKey) &&
+        (!row.artTitle.year || !(identity.year ?? searched.year) ||
+            Number(row.artTitle.year) === Number(identity.year ?? searched.year));
     const tiers = [["8k", "8K"], ["4k-remux", "4K Remux"], ["4k-web", "4K"], ["web", "1080p"], ["hd", "720p and below"]];
     const tierOrder = new Map(tiers.map(([tier], index) => [tier, index]));
     const legend = panel.querySelector(".movie-release-legend");
@@ -429,6 +441,27 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
             (a.orderKey < b.orderKey ? -1 : Number(a.orderKey > b.orderKey));
     }
 
+    function loadRowArtwork() {
+        for (const row of rows) {
+            if (sharesPoster(row)) {
+                row.setArtwork(identity);
+                continue;
+            }
+            const key = row.artKey;
+            if (!artworkLookups.has(key) && artworkLookups.size < 6)
+                artworkLookups.set(key, matchTitle(row.artTitle.title).catch(() => null));
+            void artworkLookups.get(key)?.then(reply => {
+                if (signal.aborted || !panel.isConnected || sharesPoster(row)) return;
+                const exact = Array.isArray(reply?.matches) ? reply.matches.filter(match =>
+                    typeof match?.title === "string" && searchTitle(match.title) === row.artKey &&
+                    (!row.artTitle.year || Number(match.year) === Number(row.artTitle.year))) : [];
+                const narrowed = exact.length > 1 && (row.episodes || releaseKind(row.title)) ?
+                    exact.filter(match => match.kind === "tv") : exact;
+                if (narrowed.length === 1) row.setArtwork(narrowed[0], true);
+            });
+        }
+    }
+
     list.addEventListener("keydown", event => {
         if (event.altKey || event.ctrlKey || event.metaKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
         const row = event.target.closest(".movie-release");
@@ -442,6 +475,14 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         const item = document.createElement("li");
         item.className = "movie-release";
         item.dataset.tier = row.tier;
+        const art = chip("movie-art movie-release-row-poster", "");
+        const image = document.createElement("img");
+        art.setAttribute("aria-hidden", "true");
+        art.append(image);
+        image.alt = "";
+        image.decoding = "async";
+        image.loading = "lazy";
+        image.referrerPolicy = "no-referrer";
         const quality = chip("movie-release-quality movie-release-block", row.picture, row.tier);
         if (row.source) quality.append(" ", chip("movie-release-source", row.source));
         const head = document.createElement("div"), title = document.createElement("h3");
@@ -497,7 +538,7 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         progress.max = 1;
         progress.setAttribute("aria-label", `Download progress for ${row.name}`);
         progress.hidden = true;
-        const label = row.episodes ? `${row.name}, ${row.kind}`
+        const label = () => row.episodes ? `${row.name}, ${row.kind}`
             : `${row.name}, ${row.quality.label}, ${row.size ? (row.size / gib).toFixed(1) + " GB" : "size unknown"}`;
         const allowed = canDownload && (row.guid || row.site && (row.url || row.episodes));
         const actionLabel = chip("movie-release-action-label", "");
@@ -510,7 +551,7 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         const updateAction = () => {
             const text = row.sent ? "Added" : row.pending ? "Sending…" : row.failed ? "Try again" : "Download";
             actionLabel.textContent = text;
-            action.setAttribute("aria-label", `${text} ${label}`);
+            action.setAttribute("aria-label", `${text} ${label()}`);
             if (!allowed || row.pending || row.sent) action.setAttribute("aria-disabled", "true");
             else action.removeAttribute("aria-disabled");
             if (allowed && row.guid && !row.site && !row.sent) action.setAttribute("aria-haspopup", "dialog");
@@ -520,13 +561,13 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         };
         if (!allowed) action.title = canDownload ? "Search again to get a download reference." : "Ask the server owner to enable downloads for your profile.";
         updateAction();
-        const send = async (options, close) => {
+        const send = async (selectedIdentity, options, close) => {
             row.pending = true;
             receipt.classList.add("movie-visually-hidden");
             receipt.textContent = "";
             updateAction();
             let reply;
-            try { reply = await download(row, options, identity, action, close); } catch {}
+            try { reply = await download(row, options, selectedIdentity, action, close); } catch {}
             if (signal.aborted) return;
             row.pending = false;
             row.sent = reply?.state === "sent";
@@ -539,14 +580,36 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         action.addEventListener("click", () => {
             // A closed dialog can still be waiting for its close event.
             if (action.getAttribute("aria-disabled") === "true" || panel.querySelector("dialog[open]")) return;
-            if (row.site) { action.focus(); void send(); }
-            else downloadOptions(panel, action, signal, identity, row,
-                {icon, chainImages, palette, preferences, save, download: send});
+            const selectedIdentity = releaseIdentity();
+            if (row.site) { action.focus(); void send(selectedIdentity); }
+            else downloadOptions(panel, action, signal, selectedIdentity, row,
+                {icon, chainImages, palette, preferences, save,
+                    download: (options, close) => send(selectedIdentity, options, close)});
         });
         const actions = document.createElement("div");
         actions.className = "movie-release-actions";
         actions.append(action, progress, receipt);
-        item.append(quality, head, size, time, health, actions, raw);
+        const releaseIdentity = () => sharesPoster(row) ? identity : {
+            ...row.artTitle, kind: releaseKind(row.title) ? "tv" : "movie", ...row.match, tmdb_id: row.match?.id
+        };
+        row.setArtwork = (match, alternate = false) => {
+            const name = match?.title ?? row.artTitle.title;
+            art.dataset.initial = [...name][0]?.toUpperCase() ?? "";
+            art.style.setProperty("--art-hue", titleHue(name));
+            const source = match?.poster;
+            if ((image.getAttribute("src") ?? "") !== (source ?? "")) chainImages(image, source ? [source] : []);
+            if (alternate) {
+                row.match = match;
+                row.name = match.title + (row.episodes ? `, Season ${row.season}` :
+                    row.artTitle.year ? ` (${row.artTitle.year})` : "");
+                title.textContent = row.name;
+                file.setAttribute("aria-label", "File name for " + row.name);
+                progress.setAttribute("aria-label", `Download progress for ${row.name}`);
+                updateAction();
+            }
+        };
+        row.setArtwork(sharesPoster(row) ? identity : null);
+        item.append(art, quality, head, size, time, health, actions, raw);
         return item;
     }
     async function load() {
@@ -588,9 +651,11 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
             const picture = episodes && height > 0 && item.max_height > height ? `${height}p–${item.max_height}p`
                 : quality.tier === "estimated" ? quality.label : height ? (height >= 4320 ? "8K" : height >= 2160 ? "4K" : `${height}p`) : "Unknown quality";
             const name = episodes ? `${title}, Season ${item.number}` : displayTitle(title);
+            const artTitle = titleParts(episodes ? title : name);
             const sound = releaseSound(title);
             const seeders = number(item.seeders);
-            const row = { title, fileName: item.title, name, season: item.number, height: episodes ? number(item.max_height) || height : height, size, mismatch, kind, audio, episodes, quality,
+            const row = { title, fileName: item.title, name, artTitle, artKey: searchTitle(artTitle.title),
+                season: item.number, height: episodes ? number(item.max_height) || height : height, size, mismatch, kind, audio, episodes, quality,
                 tier: tier === "unknown" ? "hd" : tier, picture, source, sound,
                 seconds: downloadSeconds(size, seeders), unavailable: !item.site && seeders === 0,
                 seeders, guid: item.guid, indexerId: item.indexerId, site: item.site, url: item.url };
@@ -608,12 +673,18 @@ export function buildReleaseSearch(search, signal, download, {term, screen, icon
         list.replaceChildren(...rows.map(renderRow));
         empty.hidden = rows.length > 0;
         onResults(details, !results.hidden);
+        requestAnimationFrame(() => {
+            if (!signal.aborted && panel.isConnected) loadRowArtwork();
+        });
         outage.clear();
         return !panel.hidden;
     }
     function setMatches(list) {
         matches = Array.isArray(list) ? list : [];
-        if (!results.hidden) updateIdentity();
+        if (!results.hidden) {
+            updateIdentity();
+            for (const row of rows) if (sharesPoster(row)) row.setArtwork(identity);
+        }
     }
     function updateProgress() {
         for (const row of rows) row.updateProgress();

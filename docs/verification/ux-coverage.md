@@ -4,17 +4,19 @@
 
 | Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Film details, full backdrop, long description, related titles and retry | never | never | never | never | never | Source check, 26 Nov 2026 | never |
-| Series details, full backdrop, seasons and episodes | never | never | never | never | never | Source check, 26 Nov 2026 | never |
+| Film details, full backdrop, inline description, related titles and retry | never | never | never | never | never | Source check, 27 Nov 2026, 1.6.4 | never |
+| Series details, full backdrop, seasons, episodes and related series | never | never | never | never | never | Source check, 27 Nov 2026, 1.6.4 | never |
 | Audio & Subtitles, sound disclosure, subtitle size, import and selection | never | never | never | never | never | Source check, 26 Nov 2026 | never |
 | Add audio track, matching sources, expanded list, empty and retry | never | never | never | never | never | Source check, 26 Nov 2026 | never |
 | Playback failure notice, dismissal and timeout | never | never | never | never | never | Source check, 26 Nov 2026 | never |
-| Home hero and Continue watching, films and episodes | never | never | never | never | never | Source check, 26 Nov 2026 | never |
+| Home hero and Continue watching, films and episodes | never | never | never | never | never | Source check, 27 Nov 2026, 1.6.4 | never |
 | Release rows, title age rating when available | never | never | never | never | never | Source check, 26 Nov 2026 | never |
 
 The retry keeps focus and announces the failure through the Movies status region. The playback notice appears immediately, announces the message through its status, and returns focus to the playback control on dismissal when needed. It expires after eight seconds while unfocused. Hero dots change width and opacity over 350 ms with ease-in-out. Starting a new selection interrupts the current transition from its current size. Reduced motion and Effects off switch the dots immediately. Automatic rotation leaves focus in place. Manual selection keeps focus on the dot and announces the selected title.
 
 The browser fixtures cover the five film viewport sizes, details on Chromium and WebKit device profiles, hero sizing and motion, related retry focus, and grouped episode playback. Paddock execution, visual inspection, screen-reader speech and physical-device checks are pending.
+
+The film description changes height and rotates its chevron over 230 ms with ease-out. Repeated presses reverse the transition, keep focus on the button, and update its name and expanded state. Shelf clicks animate the horizontal position over 230 ms with cubic easing, retain focus, and announce the visible range when scrolling ends. Arrow-key navigation scrolls immediately before focusing the next card. Reduced motion and Effects off make these transitions immediate.
 
 The sound disclosure and subtitle size update immediately with focus on the activated control. Subtitle import uses the existing status region and moves focus from the hidden search button to the newly available track. The source dialog uses its status region and keeps focus on Show more sources while more pages remain. The final page moves focus to the source picker if there are results, or to Close if the list is empty.
 
@@ -40,8 +42,8 @@ Live measurements are pending. At each scale, compare `AppWindow.TitleBar.Height
 
 | Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Settings, desktop category rail and content | never | never | never | never | never | Source check, 26 Nov 2026, Discord-style shell | never |
-| Settings, phone category list, category and return | never | never | never | never | never | Source check, 26 Nov 2026, Discord-style shell | never |
+| Settings, desktop category rail and content | never | never | never | never | never | Source check, 27 Nov 2026, About attribution | never |
+| Settings, phone category list, category and return | never | never | never | never | never | Source check, 27 Nov 2026, About attribution | never |
 | Header app switcher, closed, open, dismissal and app selection | never | never | never | never | never | Source check, 26 Nov 2026, app switcher concept | never |
 
 `tests/settings_shell.cjs` and `tests/app_switcher.cjs` cover fixture-only Chromium and WebKit at 320, 390, 1280 and 1920 CSS pixels. Settings changes categories immediately and moves focus into phone details or back to the selected category. The switcher uses the shared popup fade and restores focus on dismissal. Reduced motion and Effects off disable the fade. Browser execution, visual inspection, screen-reader speech and physical-device checks are pending.
@@ -53,7 +55,7 @@ Live measurements are pending. At each scale, compare `AppWindow.TitleBar.Height
 | Release results, loading, empty and retry | never | never | never | never | never | Source check, 26 Nov 2026, concept D | never |
 | Release results, desktop and TV rail, tier counts and quality guide | never | never | never | never | never | Source check, 26 Nov 2026, concept D | never |
 | Release results, phone poster strip, tier counts and quality guide | never | never | never | never | never | Source check, 26 Nov 2026, concept D | never |
-| Release rows, file name disclosure, pending download, receipt and retry | never | never | never | never | never | Source check, 26 Nov 2026, concept D | never |
+| Release rows, per-title artwork, file name disclosure, pending download, receipt and retry | never | never | never | never | never | Source check, 27 Nov 2026, 1.6.4 | never |
 | Home hero facts and release rail, mapped age symbol and unknown rating | never | never | never | never | never | Source check, 26 Nov 2026 | never |
 | Film detail facts and compact desktop related shelf | never | never | never | never | never | Source check, 26 Nov 2026 | never |
 | Series title facts and episode fullscreen viewport | never | never | never | never | never | Source check, 26 Nov 2026 | never |

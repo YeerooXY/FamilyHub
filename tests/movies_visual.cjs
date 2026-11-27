@@ -167,6 +167,9 @@ async function render(browser, label, options) {
                     return query;
                 }
                 if (method === "MovieRelated" && query === "101") return JSON.stringify({matches: relatedFilms});
+                if (method === "MovieRelated" && query === "42")
+                    return JSON.stringify(window.failSeriesRelated ? {error:"Related series are unavailable."} :
+                        {matches: relatedFilms.slice(3)});
                 if (method === "MovieMatches" && query === "tmdb:tv:42") {
                     return JSON.stringify({series_id: 42, seasons: Array.from({length: 6}, (_, i) => ({number: i + 1, episode_count: 4}))});
                 }
@@ -207,6 +210,46 @@ async function render(browser, label, options) {
     const geometry = node => {
         const {width, height} = node.getBoundingClientRect();
         return [width, height];
+    };
+    const desktop = options.viewport.width >= 1280;
+    const checkCastNames = async detail => {
+        const splitWords = await detail.locator(".movie-cast li > strong").evaluateAll(names => names.flatMap(name => {
+            const node = name.firstChild;
+            const range = document.createRange();
+            return [...node.textContent.matchAll(/\S+/g)].filter(word => {
+                range.setStart(node, word.index);
+                range.setEnd(node, word.index + word[0].length);
+                return new Set([...range.getClientRects()].map(rect => rect.top)).size > 1;
+            }).map(word => word[0]);
+        }));
+        assert.deepEqual(splitWords, [], label + " cast words split across lines");
+    };
+    const checkDetailFrame = async detail => {
+        const layout = await detail.evaluate(node => {
+            const fits = target => {
+                const {top, right, bottom, left} = target.getBoundingClientRect();
+                return top >= 0 && left >= 0 && bottom <= innerHeight && right <= innerWidth;
+            };
+            const root = document.scrollingElement ?? document.documentElement;
+            const host = node.closest("main") ?? root;
+            const scrolled = [];
+            for (let parent = node.querySelector(".movie-title-text h2"); parent; parent = parent.parentElement)
+                if (parent.scrollTop !== 0) scrolled.push(parent.className || parent.tagName);
+            const headerIcon = document.querySelector("#open-hub svg").getBoundingClientRect();
+            const back = node.querySelector(".movie-title-back");
+            return {
+                headerVisible: fits(document.querySelector(".app-header")),
+                backVisible: fits(back),
+                iconOffset: back.querySelector("svg").getBoundingClientRect().left - headerIcon.left,
+                scrolled, hostOverflow: host.scrollHeight - host.clientHeight,
+                documentOverflow: root.scrollHeight - root.clientHeight
+            };
+        });
+        assert.ok(layout.headerVisible && layout.backVisible && layout.hostOverflow <= 1 && layout.documentOverflow <= 1,
+            label + " detail frame " + JSON.stringify(layout));
+        assert.deepEqual(layout.scrolled, [], label + " ancestors scrolled");
+        if (await detail.evaluate(node => node.classList.contains("movie-film-detail")))
+            assert.ok(Math.abs(layout.iconOffset) <= 1, label + " Back icon alignment");
     };
     const billboardSize = await loading.locator(".movie-hero").evaluate(geometry);
     assert.equal(await loading.locator(".movie-loading-landscape .movie-art").count(), 6);
@@ -317,6 +360,7 @@ async function render(browser, label, options) {
     const loadingDetail = page.getByRole("region", {name:"Harbour Lights", exact:true});
     const loadingHero = loadingDetail.locator(".movie-series-header");
     await loadingDetail.locator(".movie-hero-art[data-loading]").waitFor({state:"attached"});
+    if (desktop) await checkDetailFrame(loadingDetail);
     const loadingDetailSize = await loadingHero.evaluate(geometry);
     assert.equal(await loadingDetail.evaluate(node => getComputedStyle(node, "::before").animationName),
         options.reducedMotion === "reduce" ? "none" : "service-status-pulse");
@@ -337,7 +381,7 @@ async function render(browser, label, options) {
     const backdrop = details.locator(".movie-hero-art");
     const related = details.locator('.movie-shelf[data-format="related"]');
     const relatedArt = related.locator(".movie-art img").first();
-    await details.getByRole("heading", {name:"Cast", exact:true}).waitFor();
+    await details.getByRole("list", {name:"Cast", exact:true}).waitFor();
     assert.equal(await details.locator(".movie-cast li").count(), 6);
     await relatedArt.waitFor();
     assert.equal(await related.count(), 1);
@@ -350,8 +394,13 @@ async function render(browser, label, options) {
         return getComputedStyle(image).objectFit === "cover" && art.left === film.left && art.right === film.right &&
             art.left === catalogue.left && art.right === catalogue.right;
     }), true);
-    const desktop = options.viewport.width >= 1280;
-    if (desktop) assert.ok(await relatedArt.evaluate(image => image.getBoundingClientRect().top < innerHeight));
+    if (desktop) {
+        await checkDetailFrame(details);
+        await details.getByRole("heading", {name:"The Long Way Home", exact:true}).focus();
+        await checkDetailFrame(details);
+        await checkCastNames(details);
+        assert.ok(await related.evaluate(node => Math.abs(node.getBoundingClientRect().bottom - innerHeight) <= 1));
+    }
     await capture("detail", !desktop);
     await resume.press("Enter");
     const player = page.getByRole("region", {name:"Movie player"});
@@ -409,9 +458,11 @@ async function render(browser, label, options) {
     await capture("library-check-error");
     failEpisodes = false;
     await retry.press("Enter");
+    await retry.waitFor({state:"hidden"});
     const seasons = seriesView.getByRole("group", {name:"Seasons"});
     const season = number => seasons.getByRole("button", {name:`Season ${number}`, exact:true});
-    await seriesView.getByText("6 seasons", {exact:true}).waitFor();
+    await season(6).waitFor();
+    assert.equal(await seriesView.getByText("6 seasons", {exact:true}).count(), 0);
     assert.equal(await seasons.getByRole("button").count(), 6);
     assert.equal(await focus(season(1)), true);
     assert.equal(await page.getByRole("searchbox").count(), 0);
@@ -431,13 +482,19 @@ async function render(browser, label, options) {
         assert.ok(Math.abs(size - stillSize[axis]) <= .5, label + " loading and loaded episode stills differ"));
     await page.waitForFunction(img => img.naturalWidth > 0, await image.elementHandle());
     await seriesView.getByRole("button", {name:"Resume", exact:true}).waitFor();
-    await seriesView.getByRole("heading", {name:"Cast", exact:true}).waitFor();
+    await seriesView.getByRole("list", {name:"Cast", exact:true}).waitFor();
     const seriesPoster = seriesView.locator(".movie-title-intro .movie-art img");
     await page.waitForFunction(image => image.naturalWidth > 0, await seriesPoster.elementHandle());
     assert.equal(await seriesView.locator(".movie-cast li").count(), 12);
     const addEpisodeAudio = seriesView.locator('[data-episode="2"]').getByRole("button", {name:"Add audio track for The Move"});
-    assert.equal(await addEpisodeAudio.textContent(), "");
-    assert.equal(await addEpisodeAudio.locator("svg").count(), 1);
+    assert.equal(await addEpisodeAudio.count(), 0);
+    const relatedSeries = seriesView.locator('.movie-shelf[data-format="related"]');
+    await relatedSeries.locator(".movie-card").first().waitFor();
+    if (desktop) {
+        await checkDetailFrame(seriesView);
+        await checkCastNames(seriesView);
+        assert.ok(await relatedSeries.evaluate(node => Math.abs(node.getBoundingClientRect().bottom - innerHeight) <= 1));
+    }
     await capture("series");
     const nextSeasons = seriesView.getByRole("button", {name:"Next seasons"});
     if (await nextSeasons.isVisible()) {
@@ -469,9 +526,16 @@ async function render(browser, label, options) {
     await find.focus();
     await page.keyboard.press("Escape");
     assert.equal(await focus(show), true);
-    await page.evaluate(() => { document.body.dataset.effects = "off"; });
+    await page.evaluate(() => { document.body.dataset.effects = "off"; window.failSeriesRelated = true; });
     await show.press("Space");
     assert.equal(await seriesView.evaluate(node => getComputedStyle(node).animationName), "none");
+    const relatedRetry = relatedSeries.getByRole("button", {name:"Related series are unavailable. Retry"});
+    await relatedRetry.waitFor();
+    assert.equal(await relatedRetry.textContent(), "");
+    assert.equal(await relatedRetry.locator("svg").count(), 1);
+    assert.equal(await relatedSeries.locator(".movie-shelf-lane").count(), 0);
+    assert.ok((await relatedSeries.boundingBox()).height <= (await relatedRetry.boundingBox()).height + 1,
+        label + " failed related shelf reserves only the retry row");
     await page.evaluate(() => { delete document.body.dataset.effects; });
     await season(4).press("Enter");
     if (options.hasTouch) await find.tap();

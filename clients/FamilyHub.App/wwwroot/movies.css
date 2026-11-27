@@ -367,7 +367,7 @@ body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--ca
 .movie-library .movie-shelf > h2 { padding-inline: .35rem; }
 
 /* Audio & Subtitles: one popover, a list per kind, the current choice marked. */
-:is(.movie-audio-dialog, .movie-description-dialog) {
+.movie-audio-dialog {
     color-scheme: dark;
     color: #fff;
     background: #171920;
@@ -378,7 +378,7 @@ body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--ca
     max-height: calc(100% - 2rem);
     overflow: auto;
 }
-:is(.movie-audio-dialog, .movie-description-dialog)::backdrop { background: #000a; }
+.movie-audio-dialog::backdrop { background: #000a; }
 .movie-audio-dialog header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
 .movie-audio-dialog h2 { margin: 0; font-size: 1.2rem; }
 .movie-audio-dialog form, .movie-audio-dialog label { display: grid; gap: .45rem; }
@@ -882,14 +882,14 @@ body[data-effects="off"] .movie-library .movie-shelf-scroll .movie-card:is(:hove
 .movie-season-picker:not([data-overflow="true"]) { grid-template-columns: minmax(0, 1fr); }
 .movie-season-pills { position: relative; display: flex; align-items: center; gap: .65rem; padding: .5rem; overflow-x: auto; scrollbar-width: none; }
 .movie-season-pills button { flex: none; white-space: nowrap; }
-.movie-library .movie-season-pills button { border-radius: 999px; background: #28263d; color: #fff; }
-.movie-library .movie-season-pills [aria-pressed="true"] { background: #6250ad; }
+.movie-library .movie-season-pills button { border: 0; border-radius: 999px; background: transparent; color: #e4e8f1; }
+.movie-library .movie-season-pills [aria-pressed="true"] { background: #ffffff19; color: #fff; }
 .movie-season-outline {
     position: absolute;
     z-index: 1;
     inset: .5rem auto .5rem 0;
     pointer-events: none;
-    border: 2px solid #b4a1ff;
+    border: 2px solid #fff;
     border-radius: 999px;
     box-sizing: border-box;
     transition: transform 220ms ease-out, width 220ms ease-out;
@@ -917,9 +917,17 @@ body[data-effects="off"] .movie-library .movie-toolbar .movie-search { transitio
 .movie-title-text > p[hidden], .movie-title-text > p:empty,
 .movie-title-text > div:empty, .movie-title-actions > [hidden] { display: none; }
 .movie-title-text > p { color: #e4e8f1; line-height: 1.5; }
-.movie-title-facts { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
-.movie-title-facts .movie-chip:not(:where(.movie-release-quality, .movie-age-rating)) { color: #f3f0ff; background: #2a263c; border-color: #ffffff28; }
-.movie-library :is(.movie-film-detail, .movie-show-detail) .movie-title-back { border-radius: 50%; }
+.movie-title-facts { display: flex; flex-wrap: wrap; align-items: center; font-weight: 600; }
+:is(.movie-title-facts, .movie-hero-meta) { gap: .35em .7em; color: #e4e8f1; }
+:is(.movie-title-facts, .movie-hero-meta) .movie-chip:is(.movie-release-quality, .movie-sound-chip) {
+    color: #f5f5fa;
+    background: transparent;
+    border: 1.5px solid #ffffffb8;
+    border-radius: .3em;
+    padding: .15em .42em;
+    font-size: .78em;
+    line-height: 1.2;
+}
 .movie-library .movie-film-detail {
     padding-block: 1rem;
     box-sizing: border-box;
@@ -930,6 +938,21 @@ body[data-effects="off"] .movie-library .movie-toolbar .movie-search { transitio
     gap: 1rem;
     margin-bottom: 1rem;
     padding-inline: var(--movie-peek-edge);
+}
+.movie-library :is(.movie-film-detail, .movie-show-detail) > .movie-title-back {
+    flex: none;
+    margin-inline-start: calc(var(--movie-header-icon-left, 24px) - 8px);
+    justify-items: start;
+    padding-inline-start: 8px;
+    border: 0;
+    border-radius: 50%;
+}
+.movie-library .movie-film-detail > .movie-title-back { margin-block-end: 1rem; }
+:is(.movie-film-detail, .movie-show-detail) > .movie-title-back svg { width: 24px; height: 24px; }
+body.native-titlebar { --movie-header-icon-left: calc(32px + var(--window-controls-left, 0px)); }
+@media (max-width: 720px) {
+    body { --movie-header-icon-left: 22px; }
+    body.native-titlebar { --movie-header-icon-left: calc(18px + var(--window-controls-left, 0px)); }
 }
 .movie-film-detail > .movie-hero-art { object-position: right center; }
 .movie-film-detail::after {
@@ -969,19 +992,50 @@ body[data-effects="off"] .movie-library .movie-toolbar .movie-search { transitio
 }
 .movie-film-detail .movie-title-text p { font-size: clamp(1rem, 1.3vw, 1.15rem); max-width: 56ch; }
 .movie-film-detail .movie-season-list { position: relative; container-type: inline-size; min-width: 0; }
-.movie-film-detail .movie-cast { width: min(100%, 46rem); }
+.movie-film-detail .movie-cast { width: min(100%, calc(6 * max(3.75rem, var(--movie-portrait)) + 5rem)); }
 .movie-film-detail .movie-cast:not(:empty) { margin: 0; padding: 0; border: 0; }
-.movie-film-detail .movie-cast .movie-cast-portrait { width: min(100%, 4rem); }
-.movie-film-detail .movie-shelf-scroll .movie-cards { padding-block: calc(.023 * var(--movie-card-width) + .5rem); }
-.movie-film-detail .movie-matches-credit { padding-inline: var(--movie-peek-edge); }
-.movie-film-detail > .movie-title-audio { margin: 1rem var(--movie-peek-edge) 0; }
+.movie-film-detail { --movie-portrait: clamp(4rem, calc(8.75vw - 48px), 160px); }
+:is(.movie-film-detail, .movie-show-detail) [data-format="related"] .movie-cards { padding-block: calc(.023 * var(--movie-card-width) + .5rem); }
+.movie-film-detail > .movie-title-audio { flex: none; margin: 1rem var(--movie-peek-edge) 0; }
 .movie-title-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; }
-.movie-description-more { justify-self: start; }
-.movie-description-dialog p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.movie-film-description { display: flex; align-items: end; }
+.movie-film-description:has(> p[hidden]) { display: none; }
+.movie-film-detail .movie-film-overview {
+    display: block;
+    min-width: 0;
+    max-height: 3lh;
+    overflow: hidden;
+    color: #e4e8f1;
+    line-height: 1.5;
+    transition: max-height 230ms ease-out;
+}
+.movie-film-description[data-expanded] .movie-film-overview { max-height: var(--movie-description-height, none); }
+.movie-library .movie-film-description button {
+    flex: 0 0 var(--movie-target);
+    display: grid;
+    place-items: center;
+    min-width: var(--movie-target);
+    height: var(--movie-target);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #fff;
+    transition: opacity 150ms ease-out;
+}
+.movie-library .movie-film-description button[hidden] { display: none; }
+.movie-description-more svg { transition: transform 230ms ease-out; }
+.movie-description-more[aria-expanded="true"] svg { transform: rotate(180deg); }
+@media (hover: hover) and (pointer: fine) and (max-width: 1599px) {
+    .movie-film-description:not(:hover, :focus-within, [data-expanded]) .movie-description-more { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .movie-library .movie-film-description :is(p, button, svg) { transition: none; }
+}
+body[data-effects="off"] .movie-library .movie-film-description :is(p, button, svg) { transition: none; }
 .movie-show-detail {
     background: radial-gradient(ellipse at 75% 0, var(--movie-hero-start), transparent 75%), var(--movie-hero-end);
 }
-.movie-show-detail > .movie-series-header { margin: 0; padding: 1rem 1rem 0; }
+.movie-show-detail > .movie-title-back { margin-block-start: .5rem; }
 .movie-show-columns {
     display: grid;
     grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
@@ -997,14 +1051,28 @@ body[data-effects="off"] .movie-library .movie-toolbar .movie-search { transitio
 .movie-show-info .movie-title-text { min-width: 0; }
 .movie-show-info .movie-title-text h2 { font-size: clamp(1.35rem, 2.2vw, 2.5rem); line-height: 1.12; }
 .movie-show-episodes > p[role="status"] { margin: 0 .5rem .3rem; }
+.movie-show-episodes > p[role="status"]:empty { margin: 0; }
 .movie-cast:not(:empty) { margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid #b4a1ff30; }
 .movie-cast ul { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .85rem .45rem; list-style: none; padding: 0; margin: .6rem 0 0; }
-.movie-cast li { display: grid; align-content: start; justify-items: center; gap: .2rem; text-align: center; overflow-wrap: anywhere; font-size: .8rem; }
+.movie-show-info .movie-cast {
+    --movie-portrait: clamp(4.75rem, calc(8.75vw - 48px), 160px);
+}
+.movie-show-info .movie-cast ul {
+    grid-auto-flow: column;
+    grid-auto-columns: var(--movie-portrait);
+    grid-template-columns: none;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    padding-bottom: .5rem;
+}
+.movie-cast li { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; justify-items: center; gap: .2rem; text-align: center; font-size: clamp(.8rem, .82vw, 1.3rem); }
+.movie-cast li > strong { max-inline-size: 100%; overflow-wrap: break-word; }
 .movie-cast li > span:last-child:not(.movie-cast-portrait) { color: #d5d1e4; }
+.movie-cast li > span:not(.movie-cast-portrait) { overflow-wrap: anywhere; }
 .movie-cast-portrait {
     position: relative;
     display: grid;
-    width: min(100%, 4.75rem);
+    width: min(100%, var(--movie-portrait, 4.75rem));
     aspect-ratio: 1;
     place-items: center;
     border-radius: 50%;
@@ -1015,9 +1083,6 @@ body[data-effects="off"] .movie-library .movie-toolbar .movie-search { transitio
 }
 .movie-cast-portrait img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .movie-cast-portrait img:not([src]) { display: none; }
-@media (max-width: 980px) {
-    .movie-show-info .movie-cast ul { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-}
 @media (max-width: 720px) {
     .movie-show-columns { grid-template-columns: minmax(0, 1fr); grid-template-areas: "info" "episodes"; }
     .movie-show-info { border-inline-start: 0; }
@@ -1059,6 +1124,7 @@ body[data-effects="off"] .movie-library .movie-show-detail :is(.movie-season-pil
 }
 .movie-library .movie-season { background: transparent; border: 0; padding: 0; }
 .movie-season-header { margin-bottom: .8rem; }
+.movie-library .movie-season-header > button { min-height: var(--movie-target); }
 .movie-season li { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; border-top: 1px solid #ffffff29; padding: .5rem 0; }
 .movie-library .movie-season .movie-episode-body {
     flex: 1;
@@ -1082,16 +1148,6 @@ body[data-effects="off"] .movie-library .movie-show-detail :is(.movie-season-pil
 .movie-episode-facts { display: flex; align-items: center; flex-wrap: wrap; gap: .4em; }
 .movie-episode-facts .movie-chip { font-size: 1em; }
 .movie-episode-text progress { width: min(100%, 16rem); height: .4rem; accent-color: #98abed; }
-.movie-library .movie-season .movie-episode-audio {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: var(--movie-target);
-    padding: 0;
-    border-radius: 50%;
-    background: #28263d;
-    color: #fff;
-}
 .movie-library .movie-audio-job { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .7rem; }
 .movie-title-audio {
     flex: 1 0 100%;
@@ -1181,8 +1237,8 @@ body:has(.workspace > main :is(.movie-film-detail, .movie-show-detail):not([hidd
     padding: 0;
     container-type: size;
 }
-.movie-library .movie-load-status:empty { margin: 0; }
-.movie-library:has(.movie-film-detail:not([hidden])) > .movie-load-status {
+.movie-load-status:empty { margin: 0; }
+.movie-load-status:has(~ div > .movie-catalogue > :is(.movie-film-detail, .movie-show-detail):not([hidden])) {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -1207,14 +1263,14 @@ body:has(.workspace > main :is(.movie-film-detail, .movie-show-detail):not([hidd
     z-index: -1;
     background: linear-gradient(90deg, #070a12ed, #070a127a 68%, #070a1240);
 }
-.movie-film-detail .movie-related-header {
+.movie-related-header {
     display: flex;
     align-items: center;
     gap: .45rem;
     padding-inline: var(--movie-peek-edge);
 }
-.movie-film-detail .movie-related-header h2 { font-size: clamp(1.05rem, 1.4vw, 1.4rem); }
-.movie-library .movie-film-detail .movie-title-retry,
+.movie-related-header h2 { font-size: clamp(1.05rem, 1.4vw, 1.4rem); }
+.movie-library .movie-title-retry,
 .movie-library .movie-playback-notice button {
     display: grid;
     place-items: center;
@@ -1223,7 +1279,7 @@ body:has(.workspace > main :is(.movie-film-detail, .movie-show-detail):not([hidd
     height: var(--movie-target);
     padding: 0;
 }
-.movie-library :is(.movie-film-detail .movie-title-retry, .movie-playback-notice)[hidden] { display: none; }
+.movie-library :is(.movie-title-retry, .movie-playback-notice)[hidden] { display: none; }
 .movie-cast li { border-radius: .45rem; }
 .movie-library :is(.movie-film-detail, .movie-show-detail, .movie-playback-notice) { --movie-detail-outline: 2px; }
 .movie-library :is(.movie-film-detail, .movie-show-detail, .movie-playback-notice) :is(button, select, a, .movie-cast li):focus-visible {
@@ -1240,24 +1296,105 @@ body:has(.workspace > main :is(.movie-film-detail, .movie-show-detail):not([hidd
     .movie-library :is(.movie-film-detail, .movie-show-detail, .movie-playback-notice) { --movie-detail-outline: 4px; }
 }
 @media (min-width: 1280px) and (min-height: 720px) {
-    .movie-library .movie-film-detail { padding-block: clamp(.5rem, 1.2vh, 1.6rem); }
+    body:has(> .app-header ~ main :is(.movie-film-detail, .movie-show-detail):not([hidden])):not(.movie-expanded-page body) {
+        --movie-header-icon-left: 18px;
+        display: grid;
+        grid-template: "header" auto "main" minmax(0, 1fr) / minmax(0, 1fr);
+        gap: 0;
+        height: 100dvh;
+        padding: 0;
+        overflow: hidden;
+    }
+    body:has(> .app-header) > main:has(:is(.movie-film-detail, .movie-show-detail):not([hidden])) {
+        border-radius: 0;
+        padding: 0;
+        container-type: size;
+    }
+    :is(.workspace > main, body:has(> .app-header) > main):has(:is(.movie-film-detail, .movie-show-detail):not([hidden])) {
+        overflow-anchor: none;
+    }
+    .movie-library :is(.movie-film-detail, .movie-show-detail):not([hidden]) {
+        display: flex;
+        flex-direction: column;
+        height: calc(100dvh - var(--caption-height, 56px));
+        box-sizing: border-box;
+        overflow: clip;
+    }
+    @supports (height: 1cqh) {
+        :is(.workspace > main, body:has(> .app-header) > main) :is(.movie-film-detail, .movie-show-detail):not([hidden]) {
+            height: 100cqh;
+            min-height: 100cqh;
+        }
+    }
+    .movie-library .movie-film-detail {
+        --movie-portrait: clamp(2rem, min(calc(12.5vw - 120px), 6.25vw), 160px);
+        padding-block: clamp(.5rem, 1.2vh, 1.6rem) 0;
+    }
+    .movie-library .movie-film-detail .movie-title-back { margin-block-end: clamp(.4rem, .9vh, 1rem); }
+    .movie-film-detail > .movie-series-header { min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+    .movie-film-description[data-expanded] .movie-description-more { position: sticky; bottom: 0; }
+    .movie-show-detail { --movie-show-back-inset: clamp(.5rem, 1.2vh, 1.6rem); }
+    .movie-show-detail > .movie-title-back {
+        position: absolute;
+        z-index: 1;
+        inset-block-start: var(--movie-show-back-inset);
+        inset-inline-start: 0;
+        margin-block-start: 0;
+    }
+    .movie-show-detail > .movie-show-columns {
+        flex: 1;
+        min-height: 0;
+        grid-template-rows: minmax(0, 1fr);
+        overflow: clip;
+    }
+    .movie-show-columns > :is(.movie-show-info, .movie-show-episodes) {
+        min-height: 0;
+        overflow-y: auto;
+        scrollbar-width: thin;
+    }
+    .movie-show-columns > .movie-show-episodes {
+        /* Keep the episode scrollport below Back. */
+        border-block-start: calc(var(--movie-show-back-inset) + var(--movie-target)) solid transparent;
+        padding-block-start: .35rem;
+    }
+    .movie-show-info .movie-title-intro { grid-template-columns: min(20vh, 20rem) minmax(0, 1fr); }
+    .movie-show-info .movie-cast { --movie-portrait: clamp(88px, calc(8.75vw - 48px), 160px); }
+    .movie-show-info .movie-cast:not(:empty) { margin-top: .75rem; padding-top: .5rem; }
+    .movie-film-detail > .movie-season-list { flex: none; margin-top: auto; }
+    .movie-show-detail > [data-format="related"] { flex: none; }
+    /* Keep the shelf at the viewport edge as related titles appear. */
+    :is(.movie-film-detail, .movie-show-detail) [data-format="related"] { animation: none; }
     .movie-film-detail .movie-series-header { gap: clamp(.4rem, .9vh, 1rem); margin-bottom: clamp(.4rem, .9vh, 1rem); }
     .movie-film-detail .movie-title-intro { grid-template-columns: clamp(8rem, 22vh, 24rem) minmax(0, 1fr); width: min(100%, clamp(58rem, 55vw, 105rem)); }
     .movie-film-detail .movie-title-text { gap: clamp(.35rem, .9vh, 1rem); }
     .movie-film-detail .movie-title-text h2 { font-size: clamp(1.75rem, 5.6vh, 5rem); }
     .movie-film-detail .movie-title-text p { font-size: clamp(.95rem, 1.85vh, 1.6rem); }
-    .movie-film-detail .movie-film-overview:not([hidden]) {
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 3;
-        overflow: hidden;
-    }
     .movie-film-detail .movie-cast ul { margin-top: .35rem; }
-    .movie-film-detail .movie-cast .movie-cast-portrait { width: min(100%, clamp(2rem, 5.5vh, 5rem)); }
-    .movie-film-detail .movie-shelf { margin-bottom: 0; }
-    .movie-film-detail .movie-shelf-scroll .movie-cards { padding-block: clamp(.55rem, 1.4vh, 1.9rem); }
-    .movie-film-detail .movie-shelf-scroll .movie-art { aspect-ratio: auto; height: clamp(6rem, calc(18vh - 1.75rem), 20rem); }
-    .movie-film-detail .movie-matches-credit { margin-top: .1rem; }
+    :is(.movie-film-detail, .movie-show-detail) [data-format="related"] .movie-cards { padding-block: clamp(.55rem, 1.4vh, 1.9rem); }
+    :is(.movie-film-detail, .movie-show-detail) [data-format="related"] .movie-art {
+        aspect-ratio: auto;
+        height: clamp(6rem, calc(18vh - 1.75rem), 20rem);
+    }
+}
+.movie-library :is(.movie-film-detail, .movie-show-detail) [data-format="related"] { margin-bottom: 0; }
+.movie-library [data-format="related"] .movie-shelf-arrow {
+    background: transparent;
+    border-radius: .4rem;
+    text-shadow: none;
+}
+[data-format="related"] .movie-shelf-arrow svg { filter: drop-shadow(0 1px 3px #000); }
+.movie-library [data-format="related"] .movie-shelf-lane[data-overflow="true"] .movie-shelf-arrow[aria-disabled="false"] {
+    opacity: 1;
+    translate: 0;
+    pointer-events: auto;
+}
+@media (min-width: 1600px) {
+    .movie-library [data-format="related"] .movie-shelf-lane[data-overflow="true"] .movie-shelf-arrow { display: grid; }
+}
+.movie-library :is(.movie-film-detail, .movie-show-detail) [data-format="related"] .movie-card[data-edge="peek"]:is(:hover, :focus-visible) {
+    outline-color: transparent;
+    box-shadow: none;
+    transform: none;
 }
 
 .movie-library .movie-playback-notice {
@@ -1322,15 +1459,20 @@ body:has(.workspace > main :is(.movie-film-detail, .movie-show-detail):not([hidd
     padding: 0;
 }
 .workspace > main:has([data-release-layout]) { container-type: size; }
-body:has(.workspace [data-release-layout]) {
+body:has(.workspace > main [data-release-layout]):not(.movie-expanded-page body) {
     grid-template-rows: auto minmax(0, 1fr);
     row-gap: 0;
     padding-inline: 0;
 }
 body:has(.workspace [data-release-layout]) .app-header {
+    position: relative;
+    z-index: 3;
     margin-inline: 0;
     width: auto;
+    height: auto;
     min-height: var(--caption-height, 56px);
+    padding-block: max(5px, env(safe-area-inset-top)) 5px;
+    background: var(--frame-bg, #05070c);
 }
 .movie-search button[type="submit"] { order: -1; }
 body:has([data-release-layout]) .header-search .movie-search :is(input, button) { min-height: 44px; }
@@ -1403,7 +1545,8 @@ body:has([data-release-layout]) .header-search .movie-search :is(input, button) 
 }
 .movie-release-content { min-width: 0; padding: var(--release-edge); }
 .movie-library .movie-release-content li.movie-release {
-    grid-template-columns: minmax(3.5rem, .75fr) minmax(0, 3.1fr) minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(6.5rem, 1.2fr);
+    --release-poster-height: 4.4rem;
+    grid-template-columns: calc(var(--release-poster-height) * 2 / 3) minmax(3.5rem, .75fr) minmax(0, 3.1fr) minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(6.5rem, 1.2fr);
     align-items: center;
     gap: clamp(.25rem, .85vw, 1.25rem);
     padding: .55rem;
@@ -1421,11 +1564,17 @@ body:has([data-release-layout]) .header-search .movie-search :is(input, button) 
     .movie-library .movie-release-content li.movie-release:hover { outline-color: #fff; }
 }
 .movie-release-content li > * { min-width: 0; }
+.movie-release-row-poster {
+    height: var(--release-poster-height);
+    border-radius: .4rem;
+}
+.movie-art.movie-release-row-poster[data-initial]::before { font-size: 1.35rem; }
+.movie-release-row-poster img { position: absolute; inset: 0; }
 .movie-release-block {
     display: grid;
     place-content: center;
-    align-self: stretch;
-    min-height: 4.4rem;
+    box-sizing: border-box;
+    height: var(--release-poster-height);
     padding: .35rem .25rem;
     border-radius: .6rem;
     text-align: center;
@@ -1486,10 +1635,12 @@ body:has([data-release-layout]) .header-search .movie-search :is(input, button) 
     .movie-release-legend { display: flex; flex-wrap: wrap; gap: .25rem; }
     .movie-release-tier { border-radius: .5rem; background: #ffffff0c; }
     .movie-library .movie-release-content li.movie-release {
-        grid-template-columns: minmax(3.2rem, .8fr) repeat(2, minmax(0, 1fr));
-        grid-template-areas: "quality head head" "size time health" "action action action";
+        --release-poster-height: 3rem;
+        grid-template-columns: 2rem minmax(3.2rem, .8fr) repeat(2, minmax(0, 1fr));
+        grid-template-areas: "poster quality head head" "size size time health" "action action action action";
     }
-    .movie-release-block { grid-area: quality; min-height: 3rem; }
+    .movie-release-row-poster { grid-area: poster; }
+    .movie-release-block { grid-area: quality; }
     .movie-release-head { grid-area: head; grid-template-columns: minmax(0, 1fr) auto auto; }
     .movie-release-size { grid-area: size; }
     .movie-release-time { grid-area: time; }
@@ -1509,6 +1660,9 @@ body[data-effects="off"] .movie-release-results button { transition: none; trans
 
 /* Anchor the expanded player to the viewport during playback from a detail page. */
 .movie-expanded-page .workspace > main:has(:is(.movie-film-detail, .movie-show-detail, [data-release-layout]):not([hidden])) {
+    container-type: normal;
+}
+.movie-expanded-page body:has(> .app-header) > main:has(:is(.movie-film-detail, .movie-show-detail):not([hidden])) {
     container-type: normal;
 }
 

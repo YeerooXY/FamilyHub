@@ -19,6 +19,7 @@ const expectedOrder = [faster, equallyFast, episode, pack, fixture[2].title, hig
 const desktop = [
     ["desktop-1280", {width: 1280, height: 720}],
     ["desktop-1920", {width: 1920, height: 1080}],
+    ["desktop-2000", {width: 2000, height: 1040}],
     ["desktop-2560", {width: 2560, height: 1440}],
     ["tv-1920", {width: 1920, height: 1080}, {deviceScaleFactor: 1, screen: {width: 1920, height: 1080}}]
 ];
@@ -43,7 +44,7 @@ async function check(browser, profile, options) {
         assert.equal(await results.locator(".movie-release-size .movie-download-progress").count(), 0);
         assert.equal(await rail.getByRole("heading", {name: "The Gentlemen (2024)"}).count(), 1);
         assert.equal(await results.locator(".movie-release-poster").count(), 1);
-        assert.equal(await results.locator("img").count(), 1);
+        assert.equal(await results.locator(".movie-release-row-poster img").count(), expectedOrder.length);
         await page.waitForFunction(img => img.naturalWidth > 0, await rail.locator("img").elementHandle());
         assert.equal(await page.getByRole("searchbox").count(), 1);
         assert.equal(await page.locator(".app-header").getByRole("searchbox").count(), 1);
@@ -52,7 +53,7 @@ async function check(browser, profile, options) {
         assert.deepEqual(await filenames.allTextContents(), expectedOrder, profile);
         assert.deepEqual(await rows.first().evaluate(row => [...row.children].filter(child => !child.hidden)
             .map(child => child.className)), [
-            "movie-release-quality movie-release-block", "movie-release-head", "movie-release-stat movie-release-size",
+            "movie-art movie-release-row-poster", "movie-release-quality movie-release-block", "movie-release-head", "movie-release-stat movie-release-size",
             "movie-release-stat movie-release-time", "movie-release-stat movie-release-health", "movie-release-actions"
         ]);
         const geometry = await results.evaluate(node => {
@@ -102,6 +103,30 @@ async function check(browser, profile, options) {
             assert.equal(geometry.railRight, geometry.contentLeft, profile);
             assert.ok(geometry.fraction >= .22 && geometry.fraction <= .26, profile);
         }
+        if ([1280, 2000].includes(options.viewport.width)) {
+            await query.focus();
+            const clearance = await page.locator(".app-header .movie-search").evaluate(pill => {
+                const {left, right, top, bottom} = pill.getBoundingClientRect();
+                const overlapsRing = node => {
+                    const rect = node.getBoundingClientRect();
+                    return rect.width && rect.height && rect.left < right + 4 && rect.right > left - 4 &&
+                        rect.top < bottom + 4 && rect.bottom > top - 4;
+                };
+                const header = pill.closest(".app-header");
+                return {
+                    overlaps: [...document.querySelectorAll("[data-release-layout], [data-release-layout] *")]
+                        .filter(overlapsRing).map(node => `${node.localName}.${[...node.classList].join(".")}`),
+                    headerHit: header.contains(document.elementFromPoint((left + right) / 2, bottom))
+                };
+            });
+            assert.deepEqual(clearance, {overlaps: [], headerHit: true}, profile);
+        }
+        assert.equal(await rows.evaluateAll(nodes => nodes.every(row => {
+            const poster = row.querySelector(".movie-release-row-poster").getBoundingClientRect();
+            const quality = row.querySelector(".movie-release-block").getBoundingClientRect();
+            return Math.abs(poster.height - quality.height) <= 1 && Math.abs(poster.height * 2 / 3 - poster.width) <= 1 &&
+                poster.right <= quality.left;
+        })), true);
         const legend = rail.getByRole("group", {name: "Quality"});
         const entries = legend.locator(".movie-release-tier");
         assert.equal(await entries.count(), 5);
@@ -194,6 +219,34 @@ async function check(browser, profile, options) {
         assert.equal(await list.isVisible(), false);
         assert.equal(await query.inputValue(), "");
         assert.equal(await focused(query), true);
+
+        await query.fill("Poster search");
+        await query.press("Enter");
+        await list.waitFor();
+        assert.equal(await rows.count(), 10);
+        await page.waitForFunction(() => typeof window.finishRowArtwork === "function" &&
+            calls.filter(([method]) => method === "MovieMatches").some(([, term]) => term === "Other port 3"));
+        const art = name => rows.filter({has: page.getByRole("heading", {name, exact: true})})
+            .locator(".movie-release-row-poster");
+        const shared = await rail.locator("img").getAttribute("src");
+        assert.ok(shared);
+        assert.equal(await art("Poster search").locator("img").getAttribute("src"), shared);
+        assert.equal(await art("Foreign harbour").count(), 2);
+        assert.equal(await art("Foreign harbour").first().locator("img").getAttribute("src"), null);
+        await page.evaluate(() => window.finishRowArtwork());
+        await art("Foreign Harbour").last().locator('img[src="/movie-art/movie-alt.jpg"]').waitFor({state: "attached"});
+        assert.deepEqual(await art("Foreign Harbour").locator("img").evaluateAll(images => images.map(img => img.getAttribute("src"))),
+            ["/movie-art/movie-alt.jpg", "/movie-art/movie-alt.jpg"]);
+        assert.equal(await art("Unknown port").getAttribute("data-initial"), "U");
+        assert.equal(await art("Unknown port").locator("img").getAttribute("src"), null);
+        assert.notEqual(await art("Unknown port").getAttribute("style"), await art("Blank sky").getAttribute("style"));
+        const lookups = await page.evaluate(() => {
+            const start = calls.findIndex(([method, term]) => method === "MovieMatches" && term === "Poster search");
+            return calls.slice(start + 1).filter(([method]) => method === "MovieMatches").map(([, term]) => term);
+        });
+        assert.equal(lookups.length, 6);
+        assert.equal(new Set(lookups).size, 6);
+        assert.equal(lookups.includes("Poster search"), false);
     } finally {
         await page.close();
     }

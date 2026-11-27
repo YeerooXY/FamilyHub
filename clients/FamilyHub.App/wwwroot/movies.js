@@ -344,7 +344,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     const status = el("p");
     status.setAttribute("role", "status");
     status.className = "movie-load-status";
-    const relatedFailure = "Related films are unavailable";
+    const relatedFailures = ["Related films are unavailable", "Related series are unavailable"];
     const player = el("section"), library = el("div");
     player.className = "movie-player";
     player.tabIndex = -1;
@@ -1233,7 +1233,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     function closeSeries(focus, fromHistory = false, keepFocus = false) {
         if (!seriesView) return;
         clearPlaybackNotice();
-        if (status.textContent === relatedFailure) status.textContent = "";
+        if (relatedFailures.includes(status.textContent)) status.textContent = "";
         const { section, opener, controller, fromResults, scrollTop, parent } = seriesView;
         seriesView = parent;
         controller.abort();
@@ -1274,7 +1274,6 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const original = item;
         item = {...item};
         const section = el("section"), heading = el("h2", item.Name), summary = el("p"), list = el("div");
-        const credit = el("p", "Season data from TMDB. " + tmdbAttribution);
         const back = button("", () => closeSeries());
         back.className = "movie-title-back";
         back.setAttribute("aria-label", "Back to titles");
@@ -1290,15 +1289,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         heading.tabIndex = -1;
         summary.setAttribute("role", "status");
         list.className = "movie-season-list";
-        credit.className = "movie-matches-credit";
-        credit.hidden = true;
-        const header = el("header"), intro = el("div"), actions = el("div");
+        const intro = el("div"), actions = el("div");
         const overview = el("p", item.Overview), facts = el("div"), detailStatus = el("p");
         overview.hidden = !item.Overview;
         facts.className = "movie-title-facts";
         detailStatus.className = "movie-favorite-status";
         detailStatus.setAttribute("role", "status");
-        header.className = "movie-series-header";
         intro.className = "movie-title-intro";
         actions.className = "movie-title-actions movie-hero-actions";
         const text = el("div");
@@ -1311,38 +1307,48 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             info.className = "movie-show-info";
             episodesColumn.className = "movie-show-episodes";
             info.append(intro);
-            episodesColumn.append(summary, list, credit);
+            episodesColumn.append(summary, list);
             columns.append(info, episodesColumn);
-            header.append(back);
-            section.append(header, columns);
+            section.append(back, columns);
         } else {
-            header.append(back, intro);
-            section.append(header, list, credit);
+            const header = el("header");
+            header.className = "movie-series-header";
+            header.append(intro);
+            if (isCollection) {
+                header.prepend(back);
+                section.append(header, list);
+            } else {
+                section.append(back, header, list);
+            }
         }
         let updateDescription;
         if (!isSeries && !isCollection) {
-            const dialog = el("dialog"), full = el("p"), title = el("h3", "Description");
-            dialog.className = "movie-description-dialog";
-            title.id = heading.id + "-description";
-            dialog.setAttribute("aria-labelledby", title.id);
-            const close = button("Close", () => dialog.close());
-            const read = button("Read full description", () => {
-                full.textContent = overview.textContent;
-                dialog.showModal();
+            const description = el("div");
+            description.className = "movie-film-description";
+            overview.id = heading.id + "-description";
+            const read = button("", () => {
+                const expanded = read.getAttribute("aria-expanded") !== "true";
+                read.setAttribute("aria-expanded", String(expanded));
+                read.setAttribute("aria-label", expanded ? "Show less" : "Show full description");
+                description.toggleAttribute("data-expanded", expanded);
             });
             read.className = "movie-description-more";
+            read.setAttribute("aria-controls", overview.id);
+            read.setAttribute("aria-expanded", "false");
+            read.setAttribute("aria-label", "Show full description");
+            read.append(icon("m5 9 7 7 7-7"));
             read.hidden = true;
             overview.classList.add("movie-film-overview");
-            overview.after(read);
-            dialog.append(title, full, close);
-            section.append(dialog);
+            overview.replaceWith(description);
+            description.append(overview, read);
             updateDescription = () => {
-                if (dialog.open) return;
-                const clipped = overview.scrollHeight > overview.clientHeight;
+                if (section.hidden) return;
+                const height = overview.scrollHeight;
+                const clipped = !overview.hidden && height > 3 * parseFloat(getComputedStyle(overview).lineHeight) + 1;
+                description.style.setProperty("--movie-description-height", height + "px");
                 if (!clipped && document.activeElement === read) heading.focus({preventScroll: true});
                 read.hidden = !clipped;
             };
-            dialog.addEventListener("close", updateDescription, {signal});
             if (globalThis.ResizeObserver) {
                 const resize = new ResizeObserver(updateDescription);
                 resize.observe(overview);
@@ -1370,7 +1376,6 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             section.hidden = false;
             updateDescription?.();
             handoff?.close();
-            if (!keepFocus) focus.focus({preventScroll: true});
             if (parent) parent.section.hidden = true;
             browse.classList.remove("movie-screen-entry");
             results.classList.remove("movie-screen-entry");
@@ -1390,6 +1395,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             } else results.hidden = true;
             if (isCollection) section.scrollIntoView({block: "start"});
             else scrollHost.scrollTop = 0;
+            if (!keepFocus) focus.focus({preventScroll: true});
         };
         if (!staged) show();
 
@@ -1402,7 +1408,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const favorite = demo || job ? null : favoriteAction(item, detailStatus, original);
         playButton.prepend(icon(playPath));
         if (!demo) actions.append(playButton, ...[favorite].filter(Boolean));
-        if (!demo && !job && !isSeries && session.downloads_enabled) credit.before(audioJobSlot(item));
+        if (!demo && !job && !isSeries && session.downloads_enabled) list.before(audioJobSlot(item));
         const trackStatus = el("p");
         if (job) {
             trackStatus.className = "movie-download-tracks";
@@ -1460,8 +1466,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             overview.textContent = item.Overview ?? "";
             overview.hidden = !item.Overview;
             updateDescription?.();
-            if (isSeries) facts.replaceChildren(...[...(item.Genres ?? []).slice(0, 3).map(chip), ratingBadge(item.OfficialRating)].filter(Boolean));
-            else renderFilmFacts(item, facts);
+            renderTitleFacts(item, facts);
             renderCast(item, cast);
         }
         updateDetails();
@@ -1509,55 +1514,54 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             return true;
         };
         if (!staged && job) updateJob();
-        if (!isSeries) {
-            let ready = details;
-            if (!demo) {
-                const relatedTitle = "More like this";
-                const related = el("section"), relatedHeader = el("div"), relatedHeading = el("h2", relatedTitle);
-                const action = button("", () => {
-                    action.focus({preventScroll: true});
-                    void retry();
-                });
-                action.className = "movie-title-retry";
-                action.title = relatedFailure + ". Retry";
-                action.setAttribute("aria-label", action.title);
-                action.append(icon("M20 7v5h-5M4 17v-5h5m-5 0a8 8 0 0 1 14-5l2 5m0 0a8 8 0 0 1-14 5l-2-5"));
-                action.hidden = related.hidden = true;
-                related.className = "movie-shelf";
-                related.dataset.format = "related";
-                relatedHeader.className = "movie-related-header";
-                relatedHeader.append(relatedHeading, action);
-                related.append(relatedHeader);
-                list.append(related);
-                let loaded = false;
-                action.addEventListener("blur", () => {
-                    if (!loaded) return;
-                    action.hidden = true;
-                    related.hidden = !related.querySelector(".movie-shelf-lane");
-                });
-                const retry = async (requestSignal = signal) => {
-                    if (loaded || action.getAttribute("aria-disabled") === "true") return;
-                    action.setAttribute("aria-disabled", "true");
-                    try {
-                        const found = await loadRelated(item, related, relatedTitle, requestSignal);
-                        if (requestSignal.aborted) return;
-                        loaded = true;
-                        if (status.textContent === relatedFailure) status.textContent = "";
-                        action.hidden = document.activeElement !== action;
-                        related.hidden = !found && action.hidden;
-                    } catch {
-                        if (requestSignal.aborted) return;
-                        related.hidden = action.hidden = false;
-                        if (!section.hidden && status.textContent !== relatedFailure) status.textContent = relatedFailure;
-                    } finally {
-                        action.setAttribute("aria-disabled", String(loaded));
-                    }
-                };
-                ready = job ? Promise.all([details, retry(prepareSignal)]) :
-                    details.then(() => !prepareSignal.aborted && retry(prepareSignal));
-            }
-            return reveal(ready, () => job ? playButton : heading);
+        let relatedReady = details;
+        if (!demo) {
+            const relatedFailure = relatedFailures[Number(isSeries)];
+            const relatedTitle = "More like this";
+            const related = el("section"), relatedHeader = el("div"), relatedHeading = el("h2", relatedTitle);
+            const action = button("", () => {
+                action.focus({preventScroll: true});
+                void retry();
+            });
+            action.className = "movie-title-retry";
+            action.title = relatedFailure + ". Retry";
+            action.setAttribute("aria-label", action.title);
+            action.append(icon("M20 7v5h-5M4 17v-5h5m-5 0a8 8 0 0 1 14-5l2 5m0 0a8 8 0 0 1-14 5l-2-5"));
+            action.hidden = related.hidden = true;
+            related.className = "movie-shelf";
+            related.dataset.format = "related";
+            relatedHeader.className = "movie-related-header";
+            relatedHeader.append(relatedHeading, action);
+            related.append(relatedHeader);
+            (isSeries ? section : list).append(related);
+            let loaded = false;
+            action.addEventListener("blur", () => {
+                if (!loaded) return;
+                action.hidden = true;
+                related.hidden = !related.querySelector(".movie-shelf-lane");
+            });
+            const retry = async (requestSignal = signal) => {
+                if (loaded || action.getAttribute("aria-disabled") === "true") return;
+                action.setAttribute("aria-disabled", "true");
+                try {
+                    const found = await loadRelated(item, related, relatedTitle, requestSignal, signal);
+                    if (requestSignal.aborted) return;
+                    loaded = true;
+                    if (status.textContent === relatedFailure) status.textContent = "";
+                    action.hidden = document.activeElement !== action;
+                    related.hidden = !found && action.hidden;
+                } catch {
+                    if (requestSignal.aborted) return;
+                    related.hidden = action.hidden = false;
+                    if (!section.hidden && status.textContent !== relatedFailure) status.textContent = relatedFailure;
+                } finally {
+                    action.setAttribute("aria-disabled", String(loaded));
+                }
+            };
+            relatedReady = job ? Promise.all([details, retry(prepareSignal)]) :
+                details.then(() => !prepareSignal.aborted && retry(prepareSignal));
         }
+        if (!isSeries) return reveal(relatedReady, () => job ? playButton : heading);
         if (demo) return;
 
         const seasons = el("div"), lane = el("div"), pills = new Map();
@@ -1656,7 +1660,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const focus = document.activeElement;
             const focused = list.contains(focus);
             const key = focused && focus.dataset.episodeId;
-            const nodes = season ? [seasonRow(item, number, season, episodes !== null, pictures.get(number), signal)] : [];
+            const nodes = season ? [seasonRow(item, number, season, episodes !== null, pictures.get(number))] : [];
             if (!episodes && !job) libraryOutage.show(); else libraryOutage.clear();
             if (episodes && !metadata && !job) metadataOutage.show(); else metadataOutage.clear();
             if (episodes && metadata && season && tmdbId && !pictures.has(number) && !job) episodeOutage.show();
@@ -1665,7 +1669,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             list.replaceChildren(...nodes);
             if (focused) {
                 const same = key ? [...list.querySelectorAll("[data-episode-id]")].find(node =>
-                    node.dataset.episodeId === key && node.hasAttribute("data-episode-audio") === focus.hasAttribute("data-episode-audio")) : null;
+                    node.dataset.episodeId === key) : null;
                 (same ?? seasonFocus()).focus({preventScroll: true});
             }
         }
@@ -1688,10 +1692,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             list.removeAttribute("aria-busy");
         }
         function summarize() {
-            if (job && !metadata) { summary.textContent = ""; return; }
-            const count = metadata?.length ?? [...available.keys()].filter(number => number > 0).length;
-            const total = metadata ? plural(count, "season") : count ? plural(count, "season") + " in your library" : "";
-            summary.textContent = total || (episodes && metadata && !available.size ? "No seasons available." : "");
+            summary.textContent = episodes && metadata && !available.size ? "No seasons available." : "";
         }
         async function load(quiet, requestSignal = signal) {
             if (busy || signal.aborted) return;
@@ -1770,7 +1771,6 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     if (firstMount && first != null && first !== numbers[0])
                         lane.scrollLeft = pills.get(first).offsetLeft;
                     updateSeasonArrows();
-                    credit.hidden = !metadata;
                     renderSeason(first);
                     summarize();
                     view.updateDownload();
@@ -1808,7 +1808,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             renderSeason(preferredSeason);
             view.updateDownload();
         }
-        const ready = Promise.all([details, load(false, prepareSignal)]);
+        const ready = Promise.all([relatedReady, load(false, prepareSignal)]);
         return reveal(ready, seasonFocus);
     }
     function playAction(item) {
@@ -1857,11 +1857,16 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }
     function titleFacts(item, rating) {
         const runtime = formatMinutes(item.RunTimeTicks / 6e8);
-        return [item.ProductionYear && chip(item.ProductionYear), rating, runtime && chip(runtime), libraryQuality(item)].filter(Boolean);
-    }
-    function renderFilmFacts(item, facts) {
-        facts.replaceChildren(...titleFacts(item, ratingBadge(item.OfficialRating)));
+        const facts = document.createDocumentFragment();
+        facts.append(...[item.ProductionYear && el("span", item.ProductionYear), rating, runtime && el("span", runtime),
+            libraryQuality(item)].filter(Boolean));
         appendSoundChip(facts, librarySound(streamsOf(item)), icon);
+        return facts;
+    }
+    function renderTitleFacts(item, facts) {
+        facts.replaceChildren(titleFacts(item, ratingBadge(item.OfficialRating)));
+        const genres = (item.Genres ?? []).slice(0, 3);
+        if (item.Type === "Series" && genres.length) facts.append(el("span", genres.join(", ")));
     }
     function setTitleLogo(item, heading, name = item.Name) {
         const tag = item.TmdbLogo ?? item.ImageTags?.Logo;
@@ -1884,7 +1889,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             .slice(0, item.Type === "Series" ? 12 : 6);
         target.classList.toggle("movie-cast", Boolean(actors.length));
         if (!actors.length) { target.replaceChildren(); return; }
-        const heading = el("h3", "Cast"), names = el("ul");
+        const names = el("ul");
+        names.setAttribute("role", "list");
+        names.setAttribute("aria-label", "Cast");
         for (const actor of actors) {
             const row = el("li"), portrait = el("span");
             row.tabIndex = 0;
@@ -1905,19 +1912,24 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             if (actor.Role) row.append(el("span", actor.Role));
             names.append(row);
         }
-        target.replaceChildren(heading, names);
+        target.replaceChildren(names);
     }
-    async function loadRelated(item, section, title, signal) {
+    async function loadRelated(item, section, title, signal, viewSignal) {
         const id = String(item.ProviderIds?.Tmdb ?? item.ProviderIds?.TMDb ?? "");
         if (!/^[1-9]\d{0,9}$/.test(id) || signal.aborted) return;
-        const reply = await boundedCall(signal, "MovieRelated", id);
-        if (!Array.isArray(reply?.matches)) throw Error("Invalid related films");
+        const kind = item.Type === "Series" ? "tv" : "movie";
+        const reply = await boundedCall(signal, "MovieRelated", id, kind);
+        if (!Array.isArray(reply?.matches)) {
+            // Older servers only accept film recommendations.
+            if (kind === "tv" && reply?.error === "Choose a film from the library.") return;
+            throw Error("Invalid related titles");
+        }
         const libraryMatches = Array.isArray(reply.library_matches) ? reply.library_matches : [];
         const matches = [...libraryMatches, ...reply.matches];
         if (!matches.length || signal.aborted) return;
         const owned = new Map(), matchedTitle = new Map();
         const index = movie => {
-            if (movie.Type !== "Movie" || movie.Id === item.Id || movie.IsMissing || movie.LocationType === "Virtual") return;
+            if (movie.Type !== item.Type || movie.Id === item.Id || movie.IsMissing || movie.LocationType === "Virtual") return;
             const providerId = String(movie.ProviderIds?.Tmdb ?? movie.ProviderIds?.TMDb ?? "");
             if (providerId) owned.set(providerId, movie);
             else if (movie.ProductionYear)
@@ -1928,7 +1940,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             await withinMovieLoad(async bounded => {
                 let startIndex = 0, page;
                 do {
-                    page = await request("Items", {userId: session.user, recursive: true, includeItemTypes: "Movie",
+                    page = await request("Items", {userId: session.user, recursive: true, includeItemTypes: item.Type,
                         fields: "ProviderIds,MediaStreams", enableImages: true, enableImageTypes: "Primary,Thumb,Backdrop,Logo",
                         imageTypeLimit: 1, sortBy: "SortName", startIndex, limit: 100}, undefined, bounded);
                     if (!Array.isArray(page?.Items)) throw Error("Invalid library page");
@@ -1945,7 +1957,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const local = owned.get(String(match.id)) ?? matchedTitle.get(searchTitle(match.title) + ":" + match.year);
             if (!local && libraryMatches.includes(match)) continue;
             const pick = local ? card(local, "related") : card({
-                Name: match.title, Id: "tmdb-" + match.id, Type: "Movie", ProductionYear: match.year
+                Name: match.title, Id: "tmdb-" + match.id, Type: item.Type, ProductionYear: match.year
             }, "related", () => {
                 query.value = match.title.slice(0, query.maxLength).trimEnd();
                 startSearch(true);
@@ -1954,24 +1966,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             rows.append(pick);
         }
         if (!rows.childElementCount) return;
-        const {lane, update} = shelfLane(rows, title, signal);
-        const credit = el("p", "Film data from TMDB. " + tmdbAttribution);
-        credit.className = "movie-matches-credit";
-        section.append(lane, credit);
+        const {lane, update} = shelfLane(rows, title, viewSignal, true);
+        section.append(lane);
         section.hidden = false;
         update();
         return true;
     }
-    function audioAction(item, signal) {
-        const action = button("", event => addAudio(item, event.currentTarget, library, signal));
-        action.className = "movie-episode-audio";
-        action.title = "Add audio track for " + item.Name;
-        action.setAttribute("aria-label", action.title);
-        action.setAttribute("aria-haspopup", "dialog");
-        action.append(icon("M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"));
-        return action;
-    }
-    function seasonRow(item, number, {episodes, total}, libraryKnown, catalogueEpisodes, signal) {
+    function seasonRow(item, number, {episodes, total}, libraryKnown, catalogueEpisodes) {
         const row = el("section"), header = el("div"), counts = el("div"), items = el("ol");
         const state = el("span", episodes.length ? "Available" : libraryKnown ? "Missing" : "Library check failed");
         row.className = "movie-season";
@@ -2070,12 +2071,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 action.append(indicator);
             }
             entry.append(action);
-            if (episode && session.downloads_enabled) {
-                const audio = audioAction(episode, signal);
-                audio.dataset.episodeId = episode.Id;
-                audio.dataset.episodeAudio = "";
-                entry.append(audio, audioJobSlot(episode));
-            }
+            if (episode && session.downloads_enabled) entry.append(audioJobSlot(episode));
             items.append(entry);
         }
         updateSeasonState(row);
@@ -2370,7 +2366,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         if (!preview && !findRelease && format !== "related") attachCardDownload(b, title.Name);
         return b;
     }
-    function shelfLane(rows, title, signal) {
+    function shelfLane(rows, title, signal, related = false) {
         const lane = el("div"), viewport = el("div");
         lane.className = "movie-shelf-lane";
         viewport.className = "movie-shelf-scroll";
@@ -2381,29 +2377,39 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const maxScroll = () => viewport.scrollWidth - viewport.clientWidth;
         const step = () => rows.firstElementChild ?
             parseFloat(getComputedStyle(rows.firstElementChild).width) + parseFloat(getComputedStyle(rows).columnGap) : 0;
-        function slide(target) {
+        function slide(target, immediate = false) {
             const from = viewport.scrollLeft;
             cancel();
             destination = Math.max(0, Math.min(target, maxScroll()));
-            if (quietMotion() || Math.abs(destination - from) <= 1) {
+            const finish = () => {
+                if (related) {
+                    const {first, last} = markVisible();
+                    if (!immediate && first && Math.abs(viewport.scrollLeft - from) > 1) {
+                        const index = card => Array.prototype.indexOf.call(rows.children, card) + 1;
+                        status.textContent = `Showing titles ${index(first)} to ${index(last)} of ${rows.childElementCount}.`;
+                    }
+                }
+                cancel();
+            };
+            if (immediate || quietMotion() || Math.abs(destination - from) <= 1) {
                 viewport.scrollLeft = destination;
-                destination = undefined;
+                finish();
                 return;
             }
             const started = performance.now();
             const tick = now => {
-                const t = quietMotion() ? 1 : Math.min(1, (now - started) / 410);
+                const t = quietMotion() ? 1 : Math.min(1, (now - started) / (related ? 230 : 410));
                 const eased = t * t * (3 - 2 * t);
                 viewport.scrollLeft = from + (destination - from) * eased;
                 if (t < 1) animation = requestAnimationFrame(tick);
-                else cancel();
+                else finish();
             };
             animation = requestAnimationFrame(tick);
         }
         const arrows = [-1, 1].map(direction => {
             const arrow = button("", () => {
                 if (arrow.getAttribute("aria-disabled") !== "true")
-                    slide((destination ?? viewport.scrollLeft) + direction * 5 * step());
+                    slide((destination ?? viewport.scrollLeft) + direction * pageSize * step());
             });
             arrow.className = "movie-shelf-arrow";
             arrow.setAttribute("aria-label", (direction < 0 ? "Previous " : "Next ") + title.toLowerCase());
@@ -2418,6 +2424,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 const left = node.offsetLeft;
                 const full = left >= start - 1 && left + node.offsetWidth <= end + 1;
                 node.dataset.edge = full ? "middle" : "peek";
+                if (related) node.tabIndex = full ? 0 : -1;
                 if (full) { first ??= node; last = node; }
             }
             if (last && last !== first) last.dataset.edge = "last";
@@ -2425,6 +2432,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             arrows[0].setAttribute("aria-disabled", String(start < 1));
             arrows[1].setAttribute("aria-disabled", String(start >= maxScroll() - 1));
             for (const arrow of arrows) arrow.tabIndex = arrow.getAttribute("aria-disabled") === "true" ? -1 : 0;
+            return {first, last};
         }
         function update() {
             if (!CSS.supports("width", "1cqi")) {
@@ -2440,11 +2448,26 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 (rows.firstElementChild ?? lane.closest("section")?.querySelector("h2") ?? query).focus({preventScroll: true});
             markVisible();
         }
-        function reveal(node) {
-            const left = node.offsetLeft, start = destination ?? viewport.scrollLeft;
+        function reveal(node, immediate = false) {
+            if (immediate) cancel();
+            const left = node.offsetLeft, start = immediate ? viewport.scrollLeft : destination ?? viewport.scrollLeft;
             if (left >= start - 1 && left + node.offsetWidth <= start + viewport.clientWidth + 1) return;
             const index = Array.prototype.indexOf.call(rows.children, node);
-            slide(Math.floor(index / pageSize) * pageSize * step());
+            slide(Math.floor(index / pageSize) * pageSize * step(), immediate);
+        }
+        if (related) {
+            lane.revealCard = node => reveal(node, true);
+            viewport.addEventListener("mousedown", event => {
+                if (event.target.closest('.movie-card[data-edge="peek"]')) event.preventDefault();
+            }, {capture: true, signal});
+            viewport.addEventListener("click", event => {
+                const node = event.target.closest('.movie-card[data-edge="peek"]');
+                if (!node) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const direction = node.offsetLeft < viewport.scrollLeft - 1 ? -1 : 1;
+                slide((destination ?? viewport.scrollLeft) + direction * pageSize * step());
+            }, {capture: true, signal});
         }
         const resize = globalThis.ResizeObserver ? new ResizeObserver(() => { cancel(); update(); }) : null;
         if (resize) resize.observe(viewport);
@@ -2453,7 +2476,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         viewport.addEventListener("scroll", markVisible, {passive: true});
         viewport.addEventListener("pointerdown", cancel);
         viewport.addEventListener("wheel", cancel, {passive: true});
-        rows.addEventListener("focusin", event => { if (event.target.parentElement === rows) reveal(event.target); });
+        rows.addEventListener("focusin", event => { if (event.target.parentElement === rows && !related) reveal(event.target); });
         lane.addEventListener("keydown", event => {
             if (!arrows.includes(event.target) || !["PageUp", "PageDown"].includes(event.key)) return;
             event.preventDefault();
@@ -2795,6 +2818,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 return reply;
             } : null, {
                 term, screen: movieScreen(readMoviePreferences(preferenceViewer).screen), icon, searchTitle, titleHue, chainImages,
+                matchTitle: name => boundedCall(signal, "MovieMatches", name),
                 palette: backdropPalette,
                 preferences: () => {
                     const prefs = readMoviePreferences(preferenceViewer);
@@ -3784,12 +3808,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         featured.setAttribute("aria-labelledby", heading.id);
         const facts = titleFacts(pick, ratingBadge(pick.OfficialRating) ?? ratingBadge(existingTitle?.OfficialRating));
         const genres = (pick.Genres ?? []).slice(0, 3);
-        if (genres.length) facts.push(el("span", genres.join(", ")));
+        if (genres.length) facts.append(el("span", genres.join(", ")));
         body.append(heading);
-        if (facts.length) {
+        if (facts.childElementCount) {
             const meta = el("div");
             meta.className = "movie-hero-meta";
-            meta.append(...facts);
+            meta.append(facts);
             body.append(meta);
         }
         if (pick.Overview) {
@@ -3958,6 +3982,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         }
         if (!target) return;
         event.preventDefault();
+        if (target.matches(".movie-card")) target.closest(".movie-shelf-lane")?.revealCard?.(target);
         target.focus({ preventScroll: true });
         if (arrows?.[1]) (target.closest(".movie-shelf-lane") ?? featured).scrollIntoView({block: "nearest"});
     });

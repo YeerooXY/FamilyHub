@@ -139,7 +139,7 @@ async function check(browser, profile, options) {
     const seasons = page.getByRole("group", {name: "Seasons"});
     await seasons.getByRole("button", {name: "Season 3", exact: true}).press("Space");
     await page.getByRole("button", { name: "Find season 3" }).waitFor();
-    await page.getByText("3 seasons", {exact: true}).waitFor();
+    assert.equal(await page.getByText("3 seasons", {exact: true}).count(), 0);
     await seasons.getByRole("button", {name: "Season 1", exact: true}).press("Enter");
     const episodeOpener = page.getByRole("button", { name: "2. The Move" });
     await episodeOpener.click();

@@ -36,6 +36,10 @@ The family server machine runs Debian 13. [New server: first steps](docs/NEW_SER
 - App checks: `dotnet run --project clients/FamilyHub.Client.Core.Tests` and `dotnet run --project clients/FamilyHub.Player.Tests`
 - Windows build: `dotnet build clients/FamilyHub.App -f net10.0-windows10.0.19041.0`
 
+## Attribution
+
+**TMDB**. Film data from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.
+
 ## History
 
 Earlier planning reviews, dated verification records and research notes are in [docs/history](docs/history/). They describe the setup at the time they were written: Navidrome and Lidarr were part of it then and have since been removed.

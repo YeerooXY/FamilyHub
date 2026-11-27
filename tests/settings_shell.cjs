@@ -48,6 +48,13 @@ verifyShell(async (page, phone) => {
         ['storage', '#cache-limit'], ['about', '#installed-app-version']]) {
         await select(id, 'Enter');
         await panel.locator(control).waitFor();
+        if (id === 'about') {
+            const attribution = panel.locator('#settings-tmdb-credit');
+            await attribution.waitFor();
+            assert.equal(await attribution.locator('strong').textContent(), 'TMDB');
+            assert.match(await attribution.textContent(),
+                /Film data from TMDB\. This product uses the TMDB API but is not endorsed or certified by TMDB\./);
+        }
         if (!phone) {
             const [rail, content] = await Promise.all([categories.boundingBox(), panel.boundingBox()]);
             assert.ok(rail.x + rail.width <= content.x && Math.abs(rail.y - content.y) <= 1);
