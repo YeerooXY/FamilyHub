@@ -1363,7 +1363,7 @@ function updateNext() {
     $("next-cover").replaceChildren(cover(track));
   }
   notice("next-readiness", !track ? "" : failedPreparation(job) ? "Preparation failed" : job?.media_url ? "Ready to play" : "Preparing audio", {quiet:true});
-  $("bar-next").textContent = track ? "Up next · " + track.title : "Up next · " + ($("autoplay").checked ? "No song queued" : "Autoplay off");
+  $("bar-next").textContent = track ? "Up next: " + track.title : "Up next: " + ($("autoplay").checked ? "No song queued" : "Autoplay off");
 }
 document.addEventListener("visibilitychange", () => {
   scheduleJobs();

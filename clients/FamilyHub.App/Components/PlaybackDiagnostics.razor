@@ -24,8 +24,7 @@
             var started = attempt?.Started;
             <details @key="action.Action">
                 <summary>
-                    <strong>@(string.IsNullOrWhiteSpace(attempt?.Title) ? "Unknown song" : attempt.Title)</strong>
-                    <span> · @(started?.ToLocalTime().ToString("T") ?? "Time unavailable") · </span>
+                    <strong>@(string.IsNullOrWhiteSpace(attempt?.Title) ? "Unknown song" : attempt.Title)</strong><span>, @(started?.ToLocalTime().ToString("T") ?? "Time unavailable"): </span>
                     @Summary(action, attempt?.Observations)
                 </summary>
                 @if (attempt?.Observations is { Length: > 0 } observations)
@@ -36,7 +35,7 @@
                         {
                             <div class="setting-row">
                                 <dt>@ObservationLabel(observation.Stage) @ObservationReason(observation.Reason)</dt>
-                                <dd>@observation.Time.ToLocalTime().ToString("T") · Song position @SongPosition(observation.Position)</dd>
+                                <dd>@observation.Time.ToLocalTime().ToString("T"), song position @SongPosition(observation.Position)</dd>
                             </div>
                         }
                     </dl>
@@ -59,7 +58,7 @@
                                 @Duration((device ? stage.ClientMs : stage.ServerMs)!.Value)
                                 @if (stage.PositionMs is int position)
                                 {
-                                    <span> · Song position @SongPosition(position / 1000d)</span>
+                                    <span>at song position @SongPosition(position / 1000d)</span>
                                 }
                             </dd>
                         </div>

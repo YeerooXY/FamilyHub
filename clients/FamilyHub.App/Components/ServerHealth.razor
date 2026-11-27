@@ -25,11 +25,11 @@
                         {
                             <strong class="health-value">@Bytes(used) used</strong>
                             <meter min="0" max="@mount.Total" value="@used" aria-label="@("Disk space used on " + mount.Mount)"></meter>
-                            <p>@Bytes(mount.Free) free · @Bytes(mount.Total) total</p>
-                            <p>7-day change · @(mount.Growth is { } growth ? (growth > 0 ? "+" : growth < 0 ? "−" : "") + Bytes(Math.Abs(growth)) : "Need 7 days of readings")</p>
+                            <p>@Bytes(mount.Free) free of @Bytes(mount.Total)</p>
+                            <p>7-day change: @(mount.Growth is { } growth ? (growth > 0 ? "+" : growth < 0 ? "−" : "") + Bytes(Math.Abs(growth)) : "Need 7 days of readings")</p>
                             @foreach (var disk in mount.Disks)
                             {
-                                <p><span class="health-device">@disk.Name</span> SMART · @(disk.Smart ?? NotMeasured)</p>
+                                <p><span class="health-device">@disk.Name</span> SMART: @(disk.Smart ?? NotMeasured)</p>
                             }
                         }
                         else { <p>Mount unavailable</p> }
@@ -46,31 +46,31 @@
                 </article>
                 <article class="health-tile">
                     <h3>Power</h3>
-                    <p>CPU package · <strong>@Number(Value(snapshot, "power:cpu"), " W")</strong></p>
-                    <p>Whole machine · <strong>@Number(Value(snapshot, "power:machine"), " W")</strong></p>
+                    <p>CPU package: <strong>@Number(Value(snapshot, "power:cpu"), " W")</strong></p>
+                    <p>Whole machine: <strong>@Number(Value(snapshot, "power:machine"), " W")</strong></p>
                     <h3>Monthly energy estimate</h3>
-                    <p>CPU package · @Energy(snapshot, "power:cpu")</p>
-                    <p>Whole machine · @Energy(snapshot, "power:machine")</p>
+                    <p>CPU package: @Energy(snapshot, "power:cpu")</p>
+                    <p>Whole machine: @Energy(snapshot, "power:machine")</p>
                 </article>
                 <article class="health-tile">
                     <h3>Temperature</h3>
                     @Temperature(snapshot, "cpu", "CPU package", 70, 85)
-                    <p>CPU warm at 70 °C · hot at 85 °C</p>
+                    <p>CPU warm at 70 °C, hot at 85 °C</p>
                     @foreach (var disk in snapshot.Mounts.SelectMany(m => m.Disks).Select(d => d.Name).Distinct())
                     { @Temperature(snapshot, disk, disk, 45, 55) }
-                    <p>Disks warm at 45 °C · hot at 55 °C</p>
+                    <p>Disks warm at 45 °C, hot at 55 °C</p>
                 </article>
                 <article class="health-tile">
                     <h3>Network</h3>
                     @foreach (var name in snapshot.Networks)
                     {
-                        <p><strong class="health-device">@name</strong></p>
-                        <p>Download · @Rate(Value(snapshot, $"network:{name}:download"))</p>
-                        <p>Upload · @Rate(Value(snapshot, $"network:{name}:upload"))</p>
+                        <p><strong class="health-device">@NetworkName(name)</strong></p>
+                        <p>Download: @Rate(Value(snapshot, $"network:{name}:download"))</p>
+                        <p>Upload: @Rate(Value(snapshot, $"network:{name}:upload"))</p>
                     }
-                    @if (snapshot.Networks.Count == 0) { <p>Ethernet · @NotMeasured</p> }
-                    @if (!snapshot.Networks.Any(n => n.StartsWith("VPN · ", StringComparison.Ordinal)))
-                    { <p>VPN · @NotMeasured</p> }
+                    @if (snapshot.Networks.Count == 0) { <p>Ethernet: @NotMeasured</p> }
+                    @if (!snapshot.Networks.Any(n => n.StartsWith(VpnPrefix, StringComparison.Ordinal)))
+                    { <p>VPN: @NotMeasured</p> }
                 </article>
             </div>
         }
@@ -209,14 +209,18 @@
         for (; Math.Abs(value) >= 1024 && index < units.Length - 1; index++) value /= 1024;
         return value.ToString(index == 0 ? "0" : "0.#") + " " + units[index];
     }
+    // The server names VPN links "VPN · <device>"; that name is also the stored history key, so only the label changes.
+    private const string VpnPrefix = "VPN \u00b7 ";
+    private static string NetworkName(string name) =>
+        name.StartsWith(VpnPrefix, StringComparison.Ordinal) ? "VPN " + name[VpnPrefix.Length..] : name;
     private static string Rate(double? value) => value is null ? NotMeasured : Bytes(value) + "/s";
     private static string Energy(ServerHealthNow snapshot, string key) =>
         snapshot.Monthly.TryGetValue(key, out var estimate) ? Number(estimate, " kWh") : NotMeasured;
 
     private static RenderFragment Temperature(ServerHealthNow snapshot, string key, string label, int warm, int hot) => @<p>
         @{ var value = Value(snapshot, "temperature:" + key); }
-        @label · <strong class="@(value >= hot ? "health-hot" : value >= warm ? "health-warm" : null)">@Number(value, " °C")</strong>
-        @if (value is not null) { <span> · @(value >= hot ? "Hot" : value >= warm ? "Warm" : "Normal")</span> }
+        @label: <strong class="@(value >= hot ? "health-hot" : value >= warm ? "health-warm" : null)">@Number(value, " °C")</strong>
+        @if (value is not null) { <span>(@(value >= hot ? "Hot" : value >= warm ? "Warm" : "Normal"))</span> }
     </p>;
 
     private static IEnumerable<(string Title, (string Key, string Label)[] Lines, Func<double?, string> Format)> Charts(ServerHealthHistory history)
@@ -224,8 +228,8 @@
         var keys = history.Series.Keys;
         foreach (var name in keys.Where(key => key.StartsWith("network:", StringComparison.Ordinal))
                      .Select(key => key[8..key.LastIndexOf(':')]).Distinct()
-                     .OrderBy(name => name.StartsWith("VPN · ", StringComparison.Ordinal)).ThenBy(name => name, StringComparer.Ordinal))
-            yield return ("Network · " + name, [($"network:{name}:download", "Download"), ($"network:{name}:upload", "Upload")], Rate);
+                     .OrderBy(name => name.StartsWith(VpnPrefix, StringComparison.Ordinal)).ThenBy(name => name, StringComparer.Ordinal))
+            yield return ("Network: " + NetworkName(name), [($"network:{name}:download", "Download"), ($"network:{name}:upload", "Upload")], Rate);
         if (keys.Contains("cpu")) yield return ("CPU load", [("cpu", "1-minute load")], value => Number(value));
         if (keys.Contains("memory:used")) yield return ("Memory", [("memory:used", "Used"), ("memory:available", "Available")], Bytes);
         if (keys.Any(key => key.StartsWith("power:", StringComparison.Ordinal)))
@@ -234,7 +238,7 @@
             yield return (key == "temperature:cpu" ? "CPU package temperature" : key[12..] + " temperature",
                 [(key, "Temperature")], value => Number(value, " °C"));
         foreach (var key in keys.Where(key => key.StartsWith("disk:", StringComparison.Ordinal)).Order(StringComparer.Ordinal))
-            yield return ("Disk space · " + key[5..], [(key, "Used")], Bytes);
+            yield return ("Disk space: " + key[5..], [(key, "Used")], Bytes);
     }
 
     public void Dispose()

@@ -3,10 +3,9 @@
 @if (Track.Bpm is > 0 || !string.IsNullOrWhiteSpace(Track.Key))
 {
     <p>
-        @if (Track.Bpm is > 0) { <span>@Track.Bpm BPM</span> }
+        @if (Track.Bpm is > 0) { <span>@Track.Bpm BPM@(string.IsNullOrWhiteSpace(Track.Key) ? "" : ",")</span> }
         @if (!string.IsNullOrWhiteSpace(Track.Key))
         {
-            @if (Track.Bpm is > 0) { <span aria-hidden="true"> · </span> }
             <span>Key @(string.IsNullOrWhiteSpace(Track.KeyName) ? Track.Key : $"{Track.KeyName} ({Track.Key})")</span>
         }
     </p>

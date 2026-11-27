@@ -124,7 +124,7 @@
                                     <h3>@title</h3><p class="catalogue-artist">@row.Artist</p>
                                 </div>
                                 <div class="catalogue-details">
-                                    <p class="catalogue-reason">@row.PlaylistName · @GapReason(row.State)</p>
+                                    <p class="catalogue-reason">@row.PlaylistName: @GapReason(row.State)</p>
                                     @Retry(row.RetryAt, row.RetryReason)
                                 </div>
                                 <div class="catalogue-actions">
@@ -148,7 +148,7 @@
                                 </div>
                                 <div class="catalogue-details">
                                     <p class="catalogue-reason">@(row.Issue == "decode_failed" ? "The server could not decode part of the audio." : row.Verdict == "suspect" ? "The scan found missing high frequencies." : "Unofficial upload.")</p>
-                                    @if (row.Candidate is { } candidate) { <p class="catalogue-reason">Official source · @candidate.Channel</p> }
+                                    @if (row.Candidate is { } candidate) { <p class="catalogue-reason">Official source: @candidate.Channel</p> }
                                     else if (row.ReplacementChecked && row.RetryReason.Length == 0) { <p class="catalogue-reason">No matching official source found.</p> }
                                     @Retry(row.RetryAt, row.RetryReason)
                                     @if (row.Replacing) { <p class="catalogue-progress" role="status">@(row.Queued ? "Replacement queued" : "Replacing recording…")</p> }
@@ -285,7 +285,7 @@
     </div>
     @if (recordingChoice is { } choice)
     {
-        <p>@choice.Title @if (choice.Artist.Length > 0) { <span class="muted">· @choice.Artist</span> }</p>
+        <p>@choice.Title @if (choice.Artist.Length > 0) { <span class="muted">by @choice.Artist</span> }</p>
         @if (YouTubePreview(choice.Candidate) is { } preview)
         {
             <div class="catalogue-recording-suggestion">

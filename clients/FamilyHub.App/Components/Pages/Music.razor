@@ -681,7 +681,7 @@ else
         <button id="preload-low" aria-pressed="@Aria(preloadQuality == "low")" @onclick='() => preloadQuality = "low"'><strong>Low</strong><span>Opus 48 kbps</span></button>
         <button id="preload-normal" aria-pressed="@Aria(preloadQuality == "normal")" @onclick='() => preloadQuality = "normal"'><strong>Normal</strong><span>Opus 96 kbps</span></button>
         <button id="preload-high" aria-pressed="@Aria(preloadQuality == "high")" @onclick='() => preloadQuality = "high"'><strong>High</strong><span>Opus 160 kbps</span></button>
-        <button id="preload-max" aria-pressed="@Aria(preloadQuality == "max")" @onclick='() => preloadQuality = "max"'><strong>Max</strong><span>Original &middot; @Size(preloadTracks.Sum(t => t.DownloadSize))</span></button>
+        <button id="preload-max" aria-pressed="@Aria(preloadQuality == "max")" @onclick='() => preloadQuality = "max"'><strong>Max</strong><span>Original, @Size(preloadTracks.Sum(t => t.DownloadSize))</span></button>
     </div>
     <p class="setting-help">@(Session.DownloadsWifiOnly ? "Downloads use Wi-Fi or Ethernet. Keep the app open until they finish." : "Mobile data is allowed for downloads. Keep the app open until they finish.")</p>
     <Notice Level="error" Message="@error" />

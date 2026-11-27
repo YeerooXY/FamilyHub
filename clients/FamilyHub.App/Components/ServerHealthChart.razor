@@ -13,7 +13,7 @@
                     <strong><i aria-hidden="true"></i>@line.Label</strong>
                     @if (line.Points.Length > 0)
                     {
-                        <span>Latest @Format(line.Points[^1][1]) · Peak @Format(line.Peak)</span>
+                        <span>Latest @Format(line.Points[^1][1]), peak @Format(line.Peak)</span>
                         @if (History.Totals.TryGetValue(line.Key, out var total))
                         { <span>@ServerHealth.Bytes(total) recorded</span> }
                     }

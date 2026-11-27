@@ -359,7 +359,7 @@ async function check(browser, label, profile, capture = true) {
     await page.getByRole("button", { name: "Close share link" }).click();
     assert.equal(await active(), "Actions for report.pdf", `${label}: focus returns to the row's menu button`);
     await page.getByRole("button", { name: "Your links" }).click();
-    await page.getByText("report.pdf · works until").waitFor();
+    await page.getByText("report.pdf: works until").waitFor();
     if (label === "iphone-13") await screenshot("your-links");
     await page.getByRole("button", { name: "Revoke link to report.pdf" }).click();
     await page.getByText("Revoked the link to report.pdf.").waitFor();

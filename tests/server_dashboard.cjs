@@ -47,8 +47,8 @@ async function check(browser, profileName, profile, engineName) {
         const current = page.getByRole('region', {name: 'Current readings'});
         const history = page.getByRole('region', {name: 'History', exact: true});
         const radios = history.getByRole('radiogroup', {name: 'History range'});
-        const ethernet = history.locator('.health-chart').filter({has: page.getByRole('heading', {name: 'Network · enp3s0', exact: true})});
-        const tableToggle = ethernet.getByRole('button', {name: 'Network · enp3s0 data'});
+        const ethernet = history.locator('.health-chart').filter({has: page.getByRole('heading', {name: 'Network: enp3s0', exact: true})});
+        const tableToggle = ethernet.getByRole('button', {name: 'Network: enp3s0 data'});
         const historyRefresh = history.getByRole('button', {name: 'Refresh history'});
         await current.getByText('38 GiB used', {exact: true}).waitFor();
         // Seeding: every torrent against the 2.0 goal, loaded on its own.
@@ -59,14 +59,14 @@ async function check(browser, profileName, profile, engineName) {
         await seeding.getByText('Pending').waitFor();
         assert(await seeding.evaluate(node => node.scrollWidth <= node.clientWidth), name + ' seeding fits the width');
         if (profile.isMobile === false || profileName.includes('desktop') || profileName.includes('windows')) await seeding.screenshot({path: path.join(process.env.SEEDING_CAPTURE || require('node:os').tmpdir(), name + '-seeding.png')});
-        await current.getByText('Whole machine · Not measured', {exact: true}).first().waitFor();
+        await current.getByText('Whole machine: Not measured', {exact: true}).first().waitFor();
         assert.equal(await current.locator('meter').first().evaluate(el => el.getBoundingClientRect().height), 8);
-        assert(await current.getByText('CPU warm at 70 °C · hot at 85 °C').isVisible());
+        assert(await current.getByText('CPU warm at 70 °C, hot at 85 °C').isVisible());
         assert.equal(await current.locator('.health-hot').textContent(), '55 °C');
         await ethernet.getByText(/^Latest/).first().waitFor();
         assert.equal(await ethernet.locator('path.health-trace').count(), 2);
         assert.equal(await ethernet.getByText(/recorded$/).count(), 2);
-        assert(await history.getByRole('heading', {name: 'Network · VPN · tun0'}).isVisible());
+        assert(await history.getByRole('heading', {name: 'Network: VPN tun0'}).isVisible());
 
         const rangeResponses = expected => page.waitForFunction(range => {
             const section = document.querySelector('#health-history-title').closest('section');
@@ -95,7 +95,7 @@ async function check(browser, profileName, profile, engineName) {
             assert(await week.evaluate(el => el === document.activeElement));
             await page.keyboard.press('ArrowDown');
             assert(await history.locator('.health-table-button:focus').count());
-            const vpnToggle = history.getByRole('button', {name: 'Network · VPN · tun0 data'});
+            const vpnToggle = history.getByRole('button', {name: 'Network: VPN tun0 data'});
             if (await vpnToggle.evaluate(el => el === document.activeElement)) await page.keyboard.press('ArrowLeft');
             assert(await tableToggle.evaluate(el => el === document.activeElement));
             await page.keyboard.press('ArrowRight');
@@ -107,7 +107,7 @@ async function check(browser, profileName, profile, engineName) {
                 new Set(labels.map(label => label.offsetTop)).size), 1);
         }
         await tableToggle.press('Enter');
-        const table = ethernet.getByRole('table', {name: 'Network · enp3s0 readings'});
+        const table = ethernet.getByRole('table', {name: 'Network: enp3s0 readings'});
         await table.waitFor();
         assert.equal(await table.getByRole('row').count(), 37);
         assert(await tableToggle.evaluate(el => el === document.activeElement));

@@ -679,7 +679,7 @@ export function openFiles(host, app, viewer) {
             card.querySelector("h2").textContent = file.name;
             stage.setAttribute("aria-label", file.name);
             stage.replaceChildren(el("p", "files-note", "Loading preview…"));
-            caption.textContent = `${bytes(file.size)} · ${day.format(new Date(file.modified * 1000))}${siblings.length > 1 ? ` · ${at + 1} of ${siblings.length}` : ""}`;
+            caption.textContent = `${bytes(file.size)}, ${day.format(new Date(file.modified * 1000))}${siblings.length > 1 ? `, ${at + 1} of ${siblings.length}` : ""}`;
             previous.setAttribute("aria-disabled", String(at === 0)); next.setAttribute("aria-disabled", String(at >= siblings.length - 1));
             save.onclick = () => download(file, save);
             share.onclick = () => shareSheet(file, share);
@@ -817,7 +817,7 @@ export function openFiles(host, app, viewer) {
             for (const link of r.body.links) {
                 const li = el("li", "files-link");
                 const details = el("div", "files-link-details");
-                const expiration = el("span", "", `${link.name} · ${link.active ? "works until " + stamp.format(new Date(link.expires * 1000)) : "no longer works"}`);
+                const expiration = el("span", "", `${link.name}: ${link.active ? "works until " + stamp.format(new Date(link.expires * 1000)) : "no longer works"}`);
                 const count = el("span", "files-chip", `${link.downloads}${link.max_downloads ? " of " + link.max_downloads : ""} ${link.downloads === 1 ? "download" : "downloads"}`);
                 details.append(expiration, count);
                 if (link.protected) details.append(el("span", "files-chip", "Password"));
@@ -831,7 +831,7 @@ export function openFiles(host, app, viewer) {
                         if (!card.open) return;
                         if (!done.ok) { revoke.removeAttribute("aria-disabled"); note.textContent = done.error; return; }
                         const hadFocus = document.activeElement === revoke;
-                        expiration.textContent = `${link.name} · no longer works`;
+                        expiration.textContent = `${link.name}: no longer works`;
                         revoke.remove();
                         note.textContent = `Revoked the link to ${link.name}.`;
                         if (hadFocus || document.activeElement === document.body) (ul.querySelector(".files-quiet:not([aria-disabled])") ?? close).focus();

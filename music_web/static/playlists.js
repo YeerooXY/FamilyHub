@@ -31,7 +31,7 @@
   async function refresh() {
     const result=await api('/api/playlists'); playlists=result.playlists;
     const id=identity(selected) || $('playlist-select').value;
-    $('playlist-select').replaceChildren(el('option',{value:''},'Choose a playlist'),...playlists.map(p=>el('option',{value:identity(p)},p.name+' ('+p.tracks.length+')'+(p.can_edit===false?' · '+p.owner_name:''))));
+    $('playlist-select').replaceChildren(el('option',{value:''},'Choose a playlist'),...playlists.map(p=>el('option',{value:identity(p)},p.name+' ('+p.tracks.length+')'+(p.can_edit===false?', by '+p.owner_name:''))));
     if(id){selected=playlists.find(p=>identity(p)===id)||null;$('playlist-select').value=id;} render();
   }
   $('playlist-panel').addEventListener('toggle',()=>{if($('playlist-panel').open&&!busy)refresh().catch(e=>say(e.message, "error"));});

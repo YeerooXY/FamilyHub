@@ -60,7 +60,7 @@ var pausedDiscord = JsonSerializer.Serialize(DiscordActivity.Build(discordSnapsh
 using (var paused = JsonDocument.Parse(pausedDiscord))
 {
     Check(paused.RootElement.GetProperty("timestamps").ValueKind == JsonValueKind.Null, "Paused Discord activity must not have timestamps");
-    Check(paused.RootElement.GetProperty("state").GetString() == "Paused · Artist", "Paused Discord activity must say paused");
+    Check(paused.RootElement.GetProperty("state").GetString() == "Paused: Artist", "Paused Discord activity must say paused");
     Check(paused.RootElement.GetProperty("assets").GetProperty("large_image").ValueKind == JsonValueKind.Null && !pausedDiscord.Contains("private-server"), "Discord activity must not expose private URLs");
 }
 var discordFrame = DiscordFrame.EncodeBytes(1, Encoding.UTF8.GetBytes("{}"));

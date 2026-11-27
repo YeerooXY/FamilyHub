@@ -706,10 +706,10 @@ async function audit(name, engine, options) {
             const refreshAttempts = diagnostics.getByRole('button', {name: 'Refresh attempts'});
             const action = diagnostics.locator('summary').filter({hasText: 'Started, then stopped unexpectedly.'});
             await action.waitFor();
-            assert.match(await action.innerText(), /First Light\s+· \d{1,2}:\d{2}.* ·\s+Started, then stopped unexpectedly\./);
-            const older = diagnostics.locator('summary').filter({hasText: 'Unknown song · Time unavailable'});
-            assert.match(await older.nth(0).innerText(), /Time unavailable ·\s+The retry loaded\. Playback start is unconfirmed\./);
-            assert.match(await older.nth(1).innerText(), /Time unavailable ·\s+Started playing\./);
+            assert.match(await action.innerText(), /First Light\s*, \d{1,2}:\d{2}.*:\s+Started, then stopped unexpectedly\./);
+            const older = diagnostics.locator('summary').filter({hasText: 'Unknown song, Time unavailable'});
+            assert.match(await older.nth(0).innerText(), /Time unavailable:\s+The retry loaded\. Playback start is unconfirmed\./);
+            assert.match(await older.nth(1).innerText(), /Time unavailable:\s+Started playing\./);
             assert.doesNotMatch(await diagnostics.innerText(), /fedcba98|adb80533|cdb80533/);
             assert.equal(await refreshAttempts.evaluate(node => node === document.activeElement), true,
                 name + '/settings: loading diagnostics should retain focus on Refresh attempts');
@@ -726,11 +726,11 @@ async function audit(name, engine, options) {
             assert.match(await persisted.innerText(), /City Lights/);
             await persisted.press('Enter');
             await diagnostics.getByText('Stream ended early', {exact: true}).waitFor();
-            await diagnostics.getByText(/Song position 0:49/).waitFor();
+            await diagnostics.getByText(/song position 0:49/).waitFor();
             const mirrored = diagnostics.locator('summary').filter({hasText: 'Playback interrupted at 0:50.'});
             await mirrored.press('Enter');
             await diagnostics.getByText('Audio player reported an error (the player timed out)', {exact: true}).waitFor();
-            await diagnostics.getByText(/Song position 0:50/).waitFor();
+            await diagnostics.getByText(/song position 0:50/).waitFor();
             assert.doesNotMatch(await diagnostics.innerText(), /fedcba98|adb80533|cdb80533|edcba987|ddcba987/);
         }
         const clearHistory = await open(target('clear-history'), 'clear-history-dialog');

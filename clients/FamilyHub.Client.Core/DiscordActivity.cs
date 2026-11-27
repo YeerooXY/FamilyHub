@@ -27,7 +27,7 @@ public static class DiscordActivity
         {
             type = 2,
             details = Field(snapshot.Title),
-            state = Field(snapshot.Playing ? artist : "Paused · " + artist),
+            state = Field(snapshot.Playing ? artist : "Paused: " + artist),
             timestamps = snapshot.Playing ? new { start, end = start + (long)(duration * 1000) } : null,
             assets = new { large_image = image, large_text = Field(string.IsNullOrWhiteSpace(snapshot.Album) ? snapshot.Title : snapshot.Album) }
         };

@@ -1344,7 +1344,7 @@ public sealed class MusicSession
                 var original = selected[index];
                 pendingDeviceDownloads = pendingDeviceDownloads.Remove(original.Id);
                 DownloadingId = original.Id; Progress = null;
-                DownloadStatus = $"Downloading {index + 1} of {selected.Count} · {original.Title}";
+                DownloadStatus = $"Downloading {index + 1} of {selected.Count}: {original.Title}";
                 Changed?.Invoke();
                 cancellation.Token.ThrowIfCancellationRequested();
                 if (DownloadsWifiOnly && !HomeConnection)

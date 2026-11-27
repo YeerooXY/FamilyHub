@@ -48,6 +48,9 @@
     position: relative;
     z-index: 2;
 }
+/* Plain buttons take a soft fill instead of the shared outline; icon buttons carry no ring. */
+.movie-library button:not([class]) { border-color: transparent; background: #ffffff17; }
+.movie-library button:not([class]):hover:not(:disabled, [aria-disabled="true"]) { background: #ffffff26; }
 .movie-library :is(button, select):focus-visible { outline: 2px solid var(--focus, #98abed); outline-offset: 3px; }
 
 /* Watch progress. */
@@ -752,7 +755,7 @@ body:has(.workspace[data-app-view="Movies & TV"]) .header-search > :is(#search-f
     place-items: center;
     width: var(--movie-hero-control);
     padding: 0;
-    border: 1px solid #ffffff1f;
+    border: 0;
     background: #ffffff20;
     color: #fff;
     backdrop-filter: blur(12px);
@@ -972,7 +975,7 @@ body[data-effects="off"] .movie-library .movie-shelf-scroll .movie-card:is(:hove
     box-sizing: border-box;
     transition: transform 220ms ease-out, width 220ms ease-out;
 }
-.movie-library .movie-season-arrow { display: grid; place-items: center; padding: 0; align-self: center; border-radius: 50%; }
+.movie-library .movie-season-arrow { display: grid; place-items: center; padding: 0; align-self: center; border: 0; border-radius: 50%; background: transparent; }
 .movie-season-arrow[aria-disabled="true"] { opacity: .45; }
 .movie-episode-number { color: #c4cadd; margin-inline-end: .25em; }
 .movie-library .movie-screen-entry { animation: movie-arrive 200ms ease-out both; }
@@ -1248,7 +1251,7 @@ body[data-effects="off"] .movie-library .movie-show-detail :is(.movie-season-pil
 .movie-audio-job progress { height: .45rem; width: 100%; }
 .movie-audio-job .movie-audio-results section { margin: 0; }
 .movie-audio-job .movie-audio-results p:empty { display: none; }
-.movie-library .movie-audio-job button { background: transparent; }
+.movie-library .movie-audio-job button { justify-self: start; padding-inline: 1rem; }
 @media (max-width: 560px) {
     .movie-season li { flex-wrap: wrap; }
     .movie-library .movie-season .movie-episode-body { grid-template-columns: minmax(4rem, 5.5rem) minmax(0, 1fr); }
