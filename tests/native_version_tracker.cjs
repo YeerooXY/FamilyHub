@@ -4,6 +4,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const {chromium, webkit, devices} = require(require.resolve('playwright', {paths: [root, path.resolve(root, '../agent-dock')]}));
 const {origin, runWithFixture, fixturePage} = require('./music_popup_unification.cjs');
+const {checkPhoneUpdateLayout} = require('./update_screen.cjs');
 const project = fs.readFileSync(path.join(root, 'clients/FamilyHub.App/FamilyHub.App.csproj'), 'utf8');
 const version = project.match(/<ApplicationDisplayVersion>([^<]+)/)[1];
 const build = project.match(/<ApplicationVersion>([^<]+)/)[1];
@@ -105,5 +106,6 @@ runWithFixture(async () => {
     await audit(webkit, devices['Desktop Safari'], 'none', 'No release for this platform', 'Enter');
     await publicPopup(chromium, {viewport: {width: 1280, height: 900}}, true);
     await publicPopup(webkit, devices['iPhone 13'], false);
+    await checkPhoneUpdateLayout();
     console.log('PASS: installed and server versions, update states, canonical release history, keyboard focus, and one update check.');
 }).catch(error => { console.error(error); process.exitCode = 1; });

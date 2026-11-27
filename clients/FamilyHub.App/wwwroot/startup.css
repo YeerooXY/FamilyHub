@@ -44,16 +44,48 @@
 @keyframes startup-content { from { opacity:0; transform:scale(1.05); } to { opacity:1; transform:none; } }
 
 /* Updating screen: same backdrop, the logo, and a progress line drawn like the movie seek bar. */
-.update-screen { position:fixed; inset:0; z-index:2000; display:grid; place-items:center; padding:max(1.5rem, env(safe-area-inset-top)) 1.5rem max(1.5rem, env(safe-area-inset-bottom)); color:#fff; text-align:center; animation:startup-content .3s ease-out both; }
-.update-card { display:grid; justify-items:center; gap:.5rem; width:min(26rem, 100%); }
-.update-disc { margin-bottom:1.25rem; animation:none; }
+.update-screen {
+    position:fixed; inset:0; z-index:2000; box-sizing:border-box; width:100dvw; height:100dvh;
+    display:grid; place-items:center; place-items:safe center; overflow:auto; overscroll-behavior:contain;
+    padding:max(1rem, env(safe-area-inset-top), env(safe-area-inset-bottom))
+            max(1rem, env(safe-area-inset-left), env(safe-area-inset-right));
+    color:#fff; text-align:center; animation:startup-stage-in .25s ease-out both;
+}
+.update-card { display:grid; align-items:center; justify-items:center; gap:1rem; width:min(26rem, 100%); }
+.update-summary { display:grid; justify-items:center; gap:.5rem; width:100%; min-width:0; }
+.update-disc { width:clamp(3rem, 14dvh, 92px); height:clamp(3rem, 14dvh, 92px); margin-bottom:clamp(.25rem, 2dvh, 1.25rem); animation:none; }
 .update-card h2 { margin:0; font-size:1.5rem; font-weight:650; outline:none; }
 .update-versions { margin:0; color:#ffffffb3; font-variant-numeric:tabular-nums; }
 .update-line { position:relative; width:100%; height:4px; margin:1.5rem 0 .5rem; border-radius:2px; background:#ffffff40; }
 .update-line-fill { position:absolute; inset:0 auto 0 0; border-radius:2px; background:linear-gradient(90deg, #89b4ff, #f19cda); transition:width .25s ease; }
 .update-line-thumb { position:absolute; top:50%; width:1.1rem; height:1.1rem; margin:-.55rem 0 0 -.55rem; border-radius:50%; background:#f19cda; box-shadow:0 0 14px #f19cda80; transition:left .25s ease; }
-/* Spoken progress only: the percentage is announced, never shown. */
 .update-status { position:absolute; width:1px; height:1px; margin:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+.update-card .update-status { position:static; width:auto; height:auto; overflow:visible; clip:auto; white-space:normal; color:#ffffffd9; }
+.app-update:has(+ .update-screen) { visibility:hidden; }
+
+.whats-new { margin:12px 0 0; padding:12px 14px; min-width:0; max-width:420px; border-radius:12px; background:#ffffff0d; text-align:left; }
+.whats-new h3 { margin:0 0 6px; font-size:.95rem; }
+.whats-new ul {
+    margin:0; padding:0 4px .8rem 18px; display:grid; gap:4px; max-height:min(12rem, 32dvh); overflow:auto;
+    overscroll-behavior:contain; font-size:.9rem; color:#ffffffd9; overflow-wrap:anywhere;
+    -webkit-mask-image:linear-gradient(#000 calc(100% - .8rem), transparent);
+    mask-image:linear-gradient(#000 calc(100% - .8rem), transparent);
+}
+.whats-new:has(> ul:focus-visible) { outline:2px solid var(--focus,#fff); outline-offset:2px; }
+.update-card > .whats-new { box-sizing:border-box; width:100%; margin:0; }
+@media (orientation:landscape) and (max-height:550px) {
+    .update-card:has(> .whats-new) { grid-template-columns:repeat(2,minmax(0,1fr)); gap:clamp(1rem, 4dvw, 2rem); width:min(48rem, 100%); }
+    .update-card .update-disc { width:clamp(2rem, 12dvh, 3.5rem); height:clamp(2rem, 12dvh, 3.5rem); margin:0; }
+    .update-card .update-stage { margin-top:0; }
+    .update-card .update-line { margin:.5rem 0; }
+    .update-card .whats-new ul { max-height:min(15rem, 55dvh); }
+}
+@media (orientation:landscape) and (max-height:550px) and (prefers-reduced-motion:no-preference) {
+    .update-card .update-stage { height:clamp(5rem, 30dvh, 7rem); }
+}
+@media (min-width:1600px) {
+    .whats-new:has(> ul:focus-visible) { outline-width:4px; }
+}
 @media(prefers-reduced-motion:reduce) {
     .startup-stage, .startup-disc, .startup-disc img, .startup-orbit, .startup-word, .startup-line, .startup-line span, .startup-twinkle, .workspace, .update-screen { animation:none; }
     .startup-line span { width:100%; }
@@ -65,7 +97,7 @@
 
 /* What FamilyHub offers, one scene at a time while the update downloads: each fades and slides in as the last leaves.
    The scenes are drawn in CSS and SVG with no baked-in lettering; every loop is 3 s so the inner motion restarts with its scene. */
-.update-stage { position:relative; width:100%; height:9.5rem; margin-top:.75rem; }
+.update-stage { position:relative; width:100%; height:clamp(6.5rem, 18dvh, 9.5rem); margin-top:.75rem; }
 .update-scene { position:absolute; inset:0; display:grid; justify-items:center; align-content:center; gap:.7rem; opacity:0; animation:update-scene 12s ease-in-out infinite both; animation-delay:calc(var(--i) * 3s); }
 .update-scene b { font-size:.95rem; font-weight:600; letter-spacing:.04em; color:#ffffffd9; }
 @keyframes update-scene {
@@ -122,5 +154,8 @@
 .popup-panel.update-dialog:has(.is-morphing) .app-update { width:min(26rem, 100%); }
 
 /* The update popup becomes the full-window updater while the download runs (PC, tablet and phone). */
-.popup-panel.update-dialog.is-updating:is([open],.is-open) { inset:0; width:auto; max-width:none; height:auto; max-height:none; border-radius:0; padding:0; overflow:hidden; box-shadow:none; animation:none; }
+.popup-panel.update-dialog.is-updating:is([open],.is-open) {
+    inset:0; width:100dvw; height:100dvh; min-height:0; max-width:none; max-height:none;
+    margin:0; padding:0; border-radius:0; overflow:hidden; box-shadow:none; animation:none; transform:none;
+}
 .update-dialog.is-updating > .dialog-heading, .update-dialog.is-updating > #update-later { display:none; }

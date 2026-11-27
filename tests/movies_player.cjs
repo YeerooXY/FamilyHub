@@ -7,7 +7,7 @@ const output = process.argv[2] || path.join(__dirname, "../.local/movies-1-5-2-2
 async function verify(browser, profile, options) {
     const page = await browser.newPage(options);
     try {
-        await moviePage(page);
+        await moviePage(page, {shell: profile === "chromium-2000"});
         await page.evaluate(async () => {
             const { buildPlayerUi } = await import("/movie-player-ui.js");
             const surface = document.createElement("section");
@@ -23,7 +23,15 @@ async function verify(browser, profile, options) {
             });
             media.play = async () => { paused = false; media.dispatchEvent(new Event("play")); };
             media.pause = () => { paused = true; media.dispatchEvent(new Event("pause")); };
-            let fullscreen = false;
+            let fullscreen = false, appFullscreen = false;
+            const back = document.createElement("button");
+            back.addEventListener("click", () => { surface.dataset.backPressed = "true"; });
+            window.setFixtureAppFullscreen = on => {
+                appFullscreen = on;
+                document.querySelector(".app-header")?.classList.toggle("app-fullscreen", on);
+                document.documentElement.classList.toggle("movie-expanded-page", on);
+                surface.dispatchEvent(new Event("movie-fullscreenchange"));
+            };
             const pick = () => {
                 const label = document.createElement("label"), select = document.createElement("select");
                 label.append(select);
@@ -32,10 +40,10 @@ async function verify(browser, profile, options) {
             const audioPick = pick(), subtitlePick = pick();
             subtitlePick.add(new Option("Off", -1));
             const ui = buildPlayerUi({
-                media, surface, back: document.createElement("button"), signal: new AbortController().signal,
+                media, surface, back, signal: new AbortController().signal,
                 title: "The movie", notice: document.createElement("p"),
                 audioPick, subtitlePick,
-                fullscreenEnabled: true, isFullscreen: () => fullscreen,
+                fullscreenEnabled: true, isFullscreen: () => fullscreen && !appFullscreen, appFullscreen: () => appFullscreen,
                 setFullscreen: async on => { fullscreen = on; return true; }
             });
             const input = document.createElement("input");
@@ -181,6 +189,23 @@ async function verify(browser, profile, options) {
         assert.equal(await button("Play").count(), 1);
         assert.equal(await button("Full screen").count(), Number(canFullscreen));
         assert.equal(await focused(input), true);
+
+        if (canFullscreen && !options.hasTouch) {
+            await button("Full screen").focus();
+            await page.evaluate(() => window.setFixtureAppFullscreen(true));
+            assert.equal(await button("Full screen").count(), 0);
+            assert.equal(await focused(button("Play")), true);
+            if (profile === "chromium-2000") {
+                // A playing film fills the screen in app fullscreen too; the header comes back when it closes.
+                assert.equal(await page.locator(".app-header").isVisible(), false);
+                const player = await page.locator(".movie-player").boundingBox();
+                assert.equal(Math.round(player.y), 0);
+            }
+            await page.keyboard.press("Escape");
+            assert.equal(await page.locator(".movie-player").getAttribute("data-back-pressed"), "true");
+            await page.evaluate(() => window.setFixtureAppFullscreen(false));
+            await button("Full screen").waitFor();
+        }
 
         await page.waitForFunction(() => !document.querySelector(".movie-ui-shortcut").textContent);
         const bar = page.locator(".movie-ui-bottom");

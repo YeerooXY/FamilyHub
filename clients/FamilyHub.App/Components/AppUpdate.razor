@@ -27,18 +27,22 @@
     </div>
     @if (working && !Compact && !Inline && !AppUpdater.UpdatesInSideStore)
     {
-        <div class="update-screen night-backdrop" role="dialog" aria-modal="true" aria-labelledby="update-screen-title">
+        <div class="update-screen night-backdrop" role="@(FullScreenChanged.HasDelegate ? null : "dialog")"
+             aria-modal="@(FullScreenChanged.HasDelegate ? null : "true")"
+             aria-labelledby="@(FullScreenChanged.HasDelegate ? null : "update-screen-title")">
             <div class="update-card">
-                <div class="startup-disc update-disc"><img src="familyhub-logo.svg" alt="" /></div>
-                <h2 @ref="titleRef" id="update-screen-title" tabindex="-1">Updating FamilyHub</h2>
-                <p class="update-versions">@AppUpdater.CurrentVersion → @available.Version</p>
-                @WhatsNew
-                @Stage
-                <div class="update-line" role="progressbar" aria-labelledby="update-screen-title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@percent" aria-valuetext="@percent percent downloaded">
-                    <span class="update-line-fill" style="width:@(percent)%"></span>
-                    <span class="update-line-thumb" style="left:@(percent)%"></span>
+                <div class="update-summary">
+                    <div class="startup-disc update-disc"><img src="familyhub-logo.svg" alt="" /></div>
+                    <h2 @ref="titleRef" id="update-screen-title" tabindex="-1">Updating FamilyHub</h2>
+                    <p class="update-versions">@AppUpdater.CurrentVersion → @available.Version</p>
+                    @Stage
+                    <div class="update-line" role="progressbar" aria-labelledby="update-screen-title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@percent" aria-valuetext="@percent percent downloaded">
+                        <span class="update-line-fill" style="width:@(percent)%"></span>
+                        <span class="update-line-thumb" style="left:@(percent)%"></span>
+                    </div>
+                    <p class="update-status" role="status">@announcement</p>
                 </div>
-                <p class="update-status" role="status">@announcement</p>
+                @WhatsNew
             </div>
         </div>
     }
@@ -79,7 +83,7 @@
         {
             <section class="whats-new" aria-labelledby="whats-new-title-@Id">
                 <h3 id="whats-new-title-@Id">What's new in @available.Version</h3>
-                <ul>@foreach (var note in notes) { <li>@note</li> }</ul>
+                <ul tabindex="0" aria-labelledby="whats-new-title-@Id">@foreach (var note in notes) { <li>@note</li> }</ul>
             </section>
         }
     </text>;

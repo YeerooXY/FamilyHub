@@ -219,8 +219,8 @@ export function buildPlayerUi(ctx) {
         show();
     }
     const fullscreen = button("movie-ui-action", "Full screen", paths.expand, {}, toggleFullscreen);
-    fullscreen.hidden = /iPhone|iPod/.test(navigator.userAgent) ||
-        !(ctx.fullscreenEnabled || document.fullscreenEnabled || document.webkitFullscreenEnabled);
+    const fullscreenAvailable = !/iPhone|iPod/.test(navigator.userAgent) &&
+        (ctx.fullscreenEnabled || document.fullscreenEnabled || document.webkitFullscreenEnabled);
     const episodesButton = button("movie-ui-action", "Episodes", paths.episodes, {}, () => toggleSheet("episodes"));
     episodesButton.append(make("span", "", "Episodes"));
     episodesButton.hidden = true;
@@ -843,6 +843,9 @@ export function buildPlayerUi(ctx) {
         ["canplay", () => busy(false)], ["timeupdate", paint], ["durationchange", paint], ["loadedmetadata", paint]])
         media.addEventListener(type, run, { signal });
     function syncFullscreen() {
+        const hide = !fullscreenAvailable || ctx.appFullscreen?.() === true;
+        if (hide && document.activeElement === fullscreen) playPause.focus({preventScroll: true});
+        fullscreen.hidden = hide;
         const label = isFullscreen() ? "Exit full screen" : "Full screen";
         fullscreen.replaceChildren(icon(isFullscreen() ? paths.collapse : paths.expand));
         fullscreen.setAttribute("aria-label", label);

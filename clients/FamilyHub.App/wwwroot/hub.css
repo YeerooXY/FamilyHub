@@ -36,7 +36,7 @@ body[data-effects=off] :is(#open-hub, #app-switcher button) { transition:none; t
     :is(#open-hub, #app-switcher button) { transition:none; transform:none; }
 }
 body:has(.workspace:is([data-app-view="Hub"], [data-app-view="Wordle"], [data-app-view="Movies & TV"], [data-app-view="Files"])) {
-    grid-template: "header" var(--caption-height,56px) "main" minmax(0,1fr) / minmax(0,1fr);
+    grid-template: "header" var(--caption-height,var(--fullscreen-header-height,56px)) "main" minmax(0,1fr) / minmax(0,1fr);
 }
 body:has(.workspace:is([data-app-view="Hub"], [data-app-view="Wordle"], [data-app-view="Movies & TV"], [data-app-view="Files"])) :is(.sidebar, .player-bar, .remote-mini, .device-strip) { display:none; }
 /* Movies & TV keeps the centre column: movies.js places its search field there (docs/design/1-6-0-movies-spec.md). */
@@ -51,8 +51,10 @@ body:has(.workspace[data-app-view="Preferences"]) {
 }
 body:has(.workspace[data-app-view="Preferences"]) :is(.app-header, .sidebar, .player-bar, .remote-mini, .device-strip) { display:none; }
 body.native-titlebar:has(.workspace[data-app-view="Preferences"]) { grid-template-rows:var(--caption-height,48px) minmax(0,1fr); }
-body.native-titlebar:has(.workspace[data-app-view="Preferences"]) .app-header { display:block; }
-body.native-titlebar:has(.workspace[data-app-view="Preferences"]) .app-header > * { display:none; }
+body.native-titlebar:has(.workspace[data-app-view="Preferences"]) .app-header:not(.app-fullscreen) { display:block; }
+body.native-titlebar:has(.workspace[data-app-view="Preferences"]) .app-header:not(.app-fullscreen) > * { display:none; }
+body:has(.workspace[data-app-view="Preferences"]):has(.app-fullscreen) { grid-template-rows:var(--fullscreen-header-height,56px) minmax(0,1fr); }
+body:has(.workspace[data-app-view="Preferences"]) .app-header.app-fullscreen { display:grid; }
 body .workspace[data-app-view="Preferences"] { grid-area:main; }
 /* The four apps fill the screen: a two-by-two grid of big tiles on every device. Art sizes follow the viewport
    (--art) rather than container units, so older television browsers draw the same picture. */

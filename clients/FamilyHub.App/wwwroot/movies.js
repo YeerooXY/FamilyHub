@@ -540,10 +540,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     const nativeFullscreen = host.dataset.nativeFullscreen === "true";
     let fullscreenRequest = null;
     let windowFullscreen = false, leavingPlayer = false;
-    const isFullscreen = () => nativeFullscreen ? windowFullscreen :
+    const appFullscreen = () => nativeFullscreen && !!document.querySelector(".app-header.app-fullscreen");
+    const isFullscreen = () => nativeFullscreen ? windowFullscreen && !appFullscreen() :
         (document.fullscreenElement ?? document.webkitFullscreenElement) === player;
     if (nativeFullscreen) window.addEventListener("chrome-refresh", event => {
-        if (typeof event.detail !== "boolean" || windowFullscreen === event.detail) return;
+        if (typeof event.detail !== "boolean") return;
         windowFullscreen = event.detail;
         player.dispatchEvent(new Event("movie-fullscreenchange"));
     }, {signal: life.signal});
@@ -1138,7 +1139,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     });
             };
             ui = buildPlayerUi({ media, surface: player, back, signal: playerSignal, subtitleSearch, itemId: item.Id,
-                fullscreenEnabled: nativeFullscreen || document.fullscreenEnabled || document.webkitFullscreenEnabled, isFullscreen, setFullscreen,
+                fullscreenEnabled: nativeFullscreen || document.fullscreenEnabled || document.webkitFullscreenEnabled, isFullscreen, setFullscreen, appFullscreen,
                 title: numbered ? `S${item.ParentIndexNumber}:E${item.IndexNumber} “${item.Name}”` : item.Name,
                 kicker: item.SeriesName, audioPick, subtitlePick, audioSync, notice, burnedSubtitle, originalLanguage,
                 findAudio: (opener, language) => addAudio(item, opener, player, playerSignal, language) });

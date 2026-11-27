@@ -277,7 +277,25 @@ function refreshAfterWindowChange() {
 }
 window.addEventListener('resize', refreshAfterWindowChange);
 window.addEventListener('chrome-refresh', refreshAfterWindowChange);
+window.familyhub.refreshAppFullscreen = fullscreen => window.dispatchEvent(new CustomEvent('chrome-refresh', {detail: fullscreen}));
+window.familyhub.prepareAppFullscreenExit = async () => {
+    const active = document.activeElement;
+    if (!active?.closest('.app-header.app-fullscreen')) return;
+    const successor = document.querySelector('.movie-expanded-page .movie-player.movie-expanded, #settings-exit');
+    if (!successor) return;
+    const dialog = active.closest('dialog[open]');
+    if (dialog) await window.familyhub.closeDialog(dialog.id);
+    successor.focus({preventScroll:true});
+};
 document.addEventListener('focusin', () => window.familyhub.syncChrome());
+
+let appFullscreenReference;
+window.familyhub.bindAppFullscreen = reference => { appFullscreenReference = reference; };
+document.addEventListener('keydown', event => {
+    if (event.key !== 'F11' || !appFullscreenReference || !window.chrome?.webview) return;
+    event.preventDefault();
+    if (!event.repeat) appFullscreenReference.invokeMethodAsync('ToggleAppFullscreen').catch(() => {});
+}, true);
 
 function normalizeTheme(theme) {
     const aliases = {stars:'classic',black:'normal',pink:'hot-pink',purple:'violet'};
@@ -370,7 +388,7 @@ window.familyhub.showDialog = (id, focusId, openerId) => {
         dialog.addEventListener('cancel', event => {
             if (!dialog.matches('.popup-panel,.animated-dialog')) return;
             event.preventDefault();
-            window.familyhub.closeDialog(dialog.id);
+            if (!dialog.matches('.update-dialog.is-updating')) window.familyhub.closeDialog(dialog.id);
         });
         dialog.addEventListener('close', () => {
             // A menu action can close one dialog and open another before this event.
@@ -957,9 +975,9 @@ window.familyhub.bindPopupSheet = (id, closeId) => {
     });
     const begin = (y, target) => {
         start = null;
-        if (!familyhub.isPhone() || !isOpen() || panel.matches('.popup-centered,[data-popup-anchor]') ||
+        if (!familyhub.isPhone() || !isOpen() || panel.matches('.popup-centered,[data-popup-anchor],.update-dialog.is-updating') ||
             !inPanel(target) || panel.scrollTop > 0 && !target.closest('.dialog-heading') ||
-            target.closest('input,select,textarea,[contenteditable=true]')) return;
+            target.closest('input,select,textarea,[contenteditable=true],.whats-new ul')) return;
         start = y;
         moved = 0;
     };

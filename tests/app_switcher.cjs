@@ -43,6 +43,27 @@ verifyShell(async (page, phone) => {
 
     const musicIcon = await icon();
     assert.equal(await opener.getAttribute('aria-label'), 'Switch apps');
+    if (page.viewportSize().width === 1280) {
+        const shortcut = await page.locator('#q').evaluate(input => {
+            const chrome = window.chrome ??= {};
+            const previousWebView = chrome.webview;
+            chrome.webview = {};
+            const methods = [];
+            window.familyhub.bindAppFullscreen({invokeMethodAsync: async method => { methods.push(method); }});
+            const f11 = repeat => input.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'F11', bubbles: true, cancelable: true, repeat
+            }));
+            const defaultAllowed = [f11(false), f11(true)];
+            input.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'Escape', bubbles: true, cancelable: true
+            }));
+            window.familyhub.bindAppFullscreen(null);
+            if (previousWebView === undefined) delete chrome.webview;
+            else chrome.webview = previousWebView;
+            return {methods, defaultAllowed};
+        });
+        assert.deepEqual(shortcut, {methods: ['ToggleAppFullscreen'], defaultAllowed: [false, false]});
+    }
     if (narrow) await checkHeader('#q');
     await open('Enter');
     assert.equal(await opener.locator('svg rect').count(), 4);

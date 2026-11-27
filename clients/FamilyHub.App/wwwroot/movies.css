@@ -739,9 +739,9 @@ body:has(.workspace[data-app-view="Movies & TV"]) .header-search > :is(#search-f
     filter: brightness(1.08);
 }
 .movie-library .movie-hero-favorite[aria-pressed="true"] svg { fill: currentColor; }
-.movie-hero-progress { position: relative; inset: auto; height: 3px; border-radius: 999px; background: #ffffff36; }
+.movie-hero-progress { position: relative; inset: auto; height: 3px; margin-top: .85rem; border-radius: 999px; background: #ffffff36; }
 .movie-hero-progress > span { border-radius: inherit; background: #fff; box-shadow: 0 0 6px #fff8; }
-.movie-hero-time { margin: 0; color: #e4e8f1c9; font-size: .82rem; }
+.movie-hero-time { margin: .45rem 0 0; color: #e4e8f1c9; font-size: .82rem; }
 .movie-hero-pager {
     position: absolute;
     inset-inline-end: var(--movie-peek-edge);

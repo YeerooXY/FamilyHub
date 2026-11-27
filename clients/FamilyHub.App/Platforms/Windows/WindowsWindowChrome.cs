@@ -34,33 +34,57 @@ internal static class WindowsWindowChrome
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowPlacement(nint window, in WindowPlacement placement);
 
-    private static (Microsoft.UI.Xaml.Window Window, nint Handle, AppWindowPresenter Presenter, WindowPlacement Placement)? movieWindow;
+    private const string AppFullscreenKey = "familyhub.app-fullscreen";
+    private static (Microsoft.UI.Xaml.Window Window, nint Handle, AppWindowPresenter Presenter, WindowPlacement Placement)? windowed;
+    public static bool AppFullscreenAvailable => refresh is not null;
+    public static bool AppFullscreen { get; private set; }
 
-    public static bool SetMovieFullscreen(bool on)
+    private static Microsoft.UI.Xaml.Window? CurrentWindow =>
+        Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Handler?.PlatformView as Microsoft.UI.Xaml.Window;
+
+    public static void ToggleAppFullscreen()
     {
+        if (CurrentWindow is not { } window) return;
+        var on = !AppFullscreen;
+        if (SetFullscreen(window, on) == on)
+        {
+            AppFullscreen = on;
+            Microsoft.Maui.Storage.Preferences.Default.Set(AppFullscreenKey, on);
+        }
+    }
+
+    public static bool SetMovieFullscreen(bool on) =>
+        AppFullscreen || (CurrentWindow is { } window && (on || windowed?.Window == window) && SetFullscreen(window, on));
+
+    private static bool SetFullscreen(Microsoft.UI.Xaml.Window window, bool on)
+    {
+        var appWindow = window.AppWindow;
         if (on)
         {
-            if (Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Handler?.PlatformView
-                is not Microsoft.UI.Xaml.Window window) return false;
-            var appWindow = window.AppWindow;
             if (appWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen) return true;
             var handle = WinRT.Interop.WindowNative.GetWindowHandle(window);
             var placement = new WindowPlacement { Length = (uint)Marshal.SizeOf<WindowPlacement>() };
             if (!GetWindowPlacement(handle, ref placement)) return false;
             var presenter = appWindow.Presenter;
+            if (AppWindowTitleBar.IsCustomizationSupported())
+            {
+                appWindow.TitleBar.SetDragRectangles([]);
+                InputNonClientPointerSource.GetForWindowId(appWindow.Id).SetRegionRects(NonClientRegionKind.Passthrough, []);
+            }
             appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-            movieWindow = (window, handle, presenter, placement);
+            windowed = (window, handle, presenter, placement);
             return true;
         }
-        if (movieWindow is { } previous)
+        if (appWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen) return false;
+        if (windowed is { } previous && previous.Window == window)
         {
-            movieWindow = null;
-            if (previous.Window.AppWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen) return false;
-            previous.Window.AppWindow.SetPresenter(previous.Presenter);
+            appWindow.SetPresenter(previous.Presenter);
             SetWindowPlacement(previous.Handle, previous.Placement);
-            if (AppWindowTitleBar.IsCustomizationSupported())
-                ConfigureTitleBar(previous.Window);
         }
+        else appWindow.SetPresenter(AppWindowPresenterKind.Default);
+        windowed = null;
+        if (AppWindowTitleBar.IsCustomizationSupported()) ConfigureTitleBar(window);
+        HideMauiTitleRow(window, force: true);
         return false;
     }
 
@@ -98,13 +122,14 @@ internal static class WindowsWindowChrome
                 var fullscreen = appWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
                 if (!fullscreen)
                 {
-                    if (movieWindow?.Window == window) movieWindow = null;
+                    if (windowed?.Window == window) windowed = null;
                     if (AppWindowTitleBar.IsCustomizationSupported()) ConfigureTitleBar(window);
                 }
                 HideMauiTitleRow(window, force: true);
                 refreshChrome(fullscreen);
             });
         };
+        AppFullscreen = Microsoft.Maui.Storage.Preferences.Default.Get(AppFullscreenKey, false) && SetFullscreen(window, true);
     }
 
     /// <summary>Runs after MAUI's own handling of the same window message.</summary>

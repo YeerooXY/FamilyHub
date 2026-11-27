@@ -109,7 +109,7 @@ else if (EntryScreen)
 else
 {
 <a class="skip" href="#content">Skip to content</a>
-<header class="app-header">
+<header class="app-header @(AppFullscreen ? "app-fullscreen" : "")">
     <div class="header-start">
         <button id="open-hub" type="button" class="brand hub-launcher" @onclick="OpenAppSwitcher" aria-label="Switch apps" aria-describedby="current-app" title="Switch apps" aria-haspopup="dialog" aria-controls="app-switcher" aria-expanded="@Aria(appSwitcherOpen)"><MusicIcon Name="@(appSwitcherOpen ? "apps" : HubApps.AppIcon(SwitcherApp))" /><span id="current-app" hidden>@HubApps.AppLabel(SwitcherApp)</span></button>
         <dialog id="app-switcher" class="popup-panel" aria-label="Switch apps" data-popup-anchor="open-hub" @onclose="() => appSwitcherOpen = false">
@@ -130,7 +130,12 @@ else
         @if (!string.IsNullOrEmpty(query)) { <button id="clear-search" type="button" aria-label="Clear search" @onclick="ClearSearch"><MusicIcon Name="close" /></button> }
     </form>
     </div>
-    <div class="sidebar-account"><AppUpdate Id="header-update" Compact="true" InitialRelease="startupUpdate" Available="ShowAvailableUpdate" /><button id="profile-toggle" @onclick="OpenProfileMenu" aria-label="Profile menu" title="@Session.ProfileName" aria-expanded="@Aria(profileMenu)" aria-controls="profile-menu" aria-haspopup="dialog"><ProfileAvatar Profile="CurrentProfile" Size="32" /></button>
+    <div class="sidebar-account"><AppUpdate Id="header-update" Compact="true" InitialRelease="startupUpdate" Available="ShowAvailableUpdate" />
+    @if (SupportsAppFullscreen)
+    {
+        <button id="app-fullscreen-toggle" type="button" class="header-icon" @onclick="ToggleAppFullscreen" aria-label="@FullscreenLabel" title="@FullscreenLabel" aria-pressed="@Aria(AppFullscreen)"><MusicIcon Name="fullscreen" /></button>
+    }
+    <button id="profile-toggle" @onclick="OpenProfileMenu" aria-label="Profile menu" title="@Session.ProfileName" aria-expanded="@Aria(profileMenu)" aria-controls="profile-menu" aria-haspopup="dialog"><ProfileAvatar Profile="CurrentProfile" Size="32" /></button>
     @if (profileMenu)
     {
         <dialog id="profile-menu" class="popup-panel popup-menu" aria-labelledby="profile-menu-heading" data-popup-anchor="profile-toggle" @onclose="() => profileMenu = false">
@@ -657,7 +662,7 @@ else
 
 @if (startupUpdate is not null)
 {
-    <dialog id="update-dialog" class="popup-panel update-dialog night-backdrop @(updateFullScreen ? "is-updating" : "")" aria-labelledby="update-heading">
+    <dialog id="update-dialog" class="popup-panel update-dialog night-backdrop @(updateFullScreen ? "is-updating" : "")" aria-labelledby="@(updateFullScreen ? "update-screen-title" : "update-heading")">
         <div class="dialog-heading">
             <h2 id="update-heading">FamilyHub @startupUpdate.Version is available</h2>
             <button class="quiet" aria-label="Close update" @onclick="LaterUpdate"><MusicIcon Name="close" /></button>
@@ -1442,6 +1447,29 @@ else
     private bool sidebarCollapsed;
     private int sidebarWidth = 232;
     private DotNetObjectReference<Music>? resizeReference;
+    private bool updatePollingBound;
+#if WINDOWS
+    private static bool SupportsAppFullscreen => WindowsWindowChrome.AppFullscreenAvailable;
+    private static bool AppFullscreen => WindowsWindowChrome.AppFullscreen;
+#else
+    private static bool SupportsAppFullscreen => false;
+    private static bool AppFullscreen => false;
+#endif
+    private static string FullscreenLabel => AppFullscreen ? "Exit full screen (F11)" : "Full screen (F11)";
+    private bool? renderedAppFullscreen;
+
+    [JSInvokable]
+    public async Task ToggleAppFullscreen()
+    {
+#if WINDOWS
+        if (AppFullscreen)
+            await JS.InvokeVoidAsync("familyhub.prepareAppFullscreenExit");
+        await Microsoft.Maui.ApplicationModel.MainThread.InvokeOnMainThreadAsync(WindowsWindowChrome.ToggleAppFullscreen);
+        await InvokeAsync(StateHasChanged);
+#else
+        await Task.CompletedTask;
+#endif
+    }
     [JSInvokable] public async Task ResizeSidebar(int width, bool collapsed) { sidebarWidth = Math.Clamp(width, 180, 420); sidebarCollapsed = collapsed; await JS.InvokeVoidAsync("familyhub.saveAppearance", AppearanceKey, theme, sidebarCollapsed, themeEffects, sidebarWidth); await InvokeAsync(StateHasChanged); }
     private double unmutedVolume = 1;
     public sealed record Appearance(string Theme = "classic", bool Collapsed = false, bool Effects = true, int Width = 232);
@@ -1701,6 +1729,18 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        var fullscreen = AppFullscreen;
+        if (SupportsAppFullscreen && renderedAppFullscreen != fullscreen)
+        {
+            var firstFullscreenRender = renderedAppFullscreen is null;
+            renderedAppFullscreen = fullscreen;
+            if (firstFullscreenRender)
+            {
+                resizeReference ??= DotNetObjectReference.Create(this);
+                await JS.InvokeVoidAsync("familyhub.bindAppFullscreen", resizeReference);
+            }
+            await JS.InvokeVoidAsync("familyhub.refreshAppFullscreen", fullscreen);
+        }
         if (firstRender && splash == SplashState.Showing) _ = RunSplash();
         var identity = string.IsNullOrEmpty(Session.User) || Session.NeedsProfileSelection ? "" : AppearanceKey;
         if (feedbackProfile != identity)
@@ -1766,7 +1806,12 @@ else
             }
         }
         if (profileMenu) await JS.InvokeVoidAsync("familyhub.showDialog", "profile-menu", "profile-menu-close", "profile-toggle");
-        if (resizeReference is null) { resizeReference = DotNetObjectReference.Create(this); await JS.InvokeVoidAsync("familyhub.bindUpdatePolling", resizeReference); }
+        if (!updatePollingBound)
+        {
+            updatePollingBound = true;
+            resizeReference ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("familyhub.bindUpdatePolling", resizeReference);
+        }
         await JS.InvokeVoidAsync("familyhub.bindSidebarResize", resizeReference);
         if (hadSearchMore && nextSearchOffset is null && view == "Search") await JS.InvokeVoidAsync("familyhub.restoreFocus", "search-more", "results");
         hadSearchMore = nextSearchOffset is not null;
