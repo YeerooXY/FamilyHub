@@ -122,10 +122,12 @@ await renderer.Dispatcher.InvokeAsync(async () => {
     FixtureHandler.Block = false;
     await Refresh(typeof(ServerStats));
     var empty = leaderboard.ToHtmlString();
-    if (!empty.Contains("No listening time recorded for this period") || !empty.Contains("No listening or song additions recorded")
+    if (!empty.Contains("Nothing recorded for this period") || !empty.Contains("Listen to music or watch a film")
+        || !empty.Contains("No listening or song additions recorded")
         || !empty.Contains("Alex") || empty.Contains("lb-wrapped-table")
-        || empty.Contains("How scores are counted") || empty.Contains("lb-place-1") || empty.Contains("stats-line-chart"))
-        throw new Exception("Empty leaderboard ranked a listener or omitted the Wrapped empty state and online profile");
+        || empty.Contains("How scores are counted") || empty.Contains("lb-card-1") || empty.Contains("lb-top")
+        || empty.Contains("lb-measure") || empty.Contains("stats-line-chart") || empty.Contains("Who's here"))
+        throw new Exception("Empty leaderboard ranked a listener, drew a chart or omitted the Wrapped empty state and how to fill the view");
     Save("leaderboard-empty", empty);
     foreach (var (platform, action, help) in new[]
     {

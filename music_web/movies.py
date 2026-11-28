@@ -263,7 +263,7 @@ def read_downloads(qb, cfg=None):
     return dict(available=False, reason='The download server is unavailable.')
 
 
-def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals):
+def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals, watching=None):
     base = service_url(cfg.get('JELLYFIN_INTERNAL_URL', 'http://127.0.0.1:8096'))
     public = service_url(cfg.get('JELLYFIN_PUBLIC_URL'), ('https',))
     releases = cfg.get('MOVIE_RELEASE_SEARCH') or {}
@@ -337,7 +337,8 @@ def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals):
 
     subtitle_imported = None
     issue_media, audio_library = movie_media.register(app, base, body, allow, session_is_live, movie_dismissals,
-        cfg.get('JELLYFIN_API_KEY'), lambda path: subtitle_imported(path) if subtitle_imported else False, cached_search)
+        cfg.get('JELLYFIN_API_KEY'), lambda path: subtitle_imported(path) if subtitle_imported else False, cached_search,
+        watching)
     audio_items = audio_tracks.register(app, cfg, body, allow, download_access, audio_library)
     subtitle_provider = movie_subtitles.register(app, cfg, body, allow, audio_library)
     subtitle_imported = movie_import.start(cfg, service_url(qb.get('url')), base, subtitle_provider)

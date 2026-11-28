@@ -271,6 +271,9 @@ def create_app(test_config=None):
     resources.changed = resource_changed
     playback_devices = PlaybackDevices(presence=resources)
     playback_diagnostics = PlaybackDiagnostics()
+    from .activity import Activity
+    app.extensions["activity"] = activity = Activity(credit=lambda user, seconds: listening_stats.add_watch(user, seconds),
+                        history_paused=lambda user: bool(family_mode and profile_store.read()['preferences'].get(user, {}).get('listening_history_paused')))
 
     def job_playback_stage(job, stage, *, once=False):
         playback_diagnostics.record(job["owner"], job.get("play_action"), stage, once=once)
@@ -744,7 +747,7 @@ def create_app(test_config=None):
     if family_mode:
         feedback_event = feedback.register(app, cfg, body, ApiError, profile_store, lambda: g.user in cfg["ADMIN_USERS"])
         wordle.register(app, cfg, require_family, profile_store, body, ApiError,
-                        cfg.get("WORDLE_DAILY_ANSWER", published_answer), writer=state_writer)
+                        cfg.get("WORDLE_DAILY_ANSWER", published_answer), writer=state_writer, playing=activity.wordle)
 
     def meta(d):
         out = {}
@@ -1094,6 +1097,21 @@ def create_app(test_config=None):
     @app.get("/api/activity/stats")
     def activity_stats():
         return server_work(leaderboard=True)
+
+    @app.get("/api/activity/online")
+    def activity_online():
+        """Online family members and what each is doing. Home asks every 30 s while it is visible."""
+        profiles = profile_store.list() if family_mode else [dict(id=u, name=u) for u in cfg["ALLOWED_USERS"]]
+        preferences = profile_store.read()["preferences"] if family_mode else {}
+        paused = {p["id"] for p in profiles if preferences.get(p["id"], {}).get("listening_history_paused")}
+        if not background_activity():
+            activity.seen(g.user)
+        members = activity.members(profiles, listening_stats.presence(), resources.online(), paused)
+        public = (cfg.get("JELLYFIN_PUBLIC_URL") or "").rstrip("/")
+        for row in members:
+            if row.get("poster"):
+                row["poster"] = f"{public}/{row['poster']}" if public.startswith("https://") else ""
+        return jsonify(members=members)
 
     @app.get("/api/server/stats/now")
     def server_health_now():
@@ -3739,7 +3757,7 @@ def create_app(test_config=None):
         with catalogue_lock:
             return profile_store.movie_dismissals(profile, kind, item, marker)
 
-    register_movies(app, cfg, body, allow, session_is_live, movie_dismissals)
+    register_movies(app, cfg, body, allow, session_is_live, movie_dismissals, activity.report)
     from .files import register_files
     register_files(app, cfg, body, allow, lambda: g.user in cfg['ADMIN_USERS'],
                    lambda: not family_mode or g.user in password_hashes, csrf.exempt)

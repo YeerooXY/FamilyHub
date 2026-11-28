@@ -53,7 +53,7 @@
         {
             module ??= await JS.InvokeAsync<IJSObjectReference>(identifier, "./service-status.js");
             identifier = "configureServiceStatus";
-            await module.InvokeVoidAsync(identifier, card, Active, AutoRetry);
+            await module.InvokeVoidAsync(identifier, card, Active, AutoRetry, Active && !configured ? FocusTarget : null);
             if (!Active)
             {
                 identifier = "showServiceRecovery";

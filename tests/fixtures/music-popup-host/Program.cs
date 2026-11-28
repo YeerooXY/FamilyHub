@@ -65,6 +65,8 @@ app.MapPost("/fixture/startup/{scenario}", (string scenario) =>
     FixtureApi.BlockPlaybackDiagnostics = false;
     FixtureApi.PlaybackDiagnostics.Clear();
     FixtureApi.AlbumLookups = 0;
+    FixtureApi.Online = FixtureApi.DefaultOnline;
+    Interlocked.Exchange(ref FixtureApi.OnlineRequests, 0);
     Interlocked.Exchange(ref FixtureApi.UpdateChecks, 0);
     Interlocked.Exchange(ref FixtureApi.PublicUpdateRequests, 0);
     FixtureLauncher.LastAddress = null;
@@ -76,6 +78,8 @@ app.MapGet("/fixture/update-check", () => new {
     FixtureLauncher.LastAddress
 });
 app.MapPost("/fixture/server-health/{state}", (string state) => FixtureApi.HealthState = state);
+app.MapPost("/fixture/online", async (HttpRequest request) => { using var reader = new StreamReader(request.Body); FixtureApi.Online = await reader.ReadToEndAsync(); });
+app.MapGet("/fixture/online-requests", () => Volatile.Read(ref FixtureApi.OnlineRequests));
 app.MapPost("/fixture/outage/{state}", (string state) => { FixtureApi.Outage = state; });
 app.MapPost("/fixture/similar-release", () => FixtureApi.SimilarRelease.TrySetResult());
 app.MapPost("/fixture/playlist-step/{step:int}", (int step) => FixtureApi.PlaylistStep = step);
@@ -276,6 +280,15 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
     private string wordleDate = "";
     private bool hideWordleFamily;
     public static volatile bool ListenRequest;
+    // Home activity: the online list the test sets, and how many times the app asked for it.
+    public const string DefaultOnline = """
+        {"members":[{"id":"fixture","name":"Alex","kind":"listening","title":"Station Lights","subtitle":"North Atlas","cover":"Station0001"},
+        {"id":"june","name":"June","kind":"watching","title":"Harbor Lights","subtitle":"Season 1, episode 2","poster":"https://art.fixture.test/poster1.svg","progress":0.4},
+        {"id":"sam","name":"Sam","kind":"wordle"},{"id":"robin","name":"Robin","kind":"online"}]}
+        """;
+    public static volatile string Online = DefaultOnline;
+    public static int OnlineRequests;
+    public static string TakeOnline() { Interlocked.Increment(ref OnlineRequests); return Online; }
     public static volatile string Startup = "none";
     public static volatile string HealthState = "ready";
     public static volatile string Outage = "";
@@ -807,15 +820,19 @@ sealed class FixtureApi(List<MusicTrack> library) : HttpMessageHandler
                 """,
             "/api/playlists/mix7/match" => """{"revision":0,"track":{"candidates":[{"id":"Station0001","title":"Station Lights","channel":"North Atlas","duration":192}]}}""",
             "/api/admin/discovery" => """{"artists":[{"name":"North Atlas","deezer_id":345912,"status":"verified"},{"name":"June Echo","status":"quarantined"},{"name":"Glass Harbor","status":"pending"}]}""",
+            "/api/activity/online" => TakeOnline(),
             "/api/server/stats" or "/api/activity/stats" => """
                 {"total_seconds":10800,"storage_total_bytes":107374182400,"storage_free_bytes":64424509440,
                  "wrapped_year":2026,"daily":[{"day":"2026-11-17","seconds":3600},{"day":"2026-11-18","seconds":7200}],
-                 "profiles":[{"id":"fixture","name":"Alex","online":true,"seconds":7000,"qualified_plays":41,"active_months":3,
+                 "profiles":[{"id":"fixture","name":"Alex","online":true,"seconds":7000,"month_seconds":7000,"watch_seconds":5400,"month_watch_seconds":5400,"week_watch_seconds":1800,"qualified_plays":41,"active_months":3,
                   "wrapped":{"songs_added":14,"total_minutes":116,"favourite_artist":"North Atlas","favourite_genre":"Indie rock","longest_streak_days":6,
                    "night_owl_share":0.25,"most_replayed_song":{"title":"Station Lights","artist":"North Atlas","replays":1},"mainstream_score":0.4,
                    "early_listeners":["Glass Harbor","Silver Current"],"chart_date":"2026-11-18"}},
-                 {"id":"june","name":"June","seconds":3800,"qualified_plays":22,"active_months":2,
-                  "wrapped":{"songs_added":7,"total_minutes":63,"favourite_artist":"June Echo","favourite_genre":"Ambient","longest_streak_days":4}}],
+                 {"id":"june","name":"June","seconds":3800,"month_seconds":3800,"watch_seconds":9000,"month_watch_seconds":9000,"week_watch_seconds":600,"qualified_plays":22,"active_months":2,
+                  "wrapped":{"songs_added":7,"total_minutes":63,"favourite_artist":"June Echo","favourite_genre":"Ambient","longest_streak_days":4}},
+                 {"id":"sam","name":"Sam","seconds":1800,"month_seconds":1800,"watch_seconds":0,"month_watch_seconds":0,"week_watch_seconds":0},
+                 {"id":"robin","name":"Robin","seconds":600,"month_seconds":600,"watch_seconds":1200,"month_watch_seconds":1200,"week_watch_seconds":1200},
+                 {"id":"kit","name":"Kit","seconds":300,"month_seconds":0,"watch_seconds":300,"month_watch_seconds":0,"week_watch_seconds":0}],
                  "records":[{"id":"streak","title":"Longest streak","owner":"fixture","user":"Alex","day":"2026-11-18","days":6}],
                  "jobs":[{"id":"job1","title":"Late Night Mix","kind":"playlist","state":"running","progress":38,"total":8,"processed":3}]}
                 """,

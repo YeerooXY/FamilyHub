@@ -85,6 +85,10 @@ public sealed class FamilyHubApi : IDisposable
     public Task<ServerStatistics> GetServerStatsAsync(CancellationToken cancellationToken = default, bool leaderboard = false, bool background = false) =>
         RequestJsonAsync<ServerStatistics>(HttpMethod.Get, leaderboard ? "/api/activity/stats" : "/api/server/stats", cancellationToken: cancellationToken, background: background);
 
+    // A foreground request: it also keeps this profile listed as online for the next minute.
+    public Task<OnlineActivity> GetOnlineActivityAsync(CancellationToken cancellationToken = default) =>
+        RequestJsonAsync<OnlineActivity>(HttpMethod.Get, "/api/activity/online", cancellationToken: cancellationToken);
+
     public Task<ServerHealthNow> GetServerHealthNowAsync(CancellationToken cancellationToken) =>
         RequestJsonAsync<ServerHealthNow>(HttpMethod.Get, "/api/server/stats/now", cancellationToken: cancellationToken, background: true);
 

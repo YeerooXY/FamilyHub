@@ -107,7 +107,7 @@ class ListeningStats:
             data = json.loads(self.path.read_text(encoding='utf-8'))
         except FileNotFoundError:
             data = {'since': self.utc().isoformat(), 'profiles': {}}
-        for key in ('daily', 'plays', 'savings', 'counters'):
+        for key in ('daily', 'plays', 'savings', 'counters', 'watch'):
             data.setdefault(key, {})
         revision = data.pop('journal_revision', 0)
         journal_end = 0
@@ -237,6 +237,22 @@ class ListeningStats:
         elif done is not None:
             writes.append(done)
 
+    def add_watch(self, user, seconds):
+        """Credit seconds of film or episode playback to today, saved with the next checkpoint (at most 30 s later)."""
+        if not isinstance(user, str) or not user or not math.isfinite(seconds) or seconds <= 0:
+            return
+        done = None
+        with self.lock:
+            days = self.data['watch'].setdefault(user, {})
+            day = self.utc().strftime('%Y-%m-%d')
+            days[day] = days.get(day, 0) + seconds
+            now = self.clock()
+            if self.last_write is None or now - self.last_write >= 30:
+                done = self._write(now)
+            else:
+                self.legacy_dirty = True
+        wait_for_write(done)
+
     def sync(self, user, device_id, entries, *, after_day='', writes=None):
         """Credit the growth of a device's cumulative daily counters; returns the credited seconds and plays."""
         if not isinstance(user, str) or not user:
@@ -298,6 +314,18 @@ class ListeningStats:
             self._expire(self.clock())
             return any(d['playing'] for d in self.devices.values())
 
+    def presence(self):
+        """Profiles with a live player, each with the song it is playing (None when idle or paused)."""
+        with self.lock:
+            self._expire(self.clock())
+            result = {}
+            for (user, _), device in sorted(self.devices.items(), key=lambda row: row[1]['at']):
+                if device['playing'] and device.get('track'):
+                    result[user] = device['track']
+                else:
+                    result.setdefault(user, None)
+            return result
+
     def reset_presence(self, user):
         with self.lock:
             self.counted.pop(user, None)
@@ -306,7 +334,7 @@ class ListeningStats:
     def clear(self, user):
         with self.lock:
             self.reset_presence(user)
-            for key in ('profiles', 'daily', 'plays', 'counters'):
+            for key in ('profiles', 'daily', 'plays', 'counters', 'watch'):
                 self.data[key].pop(user, None)
             done = self._write(self.clock())
         wait_for_write(done)
@@ -367,7 +395,12 @@ class ListeningStats:
                     status, added = self._reconcile(user, subscription_history.get(user), now)
                     changed = changed or added
                 plays = self.data['plays'].get(user, 0) if user not in hidden else 0
+                watched = self.data['watch'].get(user, {}) if user not in hidden else {}
+                week_start = (now.date() - timedelta(days=6)).isoformat()
                 rows.append(dict(id=user, name=profile['name'], current_track=current['track'] if current else None, online=bool(devices),
+                                 watch_seconds=sum(watched.values()),
+                                 month_watch_seconds=sum(s for day, s in watched.items() if day[:7] == month),
+                                 week_watch_seconds=sum(s for day, s in watched.items() if day >= week_start),
                                  listening=any(d['playing'] for d in devices), seconds=sum(months.values()),
                                  month_seconds=months.get(month, 0), active_months=sum(value > 0 for value in months.values()),
                                  qualified_plays=plays, royalty_usd=round(plays * ROYALTY_RATE_USD, 5),

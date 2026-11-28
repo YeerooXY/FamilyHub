@@ -1,5 +1,22 @@
 # Interface verification
 
+## 27 November 2026 Home activity and leaderboard 2.0.0
+
+Concept B: the leaderboard on the left and Online now on the right, with Online now first on phones.
+
+| Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Home, Online now, listening, watching, Wordle and online rows | never | never | never | never | never | Source check, 27 Nov 2026 | never |
+| Home, Online now, someone joining, leaving, and the empty list | never | never | never | never | never | Source check, 27 Nov 2026 | never |
+| Home leaderboard, top three cards, ranked rows, music and watch bars | never | never | never | never | never | Source check, 27 Nov 2026 | never |
+| Home leaderboard, Weekly, Monthly and All time, and the empty period | never | never | never | never | never | Source check, 27 Nov 2026 | never |
+| Settings, admin-only Server section, and its absence for everyone else | never | never | never | never | never | Source check, 27 Nov 2026 | never |
+| Music navigation and profile menu without Leaderboard or Server | never | never | never | never | never | Source check, 27 Nov 2026 | never |
+
+Online now rows slide 16 px and fade over 240 ms with a cubic-bezier ease-out when someone comes online, and fade over 220 ms when they leave. A new refresh interrupts nothing: a row that comes back while leaving returns to normal at once. Reduced motion and Effects off add the row, or remove it, without animation. The listening bars keep animating under normal motion and stop only for reduced motion or Effects off. Focus inside a row that leaves moves to the next row, then the previous one, then the Online now heading. The period buttons are the same elements before and after a switch, so focus stays on the one that was used. The list and the bars change without announcements, because the period buttons carry the pressed state and each bar has a visible label and value.
+
+`tests/home_activity.cjs` covers these on Chromium and WebKit at 1280, 2000 and phone widths against the popup fixture host. `clients/FamilyHub.ServerWork.Tests` covers the empty leaderboard. Neither has run: no browser or .NET build was available to the worker. Visual inspection, the 30 second refresh while hidden (`HOME_ACTIVITY_SLOW=1`), screen-reader speech and physical-device checks are pending.
+
 ## 26 November 2026 Movies & TV 1.6.2
 
 | Screen and states | Layout | Visual | Motion | Focus and keyboard | Accessibility | Wording | States |

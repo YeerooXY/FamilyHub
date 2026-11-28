@@ -774,6 +774,32 @@ window.familyhub.tintPlaylistHeader = () => {
  if(!panel._tintObserver){panel._tintObserver=new MutationObserver(sample);panel._tintObserver.observe(panel,{childList:true,subtree:true,attributes:true,attributeFilter:['src']});panel.addEventListener('load',sample,true);}
  sample();
 };
+// The app's own effects setting and the system's reduced-motion setting both mean "no animation".
+window.familyhub.motionOff = () => matchMedia('(prefers-reduced-motion: reduce)').matches || document.body.dataset.effects === 'off';
+// Focus inside an Online now row that is about to go moves to the next row, then the previous one, then the heading.
+window.familyhub.captureOnlineFocus = leaving => {
+ const root=document.querySelector('.online-now'); if(!root)return;
+ const rows=[...root.querySelectorAll('[data-profile-key]')], keys=rows.map(row=>row.dataset.profileKey), here=document.activeElement?.closest('[data-profile-key]');
+ root._onlineFocus=here&&root.contains(here)&&leaving.includes(here.dataset.profileKey)?{keys,leaving,from:keys.indexOf(here.dataset.profileKey)}:null;
+};
+window.familyhub.restoreOnlineFocus = () => {
+ const root=document.querySelector('.online-now'), saved=root?._onlineFocus;
+ if(!saved)return;
+ const active=document.activeElement;
+ // WebKit can still report a just-removed button as focused: treat a detached element as lost focus.
+ if(active===document.body||active===null||!active.isConnected||active.closest('.is-leaving')){
+  const alive=key=>!saved.leaving.includes(key)&&root.querySelector(`[data-profile-key="${CSS.escape(key)}"]:not(.is-leaving) .listener-options`);
+  const order=[...saved.keys.slice(saved.from+1),...saved.keys.slice(0,saved.from).reverse()];
+  const target=order.map(alive).find(Boolean)||document.getElementById('online-now-title');
+  target?.focus({preventScroll:true});
+  root._onlineFocus=null;
+  return;
+ }
+ // A render before the leaving row is marked: keep the plan until the row actually leaves.
+ const row=active.closest('[data-profile-key]');
+ if(row&&root.contains(row)&&saved.leaving.includes(row.dataset.profileKey))return;
+ root._onlineFocus=null;
+};
 window.familyhub.captureLeaderboard = () => {
  const table=document.querySelector('.stats-leaderboard');if(!table)return;
  table._rowPositions=new Map([...table.querySelectorAll('[data-profile-key]')].map(row=>[row,row.getBoundingClientRect().top]));

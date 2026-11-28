@@ -1,5 +1,6 @@
 @page "/"
 @page "/hub"
+@page "/leaderboard"
 @page "/wordle"
 @page "/server-work"
 @page "/server-stats"
@@ -140,10 +141,6 @@ else
     {
         <dialog id="profile-menu" class="popup-panel popup-menu" aria-labelledby="profile-menu-heading" data-popup-anchor="profile-toggle" @onclose="() => profileMenu = false">
             <div class="dialog-heading"><h2 id="profile-menu-heading">@Session.ProfileName</h2><button id="profile-menu-close" class="quiet" aria-label="Close profile menu" data-popup-close><MusicIcon Name="close" /></button></div>
-            @* Phones have no sidebar; these pages open from the profile menu instead. *@
-            @foreach (var tab in new[] { "Leaderboard", "Stats" }.Where(tab => tab != "Stats" || Session.ServerHealthAdmin))
-            { <button class="profile-phone-link" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" />@NavLabel(tab)</button> }
-            <hr class="profile-phone-link" />
             <button @onclick="SwitchProfile"><MusicIcon Name="person" />Switch profile</button>
             <button id="open-settings" @onclick="OpenSettings"><MusicIcon Name="settings" />Settings</button>
             <button id="open-feedback" aria-haspopup="dialog" @onclick="OpenProfileFeedback"><MusicIcon Name="alert" />Feedback</button>
@@ -157,7 +154,7 @@ else
     <button class="nav-button phone-nav" aria-label="Search" aria-current='@(view == "Search" ? "page" : null)' @onclick="OpenSearchTab"><MusicIcon Name="search" /><span class="nav-label">Search</span></button>
     <button class="nav-button phone-nav" aria-label="Playlists" aria-current='@(LibraryViews.Contains(view) ? "page" : null)' @onclick='() => Navigate("Playlists")'><MusicIcon Name="playlist" /><span class="nav-label">Playlists</span></button>
     <button id="open-library" class="nav-button desktop-nav" aria-label="Your library" title="Your library" aria-current='@(view == "Library" ? "page" : null)' @onclick='() => Navigate("Library")'><MusicIcon Name="library" /><span class="nav-label">Your library</span></button>
-    @foreach (var tab in new[] { "Downloads", "Playlists", "Leaderboard", "Stats" }.Where(tab => tab != "Stats" || Session.ServerHealthAdmin))
+    @foreach (var tab in new[] { "Downloads", "Playlists" })
     { <button class="nav-button desktop-nav" aria-label="@NavLabel(tab)" title="@NavLabel(tab)" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" /><span class="nav-label">@NavLabel(tab)</span></button> }
     </nav>
     <div id="sidebar-resize" role="separator" tabindex="0" aria-label="Resize library sidebar" aria-orientation="vertical" aria-valuemin="72" aria-valuemax="420" aria-valuenow="@(sidebarCollapsed ? 72 : sidebarWidth)"></div>
@@ -165,7 +162,7 @@ else
 <div class="workspace" data-app-view="@view"><main id="content" class="@(Session.ReconnectingToServer ? "server-reconnecting" : null)" tabindex="-1">
     @{ var restartBanner = Session.ServerStatusMessage;
        var searchBanner = restartBanner is null && view == "Search" && searchFailed && searchUnavailable;
-       var connectionBanner = restartBanner is null && !searchBanner && error is null && ConnectionLost && view is not ("Stats" or "Leaderboard" or "Movies & TV" or "Files"); }
+       var connectionBanner = restartBanner is null && !searchBanner && error is null && ConnectionLost && view is not ("Movies & TV" or "Files") && !ServerSettingsOpen; }
     <div class="shell-status">
     <Notice Id="server-restart-status" Level="@(Session.ReconnectingToServer ? "info" : "warning")" Message="@restartBanner" Announce="false" />
     <ServiceStatus Active="@connectionBanner"
@@ -296,7 +293,7 @@ else
                 </button>
             </header>
             <nav class="settings-sections" aria-label="Settings categories">
-                @foreach (var (id, label, icon) in SettingsCategories)
+                @foreach (var (id, label, icon) in SettingsCategories.Where(category => category.Id != "server" || Session.ServerHealthAdmin))
                 {
                     <button id="settings-@id" type="button" aria-current='@(settingsSection == id ? "true" : null)' @onclick="() => SelectSettingsSection(id)">
                         <MusicIcon Name="@icon" /><span>@label</span><span class="settings-chevron"><MusicIcon Name="forward" /></span>
@@ -386,6 +383,27 @@ else
             else if (settingsSection == "wordle")
             {
                 <WordleSettings @key="AppearanceKey" />
+            }
+            else if (settingsSection == "server" && !Session.ServerHealthAdmin)
+            {
+                <Notice Level="error" Message="Only an administrator can view server statistics." />
+            }
+            else if (settingsSection == "server")
+            {
+                <div class="server-work-page">
+                    <ServerHealth @key="(Session.Server, Session.User)" Api="Session.Api" />
+                    <ServerStats RefreshReview="RefreshSongReview">
+                        @if (Session.MoviesEnabled)
+                        {
+                            <MoviesServerStatus @key="AppearanceKey" @ref="moviesStatus" />
+                        }
+                        <CatalogueReviewPanel @ref="songReview" OpenPlaylist="OpenPlaylistReviewGap" />
+                    </ServerStats>
+                    <details class="server-work-mappings glass-panel" open="@mappingsOpen">
+                        <summary id="artist-mappings-title" @onclick="ToggleMappings" @onclick:preventDefault><MusicIcon Name="chevron-down" />Artist mappings</summary>
+                        @if (mappingsLoaded) { <ArtistMappings @key="(Session.Server, Session.User)" /> }
+                    </details>
+                </div>
             }
             else
             {
@@ -535,31 +553,6 @@ else
             </ChildContent>
             </PlaylistTransfer>
         }
-    }
-    else if (view == "Stats" && !Session.ServerHealthAdmin)
-    {
-        <Notice Level="error" Message="Only an administrator can view server statistics." />
-    }
-    else if (view == "Stats")
-    {
-        <div class="server-work-page">
-            <ServerHealth @key="(Session.Server, Session.User)" Api="Session.Api" />
-            <ServerStats RefreshReview="RefreshSongReview">
-                @if (Session.MoviesEnabled)
-                {
-                    <MoviesServerStatus @key="AppearanceKey" @ref="moviesStatus" />
-                }
-                <CatalogueReviewPanel @ref="songReview" OpenPlaylist="OpenPlaylistReviewGap" />
-            </ServerStats>
-            <details class="server-work-mappings glass-panel" open="@mappingsOpen">
-                <summary id="artist-mappings-title" @onclick="ToggleMappings" @onclick:preventDefault><MusicIcon Name="chevron-down" />Artist mappings</summary>
-                @if (mappingsLoaded) { <ArtistMappings @key="(Session.Server, Session.User)" /> }
-            </details>
-        </div>
-    }
-    else if (view == "Leaderboard")
-    {
-        <ServerStats Leaderboard="true" />
     }
     else if (view == "Queue")
     {
@@ -867,9 +860,11 @@ else
         ("wordle", "Wordle", "wordle"),
         ("appearance", "Appearance", "sparkle"),
         ("storage", "Storage and downloads", "download"),
-        ("about", "Server and updates", "info-circle")
+        ("about", "Server and updates", "info-circle"),
+        ("server", "Server", "device")  // Administrators only; the list above hides it from everyone else.
     ];
     private string settingsSection = "general";
+    private bool ServerSettingsOpen => view == "Preferences" && settingsSection == "server";
     private bool settingsDrilled, appSwitcherOpen;
     private string SwitcherApp => view is "Hub" or "Wordle" or "Movies & TV" or "Files" ? view : "Home";
 
@@ -1325,7 +1320,7 @@ else
             || current.Title != gap.Title || current.Artist != gap.Artist)
         {
             await Session.RefreshAsync();
-            if (view != "Stats") return;
+            if (!ServerSettingsOpen) return;
             playlist = FindPlaylist();
         }
         if (playlist is null)
@@ -1546,8 +1541,8 @@ else
     private bool CannotRecommend => recommendationLookup is not null || Player.Current is null;
     private static string PlaylistAlbum(PlaylistTrack entry, MusicTrack? track) => PlaylistSongs.Album(entry, track);
     private MusicTrack? NextTrack => Player.QueueIndex + 1 < Player.Queue.Count ? Player.Queue[Player.QueueIndex + 1] : null;
-    private static string NavLabel(string tab) => tab switch { "Downloads" => "Downloaded", "Stats" => "Server", _ => tab };
-    private static string NavIcon(string tab) => tab switch { "Library" => "library", "Search" => "search", "Downloads" => "down", "Movies & TV" => "film", "Files" => "folder", "Playlists" => "playlist", "Stats" => "device", "Leaderboard" => "crown", _ => "queue" };
+    private static string NavLabel(string tab) => tab switch { "Downloads" => "Downloaded", _ => tab };
+    private static string NavIcon(string tab) => tab switch { "Library" => "library", "Search" => "search", "Downloads" => "down", "Movies & TV" => "film", "Files" => "folder", "Playlists" => "playlist", _ => "queue" };
     private Task VolumeChanged(ChangeEventArgs args)
     {
         if (!double.TryParse(args.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value)) return Task.CompletedTask;
@@ -1634,7 +1629,7 @@ else
     private Task SwitchProfile() => Run(async () => { await Session.SavePlaybackAsync(Player.CaptureResume()); await Player.StopAsync(); await Session.SwitchProfileAsync(); ResetProfileView(); });
     private void ResetProfileView(bool fromProfilePicker = false)
     {
-        var keepDeepLink = (EntryScreen || fromProfilePicker) && view is ("Stats" or "Wordle");
+        var keepDeepLink = (EntryScreen || fromProfilePicker) && (ServerSettingsOpen || view == "Wordle");
         CancelSearch();
         recommendationLookup?.Cancel();
         recommendationLookup = null;
@@ -1690,6 +1685,8 @@ else
         var target = uri.Fragment.TrimStart('#');
         if (target.Length == 0) target = RouteView ?? uri.AbsolutePath.Trim('/');
         if (target is "hub" or "wordle") { view = target == "hub" ? "Hub" : "Wordle"; pendingFocus = "content"; return; }
+        // The leaderboard moved to Home, so old links to it open Home.
+        if (target is "leaderboard") { view = "Home"; pendingFocus = "content"; return; }
         var section = Uri.UnescapeDataString(target).ToLowerInvariant().Replace(' ', '-') switch
         {
             "artist-mappings" or "artist-mappings-title" => "artist-mappings-title",
@@ -1698,7 +1695,8 @@ else
             _ => null
         };
         if (section is null) return;
-        view = "Stats";
+        // The server page is the admin-only Server section of Settings.
+        view = "Preferences"; settingsSection = "server"; settingsDrilled = true;
         if (section == "artist-mappings-title") mappingsLoaded = mappingsOpen = true;
         pendingFocus = section;
         if (section != "view-title") pendingReveal = section;
@@ -1924,7 +1922,7 @@ else
         if (tab == "Playlists") selectedId = "";
         profileMenu = false; error = null; playbackRetry = null; genre = "";
         if (tab == "Settings") server = Session.Server;
-        pendingFocus = tab is "Stats" or "Preferences" ? "view-title" : tab == "Settings" ? "server" : "content";
+        pendingFocus = tab == "Preferences" ? "view-title" : tab == "Settings" ? "server" : "content";
         await Task.CompletedTask;
     }
     private Task GoBack() => StepHistory(false);

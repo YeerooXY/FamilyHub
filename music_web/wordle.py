@@ -677,7 +677,7 @@ class WordPuzzles:
                     recap=recap)
 
 
-def register(app, workspace, require_family, profiles, body, api_error, daily_answer=None, *, writer=None):
+def register(app, workspace, require_family, profiles, body, api_error, daily_answer=None, *, writer=None, playing=lambda user: None):
     answer_for = daily_answer if daily_answer is not None else lambda day: choose_answer(day, app.secret_key)
     puzzles = WordPuzzles(workspace, answer_for, api_error, writer)
 
@@ -685,6 +685,7 @@ def register(app, workspace, require_family, profiles, body, api_error, daily_an
     def wordle_today():
         require_family()
         day = current_day()
+        playing(g.user)
         state = puzzles.play(g.user, day)
         if request.args.get("local") == "1":
             state["family"] = puzzles.family_boards(g.user, day, profiles.list())
@@ -714,6 +715,7 @@ def register(app, workspace, require_family, profiles, body, api_error, daily_an
                 or type(count) is not int or not 0 <= count <= WORD_LENGTH):
             raise api_error("Invalid Wordle activity.")
         puzzles.set_activity(g.user, view, day, row, count)
+        playing(g.user)
         return jsonify(ok=True)
 
     @app.post("/api/wordle/guess")
@@ -732,6 +734,7 @@ def register(app, workspace, require_family, profiles, body, api_error, daily_an
         measured_ms = data.get("guess_active_ms")
         if measured_ms is not None and (type(measured_ms) is not int or not 0 <= measured_ms <= 25 * 60 * 60 * 1000):
             raise api_error("Invalid guess time.")
+        playing(g.user)
         return jsonify(puzzles.play(g.user, day, word.strip().lower(), expected, measured_ms))
 
     @app.get("/api/wordle/stats")

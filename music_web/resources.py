@@ -205,6 +205,13 @@ class ResourceGovernor:
             state = next((state for state in reversed(PRESENCE) if state in states), "offline")
             return state, *PRESENCE[state]
 
+    def online(self):
+        """Profiles holding a live presence lease; listening rooms are not people."""
+        with self.condition:
+            self._expire(self.clock())
+            return {self._profile(identity) for identity, _ in self.leases
+                    if not (isinstance(identity, tuple) and identity[0] == "room")}
+
     def background_slots(self, limit, floor=0):
         """Background slots: `floor` stays available while people are online; the rest returns
         one per second after everyone leaves."""

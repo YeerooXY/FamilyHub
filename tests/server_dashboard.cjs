@@ -14,18 +14,21 @@ const profiles = [
     ['iphone13', devices['iPhone 13']],
 ];
 
+// Server is an admin-only section of Settings. The leaderboard lives on Home, not in the Music navigation.
 async function openMusicSection(page, name) {
     await page.getByRole('button', {name: /^Music\b/}).click();
-    if (await page.evaluate(() => innerWidth < 700)) {
-        await page.getByRole('button', {name: 'Profile menu'}).press('Enter');
-    }
     if (name === 'Leaderboard') {
+        assert.equal(await page.getByRole('button', {name: 'Leaderboard', exact: true}).count(), 0);
         assert.equal(await page.getByRole('button', {name: 'Server', exact: true}).count(), 0);
+        await page.getByRole('group', {name: 'Leaderboard period'}).waitFor();
+        return;
     }
-    await page.getByRole('button', {name, exact: true}).press('Enter');
-    await page.getByRole('heading', {name, level: 1, exact: true}).waitFor();
-    await page.waitForFunction(id => document.activeElement?.id === id,
-        name === 'Server' ? 'view-title' : 'content');
+    await page.getByRole('button', {name: 'Profile menu'}).press('Enter');
+    await page.getByRole('button', {name: 'Settings', exact: true}).press('Enter');
+    await page.getByRole('heading', {name: 'Settings', level: 1, exact: true}).waitFor();
+    await page.getByRole('button', {name: 'Server', exact: true}).press('Enter');
+    await page.getByRole('region', {name: 'Server settings'}).waitFor();
+    await page.waitForFunction(() => document.activeElement?.id === 'settings-server' || document.activeElement?.id === 'settings-category');
 }
 
 async function state(page, value) {
@@ -60,7 +63,7 @@ async function check(browser, profileName, profile, engineName) {
         assert(await seeding.evaluate(node => node.scrollWidth <= node.clientWidth), name + ' seeding fits the width');
         if (profile.isMobile === false || profileName.includes('desktop') || profileName.includes('windows')) await seeding.screenshot({path: path.join(process.env.SEEDING_CAPTURE || require('node:os').tmpdir(), name + '-seeding.png')});
         await current.getByText('Whole machine: Not measured', {exact: true}).first().waitFor();
-        assert.equal(await current.locator('meter').first().evaluate(el => el.getBoundingClientRect().height), 8);
+        assert.equal(await current.locator('meter').first().evaluate(el => Math.round(el.getBoundingClientRect().height)), 8); // the section may still be finishing its entry scale
         assert(await current.getByText('CPU warm at 70 °C, hot at 85 °C').isVisible());
         assert.equal(await current.locator('.health-hot').textContent(), '55 °C');
         await ethernet.getByText(/^Latest/).first().waitFor();
@@ -70,7 +73,7 @@ async function check(browser, profileName, profile, engineName) {
 
         const rangeResponses = expected => page.waitForFunction(range => {
             const section = document.querySelector('#health-history-title').closest('section');
-            return section.dataset.range === range && section.querySelector('[role="status"]').textContent.trim().startsWith('Updated');
+            return section.dataset.range === range && section.querySelector('.health-status[role="status"]').textContent.trim().startsWith('Updated');
         }, expected);
         const hour = radios.getByRole('radio', {name: 'Last hour'});
         const day = radios.getByRole('radio', {name: '24 hours'});
@@ -146,6 +149,8 @@ async function check(browser, profileName, profile, engineName) {
             assert(await ethernet.isVisible());
             const retry = history.getByRole('button', {name: 'Retry history'});
             await retry.waitFor();
+            // Focus moves to Retry right after the failure renders.
+            await retry.evaluate(el => new Promise(resolve => { const t = Date.now(); (function poll() { if (el === document.activeElement || Date.now() - t > 2000) resolve(); else setTimeout(poll, 50); })(); }));
             assert(await retry.evaluate(el => el === document.activeElement));
             await state(page, 'ready');
             await retry.press('Space');
@@ -158,6 +163,8 @@ async function check(browser, profileName, profile, engineName) {
             await current.getByRole('button', {name: 'Refresh readings'}).press('Enter');
             const retryCurrent = current.getByRole('button', {name: 'Retry current readings'});
             await retryCurrent.waitFor();
+            // Focus moves to Retry right after the failure renders.
+            await retryCurrent.evaluate(el => new Promise(resolve => { const t = Date.now(); (function poll() { if (el === document.activeElement || Date.now() - t > 2000) resolve(); else setTimeout(poll, 50); })(); }));
             assert(await retryCurrent.evaluate(el => el === document.activeElement));
             assert(await current.getByText('38 GiB used', {exact: true}).isVisible());
             await state(page, 'ready');
@@ -172,7 +179,7 @@ async function check(browser, profileName, profile, engineName) {
             await page.request.post(origin + '/fixture/startup/none');
             await page.reload();
             await openMusicSection(page, 'Leaderboard');
-            await page.getByRole('group', {name: 'Listening period'}).waitFor();
+            await page.getByRole('group', {name: 'Leaderboard period'}).waitFor();
             assert.equal(await page.getByRole('heading', {name: 'Current readings'}).count(), 0);
         }
         console.log('PASS', name);

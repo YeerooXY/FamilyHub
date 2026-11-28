@@ -124,7 +124,7 @@ def mark_dismissed_items(result, hidden, resource, params):
 
 
 def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_key=None, subtitle_imported=None,
-             cached_lookup=None):
+             cached_lookup=None, watching=None):
     from .audio_tracks import opened, target_path
     from .movie_subtitles import LANGUAGES
     from .subtitle_sync import timing_snapshot
@@ -277,6 +277,14 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
             if len(raw) > 4 << 20:
                 raise ValueError('Movie library response is too large')
             result = json.loads(raw) if raw else None
+            if watching and payload is not None and resource.startswith('Sessions/Playing'):
+                def item(item_id):
+                    path = f'{base}/Users/{urllib.parse.quote(grant.viewer, safe="")}/Items/{item_id}'
+                    with urllib.request.build_opener(NoRedirect).open(urllib.request.Request(path, headers={
+                            'Authorization': grant.authorization, 'Accept': 'application/json'}), timeout=4) as upstream:
+                        return json.loads(upstream.read(1 << 20))
+                watching(grant.profile, {'Sessions/Playing': 'start', 'Sessions/Playing/Progress': 'progress',
+                                         'Sessions/Playing/Stopped': 'stopped'}[resource], payload, item)
             if hide_resume:
                 movie_dismissals(grant.profile, 'resume', hide_resume[1], payload['positionTicks'])
             if payload is None:

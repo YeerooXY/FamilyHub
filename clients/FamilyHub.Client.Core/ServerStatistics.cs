@@ -83,8 +83,29 @@ public sealed record ListenerStatistics
     public bool Listening { get; init; }
     public double Seconds { get; init; }
     [JsonPropertyName("month_seconds")] public double MonthSeconds { get; init; }
+    [JsonPropertyName("watch_seconds")] public double WatchSeconds { get; init; }
+    [JsonPropertyName("month_watch_seconds")] public double MonthWatchSeconds { get; init; }
+    [JsonPropertyName("week_watch_seconds")] public double WeekWatchSeconds { get; init; }
     [JsonPropertyName("active_months")] public int ActiveMonths { get; init; }
     public WrappedStatistics? Wrapped { get; init; }
+}
+
+public sealed record OnlineActivity
+{
+    public List<OnlineMember> Members { get; init; } = [];
+}
+
+/// <summary>An online family member. Kind is listening, watching, wordle or online (nothing to show).</summary>
+public sealed record OnlineMember
+{
+    public string Id { get; init; } = "";
+    public string Name { get; init; } = "";
+    public string Kind { get; init; } = "online";
+    public string Title { get; init; } = "";
+    public string Subtitle { get; init; } = "";
+    public string Cover { get; init; } = "";
+    public string Poster { get; init; } = "";
+    public double? Progress { get; init; }
 }
 public sealed record WrappedStatistics
 {

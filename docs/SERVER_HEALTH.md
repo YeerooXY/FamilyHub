@@ -1,6 +1,6 @@
 # Server health on Debian
 
-The **Server** view and its health endpoints require an administrator. Configure a [profile password](SECURITY_REVIEW.md#profile-password-setup) for each FamilyHub administrator. Signed-in profiles can open **Leaderboard** through `/api/activity/stats`.
+The **Server** section of Settings and its health endpoints require an administrator. Configure a [profile password](SECURITY_REVIEW.md#profile-password-setup) for each FamilyHub administrator. Signed-in profiles see the leaderboard on Home through `/api/activity/stats`, and who is online through `/api/activity/online`.
 
 Open `/admin` on the FamilyHub server and sign in with an administrator profile to view torrent seeding. The page displays the combined upload and download totals, the share ratio against the configured goal, and each torrent's ratio. It refreshes every 30 seconds while visible. The page is available when the browser player is disabled and obtains its data from the administrator-only `/api/server/seeding` endpoint.
 

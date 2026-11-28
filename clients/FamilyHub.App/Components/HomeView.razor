@@ -48,6 +48,12 @@
         </section>
     }
 
+    <section class="home-section home-activity" aria-labelledby="home-activity-title">
+        <h2 id="home-activity-title" class="sr">Family activity</h2>
+        <OnlineNow />
+        <ServerStats Leaderboard="true" Embedded="true" />
+    </section>
+
     @if (Session.Playlists.Count > 0)
     {
         <section class="home-section home-collection" aria-labelledby="home-playlists-title">

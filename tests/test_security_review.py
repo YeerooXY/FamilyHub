@@ -188,6 +188,35 @@ class MovieGrants(Base):
         opener.assert_not_called()
 
     @patch('music_web.movies.urllib.request.build_opener')
+    def test_playback_reports_feed_watch_time_and_home_activity(self, opener):
+        client, csrf = self.select()
+        movie = self.grant(client, csrf, opener)
+        activity, now = self.app.extensions['activity'], [1000.0]
+        activity.clock = lambda: now[0]
+        episode = {'Type': 'Episode', 'SeriesName': 'The Show', 'Name': 'Pilot', 'SeriesId': 'b' * 32, 'SeriesPrimaryImageTag': 'tag',
+                   'ParentIndexNumber': 1, 'IndexNumber': 2, 'RunTimeTicks': 1800 * 10 ** 7}
+        opener.return_value.open.side_effect = lambda req, **_: io.BytesIO(json.dumps(episode).encode() if '/Items/' in req.full_url else b'')
+
+        def report(action, seconds, step=10):
+            now[0] += step
+            data = dict(ticket=movie['media_ticket'], path='Sessions/Playing' + action, query='',
+                        payload={'ItemId': self.item, 'PositionTicks': seconds * 10 ** 7, 'IsPaused': False})
+            self.assertEqual(self.post(client, csrf, '/api/movies/library', json=data).status_code, 200)
+
+        report('', 0)
+        report('/Progress', 10)
+        report('/Progress', 600)  # a seek
+        report('/Progress', 610)
+        row = next(r for r in self.go(client, 'GET', '/api/activity/stats').json['profiles'] if r['id'] == 'sample-a')
+        self.assertEqual((row['watch_seconds'], row['week_watch_seconds'], row['month_watch_seconds']), (20, 20, 20))
+        shown = next(r for r in self.go(client, 'GET', '/api/activity/online').json['members'] if r['id'] == 'sample-a')
+        self.assertEqual((shown['kind'], shown['title'], shown['subtitle']), ('watching', 'The Show', 'Season 1, episode 2'))
+        self.assertEqual(shown['poster'], 'https://movies.test/Items/' + 'b' * 32 + '/Images/Primary?tag=tag&maxHeight=160')
+        report('/Stopped', 615, 5)
+        shown = next(r for r in self.go(client, 'GET', '/api/activity/online').json['members'] if r['id'] == 'sample-a')
+        self.assertEqual(shown['kind'], 'online')
+
+    @patch('music_web.movies.urllib.request.build_opener')
     def test_movie_favorite_changes_only_the_granted_viewers_state(self, opener):
         client, csrf = self.select()
         movie = self.grant(client, csrf, opener)

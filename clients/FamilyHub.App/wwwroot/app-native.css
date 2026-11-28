@@ -455,6 +455,8 @@ select option { background:#12141a; color:#f3f4f7; }
  border:1px solid color-mix(in srgb,var(--accent-blue,#89b4ff) 25%,#313442); border-radius:18px;
  background:color-mix(in srgb,var(--frame-a,#89b4ff) 8%,#13151e);
 }
+/* The admin Server section is a dashboard: give it the width the standalone Server page had. */
+.settings-shell:has(.server-work-page) { width:min(1760px,100%); }
 .settings-header {
  grid-column:1 / -1; display:flex; align-items:center; justify-content:space-between; gap:12px;
  padding:12px clamp(12px,2.4vw,28px); border-bottom:1px solid #ffffff1a;

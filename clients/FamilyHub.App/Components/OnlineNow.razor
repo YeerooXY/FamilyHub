@@ -1,0 +1,201 @@
+@implements IDisposable
+@inject MusicSession Session
+@inject IJSRuntime JS
+
+@* Online family members and what each is doing. Refreshes every 30 s while the app is visible and stops when it is hidden. *@
+<section class="online-now glass-panel" aria-labelledby="online-now-title" aria-busy="@(fetching && rows.Count == 0 ? "true" : "false")">
+    <h2 id="online-now-title" tabindex="-1">Online now</h2>
+    @if (rows.Count > 0)
+    {
+        <ul class="online-list" aria-label="Family members who are online">
+            @foreach (var row in rows)
+            {
+                var member = row.Member;
+                var leaving = row.State == "is-leaving";
+                <li class="online-row is-@member.Kind @row.State" @key="member.Id" data-profile-key="@member.Id" aria-hidden="@(leaving ? "true" : null)" inert="@leaving">
+                    <ProfileAvatar Profile="ProfileFor(member)" Size="44" ShowCrown="false" />
+                    @if (member.Kind == "listening")
+                    {
+                        <span class="online-art" aria-hidden="true">
+                            <TrackCover Track="new MusicTrack { Id = member.Cover, Title = member.Title }" />
+                            <span class="listener-equalizer is-playing">@for (var bar = 0; bar < 5; bar++) { <i style="--bar:@bar"></i> }</span>
+                        </span>
+                    }
+                    else if (member.Kind == "watching")
+                    {
+                        <span class="online-art online-poster" aria-hidden="true">
+                            <span class="cover-letter">@(string.IsNullOrWhiteSpace(member.Title) ? "▶" : member.Title[..1].ToUpperInvariant())</span>
+                            @if (member.Poster.Length > 0 && !posterFailed.Contains(member.Id + member.Poster))
+                            { <img src="@member.Poster" alt="" loading="lazy" decoding="async" @onerror="() => { posterFailed.Add(member.Id + member.Poster); }" /> }
+                            @if (member.Progress is { } progress) { <i class="online-progress" style="width:@Percent(progress)%"></i> }
+                        </span>
+                    }
+                    else if (member.Kind == "wordle")
+                    {
+                        <span class="online-art online-wordle" aria-hidden="true"><i class="correct"></i><i class="present"></i><i class="absent"></i><i class="correct"></i></span>
+                    }
+                    <div class="online-text">
+                        <strong>@member.Name</strong>
+                        @foreach (var line in Lines(member)) { <span>@line</span> }
+                    </div>
+                    @if (!leaving) { <ListenerMenu Profile="new ListenerStatistics { Id = member.Id, Name = member.Name }" /> }
+                </li>
+            }
+        </ul>
+    }
+    else if (!Session.Connected)
+    {
+        <p class="lb-empty">Connect to your server to see who is online.</p>
+    }
+    else if (loaded && error is null)
+    {
+        <p class="lb-empty">Nobody is online right now.</p>
+    }
+    <Notice Id="online-now-status" Level="error" Message="@error" ActionLabel="Retry online list" Action="Refresh" Busy="fetching" FocusTarget="#online-now-title" />
+</section>
+
+@code {
+    private sealed class Row { public OnlineMember Member = new(); public string State = ""; }
+    private const int LeaveMilliseconds = 220;
+    private readonly List<Row> rows = [];
+    private readonly HashSet<string> posterFailed = [];
+    private readonly CancellationTokenSource lifetime = new();
+    private bool fetching, loaded, running, disposed;
+    private string? error;
+
+    private static string Percent(double progress) => (Math.Clamp(progress, 0, 1) * 100).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+    private ListenerProfile ProfileFor(OnlineMember member) => Session.Profiles.FirstOrDefault(p => p.Id == member.Id) ?? new() { Id = member.Id, Name = member.Name };
+
+    private static IEnumerable<string> Lines(OnlineMember member)
+    {
+        string[] lines = member.Kind switch
+        {
+            "listening" => [member.Title.Length > 0 ? "Listening to " + member.Title : "Listening to music", member.Subtitle],
+            "watching" => [member.Title.Length > 0 ? "Watching " + member.Title : "Watching a film", member.Subtitle,
+                           member.Progress is { } progress ? Math.Round(Math.Clamp(progress, 0, 1) * 100) + "% watched" : ""],
+            "wordle" => ["Playing Wordle", "Today's puzzle"],
+            _ => ["Online"]
+        };
+        return lines.Where(line => line.Length > 0);
+    }
+
+    private (string Account, bool Connected) lastSeen;
+    protected override void OnInitialized()
+    {
+        lastSeen = (Session.Server + "\n" + Session.User, Session.Connected);
+        Session.UiActiveChanged += ActiveChanged;
+        Session.Changed += Changed;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) Start();
+        try { await JS.InvokeVoidAsync("familyhub.restoreOnlineFocus"); }
+        catch (Exception exception) when (exception is JSException or JSDisconnectedException or OperationCanceledException) { }
+    }
+
+    // Coming back to the app shows a fresh list at once: a new loop refreshes on start, a loop still waiting for its next tick is asked to.
+    private void ActiveChanged()
+    {
+        if (!Session.UiActive) return;
+        _ = InvokeAsync(async () => { if (running) await Refresh(); else Start(); });
+    }
+
+    // A different profile or server clears the list; coming back online refreshes it. Other session changes do nothing here.
+    private void Changed()
+    {
+        var now = (Account: Session.Server + "\n" + Session.User, Connected: Session.Connected);
+        if (disposed || now == lastSeen) return;
+        var switched = now.Account != lastSeen.Account;
+        lastSeen = now;
+        _ = InvokeAsync(async () =>
+        {
+            if (switched) { rows.Clear(); loaded = false; error = null; StateHasChanged(); }
+            if (now.Connected && Session.UiActive) await Refresh();
+        });
+    }
+
+    // One refresh now, then one every 30 s while the app is visible. A hidden app makes no requests.
+    private void Start()
+    {
+        if (running || disposed || !Session.UiActive) return;
+        running = true;
+        _ = Loop();
+    }
+
+    private async Task Loop()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+            do
+            {
+                if (!Session.UiActive) break;
+                await InvokeAsync(Refresh);
+            } while (await timer.WaitForNextTickAsync(lifetime.Token));
+        }
+        catch (OperationCanceledException) when (disposed) { }
+        finally { running = false; }
+    }
+
+    private async Task Refresh()
+    {
+        if (disposed || fetching || !Session.Connected || Session.Api is not { } api) return;
+        fetching = true;
+        var requested = Session.Server + "\n" + Session.User;
+        StateHasChanged();
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(8));
+            var result = await api.GetOnlineActivityAsync(timeout.Token);
+            if (disposed || requested != Session.Server + "\n" + Session.User) return;
+            error = null;
+            await Apply(result.Members);
+            loaded = true;
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { return; }
+        catch (Exception exception) when (exception is not (JSException or JSDisconnectedException))
+        { error = "Could not load who is online. " + NoticeText.Error(exception, "Try again."); }
+        finally
+        {
+            fetching = false;
+            if (!disposed) StateHasChanged();
+        }
+    }
+
+    private async Task Apply(List<OnlineMember> members)
+    {
+        var incoming = members.GroupBy(member => member.Id).ToDictionary(group => group.Key, group => group.First());
+        var instant = false;
+        try { instant = await JS.InvokeAsync<bool>("familyhub.motionOff"); }
+        catch (Exception exception) when (exception is JSException or JSDisconnectedException) { instant = true; }
+        var gone = rows.Where(row => row.State != "is-leaving" && !incoming.ContainsKey(row.Member.Id)).ToList();
+        // Focus inside a row that leaves moves to the next row, then the previous one, then the heading.
+        if (gone.Count > 0) await JS.InvokeVoidAsync("familyhub.captureOnlineFocus", (object)gone.Select(row => row.Member.Id).ToArray()); // one array argument, not spread
+        foreach (var row in rows)
+            if (incoming.TryGetValue(row.Member.Id, out var member)) { row.Member = member; if (row.State == "is-leaving") row.State = ""; }
+        foreach (var member in incoming.Values.Where(member => rows.All(row => row.Member.Id != member.Id)))
+            rows.Add(new Row { Member = member, State = loaded && !instant ? "is-entering" : "" });
+        foreach (var row in gone)
+        {
+            if (instant) rows.Remove(row);
+            else { row.State = "is-leaving"; _ = Remove(row); }
+        }
+    }
+
+    private async Task Remove(Row row)
+    {
+        try { await Task.Delay(LeaveMilliseconds, lifetime.Token); }
+        catch (OperationCanceledException) { return; }
+        await InvokeAsync(() => { if (row.State == "is-leaving") { rows.Remove(row); StateHasChanged(); } });
+    }
+
+    public void Dispose()
+    {
+        disposed = true;
+        Session.UiActiveChanged -= ActiveChanged;
+        Session.Changed -= Changed;
+        lifetime.Cancel(); lifetime.Dispose();
+    }
+}

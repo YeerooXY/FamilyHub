@@ -7,8 +7,8 @@
     <div class="stats-toolbar">
         @if (Leaderboard)
         {
-            <div class="lb-periods" role="group" aria-label="Listening period">
-                @foreach (var choice in new[] { ("week", "7 days"), ("month", "This month"), ("all", "All time") })
+            <div class="lb-periods" role="group" aria-label="Leaderboard period">
+                @foreach (var choice in new[] { ("week", "Weekly"), ("month", "Monthly"), ("all", "All time") })
                 { <button class="lb-period" aria-pressed="@Aria(period == choice.Item1)" @onclick="() => SetPeriod(choice.Item1)">@choice.Item2</button> }
             </div>
         }
@@ -18,78 +18,71 @@
         }
         <button id="server-stats-refresh" class="quiet stats-refresh @(Refreshing ? "is-refreshing" : "")" aria-label="@(Leaderboard ? "Refresh leaderboard" : "Refresh server work")" title="Refresh" @onclick="RefreshPage" aria-disabled="@Aria(Refreshing)"><MusicIcon Name="refresh" /></button>
     </div>
-    <ServiceStatus Active="@(Offline || error is not null || Refreshing && reconnecting)"
+    @* On Home the shell already reports a lost connection, so only a leaderboard failure with a live connection shows here. *@
+    <ServiceStatus Active="@(Embedded ? !Offline && error is not null : Offline || error is not null || Refreshing && reconnecting)"
                    Title="@(needsSignIn ? "Session expired" : "Can't reach your server")"
-                   Detail="@(data is null ? "Reconnect to load server statistics." : "Showing the last loaded statistics.")"
+                   Detail="@(data is null ? Leaderboard ? "Reconnect to load the leaderboard." : "Reconnect to load server statistics." : "Showing the last loaded statistics.")"
                    RetryLabel="@(Leaderboard ? "Retry leaderboard" : "Retry server work")"
                    Retry="RefreshNow" Busy="Refreshing" AutoRetry="@(!needsSignIn)" FocusTarget="#server-stats-refresh" />
-    <Notice Message="@(fetching && data is null && !Offline && error is null ? "Loading server statistics…" : null)" />
+    <Notice Message="@(fetching && data is null && !Offline && error is null ? Leaderboard ? "Loading the leaderboard…" : "Loading server statistics…" : null)" />
     @if (Leaderboard && SnapshotStale) { <small class="catalogue-timestamp">Server updated @snapshotAt.ToLocalTime().ToString("t")</small> }
     @if (data is { } stats && Leaderboard)
     {
         var ranking = Ranking.ToList();
-        var leader = Math.Max(1, ranking.Select(PeriodSeconds).DefaultIfEmpty(0).Max());
+        var musicLeader = Math.Max(1, ranking.Select(PeriodSeconds).DefaultIfEmpty(0).Max());
+        var watchLeader = Math.Max(1, ranking.Select(PeriodWatch).DefaultIfEmpty(0).Max());
         var total = SelectedTotal;
         var days = Days;
         var peak = Math.Max(1, days.Select(d => d.Seconds).DefaultIfEmpty(0).Max());
-        var present = stats.Profiles.Where(p => p.Listening || p.Online).OrderByDescending(p => p.Listening).ThenBy(p => p.Name).ToList();
         @if (ranking.Count == 0)
         {
-            <Notice Level="empty" Message="No listening time recorded for this period. Play a song with listening history enabled to appear here." />
+            @* Ranking places and the chart wait for recorded time. Who is online shows in its own panel. *@
+            <Notice Level="empty" Message="Nothing recorded for this period. Listen to music or watch a film with history turned on, and you appear here." />
         }
         else
         {
-        <section class="lb-podium stats-leaderboard" aria-label="@("Top listeners, " + PeriodLabel)">
-            @foreach (var place in new[] { 1, 0, 2 }.Where(i => i < ranking.Count))
-            {
-                var profile = ranking[place];
-                <div class="lb-place lb-place-@(place + 1)" data-profile-key="@profile.Id" @key="profile.Id">
-                    <div class="lb-avatar">
-                        @if (place == 0) { <span class="lb-crown"><MusicIcon Name="crown" /></span> }
-                        <ProfileAvatar Profile="ProfileFor(profile)" Size="@(place == 0 ? 84 : 64)" ShowCrown="false" />
-                        @if (profile.Listening) { <span class="lb-live" title="Listening now"><span class="sr">Listening now</span></span> }
-                    </div>
-                    <strong>@profile.Name</strong>
-                    <span class="lb-time">@Duration(PeriodSeconds(profile))</span>
-                    <span class="lb-saved">@Huf(profile.SavedHuf) Ft saved</span>
-                    <div class="lb-step"><span>@(place + 1)</span></div>
-                </div>
-            }
-        </section>
-        }
-        @if (ranking.Count > 3)
-        {
-            <ol class="lb-list stats-leaderboard" start="4" aria-label="Other listeners">
-                @for (var i = 3; i < ranking.Count; i++)
+        <div class="lb-board stats-leaderboard">
+            <ol class="lb-top" aria-label="@("Top three, " + PeriodName)">
+                @for (var i = 0; i < Math.Min(3, ranking.Count); i++)
                 {
                     var profile = ranking[i];
-                    <li class="lb-row" data-profile-key="@profile.Id" @key="profile.Id">
+                    <li class="lb-card lb-card-@(i + 1)" data-profile-key="@profile.Id" @key="profile.Id">
                         <span class="lb-rank">@(i + 1)</span>
-                        <ProfileAvatar Profile="ProfileFor(profile)" Size="44" />
+                        <ProfileAvatar Profile="ProfileFor(profile)" Size="56" ShowCrown="false" />
                         <div class="lb-who">
                             <strong>@profile.Name</strong>
-                            <small class="lb-status @(profile.Listening ? "is-listening" : profile.Online ? "is-online" : "")"><i aria-hidden="true"></i>@if (profile.Listening && profile.CurrentTrack is { } song) { <span class="sr">Listening now: </span><span>@song.Title</span> } else { <span>@(profile.Listening ? "Listening now" : profile.Online ? "Online" : "Offline")</span> }</small>
+                            <span class="lb-time">@Duration(PeriodSeconds(profile) + PeriodWatch(profile)) <small>in total</small></span>
                         </div>
-                        <div class="lb-figures"><strong>@Duration(PeriodSeconds(profile))</strong><small>@Huf(profile.SavedHuf) Ft saved</small></div>
-                        <span class="lb-bar" aria-hidden="true"><i style="width:@((100 * PeriodSeconds(profile) / leader).ToString("0.#", Inv))%"></i></span>
-                        <ListenerMenu Profile="profile" />
+                        @Measures(profile, musicLeader, watchLeader)
                     </li>
                 }
             </ol>
-        }
-        <section class="lb-now glass-panel" aria-labelledby="lb-now-title">
-            <h2 id="lb-now-title">Who's here</h2>
-            @foreach (var profile in present)
+            @if (ranking.Count > 3)
             {
-                <div class="lb-live-row" @key="profile.Id"><ProfileAvatar Profile="ProfileFor(profile)" Size="36" /><div><strong>@profile.Name</strong><small>@(profile.Listening ? profile.CurrentTrack is { } song ? song.Title + ", " + song.Channel : "Listening now" : "Online")</small></div>@if (profile.Listening) { <span class="listener-equalizer is-playing" aria-hidden="true">@for (var bar = 0; bar < 5; bar++) { <i style="--bar:@bar"></i> }</span> }<ListenerMenu Profile="profile" /></div>
+                <ol class="lb-list" start="4" aria-label="@("Everyone else, " + PeriodName)">
+                    @for (var i = 3; i < ranking.Count; i++)
+                    {
+                        var profile = ranking[i];
+                        <li class="lb-row" data-profile-key="@profile.Id" @key="profile.Id">
+                            <span class="lb-rank">@(i + 1)</span>
+                            <ProfileAvatar Profile="ProfileFor(profile)" Size="40" ShowCrown="false" />
+                            <div class="lb-who">
+                                <strong>@profile.Name</strong>
+                                <span class="lb-time">@Duration(PeriodSeconds(profile) + PeriodWatch(profile)) <small>in total</small></span>
+                            </div>
+                            @Measures(profile, musicLeader, watchLeader)
+                        </li>
+                    }
+                </ol>
             }
-            @if (present.Count == 0) { <Notice Level="empty" Message="Nobody is online right now." /> }
-        </section>
+        </div>
+        }
+        @if (total > 0)
+        {
         <section class="stats-listening glass-panel" aria-labelledby="stats-listening-title">
             <div class="stats-section-heading"><h2 id="stats-listening-title">Family listening time</h2><span>@PeriodLabel</span></div>
-            @if (total > 0) { <strong class="stats-time">@Duration(total)</strong> }
-            else { <Notice Level="empty" Message="The chart fills in after family members listen to music." /> }
-            @if (total > 0 && days.Count > 0)
+            <strong class="stats-time">@Duration(total)</strong>
+            @if (days.Count > 0)
             {
                 <p class="stats-latest">Latest: @ExactDay(days[^1].Day), <strong>@ExactDuration(days[^1].Seconds)</strong></p>
                 <div class="stats-chart-frame">
@@ -115,6 +108,7 @@
                 <table class="sr"><caption>Daily listening, @PeriodLabel</caption><thead><tr><th scope="col">Date</th><th scope="col">Time listened</th></tr></thead><tbody>@foreach (var day in days) { <tr><th scope="row">@ExactDay(day.Day)</th><td>@ExactDuration(day.Seconds)</td></tr> }</tbody></table>
             }
         </section>
+        }
         @if (stats.WrappedYear is { } year)
         {
             var members = stats.Profiles;
@@ -426,6 +420,20 @@
     private ServerStatistics? data;
     private string period = "month";
     private string PeriodLabel => period == "week" ? "7 days" : period == "all" ? "All time" : "This month";
+    private string PeriodName => period == "week" ? "weekly" : period == "all" ? "all time" : "monthly";
+    private double PeriodWatch(ListenerStatistics profile) => period == "all" ? profile.WatchSeconds : period == "month" ? profile.MonthWatchSeconds : profile.WeekWatchSeconds;
+    // Music and watch time each get a label, a value and a bar scaled to the family's leader for that measure.
+    private RenderFragment Measures(ListenerStatistics profile, double musicLeader, double watchLeader) => @<div class="lb-measures">
+        <div class="lb-measure">
+            <span class="lb-measure-label">Music</span><strong class="lb-measure-value">@Measure(PeriodSeconds(profile))</strong>
+            <span class="lb-bar" aria-hidden="true"><i style="width:@((100 * PeriodSeconds(profile) / musicLeader).ToString("0.#", Inv))%"></i></span>
+        </div>
+        <div class="lb-measure is-watch">
+            <span class="lb-measure-label">Watching</span><strong class="lb-measure-value">@Measure(PeriodWatch(profile))</strong>
+            <span class="lb-bar" aria-hidden="true"><i style="width:@((100 * PeriodWatch(profile) / watchLeader).ToString("0.#", Inv))%"></i></span>
+        </div>
+    </div>;
+    private static string Measure(double seconds) => seconds < 1 ? "0 min" : Duration(seconds);
     private string StartDay => period == "week" ? DateTime.UtcNow.Date.AddDays(-6).ToString("yyyy-MM-dd",Inv) : DateTime.UtcNow.ToString("yyyy-MM-01",Inv);
     private IReadOnlyList<DailyListening> Days => (data?.Daily ?? []).Where(d => period == "all" || string.CompareOrdinal(d.Day,StartDay) >= 0).ToArray();
     private double SelectedTotal => period == "week" ? Days.Sum(d => d.Seconds) : data?.Profiles.Sum(PeriodSeconds) ?? 0;
@@ -445,13 +453,16 @@
     }
 
     [Parameter] public bool Leaderboard { get; set; }
+    [Parameter] public bool Embedded { get; set; }
     private async Task SetPeriod(string value) { if (period == value) return; await JS.InvokeVoidAsync("familyhub.captureLeaderboard"); period = value; }
     private static string X(int i,int count) => (count <= 1 ? 280d : i * 560d / (count - 1)).ToString("0.##",Inv);
     private static string Y(double seconds,double peak) => (144 - 128 * seconds / peak).ToString("0.##",Inv);
     private static string ChartX(int i, int count) => (count <= 1 ? 50d : i * 100d / (count - 1)).ToString("0.###", Inv);
     private static string ChartY(double seconds, double peak) => ((144 - 128 * seconds / peak) * 100 / 156).ToString("0.###", Inv);
     private static string Points(IReadOnlyList<DailyListening> days,double peak) => string.Join(" ",days.Select((d,i) => X(i,days.Count) + "," + Y(d.Seconds,peak)));
-    private IEnumerable<ListenerStatistics> Ranking => (data?.Profiles ?? []).Where(profile => PeriodSeconds(profile) > 0).OrderByDescending(PeriodSeconds).ThenBy(p => p.Name);
+    // Ranked by music and watch time together.
+    private IEnumerable<ListenerStatistics> Ranking => (data?.Profiles ?? []).Where(profile => PeriodSeconds(profile) + PeriodWatch(profile) > 0)
+        .OrderByDescending(profile => PeriodSeconds(profile) + PeriodWatch(profile)).ThenBy(p => p.Name);
     private ListenerProfile ProfileFor(ListenerStatistics row) => Session.Profiles.FirstOrDefault(p => p.Id == row.Id) ?? new() { Id = row.Id, Name = row.Name };
     private ListenerProfile RecordProfile(ListeningRecord row) => Session.Profiles.FirstOrDefault(p => p.Id == row.Owner) ?? new() { Id = row.Owner, Name = row.User };
     private static string DayLabel(string day) => DateTime.TryParse(day, out var date) ? date.ToString("d MMM", Inv) : day;

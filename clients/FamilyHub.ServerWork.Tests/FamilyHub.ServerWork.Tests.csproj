@@ -27,4 +27,5 @@
 <RazorComponent Include="../../clients/FamilyHub.App/Components/SongRow.razor" Link="Components/SongRow.razor" />
 <RazorComponent Include="../../clients/FamilyHub.App/Components/SongMenuActions.razor" Link="Components/SongMenuActions.razor" />
 <RazorComponent Include="../../clients/FamilyHub.App/Components/TrimRequest.razor" Link="Components/TrimRequest.razor" />
+<RazorComponent Include="../../clients/FamilyHub.App/Components/OnlineNow.razor" Link="Components/OnlineNow.razor" />
 </ItemGroup></Project>

@@ -182,11 +182,18 @@ async function audit(name, engine, options) {
         return surface;
     };
     const nav = async label => {
-        if (phone && ['Server work', 'Server', 'Leaderboard'].includes(label)) await open(target('profile-toggle'), 'profile-menu');
+        if (phone && label === 'Server work') await open(target('profile-toggle'), 'profile-menu');
         await select(page.getByRole('button', {name: label, exact: true}).first());
         await heading(label).waitFor();
         await page.waitForFunction(view => document.body.dataset.view === view,
-            ['Server work', 'Server'].includes(label) ? 'stats' : label.toLowerCase());
+            label === 'Server work' ? 'stats' : label.toLowerCase());
+    };
+    // The Server page is the admin-only Server section of Settings; the leaderboard is on Home.
+    const openServerSettings = async () => {
+        await open(target('profile-toggle'), 'profile-menu');
+        await select(target('open-settings'));
+        await heading('Settings').waitFor();
+        await select(target('settings-server'));
     };
     const capture = async (state, surface, menu = false) => {
         const scene = surface || page.locator('main#content');
@@ -196,8 +203,9 @@ async function audit(name, engine, options) {
         const metrics = surface ? await geometry(surface) : await scene.evaluate((node, state) => {
             const root = document.documentElement, box = node.getBoundingClientRect();
             const starts = {
-                'server-work': ['#view-title', '.server-work-page'],
-                leaderboard: ['#view-title', '.leaderboard-page'],
+                // In Settings the title belongs to the Settings window; the section lines up with the Settings content edge.
+                'server-work': document.querySelector('.settings-page .server-work-page') ? ['.settings-page .server-work-page', '.settings-page .server-work-page > :first-child'] : ['#view-title', '.server-work-page'],
+                leaderboard: [document.querySelector('.home-activity') ? '.home-activity' : '#view-title', '.leaderboard-page'],
                 'artist-mappings': ['.artist-mappings > .music-admin-heading > p', '#artist-mapping-results']
             }[state];
             return {viewport: [innerWidth, innerHeight], content: [box.x, box.y, box.width, box.height],
@@ -519,7 +527,7 @@ async function audit(name, engine, options) {
         await target('play-album').waitFor();
         await capture('album');
 
-        await nav(before ? 'Server work' : 'Server');
+        if (before) await nav('Server work'); else await openServerSettings();
         await page.locator('.server-page[aria-busy=false]').waitFor();
         if (!before) await target('catalogue-filter-metadata').waitFor();
         await capture('server-work');
@@ -578,7 +586,7 @@ async function audit(name, engine, options) {
         await capture('review-recording', target('transfer-review-dialog'));
         await closeByEscape(target('transfer-review-dialog'));
 
-        await nav('Leaderboard');
+        if (before) await nav('Leaderboard'); else await select(target('open-home'));
         await page.locator('.leaderboard-page[aria-busy=false]').waitFor();
         await capture('leaderboard');
         await target('lb-wrapped-title').evaluate(node => {
@@ -620,6 +628,8 @@ async function audit(name, engine, options) {
             await page.keyboard.press('Escape');
             await menu.waitFor({state:'hidden'});
             await picker.press('Enter');
+            // Reopened right after Escape: let the menu settle before pointing at a row.
+            await page.waitForTimeout(400);
             await menu.getByRole('button',{name:'Alex'}).click();
             await menu.waitFor({state:'hidden'});
             const help = target('lb-wrapped-help');

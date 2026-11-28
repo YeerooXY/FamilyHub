@@ -141,12 +141,15 @@ The authenticated POST to `/api/playback/diagnostics` accepts the `client_exit` 
 
 The existing `POST /api/movies/library` route forwards the exact `UserItems/{itemId}/HideFromResume` action with the grant's Jellyfin viewer and `hide=true`. Continue watching dismissals are stored under the issuing FamilyHub profile. Next Up writes stay local and match a series and its current episode. The route inventory is unchanged.
 
+`GET /api/activity/online` needs a FamilyHub session like the other family routes. It returns each online profile's name, its activity kind and, unless that profile paused its listening history, a song, film or episode title with artwork. Film posters are public Jellyfin image addresses built from an item id and image tag. The existing `POST /api/movies/library` route now also reads the `Sessions/Playing` reports it already forwards: after Jellyfin accepts one, the grant's profile gets its watch time and on-screen title updated from the validated item id, position and paused flag. A report that fails validation, a failed item lookup and a failed save are logged with their cause and never fail the player. Profiles with paused history record no watch time. The route inventory gains only the online route.
+
 The following rules are registered with family mode enabled. Feature flags and profile mappings can make individual routes unavailable.
 
 ```text
 GET /
 GET /admin
 GET /admin/<name>
+GET /api/activity/online
 GET /api/activity/stats
 GET /api/admin/discovery
 POST /api/admin/discovery

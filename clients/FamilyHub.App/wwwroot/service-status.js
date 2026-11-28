@@ -1,6 +1,11 @@
 const retries = new WeakMap();
 
-export function configureServiceStatus(card, active, automatic) {
+export function configureServiceStatus(card, active, automatic, handoff) {
+    // A failure that appears while focus is on the control that caused it hands focus to Retry.
+    if (active && handoff) {
+        const origin = document.querySelector(handoff), action = card.querySelector(".service-status-retry");
+        if (origin && action && document.activeElement === origin) action.focus({ preventScroll: true });
+    }
     const previous = retries.get(card);
     if (!active || !automatic) {
         if (previous) clearTimeout(previous.timer);
