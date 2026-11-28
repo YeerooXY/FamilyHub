@@ -2750,7 +2750,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const resume = !start && (continuing || hasResumePosition(item));
             // The hero and the title page's "Continue from …" button already say where playback resumes: no second question.
             direct = (hero || titlePage) && resume;
-            const text = resume ? titlePage ? t("Continue") : t("Resume") : t("Play");
+            // One line, like the big streaming apps: "Resume" or "Resume S1 E3". The bar and the time left sit below the
+            // button; the clock position is only spoken.
+            const text = resume ? t("Resume") : t("Play");
             if (words.data !== text) words.data = text;
             where.hidden = !titlePage || !resume;
             if (where.hidden) {
@@ -2762,8 +2764,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const ticks = item.UserData?.PlaybackPositionTicks ||
                 (item.RunTimeTicks ?? 0) * (item.UserData?.PlayedPercentage ?? 0) / 100;
             const location = [episode, ticks > 0 && t("from {0}", clock(ticks / 1e7))].filter(Boolean).join(" ");
-            if (where.textContent !== location) where.textContent = location;
-            where.hidden = !location;
+            if (where.textContent !== episode) where.textContent = episode;
+            where.hidden = !episode;
             action.setAttribute("aria-label", location ? `${text} ${location}` : text);
         };
         action.setMovie(item);

@@ -129,13 +129,13 @@ const episode = (series, SeriesName, IndexNumber, day, percent) => ({
         await night.press("Enter");
         await info.press("Enter");
         const series = page.getByRole("region", {name: "Night Signal", exact: true});
-        await series.getByRole("button", {name: "Continue S1 E3 from 20:00", exact: true}).waitFor();
+        await series.getByRole("button", {name: "Resume S1 E3 from 20:00", exact: true}).waitFor();
         await series.getByRole("button", {name: "Back to titles"}).press("Enter");
         assert.equal(await focused(night), true);
         await details.press("Enter");
         await info.press("Enter");
         const film = page.getByRole("region", {name: "First Orbit"});
-        await film.getByRole("button", {name: "Continue from 1:12:34", exact: true}).waitFor();
+        await film.getByRole("button", {name: "Resume from 1:12:34", exact: true}).waitFor();
         const removeFromFilm = film.getByRole("button", {name: "Remove from Continue watching"});
         assert.equal(await removeFromFilm.getAttribute("title"), null);
         await removeFromFilm.press("Enter");

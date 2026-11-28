@@ -1,6 +1,6 @@
 .movie-library { --movie-target: 44px; --movie-edge: #0b0d12; }
 .movie-library section { margin-block: 1rem 2rem; }
-.movie-library .movie-shelf { margin-block: 0 1rem; min-width: 0; }
+.movie-library .movie-shelf { margin-block: 0 .5rem; min-width: 0; }
 .movie-library .movie-shelf > h2 { margin: 0; font-size: clamp(1.05rem, 1.4vw, 1.4rem); }
 
 /* Search results wrap within the catalogue. */
@@ -418,10 +418,11 @@ body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--ca
 .movie-library .movie-source-action {
     display: inline-flex;
     align-items: center;
+    gap: .5rem;
     min-height: 44px;
-    padding: .5rem .85rem;
+    padding: .5rem 1rem .5rem 1.05rem;
     border: 0;
-    border-radius: .5rem;
+    border-radius: .65rem;
     background: #f3f4f8;
     color: #17191f;
     font: inherit;
@@ -862,8 +863,9 @@ body[data-effects="off"] .movie-library .movie-hero-pager :is(button, .movie-her
     align-items: flex-start;
     box-sizing: content-box;
     gap: var(--movie-gap);
-    /* A 2:3 poster grows by 6% of its height on each side. */
-    padding-block: calc(.09 * var(--movie-card-width) + .75rem);
+    /* Room for the hover growth only: a poster's 12% scale adds 6% of its 2:3 height (9% of its width) on each side,
+       plus a little for the caption and focus glow. More than that spreads the rows apart. */
+    padding-block: calc(.09 * var(--movie-card-width) + .35rem);
     padding-inline-start: var(--movie-peek-edge);
     padding-inline-end: calc(var(--movie-peek-edge) + var(--empty-slots, 0) * (var(--movie-gap) + var(--movie-card-width)));
 }
@@ -989,6 +991,10 @@ body[data-effects="off"] .movie-library .movie-shelf-scroll .movie-resume-card {
 .movie-card-new { inset-inline: .35rem auto; padding-inline: .45rem; font-weight: 700; font-size: .75rem; background: #b88af7; color: #180d28; }
 .movie-shelf-scroll .movie-caption { padding: .3rem .6rem .35rem; }
 .movie-shelf-scroll .movie-card-name { min-height: 0; }
+/* Continue watching cards are the same height whether or not they show an episode line: one title line, one detail line. */
+.movie-shelf-scroll .movie-resume-card .movie-caption { display: flex; flex-direction: column; justify-content: center; min-height: calc(2.6em + .65rem); box-sizing: border-box; }
+.movie-shelf-scroll .movie-resume-card .movie-card-name { -webkit-line-clamp: 1; }
+.movie-shelf-scroll .movie-resume-card .movie-caption small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; opacity: .75; }
 .movie-library button.movie-shelf-arrow {
     --movie-arrow-drift: -6px;
     position: absolute;
@@ -1188,11 +1194,8 @@ body.native-titlebar { --movie-header-icon-left: calc(32px + var(--window-contro
     border: 0; background: #ffffff20; color: #fff;
 }
 .movie-library .movie-title-actions .movie-continue-remove[hidden] { display: none; }
-.movie-library .movie-title-actions .movie-hero-play:has(.movie-continue-position:not([hidden])) {
-    height: auto;
-    padding-block: .4rem;
-}
-.movie-continue-position:not([hidden]) { display: block; font-weight: 500; }
+/* "Resume S1 E3" stays on one line: the episode follows the verb in the same weight family, a little lighter. */
+.movie-continue-position:not([hidden]) { display: inline; margin-inline-start: .35em; font-size: inherit; font-weight: 600; opacity: .8; }
 .movie-library button:is(
     .movie-title-back, .movie-shelf-arrow, .movie-season-arrow, .movie-hero-details, .movie-hero-favorite,
     .movie-continue-menu-button, .movie-continue-remove, .movie-title-retry

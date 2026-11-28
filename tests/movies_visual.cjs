@@ -268,7 +268,7 @@ async function render(browser, label, options) {
     await page.locator(".movie-hero-play").waitFor();
     await page.locator(".movie-card").first().waitFor();
     assert.equal(await page.locator("body").evaluate(node => node.scrollWidth <= innerWidth), true, label + " overflows horizontally");
-    assert.equal(await page.locator(".movie-hero-play").innerText(), "Continue\nfrom 40:00");
+    assert.equal(await page.locator(".movie-hero-play").innerText(), "Resume");
     assert.ok(await page.locator(".movie-progress").count() >= 2, label + " shows progress");
     const shelves = page.locator(".movie-shelf:not([hidden])");
     const movieShelf = shelves.filter({has:page.getByRole("heading", {name:"Movies", exact:true})});
@@ -409,7 +409,7 @@ async function render(browser, label, options) {
     const film = moviesCards.filter({hasText:"The Long Way Home"});
     await film.click();
     const details = page.getByRole("region", {name:"The Long Way Home", exact:true});
-    const resume = details.getByRole("button", {name:"Continue from 40:00", exact:true});
+    const resume = details.getByRole("button", {name: "Resume from 40:00", exact:true});
     await resume.waitFor();
     assert.equal(await details.getByRole("button", {name:"Add audio track for The Long Way Home"}).count(), 0);
     await details.getByRole("button", {name:"Delete source file"}).waitFor();
@@ -523,7 +523,7 @@ async function render(browser, label, options) {
     (await seriesView.locator(".movie-episode-still").first().evaluate(geometry)).forEach((size, axis) =>
         assert.ok(Math.abs(size - stillSize[axis]) <= .5, label + " loading and loaded episode stills differ"));
     await page.waitForFunction(img => img.naturalWidth > 0, await image.elementHandle());
-    const continueEpisode = seriesView.getByRole("button", {name:"Continue S1 E2 from 14:48", exact:true});
+    const continueEpisode = seriesView.getByRole("button", {name: "Resume S1 E2 from 14:48", exact:true});
     await continueEpisode.waitFor();
     await seriesView.getByRole("list", {name:"Cast", exact:true}).waitFor();
     const seriesPoster = seriesView.locator(".movie-title-intro .movie-art img");

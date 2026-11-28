@@ -95,8 +95,8 @@ async function check(browser, profile, options) {
     // A film: no series buttons.
     await filmCard.click();
     const filmDetails = page.getByRole("region", {name:"Harbour Lights", exact:true});
-    const filmPlay = filmDetails.getByRole("button", {name:"Continue from 10:00", exact:true});
-    // "Continue from 10:00" already names the position, so it resumes without asking again.
+    const filmPlay = filmDetails.getByRole("button", {name: "Resume from 10:00", exact:true});
+    // "Resume from 10:00" already names the position, so it resumes without asking again.
     const prompt = page.getByRole("dialog", {name: "Welcome back"});
     await filmPlay.click();
     await back.waitFor();

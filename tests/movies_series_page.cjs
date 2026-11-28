@@ -54,7 +54,7 @@ async function check(browser, profile, options) {
 
         const favorite = series.getByRole("button", {name: "My list: Night Signal"});
         await page.keyboard.press("Tab");
-        const continueEpisode = series.getByRole("button", {name: "Continue S1 E1 from 13:48", exact: true});
+        const continueEpisode = series.getByRole("button", {name: "Resume S1 E1 from 13:48", exact: true});
         assert.equal(await focused(continueEpisode), true);
         await page.keyboard.press("Tab");
         assert.equal(await focused(favorite), true);
@@ -241,7 +241,7 @@ async function check(browser, profile, options) {
         const noCast = page.getByRole("region", {name: "Quiet Port"});
         await noCast.getByRole("button", {name: "Season 1", exact: true}).waitFor();
         assert.equal(await noCast.getByRole("heading", {name: "Cast"}).count(), 0);
-        assert.equal(await noCast.getByRole("button", {name: "Continue S1 E1 from 13:48", exact: true}).isVisible(), true);
+        assert.equal(await noCast.getByRole("button", {name: "Resume S1 E1 from 13:48", exact: true}).isVisible(), true);
         assert.equal(await page.evaluate(() => document.activeElement !== document.body), true);
         await noCast.getByRole("button", {name: "Back to titles", exact: true}).press("Enter");
         assert.equal(await focused(quietPort), true);
