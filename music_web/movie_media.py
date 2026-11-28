@@ -8,8 +8,10 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
+from statistics import median
 from threading import Lock
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from flask import Response, abort, g, jsonify, request, session
 
@@ -22,6 +24,8 @@ MEDIA_PATH = re.compile(
     rf'videos/{ITEM}/(?:stream(?:\.[a-z0-9]{{2,5}})?|[a-z0-9_-]+\.m3u8|'
     rf'(?:[a-z0-9_-]+/)*[a-z0-9_-]+\.(?:mp4|m4s|ts|aac)|{ITEM}/subtitles/[0-9]{{1,4}}/stream\.vtt)', re.I)
 TICKET = re.compile(r'[A-Za-z0-9_-]{43}')
+USAGE_ID = re.compile(r'[0-9a-f]{32}')
+USAGE_QUERY = 'fhUsage'
 QUERY_SECRET = re.compile(r'^(?:api[_-]?key|token|access[_-]?token|x-emby-token|x-mediabrowser-token)$', re.I)
 URI_ATTRIBUTE = re.compile(r'\bURI="([^"\r\n]+)"')
 WEBVIEW_ORIGINS = {'https://0.0.0.1', 'http://0.0.0.1', 'app://0.0.0.1', 'https://app.localhost', 'null'}
@@ -37,6 +41,44 @@ MAX_PLAYLIST_BYTES = 8 << 20
 log = logging.getLogger(__name__)
 
 
+def hourly_gb(bitrate):
+    return int(bitrate * 36 / 8_000_000 + .5) / 10
+
+
+def film_bitrate_estimate(items):
+    bitrates = []
+    for item in items:
+        sources = item.get('MediaSources') or []
+        bitrate = sources[0].get('Bitrate') if sources else None
+        if type(bitrate) is int and 0 < bitrate <= 2**31 - 1:
+            bitrates.append(bitrate)
+    return hourly_gb(median(bitrates)) if bitrates else None
+
+
+@dataclass
+class MediaUsage:
+    streams: dict = field(default_factory=dict)
+    connection: str = 'unknown'
+    month: str = ''
+    cellular_bytes: int = 0
+
+    def roll_month(self):
+        month = datetime.now(timezone.utc).strftime('%Y-%m')
+        if self.month != month:
+            self.month, self.cellular_bytes = month, 0
+
+    def snapshot(self, stream_id=None):
+        self.roll_month()
+        return dict(bytes=self.streams.get(stream_id, 0), month=self.month, cellularBytes=self.cellular_bytes)
+
+    def add(self, stream_id, size):
+        if stream_id in self.streams:
+            self.streams[stream_id] += size
+            if self.connection == 'cellular':
+                self.roll_month()
+                self.cellular_bytes += size
+
+
 @dataclass(frozen=True)
 class Grant:
     expires: float
@@ -45,6 +87,7 @@ class Grant:
     device: str
     viewer: str
     authorization: str
+    usage: MediaUsage = field(default_factory=MediaUsage)
 
 
 def clean_query(query):
@@ -56,7 +99,7 @@ def strip_base_path(path, base_path):
     return path[len(base_path):] if base_path and path.startswith(base_path + '/') else path
 
 
-def playlist_urls(text, resource, ticket, base_path=''):
+def playlist_urls(text, resource, ticket, base_path='', usage_id=None):
     def rewrite(value):
         parsed = urllib.parse.urlsplit(value)
         if parsed.scheme or parsed.netloc or parsed.fragment:
@@ -65,6 +108,8 @@ def playlist_urls(text, resource, ticket, base_path=''):
         if not MEDIA_PATH.fullmatch(path) or path.split('/')[1].lower() != resource.split('/')[1].lower():
             raise ValueError('Unexpected media path')
         query = clean_query(parsed.query)
+        if usage_id:
+            query = '&'.join(filter(None, (query, f'{USAGE_QUERY}={usage_id}')))
         return f'/api/movies/media/{ticket}/{path}' + (f'?{query}' if query else '')
 
     def line(value):
@@ -189,6 +234,20 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
         if not grant or grant.profile != g.user or grant.sid != session.get('sid'):
             abort(404)
         resource, query, payload = (data.get(key) for key in ('path', 'query', 'payload'))
+        if resource == 'MediaUsage':
+            stream_id = payload.get('stream') if isinstance(payload, dict) else None
+            if (not isinstance(stream_id, str) or not USAGE_ID.fullmatch(stream_id)
+                    or set(payload) != {'stream'} or query not in ('wifi', 'cellular', 'unknown')):
+                abort(400)
+            if not allow('movie-usage:' + g.user, 120, 60):
+                abort(429)
+            with lock:
+                usage = grant.usage
+                usage.connection = query
+                usage.streams.setdefault(stream_id, 0)
+                while len(usage.streams) > 8:
+                    del usage.streams[next(iter(usage.streams))]
+                return jsonify(result=usage.snapshot(stream_id))
         rule = LIBRARY_READ if payload is None else LIBRARY_WRITE
         favorite = FAVORITE.fullmatch(resource) if isinstance(resource, str) else None
         hide_resume = HIDE_RESUME.fullmatch(resource) if isinstance(resource, str) else None
@@ -248,6 +307,10 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
                 return jsonify(result=None)
             params = [('userId', grant.viewer) if key.casefold() == 'userid' else (key, val)
                       for key, val in urllib.parse.parse_qsl(query, max_num_fields=100) if not QUERY_SECRET.fullmatch(key)]
+            usage_id = None
+            if payload is not None and resource.startswith('Sessions/Playing'):
+                usage_id = next((val for key, val in params if key == USAGE_QUERY and USAGE_ID.fullmatch(val)), None)
+                params = [(key, val) for key, val in params if key != USAGE_QUERY]
             if payload is None and resource.startswith('Shows/'):
                 # RunTimeTicks is returned by default and is not a valid Jellyfin ItemFields value.
                 params = [(key, ','.join(field for field in val.split(',') if field.strip().casefold() != 'runtimeticks')
@@ -319,6 +382,9 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
                             language = track.get('Language')
                             if isinstance(language, str) and any(language.lower() in codes for codes in LANGUAGES.values()):
                                 track['FamilyHubSubtitleTiming'] = {'method': 'release', 'state': 'idle'}
+            if usage_id:
+                with lock:
+                    return jsonify(result=grant.usage.snapshot(usage_id))
             return jsonify(result=library_json(result, base_path))
         except (OSError, ValueError, RecursionError) as error:
             if metadata:
@@ -329,17 +395,19 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
     def movie_media_close():
         ticket = body().get('ticket')
         grant = live_grant(ticket)
+        usage = None
         if grant and grant.profile == g.user and grant.sid == session.get('sid'):
             with lock:
                 if grants.pop(ticket, None) is None:
                     return jsonify(closed=True)
+                usage = grant.usage.snapshot()
             try:
                 logout = urllib.request.Request(base + '/Sessions/Logout', b'', {'Authorization': grant.authorization})
                 with urllib.request.build_opener(NoRedirect).open(logout, timeout=3):
                     pass
             except (OSError, ValueError):
                 pass
-        return jsonify(closed=True)
+        return jsonify(closed=True, usage=usage)
 
     @app.route('/api/movies/media/<ticket>/<path:resource>', methods=['GET', 'HEAD', 'OPTIONS'])
     def movie_media(ticket, resource):
@@ -361,6 +429,9 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
             upstream_headers['Range'] = request.headers['Range']
         try:
             query = clean_query(request.query_string.decode('ascii'))
+            params = urllib.parse.parse_qsl(query, max_num_fields=100)
+            usage_id = next((value for key, value in params if key == USAGE_QUERY and USAGE_ID.fullmatch(value)), None)
+            query = urllib.parse.urlencode([(key, value) for key, value in params if key != USAGE_QUERY])
             req = urllib.request.Request(base + '/' + resource + ('?' + query if query else ''),
                                          headers=upstream_headers, method=request.method)
             upstream = urllib.request.build_opener(NoRedirect).open(req, timeout=15)
@@ -371,6 +442,12 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
             return '', 502, cors
         response_headers = {**cors, **{name: upstream.headers[name] for name in ('Accept-Ranges', 'Content-Range', 'Content-Length')
                                       if name in upstream.headers}}
+
+        def count(size):
+            if usage_id:
+                with lock:
+                    grant.usage.add(usage_id, size)
+
         if resource.lower().endswith('.m3u8'):
             with upstream:
                 response_headers.pop('Content-Length', None)
@@ -380,9 +457,11 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
                     raw = upstream.read(MAX_PLAYLIST_BYTES + 1)
                     if len(raw) > MAX_PLAYLIST_BYTES or not raw.startswith(b'#EXTM3U'):
                         raise ValueError('Invalid media playlist')
-                    content = playlist_urls(raw.decode('utf-8'), resource, ticket, base_path)
+                    content = playlist_urls(raw.decode('utf-8'), resource, ticket, base_path, usage_id)
                 except (OSError, ValueError):
                     return '', 502, cors
+                content = content.encode('utf-8')
+                count(len(content))
                 return Response(content, upstream.status, response_headers, mimetype='application/vnd.apple.mpegurl')
         content_type = upstream.headers.get_content_type()
         if not content_type.startswith(('audio/', 'video/')) and content_type not in ('text/vtt', 'application/octet-stream'):
@@ -394,6 +473,7 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
                 try:
                     while chunk := upstream.read(256 << 10):
                         yield chunk
+                        count(len(chunk))
                 except (OSError, http.client.HTTPException):
                     return
 

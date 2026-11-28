@@ -39,7 +39,7 @@ log = logging.getLogger('music_web.movies')
 # Playback diagnostics use fixed labels and a restricted media-error vocabulary.
 REPORT_KINDS = {'playback-error', 'open-failed', 'progress-save-failed', 'cannot-resume', 'started', 'stopped',
                 'segments-unavailable', 'segment-seek-failed', 'next-episode-unavailable', 'resume-position-unavailable',
-                'parental-guide-unavailable'}
+                'parental-guide-unavailable', 'film-estimate-unavailable', 'media-usage-unavailable'}
 PROBLEMS = REPORT_KINDS - {'started', 'stopped'}
 REPORT_METHODS = {'', 'DirectPlay', 'DirectStream', 'Transcode'}
 HLS_ERROR_TYPES = {'networkError', 'mediaError', 'keySystemError', 'muxError', 'otherError'}
@@ -343,6 +343,46 @@ def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals, wa
     audio_items = audio_tracks.register(app, cfg, body, allow, download_access, audio_library)
     subtitle_provider = movie_subtitles.register(app, cfg, body, allow, audio_library)
     subtitle_imported = movie_import.start(cfg, service_url(qb.get('url')), base, subtitle_provider)
+
+    @app.get('/api/movies/estimate')
+    def movie_estimate():
+        """Hourly data for an Original-quality film: the library's median bitrate, read once a day with the server key."""
+        if not base or not public or g.user not in cfg.get('JELLYFIN_PROFILES', {}):
+            return jsonify(error='Movies are not set up for this profile.'), 404
+        key = cfg.get('JELLYFIN_API_KEY')
+        if not key:
+            return jsonify(originalEstimate=None)
+
+        def films():
+            opener = urllib.request.build_opener(NoRedirect)
+            start, deadline = 0, monotonic() + 6
+            while start < 10000:
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    raise TimeoutError()
+                query = urllib.parse.urlencode(dict(recursive='true', includeItemTypes='Movie', fields='MediaSources',
+                                                    sortBy='SortName', startIndex=start, limit=200,
+                                                    enableImages='false', enableUserData='false'))
+                lookup = urllib.request.Request(base + '/Items?' + query, headers={'Authorization': f'MediaBrowser Token="{key}"'})
+                with opener.open(lookup, timeout=remaining) as reply:
+                    raw = reply.read((8 << 20) + 1)
+                if len(raw) > 8 << 20:
+                    raise ValueError('Film bitrate response too large')
+                page = json.loads(raw)
+                rows = page['Items']
+                yield from rows
+                start += len(rows)
+                if start >= page['TotalRecordCount'] or not rows:
+                    return
+
+        def estimate():
+            try:
+                return movie_media.film_bitrate_estimate(films())
+            except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+                log.warning('film bitrate unavailable cause=%s', type(error).__name__)
+            return None
+
+        return jsonify(originalEstimate=cached_search(('film-bitrate',), 86400, estimate))
 
     @app.get('/api/movies/downloads')
     def movie_downloads():
@@ -1163,7 +1203,8 @@ def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals, wa
         else:
             reason = diagnostics.get('reason') if isinstance(diagnostics, dict) else None
             if reason in ('timeout', 'invalid_response', 'request_failed') and kind in {
-                    'segments-unavailable', 'next-episode-unavailable', 'resume-position-unavailable', 'parental-guide-unavailable'}:
+                    'segments-unavailable', 'next-episode-unavailable', 'resume-position-unavailable', 'parental-guide-unavailable',
+                    'film-estimate-unavailable', 'media-usage-unavailable'}:
                 report_log('movie client %s profile=%s method=%s reason=%s', kind, g.user, method or '-', reason)
             else:
                 report_log('movie client %s profile=%s method=%s', kind, g.user, method or '-')
@@ -1257,9 +1298,10 @@ def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals, wa
                     pass
                 log.warning('movie session refused: profile=%s is linked to an administrator or mismatched account', g.user)
                 return jsonify(error='Link a regular Jellyfin account to this profile.'), 403
+            authorization = auth + ', Token="' + token + '"'
             log.info('movie session opened: profile=%s device=%s', g.user, device[:8])
             connection = dict(url=public, user=user['Id'])
-            ticket = issue_media(g.user, session['sid'], device, user['Id'], auth + ', Token="' + token + '"')
+            ticket = issue_media(g.user, session['sid'], device, user['Id'], authorization)
             connection['media_url'] = cfg['PUBLIC_ORIGIN'].rstrip('/') + '/api/movies/media/' + ticket + '/'
             connection['media_ticket'] = ticket
             if request_user() is not None:

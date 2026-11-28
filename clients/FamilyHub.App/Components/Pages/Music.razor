@@ -411,7 +411,7 @@ else
             }
             else
             {
-                <MoviePreferences @key="AppearanceKey" />
+                <MoviePreferences @key="AppearanceKey" DataOnly="@(settingsSection == "data")" />
             }
             </div>
         </div>
@@ -861,6 +861,7 @@ else
         ("general", "Profile", "person"),
         ("music", "Music", "music"),
         ("movies", "Movies & TV", "film"),
+        ("data", "Data", "device"),
         ("accounts", "Accounts", "link"),
         ("wordle", "Wordle", "wordle"),
         ("appearance", "Appearance", "sparkle"),

@@ -225,6 +225,7 @@ POST /api/movies/audio-track
 POST /api/movies/audio-track/<job_id>/delete-source
 POST /api/movies/download
 GET /api/movies/downloads
+GET /api/movies/estimate
 POST /api/movies/find
 GET /api/movies/health
 POST /api/movies/library

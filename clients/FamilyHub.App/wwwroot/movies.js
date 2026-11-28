@@ -4,6 +4,8 @@ import { movieAudioSync } from "./movie-audio-sync.js";
 import { appendSoundChip, buildReleaseSearch, cleanResultTitle, displayTitle, formatMinutes, librarySound, ratingBadge, releaseKind, releaseSeasons, videoQualityTier } from "./movie-releases.js";
 import { createServiceStatus } from "./service-status.js";
 
+export { formatMovieBytes } from "./movie-player-ui.js";
+
 // AbortSignal.timeout needs Chromium 103; older televisions (webOS) need this form.
 function timeoutSignal(ms) {
     const controller = new AbortController();
@@ -177,6 +179,36 @@ const dataLimits = {
     good: { bitrate: 2500000, height: 720 },
     saver: { bitrate: 1000000, height: 480, audioBitrate: 96000 },
     lowest: { bitrate: 500000, height: 360, audioBitrate: 96000 }
+};
+
+export function movieQualityEstimates(original) {
+    const label = value => `About ${value.toFixed(1)} GB per hour`;
+    const estimates = Object.fromEntries(Object.entries(dataLimits).map(([choice, {bitrate}]) =>
+        [choice, label(Math.round(bitrate * 36 / 8_000_000) / 10)]));
+    estimates.auto = estimates.saver;
+    if (Number.isFinite(original) && original >= 0) estimates.full = label(original);
+    return estimates;
+}
+
+function videoRange(track) {
+    const range = track?.VideoRangeType || track?.VideoRange;
+    if (/^(HDR|HLG|DOVI|DolbyVision)/i.test(range ?? "") || /^HDR$/i.test(track?.VideoRange ?? "") ||
+        /^(smpte2084|arib-std-b67)$/i.test(track?.ColorTransfer ?? ""))
+        return "HDR";
+    if (/^SDR$/i.test(range ?? "") || /^SDR$/i.test(track?.VideoRange ?? "")) return "SDR";
+    return "";
+}
+
+const conversionReasons = {
+    VideoRangeTypeNotSupported: "HDR to SDR",
+    VideoCodecNotSupported: "Unsupported video codec",
+    AudioCodecNotSupported: "Unsupported audio codec",
+    SubtitleCodecNotSupported: "Unsupported subtitle format",
+    VideoResolutionNotSupported: "Screen resolution limit",
+    ContainerBitrateExceedsLimit: "Bitrate limit",
+    VideoBitrateNotSupported: "Bitrate limit",
+    AudioChannelsNotSupported: "Audio channel limit",
+    ContainerNotSupported: "Unsupported file format"
 };
 
 function normalizeMoviePreferences(prefs) {
@@ -376,12 +408,14 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     const preferenceViewer = viewer ?? [base.origin, session.user];
     const connection = navigator.connection;
     let connectionRevision = 0, autoHintShown = false;
-    async function qualityFor(choice) {
-        if (choice !== "auto") return choice;
+    async function currentConnection() {
         const native = await app.invokeMethodAsync("MovieConnectionKind").catch(() => null);
-        if (native === "cellular" || native === "wifi") return native === "cellular" ? "saver" : "full";
-        return connection?.type === "cellular" || connection?.saveData ? "saver" : "full";
+        if (native === "cellular" || native === "wifi") return {kind: native, saveData: native === "cellular"};
+        const type = connection?.type;
+        const kind = type === "cellular" ? "cellular" : type === "wifi" || type === "ethernet" ? "wifi" : "unknown";
+        return {kind, saveData: kind === "cellular" || connection?.saveData};
     }
+    const qualityFor = (choice, network) => choice === "auto" ? (network.saveData ? "saver" : "full") : choice;
     function connectionChanged() {
         connectionRevision++;
         return current?.refreshQuality();
@@ -526,7 +560,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const data = { ItemId: playback.item.Id, MediaSourceId: playback.source.Id,
             PlaySessionId: playback.id, PositionTicks: Math.round(media.currentTime * 1e7),
             IsPaused: media.paused, CanSeek: media.seekable.length > 0, PlayMethod: playback.method };
-        const pending = reports.then(() => request("Sessions/Playing" + action, {}, data, null))
+        const pending = reports.then(() => request("Sessions/Playing" + action, {fhUsage: playback.usageId}, data, null))
+            .then(playback.updateUsage)
             .catch(() => { if (active) { status.textContent = "Watch progress could not be saved."; note("progress-save-failed", playback.method); } })
             .finally(() => {
                 if (pendingReportsByItem.get(data.ItemId) === pending) pendingReportsByItem.delete(data.ItemId);
@@ -599,12 +634,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     }
     const subtitleAttempts = new Set();
     let playerLife = null;
-    let playerItem, playerOpener, resumeRequest, guideStarted = false;
+    let playerItem, playerOpener, resumeRequest, guideStarted = false, streamId, playerInfo;
     async function closePlayback(keepFocus = false, fromHistory = false) {
         if (!playerItem) return;
         resumeRequest?.abort();
         const opener = playerOpener;
-        playerItem = playerOpener = undefined;
+        playerItem = playerOpener = streamId = playerInfo = undefined;
         const closing = ++selection;
         await leavePlayer();
         if (!active || closing !== selection) return;
@@ -628,10 +663,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             report("/Stopped", current, video);
             send("stopped", current.method, current.item.Name, Math.floor(video.currentTime / 60));
         }
-        const hls = current?.hls;
+        const playback = current;
+        const hls = playback?.hls;
         current = null;
         hls?.destroy();
         if (video) { video.pause(); video.removeAttribute("src"); video.load(); video = null; }
+        if (playback) void playback.sampleUsage();
         playerLife?.abort();
         playerLife = null;
         player.replaceChildren();
@@ -700,7 +737,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             opened = true;
             clearPlaybackNotice();
             const previous = playerItem;
+            if (previous?.Id !== item.Id) playerInfo = undefined;
+            else if (current) playerInfo = current.playbackInfoState?.();
             if (!previous || item.Type === "Movie" && previous.Id !== item.Id) guideStarted = false;
+            if (previous?.Id !== item.Id || !streamId)
+                streamId = Array.from(crypto.getRandomValues(new Uint8Array(16)), part => part.toString(16).padStart(2, "0")).join("");
             playerItem = item;
             playerOpener = opener;
             if (!options.fromHistory && previous?.Id !== item.Id) publishNavigation(previous ? "replace" : "open");
@@ -742,7 +783,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             if (!nativeHls && !globalThis.Hls && (globalThis.MediaSource || globalThis.ManagedMediaSource))
                 await loadHls();
             const network = connectionRevision;
-            const quality = await qualityFor(prefs.dataSaver);
+            let playbackConnection = await currentConnection();
+            const quality = qualityFor(prefs.dataSaver, playbackConnection);
             if (!active || rev !== selection || requestSignal.aborted) return;
             const limit = dataLimits[quality];
             const configuredScreen = movieScreen(prefs.screen);
@@ -767,14 +809,17 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                         Conditions: [condition("AudioBitrate", limit.audioBitrate), condition("AudioChannels", 2)] });
                 }
             }
+            let toneMap = false;
             const playbackInfo = (sourceId, index, signal) => request("Items/" + item.Id + "/PlaybackInfo", {userId: session.user}, {
                 UserId: session.user, DeviceProfile: profile,
                 ...(sourceId ? {MediaSourceId: sourceId, SubtitleStreamIndex: burnedSubtitle ?? -1} : {}),
                 ...(index != null ? {AudioStreamIndex: index} : {}),
                 ...(limit ? { MaxStreamingBitrate: limit.bitrate } : {}),
-                ...(limit || forceTranscode ? { AllowVideoStreamCopy: false, AllowAudioStreamCopy: false } : {}),
+                ...(limit || forceTranscode || toneMap ? { AllowVideoStreamCopy: false } : {}),
+                ...(limit || forceTranscode ? { AllowAudioStreamCopy: false } : {}),
                 ...(limit?.audioBitrate ? { MaxAudioChannels: 2 } : {}),
-                EnableDirectPlay: !forceTranscode && !limit && index == null, EnableDirectStream: !forceTranscode && !limit,
+                EnableDirectPlay: !forceTranscode && !limit && !toneMap && index == null,
+                EnableDirectStream: !forceTranscode && !limit && !toneMap,
                 EnableTranscoding: true }, signal);
             const [resultInfo, freshItem] = await Promise.all([
                 withinMovieLoad(signal => playbackInfo(sourceId, forceTranscode ? audioIndex : undefined, signal), requestSignal),
@@ -786,6 +831,16 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 "The server did not provide a playable version.";
             let source = result?.MediaSources?.[0];
             if (!source) throw Error();
+            const inputVideo = source.MediaStreams?.find(track => track.Type === "Video" && !track.IsExternal);
+            const inputRange = videoRange(inputVideo);
+            toneMap = matchMedia("(dynamic-range: high)").matches === false && inputRange === "HDR";
+            if (toneMap) {
+                failure = "The server could not prepare an SDR stream.";
+                result = await withinMovieLoad(signal => playbackInfo(source.Id, forceTranscode ? audioIndex : undefined, signal), requestSignal);
+                if (!active || rev !== selection || requestSignal.aborted) return;
+                source = result?.MediaSources?.[0];
+                if (!source?.TranscodingUrl) throw Error();
+            }
             const runtime = source.RunTimeTicks || freshItem?.RunTimeTicks || item.RunTimeTicks;
             let resume = position ?? (isShortMovie(runtime) ? 0 : savedPosition(item, freshItem));
             if (attempt) {
@@ -823,7 +878,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const defaultSubtitle = source.DefaultSubtitleStreamIndex;
             const requestedAudio = audioIndex ?? preferredAudio?.Index ?? original?.Index ?? internalAudio[0]?.Index ?? audio[0]?.Index;
             selectedAudio = forceTranscode ? audioIndex ?? defaultAudio : defaultAudio;
-            let direct = !forceTranscode && !limit && source.SupportsDirectPlay;
+            const canDirect = !forceTranscode && !limit && !toneMap;
+            let direct = canDirect && source.SupportsDirectPlay;
             // A static stream leaves audio selection to the browser. Ask Jellyfin to select the track on multi-audio files.
             const customAudio = audio[0]?.IsExternal || audio.length > 1 &&
                 (audioLanguage !== "default" || audioIndex != null || requestedAudio !== defaultAudio || requestedAudio !== audio[0]?.Index ||
@@ -832,13 +888,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             const selectedTrack = audio.find(track => track.Index === (requestedAudio ?? defaultAudio));
             if (!forceTranscode && externalDts(selectedTrack))
                 return play(item, opener, {...options, audioIndex: selectedTrack.Index, sourceId: source.Id, forceTranscode: true, position: resume});
-            if ((!forceTranscode && customAudio != null) || (!sourceId && !direct && defaultSubtitle >= 0)) {
+            if ((!forceTranscode && customAudio != null) || (!toneMap && !sourceId && !direct && defaultSubtitle >= 0)) {
                 const playback = await withinMovieLoad(signal => playbackInfo(source.Id, customAudio, signal), life.signal).catch(() => null);
                 if (!active || rev !== selection) return;
                 const configured = playback?.MediaSources?.[0];
-                if (configured?.TranscodingUrl || (!forceTranscode && !limit && configured?.SupportsDirectPlay && customAudio == null)) {
+                if (configured?.TranscodingUrl || (canDirect && configured?.SupportsDirectPlay && customAudio == null)) {
                     selectedAudio = customAudio ?? configured.DefaultAudioStreamIndex ?? defaultAudio;
-                    direct = !forceTranscode && !limit && configured.SupportsDirectPlay && customAudio == null;
+                    direct = canDirect && configured.SupportsDirectPlay && customAudio == null;
                     result = playback;
                     source = configured;
                 } else if (customAudio != null || !direct && defaultSubtitle >= 0) {
@@ -846,7 +902,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     return play(item, opener, {...options, audioIndex: requestedAudio ?? defaultAudio, sourceId: source.Id, forceTranscode: true, position: resume});
                 }
             }
-            method = direct ? "DirectPlay" : forceTranscode || limit || source.TranscodeReasons?.length ? "Transcode" : "DirectStream";
+            const reasons = Array.isArray(source.TranscodeReasons) ? source.TranscodeReasons.filter(reason => typeof reason === "string") : [];
+            const remux = reasons.length ? reasons.every(reason => reason === "ContainerNotSupported") :
+                source.SupportsDirectStream !== false;
+            method = direct ? "DirectPlay" : canDirect && remux ? "DirectStream" : "Transcode";
             const path = direct ? "Videos/" + item.Id + "/stream" : source.TranscodingUrl;
             if (!path && !forceTranscode)
                 return play(item, opener, {...options, audioIndex: requestedAudio ?? defaultAudio, sourceId: source.Id, forceTranscode: true, position: resume});
@@ -867,6 +926,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     stream.searchParams.set(key, capped);
                 }
             }
+            const usageId = streamId;
+            stream.searchParams.set("fhUsage", usageId);
             if (!direct && !hls && resume > 0) {
                 await leavePlayer();
                 if (!active || rev !== selection) return;
@@ -880,9 +941,28 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 publishNavigation("back");
                 return;
             }
+            let ui, receivedBytes = null, usagePending;
+            const playback = { item, source, id: result.PlaySessionId, dataSaver: prefs.dataSaver, method, usageId,
+                updateUsage(snapshot) {
+                    const bytes = snapshot?.bytes;
+                    if (!Number.isSafeInteger(bytes) || bytes < 0 || (receivedBytes != null && bytes <= receivedBytes)) return;
+                    receivedBytes = bytes;
+                    ui?.updatePlaybackInfo();
+                },
+                sampleUsage() {
+                    return usagePending ??= request("MediaUsage", {}, {stream: usageId}, timeoutSignal(1500))
+                        .then(snapshot => {
+                            if (!Number.isSafeInteger(snapshot?.bytes)) throw new TypeError("Missing byte count");
+                            playback.updateUsage(snapshot);
+                        })
+                        .catch(error => noteLookupFailure("media-usage-unavailable", error, method))
+                        .finally(() => { usagePending = undefined; });
+                }
+            };
+            const usageReady = playback.sampleUsage();
             const back = button("Back to movies", () => closePlayback());
             const subtitleUrl = (track, revision) => mediaUrl(`Videos/${item.Id}/${source.Id}/Subtitles/${track.Index}/Stream.vtt`,
-                revision ? {timingRevision: revision} : undefined);
+                {fhUsage: usageId, ...(revision ? {timingRevision: revision} : {})});
             const subtitleCounts = new Map();
             function readLineCount(track) {
                 if (Number.isFinite(track.LineCount) && track.LineCount >= 0) return track.LineCount;
@@ -969,7 +1049,6 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 }
             }
             populateSubtitles();
-            const playback = { item, source, id: result.PlaySessionId, dataSaver: prefs.dataSaver, method };
             const watchGuide = prefs.parentalGuide && !guideStarted && ["Movie", "Episode"].includes(item.Type);
             const guideRating = item.OfficialRating || (item.Type === "Episode" && seriesView?.item.Id === item.SeriesId
                 ? seriesView.item.OfficialRating : undefined);
@@ -1042,7 +1121,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 report("/Stopped", playback, media);
                 playback.started = false;
             };
-            let ui, recovering = false;
+            let recovering = false;
             const failed = (type = hlsError?.type) => {
                 if (current !== playback || recovering) return;
                 note("playback-error", playback.method, diagnostics());
@@ -1093,6 +1172,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             playerLife?.abort();
             playerLife = new AbortController();
             const playerSignal = playerLife.signal;
+            for (const type of ["suspend", "ended"])
+                media.addEventListener(type, playback.sampleUsage, {signal: playerSignal});
             const audioSync = audio.some(track => track.Index === selectedAudio && track.IsExternal) ?
                 movieAudioSync(media, {signal: playerSignal, stream: stream.href,
                     Hls: playback.hls ? Hls : null, report: message => ui?.say(message),
@@ -1318,25 +1399,60 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             }
             let qualityChange = 0;
             playback.refreshQuality = async () => {
-                if (playback.dataSaver !== "auto") return;
                 const change = ++qualityChange;
-                const nextQuality = await qualityFor("auto");
-                if (current === playback && change === qualityChange && playback.dataSaver === "auto" && nextQuality !== quality)
+                const nextConnection = await currentConnection();
+                if (current !== playback || change !== qualityChange) return;
+                playbackConnection = nextConnection;
+                ui.updatePlaybackInfo();
+                await usagePending;
+                if (current !== playback || change !== qualityChange) return;
+                void playback.sampleUsage();
+                const nextQuality = qualityFor(playback.dataSaver, nextConnection);
+                if (nextQuality !== quality)
                     return play(item, opener, {
                         dataSaver: "auto", sheet: ui.openSheetName(), audioIndex, subtitleIndex: playback.subtitleOverride, burnedSubtitle,
                         position: metadataLoaded ? media.currentTime : resume, paused: media.paused,
                         forceTranscode: options.forceTranscode, sourceId: forceTranscode ? source.Id : undefined
                     });
             };
+            const output = new Map([...stream.searchParams].map(([key, value]) => [key.toLowerCase(), value]));
+            const outputCodec = output.get("videocodec")?.split(",")[0].toLowerCase();
+            const inputCodec = typeof inputVideo?.Codec === "string" ? inputVideo.Codec.toLowerCase() : "";
+            const encodedVideo = toneMap || limit || forceTranscode || method === "Transcode" && outputCodec && outputCodec !== "copy" &&
+                (outputCodec !== inputCodec || reasons.some(reason => reason.startsWith("Video")));
+            const reason = toneMap ? "HDR to SDR" : limit ? "Streaming quality limit" : burnedSubtitle != null ? "Subtitles added to the video" :
+                reasons.map(value => Object.prototype.hasOwnProperty.call(conversionReasons, value) ? conversionReasons[value] : "").find(Boolean) ||
+                (forceTranscode && externalDts(selectedTrack) ? "Unsupported audio codec" : "Playback compatibility");
+            const fallbackHeight = encodedVideo && inputVideo?.Height ? Math.min(inputVideo.Height, maxHeight) : inputVideo?.Height;
+            const maxChannels = Number(output.get("transcodingmaxaudiochannels") ?? output.get("maxaudiochannels"));
+            const channels = Math.min(selectedAudioTrack?.Channels ?? 0,
+                limit?.audioBitrate ? 2 : maxChannels > 0 && method === "Transcode" ? maxChannels : Infinity);
             ui = buildPlayerUi({ media, surface: player, back, signal: playerSignal, subtitleSearch, subtitleSync, itemId: item.Id,
                 fullscreenEnabled: nativeFullscreen || document.fullscreenEnabled || document.webkitFullscreenEnabled, isFullscreen, setFullscreen, appFullscreen,
                 title: numbered ? `S${item.ParentIndexNumber}:E${item.IndexNumber} “${item.Name}”` : item.Name,
                 kicker: item.SeriesName, audioPick, subtitlePick, audioSync, notice, burnedSubtitle, originalLanguage,
                 autoSkipIntro: prefs.autoSkipIntro, autoSkipRecap: prefs.autoSkipRecap, autoNext: prefs.autoNext !== false,
                 segmentSeekFailed: () => note("segment-seek-failed", method),
+                sampleUsage: playback.sampleUsage,
+                playbackInfo: () => ({
+                    playback: {DirectPlay: "Direct play", DirectStream: "Direct stream", Transcode: "Converted"}[method],
+                    reason: method === "Transcode" ? reason : "",
+                    video: [
+                        (media.videoHeight || fallbackHeight) ? `${media.videoHeight || fallbackHeight}p` : "",
+                        (encodedVideo ? outputCodec && outputCodec !== "copy" ? outputCodec : "h264" : inputCodec).toUpperCase(),
+                        encodedVideo ? "SDR" : inputRange
+                    ].filter(Boolean).join(", "),
+                    audio: [
+                        selectedAudioTrack && audioLanguageName(selectedAudioTrack.Language ?? trackLanguage(selectedAudioTrack)),
+                        ({1: "Mono", 2: "Stereo", 6: "5.1", 8: "7.1"})[channels] ?? (channels > 0 ? `${channels} channels` : "")
+                    ].filter(Boolean).join(", "),
+                    bytes: receivedBytes,
+                    connection: ({cellular: "Mobile data", wifi: "Wi-Fi"})[playbackConnection.kind]
+                }),
                 styleKey: preferencesKey(preferenceViewer) + ":subtitle-style",
                 findAudio: (opener, language) => addAudio(item, opener, player, playerSignal, language) });
             playback.showJobToast = ui.hint;
+            playback.playbackInfoState = ui.playbackInfoState;
             player.replaceChildren(media, ui.root);
             enterPlayer();
             playback.setSubtitles(options.subtitleIndex);
@@ -1365,6 +1481,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             }
             ui.playButton.focus();
             ui.reopenSheet(options.sheet, options.focusSubtitle);
+            if (playerInfo) ui.reopenPlaybackInfo(playerInfo);
             library.hidden = true;
             toolbar.hidden = true;
             if (quality === "saver" && prefs.dataSaver === "auto" && !autoHintShown) {
@@ -1383,6 +1500,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     else if (!media.error) ui.say("Press play to start.");
                 });
             };
+            // Register before loading the media so the first range or HLS segment is counted.
+            await usageReady;
+            if (current !== playback) return;
             if (playback.hls) {
                 playback.hls.once(Hls.Events.MANIFEST_PARSED, startMedia);
                 playback.hls.loadSource(stream.href);
@@ -4788,8 +4908,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         resumeRequest?.abort();
         const leaving = leavePlayer();
         life.abort();
+        const playback = current;
         stop();
         await leaving;
+        if (playback) await playback.sampleUsage();
         await reports;
         if (!preview) try { await app.invokeMethodAsync("MovieCloseMedia", session.media_ticket); } catch {}
     } };

@@ -325,6 +325,33 @@ class MovieGrants(Base):
         self.assertTrue(opener.return_value.open.call_args.args[0].full_url.endswith('/Sessions/Logout'))
         self.assertEqual(self.go(anonymous, 'GET', path).status_code, 404)
 
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_movie_usage_counts_ranges_and_keeps_snapshots_session_scoped(self, opener):
+        client, csrf = self.select()
+        movie = self.grant(client, csrf, opener)
+        other, other_csrf = self.select()
+        usage_id = 'c' * 32
+        payload = {'stream': usage_id}
+        data = dict(ticket=movie['media_ticket'], path='MediaUsage', query='cellular', payload=payload)
+        route = '/api/movies/library'
+        self.assertEqual(self.post(other, other_csrf, route, json=data).status_code, 404)
+        self.assertEqual(self.post(client, csrf, route, json={**data, 'payload': {'stream': '../'}}).status_code, 400)
+        self.assertEqual(self.post(client, csrf, route, json=data).json['result']['bytes'], 0)
+        prefix = movie['media_url'].removeprefix(ORIGIN)
+        path = f'{prefix}Videos/{self.item}/stream?fhUsage={usage_id}&static=true'
+        for connection in ('cellular', 'wifi'):
+            data['query'] = connection
+            self.post(client, csrf, route, json=data)
+            partial = io.BytesIO(b'abc')
+            partial.headers, partial.status = Message(), 206
+            partial.headers['Content-Type'] = 'video/mp4'
+            opener.return_value.open.return_value = partial
+            media = self.go(client, 'GET', path, headers={'Range': 'bytes=0-2'})
+            self.assertEqual((media.status_code, media.data), (206, b'abc'))
+            self.assertNotIn('fhUsage', opener.return_value.open.call_args.args[0].full_url)
+        snapshot = self.post(client, csrf, route, json=data).json['result']
+        self.assertEqual((snapshot['bytes'], snapshot['cellularBytes']), (6, 3))
+
     def test_movie_download_allowlist_cannot_grant_admin_access(self):
         client, csrf = self.select()
         self.assertEqual(self.go(client, 'GET', '/api/movies/downloads').status_code, 403)

@@ -489,7 +489,27 @@ select option { background:#12141a; color:#f3f4f7; }
 .settings-panel { padding:24px; }
 .settings-panel h2 { margin:0 0 24px; font-size:20px; }
 .setting-row { display:grid; grid-template-columns:minmax(140px,1fr) minmax(180px,280px); align-items:center; gap:24px; margin:16px 0; }
-.setting-row.movie-data-setting { grid-template-columns:minmax(0,1fr); gap:10px; }
+.settings-page .movie-data-options { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.settings-page .movie-data-options legend { margin-bottom: .5rem; font-weight: 600; }
+.settings-page .movie-data-option {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+    gap: .25rem .65rem; min-height: 44px; margin: 0; padding: .35rem .65rem;
+    border: 1px solid #ffffff24; border-radius: 6px; cursor: pointer;
+}
+.settings-page .movie-data-option + .movie-data-option { margin-top: .25rem; }
+.settings-page .movie-data-option input[type="radio"] {
+    width: 20px; height: 20px; margin: 0; appearance: auto; accent-color: var(--accent-blue);
+}
+.settings-page .movie-data-option:has(input:checked) { background: #ffffff0c; }
+.settings-page .movie-data-option:has(input:focus-visible) { outline: 2px solid var(--focus, #a8b5ff); outline-offset: 1px; }
+@media (max-width: 435px) {
+    .settings-page .movie-data-option { grid-template-columns: auto minmax(0, 1fr); }
+    .settings-page .movie-data-option > .muted { grid-column: 2; }
+}
+@media (min-width: 1920px) {
+    .settings-page .movie-data-option, .settings-sections button { min-height: 60px; }
+    .settings-page .movie-data-option:has(input:focus-visible), .settings-sections button:focus-visible { outline-width: 4px; }
+}
 .setting-row>label { margin:0; color:var(--ink); font-weight:600; font-size:14px; }
 .settings-page .setting-row select,.settings-page .setting-row button { width:100%; height:44px; min-height:44px; margin:0; padding:0 42px 0 16px; border:1px solid #ffffff24; border-radius:12px; background-color:#ffffff06; color:var(--ink); font:inherit; font-size:14px; }
 .settings-page .setting-row button { height:auto; padding:8px 16px; }

@@ -64,15 +64,22 @@ verifyShell(async (page, phone) => {
         await returnToList(id);
     }
 
-    await select('movies', 'Space');
-    const quality = panel.locator('#movie-data-saver:enabled');
-    await quality.selectOption('good');
+    if (page.viewportSize().width >= 1920) {
+        await categories.locator('#settings-movies').press('ArrowDown');
+        await focused(page, 'settings-data');
+    }
+    await select('data', 'Space');
+    const quality = panel.locator('#movie-data-saver input[value="good"]:enabled');
+    await quality.press('Space');
+    await panel.getByText('About 1.1 GB per hour').waitFor();
+    await panel.getByText('Estimates for a typical film.', {exact: false}).waitFor();
+    await panel.locator('#movie-data-used').filter({hasText: '0 MB'}).waitFor();
     await page.waitForFunction(() => [...Object.keys(localStorage)].some(key => key.startsWith('familyhub:movie-tracks:') &&
         JSON.parse(localStorage.getItem(key)).dataSaver === 'good'));
-    await returnToList('movies');
+    await returnToList('data');
     await page.keyboard.press('Escape');
     await focused(page, 'profile-toggle');
     await open();
-    await select('movies', 'Enter');
-    await page.waitForFunction(() => document.getElementById('movie-data-saver')?.value === 'good');
+    await select('data', 'Enter');
+    await panel.locator('#movie-data-saver input[value="good"]:checked').waitFor();
 }).catch(error => { console.error(error); process.exitCode = 1; });

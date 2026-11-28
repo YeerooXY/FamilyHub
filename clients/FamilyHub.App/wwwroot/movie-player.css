@@ -443,6 +443,51 @@ body[data-effects="off"] .movie-track-spinner { animation: none; }
 }
 .movie-timing-controls output { color: #f2efff; font-size: .875rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .movie-sheet-style .movie-track-col + .movie-track-col { margin-top: .2rem; }
+.movie-library .movie-sheet-style .movie-info-opener {
+    width: 100%;
+    padding-inline: .75rem;
+    text-align: start;
+}
+.movie-sheet-style .movie-info-opener::before { content: none; }
+.movie-ui > .movie-playback-info {
+    position: absolute;
+    z-index: 2;
+    --info-top: max(.75rem, env(safe-area-inset-top));
+    --info-right: max(.75rem, env(safe-area-inset-right));
+    top: var(--info-top);
+    right: var(--info-right);
+    box-sizing: border-box;
+    width: min(24rem, calc(100% - var(--info-right) - max(.75rem, env(safe-area-inset-left))));
+    max-height: calc(100% - var(--info-top) - max(.75rem, env(safe-area-inset-bottom)));
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: .65rem 1rem 1rem;
+    border: 1px solid #aaa7c64d;
+    border-radius: .9rem;
+    background: #171920;
+    box-shadow: 0 .5rem 2rem #0009;
+    pointer-events: auto;
+}
+.movie-ui > .movie-playback-info[hidden] { display: none; }
+.movie-playback-info .movie-sheet-head { margin-bottom: .25rem; }
+.movie-library .movie-ui .movie-playback-info .movie-sheet-close {
+    width: var(--movie-target);
+    height: var(--movie-target);
+    pointer-events: auto;
+}
+.movie-playback-info dl {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: .5rem 1rem;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+.movie-playback-info dt { color: #ffffffbb; }
+.movie-playback-info dd { margin: 0; }
+.movie-player.movie-expanded.movie-cursor-idle .movie-playback-info button { cursor: pointer !important; }
+@media (max-width: 760px) {
+    .movie-ui > .movie-playback-info { --info-top: calc(max(.5rem, env(safe-area-inset-top)) + var(--movie-target)); }
+}
 .movie-sheet-tracks .movie-segmented {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

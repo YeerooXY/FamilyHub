@@ -1,4 +1,6 @@
 import unittest
+from datetime import datetime, timezone
+from unittest.mock import patch
 
 from music_web import movie_media
 
@@ -31,6 +33,35 @@ class LongFilmPlaylistTests(unittest.TestCase):
     def test_a_playlist_with_an_absolute_url_is_still_refused(self):
         with self.assertRaises(ValueError):
             movie_media.playlist_urls('#EXTM3U\nhttps://elsewhere.test/videos/x.ts\n', f'videos/{ITEM}/main.m3u8', 'T' * 43)
+
+    def test_the_usage_id_follows_variant_playlists_and_segments(self):
+        text = '#EXTM3U\n#EXT-X-MAP:URI="hls1/init.mp4"\nhls1/0.ts?start=0\n'
+        rewritten = movie_media.playlist_urls(text, f'videos/{ITEM}/main.m3u8', 'T' * 43, usage_id='a' * 32)
+        self.assertIn(f'init.mp4?fhUsage={"a" * 32}"', rewritten)
+        self.assertIn(f'0.ts?start=0&fhUsage={"a" * 32}', rewritten)
+
+
+class MovieUsageTests(unittest.TestCase):
+    def test_estimate_uses_decimal_gigabytes_and_rounds_to_a_tenth(self):
+        self.assertEqual([movie_media.hourly_gb(b) for b in (2_500_000, 1_000_000, 500_000)], [1.1, 0.5, 0.2])
+        films = [{'MediaSources': [{'Bitrate': b}]} for b in (20_000_000, 8_000_000, 12_000_000, 0, True, None)]
+        self.assertEqual(movie_media.film_bitrate_estimate(films), 5.4)
+        self.assertEqual(movie_media.film_bitrate_estimate(films[:2]), 6.3)
+        self.assertIsNone(movie_media.film_bitrate_estimate(films[3:]))
+
+    @patch('music_web.movie_media.datetime')
+    def test_cellular_usage_resets_monthly_and_the_session_keeps_its_total(self, clock):
+        clock.now.return_value = datetime(2026, 11, 30, tzinfo=timezone.utc)
+        usage = movie_media.MediaUsage(streams={'session': 0})
+        usage.connection = 'wifi'
+        usage.add('session', 100)
+        usage.connection = 'cellular'
+        usage.add('session', 200)
+        usage.add('unregistered', 900)
+        self.assertEqual(usage.snapshot('session'), dict(bytes=300, month='2026-11', cellularBytes=200))
+        clock.now.return_value = datetime(2026, 12, 1, tzinfo=timezone.utc)
+        usage.add('session', 10)
+        self.assertEqual(usage.snapshot('session'), dict(bytes=310, month='2026-12', cellularBytes=10))
 
 
 if __name__ == '__main__':

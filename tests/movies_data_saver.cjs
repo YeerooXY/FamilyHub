@@ -6,9 +6,10 @@ const { jellyfin, cors, playerOutput, moviePage, playMovieDetails, verifyMoviePr
 const output = process.argv[2] || playerOutput;
 const item = { Id: "in-time", Name: "In Time", Type: "Movie" };
 const streams = [
-    { Type: "Audio", Index: 1, DisplayTitle: "English" },
-    { Type: "Audio", Index: 2, Language: "hun", DisplayTitle: "Hungarian", IsExternal: true },
-    { Type: "Subtitle", Index: 3, DisplayTitle: "English", IsTextSubtitleStream: true }
+    { Type: "Audio", Index: 1, Language: "eng", Channels: 6, DisplayTitle: "English" },
+    { Type: "Audio", Index: 2, Language: "hun", Channels: 6, DisplayTitle: "Hungarian", IsExternal: true },
+    { Type: "Subtitle", Index: 3, DisplayTitle: "English", IsTextSubtitleStream: true,
+        FamilyHubSubtitleTiming: { method: "release", state: "idle" } }
 ];
 
 async function checkAppSettings(page, name, origin) {
@@ -21,12 +22,10 @@ async function checkAppSettings(page, name, origin) {
         await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
     };
     await openSettings();
-    await page.locator("#settings-movies").click();
-    const movies = page.getByRole("combobox", { name: "Streaming quality" });
-    await page.locator("#movie-data-saver:enabled").waitFor();
-    await movies.focus();
-    await movies.selectOption("good");
-    assert.equal(await movies.inputValue(), "good");
+    await page.locator("#settings-data").click();
+    const movies = page.locator('#movie-data-saver input[value="good"]:enabled');
+    await movies.press("Space");
+    assert(await movies.isChecked());
     assert(await movies.evaluate(el => el === document.activeElement));
     await page.screenshot({ path: path.join(output, name + "-movies-settings.png") });
     if (page.viewportSize().width <= 720) await page.getByRole("button", { name: "Back to settings categories" }).click();
@@ -37,21 +36,22 @@ async function checkAppSettings(page, name, origin) {
     await page.screenshot({ path: path.join(output, name + "-music-settings.png") });
     await music.press("Space");
     await openSettings();
-    await page.locator("#settings-movies").click();
-    await page.waitForFunction(() => document.querySelector("#movie-data-saver")?.value === "good");
+    await page.locator("#settings-data").click();
+    await page.locator('#movie-data-saver input[value="good"]:checked').waitFor();
 }
 
 async function check(browser, name, options) {
-    if (name.endsWith("-2000")) return;
     const page = await browser.newPage(options);
     page.setDefaultTimeout(7000);
     const requests = [];
     const errors = [];
-    let heldPlayback;
+    let heldPlayback, range = "SDR", remux = false, countedBytes = 412_000_000;
     page.on("pageerror", error => errors.push(error.message));
     try {
         await stubMovieHls(page, {metadata: true});
         await page.addInitScript(() => {
+            const match = window.matchMedia.bind(window);
+            window.matchMedia = query => query === "(dynamic-range: high)" ? { matches: !!window.fixtureHdrDisplay } : match(query);
             const connection = Object.assign(new EventTarget(), { type: "wifi", saveData: false });
             Object.defineProperty(navigator, "connection", { value: connection });
             window.nativeConnection = "";
@@ -87,11 +87,17 @@ async function check(browser, name, options) {
                 await heldPlayback;
                 await new Promise(resolve => setTimeout(resolve, 80));
                 return json({ PlaySessionId: String(requests.length), MediaSources: [{
-                    Id: "source", Bitrate: 10700000, SupportsDirectPlay: body.EnableDirectPlay,
-                    TranscodingUrl: "/Videos/in-time/master.m3u8",
-                    MediaStreams: streams, DefaultAudioStreamIndex: body.AudioStreamIndex ?? 1,
+                    Id: "source", Bitrate: 10700000, SupportsDirectPlay: body.EnableDirectPlay && !remux,
+                    SupportsDirectStream: remux, TranscodeReasons: remux ? ["ContainerNotSupported"] : [],
+                    TranscodingUrl: "/Videos/in-time/master.m3u8?VideoCodec=h264",
+                    MediaStreams: [{Type: "Video", Index: 0, Height: 1080, Codec: "h264", VideoRangeType: range}, ...streams],
+                    DefaultAudioStreamIndex: body.AudioStreamIndex ?? 1,
                     DefaultSubtitleStreamIndex: -1
                 }] });
+            }
+            if (url.pathname === "/MediaUsage") {
+                assert.match(request.postDataJSON().stream, /^[0-9a-f]{32}$/);
+                return json({bytes: countedBytes});
             }
             if (url.pathname === "/Items" && url.searchParams.get("includeItemTypes") === "Movie")
                 return json({ Items: [item], TotalRecordCount: 1 });
@@ -103,6 +109,12 @@ async function check(browser, name, options) {
         });
         await moviePage(page);
         const screen = await page.evaluate(async () => (await import("/movies.js")).movieScreen("auto"));
+        const estimates = original => page.evaluate(async original => (await import("/movies.js")).movieQualityEstimates(original), original);
+        assert.deepEqual(await estimates(6), {
+            auto: "About 0.5 GB per hour", full: "About 6.0 GB per hour", good: "About 1.1 GB per hour",
+            saver: "About 0.5 GB per hour", lowest: "About 0.2 GB per hour"
+        });
+        assert.equal((await estimates(null)).full, undefined);
         const open = (profile = "alex") => page.evaluate(async ({ jellyfin, profile }) => {
             await window.movies?.close();
             const { openMovies } = await import("/movies.js");
@@ -148,6 +160,13 @@ async function check(browser, name, options) {
         const subtitle = page.getByRole("radiogroup", { name: "Subtitle track" });
         const hungarian = audio.getByRole("radio", { name: "Hungarian", exact: true });
         const english = subtitle.getByRole("radio", { name: "English", exact: true });
+        const info = page.getByRole("dialog", {name: "Playback info", exact: true});
+        const infoButton = page.getByRole("button", {name: "Playback info", exact: true});
+        const closeInfo = page.getByRole("button", {name: "Close playback info"});
+        async function infoValues(values) {
+            for (const [index, text] of values.entries())
+                await info.locator("dd").nth(index).filter({hasText: text}).waitFor();
+        }
         const setQuality = (dataSaver, profile = "alex") => page.evaluate(async ({ jellyfin, profile, dataSaver }) => {
             const { readMoviePreferences, saveMoviePreferences } = await import("/movies.js");
             const viewer = { server: jellyfin + "/", profile };
@@ -161,6 +180,36 @@ async function check(browser, name, options) {
         assert.equal(requests.at(-1).DeviceProfile.MaxStreamingBitrate, undefined);
         assert.match(await video.evaluate(el => el.src), /\/stream\?.*static=true/);
         assert.equal(await page.getByRole("button", { name: "Settings", exact: true }).count(), 0);
+        await page.getByRole("button", {name: "Sound & subtitle style", exact: true}).press("Enter");
+        assert.equal(await infoButton.evaluate(el => el === el.parentElement.lastElementChild), true);
+        await infoButton.press("Enter");
+        await infoValues(["Direct play", "1080p, H264, SDR", "English, 5.1", "Off", "412 MB", "Wi-Fi"]);
+        {
+            const shots = require("node:path").join(__dirname, "../.local/playback-info");
+            require("node:fs").mkdirSync(shots, {recursive: true});
+            await page.screenshot({path: require("node:path").join(shots, name + ".png"), animations: "disabled"});
+        }
+        assert(await focused(closeInfo));
+        const box = await info.boundingBox();
+        assert(box.x >= 0 && box.x + box.width <= page.viewportSize().width);
+        if (page.viewportSize().width === 2000) {
+            await page.setViewportSize({width: 1920, height: 1080});
+            assert((await closeInfo.boundingBox()).height >= 60);
+            assert.equal(await closeInfo.evaluate(el => getComputedStyle(el).outlineWidth), "4px");
+            await page.setViewportSize(options.viewport);
+        }
+        await page.locator(".movie-ui").evaluate(node => node.classList.add("movie-idle"));
+        assert(await info.isVisible());
+        await closeInfo.press("Escape");
+        assert(await focused(infoButton));
+        await page.keyboard.press("Escape");
+        await page.keyboard.press("i");
+        assert(await info.isVisible());
+        await page.locator(".movie-ui").evaluate(node => node.dispatchEvent(new Event("movie-back")));
+        assert.equal(await info.count(), 0);
+        await page.keyboard.press("i");
+        await closeInfo.click();
+        assert.equal(await info.count(), 0);
         await video.evaluate(el => { el.currentTime = 387; el.pause(); });
         await tracks.press("Enter");
         await hungarian.press("Enter");
@@ -199,6 +248,12 @@ async function check(browser, name, options) {
             clearInterval(window.focusWatch);
             return window.focusLost;
         }), false, "keyboard focus fell to the body");
+        countedBytes = 488_000_000;
+        await page.keyboard.press("i");
+        await infoValues(["Converted", "H264, SDR", "Hungarian, Stereo", "English, Timing from the release", "488 MB", "Mobile data"]);
+        assert.match(await info.locator("dd").first().textContent(), /Streaming quality limit/);
+        await page.keyboard.press("i");
+        await page.keyboard.press("Escape");
         await page.screenshot({ path: path.join(output, name + "-auto.png") });
 
         for (const [choice, bitrate, height, limitAudio] of [
@@ -236,6 +291,37 @@ async function check(browser, name, options) {
         await position(125);
         capped(1_000_000, 480, true);
         assert.equal(await hint.count(), 0, "Auto should show its hint once per profile");
+        assert(await setQuality("full", "june"));
+        remux = true;
+        await open("june");
+        await start();
+        await position(125);
+        await page.keyboard.press("i");
+        await infoValues(["Direct stream", "1080p, H264, SDR", "English, 5.1", "Off", "488 MB", "Mobile data"]);
+        remux = false;
+        range = "HDR10";
+        const beforeHdr = requests.length;
+        await open("june");
+        await start();
+        await position(125);
+        assert.equal(requests.length, beforeHdr + 2);
+        assert.equal(requests.at(-1).AllowVideoStreamCopy, false);
+        assert.equal(requests.at(-1).EnableDirectPlay, false);
+        assert.equal(requests.at(-1).EnableDirectStream, false);
+        assert.equal(requests.at(-1).DeviceProfile.TranscodingProfiles[0].VideoCodec, "h264");
+        await page.keyboard.press("i");
+        // The height comes from the playing clip, so check codec and range only.
+        await infoValues(["Converted", "H264, SDR", "English, 5.1", "Off", "488 MB", "Mobile data"]);
+        assert.match(await info.locator("dd").first().textContent(), /HDR to SDR/);
+        await open("june");
+        await page.evaluate(() => { window.fixtureHdrDisplay = true; });
+        const beforeHdrDisplay = requests.length;
+        await start();
+        await position(125);
+        assert.equal(requests.length, beforeHdrDisplay + 1);
+        assert.equal(requests.at(-1).AllowVideoStreamCopy, undefined);
+        await page.keyboard.press("i");
+        await infoValues(["Direct play", "1080p, H264, HDR", "English, 5.1", "Off", "488 MB", "Mobile data"]);
         if (process.env.DATA_SAVER_SHELL_URL) await checkAppSettings(page, name, process.env.DATA_SAVER_SHELL_URL);
         assert.deepEqual(errors, []);
         console.log("PASS", name);

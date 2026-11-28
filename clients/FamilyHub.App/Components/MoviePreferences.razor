@@ -2,19 +2,36 @@
 @inject MusicSession Session
 @inject IJSRuntime JS
 
+@if (DataOnly)
+{
+    <section class="settings-panel glass-panel" aria-labelledby="movie-data-heading">
+        <h2 id="movie-data-heading">Data</h2>
+        <fieldset id="movie-data-saver" class="movie-data-options" disabled="@(!ready)" aria-describedby="movie-data-saver-help">
+            <legend>Streaming quality</legend>
+            @foreach (var (id, label) in qualityOptions)
+            {
+                <label class="movie-data-option">
+                    <input type="radio" name="movie-data-quality" value="@id" checked="@(preferences.DataSaver == id)" @onchange="() => SaveQuality(id)" />
+                    <span>@label</span>
+                    @if (estimates.TryGetValue(id, out var estimate))
+                    {
+                        <span class="muted">@estimate</span>
+                    }
+                </label>
+            }
+        </fieldset>
+        <p class="setting-help" id="movie-data-saver-help">Estimates for a typical film. Auto uses Original on Wi-Fi and Saver on mobile data.</p>
+        <p class="setting-help" role="status">@message</p>
+    </section>
+    <section class="settings-panel glass-panel" aria-labelledby="movie-data-month">
+        <h2 id="movie-data-month">This month</h2>
+        <div class="setting-row"><span>Movies &amp; TV streamed on mobile data</span><span id="movie-data-used">@monthlyUsage</span></div>
+    </section>
+}
+else
+{
 <section class="settings-panel glass-panel" aria-labelledby="movie-settings-heading">
     <h2 id="movie-settings-heading">Movie playback</h2>
-    <div class="setting-row movie-data-setting">
-        <label for="movie-data-saver">Streaming quality</label>
-        <select id="movie-data-saver" @bind="preferences.DataSaver" @bind:after="Save" disabled="@(!ready)" aria-describedby="movie-data-saver-help">
-            <option value="auto">Auto</option>
-            <option value="full">Full quality (varies by movie)</option>
-            <option value="good">Good (720p, about 1.1 GB an hour)</option>
-            <option value="saver">Saver (480p, about 0.45 GB an hour)</option>
-            <option value="lowest">Lowest (360p, about 0.25 GB an hour)</option>
-        </select>
-    </div>
-    <p class="setting-help" id="movie-data-saver-help">Auto uses Full quality on Wi-Fi and Saver on mobile data. Full quality uses the original bitrate.</p>
     <div class="setting-row">
         <label for="movie-screen">My screen</label>
         <select id="movie-screen" @bind="preferences.Screen" @bind:after="Save" disabled="@(!ready)" aria-describedby="movie-screen-help">
@@ -105,8 +122,17 @@
     <p class="setting-help">Saved on this device for your profile.</p>
     <p class="setting-help" role="status">@message</p>
 </section>
+}
 
 @code {
+    [Parameter] public bool DataOnly { get; set; }
+
+    private static readonly (string Id, string Label)[] qualityOptions =
+        [("auto", "Auto"), ("full", "Original"), ("good", "Good (720p)"), ("saver", "Saver (480p)"), ("lowest", "Lowest (360p)")];
+    private Dictionary<string, string> estimates = new();
+    private string monthlyUsage = "";
+    private readonly CancellationTokenSource lifetime = new();
+
     private sealed record Preferences
     {
         public Preferences() { }
@@ -143,14 +169,60 @@
             if (disposed) { await DisposeModule(imported); return; }
             module = imported;
             preferences = await module.InvokeAsync<Preferences>("readMoviePreferences", viewer);
+            if (DataOnly)
+            {
+                estimates = await module.InvokeAsync<Dictionary<string, string>>("movieQualityEstimates", (object?)null);
+                monthlyUsage = await module.InvokeAsync<string>("formatMovieBytes", MovieDataUsage.ThisMonth);
+            }
             ready = true;
             message = "";
         }
         catch (JSException)
         {
-            message = "Movie preferences are unavailable. Reopen Movies settings to try again.";
+            message = "Movie preferences are unavailable. Reopen Settings to try again.";
         }
         if (!disposed) StateHasChanged();
+        if (DataOnly && ready && !disposed && Session.MoviesEnabled) await ReadOriginalEstimate();
+    }
+
+    private async Task ReadOriginalEstimate()
+    {
+        if (module is null || Session.Api is not { } api) return;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(11));
+        try
+        {
+            var reply = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Get, "/api/movies/estimate", null, timeout.Token);
+            if (disposed || !ReferenceEquals(api, Session.Api)) return;
+            if (reply.ValueKind != System.Text.Json.JsonValueKind.Object ||
+                !reply.TryGetProperty("originalEstimate", out var estimate) ||
+                estimate.ValueKind != System.Text.Json.JsonValueKind.Number) return;
+            estimates = await module.InvokeAsync<Dictionary<string, string>>("movieQualityEstimates", estimate.GetDouble());
+            if (!disposed) StateHasChanged();
+        }
+        catch (Exception error) when (error is FamilyHubApiException or HttpRequestException or OperationCanceledException
+            or InvalidDataException or ObjectDisposedException or JSException)
+        {
+            if (!disposed)
+            {
+                try
+                {
+                    using var reportTimeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+                    reportTimeout.CancelAfter(TimeSpan.FromSeconds(3));
+                    await api.RequestJsonAsync<System.Text.Json.JsonElement?>(HttpMethod.Post, "/api/movies/report",
+                        new { kind = "film-estimate-unavailable", diagnostics = new { reason = timeout.IsCancellationRequested ? "timeout" : "request_failed" } },
+                        cancellationToken: reportTimeout.Token);
+                }
+                catch (Exception reportError) when (reportError is FamilyHubApiException or HttpRequestException or OperationCanceledException
+                    or InvalidDataException or ObjectDisposedException) { }
+            }
+        }
+    }
+
+    private Task SaveQuality(string id)
+    {
+        preferences.DataSaver = id;
+        return Save();
     }
 
     private async Task Save()
@@ -160,17 +232,19 @@
         {
             message = await module.InvokeAsync<bool>("saveMoviePreferences", viewer, preferences)
                 ? ""
-                : "This device could not save your movie preferences.";
+                : "This device could not save your movie preferences. Reopen Settings to try again.";
         }
         catch (JSException)
         {
-            message = "This device could not save your movie preferences.";
+            message = "This device could not save your movie preferences. Reopen Settings to try again.";
         }
     }
 
     public async ValueTask DisposeAsync()
     {
         disposed = true;
+        lifetime.Cancel();
+        lifetime.Dispose();
         if (module is not null) await DisposeModule(module);
     }
 

@@ -16,12 +16,12 @@ document.addEventListener("focusin", event => {
 });
 document.addEventListener("keydown", event => {
     const arrow = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[event.key];
-    const dashboard = event.target.closest?.(".health-dashboard");
-    if (!arrow || !dashboard || !matchMedia("(min-width:1920px)").matches || event.defaultPrevented) return;
+    const region = event.target.closest?.(".health-dashboard, .settings-sections");
+    if (!arrow || !region || !matchMedia("(min-width:1920px)").matches || event.defaultPrevented) return;
     const origin = event.target.closest("button,input");
     const [x, y] = arrow;
     if (!origin || (x && !origin.matches(".health-table-button"))) return;
-    const controls = [...dashboard.querySelectorAll(x ? ".health-table-button" : "button, input:checked")];
+    const controls = [...region.querySelectorAll(x ? ".health-table-button" : "button, input:checked")];
     const bounds = origin.closest("label,button").getBoundingClientRect();
     const centered = rect => (rect.left + rect.right) / 2;
     const candidates = controls.map(control => {

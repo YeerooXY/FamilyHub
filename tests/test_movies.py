@@ -21,7 +21,7 @@ def upstream_json(payload, status=200):
 
 
 class MovieSessions(Base):
-    extra = {'FAMILY_PROFILES': True, 'JELLYFIN_PUBLIC_URL': 'https://movies.test',
+    extra = {'FAMILY_PROFILES': True, 'JELLYFIN_PUBLIC_URL': 'https://movies.test', 'JELLYFIN_API_KEY': 'jellyfin-key',
              'JELLYFIN_PROFILES': {'sample-a': {'username': 'viewer', 'password': 'fixture'}}}
 
     def select(self, name):
@@ -113,6 +113,24 @@ class MovieSessions(Base):
         self.assertEqual(send(kind='started', method='DirectPlay', title='Harbour Lights', minutes=12).status_code, 204)
         self.assertEqual(send(kind='started', title='x' * 201).status_code, 400)
         self.assertEqual(send(kind='stopped', minutes=-3).status_code, 400)
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_original_film_estimate_uses_the_server_key_once_a_day(self, opener):
+        client, _ = self.select('sample-a')
+        def page(bitrate):
+            return upstream_json(dict(Items=[{'MediaSources': [{'Bitrate': bitrate}]}], TotalRecordCount=2))
+        opener.return_value.open.side_effect = [page(8_000_000), page(12_000_000)]
+        response = self.go(client, 'GET', '/api/movies/estimate')
+        self.assertEqual(response.json, {'originalEstimate': 4.5})
+        calls = opener.return_value.open.call_args_list
+        second_page = urllib.parse.parse_qs(urllib.parse.urlsplit(calls[1].args[0].full_url).query)
+        self.assertEqual(second_page['includeItemTypes'], ['Movie'])
+        self.assertEqual(second_page['startIndex'], ['1'])
+        self.assertNotIn('userId', second_page)
+        self.assertTrue(calls[0].args[0].get_header('Authorization').startswith('MediaBrowser Token='))
+        # Cached: a second visit makes no Jellyfin request.
+        self.assertEqual(self.go(client, 'GET', '/api/movies/estimate').json, {'originalEstimate': 4.5})
+        self.assertEqual(len(opener.return_value.open.call_args_list), 2)
 
     @patch('music_web.movies.urllib.request.build_opener')
     def test_episode_lookup_accepts_old_fields_and_keeps_profile_scoped(self, opener):

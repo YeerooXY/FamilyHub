@@ -20,6 +20,7 @@
     private DotNetObjectReference<MoviesView>? callback;
     private FamilyHub.Client.Core.FamilyHubApi? movieApi;
     private string? mediaTicket;
+    private readonly MovieDataUsage dataUsage = new();
     private readonly CancellationTokenSource closed = new();
     private bool failed, loading;
 #if WINDOWS
@@ -247,8 +248,12 @@
         timeout.CancelAfter(TimeSpan.FromSeconds(12));
         try
         {
+            var usage = path == "MediaUsage";
             var result = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/movies/library",
-                new { ticket = mediaTicket, path, query, payload }, timeout.Token);
+                new { ticket = mediaTicket, path, query = usage ? MovieConnectionKind() : query, payload }, timeout.Token);
+            if (result.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                (usage || path.StartsWith("Sessions/Playing", StringComparison.Ordinal)) &&
+                result.TryGetProperty("result", out var snapshot)) dataUsage.Record(snapshot);
             return result.GetRawText();
         }
         catch (Exception error) when (error is FamilyHubApiException or HttpRequestException or OperationCanceledException or InvalidDataException or ObjectDisposedException)
@@ -305,7 +310,7 @@
 #endif
 
     [JSInvokable]
-    public string MovieConnectionKind() => ConnectionKind.Current;
+    public string MovieConnectionKind() => OperatingSystem.IsWindows() ? "wifi" : ConnectionKind.Current;
 
     private void MovieConnectionChanged(object? sender, ConnectivityChangedEventArgs args) => _ = InvokeAsync(async () =>
     {
@@ -343,7 +348,9 @@
                 try
                 {
                     using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
-                    await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/movies/media/close", new { ticket }, timeout.Token);
+                    var result = await api.RequestJsonAsync<System.Text.Json.JsonElement>(HttpMethod.Post, "/api/movies/media/close", new { ticket }, timeout.Token);
+                    if (result.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                        result.TryGetProperty("usage", out var snapshot)) dataUsage.Record(snapshot);
                 }
                 catch (Exception error) when (error is FamilyHubApiException or HttpRequestException or OperationCanceledException or InvalidDataException or ObjectDisposedException) { }
             }

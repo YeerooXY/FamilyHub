@@ -36,6 +36,18 @@ const timingLabels = new Map([
     ["offset", "Shifted to the film's start"]
 ]);
 
+function subtitleTimingLabel(timing) {
+    return timing?.running ? "Checking timing" : timingLabels.get(timing?.method) ??
+        (timing?.sidecar || timing?.method != null ? "Timing not checked" : "");
+}
+
+export function formatMovieBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 0) return "Unavailable";
+    if (!bytes) return "0 MB";
+    if (bytes < 1e6) return "< 1 MB";
+    return bytes < 1e9 ? `${Math.round(bytes / 1e6)} MB` : `${(bytes / 1e9).toFixed(1)} GB`;
+}
+
 function make(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -501,7 +513,6 @@ export function buildPlayerUi(ctx) {
     audio.append(make("h4", "", "Audio"));
     subtitles.append(make("h4", "", "Subtitles"));
     sheets.audio.body.append(audio, subtitles);
-    // Sound & subtitle style: later rounds append their own section to this body.
     const styleSheet = makeSheet("style", "Sound & subtitle style", "Close sound and subtitle style", styleButton);
     styleSheet.classList.add("movie-sheet-tracks", "movie-sheet-style");
     const soundSection = make("section", "movie-track-col");
@@ -655,8 +666,7 @@ export function buildPlayerUi(ctx) {
                     const timing = timingLabel && option && ctx.subtitleSync?.timing(key);
                     sidecar = !!timing?.sidecar;
                     if (timingLabel) {
-                        const text = timing?.running ? "Checking timing" : timingLabels.get(timing?.method) ??
-                            (sidecar || timing?.method != null ? "Timing not checked" : "");
+                        const text = subtitleTimingLabel(timing);
                         if (timingLabel.textContent !== text) timingLabel.textContent = text;
                         timingLabel.hidden = !text;
                         if (text) row.setAttribute("aria-describedby", timingLabel.id);
@@ -830,6 +840,72 @@ export function buildPlayerUi(ctx) {
     timingControls.append(timingFields);
     timing.append(make("h4", "", "Timing"), timingNote, timingControls);
     sheets.style.body.append(timing, look, delay);
+    const infoOpener = button("movie-track-option movie-info-opener", "Playback info", null, {}, () => togglePlaybackInfo(infoOpener));
+    infoOpener.textContent = "Playback info";
+    infoOpener.setAttribute("aria-expanded", "false");
+    infoOpener.setAttribute("aria-haspopup", "dialog");
+    infoOpener.setAttribute("aria-controls", "movie-playback-info");
+    infoOpener.setAttribute("aria-keyshortcuts", "I");
+    sheets.style.body.append(infoOpener);
+    const info = make("section", "movie-playback-info");
+    info.id = "movie-playback-info";
+    info.hidden = true;
+    info.setAttribute("role", "dialog");
+    info.setAttribute("aria-labelledby", "movie-playback-info-title");
+    const infoHeading = make("h3", "", "Playback info");
+    infoHeading.id = "movie-playback-info-title";
+    const infoClose = button("movie-sheet-close", "Close playback info", paths.close, {}, closePlaybackInfo);
+    const infoHeader = make("div", "movie-sheet-head");
+    infoHeader.append(infoHeading, infoClose);
+    const infoList = make("dl");
+    const infoFields = ["Playback", "Video", "Audio", "Subtitles", "Data used", "Connection"].map(label => {
+        const value = make("dd");
+        infoList.append(make("dt", "", label), value);
+        return value;
+    });
+    info.append(infoHeader, infoList);
+    let infoReturnFocus, infoReturnSheet;
+    function updatePlaybackInfo() {
+        if (info.hidden) return;
+        const {playback, reason, video, audio, bytes, connection} = ctx.playbackInfo?.() ?? {};
+        const track = ctx.subtitlePick?.selectedOptions[0];
+        const timingLabel = track?.dataset.language && subtitleTimingLabel(ctx.subtitleSync?.timing(track.dataset.language));
+        const values = [reason ? `${playback} (${reason})` : playback, video, audio,
+            [track?.text || "Off", timingLabel].filter(Boolean).join(", "), formatMovieBytes(bytes), connection];
+        values.forEach((value, index) => {
+            const field = infoFields[index], text = value || "Unavailable";
+            if (field.textContent !== text) field.textContent = text;
+        });
+    }
+    function togglePlaybackInfo(opener = document.activeElement, restoreSheet = openSheet) {
+        if (!info.hidden) return closePlaybackInfo();
+        if (openSheet) closeSheet();
+        showPlaybackInfo(opener, restoreSheet, true);
+    }
+    function showPlaybackInfo(opener, restoreSheet, focus) {
+        infoReturnFocus = opener;
+        infoReturnSheet = restoreSheet;
+        infoOpener.setAttribute("aria-expanded", "true");
+        info.hidden = false;
+        updatePlaybackInfo();
+        if (focus) infoClose.focus({preventScroll: true});
+        void ctx.sampleUsage?.();
+    }
+    function closePlaybackInfo() {
+        if (info.hidden) return;
+        if (info.contains(document.activeElement) || document.activeElement === document.body) {
+            const opener = infoReturnFocus;
+            if (infoReturnSheet && !openSheet) toggleSheet(infoReturnSheet, opener);
+            else {
+                show();
+                (opener?.isConnected && !opener.closest("[hidden]") ? opener : playPause).focus({preventScroll: true});
+            }
+        }
+        info.hidden = true;
+        infoOpener.setAttribute("aria-expanded", "false");
+    }
+    for (const type of ["resize", "loadedmetadata"])
+        media.addEventListener(type, updatePlaybackInfo, {signal});
     let timingKey, shift = 0, speed = 0;
     let stopHold = () => {};
     const shiftControl = stepper("Shift", 600, 1, "s", () => shift, value => { shift = value; });
@@ -938,6 +1014,7 @@ export function buildPlayerUi(ctx) {
         if (openSheet === "audio" && label && label !== announcedTrack)
             subtitleAnnouncement.textContent = `Subtitles: ${label}`;
         announcedTrack = label;
+        updatePlaybackInfo();
     }
     signal.addEventListener("abort", () => stopHold(), { once: true });
     function toggleSheet(name, focusTarget) {
@@ -1021,7 +1098,7 @@ export function buildPlayerUi(ctx) {
         clearTimeout(shortcutTimer);
         shortcutTimer = setTimeout(() => { shortcutStatus.textContent = ""; }, 1200);
     }
-    root.append(surfaceLayer, subs, spinnerRoot, message, top, bottom, skipSegment, nextCard, guide, guideAnnouncement, shortcutStatus, audioSheet, styleSheet);
+    root.append(surfaceLayer, subs, spinnerRoot, message, top, bottom, skipSegment, nextCard, guide, guideAnnouncement, shortcutStatus, info, audioSheet, styleSheet);
 
     // Controls hide a few seconds after the last touch, playing or paused. Reduced motion only removes the fade, not the hiding.
     // A keyboard or remote focus ring keeps them up so the focused control stays visible.
@@ -1200,7 +1277,7 @@ export function buildPlayerUi(ctx) {
     syncFullscreen();
 
     // TV remotes use the arrows to move between controls and scrub on the seek bar.
-    const rows = () => [[back], ...(!nextCard.hidden ? [[playNow], [watchCredits]] : []),
+    const rows = () => [[back, ...(!info.hidden ? [infoClose] : [])], ...(!nextCard.hidden ? [[playNow], [watchCredits]] : []),
         ...(activeSkip ? [[skipSegment]] : []), [seek],
         [playPause, rewind, forward, episodesButton, nextButton, tracksButton, styleButton, fullscreen].filter(b => !b.hidden)];
     function moveFocus(target, key) {
@@ -1230,6 +1307,7 @@ export function buildPlayerUi(ctx) {
         const dialog = [...ctx.surface.querySelectorAll("dialog[open]")].at(-1);
         if (dialog) dialog.close();
         else if (openSheet) closeSheet();
+        else if (!info.hidden) closePlaybackInfo();
         else if (isFullscreen()) void toggleFullscreen();
         else back.click();
     }, { signal });
@@ -1268,8 +1346,10 @@ export function buildPlayerUi(ctx) {
         if (target.isContentEditable || target.matches("textarea, input:not([type=range])")) return;
         if (key === "escape" && !event.altKey) {
             event.preventDefault();
-            if (event.repeat || fullscreenPending) return;
+            if (event.repeat) return;
             if (openSheet) closeSheet();
+            else if (!info.hidden) closePlaybackInfo();
+            else if (fullscreenPending) return;
             else if (isFullscreen()) void toggleFullscreen();
             else back.click();
             return;
@@ -1282,6 +1362,11 @@ export function buildPlayerUi(ctx) {
             return;
         }
         if (event.altKey) return;
+        if (key === "i") {
+            event.preventDefault();
+            if (!event.repeat) togglePlaybackInfo();
+            return;
+        }
         if (event.keyCode === 461 || key === "browserback") {
             event.preventDefault();
             root.dispatchEvent(new Event("movie-back"));
@@ -1314,7 +1399,7 @@ export function buildPlayerUi(ctx) {
             if (tv && arrow && moveFocus(target, event.key)) event.preventDefault();
             return;
         }
-        if ((key === " " || key === "spacebar") && target.closest(".movie-segment-skip, .movie-next-card button")) return;
+        if ((key === " " || key === "spacebar") && target.closest(".movie-segment-skip, .movie-next-card button, .movie-playback-info button")) return;
         if (key === " " || key === "spacebar" || key === "k" || key === "enter" && !target.closest("button")) {
             event.preventDefault();
             if (!event.repeat) toggle();
@@ -1415,6 +1500,11 @@ export function buildPlayerUi(ctx) {
         },
         subtitleStatus,
         syncSubtitles,
+        updatePlaybackInfo,
+        playbackInfoState: () => !info.hidden && (infoReturnSheet === "style" ? "style" : "player"),
+        reopenPlaybackInfo(state) {
+            showPlaybackInfo(state === "style" ? infoOpener : playPause, state === "style" ? "style" : null, !openSheet);
+        },
         hint(text) {
             hint.textContent = text;
             const timer = setTimeout(() => { hint.textContent = ""; }, 6000);
