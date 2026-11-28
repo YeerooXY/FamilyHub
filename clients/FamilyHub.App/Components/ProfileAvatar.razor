@@ -4,7 +4,7 @@
 @if (Crowned)
 {
     @* This month's top listener: the crown sits on the picture's corner, outside its round clip. *@
-    <span class="avatar-crowned" style="--avatar-size:@(Math.Clamp(Size, 24, 128))px" title="Top listener this month">
+    <span class="avatar-crowned" style="--avatar-size:@(Math.Clamp(Size, 24, 128))px" title="@L["Top listener this month"].Value">
         @Picture
         <span class="avatar-crown" aria-hidden="true"><MusicIcon Name="crown" /></span>
     </span>

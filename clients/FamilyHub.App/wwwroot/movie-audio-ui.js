@@ -1,10 +1,14 @@
+import { locale, serverError, text as t } from "./strings.js";
+
 const languageNames = Intl.DisplayNames ? new Intl.DisplayNames(["en"], { type: "language" }) : null;
+const hungarianLanguageNames = Intl.DisplayNames ? new Intl.DisplayNames(["hu-HU"], { type: "language" }) : null;
 const codes = { hun: "hu", eng: "en", deu: "de", ger: "de", fra: "fr", fre: "fr", jpn: "ja",
     spa: "es", ita: "it", pol: "pl", ces: "cs", slk: "sk", por: "pt", ron: "ro", ukr: "uk", rus: "ru", zho: "zh" };
 
 export function audioLanguage(code) {
     const value = code?.toLowerCase().split(/[-_]/)[0];
-    return /^[a-z]{2,3}$/.test(value) && value !== "und" ? (languageNames?.of(codes[value] ?? value) ?? ({hu: "Hungarian", en: "English"}[codes[value] ?? value] || value)) : "Language unknown";
+    const names = locale() ? hungarianLanguageNames : languageNames;
+    return /^[a-z]{2,3}$/.test(value) && value !== "und" ? (names?.of(codes[value] ?? value) ?? ({hu: t("Hungarian"), en: t("English")}[codes[value] ?? value] || value)) : t("Language unknown");
 }
 
 function make(tag, text) {
@@ -24,7 +28,7 @@ export function movieDialog(parent, opener, title, signal, {content, initialFocu
     const dialog = make("dialog"), heading = make("h2", title), head = make("header");
     dialog.className = className ?? "movie-audio-dialog";
     dialog.setAttribute("aria-label", title);
-    const close = button("Close", () => dialog.close());
+    const close = button(t("Close"), () => dialog.close());
     head.append(heading, close);
     dialog.append(content ?? head);
     parent.append(dialog);
@@ -55,17 +59,17 @@ export function audioJobResults(job, call) {
         if (result.report) {
             const { offset_ms: offset, speed_ratio: speed, confidence, deviation_ms: drift,
                 cut_warning: cuts, less_certain: dub, matched } = result.report;
-            const timing = offset ? `Audio moved ${Math.abs(offset) / 1000} s ${offset < 0 ? "earlier" : "later"}.` : "Audio timing unchanged.";
-            row.append(make("p", `${matched ? timing : "Could not match the audio automatically."} Confidence ${confidence}.`));
-            if (Math.abs(speed - 1) >= 0.005) row.append(make("p", speed > 1 ? "The audio was sped up slightly to match the video." : "The audio was slowed down slightly to match the video."));
-            if (dub) row.append(make("p", "The source has no English track. The match used changes in volume."));
-            if (cuts) row.append(make("p", `The cuts may differ. The largest timing difference was ${drift / 1000} s.`));
+            const timing = offset ? `Audio moved ${Math.abs(offset) / 1000} s ${offset < 0 ? "earlier" : "later"}.` : t("Audio timing unchanged.");
+            row.append(make("p", t("{0} Confidence {1}.", matched ? timing : "Could not match the audio automatically.", confidence)));
+            if (Math.abs(speed - 1) >= 0.005) row.append(make("p", speed > 1 ? t("The audio was sped up slightly to match the video.") : t("The audio was slowed down slightly to match the video.")));
+            if (dub) row.append(make("p", t("The source has no English track. The match used changes in volume.")));
+            if (cuts) row.append(make("p", t("The cuts may differ. The largest timing difference was {0} s.", drift / 1000)));
         }
-        if (result.refresh_pending) row.append(make("p", "The track was saved. Refresh this title in Jellyfin to make it available."));
+        if (result.refresh_pending) row.append(make("p", t("The track was saved. Refresh this title in Jellyfin to make it available.")));
         if (result.can_delete && !audioJobRunning(job)) {
             const status = make("p");
             status.setAttribute("role", "status");
-            const remove = button("Delete source file", () => {
+            const remove = button(t("Delete source file"), () => {
                 confirm.hidden = false;
                 keep.focus();
                 remove.hidden = true;
@@ -73,18 +77,18 @@ export function audioJobResults(job, call) {
             remove.dataset.audioRemove = result.id;
             const confirm = make("div");
             confirm.className = "movie-audio-confirm";
-            const keep = button("Keep file", () => {
+            const keep = button(t("Keep file"), () => {
                 remove.hidden = false;
                 remove.focus();
                 confirm.hidden = true;
             });
-            const yes = button("Delete file", async () => {
+            const yes = button(t("Delete file"), async () => {
                 if (yes.getAttribute("aria-disabled") === "true") return;
                 yes.focus();
                 yes.setAttribute("aria-disabled", "true");
                 const reply = await call("MovieDeleteAudioSource", job.id, result.id);
                 if (!row.isConnected) return;
-                status.textContent = reply?.error ?? "Source file deleted.";
+                status.textContent = serverError(reply, t("Source file deleted."));
                 if (reply?.error) yes.removeAttribute("aria-disabled");
                 else {
                     status.tabIndex = -1;
@@ -93,7 +97,7 @@ export function audioJobResults(job, call) {
                     remove.remove();
                 }
             });
-            confirm.append(make("p", "Delete the original source file from the server?"), keep, yes);
+            confirm.append(make("p", t("Delete the original source file from the server?")), keep, yes);
             confirm.hidden = true;
             row.append(remove, confirm, status);
         }
@@ -105,37 +109,37 @@ export function audioJobResults(job, call) {
 export const audioJobRunning = job => ["Waiting", "Matching audio", "Writing audio"].includes(job.state);
 
 export function addAudioDialog({parent, opener, item, signal, call, onJob, language: initialLanguage = "hu"}) {
-    const dialog = movieDialog(parent, opener, "Add audio track", signal);
+    const dialog = movieDialog(parent, opener, t("Add audio track"), signal);
     const title = make("p", item.Name), notice = make("p"), list = make("div"), result = make("div");
     const jobStatus = make("p");
     jobStatus.setAttribute("role", "status");
-    const form = make("form"), sourceLabel = make("label", "Source and audio stream"), source = make("select");
+    const form = make("form"), sourceLabel = make("label", t("Source and audio stream")), source = make("select");
     const chosenSource = make("small");
     chosenSource.className = "movie-audio-source-name";
     const updateSource = () => { chosenSource.textContent = source.selectedOptions[0]?.parentElement.label ?? ""; };
     source.onchange = updateSource;
     sourceLabel.append(source, chosenSource);
-    const languageLabel = make("label", "Track language"), language = make("select");
+    const languageLabel = make("label", t("Track language")), language = make("select");
     const languages = ["hu", "en", "de", "fr", "it", "es", "pt", "ja", "pl", "cs", "sk", "ro", "uk", "ru", "zh"];
     for (const code of languages) language.add(new Option(audioLanguage(code), code));
-    language.add(new Option("Other language", "other"));
+    language.add(new Option(t("Other language"), "other"));
     language.value = initialLanguage;
     languageLabel.append(language);
-    const otherLabel = make("label", "Three-letter language code"), other = make("input");
+    const otherLabel = make("label", t("Three-letter language code")), other = make("input");
     other.pattern = "[A-Za-z]{3}";
     other.maxLength = 3;
     otherLabel.append(other);
     otherLabel.hidden = true;
     language.onchange = () => { otherLabel.hidden = language.value !== "other"; other.required = !otherLabel.hidden; };
-    const start = make("button", "Start matching");
-    const more = button("Show more sources", () => load());
+    const start = make("button", t("Start matching"));
+    const more = button(t("Show more sources"), () => load());
     form.append(sourceLabel, languageLabel, otherLabel, start);
     list.append(form, more);
     notice.setAttribute("role", "status");
     dialog.append(title, notice, list, jobStatus, result);
     const request = async (...args) => {
         try { return await call(...args); }
-        catch { return {error: "The server did not respond. Try again."}; }
+        catch { return {error: t("The server did not respond. Try again.")}; }
     };
     let offset = null, timer, loading = false, previous;
     const shown = new Set();
@@ -143,7 +147,7 @@ export function addAudioDialog({parent, opener, item, signal, call, onJob, langu
         const signature = JSON.stringify(job);
         if (signature === previous) return;
         previous = signature;
-        jobStatus.textContent = job.state;
+        jobStatus.textContent = t(job.state);
         result.replaceChildren(audioJobResults(job, request));
     }
     async function poll(jobId) {
@@ -159,35 +163,35 @@ export function addAudioDialog({parent, opener, item, signal, call, onJob, langu
                 return;
             }
         }
-        if (reply?.error) jobStatus.textContent = reply.error;
+        if (reply?.error) jobStatus.textContent = serverError(reply);
         timer = setTimeout(() => poll(jobId), 2000);
     }
     async function load() {
         if (loading) return;
         loading = true;
         more.setAttribute("aria-disabled", "true");
-        if (!source.options.length) notice.textContent = "Checking server files…";
+        if (!source.options.length) notice.textContent = t("Checking server files…");
         const recommended = offset === null;
         const reply = await request("MovieAudioSources", item.Id, offset);
         if (!dialog.open) return;
         loading = false;
         more.removeAttribute("aria-disabled");
         if (reply?.error || !Array.isArray(reply?.sources)) {
-            notice.textContent = reply?.error || "Could not check server files.";
-            more.textContent = "Retry source check";
+            notice.textContent = serverError(reply, t("Could not check server files."));
+            more.textContent = t("Retry source check");
             more.hidden = false;
             return;
         }
         const hadSelection = !!source.value;
         let preferredStream;
         for (const file of reply.sources) {
-            if (shown.has(file.id) || file.folder && !["Episode", "Season"].includes(item.Type)) continue;
+        if (shown.has(file.id) || file.folder && !["Episode", "Season"].includes(item.Type)) continue;
             shown.add(file.id);
             const group = make("optgroup");
             group.label = `${file.name} (${file.location}${file.folder ? ", season folder" : ""})`;
             for (const stream of file.streams) {
                 const details = [audioLanguage(stream.language), stream.codec?.toUpperCase(),
-                    stream.channels && `${stream.channels} ch`, stream.duration && `${Math.round(stream.duration / 60)} min`];
+                    stream.channels && t("{0} ch", stream.channels), stream.duration && t("{0} min", Math.round(stream.duration / 60))];
                 const option = new Option(details.filter(Boolean).join(", "), `${file.id}:${stream.index}`);
                 if (!source.options.length && !preferredStream && details[0] === audioLanguage(language.value))
                     preferredStream = option;
@@ -201,12 +205,12 @@ export function addAudioDialog({parent, opener, item, signal, call, onJob, langu
         if (reply.next == null && document.activeElement === more)
             (source.options.length ? source : dialog.querySelector("header button")).focus();
         more.hidden = reply.next == null;
-        more.textContent = "Show more sources";
+        more.textContent = t("Show more sources");
         offset = reply.next;
         notice.textContent = source.options.length ? "" : offset == null
-            ? "No audio sources found. Place a file in Imports or finish a server download."
-            : recommended ? "No matching sources found. Show more sources to check other files."
-                : "No audio sources on this page.";
+            ? t("No audio sources found. Place a file in Imports or finish a server download.")
+            : recommended ? t("No matching sources found. Show more sources to check other files.")
+                : t("No audio sources on this page.");
     }
     form.onsubmit = async event => {
         event.preventDefault();
@@ -215,11 +219,11 @@ export function addAudioDialog({parent, opener, item, signal, call, onJob, langu
         start.setAttribute("aria-disabled", "true");
         const [id, stream] = source.value.split(":");
         const code = language.value === "other" ? other.value.toLowerCase() : language.value;
-        jobStatus.textContent = "Starting audio job…";
+        jobStatus.textContent = t("Starting audio job…");
         const job = await request("MovieAddAudio", item.Id, id, Number(stream), code, audioLanguage(code));
         if (!dialog.open) return;
         if (job?.error || !job?.id) {
-            jobStatus.textContent = job?.error || "Could not start matching.";
+            jobStatus.textContent = serverError(job, t("Could not start matching."));
             start.removeAttribute("aria-disabled");
             return;
         }

@@ -592,6 +592,10 @@ class MovieDownloads(Base):
             self.assertEqual(page.headers['Cache-Control'], 'no-store')
         with self.go(signed_out, 'GET', '/admin/admin.js') as script:
             self.assertEqual(script.status_code, 200)
+        # service-status.js imports the shared string table, so the admin route must serve it too.
+        for shared in ('strings.js', 'strings.hu.json'):
+            with self.go(signed_out, 'GET', '/admin/' + shared) as asset:
+                self.assertEqual(asset.status_code, 200)
         self.assertEqual(self.go(signed_out, 'GET', '/admin/admin.html').status_code, 404)
         self.assertEqual(self.go(self.app.test_client(), 'GET', route).status_code, 401)
         self.assertEqual(self.go(other, 'GET', route).status_code, 403)

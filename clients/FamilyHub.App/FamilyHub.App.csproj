@@ -52,6 +52,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="10.0.130" />
     <PackageReference Include="CommunityToolkit.Maui.MediaElement" Version="11.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Localization.Abstractions" Version="10.0.0" />
   </ItemGroup>
   <Target Name="SyncSharedEffects" BeforeTargets="PrepareForBuild">
     <Copy SourceFiles="$(MSBuildProjectDirectory)/../../packages/paddock-effects/effects.css;$(MSBuildProjectDirectory)/../../packages/paddock-effects/effects.js"

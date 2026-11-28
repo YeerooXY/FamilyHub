@@ -7,17 +7,17 @@
     <span class="service-status-icon" aria-hidden="true"></span>
     <div class="service-status-copy">
         <div class="service-status-announcement" role="status" aria-atomic="true">
-            <strong>@Title</strong>
-            <p>@Detail</p>
+            <strong>@L[Title]</strong>
+            <p>@L[Detail]</p>
         </div>
-        <p class="service-status-timing" aria-live="off"><span class="service-status-clock"></span>@Status</p>
+        <p class="service-status-timing" aria-live="off"><span class="service-status-clock"></span>@(Status is null ? null : L[Status].Value)</p>
     </div>
     @if (RetryLabel is not null || Secondary is not null)
     {
         <div class="service-status-actions">
             @if (RetryLabel is not null)
             {
-                <button type="button" class="service-status-retry" aria-disabled="@(Busy ? "true" : null)" @onclick="RunRetry">@RetryLabel</button>
+                <button type="button" class="service-status-retry" aria-disabled="@(Busy ? "true" : null)" @onclick="RunRetry">@L[RetryLabel]</button>
             }
             @Secondary
         </div>

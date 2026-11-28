@@ -43,7 +43,7 @@
             <table class="health-table">
                 <caption>@Title readings</caption>
                 <thead>
-                    <tr><th scope="col">Time</th>@foreach (var line in series) { <th scope="col">@line.Label</th> }</tr>
+                    <tr><th scope="col">@L["Time"]</th>@foreach (var line in series) { <th scope="col">@line.Label</th> }</tr>
                 </thead>
                 <tbody>
                     @foreach (var at in tableTimes)

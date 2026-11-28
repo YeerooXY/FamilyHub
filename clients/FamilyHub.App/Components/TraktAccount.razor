@@ -5,32 +5,32 @@
 
 <section class="settings-panel glass-panel" aria-labelledby="trakt-heading">
     <h2 id="trakt-heading">Trakt</h2>
-    <p class="setting-help" id="trakt-help">Linking sends what you watch in Movies and TV to your own Trakt account. Each family member links their own.</p>
+    <p class="setting-help" id="trakt-help">@L["Linking sends what you watch in Movies and TV to your own Trakt account. Each family member links their own."]</p>
     @if (phase == Phase.Loading)
     {
-        <p class="setting-help" role="status">Checking Trakt…</p>
+        <p class="setting-help" role="status">@L["Checking Trakt…"]</p>
     }
     else if (phase == Phase.Unavailable)
     {
-        <div class="setting-row"><span>Trakt is not available right now.</span><button id="trakt-retry" type="button" @onclick="Refresh">Check again</button></div>
+        <div class="setting-row"><span>@L["Trakt is not available right now."]</span><button id="trakt-retry" type="button" @onclick="Refresh">@L["Check again"]</button></div>
     }
     else if (phase == Phase.Unlinked)
     {
-        <div class="setting-row"><span>Not linked</span><button id="trakt-link" type="button" aria-describedby="trakt-help" disabled="@busy" @onclick="StartLink">Link Trakt</button></div>
+        <div class="setting-row"><span>@L["Not linked"]</span><button id="trakt-link" type="button" aria-describedby="trakt-help" disabled="@busy" @onclick="StartLink">@L["Link Trakt"]</button></div>
     }
     else
     {
-        <div class="setting-row"><span id="trakt-name">@(name is null ? "Connected to Trakt" : $"Connected as {name}")</span><button id="trakt-disconnect" type="button" disabled="@busy" @onclick="Disconnect">Disconnect</button></div>
-        <label class="setting-toggle"><input id="trakt-send" type="checkbox" role="switch" checked="@send" disabled="@busy" @onchange="SetSend" /><span>Send what I watch</span></label>
+        <div class="setting-row"><span id="trakt-name">@(name is null ? L["Connected to Trakt"] : L["Connected as {0}", name])</span><button id="trakt-disconnect" type="button" disabled="@busy" @onclick="Disconnect">@L["Disconnect"]</button></div>
+        <label class="setting-toggle"><input id="trakt-send" type="checkbox" role="switch" checked="@send" disabled="@busy" @onchange="SetSend" /><span>@L["Send what I watch"]</span></label>
     }
     @if (error is not null) { <Notice Level="error" Message="@error" /> }
 </section>
 
 <dialog id="trakt-link-dialog" class="popup-panel" aria-labelledby="trakt-link-title" aria-describedby="trakt-link-steps">
-    <div class="dialog-heading"><h2 id="trakt-link-title">Link Trakt</h2><button class="quiet" type="button" aria-label="Close Trakt link" @onclick="CloseLink"><MusicIcon Name="close" /></button></div>
-    <p id="trakt-link-steps">Open the Trakt page below and enter this code. This window updates when Trakt confirms.</p>
+    <div class="dialog-heading"><h2 id="trakt-link-title">@L["Link Trakt"]</h2><button class="quiet" type="button" aria-label="@L["Close Trakt link"].Value" @onclick="CloseLink"><MusicIcon Name="close" /></button></div>
+    <p id="trakt-link-steps">@L["Open the Trakt page below and enter this code. This window updates when Trakt confirms."]</p>
     <p class="trakt-code" id="trakt-code">@userCode</p>
-    <button id="trakt-open" class="trakt-link-open" type="button" @onclick="OpenActivate"><MusicIcon Name="external-link" /> Open trakt.tv/activate</button>
+    <button id="trakt-open" class="trakt-link-open" type="button" @onclick="OpenActivate"><MusicIcon Name="external-link" /> @L["Open trakt.tv/activate"]</button>
     @if (linkError is not null) { <Notice Level="error" Message="@linkError" /> }
 </dialog>
 
@@ -60,7 +60,12 @@
             return await api.RequestJsonAsync<JsonElement>(method, path, payload, disposed.Token);
         }
         catch (OperationCanceledException) when (disposed.IsCancellationRequested) { return null; }
-        catch (Exception exception) { error = NoticeText.Error(exception); return null; }
+        catch (Exception exception)
+        {
+            error = NoticeText.Error(exception);
+            if (exception is FamilyHubApiException serverError) error = Language.ServerError(serverError, error);
+            return null;
+        }
     }
 
     private async Task Refresh()

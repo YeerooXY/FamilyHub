@@ -2,17 +2,17 @@
     <span class="fh-notice-copy">
         <span class="fh-notice-icon"><MusicIcon Name="@Icon" /></span>
         <span class="fh-notice-text" role="@(Announce ? Level == "error" ? "alert" : "status" : null)"
-              aria-live="@(Announce && Level != "error" ? "polite" : null)" aria-atomic="@(Announce ? "true" : null)">@Message</span>
+              aria-live="@(Announce && Level != "error" ? "polite" : null)" aria-atomic="@(Announce ? "true" : null)">@(Message is null ? null : L[Message].Value)</span>
     </span>
     @if (ActionLabel is not null)
     {
         @if (ActionHref is not null)
         {
-            <a href="@ActionHref" class="fh-notice-action">@ActionLabel</a>
+            <a href="@ActionHref" class="fh-notice-action">@L[ActionLabel]</a>
         }
         else
         {
-            <button type="button" class="fh-notice-action" aria-disabled="@(Busy ? "true" : null)" @onclick="RunAction">@ActionLabel</button>
+            <button type="button" class="fh-notice-action" aria-disabled="@(Busy ? "true" : null)" @onclick="RunAction">@L[ActionLabel]</button>
         }
     }
 </div>

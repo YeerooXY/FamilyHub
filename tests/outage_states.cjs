@@ -183,7 +183,7 @@ async function scriptScreens(browser, profile, options) {
             if (resource === "/admin") return route.fulfill({ path: path.join(adminAssets, "admin.html") });
             if (resource.startsWith("/admin/")) {
                 const name = path.basename(resource);
-                return route.fulfill({ path: path.join(name.startsWith("service-status.") ? assets : adminAssets, name) });
+                return route.fulfill({ path: path.join(/^(service-status|strings)\./.test(name) ? assets : adminAssets, name) });
             }
             return route.fallback();
         });

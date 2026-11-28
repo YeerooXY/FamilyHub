@@ -579,6 +579,8 @@ select option { background:#12141a; color:#f3f4f7; }
 }
 @media(min-width:1920px) {
  .settings-search, .settings-shell .settings-search input, .settings-shell #settings-search-clear { min-height:60px; }
+ .settings-page #settings-language { min-height:60px; }
+ .settings-page #settings-language:focus-visible { outline-width:4px; }
  .settings-shell #settings-search-clear { min-width:60px; }
  .settings-shell :is(.settings-search-result,.settings-search input):focus-visible { outline-width:4px; outline-offset:-4px; }
 }

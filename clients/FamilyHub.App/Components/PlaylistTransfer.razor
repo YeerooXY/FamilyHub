@@ -6,7 +6,7 @@
 @Header?.Invoke(this)
 @if (Playlist.CanEdit)
 {
-    <section id="playlist-transfer-progress" class="playlist-transfer" tabindex="-1" aria-label="Playlist import and server downloads">
+    <section id="playlist-transfer-progress" class="playlist-transfer" tabindex="-1" aria-label="@L["Playlist import and server downloads"].Value">
         @if (CanMatch)
         {
             <div class="transfer-actions"><button id="transfer-match" class="quiet" @onclick='() => Start("match")' aria-disabled="@Aria(Working || requesting || !Session.Connected)"><MusicIcon Name="search" />@(Status?.State == "paused" && Status.Mode != "download" ? "Resume matching" : "Find recordings")</button></div>
@@ -25,8 +25,8 @@
                     <span class="transfer-activity @(Working && watchError is null ? "is-active" : "")" aria-hidden="true"></span>
                     <span><strong>@state.Title</strong><small>@state.Message</small></span>
                     }
-                    else if (DownloadFailed) { <span role="status">Some songs could not be downloaded to the server.</span> }
-                    else if (state.State == "paused") { <span role="status">Server download paused.</span> }
+                    else if (DownloadFailed) { <span role="status">@L["Some songs could not be downloaded to the server."]</span> }
+                    else if (state.State == "paused") { <span role="status">@L["Server download paused."]</span> }
                     @if (state.Mode != "download" || !Working && state.State != "paused")
                     {
                         <button id="transfer-progress-action" class="quiet" @onclick="ProgressAction" aria-disabled="@Aria(requesting || watchError is not null || state.State == "pausing")">
@@ -34,14 +34,14 @@
                         </button>
                     }
                     @if (state.State == "error" && ReportProblem.HasDelegate)
-                    { <button id="report-import-problem" class="quiet" type="button" aria-haspopup="dialog" @onclick="ReportProblem">Report this problem</button> }
+                    { <button id="report-import-problem" class="quiet" type="button" aria-haspopup="dialog" @onclick="ReportProblem">@L["Report this problem"]</button> }
                 </div>
                 @if (state.Mode != "download" && state.Recent.Any(RecentNeedsAttention))
                 {
-                    <ul class="transfer-recent" aria-label="Recently checked songs">
+                    <ul class="transfer-recent" aria-label="@L["Recently checked songs"].Value">
                     @foreach (var item in state.Recent.Where(RecentNeedsAttention))
                     {
-                        <li @key="item.Index"><span><strong>@item.Title</strong><small>@item.Artist</small></span><span class="transfer-result @item.State">@StateLabel(item.State)</span>@if (item.State is "review" or "error") { <button id="@("review-recent-" + item.Index)" class="quiet transfer-review-button" @onclick="() => OpenReview(item.Index - 1)" aria-disabled="@Aria(Working || requesting)">Review</button> }</li>
+                        <li @key="item.Index"><span><strong>@item.Title</strong><small>@item.Artist</small></span><span class="transfer-result @item.State">@StateLabel(item.State)</span>@if (item.State is "review" or "error") { <button id="@("review-recent-" + item.Index)" class="quiet transfer-review-button" @onclick="() => OpenReview(item.Index - 1)" aria-disabled="@Aria(Working || requesting)">@L["Review"]</button> }</li>
                     }
                     </ul>
                 }
@@ -49,46 +49,46 @@
         }
         @if (Playlist.Tracks.Count(NeedsAttention) is > 0 and var reviewCount)
         {
-            <details class="transfer-results"><summary id="review-recordings-summary">Review recordings <span>@reviewCount @(reviewCount == 1 ? "needs review" : "need review")</span></summary><ul>
+            <details class="transfer-results"><summary id="review-recordings-summary">@L["Review recordings"] <span>@reviewCount @(reviewCount == 1 ? "needs review" : "need review")</span></summary><ul>
                 @for (var i = 0; i < Playlist.Tracks.Count; i++)
                 {
                     var index = i; var track = Playlist.Tracks[i];
                     if (!NeedsAttention(track)) continue;
-                    <li><span><strong>@track.Title</strong><small>@track.Artist</small></span><span class="transfer-result @track.State">@StateLabel(track.State)</span>@if (track.State != "saved") { <button id="@("review-recording-" + index)" class="quiet transfer-review-button" @onclick="() => OpenReview(index)" aria-disabled="@Aria(Working || requesting)">Review</button> }</li>
+                    <li><span><strong>@track.Title</strong><small>@track.Artist</small></span><span class="transfer-result @track.State">@StateLabel(track.State)</span>@if (track.State != "saved") { <button id="@("review-recording-" + index)" class="quiet transfer-review-button" @onclick="() => OpenReview(index)" aria-disabled="@Aria(Working || requesting)">@L["Review"]</button> }</li>
                 }
             </ul></details>
         }
         <p class="sr" role="status">@(appendImport && Status?.State == "done" ? "Playlist import finished." : "")</p>
-        <ServiceStatus Active="@(watchError is not null)" Detail="The server can keep working while progress is unavailable."
-                       RetryLabel="Retry playlist progress" Retry="ReconnectProgress" Busy="requesting"
+        <ServiceStatus Active="@(watchError is not null)" Detail="@L["The server can keep working while progress is unavailable."].Value"
+                       RetryLabel="@L["Retry playlist progress"].Value" Retry="ReconnectProgress" Busy="requesting"
                        AutoRetry="true" FocusTarget="#playlist-transfer-progress" />
         @if (!string.IsNullOrEmpty(error)) { <Notice Level="error" Message="@error" /> }
     </section>
     <dialog id="transfer-review-dialog" class="popup-panel transfer-review-dialog" aria-labelledby="transfer-review-heading">
-        <div class="dialog-heading"><h2 id="transfer-review-heading">Review recording</h2><button id="transfer-review-close" class="quiet" aria-label="Close recording choices" @onclick="CloseReview"><MusicIcon Name="close" /></button></div>
+        <div class="dialog-heading"><h2 id="transfer-review-heading">@L["Review recording"]</h2><button id="transfer-review-close" class="quiet" aria-label="@L["Close recording choices"].Value" @onclick="CloseReview"><MusicIcon Name="close" /></button></div>
         <p class="transfer-review-song"><strong>@reviewTitle</strong><span>@reviewArtist</span></p>
-        @if (reviewLoading) { <Notice Message="Finding recording choices…" /> }
+        @if (reviewLoading) { <Notice Message="@L["Finding recording choices…"].Value" /> }
         @if (!string.IsNullOrEmpty(reviewError)) { <Notice Level="error" Message="@reviewError" /> }
         <div class="transfer-candidates" aria-busy="@Aria(reviewLoading)">
         @for (var i = 0; i < choices.Count; i++)
         {
             var choice = i; var recording = choices[i];
             <article class="transfer-candidate">
-                <div><strong>@recording.Title</strong><span>@recording.Channel, @RecordingTime(recording.Duration) @if (recording.Saved) { <span class="transfer-result saved">On server</span> }</span></div>
-                <div class="transfer-candidate-actions"><button class="quiet" @onclick="() => OpenOnYouTube(recording)" aria-label="@($"Open {recording.Title} from {recording.Channel} on YouTube")"><MusicIcon Name="external-link" />YouTube</button><button class="primary" @onclick="() => UseRecording(choice, recording)" aria-label="@($"Use recording {recording.Title} from {recording.Channel}")" aria-disabled="@Aria(reviewLoading || requesting)">Use recording</button></div>
+                <div><strong>@recording.Title</strong><span>@recording.Channel, @RecordingTime(recording.Duration) @if (recording.Saved) { <span class="transfer-result saved">@L["On server"]</span> }</span></div>
+                <div class="transfer-candidate-actions"><button class="quiet" @onclick="() => OpenOnYouTube(recording)" aria-label="@($"Open {recording.Title} from {recording.Channel} on YouTube")"><MusicIcon Name="external-link" />YouTube</button><button class="primary" @onclick="() => UseRecording(choice, recording)" aria-label="@($"Use recording {recording.Title} from {recording.Channel}")" aria-disabled="@Aria(reviewLoading || requesting)">@L["Use recording"]</button></div>
             </article>
         }
         </div>
-        @if (!reviewLoading && choices.Count == 0 && string.IsNullOrEmpty(reviewError)) { <Notice Level="empty" Message="No recording choices found." /> }
-        <button class="quiet" @onclick="SearchChoicesAgain" aria-disabled="@Aria(reviewLoading || requesting)"><MusicIcon Name="search" />Search again</button>
+        @if (!reviewLoading && choices.Count == 0 && string.IsNullOrEmpty(reviewError)) { <Notice Level="empty" Message="@L["No recording choices found."].Value" /> }
+        <button class="quiet" @onclick="SearchChoicesAgain" aria-disabled="@Aria(reviewLoading || requesting)"><MusicIcon Name="search" />@L["Search again"]</button>
     </dialog>
     <dialog id="transfer-import-dialog" class="popup-panel" aria-labelledby="transfer-import-heading">
-        <div class="dialog-heading"><h2 id="transfer-import-heading">Import playlist link</h2><button class="quiet" aria-label="Close playlist import" @onclick="CloseImport"><MusicIcon Name="close" /></button></div>
+        <div class="dialog-heading"><h2 id="transfer-import-heading">@L["Import playlist link"]</h2><button class="quiet" aria-label="@L["Close playlist import"].Value" @onclick="CloseImport"><MusicIcon Name="close" /></button></div>
         <form @onsubmit="Import" @onsubmit:preventDefault>
-            <label for="transfer-url">Playlist link</label><input id="transfer-url" type="url" @bind="url" required />
-            <p>Spotify, YouTube, Deezer or SoundCloud. Songs already in this playlist are skipped.</p>
+            <label for="transfer-url">@L["Playlist link"]</label><input id="transfer-url" type="url" @bind="url" required />
+            <p>@L["Spotify, YouTube, Deezer or SoundCloud. Songs already in this playlist are skipped."]</p>
             <Notice Level="error" Message="@error" />
-            <div class="actions"><button class="primary" type="submit" aria-disabled="@Aria(requesting)">@(requesting ? "Starting..." : "Import playlist")</button><button type="button" @onclick="CloseImport">Cancel</button></div>
+            <div class="actions"><button class="primary" type="submit" aria-disabled="@Aria(requesting)">@(requesting ? "Starting..." : "Import playlist")</button><button type="button" @onclick="CloseImport">@L["Cancel"]</button></div>
         </form>
     </dialog>
 }

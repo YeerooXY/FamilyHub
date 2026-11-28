@@ -29,7 +29,7 @@ else
     public static string AppLabel(string route) => Apps.FirstOrDefault(app => app.Route == route).Label ?? "FamilyHub";
 
     private readonly ElementReference[] cards = new ElementReference[Apps.Length];
-    private RenderFragment AppGrid => @<nav class="@(Current is null ? "hub-grid" : "switcher-grid")" aria-label="Apps">
+    private RenderFragment AppGrid => @<nav class="@(Current is null ? "hub-grid" : "switcher-grid")" aria-label="@L["Apps"].Value">
         @for (var i = 0; i < Apps.Length; i++)
         {
             var index = i;
@@ -39,7 +39,7 @@ else
                     @ref="cards[index]" @onkeydown="e => MoveFocus(index, e)" @onclick="() => Open.InvokeAsync(route)">
                 @if (Current is not null)
                 {
-                    <MusicIcon Name="@icon" /><span>@label</span>
+                    <MusicIcon Name="@icon" /><span>@L[label]</span>
                 }
                 else
                 {
@@ -57,13 +57,13 @@ else
                     </span>
                     <span class="hub-text">
                         <span class="hub-label">
-                            @label
+                            @L[label]
                             @if (route == "Movies & TV")
                             {
-                                <span @ref="downloadIndicator" class="hub-download-ring" role="img" aria-label="Downloading" hidden></span>
+                                <span @ref="downloadIndicator" class="hub-download-ring" role="img" aria-label="@L["Downloading"].Value" hidden></span>
                             }
                         </span>
-                        <span class="hub-note">@note</span>
+                        <span class="hub-note">@L[note]</span>
                     </span>
                 }
             </button>

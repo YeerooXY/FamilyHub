@@ -171,6 +171,7 @@ public sealed record ProfileSelection
 public sealed class FamilyHubApiException(string message, int statusCode, bool staleSession = false) : Exception(message)
 {
     public int StatusCode { get; } = statusCode;
+    public string? ErrorCode { get; init; }
     public bool RequiresSignIn => StatusCode == 401 || staleSession;
     public TimeSpan? RetryAfter { get; init; }
 }

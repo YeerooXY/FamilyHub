@@ -1,0 +1,1570 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="(you)" xml:space="preserve"><value>(te)</value></data>
+  <data name="({0:N0} left)" xml:space="preserve"><value>({0:N0} maradt)</value></data>
+  <data name=", Hard Mode rules" xml:space="preserve"><value>, a nehéz mód szabályaival</value></data>
+  <data name=", playing" xml:space="preserve"><value>, játszik</value></data>
+  <data name=", typing, {0} tiles filled" xml:space="preserve"><value>, gépel, {0} betűt beírt</value></data>
+  <data name=", won the round" xml:space="preserve"><value>, megnyerte a fordulót</value></data>
+  <data name=", {0} active time" xml:space="preserve"><value>, {0} aktív idő</value></data>
+  <data name="1 GB" xml:space="preserve"><value>1 GB</value></data>
+  <data name="1 day" xml:space="preserve"><value>1 nap</value></data>
+  <data name="1 hour" xml:space="preserve"><value>1 óra</value></data>
+  <data name="1-minute load average" xml:space="preserve"><value>1 perces átlagterhelés</value></data>
+  <data name="10 GB" xml:space="preserve"><value>10 GB</value></data>
+  <data name="3 GB" xml:space="preserve"><value>3 GB</value></data>
+  <data name="30 days" xml:space="preserve"><value>30 nap</value></data>
+  <data name="4K HDR or Remux" xml:space="preserve"><value>4K HDR vagy Remux</value></data>
+  <data name="4K streaming copy" xml:space="preserve"><value>4K streamelt videó</value></data>
+  <data name="5 GB" xml:space="preserve"><value>5 GB</value></data>
+  <data name="7 days" xml:space="preserve"><value>7 nap</value></data>
+  <data name="A different song or version plays. An admin picks a new source." xml:space="preserve"><value>Másik dal vagy verzió szól. Egy adminisztrátor kiválasztja az új forrást.</value></data>
+  <data name="A file could not be uploaded. Try again." xml:space="preserve"><value>Egy fájlt nem sikerült feltölteni. Próbáld újra.</value></data>
+  <data name="A new daily puzzle is ready." xml:space="preserve"><value>Elérhető az új napi feladvány.</value></data>
+  <data name="A profile with this name already exists." xml:space="preserve"><value>Már létezik profil ezzel a névvel.</value></data>
+  <data name="A solid guess. Another word narrowed the options more." xml:space="preserve"><value>Jó tipp. Egy másik szó jobban leszűkítette volna a lehetőségeket.</value></data>
+  <data name="A strong opening word. It tests common letters in useful places." xml:space="preserve"><value>Erős kezdőszó. Gyakori betűket próbál ki hasznos helyeken.</value></data>
+  <data name="A word that guaranteed a solve was available. This guess did not." xml:space="preserve"><value>Volt olyan szó, amellyel biztosan megfejthetted volna a feladványt.</value></data>
+  <data name="About {0} GB per hour" xml:space="preserve"><value>Kb. {0} GB óránként</value></data>
+  <data name="About {0} left" xml:space="preserve"><value>Kb. {0} van hátra</value></data>
+  <data name="Accounts" xml:space="preserve"><value>Fiókok</value></data>
+  <data name="Actions for {0}" xml:space="preserve"><value>Műveletek ehhez: {0}</value></data>
+  <data name="Active jobs" xml:space="preserve"><value>Aktív feladatok</value></data>
+  <data name="Active time" xml:space="preserve"><value>Aktív idő</value></data>
+  <data name="Activity" xml:space="preserve"><value>Tevékenység</value></data>
+  <data name="Actor" xml:space="preserve"><value>Színész</value></data>
+  <data name="Add a description" xml:space="preserve"><value>Adj meg egy leírást</value></data>
+  <data name="Add audio track" xml:space="preserve"><value>Hangsáv hozzáadása</value></data>
+  <data name="Add mapping" xml:space="preserve"><value>Párosítás hozzáadása</value></data>
+  <data name="Add profile" xml:space="preserve"><value>Profil hozzáadása</value></data>
+  <data name="Add songs" xml:space="preserve"><value>Dalok hozzáadása</value></data>
+  <data name="Add songs from this device" xml:space="preserve"><value>Dalok hozzáadása erről az eszközről</value></data>
+  <data name="Add songs to your library to start a mix." xml:space="preserve"><value>Adj dalokat a könyvtárhoz a mix indításához.</value></data>
+  <data name="Add to a playlist" xml:space="preserve"><value>Hozzáadás egy lejátszási listához</value></data>
+  <data name="Add to playlist" xml:space="preserve"><value>Hozzáadás lejátszási listához</value></data>
+  <data name="Add to queue" xml:space="preserve"><value>Hozzáadás a lejátszási sorhoz</value></data>
+  <data name="Add {0} to playlist" xml:space="preserve"><value>Hozzáadás a lejátszási listához: {0}</value></data>
+  <data name="Added" xml:space="preserve"><value>Hozzáadva</value></data>
+  <data name="Added automatically" xml:space="preserve"><value>Automatikusan hozzáadva</value></data>
+  <data name="Added by" xml:space="preserve"><value>Hozzáadta</value></data>
+  <data name="Added {0} to the download queue." xml:space="preserve"><value>Hozzáadva a letöltési sorhoz: {0}.</value></data>
+  <data name="Adults only" xml:space="preserve"><value>Csak felnőtteknek</value></data>
+  <data name="Adventure" xml:space="preserve"><value>Kaland</value></data>
+  <data name="Age rating {0}" xml:space="preserve"><value>Korhatár: {0}</value></data>
+  <data name="Album" xml:space="preserve"><value>Album</value></data>
+  <data name="Albums for you" xml:space="preserve"><value>Neked ajánlott albumok</value></data>
+  <data name="All" xml:space="preserve"><value>Összes</value></data>
+  <data name="All playlists" xml:space="preserve"><value>Összes lejátszási lista</value></data>
+  <data name="All time" xml:space="preserve"><value>Minden időszak</value></data>
+  <data name="Almost done" xml:space="preserve"><value>Hamarosan kész</value></data>
+  <data name="Almost the best choice. Another word narrowed the options slightly more." xml:space="preserve"><value>Majdnem a legjobb tipp. Egy másik szó egy kicsivel jobban leszűkítette volna a lehetőségeket.</value></data>
+  <data name="Alphabetical" xml:space="preserve"><value>Ábécésorrend</value></data>
+  <data name="Already guessed." xml:space="preserve"><value>Ezt már tippelted.</value></data>
+  <data name="Already requested or available" xml:space="preserve"><value>Már kérted, vagy már elérhető</value></data>
+  <data name="Also searched for " xml:space="preserve"><value>További keresés: </value></data>
+  <data name="Always backdrop" xml:space="preserve"><value>Mindig a háttérkép</value></data>
+  <data name="Always preset" xml:space="preserve"><value>Mindig a beállított szín</value></data>
+  <data name="Amber" xml:space="preserve"><value>Borostyánsárga</value></data>
+  <data name="Another word had much better odds or revealed much more." xml:space="preserve"><value>Egy másik szó sokkal nagyobb eséllyel vezetett volna megfejtéshez, vagy több információt adott volna.</value></data>
+  <data name="Another word made better use of the clues." xml:space="preserve"><value>Egy másik szó jobban kihasználta volna a nyomokat.</value></data>
+  <data name="Anyone with the link can download “{0}” until it expires." xml:space="preserve"><value>A link birtokában bárki letöltheti a fájlt a lejáratig: „{0}”.</value></data>
+  <data name="Appearance" xml:space="preserve"><value>Megjelenés</value></data>
+  <data name="Apply my change again" xml:space="preserve"><value>Módosítás alkalmazása újra</value></data>
+  <data name="Apps" xml:space="preserve"><value>Alkalmazások</value></data>
+  <data name="Artist" xml:space="preserve"><value>Előadó</value></data>
+  <data name="Artist mappings" xml:space="preserve"><value>Előadók párosítása</value></data>
+  <data name="Artist name" xml:space="preserve"><value>Előadó neve</value></data>
+  <data name="Ascending" xml:space="preserve"><value>Növekvő</value></data>
+  <data name="Ask the server owner to enable downloads for your profile." xml:space="preserve"><value>Kérd meg a szerver tulajdonosát, hogy engedélyezze a letöltést a profilodhoz.</value></data>
+  <data name="Ask the server owner to set a profile password to use your private files." xml:space="preserve"><value>A saját fájlok használatához kérd meg a szerver tulajdonosát, hogy állítson be jelszót a profilodhoz.</value></data>
+  <data name="Attach pictures here" xml:space="preserve"><value>Csatolj ide képeket</value></data>
+  <data name="Audio" xml:space="preserve"><value>Hang</value></data>
+  <data name="Audio &amp; Subtitles" xml:space="preserve"><value>Hang és feliratok</value></data>
+  <data name="Audio added to {0}." xml:space="preserve"><value>Hangsáv hozzáadva ehhez: {0}.</value></data>
+  <data name="Audio channel limit" xml:space="preserve"><value>Hangcsatornák felső határa</value></data>
+  <data name="Audio delay" xml:space="preserve"><value>Hang késleltetése</value></data>
+  <data name="Audio delay is available for audio tracks you add. Use Find audio in Audio &amp; Subtitles." xml:space="preserve"><value>A hozzáadott hangsávok késleltetése állítható. A Hang és feliratok menüben válaszd a Hangsáv keresése lehetőséget.</value></data>
+  <data name="Audio delay value" xml:space="preserve"><value>Hangkésleltetés értéke</value></data>
+  <data name="Audio sync is unavailable for this stream." xml:space="preserve"><value>Ennél az adatfolyamnál nem állítható a hang időzítése.</value></data>
+  <data name="Audio timing unchanged." xml:space="preserve"><value>A hang időzítése változatlan.</value></data>
+  <data name="Audio track" xml:space="preserve"><value>Hangsáv</value></data>
+  <data name="Audio track added." xml:space="preserve"><value>Hangsáv hozzáadva.</value></data>
+  <data name="Auto" xml:space="preserve"><value>Automatikus</value></data>
+  <data name="Automatic" xml:space="preserve"><value>Automatikus</value></data>
+  <data name="Automatic catalogue attempts per hour" xml:space="preserve"><value>Óránkénti automatikus katalóguskeresések</value></data>
+  <data name="Automatic lookup is off." xml:space="preserve"><value>Az automatikus keresés ki van kapcsolva.</value></data>
+  <data name="Automatic source replacement" xml:space="preserve"><value>Automatikus forráscsere</value></data>
+  <data name="Automatic work" xml:space="preserve"><value>Automatikus feladatok</value></data>
+  <data name="Availability" xml:space="preserve"><value>Elérhetőség</value></data>
+  <data name="Availability unknown" xml:space="preserve"><value>Ismeretlen elérhetőség</value></data>
+  <data name="Available" xml:space="preserve"><value>Elérhető</value></data>
+  <data name="Available in the library" xml:space="preserve"><value>Elérhető a könyvtárban</value></data>
+  <data name="Available sessions" xml:space="preserve"><value>Elérhető munkamenetek</value></data>
+  <data name="Average guesses to solve" xml:space="preserve"><value>Átlagos tippszám a megfejtéshez</value></data>
+  <data name="Back" xml:space="preserve"><value>Vissza</value></data>
+  <data name="Back 10 seconds" xml:space="preserve"><value>Vissza 10 másodpercet</value></data>
+  <data name="Back from " xml:space="preserve"><value>Vissza innen: </value></data>
+  <data name="Back to feedback" xml:space="preserve"><value>Vissza a visszajelzésekhez</value></data>
+  <data name="Back to movies" xml:space="preserve"><value>Vissza a filmekhez</value></data>
+  <data name="Back to profiles" xml:space="preserve"><value>Vissza a profilokhoz</value></data>
+  <data name="Back to puzzle" xml:space="preserve"><value>Vissza a feladványhoz</value></data>
+  <data name="Back to settings categories" xml:space="preserve"><value>Vissza a beállítási kategóriákhoz</value></data>
+  <data name="Back to song review" xml:space="preserve"><value>Vissza a dalok ellenőrzéséhez</value></data>
+  <data name="Back to titles" xml:space="preserve"><value>Vissza a címekhez</value></data>
+  <data name="Backdrop" xml:space="preserve"><value>Háttérkép</value></data>
+  <data name="Background style" xml:space="preserve"><value>Háttér típusa</value></data>
+  <data name="Backup audio" xml:space="preserve"><value>Tartalék hangsáv</value></data>
+  <data name="Bad quality or live performance" xml:space="preserve"><value>Rossz minőségű vagy élő felvétel</value></data>
+  <data name="Based on your listening" xml:space="preserve"><value>A zenehallgatásaid alapján</value></data>
+  <data name="Bass boost" xml:space="preserve"><value>Mélyhangkiemelés</value></data>
+  <data name="Best" xml:space="preserve"><value>Legjobb</value></data>
+  <data name="Bitrate limit" xml:space="preserve"><value>Bitrátakorlát</value></data>
+  <data name="Blue" xml:space="preserve"><value>Kék</value></data>
+  <data name="Blunder" xml:space="preserve"><value>Nagy hiba</value></data>
+  <data name="Blur unwatched episode stills" xml:space="preserve"><value>Meg nem nézett epizódok képeinek elmosása</value></data>
+  <data name="Blurred" xml:space="preserve"><value>Elmosott</value></data>
+  <data name="Book" xml:space="preserve"><value>Bevált kezdés</value></data>
+  <data name="Born" xml:space="preserve"><value>Született</value></data>
+  <data name="Box" xml:space="preserve"><value>Doboz</value></data>
+  <data name="Brilliant" xml:space="preserve"><value>Zseniális</value></data>
+  <data name="Browse or continue watching" xml:space="preserve"><value>Böngészés és lejátszás folytatása</value></data>
+  <data name="Browse saved songs" xml:space="preserve"><value>Mentett dalok böngészése</value></data>
+  <data name="Browse your library" xml:space="preserve"><value>Könyvtár böngészése</value></data>
+  <data name="Buffering" xml:space="preserve"><value>Pufferelés</value></data>
+  <data name="CPU load" xml:space="preserve"><value>Processzorterhelés</value></data>
+  <data name="CPU package:" xml:space="preserve"><value>Processzorcsomag:</value></data>
+  <data name="CPU warm at 70 °C, hot at 85 °C" xml:space="preserve"><value>A processzor 70 °C-nál meleg, 85 °C-nál forró</value></data>
+  <data name="Camera copy" xml:space="preserve"><value>Mozis felvétel</value></data>
+  <data name="Can't reach your server" xml:space="preserve"><value>A szerver nem érhető el</value></data>
+  <data name="Cancel" xml:space="preserve"><value>Mégse</value></data>
+  <data name="Cannot reach the server. Check your connection and try again." xml:space="preserve"><value>A szerver nem érhető el. Ellenőrizd a kapcsolatot, és próbáld újra.</value></data>
+  <data name="Card style" xml:space="preserve"><value>Kártyák megjelenése</value></data>
+  <data name="Cast" xml:space="preserve"><value>Szereplők</value></data>
+  <data name="Catalogue lookup unavailable." xml:space="preserve"><value>A katalóguskeresés nem érhető el.</value></data>
+  <data name="Catalogue work paused while the server is in use." xml:space="preserve"><value>A katalógus feldolgozása szünetel, amíg a szerver használatban van.</value></data>
+  <data name="Catalogue worker configuration" xml:space="preserve"><value>Katalóguskeresés beállításai</value></data>
+  <data name="Change picture" xml:space="preserve"><value>Kép cseréje</value></data>
+  <data name="Change server" xml:space="preserve"><value>Szerverváltás</value></data>
+  <data name="Chapter list" xml:space="preserve"><value>Fejezetlista</value></data>
+  <data name="Chapter marks on the seek bar" xml:space="preserve"><value>Fejezetjelölők a lejátszási sávon</value></data>
+  <data name="Chapter {0}" xml:space="preserve"><value>{0}. fejezet</value></data>
+  <data name="Chapters" xml:space="preserve"><value>Fejezetek</value></data>
+  <data name="Chapters,Trickplay" xml:space="preserve"><value>Fejezetek, előnézeti képek</value></data>
+  <data name="Check again" xml:space="preserve"><value>Ellenőrizd újra</value></data>
+  <data name="Check the Jellyfin connection for this profile." xml:space="preserve"><value>Ellenőrizd a profil Jellyfin-kapcsolatát.</value></data>
+  <data name="Check the Jellyfin connection to load its status." xml:space="preserve"><value>Ellenőrizd a Jellyfin-kapcsolatot az állapot betöltéséhez.</value></data>
+  <data name="Check the connection to download the update." xml:space="preserve"><value>Ellenőrizd a kapcsolatot a frissítés letöltéséhez.</value></data>
+  <data name="Check the library before resubmitting the song." xml:space="preserve"><value>Ellenőrizd a könyvtárat, mielőtt újra beküldöd a dalt.</value></data>
+  <data name="Check the playlist before retrying the save." xml:space="preserve"><value>Ellenőrizd a lejátszási listát, mielőtt újra mented.</value></data>
+  <data name="Check the server address and your connection." xml:space="preserve"><value>Ellenőrizd a szerver címét és a kapcsolatot.</value></data>
+  <data name="Check the status of the accepted upload." xml:space="preserve"><value>Ellenőrizd a fogadott feltöltés állapotát.</value></data>
+  <data name="Check the suggested values before saving." xml:space="preserve"><value>Mentés előtt ellenőrizd a javasolt értékeket.</value></data>
+  <data name="Check your connection before adding songs." xml:space="preserve"><value>A dalok hozzáadása előtt ellenőrizd a kapcsolatot.</value></data>
+  <data name="Check your connection to load files." xml:space="preserve"><value>A fájlok betöltéséhez ellenőrizd a kapcsolatot.</value></data>
+  <data name="Check your connection, or turn on Tailscale if you are away from home." xml:space="preserve"><value>Ellenőrizd a kapcsolatot. Ha távol vagy otthonról, kapcsold be a Tailscale-t.</value></data>
+  <data name="Checking Trakt…" xml:space="preserve"><value>Trakt ellenőrzése…</value></data>
+  <data name="Checking for updates…" xml:space="preserve"><value>Frissítések keresése…</value></data>
+  <data name="Checking guess…" xml:space="preserve"><value>Tipp ellenőrzése…</value></data>
+  <data name="Checking server files…" xml:space="preserve"><value>Szerverfájlok ellenőrzése…</value></data>
+  <data name="Checking timing" xml:space="preserve"><value>Időzítés ellenőrzése</value></data>
+  <data name="Choose" xml:space="preserve"><value>Kiválasztás</value></data>
+  <data name="Choose a file." xml:space="preserve"><value>Válassz fájlt.</value></data>
+  <data name="Choose a film from the library." xml:space="preserve"><value>Válassz filmet a könyvtárból.</value></data>
+  <data name="Choose a folder" xml:space="preserve"><value>Mappa kiválasztása</value></data>
+  <data name="Choose a profile" xml:space="preserve"><value>Profil kiválasztása</value></data>
+  <data name="Choose a recording" xml:space="preserve"><value>Felvétel kiválasztása</value></data>
+  <data name="Choose a title from the results." xml:space="preserve"><value>Válassz egy címet a találatok közül.</value></data>
+  <data name="Choose an image smaller than 10 MB." xml:space="preserve"><value>Válassz 10 MB-nál kisebb képet.</value></data>
+  <data name="Choose an item." xml:space="preserve"><value>Válassz egy elemet.</value></data>
+  <data name="Choose another source" xml:space="preserve"><value>Válassz másik forrást</value></data>
+  <data name="Choose audio output" xml:space="preserve"><value>Hangkimenet kiválasztása</value></data>
+  <data name="Choose family files or your files." xml:space="preserve"><value>Válaszd a családi vagy a saját fájlokat.</value></data>
+  <data name="Choose how long the link works." xml:space="preserve"><value>Válaszd ki, meddig legyen érvényes a link.</value></data>
+  <data name="Choose image" xml:space="preserve"><value>Kép kiválasztása</value></data>
+  <data name="Choose listener" xml:space="preserve"><value>Hallgató kiválasztása</value></data>
+  <data name="Choose listener, {0}" xml:space="preserve"><value>Hallgató kiválasztása, {0}</value></data>
+  <data name="Choose playlist image" xml:space="preserve"><value>Borítókép kiválasztása</value></data>
+  <data name="Choose recording" xml:space="preserve"><value>Felvétel választása</value></data>
+  <data name="Choose saved songs" xml:space="preserve"><value>Mentett dalok kiválasztása</value></data>
+  <data name="Choose songs" xml:space="preserve"><value>Dalok kiválasztása</value></data>
+  <data name="Clear" xml:space="preserve"><value>Törlés</value></data>
+  <data name="Clear YouTube links" xml:space="preserve"><value>YouTube-linkek törlése</value></data>
+  <data name="Clear link" xml:space="preserve"><value>Link törlése</value></data>
+  <data name="Clear listening history" xml:space="preserve"><value>Zenehallgatási előzmények törlése</value></data>
+  <data name="Clear listening history?" xml:space="preserve"><value>Törlöd a zenehallgatási előzményeket?</value></data>
+  <data name="Clear playlist search" xml:space="preserve"><value>Listakeresés törlése</value></data>
+  <data name="Clear search" xml:space="preserve"><value>Keresés törlése</value></data>
+  <data name="Clear selection" xml:space="preserve"><value>Kijelölés megszüntetése</value></data>
+  <data name="Clear settings search" xml:space="preserve"><value>Beállításkeresés törlése</value></data>
+  <data name="Clear song search" xml:space="preserve"><value>Dalkeresés törlése</value></data>
+  <data name="Clipboard preview" xml:space="preserve"><value>A vágólap előnézete</value></data>
+  <data name="Close" xml:space="preserve"><value>Bezárás</value></data>
+  <data name="Close Add songs" xml:space="preserve"><value>Dalok hozzáadásának bezárása</value></data>
+  <data name="Close Connect" xml:space="preserve"><value>Csatlakozás bezárása</value></data>
+  <data name="Close Listen Together" xml:space="preserve"><value>Közös zenehallgatás bezárása</value></data>
+  <data name="Close Now Playing" xml:space="preserve"><value>Lejátszó bezárása</value></data>
+  <data name="Close Report song" xml:space="preserve"><value>Dalbejelentés bezárása</value></data>
+  <data name="Close Spotify question" xml:space="preserve"><value>Spotify-kérdés bezárása</value></data>
+  <data name="Close Trakt link" xml:space="preserve"><value>Trakt-összekapcsolás bezárása</value></data>
+  <data name="Close audio and subtitles" xml:space="preserve"><value>Hang és feliratok bezárása</value></data>
+  <data name="Close clear listening history" xml:space="preserve"><value>Előzménytörlés bezárása</value></data>
+  <data name="Close co-authors" xml:space="preserve"><value>Társszerzők bezárása</value></data>
+  <data name="Close create playlist" xml:space="preserve"><value>Listalétrehozás bezárása</value></data>
+  <data name="Close delete playlist" xml:space="preserve"><value>Listatörlés bezárása</value></data>
+  <data name="Close episodes" xml:space="preserve"><value>Epizódlista bezárása</value></data>
+  <data name="Close family board" xml:space="preserve"><value>Családi tábla bezárása</value></data>
+  <data name="Close feedback" xml:space="preserve"><value>Visszajelzés bezárása</value></data>
+  <data name="Close genre chooser" xml:space="preserve"><value>Műfajválasztó bezárása</value></data>
+  <data name="Close help" xml:space="preserve"><value>Súgó bezárása</value></data>
+  <data name="Close keep on this device" xml:space="preserve"><value>Helyi mentés bezárása</value></data>
+  <data name="Close listener options" xml:space="preserve"><value>Hallgatói beállítások bezárása</value></data>
+  <data name="Close lyrics" xml:space="preserve"><value>Dalszöveg bezárása</value></data>
+  <data name="Close metadata review" xml:space="preserve"><value>Metaadat-ellenőrzés bezárása</value></data>
+  <data name="Close playback info" xml:space="preserve"><value>Lejátszási adatok bezárása</value></data>
+  <data name="Close player options" xml:space="preserve"><value>Lejátszási beállítások bezárása</value></data>
+  <data name="Close playlist details" xml:space="preserve"><value>Listaadatok bezárása</value></data>
+  <data name="Close playlist import" xml:space="preserve"><value>Listaimportálás bezárása</value></data>
+  <data name="Close playlist options" xml:space="preserve"><value>Listabeállítások bezárása</value></data>
+  <data name="Close playlist picker" xml:space="preserve"><value>Listaválasztó bezárása</value></data>
+  <data name="Close playlist search" xml:space="preserve"><value>Listakeresés bezárása</value></data>
+  <data name="Close preview" xml:space="preserve"><value>Előnézet bezárása</value></data>
+  <data name="Close profile menu" xml:space="preserve"><value>Profilmenü bezárása</value></data>
+  <data name="Close recording choice" xml:space="preserve"><value>Felvételválasztás bezárása</value></data>
+  <data name="Close recording choices" xml:space="preserve"><value>Felvételi lehetőségek bezárása</value></data>
+  <data name="Close remove downloaded songs" xml:space="preserve"><value>Letöltések eltávolításának bezárása</value></data>
+  <data name="Close screenshot" xml:space="preserve"><value>Képernyőkép bezárása</value></data>
+  <data name="Close settings" xml:space="preserve"><value>Beállítások bezárása</value></data>
+  <data name="Close song options" xml:space="preserve"><value>Dalbeállítások bezárása</value></data>
+  <data name="Close song picker" xml:space="preserve"><value>Dalválasztó bezárása</value></data>
+  <data name="Close sort playlists" xml:space="preserve"><value>Listarendezés bezárása</value></data>
+  <data name="Close sound and subtitle style" xml:space="preserve"><value>Hang- és feliratbeállítások bezárása</value></data>
+  <data name="Close update" xml:space="preserve"><value>Frissítés bezárása</value></data>
+  <data name="Close yesterday’s results" xml:space="preserve"><value>Tegnapi eredmények bezárása</value></data>
+  <data name="Close {0}" xml:space="preserve"><value>Bezárás: {0}</value></data>
+  <data name="Co-authors" xml:space="preserve"><value>Társszerzők</value></data>
+  <data name="Collections" xml:space="preserve"><value>Gyűjtemények</value></data>
+  <data name="Complete series" xml:space="preserve"><value>Teljes sorozat</value></data>
+  <data name="Compressed 4K disc video" xml:space="preserve"><value>Tömörített 4K lemezvideó</value></data>
+  <data name="Compressed HD disc video" xml:space="preserve"><value>Tömörített HD lemezvideó</value></data>
+  <data name="Confirm download" xml:space="preserve"><value>Letöltés megerősítése</value></data>
+  <data name="Connect" xml:space="preserve"><value>Csatlakozás</value></data>
+  <data name="Connect to clear shared listening history." xml:space="preserve"><value>Csatlakozz a megosztott zenehallgatási előzmények törléséhez.</value></data>
+  <data name="Connect to your server to see who is online." xml:space="preserve"><value>Csatlakozz a szerverhez, hogy lásd, ki van online.</value></data>
+  <data name="Connected" xml:space="preserve"><value>Csatlakozva</value></data>
+  <data name="Connected as {0}" xml:space="preserve"><value>Összekapcsolva ezzel a fiókkal: {0}</value></data>
+  <data name="Connected to Trakt" xml:space="preserve"><value>Trakt összekapcsolva</value></data>
+  <data name="Connecting..." xml:space="preserve"><value>Csatlakozás...</value></data>
+  <data name="Connecting…" xml:space="preserve"><value>Csatlakozás…</value></data>
+  <data name="Connection" xml:space="preserve"><value>Kapcsolat</value></data>
+  <data name="Contents of {0}" xml:space="preserve"><value>Tartalom: {0}</value></data>
+  <data name="Continue" xml:space="preserve"><value>Folytatás</value></data>
+  <data name="Continue watching" xml:space="preserve"><value>Folytatás</value></data>
+  <data name="Converted" xml:space="preserve"><value>Átkódolva</value></data>
+  <data name="Copied." xml:space="preserve"><value>Másolva.</value></data>
+  <data name="Copy link" xml:space="preserve"><value>Link másolása</value></data>
+  <data name="Copy the address when you create a link." xml:space="preserve"><value>Létrehozás után másold ki a link címét.</value></data>
+  <data name="Could not add audio." xml:space="preserve"><value>A hangot nem sikerült hozzáadni.</value></data>
+  <data name="Could not add subtitles. Try again or ask an admin to check subtitle permissions and storage." xml:space="preserve"><value>A feliratot nem sikerült hozzáadni. Próbáld újra, vagy kérd meg az adminisztrátort, hogy ellenőrizze a feliratok jogosultságait és a tárhelyet.</value></data>
+  <data name="Could not check Trakt. Close this window and try again." xml:space="preserve"><value>A Trakt ellenőrzése sikertelen. Zárd be az ablakot, és próbáld újra.</value></data>
+  <data name="Could not check for a trailer. Try again." xml:space="preserve"><value>A műsorelőzetes ellenőrzése sikertelen. Próbáld újra.</value></data>
+  <data name="Could not check for notifications. Sync again." xml:space="preserve"><value>Az értesítéseket nem sikerült ellenőrizni. Szinkronizálj újra.</value></data>
+  <data name="Could not check for updates" xml:space="preserve"><value>Nem sikerült ellenőrizni a frissítéseket</value></data>
+  <data name="Could not check server files." xml:space="preserve"><value>A szerverfájlokat nem sikerült ellenőrizni.</value></data>
+  <data name="Could not check your library. Try again." xml:space="preserve"><value>A könyvtárat nem sikerült ellenőrizni. Próbáld újra.</value></data>
+  <data name="Could not confirm the download. Check On the server before trying again." xml:space="preserve"><value>A letöltést nem sikerült megerősíteni. Újrapróbálkozás előtt ellenőrizd a szerveren futó letöltéseket.</value></data>
+  <data name="Could not confirm the download. Return to Movies &amp; TV and check Downloading before trying again." xml:space="preserve"><value>A letöltést nem sikerült megerősíteni. Újrapróbálkozás előtt nézd meg a folyamatban lévő letöltéseket a Filmek és sorozatok nézetben.</value></data>
+  <data name="Could not confirm the request. Try again." xml:space="preserve"><value>A kérést nem sikerült megerősíteni. Próbáld újra.</value></data>
+  <data name="Could not connect this profile to Jellyfin." xml:space="preserve"><value>Ezt a profilt nem sikerült csatlakoztatni a Jellyfinhez.</value></data>
+  <data name="Could not download {0}. Check the connection and try again." xml:space="preserve"><value>A letöltés nem sikerült: {0}. Ellenőrizd a kapcsolatot, és próbáld újra.</value></data>
+  <data name="Could not download {0}. It may have been removed." xml:space="preserve"><value>A letöltés nem sikerült: {0}. Lehet, hogy a fájlt eltávolították.</value></data>
+  <data name="Could not download {0}. Try again." xml:space="preserve"><value>A letöltés nem sikerült: {0}. Próbáld újra.</value></data>
+  <data name="Could not enter full screen. Try again." xml:space="preserve"><value>A teljes képernyő nem nyílt meg. Próbáld újra.</value></data>
+  <data name="Could not exit full screen. Try again." xml:space="preserve"><value>A teljes képernyőből nem sikerült kilépni. Próbáld újra.</value></data>
+  <data name="Could not load the biography and credits. Try again." xml:space="preserve"><value>Az életrajz és a szerepek nem töltődtek be. Próbáld újra.</value></data>
+  <data name="Could not match the audio automatically." xml:space="preserve"><value>A hangot nem sikerült automatikusan illeszteni.</value></data>
+  <data name="Could not match the series in TMDB." xml:space="preserve"><value>A sorozatot nem sikerült egyeztetni a TMDB-ben.</value></data>
+  <data name="Could not open Movies. Try again." xml:space="preserve"><value>A Filmek és sorozatok nem nyílt meg. Próbáld újra.</value></data>
+  <data name="Could not open the audio picker. Try again." xml:space="preserve"><value>A hangsávválasztó nem nyílt meg. Próbáld újra.</value></data>
+  <data name="Could not open the browser. Go to trakt.tv/activate yourself and enter the code." xml:space="preserve"><value>A böngésző nem nyílt meg. Nyisd meg a trakt.tv/activate oldalt, és írd be a kódot.</value></data>
+  <data name="Could not open the download. Try again." xml:space="preserve"><value>A letöltést nem sikerült megnyitni. Próbáld újra.</value></data>
+  <data name="Could not open this chapter. Try again." xml:space="preserve"><value>Ez a fejezet nem nyílt meg. Próbáld újra.</value></data>
+  <data name="Could not remove this title. Try again." xml:space="preserve"><value>Ezt a címet nem sikerült eltávolítani. Próbáld újra.</value></data>
+  <data name="Could not resync the {0} subtitles. Try again later." xml:space="preserve"><value>A(z) {0} feliratot nem sikerült újraigazítani. Próbáld újra később.</value></data>
+  <data name="Could not save download options. Try again." xml:space="preserve"><value>A letöltési beállításokat nem sikerült menteni. Próbáld újra.</value></data>
+  <data name="Could not save notifications. Try again." xml:space="preserve"><value>Az értesítések beállítását nem sikerült menteni. Próbáld újra.</value></data>
+  <data name="Could not save this to the server. It is kept on this device." xml:space="preserve"><value>A szerverre nem sikerült menteni. Ezen az eszközön megmarad.</value></data>
+  <data name="Could not save your display name. Try again." xml:space="preserve"><value>A megjelenített nevet nem sikerült menteni. Próbáld újra.</value></data>
+  <data name="Could not search for subtitles. Try again." xml:space="preserve"><value>A feliratkeresés sikertelen. Próbáld újra.</value></data>
+  <data name="Could not skip. Try again." xml:space="preserve"><value>Az átugrás nem sikerült. Próbáld újra.</value></data>
+  <data name="Could not start matching." xml:space="preserve"><value>Az illesztés nem indult el.</value></data>
+  <data name="Could not update My list. Try again." xml:space="preserve"><value>A saját listát nem sikerült frissíteni. Próbáld újra.</value></data>
+  <data name="Couldn’t check that guess. Press Enter to retry." xml:space="preserve"><value>A tipp ellenőrzése sikertelen. Az újrapróbálkozáshoz nyomj Entert.</value></data>
+  <data name="Couldn’t refresh the puzzle. Press Enter to retry." xml:space="preserve"><value>A feladvány nem frissült. Az újrapróbálkozáshoz nyomj Entert.</value></data>
+  <data name="Couldn’t save this setting. Try again." xml:space="preserve"><value>A beállítást nem sikerült menteni. Próbáld újra.</value></data>
+  <data name="Create folder" xml:space="preserve"><value>Mappa létrehozása</value></data>
+  <data name="Create link" xml:space="preserve"><value>Link létrehozása</value></data>
+  <data name="Create password and sign in" xml:space="preserve"><value>Jelszó létrehozása és bejelentkezés</value></data>
+  <data name="Create playlist" xml:space="preserve"><value>Lista létrehozása</value></data>
+  <data name="Create profile" xml:space="preserve"><value>Profil létrehozása</value></data>
+  <data name="Crossfade songs" xml:space="preserve"><value>Átúsztatás a dalok között</value></data>
+  <data name="Current readings" xml:space="preserve"><value>Aktuális mérések</value></data>
+  <data name="Customise" xml:space="preserve"><value>Testreszabás</value></data>
+  <data name="Customise Home" xml:space="preserve"><value>Kezdőlap testreszabása</value></data>
+  <data name="Daily Wordle" xml:space="preserve"><value>Napi Wordle</value></data>
+  <data name="Daily listening chart, scroll for more dates" xml:space="preserve"><value>Napi zenehallgatás. Görgess a további dátumokhoz.</value></data>
+  <data name="Daily listening, {0}" xml:space="preserve"><value>Napi zenehallgatás, {0}</value></data>
+  <data name="Daily puzzle" xml:space="preserve"><value>Napi feladvány</value></data>
+  <data name="Dark theme" xml:space="preserve"><value>Sötét téma</value></data>
+  <data name="Data" xml:space="preserve"><value>Adatforgalom</value></data>
+  <data name="Data saver" xml:space="preserve"><value>Adattakarékos mód</value></data>
+  <data name="Data used" xml:space="preserve"><value>Felhasznált adat</value></data>
+  <data name="Date" xml:space="preserve"><value>Dátum</value></data>
+  <data name="Decrease" xml:space="preserve"><value>Csökkentés</value></data>
+  <data name="Decrease audio delay" xml:space="preserve"><value>Hang késleltetésének csökkentése</value></data>
+  <data name="Deezer artist ID" xml:space="preserve"><value>Deezer-előadóazonosító</value></data>
+  <data name="Deezer chart checked {0}." xml:space="preserve"><value>A Deezer-toplista ellenőrzése: {0}.</value></data>
+  <data name="Deezer chart unavailable" xml:space="preserve"><value>A Deezer toplistája nem érhető el</value></data>
+  <data name="Default" xml:space="preserve"><value>Alapértelmezett</value></data>
+  <data name="Delete" xml:space="preserve"><value>Törlés</value></data>
+  <data name="Delete everything inside" xml:space="preserve"><value>A mappa tartalmának törlése</value></data>
+  <data name="Delete file" xml:space="preserve"><value>Fájl törlése</value></data>
+  <data name="Delete folder" xml:space="preserve"><value>Mappa törlése</value></data>
+  <data name="Delete last letter" xml:space="preserve"><value>Utolsó betű törlése</value></data>
+  <data name="Delete playlist" xml:space="preserve"><value>Lista törlése</value></data>
+  <data name="Delete playlist?" xml:space="preserve"><value>Törlöd a lejátszási listát?</value></data>
+  <data name="Delete source file" xml:space="preserve"><value>Forrásfájl törlése</value></data>
+  <data name="Delete source file for " xml:space="preserve"><value>Forrásfájl törlése ennél: </value></data>
+  <data name="Delete the original source file from the server?" xml:space="preserve"><value>Törlöd az eredeti forrásfájlt a szerverről?</value></data>
+  <data name="Delete {0} files" xml:space="preserve"><value>{0} fájl törlése</value></data>
+  <data name="Deleted {0} {1}." xml:space="preserve"><value>{0} {1} törölve.</value></data>
+  <data name="Deleted {0}." xml:space="preserve"><value>Törölve: {0}.</value></data>
+  <data name="Demo library" xml:space="preserve"><value>Bemutatókönyvtár</value></data>
+  <data name="Descending" xml:space="preserve"><value>Csökkenő</value></data>
+  <data name="Description" xml:space="preserve"><value>Leírás</value></data>
+  <data name="Details" xml:space="preserve"><value>Részletek</value></data>
+  <data name="Device download progress" xml:space="preserve"><value>Letöltés az eszközre</value></data>
+  <data name="Device language" xml:space="preserve"><value>Eszköz nyelve</value></data>
+  <data name="Devices" xml:space="preserve"><value>Eszközök</value></data>
+  <data name="Diagnostics" xml:space="preserve"><value>Diagnosztika</value></data>
+  <data name="Dialogue" xml:space="preserve"><value>Beszéd</value></data>
+  <data name="Did not play: {0}" xml:space="preserve"><value>Nem játszott: {0}</value></data>
+  <data name="Direct play" xml:space="preserve"><value>Közvetlen lejátszás</value></data>
+  <data name="Direct stream" xml:space="preserve"><value>Közvetlen adatfolyam</value></data>
+  <data name="Disconnect" xml:space="preserve"><value>Kapcsolat bontása</value></data>
+  <data name="Discovery uses these mappings to find new releases on Deezer." xml:space="preserve"><value>A Felfedezés ezekkel a párosításokkal keres új megjelenéseket a Deezeren.</value></data>
+  <data name="Disk" xml:space="preserve"><value>Lemez</value></data>
+  <data name="Disks warm at 45 °C, hot at 55 °C" xml:space="preserve"><value>A lemezek 45 °C-nál melegek, 55 °C-nál forrók</value></data>
+  <data name="Dismiss" xml:space="preserve"><value>Elvetés</value></data>
+  <data name="Dismiss listening request" xml:space="preserve"><value>Zenehallgatási kérés elvetése</value></data>
+  <data name="Dismiss playback notice" xml:space="preserve"><value>Lejátszási értesítés bezárása</value></data>
+  <data name="Display name" xml:space="preserve"><value>Megjelenített név</value></data>
+  <data name="Do you have Spotify Premium?" xml:space="preserve"><value>Van Spotify Premium előfizetésed?</value></data>
+  <data name="Don't see your device?" xml:space="preserve"><value>Nem találod az eszközödet?</value></data>
+  <data name="Download" xml:space="preserve"><value>Letöltés</value></data>
+  <data name="Download lookup did not respond." xml:space="preserve"><value>A letöltéskeresés nem válaszolt.</value></data>
+  <data name="Download options" xml:space="preserve"><value>Letöltési lehetőségek</value></data>
+  <data name="Download progress for {0}" xml:space="preserve"><value>Letöltés állapota: {0}</value></data>
+  <data name="Download quality" xml:space="preserve"><value>Letöltési minőség</value></data>
+  <data name="Download ready" xml:space="preserve"><value>Elkészült a letöltés</value></data>
+  <data name="Download selected files" xml:space="preserve"><value>Kijelölt fájlok letöltése</value></data>
+  <data name="Download songs to the server" xml:space="preserve"><value>Dalok letöltése a szerverre</value></data>
+  <data name="Download time" xml:space="preserve"><value>Letöltési idő</value></data>
+  <data name="Download {0}" xml:space="preserve"><value>Letöltés: {0}</value></data>
+  <data name="Downloaded" xml:space="preserve"><value>Letöltve</value></data>
+  <data name="Downloading" xml:space="preserve"><value>Letöltés folyamatban</value></data>
+  <data name="Downloading " xml:space="preserve"><value>Letöltés: </value></data>
+  <data name="Downloading is not switched on for your profile." xml:space="preserve"><value>A profilodnál nincs engedélyezve a letöltés.</value></data>
+  <data name="Downloading {0}%{1}" xml:space="preserve"><value>Letöltve: {0}%{1}</value></data>
+  <data name="Downloading {0}…" xml:space="preserve"><value>Letöltés: {0}…</value></data>
+  <data name="Downloads" xml:space="preserve"><value>Letöltések</value></data>
+  <data name="Downloads use Wi-Fi or Ethernet. Keep the app open until they finish." xml:space="preserve"><value>A letöltés Wi-Fi-t vagy Ethernetet használ. A befejezésig hagyd nyitva az alkalmazást.</value></data>
+  <data name="Drag this handle, or use the Up and Down buttons." xml:space="preserve"><value>Húzd a fogantyút, vagy használd a Fel és Le gombot.</value></data>
+  <data name="Drag {0}" xml:space="preserve"><value>Húzás: {0}</value></data>
+  <data name="Drama" xml:space="preserve"><value>Dráma</value></data>
+  <data name="Earlier" xml:space="preserve"><value>Korábban</value></data>
+  <data name="Early listener" xml:space="preserve"><value>Korai hallgató</value></data>
+  <data name="Edit" xml:space="preserve"><value>Szerkesztés</value></data>
+  <data name="Edit details" xml:space="preserve"><value>Adatok szerkesztése</value></data>
+  <data name="Edit search" xml:space="preserve"><value>Keresés módosítása</value></data>
+  <data name="Eight times HD picture; most are upscaled from 4K or less" xml:space="preserve"><value>A HD képpontjainak nyolcszorosa. A legtöbb videó 4K-ról vagy kisebb felbontásról van felskálázva.</value></data>
+  <data name="Encode" xml:space="preserve"><value>Kódolás</value></data>
+  <data name="End" xml:space="preserve"><value>Vége</value></data>
+  <data name="English" xml:space="preserve"><value>Angol</value></data>
+  <data name="English (original)" xml:space="preserve"><value>Angol (eredeti)</value></data>
+  <data name="English subtitles" xml:space="preserve"><value>Angol felirat</value></data>
+  <data name="English,Magyar" xml:space="preserve"><value>angol,magyar</value></data>
+  <data name="Enter" xml:space="preserve"><value>Enter</value></data>
+  <data name="Enter a name." xml:space="preserve"><value>Adj meg egy nevet.</value></data>
+  <data name="Enter a title of 2 to 120 characters." xml:space="preserve"><value>Írj be egy 2–120 karakteres címet.</value></data>
+  <data name="Enter an artist ID" xml:space="preserve"><value>Adj meg egy előadóazonosítót</value></data>
+  <data name="Enter five letters." xml:space="preserve"><value>Írj be öt betűt.</value></data>
+  <data name="Episode" xml:space="preserve"><value>Epizód</value></data>
+  <data name="Episode pictures are unavailable." xml:space="preserve"><value>Az epizódok képei nem érhetők el.</value></data>
+  <data name="Episode {0}" xml:space="preserve"><value>{0}. epizód</value></data>
+  <data name="Episodes" xml:space="preserve"><value>Epizódok</value></data>
+  <data name="Episodes and related series" xml:space="preserve"><value>Epizódok és kapcsolódó sorozatok</value></data>
+  <data name="Error.csrf" xml:space="preserve"><value>A munkamenet lejárt. Csatlakozz újra a szerverhez, és próbáld meg ismét.</value></data>
+  <data name="Error.folder_not_empty" xml:space="preserve"><value>A mappa nem üres.</value></data>
+  <data name="Estimated from size and the number of people sharing the file, assuming a {0} Mbps connection." xml:space="preserve"><value>Becslés a méret és a megosztók száma alapján, {0} Mbps kapcsolattal számolva.</value></data>
+  <data name="Estimated: {0} (from size and length)" xml:space="preserve"><value>Becsült minőség: {0} (méret és hossz alapján)</value></data>
+  <data name="Estimates for a typical film. Auto uses Original on Wi-Fi and Saver on mobile data." xml:space="preserve"><value>Becslés egy átlagos filmre. Automatikus módban Wi-Fi-n az eredeti, mobilneten az adattakarékos minőség érvényes.</value></data>
+  <data name="Even out song volume" xml:space="preserve"><value>Dalok hangerejének kiegyenlítése</value></data>
+  <data name="Everyone else, {0}" xml:space="preserve"><value>További tagok, {0}</value></data>
+  <data name="Everyone on this server can see and play it." xml:space="preserve"><value>A szerver minden felhasználója láthatja és lejátszhatja.</value></data>
+  <data name="Excellent" xml:space="preserve"><value>Kiváló</value></data>
+  <data name="Exit full screen" xml:space="preserve"><value>Kilépés a teljes képernyőről</value></data>
+  <data name="Exit full screen (F11)" xml:space="preserve"><value>Kilépés a teljes képernyőről (F11)</value></data>
+  <data name="External" xml:space="preserve"><value>Külső</value></data>
+  <data name="Failed" xml:space="preserve"><value>Sikertelen</value></data>
+  <data name="Family" xml:space="preserve"><value>Család</value></data>
+  <data name="Family activity" xml:space="preserve"><value>Családi tevékenység</value></data>
+  <data name="Family and private folders" xml:space="preserve"><value>Családi és saját mappák</value></data>
+  <data name="Family board" xml:space="preserve"><value>Családi tábla</value></data>
+  <data name="Family boards" xml:space="preserve"><value>Családi táblák</value></data>
+  <data name="Family listening time" xml:space="preserve"><value>A család zenehallgatási ideje</value></data>
+  <data name="Family members who are online" xml:space="preserve"><value>Online családtagok</value></data>
+  <data name="Family profiles can see your Leaderboard stats. Admins can see individual plays." xml:space="preserve"><value>A családtagok látják a ranglistás statisztikáidat. Az adminisztrátorok az egyes lejátszásokat is látják.</value></data>
+  <data name="Family streak" xml:space="preserve"><value>Családi sorozat</value></data>
+  <data name="FamilyHub file link" xml:space="preserve"><value>FamilyHub-fájllink</value></data>
+  <data name="FamilyHub home" xml:space="preserve"><value>A FamilyHub kezdőlapja</value></data>
+  <data name="FamilyHub needs to reload" xml:space="preserve"><value>A FamilyHub újratöltése szükséges</value></data>
+  <data name="FamilyHub web video" xml:space="preserve"><value>FamilyHub webes videó</value></data>
+  <data name="FamilyHub {0} is available" xml:space="preserve"><value>Elérhető a FamilyHub {0}</value></data>
+  <data name="Fantasy" xml:space="preserve"><value>Fantasy</value></data>
+  <data name="Favorite guesses" xml:space="preserve"><value>Kedvenc tippek</value></data>
+  <data name="Favourite artist" xml:space="preserve"><value>Kedvenc előadó</value></data>
+  <data name="Favourite genre" xml:space="preserve"><value>Kedvenc műfaj</value></data>
+  <data name="Feedback" xml:space="preserve"><value>Visszajelzés</value></data>
+  <data name="Feedback type" xml:space="preserve"><value>Visszajelzés típusa</value></data>
+  <data name="Fetching " xml:space="preserve"><value>Betöltés: </value></data>
+  <data name="Few sources" xml:space="preserve"><value>Kevés forrás</value></data>
+  <data name="Fewest guesses wins the day. A tie goes to the game that followed Hard Mode rules, then to the faster time." xml:space="preserve"><value>A napi győztes az, aki kevesebbet tippelt. Döntetlennél a nehéz mód szabályainak betartása, majd a gyorsabb idő dönt.</value></data>
+  <data name="Fewest guesses wins. A tie goes to the game that followed Hard Mode rules, then to the faster time." xml:space="preserve"><value>Az nyer, aki kevesebbet tippelt. Döntetlennél a nehéz mód szabályainak betartása, majd a gyorsabb idő dönt.</value></data>
+  <data name="File name for " xml:space="preserve"><value>Fájlnév ehhez: </value></data>
+  <data name="File name for {0}" xml:space="preserve"><value>Fájlnév ehhez: {0}</value></data>
+  <data name="File sharing is not set up on this server." xml:space="preserve"><value>Ezen a szerveren nincs beállítva a fájlmegosztás.</value></data>
+  <data name="Files" xml:space="preserve"><value>Fájlok</value></data>
+  <data name="Film data from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB." xml:space="preserve"><value>A filmadatok a TMDB-től származnak. A termék a TMDB API-ját használja. A TMDB nem támogatja és nem tanúsítja a terméket.</value></data>
+  <data name="Filmed in a cinema" xml:space="preserve"><value>Moziban rögzítve</value></data>
+  <data name="Filter playlists" xml:space="preserve"><value>Lejátszási listák szűrése</value></data>
+  <data name="Find Bluetooth devices" xml:space="preserve"><value>Bluetooth-eszközök keresése</value></data>
+  <data name="Find a playlist" xml:space="preserve"><value>Lejátszási lista keresése</value></data>
+  <data name="Find a setting" xml:space="preserve"><value>Beállítás keresése</value></data>
+  <data name="Find releases" xml:space="preserve"><value>Kiadások keresése</value></data>
+  <data name="Find releases for {0}" xml:space="preserve"><value>Kiadások keresése ehhez: {0}</value></data>
+  <data name="Find season " xml:space="preserve"><value>Évad keresése: </value></data>
+  <data name="Find {0} audio" xml:space="preserve"><value>Hangsáv keresése ({0})</value></data>
+  <data name="Find {0} subtitles" xml:space="preserve"><value>Felirat keresése ({0})</value></data>
+  <data name="Finding recording choices…" xml:space="preserve"><value>Felvételek keresése…</value></data>
+  <data name="Finish your puzzle to see the letters." xml:space="preserve"><value>Fejtsd meg a feladványt, hogy lásd a betűket.</value></data>
+  <data name="Finished" xml:space="preserve"><value>Befejezve</value></data>
+  <data name="Finished days with two or more players" xml:space="preserve"><value>Befejezett napok legalább két játékossal</value></data>
+  <data name="Five-letter puzzle" xml:space="preserve"><value>Ötbetűs feladvány</value></data>
+  <data name="Folder" xml:space="preserve"><value>Mappa</value></data>
+  <data name="Folders" xml:space="preserve"><value>Mappák</value></data>
+  <data name="For titles missing a backdrop, Automatic uses the preset and Always backdrop uses a neutral background." xml:space="preserve"><value>Ha egy filmhez nincs háttérkép, automatikus módban a beállított szín jelenik meg. A Mindig a háttérkép beállítás semleges hátteret használ.</value></data>
+  <data name="Forward 10 seconds" xml:space="preserve"><value>Előre 10 másodpercet</value></data>
+  <data name="Found" xml:space="preserve"><value>Találat</value></data>
+  <data name="Free" xml:space="preserve"><value>Ingyenes</value></data>
+  <data name="Friends on Discord see the song and artist while the Discord app is open." xml:space="preserve"><value>A Discord-ismerőseid látják a dalt és az előadót, amíg a Discord meg van nyitva.</value></data>
+  <data name="Frightening scenes" xml:space="preserve"><value>Ijesztő jelenetek</value></data>
+  <data name="From " xml:space="preserve"><value>Forrás: </value></data>
+  <data name="Ft" xml:space="preserve"><value>Ft</value></data>
+  <data name="Full screen" xml:space="preserve"><value>Teljes képernyő</value></data>
+  <data name="Full screen (F11)" xml:space="preserve"><value>Teljes képernyő (F11)</value></data>
+  <data name="General" xml:space="preserve"><value>Általános</value></data>
+  <data name="Genre" xml:space="preserve"><value>Műfaj</value></data>
+  <data name="Genres" xml:space="preserve"><value>Műfajok</value></data>
+  <data name="Give the item a name." xml:space="preserve"><value>Adj nevet az elemnek.</value></data>
+  <data name="Go back" xml:space="preserve"><value>Visszalépés</value></data>
+  <data name="Go forward" xml:space="preserve"><value>Előrelépés</value></data>
+  <data name="Go to queue" xml:space="preserve"><value>Ugrás a lejátszási sorhoz</value></data>
+  <data name="Goal recorded" xml:space="preserve"><value>Cél rögzítve</value></data>
+  <data name="Good" xml:space="preserve"><value>Jó</value></data>
+  <data name="Good (720p)" xml:space="preserve"><value>Jó (720p)</value></data>
+  <data name="Great" xml:space="preserve"><value>Nagyszerű</value></data>
+  <data name="Green" xml:space="preserve"><value>Zöld</value></data>
+  <data name="Grid view" xml:space="preserve"><value>Rácsnézet</value></data>
+  <data name="Guess cleared." xml:space="preserve"><value>A tipp törölve.</value></data>
+  <data name="Guess letters {0}." xml:space="preserve"><value>A tipp betűi: {0}.</value></data>
+  <data name="Guess ratings will appear after your board syncs." xml:space="preserve"><value>A tippek értékelése a tábla szinkronizálása után jelenik meg.</value></data>
+  <data name="Guess the five-letter word in six tries. Type a word and press Enter." xml:space="preserve"><value>Találd ki az ötbetűs angol szót hat próbálkozásból. Írj be egy szót, és nyomj Entert.</value></data>
+  <data name="Guess {0}: {1}" xml:space="preserve"><value>{0}. tipp: {1}</value></data>
+  <data name="HD streaming copy" xml:space="preserve"><value>HD streamelt videó</value></data>
+  <data name="HDR to SDR" xml:space="preserve"><value>HDR átalakítása SDR-re</value></data>
+  <data name="HDR, Dolby Vision or original 4K disc video" xml:space="preserve"><value>HDR, Dolby Vision vagy eredeti 4K lemezvideó</value></data>
+  <data name="Hard Mode clear rate" xml:space="preserve"><value>Megfejtési arány nehéz módban</value></data>
+  <data name="Hard Mode rules" xml:space="preserve"><value>A nehéz mód szabályai</value></data>
+  <data name="Height" xml:space="preserve"><value>Magasság</value></data>
+  <data name="Held by" xml:space="preserve"><value>Megosztja</value></data>
+  <data name="Hide family results until I finish" xml:space="preserve"><value>Családi eredmények elrejtése a játék végéig</value></data>
+  <data name="Hide sound descriptions" xml:space="preserve"><value>Hanghatások leírásának elrejtése</value></data>
+  <data name="High" xml:space="preserve"><value>Magas</value></data>
+  <data name="History" xml:space="preserve"><value>Előzmények</value></data>
+  <data name="History preference saved on this device. It will sync when connected." xml:space="preserve"><value>Az előzmények beállítása ezen az eszközön mentve. Csatlakozáskor szinkronizáljuk.</value></data>
+  <data name="History range" xml:space="preserve"><value>Előzmények időszaka</value></data>
+  <data name="Home" xml:space="preserve"><value>Kezdőlap</value></data>
+  <data name="Home is back to the default layout." xml:space="preserve"><value>A kezdőlap alapértelmezett elrendezése visszaállt.</value></data>
+  <data name="Home rows" xml:space="preserve"><value>A kezdőlap sorai</value></data>
+  <data name="How scores are counted" xml:space="preserve"><value>A pontszámok számítása</value></data>
+  <data name="How to play" xml:space="preserve"><value>Játékszabályok</value></data>
+  <data name="Hungarian" xml:space="preserve"><value>Magyar</value></data>
+  <data name="Hungarian audio" xml:space="preserve"><value>Magyar hangsáv</value></data>
+  <data name="Hungarian audio listed" xml:space="preserve"><value>Magyar hangsáv szerepel a listában</value></data>
+  <data name="Hungarian subtitles" xml:space="preserve"><value>Magyar felirat</value></data>
+  <data name="IMDb,Rotten Tomatoes,Metacritic,TMDB,episode scores" xml:space="preserve"><value>IMDb,Rotten Tomatoes,Metacritic,TMDB,epizódértékelés</value></data>
+  <data name="Import from a link" xml:space="preserve"><value>Importálás linkről</value></data>
+  <data name="Import playlist link" xml:space="preserve"><value>Lista importálása linkről</value></data>
+  <data name="In your library" xml:space="preserve"><value>A könyvtáradban</value></data>
+  <data name="Inaccuracy" xml:space="preserve"><value>Pontatlan</value></data>
+  <data name="Includes subfolders" xml:space="preserve"><value>Almappákkal együtt</value></data>
+  <data name="Increase" xml:space="preserve"><value>Növelés</value></data>
+  <data name="Increase audio delay" xml:space="preserve"><value>Hang késleltetésének növelése</value></data>
+  <data name="Installed version" xml:space="preserve"><value>Telepített verzió</value></data>
+  <data name="Installed version is newer than {0}" xml:space="preserve"><value>A telepített verzió újabb, mint a(z) {0}</value></data>
+  <data name="Intro" xml:space="preserve"><value>Intró</value></data>
+  <data name="Invite a listener" xml:space="preserve"><value>Hallgató meghívása</value></data>
+  <data name="Invite collaborators" xml:space="preserve"><value>Közreműködők meghívása</value></data>
+  <data name="Join a session" xml:space="preserve"><value>Csatlakozás egy munkamenethez</value></data>
+  <data name="Keep" xml:space="preserve"><value>Megtartás</value></data>
+  <data name="Keep file" xml:space="preserve"><value>Fájl megtartása</value></data>
+  <data name="Keep it" xml:space="preserve"><value>Megtartás</value></data>
+  <data name="Keep on this device" xml:space="preserve"><value>Mentés erre az eszközre</value></data>
+  <data name="Keep the current layout" xml:space="preserve"><value>A jelenlegi elrendezés megtartása</value></data>
+  <data name="Keep them" xml:space="preserve"><value>Megtartás</value></data>
+  <data name="Keep {0} songs" xml:space="preserve"><value>{0} dal mentése az eszközre</value></data>
+  <data name="Kept downloads" xml:space="preserve"><value>Megtartott letöltések</value></data>
+  <data name="Known for" xml:space="preserve"><value>Ismert szerepek</value></data>
+  <data name="Label" xml:space="preserve"><value>Jelzés</value></data>
+  <data name="Landscape stills" xml:space="preserve"><value>Fekvőképek</value></data>
+  <data name="Language" xml:space="preserve"><value>Nyelv</value></data>
+  <data name="Language unknown" xml:space="preserve"><value>Ismeretlen nyelv</value></data>
+  <data name="Large" xml:space="preserve"><value>Nagy</value></data>
+  <data name="Largest first" xml:space="preserve"><value>Legnagyobb elöl</value></data>
+  <data name="Later" xml:space="preserve"><value>Később</value></data>
+  <data name="Latest release" xml:space="preserve"><value>Legújabb kiadás</value></data>
+  <data name="Latest:" xml:space="preserve"><value>Legutóbbi:</value></data>
+  <data name="Layout preview" xml:space="preserve"><value>Elrendezés előnézete</value></data>
+  <data name="Leaderboard period" xml:space="preserve"><value>Ranglista időszaka</value></data>
+  <data name="Less than a minute left" xml:space="preserve"><value>Kevesebb mint egy perc van hátra</value></data>
+  <data name="Library" xml:space="preserve"><value>Könyvtár</value></data>
+  <data name="Library additions" xml:space="preserve"><value>Nemrég hozzáadott dalok</value></data>
+  <data name="Library sections" xml:space="preserve"><value>Könyvtár részei</value></data>
+  <data name="Light theme" xml:space="preserve"><value>Világos téma</value></data>
+  <data name="Limits loud peaks on this device, including in Listen Together." xml:space="preserve"><value>Ezen az eszközön a hirtelen hangos részeket is halkítja, közös zenehallgatáskor is.</value></data>
+  <data name="Link Trakt" xml:space="preserve"><value>Trakt összekapcsolása</value></data>
+  <data name="Link address" xml:space="preserve"><value>Link címe</value></data>
+  <data name="Link or disconnect Trakt" xml:space="preserve"><value>Trakt összekapcsolása vagy leválasztása</value></data>
+  <data name="Link works for" xml:space="preserve"><value>Link érvényessége</value></data>
+  <data name="Linking sends what you watch in Movies and TV to your own Trakt account. Each family member links their own." xml:space="preserve"><value>Összekapcsolás után a Filmek és sorozatok lejátszásai a saját Trakt-fiókodba kerülnek. Minden családtag a saját fiókját kapcsolja össze.</value></data>
+  <data name="List view" xml:space="preserve"><value>Listanézet</value></data>
+  <data name="Listen" xml:space="preserve"><value>Hallgatás</value></data>
+  <data name="Listen Together" xml:space="preserve"><value>Közös zenehallgatás</value></data>
+  <data name="Listening history" xml:space="preserve"><value>Zenehallgatási előzmények</value></data>
+  <data name="Listening history paused." xml:space="preserve"><value>A zenehallgatási előzmények szünetelnek.</value></data>
+  <data name="Listening history resumed." xml:space="preserve"><value>A zenehallgatási előzmények újra aktívak.</value></data>
+  <data name="Listening request" xml:space="preserve"><value>Zenehallgatási kérés</value></data>
+  <data name="Listening statistics for {0}" xml:space="preserve"><value>Zenehallgatási statisztikák: {0}</value></data>
+  <data name="Listening time" xml:space="preserve"><value>Zenehallgatási idő</value></data>
+  <data name="Listening time and streaks use recorded daily playback. Favourites and replays use song history." xml:space="preserve"><value>A zenehallgatási időt és a sorozatokat a napi lejátszásokból számítjuk. A kedvenceket és az ismételt lejátszásokat a dalelőzményekből vesszük.</value></data>
+  <data name="Loading" xml:space="preserve"><value>Betöltés</value></data>
+  <data name="Loading Wordle settings…" xml:space="preserve"><value>Wordle-beállítások betöltése…</value></data>
+  <data name="Loading audio outputs…" xml:space="preserve"><value>Hangkimenetek betöltése…</value></data>
+  <data name="Loading automatic work…" xml:space="preserve"><value>Automatikus feladatok betöltése…</value></data>
+  <data name="Loading credits…" xml:space="preserve"><value>Szerepek betöltése…</value></data>
+  <data name="Loading episodes…" xml:space="preserve"><value>Epizódok betöltése…</value></data>
+  <data name="Loading feedback…" xml:space="preserve"><value>Visszajelzések betöltése…</value></data>
+  <data name="Loading guess ratings…" xml:space="preserve"><value>Tippek értékelésének betöltése…</value></data>
+  <data name="Loading more songs..." xml:space="preserve"><value>További dalok betöltése...</value></data>
+  <data name="Loading movies and TV…" xml:space="preserve"><value>Filmek és sorozatok betöltése…</value></data>
+  <data name="Loading preferences…" xml:space="preserve"><value>Beállítások betöltése…</value></data>
+  <data name="Loading preview…" xml:space="preserve"><value>Előnézet betöltése…</value></data>
+  <data name="Loading seasons…" xml:space="preserve"><value>Évadok betöltése…</value></data>
+  <data name="Loading seeding records…" xml:space="preserve"><value>Megosztási adatok betöltése…</value></data>
+  <data name="Loading server statistics…" xml:space="preserve"><value>Szerverstatisztikák betöltése…</value></data>
+  <data name="Loading sessions…" xml:space="preserve"><value>Munkamenetek betöltése…</value></data>
+  <data name="Loading song review…" xml:space="preserve"><value>Dalellenőrzés betöltése…</value></data>
+  <data name="Loading statistics…" xml:space="preserve"><value>Statisztikák betöltése…</value></data>
+  <data name="Loading the leaderboard…" xml:space="preserve"><value>Ranglista betöltése…</value></data>
+  <data name="Loading today’s word…" xml:space="preserve"><value>A mai szó betöltése…</value></data>
+  <data name="Loading…" xml:space="preserve"><value>Betöltés…</value></data>
+  <data name="Logo" xml:space="preserve"><value>Logó</value></data>
+  <data name="Longer" xml:space="preserve"><value>Hosszabb</value></data>
+  <data name="Longest game" xml:space="preserve"><value>Leghosszabb játék</value></data>
+  <data name="Longest streak" xml:space="preserve"><value>Leghosszabb sorozat</value></data>
+  <data name="Looking up song details…" xml:space="preserve"><value>Daladatok keresése…</value></data>
+  <data name="Lookup queued" xml:space="preserve"><value>Keresés sorba állítva</value></data>
+  <data name="Loud" xml:space="preserve"><value>Hangos</value></data>
+  <data name="Low" xml:space="preserve"><value>Alacsony</value></data>
+  <data name="Lowest (360p)" xml:space="preserve"><value>Legalacsonyabb (360p)</value></data>
+  <data name="Lucky guess" xml:space="preserve"><value>Szerencsés tipp</value></data>
+  <data name="Lyrics" xml:space="preserve"><value>Dalszöveg</value></data>
+  <data name="Lyrics timing" xml:space="preserve"><value>Dalszöveg időzítése</value></data>
+  <data name="Magyar" xml:space="preserve"><value>Magyar</value></data>
+  <data name="Mainstream score" xml:space="preserve"><value>Népszerűségi mutató</value></data>
+  <data name="Mainstream score is the share of your top 10 artists and top 10 songs that appear in Deezer’s chart. Early listener marks artists you played before FamilyHub observed them enter the chart." xml:space="preserve"><value>A népszerűségi mutató azt jelzi, hogy a tíz legtöbbet hallgatott előadód és dalod mekkora része szerepel a Deezer toplistáján. A Korai hallgató azoknak az előadóknak jár, akiket már azelőtt hallgattál, hogy a FamilyHub észlelte volna a toplistás helyezésüket.</value></data>
+  <data name="Manual retry" xml:space="preserve"><value>Kézi újrapróbálkozás</value></data>
+  <data name="Mappings" xml:space="preserve"><value>Párosítások</value></data>
+  <data name="Mark resolved" xml:space="preserve"><value>Lezárás</value></data>
+  <data name="Match genre" xml:space="preserve"><value>Műfaj szerint</value></data>
+  <data name="Matching audio" xml:space="preserve"><value>Hang illesztése</value></data>
+  <data name="Max" xml:space="preserve"><value>Legjobb</value></data>
+  <data name="Max uses the original file, lossless when available. Downloaded songs always play from the device." xml:space="preserve"><value>A Legjobb az eredeti fájlt használja, lehetőleg veszteségmentesen. A letöltött dalok mindig az eszközről szólnak.</value></data>
+  <data name="May never finish" xml:space="preserve"><value>Lehet, hogy nem fejeződik be</value></data>
+  <data name="Meaning" xml:space="preserve"><value>Jelentés</value></data>
+  <data name="Media default" xml:space="preserve"><value>A média alapbeállítása</value></data>
+  <data name="Medium" xml:space="preserve"><value>Közepes</value></data>
+  <data name="Memory" xml:space="preserve"><value>Memória</value></data>
+  <data name="Metadata lookup" xml:space="preserve"><value>Metaadatok keresése</value></data>
+  <data name="Mine" xml:space="preserve"><value>Saját</value></data>
+  <data name="Miss" xml:space="preserve"><value>Kihagyott lehetőség</value></data>
+  <data name="Missing byte count" xml:space="preserve"><value>Hiányzik a fájlméret</value></data>
+  <data name="Missing from library" xml:space="preserve"><value>Hiányzik a könyvtárból</value></data>
+  <data name="Mistake" xml:space="preserve"><value>Hiba</value></data>
+  <data name="Mixes with current song" xml:space="preserve"><value>Illik az éppen játszott dalhoz</value></data>
+  <data name="Mobile data" xml:space="preserve"><value>Mobilnet</value></data>
+  <data name="Mobile data is allowed for downloads. Keep the app open until they finish." xml:space="preserve"><value>A letöltés mobilneten is működik. A befejezésig hagyd nyitva az alkalmazást.</value></data>
+  <data name="Mono" xml:space="preserve"><value>Monó</value></data>
+  <data name="Monthly" xml:space="preserve"><value>Havi</value></data>
+  <data name="Monthly energy estimate" xml:space="preserve"><value>Becsült havi energiafogyasztás</value></data>
+  <data name="More films" xml:space="preserve"><value>További filmek</value></data>
+  <data name="More info" xml:space="preserve"><value>További adatok</value></data>
+  <data name="More like this" xml:space="preserve"><value>Hasonló címek</value></data>
+  <data name="More options" xml:space="preserve"><value>További lehetőségek</value></data>
+  <data name="More options for {0}" xml:space="preserve"><value>További lehetőségek ehhez: {0}</value></data>
+  <data name="More songs" xml:space="preserve"><value>További dalok</value></data>
+  <data name="Most replayed" xml:space="preserve"><value>Legtöbbször újrajátszott</value></data>
+  <data name="Most songs" xml:space="preserve"><value>Legtöbb dal</value></data>
+  <data name="Mount unavailable" xml:space="preserve"><value>A csatolási pont nem érhető el</value></data>
+  <data name="Move earlier" xml:space="preserve"><value>Mozgatás előrébb</value></data>
+  <data name="Move later" xml:space="preserve"><value>Mozgatás hátrébb</value></data>
+  <data name="Move {0} down" xml:space="preserve"><value>Lejjebb: {0}</value></data>
+  <data name="Move {0} up" xml:space="preserve"><value>Feljebb: {0}</value></data>
+  <data name="Movie" xml:space="preserve"><value>Film</value></data>
+  <data name="Movie and TV requests are disabled for this profile." xml:space="preserve"><value>Ez a profil nem kérhet filmeket vagy sorozatokat.</value></data>
+  <data name="Movie library" xml:space="preserve"><value>Filmkönyvtár</value></data>
+  <data name="Movie playback" xml:space="preserve"><value>Filmlejátszás</value></data>
+  <data name="Movie player" xml:space="preserve"><value>Filmlejátszó</value></data>
+  <data name="Movie preferences are unavailable. Reopen Settings to try again." xml:space="preserve"><value>A filmlejátszás beállításai nem érhetők el. Nyisd meg újra a Beállításokat.</value></data>
+  <data name="Movie request cancelled" xml:space="preserve"><value>Filmkérés törölve</value></data>
+  <data name="Movies" xml:space="preserve"><value>Filmek</value></data>
+  <data name="Movies &amp; TV" xml:space="preserve"><value>Filmek és sorozatok</value></data>
+  <data name="Movies &amp; TV streamed on mobile data" xml:space="preserve"><value>Filmek és sorozatok mobilneten</value></data>
+  <data name="Movies Home layout" xml:space="preserve"><value>A Filmes kezdőlap elrendezése</value></data>
+  <data name="Movies and TV" xml:space="preserve"><value>Filmek és sorozatok</value></data>
+  <data name="Movies are not set up for this profile." xml:space="preserve"><value>Ehhez a profilhoz nincs beállítva a Filmek és sorozatok.</value></data>
+  <data name="Movies are unavailable for this profile." xml:space="preserve"><value>A Filmek és sorozatok nem érhetők el ennél a profilnál.</value></data>
+  <data name="Movies, series, or episodes" xml:space="preserve"><value>Filmek, sorozatok vagy epizódok</value></data>
+  <data name="Music" xml:space="preserve"><value>Zene</value></data>
+  <data name="Music cache" xml:space="preserve"><value>Zenei gyorsítótár</value></data>
+  <data name="Music playback" xml:space="preserve"><value>Zenelejátszás</value></data>
+  <data name="Music playback attempts in the last 30 minutes" xml:space="preserve"><value>Zenelejátszási kísérletek az elmúlt 30 percben</value></data>
+  <data name="MusicBrainz recording" xml:space="preserve"><value>MusicBrainz-felvétel</value></data>
+  <data name="Mute" xml:space="preserve"><value>Némítás</value></data>
+  <data name="Muted" xml:space="preserve"><value>Némítva</value></data>
+  <data name="My feedback" xml:space="preserve"><value>Saját visszajelzéseim</value></data>
+  <data name="My files" xml:space="preserve"><value>Saját fájlok</value></data>
+  <data name="My list" xml:space="preserve"><value>Saját listám</value></data>
+  <data name="My list: " xml:space="preserve"><value>Saját listám: </value></data>
+  <data name="My screen" xml:space="preserve"><value>Képernyőm</value></data>
+  <data name="Name" xml:space="preserve"><value>Név</value></data>
+  <data name="Name A to Z" xml:space="preserve"><value>Név szerint A–Z</value></data>
+  <data name="Name saved." xml:space="preserve"><value>Név mentve.</value></data>
+  <data name="Needs trimming" xml:space="preserve"><value>Vágást igényel</value></data>
+  <data name="Network" xml:space="preserve"><value>Hálózat</value></data>
+  <data name="New" xml:space="preserve"><value>Új</value></data>
+  <data name="New episode available" xml:space="preserve"><value>Új epizód érhető el</value></data>
+  <data name="New folder" xml:space="preserve"><value>Új mappa</value></data>
+  <data name="New from artists you play" xml:space="preserve"><value>Újdonságok a hallgatott előadóktól</value></data>
+  <data name="New password" xml:space="preserve"><value>Új jelszó</value></data>
+  <data name="New playlist" xml:space="preserve"><value>Új lejátszási lista</value></data>
+  <data name="New playlist name" xml:space="preserve"><value>Új lista neve</value></data>
+  <data name="Newest first" xml:space="preserve"><value>Legújabb elöl</value></data>
+  <data name="Next " xml:space="preserve"><value>Következő: </value></data>
+  <data name="Next episode" xml:space="preserve"><value>Következő epizód</value></data>
+  <data name="Next episode: " xml:space="preserve"><value>Következő epizód: </value></data>
+  <data name="Next file" xml:space="preserve"><value>Következő fájl</value></data>
+  <data name="Next seasons" xml:space="preserve"><value>Következő évadok</value></data>
+  <data name="Next song" xml:space="preserve"><value>Következő dal</value></data>
+  <data name="Night mode" xml:space="preserve"><value>Éjszakai mód</value></data>
+  <data name="Night owl" xml:space="preserve"><value>Éjjeli bagoly</value></data>
+  <data name="Night owl is the share of completed plays that started from 00:00 to 05:59 UTC. Replays count each time you listen to a song again this year." xml:space="preserve"><value>Az Éjjeli bagoly az éjfél és 05:59 UTC között indított, befejezett lejátszások arányát mutatja. Az ismétléseknél minden idei újrahallgatás számít.</value></data>
+  <data name="No" xml:space="preserve"><value>Nem</value></data>
+  <data name="No audio sources found. Place a file in Imports or finish a server download." xml:space="preserve"><value>Nincs hangforrás. Helyezz egy fájlt az Importálások mappába, vagy várd meg a szerverre töltés végét.</value></data>
+  <data name="No audio sources on this page." xml:space="preserve"><value>Ezen az oldalon nincs hangforrás.</value></data>
+  <data name="No delay" xml:space="preserve"><value>Késleltetés nélkül</value></data>
+  <data name="No family results yet." xml:space="preserve"><value>Még nincs családi eredmény.</value></data>
+  <data name="No genres match this search." xml:space="preserve"><value>Egyik műfaj sem felel meg a keresésnek.</value></data>
+  <data name="No guesses yet." xml:space="preserve"><value>Még nincs tipp.</value></data>
+  <data name="No listening or song additions recorded for {0} in {1}." xml:space="preserve"><value>{0} esetében nincs rögzített zenehallgatás vagy dalhozzáadás a(z) {1}. évben.</value></data>
+  <data name="No matching official source found." xml:space="preserve"><value>Nincs megfelelő hivatalos forrás.</value></data>
+  <data name="No matching settings." xml:space="preserve"><value>Nincs megfelelő beállítás.</value></data>
+  <data name="No matching sources found. Show more sources to check other files." xml:space="preserve"><value>Nincs megfelelő forrás. További források megjelenítésével ellenőrizhetsz más fájlokat.</value></data>
+  <data name="No other profiles on this server." xml:space="preserve"><value>Nincs másik profil ezen a szerveren.</value></data>
+  <data name="No other word does better from here." xml:space="preserve"><value>Innentől ez a legjobb tipp.</value></data>
+  <data name="No profiles have listening history enabled." xml:space="preserve"><value>Egyik profilnál sincsenek bekapcsolva a zenehallgatási előzmények.</value></data>
+  <data name="No readings in this range." xml:space="preserve"><value>Ebben az időszakban nincs mérés.</value></data>
+  <data name="No recording choices found." xml:space="preserve"><value>Nincs választható felvétel.</value></data>
+  <data name="No release for this platform" xml:space="preserve"><value>Erre a platformra nincs kiadás</value></data>
+  <data name="No resource jobs are waiting or running." xml:space="preserve"><value>Nincs várakozó vagy futó feladat.</value></data>
+  <data name="No results at this quality" xml:space="preserve"><value>Ebben a minőségben nincs találat</value></data>
+  <data name="No saved songs match this search." xml:space="preserve"><value>A mentett dalok között nincs találat.</value></data>
+  <data name="No saved songs." xml:space="preserve"><value>Nincsenek mentett dalok.</value></data>
+  <data name="No seasons available to request" xml:space="preserve"><value>Nincs kérhető évad</value></data>
+  <data name="No seasons available." xml:space="preserve"><value>Nincs elérhető évad.</value></data>
+  <data name="No sessions are available." xml:space="preserve"><value>Nincs elérhető munkamenet.</value></data>
+  <data name="No similar songs found." xml:space="preserve"><value>Nincs hasonló dal.</value></data>
+  <data name="No songs match this search." xml:space="preserve"><value>Egyik dal sem felel meg a keresésnek.</value></data>
+  <data name="No songs queued." xml:space="preserve"><value>A lejátszási sor üres.</value></data>
+  <data name="No titles found." xml:space="preserve"><value>Nincs találat.</value></data>
+  <data name="No titles in your library." xml:space="preserve"><value>A könyvtárad üres.</value></data>
+  <data name="No torrents in the last sample." xml:space="preserve"><value>Az utolsó mintában nincs torrent.</value></data>
+  <data name="No verified catalogue match." xml:space="preserve"><value>Nincs ellenőrzött katalógustalálat.</value></data>
+  <data name="No watch or download options found. Try another title." xml:space="preserve"><value>Nincs megtekintési vagy letöltési lehetőség. Próbálj másik címet.</value></data>
+  <data name="Nobody is online right now." xml:space="preserve"><value>Jelenleg senki sincs online.</value></data>
+  <data name="None" xml:space="preserve"><value>Nincs</value></data>
+  <data name="Normal" xml:space="preserve"><value>Normál</value></data>
+  <data name="Not available" xml:space="preserve"><value>Nem érhető el</value></data>
+  <data name="Not in library" xml:space="preserve"><value>Nincs a könyvtárban</value></data>
+  <data name="Not linked" xml:space="preserve"><value>Nincs összekapcsolva</value></data>
+  <data name="Nothing in this folder matches “{0}”." xml:space="preserve"><value>Ebben a mappában nincs találat erre: „{0}”.</value></data>
+  <data name="Nothing recorded for this period. Listen to music or watch a film with history turned on, and you appear here." xml:space="preserve"><value>Erre az időszakra nincs adat. Hallgass zenét vagy nézz filmet bekapcsolt előzményekkel, hogy itt megjelenj.</value></data>
+  <data name="Notifications" xml:space="preserve"><value>Értesítések</value></data>
+  <data name="Notifications appear when FamilyHub syncs. Allow notifications in your device settings." xml:space="preserve"><value>Az értesítések a FamilyHub szinkronizálásakor jelennek meg. Engedélyezd őket az eszköz beállításaiban.</value></data>
+  <data name="Nudity" xml:space="preserve"><value>Meztelenség</value></data>
+  <data name="OLED black" xml:space="preserve"><value>OLED-fekete</value></data>
+  <data name="Off" xml:space="preserve"><value>Ki</value></data>
+  <data name="Offline" xml:space="preserve"><value>Offline</value></data>
+  <data name="Oldest first" xml:space="preserve"><value>Legrégebbi elöl</value></data>
+  <data name="On Samsung, set FamilyHub’s Battery option to Unrestricted if music stops with the screen off." xml:space="preserve"><value>Samsungon állítsd a FamilyHub akkumulátorhasználatát Korlátlanra, ha kikapcsolt képernyőn megáll a zene.</value></data>
+  <data name="On server" xml:space="preserve"><value>A szerveren</value></data>
+  <data name="On this device" xml:space="preserve"><value>Ezen az eszközön</value></data>
+  <data name="On-screen keyboard" xml:space="preserve"><value>Képernyő-billentyűzet</value></data>
+  <data name="One episode" xml:space="preserve"><value>Egy epizód</value></data>
+  <data name="One episode, S{0}E{1}" xml:space="preserve"><value>Egy epizód, S{0}E{1}</value></data>
+  <data name="One-off: works for a single download" xml:space="preserve"><value>Egyszeri: egyetlen letöltésre érvényes</value></data>
+  <data name="One-tap updates" xml:space="preserve"><value>Frissítés egy koppintással</value></data>
+  <data name="Online now" xml:space="preserve"><value>Most online</value></data>
+  <data name="Only an administrator can view server statistics." xml:space="preserve"><value>A szerverstatisztikákat csak adminisztrátor láthatja.</value></data>
+  <data name="Only files can be shared by link." xml:space="preserve"><value>Linkkel csak fájl osztható meg.</value></data>
+  <data name="Only the person who added it can change it." xml:space="preserve"><value>Csak az módosíthatja, aki hozzáadta.</value></data>
+  <data name="Only the person who added it can delete it." xml:space="preserve"><value>Csak az törölheti, aki hozzáadta.</value></data>
+  <data name="Open Downloads to choose another audio source." xml:space="preserve"><value>Nyisd meg a Letöltéseket másik hangforrás választásához.</value></data>
+  <data name="Open FamilyHub on another device with this profile to play there." xml:space="preserve"><value>A másik eszközön nyisd meg a FamilyHubot ezzel a profillal az ottani lejátszáshoz.</value></data>
+  <data name="Open FamilyHub on the other device and sign in with this profile. It then appears in this list." xml:space="preserve"><value>A másik eszközön nyisd meg a FamilyHubot, és lépj be ezzel a profillal. Ezután az eszköz megjelenik itt.</value></data>
+  <data name="Open GitHub issue draft" xml:space="preserve"><value>GitHub-hibajegy vázlatának megnyitása</value></data>
+  <data name="Open app settings" xml:space="preserve"><value>Alkalmazásbeállítások megnyitása</value></data>
+  <data name="Open folder {0}" xml:space="preserve"><value>Mappa megnyitása: {0}</value></data>
+  <data name="Open library" xml:space="preserve"><value>Könyvtár megnyitása</value></data>
+  <data name="Open lyrics" xml:space="preserve"><value>Dalszöveg megnyitása</value></data>
+  <data name="Open playback queue" xml:space="preserve"><value>Lejátszási sor megnyitása</value></data>
+  <data name="Open playlist search" xml:space="preserve"><value>Listakeresés megnyitása</value></data>
+  <data name="Open the Trakt page below and enter this code. This window updates when Trakt confirms." xml:space="preserve"><value>Nyisd meg az alábbi Trakt-oldalt, és írd be a kódot. Az ablak frissül, amint a Trakt megerősíti a kapcsolatot.</value></data>
+  <data name="Open the library to return to FamilyHub." xml:space="preserve"><value>A FamilyHubba a könyvtár megnyitásával térhetsz vissza.</value></data>
+  <data name="Open the title page" xml:space="preserve"><value>Adatlap megnyitása</value></data>
+  <data name="Open trakt.tv/activate" xml:space="preserve"><value>A trakt.tv/activate megnyitása</value></data>
+  <data name="Opening " xml:space="preserve"><value>Megnyitás: </value></data>
+  <data name="Opening FamilyHub" xml:space="preserve"><value>A FamilyHub megnyitása</value></data>
+  <data name="Options for {0}" xml:space="preserve"><value>Lehetőségek ehhez: {0}</value></data>
+  <data name="Opus 160 kbps" xml:space="preserve"><value>Opus 160 kbps</value></data>
+  <data name="Opus 48 kbps" xml:space="preserve"><value>Opus 48 kbps</value></data>
+  <data name="Opus 96 kbps" xml:space="preserve"><value>Opus 96 kbps</value></data>
+  <data name="Original" xml:space="preserve"><value>Eredeti</value></data>
+  <data name="Original HD disc video" xml:space="preserve"><value>Eredeti HD lemezvideó</value></data>
+  <data name="Other computers and phones running FamilyHub with this profile." xml:space="preserve"><value>Számítógépek és telefonok, ahol ezzel a profillal fut a FamilyHub.</value></data>
+  <data name="Other language" xml:space="preserve"><value>Más nyelv</value></data>
+  <data name="Other watch and download options" xml:space="preserve"><value>További megtekintési és letöltési lehetőségek</value></data>
+  <data name="Output" xml:space="preserve"><value>Kimenet</value></data>
+  <data name="Output {0}" xml:space="preserve"><value>{0}. kimenet</value></data>
+  <data name="Outro" xml:space="preserve"><value>Stáblista</value></data>
+  <data name="Page not found" xml:space="preserve"><value>Az oldal nem található</value></data>
+  <data name="Page unavailable" xml:space="preserve"><value>Az oldal nem érhető el</value></data>
+  <data name="Parental guide" xml:space="preserve"><value>Szülői útmutató</value></data>
+  <data name="Password" xml:space="preserve"><value>Jelszó</value></data>
+  <data name="Password (optional)" xml:space="preserve"><value>Jelszó (nem kötelező)</value></data>
+  <data name="Paste" xml:space="preserve"><value>Beillesztés</value></data>
+  <data name="Paste YouTube links" xml:space="preserve"><value>YouTube-linkek beillesztése</value></data>
+  <data name="Paste image" xml:space="preserve"><value>Kép beillesztése</value></data>
+  <data name="Pause" xml:space="preserve"><value>Szünet</value></data>
+  <data name="Pause download" xml:space="preserve"><value>Letöltés szüneteltetése</value></data>
+  <data name="Pause history" xml:space="preserve"><value>Előzmények szüneteltetése</value></data>
+  <data name="Pause on {0}" xml:space="preserve"><value>Szünet itt: {0}</value></data>
+  <data name="Pause only for me" xml:space="preserve"><value>Szünet csak nálam</value></data>
+  <data name="Pending" xml:space="preserve"><value>Függőben</value></data>
+  <data name="Per month" xml:space="preserve"><value>Havonta</value></data>
+  <data name="Pick up where you left off?" xml:space="preserve"><value>Folytatod onnan, ahol abbahagytad?</value></data>
+  <data name="Picture previews when seeking" xml:space="preserve"><value>Előnézeti képek tekeréskor</value></data>
+  <data name="Pin playlist" xml:space="preserve"><value>Lista rögzítése</value></data>
+  <data name="Plain" xml:space="preserve"><value>Egyszerű</value></data>
+  <data name="Play" xml:space="preserve"><value>Lejátszás</value></data>
+  <data name="Play a song with BPM and key to find compatible songs." xml:space="preserve"><value>Játssz le egy ismert tempójú és hangnemű dalt, hogy illő dalokat találj.</value></data>
+  <data name="Play next" xml:space="preserve"><value>Következőként lejátszani</value></data>
+  <data name="Play now" xml:space="preserve"><value>Lejátszás most</value></data>
+  <data name="Play on this device" xml:space="preserve"><value>Lejátszás ezen az eszközön</value></data>
+  <data name="Play playlist" xml:space="preserve"><value>Lista lejátszása</value></data>
+  <data name="Play similar songs next" xml:space="preserve"><value>Hasonló dalok lejátszása ezután</value></data>
+  <data name="Play the next episode automatically" xml:space="preserve"><value>Következő epizód automatikus lejátszása</value></data>
+  <data name="Play your queue" xml:space="preserve"><value>A sor lejátszása</value></data>
+  <data name="Playback" xml:space="preserve"><value>Lejátszás</value></data>
+  <data name="Playback cache" xml:space="preserve"><value>Lejátszási gyorsítótár</value></data>
+  <data name="Playback compatibility" xml:space="preserve"><value>Lejátszási kompatibilitás</value></data>
+  <data name="Playback diagnostics" xml:space="preserve"><value>Lejátszási diagnosztika</value></data>
+  <data name="Playback info" xml:space="preserve"><value>Lejátszási adatok</value></data>
+  <data name="Playback position" xml:space="preserve"><value>Lejátszás helye</value></data>
+  <data name="Played" xml:space="preserve"><value>Lejátszva</value></data>
+  <data name="Played with hard-mode rules" xml:space="preserve"><value>A nehéz mód szabályai szerint játszva</value></data>
+  <data name="Player options" xml:space="preserve"><value>Lejátszási beállítások</value></data>
+  <data name="Players" xml:space="preserve"><value>Játékosok</value></data>
+  <data name="Playing downloads missing songs." xml:space="preserve"><value>Lejátszáskor a hiányzó dalok letöltődnek.</value></data>
+  <data name="Playing now" xml:space="preserve"><value>Most szól</value></data>
+  <data name="Playlist" xml:space="preserve"><value>Lejátszási lista</value></data>
+  <data name="Playlist URL" xml:space="preserve"><value>Lejátszási lista URL-je</value></data>
+  <data name="Playlist backlog" xml:space="preserve"><value>Függőben lévő listák</value></data>
+  <data name="Playlist cover preview" xml:space="preserve"><value>A listaborító előnézete</value></data>
+  <data name="Playlist import and server downloads" xml:space="preserve"><value>Listaimportálás és letöltés a szerverre</value></data>
+  <data name="Playlist link" xml:space="preserve"><value>Lejátszási lista linkje</value></data>
+  <data name="Playlist matching and downloads" xml:space="preserve"><value>Listák egyeztetése és letöltése</value></data>
+  <data name="Playlist name" xml:space="preserve"><value>A lejátszási lista neve</value></data>
+  <data name="Playlist options" xml:space="preserve"><value>Listabeállítások</value></data>
+  <data name="Playlists" xml:space="preserve"><value>Lejátszási listák</value></data>
+  <data name="Posters" xml:space="preserve"><value>Borítók</value></data>
+  <data name="Posters and details from TMDB. " xml:space="preserve"><value>Borítók és adatok a TMDB-től. </value></data>
+  <data name="Posters are unavailable right now." xml:space="preserve"><value>A borítók jelenleg nem érhetők el.</value></data>
+  <data name="Power" xml:space="preserve"><value>Teljesítmény</value></data>
+  <data name="Preferred audio" xml:space="preserve"><value>Elsődleges hangsáv</value></data>
+  <data name="Preferred subtitles" xml:space="preserve"><value>Elsődleges felirat</value></data>
+  <data name="Preparing song on server" xml:space="preserve"><value>Dal előkészítése a szerveren</value></data>
+  <data name="Preparing song..." xml:space="preserve"><value>Dal előkészítése...</value></data>
+  <data name="Preset colour" xml:space="preserve"><value>Beállított szín</value></data>
+  <data name="Press play to start." xml:space="preserve"><value>A kezdéshez nyomd meg a lejátszás gombot.</value></data>
+  <data name="Preview suggestion" xml:space="preserve"><value>Javaslat meghallgatása</value></data>
+  <data name="Preview the suggested recording on YouTube (opens in a new tab)" xml:space="preserve"><value>A javasolt felvétel előnézete a YouTube-on (új lapon)</value></data>
+  <data name="Preview {0}" xml:space="preserve"><value>Előnézet: {0}</value></data>
+  <data name="Previous " xml:space="preserve"><value>Előző: </value></data>
+  <data name="Previous file" xml:space="preserve"><value>Előző fájl</value></data>
+  <data name="Previous seasons" xml:space="preserve"><value>Előző évadok</value></data>
+  <data name="Previous song" xml:space="preserve"><value>Előző dal</value></data>
+  <data name="Private playlist" xml:space="preserve"><value>Saját lista</value></data>
+  <data name="Private playlist; share with family" xml:space="preserve"><value>Saját lista. Megosztás a családdal.</value></data>
+  <data name="Profile" xml:space="preserve"><value>Profil</value></data>
+  <data name="Profile menu" xml:space="preserve"><value>Profilmenü</value></data>
+  <data name="Projector or very large screen" xml:space="preserve"><value>Projektor vagy nagyon nagy képernyő</value></data>
+  <data name="Prowlarr could not send this release. Try again." xml:space="preserve"><value>A Prowlarr nem küldte el ezt a kiadást. Próbáld újra.</value></data>
+  <data name="Prowlarr has no download client set up for this release." xml:space="preserve"><value>A Prowlarrban nincs letöltőkliens ehhez a kiadáshoz.</value></data>
+  <data name="Puzzle, family boards and stats" xml:space="preserve"><value>Feladvány, családi táblák és statisztikák</value></data>
+  <data name="Quality" xml:space="preserve"><value>Minőség</value></data>
+  <data name="Quality guide" xml:space="preserve"><value>Minőségi útmutató</value></data>
+  <data name="Quality unknown" xml:space="preserve"><value>Ismeretlen minőség</value></data>
+  <data name="Queue" xml:space="preserve"><value>Lejátszási sor</value></data>
+  <data name="Queue replacement" xml:space="preserve"><value>Csere sorba állítása</value></data>
+  <data name="Queue suggested recording" xml:space="preserve"><value>Javasolt felvétel sorba állítása</value></data>
+  <data name="Queued" xml:space="preserve"><value>Sorban</value></data>
+  <data name="Queued &amp; retrying" xml:space="preserve"><value>Sorban és újrapróbálkozás alatt</value></data>
+  <data name="Quick play" xml:space="preserve"><value>Gyorslejátszás</value></data>
+  <data name="Quiet" xml:space="preserve"><value>Halk</value></data>
+  <data name="Radio" xml:space="preserve"><value>Rádió</value></data>
+  <data name="Radio &amp; mixes" xml:space="preserve"><value>Rádió és mixek</value></data>
+  <data name="Ratings on title pages" xml:space="preserve"><value>Értékelések az adatlapokon</value></data>
+  <data name="Read full biography" xml:space="preserve"><value>Teljes életrajz</value></data>
+  <data name="Reading folder…" xml:space="preserve"><value>Mappa beolvasása…</value></data>
+  <data name="Recap" xml:space="preserve"><value>Összefoglaló</value></data>
+  <data name="Recent" xml:space="preserve"><value>Legutóbbi</value></data>
+  <data name="Recent diagnostics go to the developer with this report." xml:space="preserve"><value>A fejlesztő a jelentéssel együtt megkapja a legutóbbi diagnosztikai adatokat.</value></data>
+  <data name="Recently added" xml:space="preserve"><value>Nemrég hozzáadva</value></data>
+  <data name="Recently checked songs" xml:space="preserve"><value>Nemrég ellenőrzött dalok</value></data>
+  <data name="Recently fixed" xml:space="preserve"><value>Nemrég javítva</value></data>
+  <data name="Recently played" xml:space="preserve"><value>Nemrég lejátszva</value></data>
+  <data name="Recommend" xml:space="preserve"><value>Ajánlás</value></data>
+  <data name="Reconnect before sending this report." xml:space="preserve"><value>Csatlakozz újra a jelentés elküldése előtt.</value></data>
+  <data name="Reconnect to check your library for episodes." xml:space="preserve"><value>Csatlakozz újra a könyvtár epizódjainak ellenőrzéséhez.</value></data>
+  <data name="Reconnect to load episode details." xml:space="preserve"><value>Csatlakozz újra az epizód adatainak betöltéséhez.</value></data>
+  <data name="Reconnect to load feedback reports." xml:space="preserve"><value>Csatlakozz újra a visszajelzések betöltéséhez.</value></data>
+  <data name="Reconnect to load listening sessions." xml:space="preserve"><value>Csatlakozz újra a zenehallgatási munkamenetek betöltéséhez.</value></data>
+  <data name="Reconnect to load lyrics for this song." xml:space="preserve"><value>Csatlakozz újra a dal szövegének betöltéséhez.</value></data>
+  <data name="Reconnect to load movie genres." xml:space="preserve"><value>Csatlakozz újra a műfajok betöltéséhez.</value></data>
+  <data name="Reconnect to load new releases." xml:space="preserve"><value>Csatlakozz újra az új megjelenések betöltéséhez.</value></data>
+  <data name="Reconnect to load server statistics." xml:space="preserve"><value>Csatlakozz újra a szerverstatisztikák betöltéséhez.</value></data>
+  <data name="Reconnect to load the full season list." xml:space="preserve"><value>Csatlakozz újra a teljes évadlista betöltéséhez.</value></data>
+  <data name="Reconnect to load the leaderboard." xml:space="preserve"><value>Csatlakozz újra a ranglista betöltéséhez.</value></data>
+  <data name="Reconnect to load this folder." xml:space="preserve"><value>Csatlakozz újra a mappa betöltéséhez.</value></data>
+  <data name="Reconnect to load this shelf." xml:space="preserve"><value>Csatlakozz újra a sor betöltéséhez.</value></data>
+  <data name="Reconnect to load today's puzzle." xml:space="preserve"><value>Csatlakozz újra a mai feladvány betöltéséhez.</value></data>
+  <data name="Reconnect to load your Wordle preferences." xml:space="preserve"><value>Csatlakozz újra a Wordle-beállítások betöltéséhez.</value></data>
+  <data name="Reconnect to load your share links." xml:space="preserve"><value>Csatlakozz újra a megosztási linkek betöltéséhez.</value></data>
+  <data name="Reconnect to search for download options." xml:space="preserve"><value>Csatlakozz újra a letöltési lehetőségek kereséséhez.</value></data>
+  <data name="Reconnect to search for releases." xml:space="preserve"><value>Csatlakozz újra a kiadások kereséséhez.</value></data>
+  <data name="Reconnect to search for songs." xml:space="preserve"><value>Csatlakozz újra a dalkereséshez.</value></data>
+  <data name="Reconnect to search your movie library." xml:space="preserve"><value>Csatlakozz újra a filmkönyvtárban való kereséshez.</value></data>
+  <data name="Reconnect to update Wordle statistics." xml:space="preserve"><value>Csatlakozz újra a Wordle-statisztikák frissítéséhez.</value></data>
+  <data name="Reconnect to update artist mappings." xml:space="preserve"><value>Csatlakozz újra az előadópárosítások frissítéséhez.</value></data>
+  <data name="Record" xml:space="preserve"><value>Rekord</value></data>
+  <data name="Records" xml:space="preserve"><value>Rekordok</value></data>
+  <data name="Red" xml:space="preserve"><value>Piros</value></data>
+  <data name="Refresh" xml:space="preserve"><value>Frissítés</value></data>
+  <data name="Refresh history" xml:space="preserve"><value>Előzmények frissítése</value></data>
+  <data name="Refresh leaderboard" xml:space="preserve"><value>Ranglista frissítése</value></data>
+  <data name="Refresh readings" xml:space="preserve"><value>Mérések frissítése</value></data>
+  <data name="Refresh server work" xml:space="preserve"><value>Szerverfeladatok frissítése</value></data>
+  <data name="Related" xml:space="preserve"><value>Kapcsolódó címek</value></data>
+  <data name="Related films are unavailable" xml:space="preserve"><value>A kapcsolódó filmek nem érhetők el</value></data>
+  <data name="Related series are unavailable" xml:space="preserve"><value>A kapcsolódó sorozatok nem érhetők el</value></data>
+  <data name="Release details" xml:space="preserve"><value>Kiadás részletei</value></data>
+  <data name="Release history" xml:space="preserve"><value>Kiadási előzmények</value></data>
+  <data name="Release results" xml:space="preserve"><value>Kiadáskeresés eredményei</value></data>
+  <data name="Release search is unavailable. Try again." xml:space="preserve"><value>A kiadáskeresés nem érhető el. Próbáld újra.</value></data>
+  <data name="Reload" xml:space="preserve"><value>Újratöltés</value></data>
+  <data name="Reload your preferences to check whether the change was saved." xml:space="preserve"><value>Töltsd be újra a beállításokat annak ellenőrzéséhez, hogy a változás mentve lett-e.</value></data>
+  <data name="Remove download" xml:space="preserve"><value>Letöltés eltávolítása</value></data>
+  <data name="Remove downloaded songs?" xml:space="preserve"><value>Eltávolítod a letöltött dalokat?</value></data>
+  <data name="Remove from Continue watching" xml:space="preserve"><value>Eltávolítás a Folytatás sorból</value></data>
+  <data name="Remove from playlist" xml:space="preserve"><value>Eltávolítás a listáról</value></data>
+  <data name="Remove from this device" xml:space="preserve"><value>Eltávolítás erről az eszközről</value></data>
+  <data name="Removed {0} from Continue watching" xml:space="preserve"><value>Eltávolítva a Folytatás sorból: {0}</value></data>
+  <data name="Remux" xml:space="preserve"><value>Újracsomagolt</value></data>
+  <data name="Rename" xml:space="preserve"><value>Átnevezés</value></data>
+  <data name="Repeat all" xml:space="preserve"><value>Minden dal ismétlése</value></data>
+  <data name="Repeat off" xml:space="preserve"><value>Ismétlés kikapcsolva</value></data>
+  <data name="Repeat one" xml:space="preserve"><value>Egy dal ismétlése</value></data>
+  <data name="Repeat password" xml:space="preserve"><value>Jelszó megismétlése</value></data>
+  <data name="Replacement queued" xml:space="preserve"><value>Csere sorba állítva</value></data>
+  <data name="Reply" xml:space="preserve"><value>Válasz</value></data>
+  <data name="Report a problem" xml:space="preserve"><value>Hiba jelentése</value></data>
+  <data name="Report problem" xml:space="preserve"><value>Hiba bejelentése</value></data>
+  <data name="Report song" xml:space="preserve"><value>Dal jelentése</value></data>
+  <data name="Report status" xml:space="preserve"><value>Jelentés állapota</value></data>
+  <data name="Report this problem" xml:space="preserve"><value>A hiba bejelentése</value></data>
+  <data name="Request" xml:space="preserve"><value>Kérés</value></data>
+  <data name="Request a feature" xml:space="preserve"><value>Funkció kérése</value></data>
+  <data name="Request all seasons" xml:space="preserve"><value>Összes évad kérése</value></data>
+  <data name="Request approved" xml:space="preserve"><value>Kérés jóváhagyva</value></data>
+  <data name="Request download" xml:space="preserve"><value>Letöltés kérése</value></data>
+  <data name="Request needs attention" xml:space="preserve"><value>A kérés beavatkozást igényel</value></data>
+  <data name="Request received" xml:space="preserve"><value>Kérés fogadva</value></data>
+  <data name="Request season " xml:space="preserve"><value>Évad kérése: </value></data>
+  <data name="Requested" xml:space="preserve"><value>Kérve</value></data>
+  <data name="Requests disabled for this title" xml:space="preserve"><value>Ez a cím nem kérhető</value></data>
+  <data name="Reset saved song search" xml:space="preserve"><value>Mentett dalok keresésének alaphelyzetbe állítása</value></data>
+  <data name="Reset subtitle " xml:space="preserve"><value>Felirat visszaállítása: </value></data>
+  <data name="Reset to default" xml:space="preserve"><value>Alapértékek visszaállítása</value></data>
+  <data name="Resize library sidebar" xml:space="preserve"><value>Könyvtársáv átméretezése</value></data>
+  <data name="Resolve shown reports" xml:space="preserve"><value>Megjelenített jelentések lezárása</value></data>
+  <data name="Resolve shown requests" xml:space="preserve"><value>Megjelenített kérések lezárása</value></data>
+  <data name="Result" xml:space="preserve"><value>Eredmény</value></data>
+  <data name="Resume" xml:space="preserve"><value>Folytatás</value></data>
+  <data name="Resume live session" xml:space="preserve"><value>Közös lejátszás folytatása</value></data>
+  <data name="Resume prompt" xml:space="preserve"><value>Folytatás megkérdezése</value></data>
+  <data name="Resync {0} subtitles" xml:space="preserve"><value>Felirat újraigazítása ({0})</value></data>
+  <data name="Retry" xml:space="preserve"><value>Újra</value></data>
+  <data name="Retry " xml:space="preserve"><value>Újrapróbálkozás: </value></data>
+  <data name="Retry Add songs connection" xml:space="preserve"><value>Dalok hozzáadása újra</value></data>
+  <data name="Retry Deezer chart" xml:space="preserve"><value>Deezer-toplista betöltése újra</value></data>
+  <data name="Retry Wordle settings" xml:space="preserve"><value>Wordle-beállítások betöltése újra</value></data>
+  <data name="Retry Wordle statistics" xml:space="preserve"><value>Wordle-statisztikák betöltése újra</value></data>
+  <data name="Retry YouTube" xml:space="preserve"><value>YouTube-keresés újra</value></data>
+  <data name="Retry album" xml:space="preserve"><value>Album betöltése újra</value></data>
+  <data name="Retry artist mappings" xml:space="preserve"><value>Előadópárosítások betöltése újra</value></data>
+  <data name="Retry current readings" xml:space="preserve"><value>Aktuális mérések betöltése újra</value></data>
+  <data name="Retry current song" xml:space="preserve"><value>Dal lejátszása újra</value></data>
+  <data name="Retry download lookup" xml:space="preserve"><value>Letöltéskeresés újra</value></data>
+  <data name="Retry episode data" xml:space="preserve"><value>Epizódadatok betöltése újra</value></data>
+  <data name="Retry feedback list" xml:space="preserve"><value>Visszajelzések betöltése újra</value></data>
+  <data name="Retry files" xml:space="preserve"><value>Fájlok betöltése újra</value></data>
+  <data name="Retry folder listing" xml:space="preserve"><value>Mappa betöltése újra</value></data>
+  <data name="Retry genres" xml:space="preserve"><value>Műfajok betöltése újra</value></data>
+  <data name="Retry guess sync" xml:space="preserve"><value>Tipp újraszinkronizálása</value></data>
+  <data name="Retry history" xml:space="preserve"><value>Előzmények betöltése újra</value></data>
+  <data name="Retry leaderboard" xml:space="preserve"><value>Ranglista betöltése újra</value></data>
+  <data name="Retry library check" xml:space="preserve"><value>Könyvtár ellenőrzése újra</value></data>
+  <data name="Retry library search" xml:space="preserve"><value>Keresés a könyvtárban újra</value></data>
+  <data name="Retry listening sessions" xml:space="preserve"><value>Munkamenetek betöltése újra</value></data>
+  <data name="Retry loading songs" xml:space="preserve"><value>Dalok betöltése újra</value></data>
+  <data name="Retry lyrics" xml:space="preserve"><value>Dalszöveg betöltése újra</value></data>
+  <data name="Retry movie server check" xml:space="preserve"><value>Filmszerver ellenőrzése újra</value></data>
+  <data name="Retry movies" xml:space="preserve"><value>Filmek betöltése újra</value></data>
+  <data name="Retry new releases" xml:space="preserve"><value>Új megjelenések betöltése újra</value></data>
+  <data name="Retry online list" xml:space="preserve"><value>Online lista betöltése újra</value></data>
+  <data name="Retry person details" xml:space="preserve"><value>Személy adatainak betöltése újra</value></data>
+  <data name="Retry playback" xml:space="preserve"><value>Lejátszás újra</value></data>
+  <data name="Retry playback diagnostics" xml:space="preserve"><value>Lejátszási diagnosztika betöltése újra</value></data>
+  <data name="Retry playlist connection" xml:space="preserve"><value>Csatlakozás a listához újra</value></data>
+  <data name="Retry playlist progress" xml:space="preserve"><value>Lista állapotának betöltése újra</value></data>
+  <data name="Retry puzzle" xml:space="preserve"><value>Feladvány betöltése újra</value></data>
+  <data name="Retry radio shortcuts" xml:space="preserve"><value>Rádióparancsok betöltése újra</value></data>
+  <data name="Retry release lookup" xml:space="preserve"><value>Kiadáskeresés újra</value></data>
+  <data name="Retry report connection" xml:space="preserve"><value>Csatlakozás a jelentéshez újra</value></data>
+  <data name="Retry search" xml:space="preserve"><value>Keresés újra</value></data>
+  <data name="Retry season lookup" xml:space="preserve"><value>Évadkeresés újra</value></data>
+  <data name="Retry seeding" xml:space="preserve"><value>Megosztások betöltése újra</value></data>
+  <data name="Retry server connection" xml:space="preserve"><value>Csatlakozás a szerverhez újra</value></data>
+  <data name="Retry server work" xml:space="preserve"><value>Szerverfeladatok betöltése újra</value></data>
+  <data name="Retry share links" xml:space="preserve"><value>Megosztási linkek betöltése újra</value></data>
+  <data name="Retry song job status" xml:space="preserve"><value>Dalfeladat ellenőrzése újra</value></data>
+  <data name="Retry song review" xml:space="preserve"><value>Dalellenőrzés betöltése újra</value></data>
+  <data name="Retry source check" xml:space="preserve"><value>Források ellenőrzése újra</value></data>
+  <data name="Retry the video search." xml:space="preserve"><value>Próbáld újra a videókeresést.</value></data>
+  <data name="Retry to check for the latest chart." xml:space="preserve"><value>Próbáld újra a legfrissebb toplista betöltését.</value></data>
+  <data name="Retry trailer lookup" xml:space="preserve"><value>Műsorelőzetes keresése újra</value></data>
+  <data name="Retry update download" xml:space="preserve"><value>Frissítés letöltése újra</value></data>
+  <data name="Retry upload connection" xml:space="preserve"><value>Csatlakozás a feltöltéshez újra</value></data>
+  <data name="Retry upload status" xml:space="preserve"><value>Feltöltés állapotának ellenőrzése újra</value></data>
+  <data name="Review" xml:space="preserve"><value>Ellenőrzés</value></data>
+  <data name="Review recording" xml:space="preserve"><value>Felvétel ellenőrzése</value></data>
+  <data name="Review recordings" xml:space="preserve"><value>Felvételek ellenőrzése</value></data>
+  <data name="Revoke" xml:space="preserve"><value>Visszavonás</value></data>
+  <data name="Revoke link to {0}" xml:space="preserve"><value>Megosztási link visszavonása: {0}</value></data>
+  <data name="Revoked the link to {0}." xml:space="preserve"><value>A megosztási link visszavonva: {0}.</value></data>
+  <data name="Rounds played" xml:space="preserve"><value>Lejátszott fordulók</value></data>
+  <data name="Rounds won" xml:space="preserve"><value>Megnyert fordulók</value></data>
+  <data name="Rows, the banner, Continue watching, title pages and OLED black. Saved to your profile on the server." xml:space="preserve"><value>A sorok, a kiemelt tartalom, a Folytatás, az adatlapok és az OLED-fekete beállításait a szerveren tároljuk a profilodhoz.</value></data>
+  <data name="Running" xml:space="preserve"><value>Folyamatban</value></data>
+  <data name="Same length" xml:space="preserve"><value>Azonos hosszúság</value></data>
+  <data name="Save" xml:space="preserve"><value>Mentés</value></data>
+  <data name="Save name" xml:space="preserve"><value>Név mentése</value></data>
+  <data name="Save status" xml:space="preserve"><value>Mentés állapota</value></data>
+  <data name="Saved on this device for your profile." xml:space="preserve"><value>Ezen az eszközön, a profilodhoz mentve.</value></data>
+  <data name="Saved {0} to your Downloads folder." xml:space="preserve"><value>A(z) {0} a Letöltések mappába került.</value></data>
+  <data name="Saver (480p)" xml:space="preserve"><value>Takarékos (480p)</value></data>
+  <data name="Savings" xml:space="preserve"><value>Megtakarítás</value></data>
+  <data name="Saving…" xml:space="preserve"><value>Mentés…</value></data>
+  <data name="Science Fiction" xml:space="preserve"><value>Sci-fi</value></data>
+  <data name="Screen resolution limit" xml:space="preserve"><value>Képernyő felbontási határa</value></data>
+  <data name="Screenshots" xml:space="preserve"><value>Képernyőképek</value></data>
+  <data name="Search" xml:space="preserve"><value>Keresés</value></data>
+  <data name="Search YouTube" xml:space="preserve"><value>Keresés a YouTube-on</value></data>
+  <data name="Search again" xml:space="preserve"><value>Új keresés</value></data>
+  <data name="Search again and select a Videa release." xml:space="preserve"><value>Keress újra, és válassz Videa-kiadást.</value></data>
+  <data name="Search again and select a movie or series." xml:space="preserve"><value>Keress újra, és válassz filmet vagy sorozatot.</value></data>
+  <data name="Search again and select a release." xml:space="preserve"><value>Keress újra, és válassz kiadást.</value></data>
+  <data name="Search again to get a download reference." xml:space="preserve"><value>Keress újra a letöltési hivatkozásért.</value></data>
+  <data name="Search artist mappings" xml:space="preserve"><value>Keresés az előadópárosításokban</value></data>
+  <data name="Search artists or IDs" xml:space="preserve"><value>Előadók vagy azonosítók keresése</value></data>
+  <data name="Search for a title" xml:space="preserve"><value>Cím keresése</value></data>
+  <data name="Search for this song on YouTube (opens in a new tab)" xml:space="preserve"><value>A dal keresése a YouTube-on (új lapon)</value></data>
+  <data name="Search genres" xml:space="preserve"><value>Műfaj keresése</value></data>
+  <data name="Search in playlist" xml:space="preserve"><value>Keresés a listában</value></data>
+  <data name="Search movies and TV" xml:space="preserve"><value>Filmek és sorozatok keresése</value></data>
+  <data name="Search playlists" xml:space="preserve"><value>Lejátszási listák keresése</value></data>
+  <data name="Search results" xml:space="preserve"><value>Keresési eredmények</value></data>
+  <data name="Search saved songs" xml:space="preserve"><value>Mentett dalok keresése</value></data>
+  <data name="Search settings" xml:space="preserve"><value>Keresés a beállításokban</value></data>
+  <data name="Search songs" xml:space="preserve"><value>Dalok keresése</value></data>
+  <data name="Search songs or artists" xml:space="preserve"><value>Dalok vagy előadók keresése</value></data>
+  <data name="Search this folder" xml:space="preserve"><value>Keresés ebben a mappában</value></data>
+  <data name="Searching for {0} subtitles" xml:space="preserve"><value>Feliratkeresés ({0})</value></data>
+  <data name="Searching the web is not set up on this server." xml:space="preserve"><value>Ezen a szerveren nincs beállítva a webes keresés.</value></data>
+  <data name="Searching {0}…" xml:space="preserve"><value>Keresés itt: {0}…</value></data>
+  <data name="Searching…" xml:space="preserve"><value>Keresés…</value></data>
+  <data name="Season" xml:space="preserve"><value>Évad</value></data>
+  <data name="Season " xml:space="preserve"><value>Évad: </value></data>
+  <data name="Season {0}" xml:space="preserve"><value>{0}. évad</value></data>
+  <data name="Seasons" xml:space="preserve"><value>Évadok</value></data>
+  <data name="Seasons {0} to {1}" xml:space="preserve"><value>{0}–{1}. évad</value></data>
+  <data name="Seeding" xml:space="preserve"><value>Megosztás</value></data>
+  <data name="Seek" xml:space="preserve"><value>Tekerés</value></data>
+  <data name="Seerr could not accept this request. Check your request permissions and limits with the server owner." xml:space="preserve"><value>A Seerr nem fogadta el a kérést. Ellenőrizd a jogosultságaidat és a korlátokat a szerver tulajdonosával.</value></data>
+  <data name="Select a text subtitle to adjust timing." xml:space="preserve"><value>Az időzítéshez válassz szöveges feliratot.</value></data>
+  <data name="Select the link and copy it." xml:space="preserve"><value>Jelöld ki a linket, és másold ki.</value></data>
+  <data name="Select {0}" xml:space="preserve"><value>Kijelölés: {0}</value></data>
+  <data name="Selected audio track unavailable. Using the default track." xml:space="preserve"><value>A kiválasztott hangsáv nem érhető el. Az alapértelmezett sáv szól.</value></data>
+  <data name="Selected files" xml:space="preserve"><value>Kijelölt fájlok</value></data>
+  <data name="Send reply" xml:space="preserve"><value>Válasz küldése</value></data>
+  <data name="Send what I watch" xml:space="preserve"><value>Megtekintések küldése</value></data>
+  <data name="Sending request…" xml:space="preserve"><value>Kérés küldése…</value></data>
+  <data name="Sending…" xml:space="preserve"><value>Küldés…</value></data>
+  <data name="Series" xml:space="preserve"><value>Sorozat</value></data>
+  <data name="Server" xml:space="preserve"><value>Szerver</value></data>
+  <data name="Server address" xml:space="preserve"><value>Szerver címe</value></data>
+  <data name="Server and updates" xml:space="preserve"><value>Szerver és frissítések</value></data>
+  <data name="Server details" xml:space="preserve"><value>Szerveradatok</value></data>
+  <data name="Server download paused." xml:space="preserve"><value>A szerverre letöltés szünetel.</value></data>
+  <data name="Server online" xml:space="preserve"><value>A szerver elérhető</value></data>
+  <data name="Server updated {0:t}" xml:space="preserve"><value>A szerver ekkor frissült: {0:t}</value></data>
+  <data name="Session expired" xml:space="preserve"><value>A munkamenet lejárt</value></data>
+  <data name="Settings" xml:space="preserve"><value>Beállítások</value></data>
+  <data name="Settings categories" xml:space="preserve"><value>Beállítási kategóriák</value></data>
+  <data name="Settings search results" xml:space="preserve"><value>Beállítások keresési eredményei</value></data>
+  <data name="Shadow" xml:space="preserve"><value>Árnyék</value></data>
+  <data name="Share link" xml:space="preserve"><value>Megosztási link</value></data>
+  <data name="Share with the family" xml:space="preserve"><value>Megosztás a családdal</value></data>
+  <data name="Shared playlist" xml:space="preserve"><value>Megosztott lista</value></data>
+  <data name="Shared playlist; make private" xml:space="preserve"><value>Megosztott lista. Megosztás megszüntetése.</value></data>
+  <data name="Shared with me" xml:space="preserve"><value>Velem megosztva</value></data>
+  <data name="Share…" xml:space="preserve"><value>Megosztás…</value></data>
+  <data name="Shifted to the film's start" xml:space="preserve"><value>A film kezdetéhez igazítva</value></data>
+  <data name="Shorter" xml:space="preserve"><value>Rövidebb</value></data>
+  <data name="Shortest solve" xml:space="preserve"><value>Leggyorsabb megfejtés</value></data>
+  <data name="Show IMDb, Rotten Tomatoes and Metacritic scores when they are known." xml:space="preserve"><value>IMDb-, Rotten Tomatoes- és Metacritic-pontszámok megjelenítése, ha elérhetők.</value></data>
+  <data name="Show demo titles in Movies Home. Playback and downloads are unavailable in preview." xml:space="preserve"><value>Bemutatófilmek megjelenítése a Filmes kezdőlapon. Az előnézetben nincs lejátszás vagy letöltés.</value></data>
+  <data name="Show full description" xml:space="preserve"><value>Teljes leírás</value></data>
+  <data name="Show less" xml:space="preserve"><value>Kevesebb</value></data>
+  <data name="Show less biography" xml:space="preserve"><value>Életrajz összecsukása</value></data>
+  <data name="Show lyrics earlier" xml:space="preserve"><value>Dalszöveg előrébb hozása</value></data>
+  <data name="Show lyrics later" xml:space="preserve"><value>Dalszöveg késleltetése</value></data>
+  <data name="Show more" xml:space="preserve"><value>Továbbiak</value></data>
+  <data name="Show more " xml:space="preserve"><value>Továbbiak: </value></data>
+  <data name="Show more additions" xml:space="preserve"><value>További hozzáadások</value></data>
+  <data name="Show more sources" xml:space="preserve"><value>További források</value></data>
+  <data name="Show password" xml:space="preserve"><value>Jelszó mutatása</value></data>
+  <data name="Show the banner" xml:space="preserve"><value>Kiemelt tartalom megjelenítése</value></data>
+  <data name="Show the parental guide" xml:space="preserve"><value>Szülői útmutató megjelenítése</value></data>
+  <data name="Show what I'm listening to on Discord" xml:space="preserve"><value>Az éppen hallgatott zene megjelenítése a Discordon</value></data>
+  <data name="Show {0}" xml:space="preserve"><value>Megjelenítés: {0}</value></data>
+  <data name="Showing the last loaded statistics." xml:space="preserve"><value>A legutóbb betöltött statisztikák láthatók.</value></data>
+  <data name="Showing titles {0} to {1} of {2}." xml:space="preserve"><value>{0}–{1}. cím, összesen {2}.</value></data>
+  <data name="Shuffle" xml:space="preserve"><value>Keverés</value></data>
+  <data name="Shuffle episodes" xml:space="preserve"><value>Epizódok keverése</value></data>
+  <data name="Shuffle playlist" xml:space="preserve"><value>Lista keverése</value></data>
+  <data name="Shuffle your library" xml:space="preserve"><value>A könyvtár keverése</value></data>
+  <data name="Sign in" xml:space="preserve"><value>Bejelentkezés</value></data>
+  <data name="Sign in again and try again." xml:space="preserve"><value>Jelentkezz be újra, és próbáld meg ismét.</value></data>
+  <data name="Sign in again to download." xml:space="preserve"><value>Jelentkezz be újra a letöltéshez.</value></data>
+  <data name="Sign in again to upload." xml:space="preserve"><value>Jelentkezz be újra a feltöltéshez.</value></data>
+  <data name="Sign in again to use your files." xml:space="preserve"><value>A fájlok megnyitásához jelentkezz be újra.</value></data>
+  <data name="Signing in…" xml:space="preserve"><value>Bejelentkezés…</value></data>
+  <data name="Silence, talking or an intro should be cut." xml:space="preserve"><value>Vágd ki a csendet, a beszédet vagy a bevezetőt.</value></data>
+  <data name="Similar songs" xml:space="preserve"><value>Hasonló dalok</value></data>
+  <data name="Size" xml:space="preserve"><value>Méret</value></data>
+  <data name="Size needed to estimate quality" xml:space="preserve"><value>A minőség becsléséhez kell a fájlméret</value></data>
+  <data name="Skip intro" xml:space="preserve"><value>Intró átugrása</value></data>
+  <data name="Skip intros automatically" xml:space="preserve"><value>Intrók automatikus átugrása</value></data>
+  <data name="Skip recaps automatically" xml:space="preserve"><value>Összefoglalók automatikus átugrása</value></data>
+  <data name="Skip to content" xml:space="preserve"><value>Ugrás a tartalomra</value></data>
+  <data name="Skip {0}" xml:space="preserve"><value>Átugrás: {0}</value></data>
+  <data name="Skipped {0}" xml:space="preserve"><value>Átugorva: {0}</value></data>
+  <data name="Slate" xml:space="preserve"><value>Palaszürke</value></data>
+  <data name="Slowest word" xml:space="preserve"><value>Leglassabban megfejtett szó</value></data>
+  <data name="Small" xml:space="preserve"><value>Kicsi</value></data>
+  <data name="Smaller HD picture" xml:space="preserve"><value>Kisebb HD kép</value></data>
+  <data name="Solved in {0} guess" xml:space="preserve"><value>{0} tippből megfejtve</value></data>
+  <data name="Solved in {0} guesses" xml:space="preserve"><value>{0} tippből megfejtve</value></data>
+  <data name="Some songs could not be downloaded to the server." xml:space="preserve"><value>Néhány dalt nem sikerült letölteni a szerverre.</value></data>
+  <data name="Something with that name already exists." xml:space="preserve"><value>Már létezik ilyen nevű elem.</value></data>
+  <data name="Song metadata" xml:space="preserve"><value>Daladatok</value></data>
+  <data name="Song or artist" xml:space="preserve"><value>Dal vagy előadó</value></data>
+  <data name="Song review" xml:space="preserve"><value>Dalok ellenőrzése</value></data>
+  <data name="Songs" xml:space="preserve"><value>Dalok</value></data>
+  <data name="Songs added" xml:space="preserve"><value>Hozzáadott dalok</value></data>
+  <data name="Songs can keep processing on the server." xml:space="preserve"><value>A szerver folytathatja a dalok feldolgozását.</value></data>
+  <data name="Songs on this device" xml:space="preserve"><value>Dalok ezen az eszközön</value></data>
+  <data name="Songs, playlists and radio" xml:space="preserve"><value>Dalok, lejátszási listák és rádió</value></data>
+  <data name="Sort files" xml:space="preserve"><value>Fájlok rendezése</value></data>
+  <data name="Sort playlist songs" xml:space="preserve"><value>Lista dalainak rendezése</value></data>
+  <data name="Sort playlists" xml:space="preserve"><value>Listák rendezése</value></data>
+  <data name="Sound &amp; subtitle style" xml:space="preserve"><value>Hang és felirat megjelenése</value></data>
+  <data name="Sound mode" xml:space="preserve"><value>Hangmód</value></data>
+  <data name="Sound output" xml:space="preserve"><value>Hangkimenet</value></data>
+  <data name="Sound: " xml:space="preserve"><value>Hang: </value></data>
+  <data name="Source and audio stream" xml:space="preserve"><value>Forrás és hangsáv</value></data>
+  <data name="Source file deleted." xml:space="preserve"><value>Forrásfájl törölve.</value></data>
+  <data name="Source quality scan" xml:space="preserve"><value>Forrásminőség ellenőrzése</value></data>
+  <data name="Speakers on this device" xml:space="preserve"><value>Az eszköz hangszórói</value></data>
+  <data name="Specials" xml:space="preserve"><value>Különkiadások</value></data>
+  <data name="Speed" xml:space="preserve"><value>Sebesség</value></data>
+  <data name="Spotify Premium" xml:space="preserve"><value>Spotify Premium</value></data>
+  <data name="Spotify, YouTube, Deezer or SoundCloud. Songs already in this playlist are skipped." xml:space="preserve"><value>Spotify, YouTube, Deezer vagy SoundCloud. A listán már szereplő dalok kimaradnak.</value></data>
+  <data name="Stalled" xml:space="preserve"><value>Elakadt</value></data>
+  <data name="Standard-definition video" xml:space="preserve"><value>Normál felbontású videó</value></data>
+  <data name="Start matching" xml:space="preserve"><value>Illesztés indítása</value></data>
+  <data name="Start over" xml:space="preserve"><value>Lejátszás az elejétől</value></data>
+  <data name="Start the name with a character other than a dot." xml:space="preserve"><value>A név első karaktere ne pont legyen.</value></data>
+  <data name="Starting audio job…" xml:space="preserve"><value>Hangillesztés indítása…</value></data>
+  <data name="Statistics" xml:space="preserve"><value>Statisztikák</value></data>
+  <data name="Stereo" xml:space="preserve"><value>Sztereó</value></data>
+  <data name="Storage" xml:space="preserve"><value>Tárhely</value></data>
+  <data name="Storage and downloads" xml:space="preserve"><value>Tárhely és letöltések</value></data>
+  <data name="Stores songs prepared for playback. Songs you choose to download are stored separately." xml:space="preserve"><value>A lejátszáshoz előkészített dalokat tárolja. A kézzel letöltött dalok külön helyre kerülnek.</value></data>
+  <data name="Streak" xml:space="preserve"><value>Sorozat</value></data>
+  <data name="Streaming" xml:space="preserve"><value>Streamelés</value></data>
+  <data name="Streaming on Wi-Fi" xml:space="preserve"><value>Streamelés Wi-Fi-n</value></data>
+  <data name="Streaming on mobile data" xml:space="preserve"><value>Streamelés mobilneten</value></data>
+  <data name="Streaming quality" xml:space="preserve"><value>Streamelési minőség</value></data>
+  <data name="Streaming quality limit" xml:space="preserve"><value>Streamelési minőség korlátja</value></data>
+  <data name="Submit guess" xml:space="preserve"><value>Tipp elküldése</value></data>
+  <data name="Subtitle" xml:space="preserve"><value>Felirat</value></data>
+  <data name="Subtitle background" xml:space="preserve"><value>Felirat háttere</value></data>
+  <data name="Subtitle preview" xml:space="preserve"><value>Felirat előnézete</value></data>
+  <data name="Subtitle provider is not set up" xml:space="preserve"><value>Nincs beállítva feliratszolgáltató</value></data>
+  <data name="Subtitle size" xml:space="preserve"><value>Felirat mérete</value></data>
+  <data name="Subtitle style" xml:space="preserve"><value>Felirat megjelenése</value></data>
+  <data name="Subtitle sync unavailable" xml:space="preserve"><value>A felirat igazítása nem érhető el</value></data>
+  <data name="Subtitle timing" xml:space="preserve"><value>Felirat időzítése</value></data>
+  <data name="Subtitle timing unavailable" xml:space="preserve"><value>A felirat időzítése nem érhető el</value></data>
+  <data name="Subtitle track" xml:space="preserve"><value>Feliratsáv</value></data>
+  <data name="Subtitle track unavailable" xml:space="preserve"><value>A feliratsáv nem érhető el</value></data>
+  <data name="Subtitles" xml:space="preserve"><value>Feliratok</value></data>
+  <data name="Subtitles added to the video" xml:space="preserve"><value>Felirat hozzáadva a videóhoz</value></data>
+  <data name="Subtitles were saved. Give the library a moment, then retry or reopen the video." xml:space="preserve"><value>A felirat mentve. Várj egy kicsit, majd próbáld újra, vagy nyisd meg újra a videót.</value></data>
+  <data name="Subtitles were saved. Jellyfin could not refresh this title. Retry or ask an admin to check the library." xml:space="preserve"><value>A felirat mentve. A Jellyfin nem frissítette ezt a címet. Próbáld újra, vagy kérd meg az adminisztrátort a könyvtár ellenőrzésére.</value></data>
+  <data name="Subtitles: {0}" xml:space="preserve"><value>Feliratok: {0}</value></data>
+  <data name="Suggested details available." xml:space="preserve"><value>Vannak javasolt adatok.</value></data>
+  <data name="Suggested guess" xml:space="preserve"><value>Javasolt tipp</value></data>
+  <data name="Suitable for all ages" xml:space="preserve"><value>Minden korosztálynak megfelelő</value></data>
+  <data name="Supported sites" xml:space="preserve"><value>Támogatott oldalak</value></data>
+  <data name="Switch apps" xml:space="preserve"><value>Alkalmazás váltása</value></data>
+  <data name="Switch profile" xml:space="preserve"><value>Profilváltás</value></data>
+  <data name="Switched to Saver on mobile data." xml:space="preserve"><value>Mobilneten adattakarékos módra váltott.</value></data>
+  <data name="Synced to the film's English subtitles" xml:space="preserve"><value>A film angol feliratához igazítva</value></data>
+  <data name="Synced to the film's dialogue" xml:space="preserve"><value>A film beszédéhez igazítva</value></data>
+  <data name="System" xml:space="preserve"><value>Rendszer</value></data>
+  <data name="System default" xml:space="preserve"><value>Rendszer alapbeállítása</value></data>
+  <data name="Temperature" xml:space="preserve"><value>Hőmérséklet</value></data>
+  <data name="That did not work. Try again." xml:space="preserve"><value>A művelet nem sikerült. Próbáld újra.</value></data>
+  <data name="That folder is nested too deeply." xml:space="preserve"><value>A mappa túl mélyen van.</value></data>
+  <data name="That folder is not empty." xml:space="preserve"><value>A mappa nem üres.</value></data>
+  <data name="That folder is not valid." xml:space="preserve"><value>A mappa érvénytelen.</value></data>
+  <data name="That is not a file." xml:space="preserve"><value>Ez az elem nem fájl.</value></data>
+  <data name="That is not a folder." xml:space="preserve"><value>Ez az elem nem mappa.</value></data>
+  <data name="That item is not available." xml:space="preserve"><value>Ez az elem nem érhető el.</value></data>
+  <data name="That item no longer exists." xml:space="preserve"><value>Ez az elem már nem létezik.</value></data>
+  <data name="That link no longer exists." xml:space="preserve"><value>Ez a link már nem létezik.</value></data>
+  <data name="That space is not available." xml:space="preserve"><value>Ez a tárhely nem érhető el.</value></data>
+  <data name="The action could not finish. Try again." xml:space="preserve"><value>A művelet nem fejeződött be. Próbáld újra.</value></data>
+  <data name="The app may clear cached songs to free up space." xml:space="preserve"><value>Az alkalmazás tárhelyet szabadíthat fel a gyorsítótárazott dalok törlésével.</value></data>
+  <data name="The audio was slowed down slightly to match the video." xml:space="preserve"><value>A hang kissé lelassult, hogy illeszkedjen a videóhoz.</value></data>
+  <data name="The audio was sped up slightly to match the video." xml:space="preserve"><value>A hang kissé felgyorsult, hogy illeszkedjen a videóhoz.</value></data>
+  <data name="The code expired. Close this window and choose Link Trakt again." xml:space="preserve"><value>A kód lejárt. Zárd be az ablakot, és válaszd újra a Trakt összekapcsolása gombot.</value></data>
+  <data name="The cuts may differ. The largest timing difference was {0} s." xml:space="preserve"><value>Eltérhet a vágás. A legnagyobb időeltérés {0} mp volt.</value></data>
+  <data name="The destination folder changed. Open the folder you want and upload again." xml:space="preserve"><value>A célmappa megváltozott. Nyisd meg a kívánt mappát, és töltsd fel újra a fájlt.</value></data>
+  <data name="The download limit is 1 to 1000." xml:space="preserve"><value>A letöltések száma 1 és 1000 közötti lehet.</value></data>
+  <data name="The download queue is full. Try again later." xml:space="preserve"><value>A letöltési sor megtelt. Próbáld újra később.</value></data>
+  <data name="The end of a song fades into the start of the next. At 0 each song plays to the end." xml:space="preserve"><value>Az egyik dal vége átúszik a következő elejébe. 0-nál minden dal végig szól.</value></data>
+  <data name="The file is empty." xml:space="preserve"><value>A fájl üres.</value></data>
+  <data name="The file picker could not open." xml:space="preserve"><value>A fájlválasztó nem nyílt meg.</value></data>
+  <data name="The full season list is unavailable." xml:space="preserve"><value>A teljes évadlista nem érhető el.</value></data>
+  <data name="The letter is absent." xml:space="preserve"><value>A betű nem szerepel a szóban.</value></data>
+  <data name="The letter is in a different spot." xml:space="preserve"><value>A betű a szó másik helyén szerepel.</value></data>
+  <data name="The letter is in the right spot." xml:space="preserve"><value>A betű a helyén van.</value></data>
+  <data name="The password needs 4 to 200 characters." xml:space="preserve"><value>A jelszó 4–200 karakteres lehet.</value></data>
+  <data name="The password needs at least 4 characters." xml:space="preserve"><value>Legalább 4 karakteres jelszó szükséges.</value></data>
+  <data name="The passwords do not match yet." xml:space="preserve"><value>A két jelszó még eltér.</value></data>
+  <data name="The puzzle changed. Check your guesses and try again." xml:space="preserve"><value>A feladvány megváltozott. Ellenőrizd a tippjeidet, és próbáld újra.</value></data>
+  <data name="The puzzle could not update." xml:space="preserve"><value>A feladvány nem frissült.</value></data>
+  <data name="The server can keep working while progress is unavailable." xml:space="preserve"><value>A szerver tovább dolgozhat, amíg az állapot nem érhető el.</value></data>
+  <data name="The server could not check the folder size in time. Try again." xml:space="preserve"><value>A szerver nem ellenőrizte időben a mappa méretét. Próbáld újra.</value></data>
+  <data name="The server could not prepare an SDR stream." xml:space="preserve"><value>A szerver nem tudta előkészíteni az SDR adatfolyamot.</value></data>
+  <data name="The server did not answer in time. Check your connection and try again." xml:space="preserve"><value>A szerver nem válaszolt időben. Ellenőrizd a kapcsolatot, és próbáld újra.</value></data>
+  <data name="The server did not answer. Check the connection and try again." xml:space="preserve"><value>A szerver nem válaszolt. Ellenőrizd a kapcsolatot, és próbáld újra.</value></data>
+  <data name="The server did not provide a playable version." xml:space="preserve"><value>A szerver nem adott lejátszható változatot.</value></data>
+  <data name="The server did not respond to the subtitle request. Try again." xml:space="preserve"><value>A szerver nem válaszolt a feliratkérésre. Próbáld újra.</value></data>
+  <data name="The server did not respond. Try again." xml:space="preserve"><value>A szerver nem válaszolt. Próbáld újra.</value></data>
+  <data name="The server did not return playback information." xml:space="preserve"><value>A szerver nem adott lejátszási adatokat.</value></data>
+  <data name="The server found no compatible stream." xml:space="preserve"><value>A szerver nem talált kompatibilis adatfolyamot.</value></data>
+  <data name="The server is nearly out of disk space. Ask the administrator." xml:space="preserve"><value>A szerveren majdnem elfogyott a tárhely. Kérj segítséget az adminisztrátortól.</value></data>
+  <data name="The server stream could not start." xml:space="preserve"><value>A szerver adatfolyama nem indult el.</value></data>
+  <data name="The server’s board has changed. Your saved guesses are shown." xml:space="preserve"><value>A szerveren megváltozott a tábla. A mentett tippjeidet látod.</value></data>
+  <data name="The source has no English track. The match used changes in volume." xml:space="preserve"><value>A forrásnak nincs angol hangsávja. Az illesztés a hangerő változásait használta.</value></data>
+  <data name="The sources did not respond. Try again." xml:space="preserve"><value>A források nem válaszoltak. Próbáld újra.</value></data>
+  <data name="The track was saved. Refresh this title in Jellyfin to make it available." xml:space="preserve"><value>A sáv mentve. Frissítsd ezt a címet a Jellyfinben, hogy elérhető legyen.</value></data>
+  <data name="The upload did not finish. Try again." xml:space="preserve"><value>A feltöltés nem fejeződött be. Próbáld újra.</value></data>
+  <data name="The upload was larger than announced." xml:space="preserve"><value>A feltöltött fájl nagyobb a megadottnál.</value></data>
+  <data name="The video stream could not be decoded." xml:space="preserve"><value>A videó adatfolyamát nem sikerült dekódolni.</value></data>
+  <data name="The video stream stopped responding." xml:space="preserve"><value>A videó adatfolyama nem válaszol.</value></data>
+  <data name="Theme" xml:space="preserve"><value>Téma</value></data>
+  <data name="Theme effects" xml:space="preserve"><value>Témaeffektek</value></data>
+  <data name="These {0} files will be deleted for good. Links to them stop working." xml:space="preserve"><value>Ez a {0} fájl végleg törlődik. A hozzájuk tartozó linkek érvénytelenné válnak.</value></data>
+  <data name="This applies to today’s family boards and results." xml:space="preserve"><value>A beállítás a mai családi táblákra és eredményekre vonatkozik.</value></data>
+  <data name="This board is unavailable." xml:space="preserve"><value>Ez a tábla nem érhető el.</value></data>
+  <data name="This device cannot resume this video. Continue on another device." xml:space="preserve"><value>Ezen az eszközön nem folytatható a videó. Folytasd egy másik eszközön.</value></data>
+  <data name="This device could not save your movie preferences. Reopen Settings to try again." xml:space="preserve"><value>Ezen az eszközön nem sikerült menteni a filmlejátszás beállításait. Nyisd meg újra a Beállításokat.</value></data>
+  <data name="This file could not be opened here. Download it instead." xml:space="preserve"><value>Ez a fájl itt nem nyitható meg. Töltsd le a megnyitáshoz.</value></data>
+  <data name="This file is unusually small for a 1080p video of this length." xml:space="preserve"><value>Ez a fájl szokatlanul kicsi egy ilyen hosszú 1080p videóhoz.</value></data>
+  <data name="This file uses over 40 GB of server space." xml:space="preserve"><value>Ez a fájl több mint 40 GB helyet foglal a szerveren.</value></data>
+  <data name="This folder contains files added by another profile." xml:space="preserve"><value>A mappában másik profil által hozzáadott fájlok vannak.</value></data>
+  <data name="This folder is empty." xml:space="preserve"><value>Ez a mappa üres.</value></data>
+  <data name="This guess gave up most of your chances, or could not win on the last turn." xml:space="preserve"><value>Ez a tipp a legtöbb lehetőséget elvesztette, vagy az utolsó körben sem nyerhetett.</value></data>
+  <data name="This guess guarantees a solve in the guesses you have left. Only a few words do." xml:space="preserve"><value>Ezzel a tippel biztosan megfejtheted a feladványt a maradék tippekből. Kevés szóval lehet ugyanezt elérni.</value></data>
+  <data name="This is how subtitles look." xml:space="preserve"><value>Így jelenik meg a felirat.</value></data>
+  <data name="This month" xml:space="preserve"><value>Ebben a hónapban</value></data>
+  <data name="This picture format cannot be shown here. Download it instead." xml:space="preserve"><value>Ez a képformátum itt nem jeleníthető meg. Töltsd le a megnyitáshoz.</value></data>
+  <data name="This product uses the TMDB API but is not endorsed or certified by TMDB." xml:space="preserve"><value>A termék a TMDB API-ját használja. A TMDB nem támogatja és nem tanúsítja a terméket.</value></data>
+  <data name="This release is no longer available. Search again." xml:space="preserve"><value>Ez a kiadás már nem érhető el. Keress újra.</value></data>
+  <data name="This removes the playlist’s downloaded songs from this device, including copies used by other playlists." xml:space="preserve"><value>Ez eltávolítja a lista letöltött dalait erről az eszközről, köztük a más listákban is szereplő dalokat.</value></data>
+  <data name="This removes your listening history, yearly listening stats, and this device's pending events. Songs you added remain credited to you." xml:space="preserve"><value>Ez törli a zenehallgatási előzményeidet, az éves statisztikáidat és az eszköz függőben lévő eseményeit. A hozzáadott daloknál megmarad a neved.</value></data>
+  <data name="This sets the resolution limit for converted playback and flags larger downloads. Automatic uses your display’s pixel size. The projector setting allows up to 8K." xml:space="preserve"><value>Ez szabja meg az átkódolt lejátszás felbontási határát, és jelzi a nagyobb letöltéseket. Az automatikus mód a képernyő felbontását használja. Projektorral a felső határ 8K.</value></data>
+  <data name="This word cannot be the answer, yet it guarantees a solve in the guesses you have left. No possible answer did." xml:space="preserve"><value>Ezzel a szóval biztosan megfejtheted a feladványt a maradék tippekből. A szó nem lehet a megfejtés, és az egyik lehetséges megfejtés sem adna ilyen biztos eredményt.</value></data>
+  <data name="This word isn’t accepted. Try another." xml:space="preserve"><value>Ezt a szót a játék nem fogadja el. Próbálj egy másikat.</value></data>
+  <data name="Three-letter language code" xml:space="preserve"><value>Hárombetűs nyelvkód</value></data>
+  <data name="Thriller" xml:space="preserve"><value>Thriller</value></data>
+  <data name="Time" xml:space="preserve"><value>Idő</value></data>
+  <data name="Time listened" xml:space="preserve"><value>Zenehallgatási idő</value></data>
+  <data name="Time per game" xml:space="preserve"><value>Játékonkénti idő</value></data>
+  <data name="Time per guess" xml:space="preserve"><value>Tippenkénti idő</value></data>
+  <data name="Time remaining" xml:space="preserve"><value>Hátralévő idő</value></data>
+  <data name="Timed to the English track" xml:space="preserve"><value>Az angol sávhoz igazítva</value></data>
+  <data name="Times assume a {0} Mbps connection." xml:space="preserve"><value>A becslések {0} Mbps kapcsolattal számolnak.</value></data>
+  <data name="Timing" xml:space="preserve"><value>Időzítés</value></data>
+  <data name="Timing from the release" xml:space="preserve"><value>A kiadás eredeti időzítése</value></data>
+  <data name="Timing is unavailable for image subtitles." xml:space="preserve"><value>Képalapú felirat időzítése nem állítható.</value></data>
+  <data name="Timing not checked" xml:space="preserve"><value>Az időzítés nincs ellenőrizve</value></data>
+  <data name="Title" xml:space="preserve"><value>Cím</value></data>
+  <data name="Title details are unavailable." xml:space="preserve"><value>Az adatlap részletei nem érhetők el.</value></data>
+  <data name="Title page background" xml:space="preserve"><value>Adatlap háttere</value></data>
+  <data name="Title page sections" xml:space="preserve"><value>Adatlap részei</value></data>
+  <data name="Title pages" xml:space="preserve"><value>Adatlapok</value></data>
+  <data name="Title search is unavailable. Try again." xml:space="preserve"><value>A címkeresés nem érhető el. Próbáld újra.</value></data>
+  <data name="Title unavailable" xml:space="preserve"><value>A cím nem érhető el</value></data>
+  <data name="Titles" xml:space="preserve"><value>Címek</value></data>
+  <data name="Today" xml:space="preserve"><value>Ma</value></data>
+  <data name="Today’s guesses" xml:space="preserve"><value>Mai tippek</value></data>
+  <data name="Too many files share that name." xml:space="preserve"><value>Túl sok fájlnak van ilyen neve.</value></data>
+  <data name="Too many links made this hour. Try later." xml:space="preserve"><value>Ebben az órában túl sok link készült. Próbáld meg később.</value></data>
+  <data name="Too many uploads. Wait a minute." xml:space="preserve"><value>Túl sok feltöltés. Várj egy percet.</value></data>
+  <data name="Top listener this month" xml:space="preserve"><value>A hónap legtöbbet hallgató tagja</value></data>
+  <data name="Top three, {0}" xml:space="preserve"><value>Az első három, {0}</value></data>
+  <data name="Total" xml:space="preserve"><value>Összesen</value></data>
+  <data name="Total saved" xml:space="preserve"><value>Összes mentés</value></data>
+  <data name="Track language" xml:space="preserve"><value>Sáv nyelve</value></data>
+  <data name="Trailer" xml:space="preserve"><value>Előzetes</value></data>
+  <data name="Trailer on YouTube" xml:space="preserve"><value>Előzetes a YouTube-on</value></data>
+  <data name="Trakt is not available right now." xml:space="preserve"><value>A Trakt jelenleg nem érhető el.</value></data>
+  <data name="Trakt,scrobble,watch history" xml:space="preserve"><value>Trakt,megtekintések küldése,megtekintési előzmények</value></data>
+  <data name="Transcode" xml:space="preserve"><value>Átkódolás</value></data>
+  <data name="Try again" xml:space="preserve"><value>Próbáld újra</value></data>
+  <data name="Try saving again" xml:space="preserve"><value>Mentés újra</value></data>
+  <data name="Trying again in " xml:space="preserve"><value>Újrapróbálkozás ennyi idő múlva: </value></data>
+  <data name="Trying again in {0} s. " xml:space="preserve"><value>Újrapróbálkozás {0} mp múlva. </value></data>
+  <data name="Trying again…" xml:space="preserve"><value>Újrapróbálkozás…</value></data>
+  <data name="Trying again… " xml:space="preserve"><value>Újrapróbálkozás… </value></data>
+  <data name="Type to find more songs." xml:space="preserve"><value>Írj be egy keresőkifejezést további dalokhoz.</value></data>
+  <data name="Unavailable" xml:space="preserve"><value>Nem érhető el</value></data>
+  <data name="Unavailable in layout preview" xml:space="preserve"><value>Az elrendezés előnézetében nem érhető el</value></data>
+  <data name="Undo" xml:space="preserve"><value>Visszavonás</value></data>
+  <data name="Undo restores the original recording or details." xml:space="preserve"><value>A visszavonás visszaállítja az eredeti felvételt vagy adatokat.</value></data>
+  <data name="Unknown" xml:space="preserve"><value>Ismeretlen</value></data>
+  <data name="Unknown quality" xml:space="preserve"><value>Ismeretlen minőség</value></data>
+  <data name="Unknown space." xml:space="preserve"><value>Ismeretlen tárhely.</value></data>
+  <data name="Unlucky finish" xml:space="preserve"><value>Szerencsétlen befejezés</value></data>
+  <data name="Unmute" xml:space="preserve"><value>Némítás feloldása</value></data>
+  <data name="Unpin playlist" xml:space="preserve"><value>Lista rögzítésének feloldása</value></data>
+  <data name="Unsolved" xml:space="preserve"><value>Megfejtetlen</value></data>
+  <data name="Unsupported audio codec" xml:space="preserve"><value>Nem támogatott hangkodek</value></data>
+  <data name="Unsupported file format" xml:space="preserve"><value>Nem támogatott fájlformátum</value></data>
+  <data name="Unsupported subtitle format" xml:space="preserve"><value>Nem támogatott feliratformátum</value></data>
+  <data name="Unsupported video codec" xml:space="preserve"><value>Nem támogatott videokodek</value></data>
+  <data name="Up to 200 links, separated by spaces or new lines." xml:space="preserve"><value>Legfeljebb 200 link, szóközzel vagy új sorral elválasztva.</value></data>
+  <data name="Up to date ({0})" xml:space="preserve"><value>Naprakész ({0})</value></data>
+  <data name="Update the server to see queue and retry counts." xml:space="preserve"><value>Frissítsd a szervert a várakozó feladatok és az újrapróbálkozások számához.</value></data>
+  <data name="Updates unavailable on this platform" xml:space="preserve"><value>Ezen a platformon nem érhetők el frissítések</value></data>
+  <data name="Updating FamilyHub" xml:space="preserve"><value>A FamilyHub frissítése</value></data>
+  <data name="Upload files" xml:space="preserve"><value>Fájlok feltöltése</value></data>
+  <data name="Upload to this folder" xml:space="preserve"><value>Feltöltés ebbe a mappába</value></data>
+  <data name="Uploaded" xml:space="preserve"><value>Feltöltve</value></data>
+  <data name="Uploading song" xml:space="preserve"><value>Dal feltöltése</value></data>
+  <data name="Uploading {0}" xml:space="preserve"><value>Feltöltés: {0}</value></data>
+  <data name="Uploading {0}: {1}%" xml:space="preserve"><value>Feltöltés: {0}, {1}%</value></data>
+  <data name="Use at least 8 characters." xml:space="preserve"><value>Legalább 8 karaktert használj.</value></data>
+  <data name="Use recording" xml:space="preserve"><value>Felvétel használata</value></data>
+  <data name="Used" xml:space="preserve"><value>Felhasznált</value></data>
+  <data name="Used when a movie has no preferred audio. Has no effect while Preferred audio is Media default." xml:space="preserve"><value>Akkor használjuk, ha nincs a filmhez elsődleges hangsáv. A média alapbeállításával együtt nincs hatása.</value></data>
+  <data name="Uses Low quality and skips preloading songs on mobile data." xml:space="preserve"><value>Mobilneten alacsony minőséget használ, és kihagyja a dalok előtöltését.</value></data>
+  <data name="Uses Low quality on mobile data and skips early song downloads." xml:space="preserve"><value>Mobilneten alacsony minőséget használ, és kihagyja a dalok előzetes letöltését.</value></data>
+  <data name="Videa downloads are unavailable. Ask the server admin to check yt-dlp." xml:space="preserve"><value>A Videa-letöltés nem érhető el. Kérd meg az adminisztrátort, hogy ellenőrizze a yt-dlp-t.</value></data>
+  <data name="Video" xml:space="preserve"><value>Videó</value></data>
+  <data name="View" xml:space="preserve"><value>Nézet</value></data>
+  <data name="View history" xml:space="preserve"><value>Előzmények megtekintése</value></data>
+  <data name="Violence" xml:space="preserve"><value>Erőszak</value></data>
+  <data name="Violet" xml:space="preserve"><value>Lila</value></data>
+  <data name="Volume" xml:space="preserve"><value>Hangerő</value></data>
+  <data name="Volume above 100% can distort." xml:space="preserve"><value>100% felett torzíthat a hang.</value></data>
+  <data name="Volume level" xml:space="preserve"><value>Hangerőszint</value></data>
+  <data name="Volume {0}%" xml:space="preserve"><value>Hangerő: {0}%</value></data>
+  <data name="Wait a minute before searching again." xml:space="preserve"><value>Várj egy percet az új kereséssel.</value></data>
+  <data name="Wait a minute before starting another download." xml:space="preserve"><value>Várj egy percet, mielőtt másik letöltést indítasz.</value></data>
+  <data name="Waiting" xml:space="preserve"><value>Várakozik</value></data>
+  <data name="Waiting for approval" xml:space="preserve"><value>Jóváhagyásra vár</value></data>
+  <data name="Waiting for the library" xml:space="preserve"><value>Várakozás a könyvtárra</value></data>
+  <data name="Waiting to retry" xml:space="preserve"><value>Újrapróbálkozásra vár</value></data>
+  <data name="Watch credits" xml:space="preserve"><value>Stáblista megtekintése</value></data>
+  <data name="Watch on YouTube" xml:space="preserve"><value>Megtekintés a YouTube-on</value></data>
+  <data name="Watch progress could not be saved." xml:space="preserve"><value>A lejátszás helyét nem sikerült menteni.</value></data>
+  <data name="Watching" xml:space="preserve"><value>Megtekintés</value></data>
+  <data name="Web" xml:space="preserve"><value>Web</value></data>
+  <data name="Weekly" xml:space="preserve"><value>Heti</value></data>
+  <data name="Welcome back" xml:space="preserve"><value>Üdv újra!</value></data>
+  <data name="What can I connect to?" xml:space="preserve"><value>Mihez csatlakozhatok?</value></data>
+  <data name="When" xml:space="preserve"><value>Mikor</value></data>
+  <data name="When pressed" xml:space="preserve"><value>Gombnyomásra</value></data>
+  <data name="Where to save" xml:space="preserve"><value>Mentés helye</value></data>
+  <data name="Whole machine:" xml:space="preserve"><value>Teljes gép:</value></data>
+  <data name="Whose files" xml:space="preserve"><value>Kinek a fájljai</value></data>
+  <data name="Wi-Fi-only downloads" xml:space="preserve"><value>Letöltés csak Wi-Fi-n</value></data>
+  <data name="Width" xml:space="preserve"><value>Szélesség</value></data>
+  <data name="Win rate" xml:space="preserve"><value>Győzelmi arány</value></data>
+  <data name="Winning guesses" xml:space="preserve"><value>Győztes tippek</value></data>
+  <data name="Withheld from streamers" xml:space="preserve"><value>A streamelők elől elrejtve</value></data>
+  <data name="Wordle" xml:space="preserve"><value>Wordle</value></data>
+  <data name="Wordle settings saved." xml:space="preserve"><value>A Wordle-beállítások mentve.</value></data>
+  <data name="Wordle,spoilers,privacy,boards" xml:space="preserve"><value>Wordle,spoiler,adatvédelem,táblák</value></data>
+  <data name="Worker slots" xml:space="preserve"><value>Feldolgozóhelyek</value></data>
+  <data name="Workers" xml:space="preserve"><value>Feldolgozók</value></data>
+  <data name="Workers, queues and retries" xml:space="preserve"><value>Feldolgozók, várakozó feladatok és újrapróbálkozások</value></data>
+  <data name="Works until {0}. This is the only time the address is shown; make a new link if you lose it." xml:space="preserve"><value>Eddig érvényes: {0}. A címet csak most látod. Ha elveszíted, hozz létre új linket.</value></data>
+  <data name="Write feedback" xml:space="preserve"><value>Visszajelzés írása</value></data>
+  <data name="Writing audio" xml:space="preserve"><value>Hang írása</value></data>
+  <data name="Wrong source" xml:space="preserve"><value>Rossz forrás</value></data>
+  <data name="Yes" xml:space="preserve"><value>Igen</value></data>
+  <data name="Yesterday’s results" xml:space="preserve"><value>Tegnapi eredmények</value></data>
+  <data name="You" xml:space="preserve"><value>Te</value></data>
+  <data name="You can pause downloads from the playlist." xml:space="preserve"><value>A listáról szüneteltetheted a letöltéseket.</value></data>
+  <data name="You have not made any links yet." xml:space="preserve"><value>Még nincs megosztási linked.</value></data>
+  <data name="YouTube did not respond" xml:space="preserve"><value>A YouTube nem válaszolt</value></data>
+  <data name="YouTube downloads are not set up on this server." xml:space="preserve"><value>Ezen a szerveren nincs beállítva a YouTube-letöltés.</value></data>
+  <data name="YouTube recording link" xml:space="preserve"><value>YouTube-felvétel linkje</value></data>
+  <data name="YouTube video links" xml:space="preserve"><value>YouTube-videók linkjei</value></data>
+  <data name="Your board" xml:space="preserve"><value>A te táblád</value></data>
+  <data name="Your guesses are saved on this device." xml:space="preserve"><value>A tippjeid ezen az eszközön maradnak.</value></data>
+  <data name="Your layout changed on another device. Reopen this sheet to load it." xml:space="preserve"><value>Az elrendezés megváltozott egy másik eszközön. Nyisd meg újra ezt az ablakot a betöltéséhez.</value></data>
+  <data name="Your layout changed on another device. The current layout is shown." xml:space="preserve"><value>Az elrendezés megváltozott egy másik eszközön. A jelenlegi elrendezést látod.</value></data>
+  <data name="Your library" xml:space="preserve"><value>Könyvtárad</value></data>
+  <data name="Your library is empty" xml:space="preserve"><value>A könyvtárad üres</value></data>
+  <data name="Your links" xml:space="preserve"><value>Megosztási linkjeid</value></data>
+  <data name="Your music queue and settings are kept." xml:space="preserve"><value>A lejátszási sorod és a beállításaid megmaradnak.</value></data>
+  <data name="Your playlists" xml:space="preserve"><value>Lejátszási listáid</value></data>
+  <data name="Your recent puzzles" xml:space="preserve"><value>Legutóbbi feladványaid</value></data>
+  <data name="Your session expired. Reconnect to your server and try again." xml:space="preserve"><value>A munkamenet lejárt. Csatlakozz újra a szerverhez, és próbáld meg ismét.</value></data>
+  <data name="Your session was restored. Try again." xml:space="preserve"><value>A munkamenet helyreállt. Próbáld újra.</value></data>
+  <data name="Your session was restored. Try the action again." xml:space="preserve"><value>A munkamenet helyreállt. Próbáld újra a műveletet.</value></data>
+  <data name="about {0}" xml:space="preserve"><value>kb. {0}</value></data>
+  <data name="about {0} left" xml:space="preserve"><value>kb. {0} van hátra</value></data>
+  <data name="absent" xml:space="preserve"><value>hiányzik</value></data>
+  <data name="account,connect,unlink" xml:space="preserve"><value>fiók,összekapcsolás,leválasztás</value></data>
+  <data name="active time" xml:space="preserve"><value>aktív idő</value></data>
+  <data name="age rating,content warning" xml:space="preserve"><value>korhatár,tartalmi figyelmeztetés</value></data>
+  <data name="all time" xml:space="preserve"><value>minden időszak</value></data>
+  <data name="animation,motion,visual effects" xml:space="preserve"><value>animáció,mozgás,effektek</value></data>
+  <data name="appearance,colour,color,dark" xml:space="preserve"><value>megjelenés,szín,sötét</value></data>
+  <data name="artist aliases,identity" xml:space="preserve"><value>előadói álnevek,azonosítás</value></data>
+  <data name="audio quality,bitrate,cellular" xml:space="preserve"><value>hangminőség,bitráta,mobilnet</value></data>
+  <data name="audio quality,bitrate,wireless,wifi" xml:space="preserve"><value>hangminőség,bitráta,vezeték nélküli,wifi</value></data>
+  <data name="autoplay,up next,credits" xml:space="preserve"><value>automatikus lejátszás,következik,stáblista</value></data>
+  <data name="avatar,photo,profile image" xml:space="preserve"><value>avatar,fotó,profilkép</value></data>
+  <data name="backdrop,wallpaper,appearance" xml:space="preserve"><value>háttérkép,háttér,megjelenés</value></data>
+  <data name="background,color,palette" xml:space="preserve"><value>háttér,szín,színpaletta</value></data>
+  <data name="bandwidth,low quality,mobile data" xml:space="preserve"><value>sávszélesség,alacsony minőség,mobilnet</value></data>
+  <data name="build,app version" xml:space="preserve"><value>build,alkalmazás verziója</value></data>
+  <data name="cellular,mobile data,wireless,wifi" xml:space="preserve"><value>mobilnet,mobiladat,vezeték nélküli,wifi</value></data>
+  <data name="changelog,what's new" xml:space="preserve"><value>változásnapló,újdonságok</value></data>
+  <data name="connection,address,url" xml:space="preserve"><value>kapcsolat,cím,url</value></data>
+  <data name="credits" xml:space="preserve"><value>stáblista</value></data>
+  <data name="delete,privacy,reset plays" xml:space="preserve"><value>törlés,adatvédelem,lejátszások visszaállítása</value></data>
+  <data name="demo,example titles" xml:space="preserve"><value>bemutató,példafilmek</value></data>
+  <data name="did not solve it" xml:space="preserve"><value>nem fejtette meg</value></data>
+  <data name="different spot" xml:space="preserve"><value>másik helyen</value></data>
+  <data name="empty" xml:space="preserve"><value>üres</value></data>
+  <data name="episode {0}, {1}" xml:space="preserve"><value>{0}. epizód, {1}</value></data>
+  <data name="fade,transition,mix" xml:space="preserve"><value>átkeverés,átmenet,mix</value></data>
+  <data name="from FamilyHub? Downloaded songs stay on the server and devices." xml:space="preserve"><value>a FamilyHubból? A letöltött dalok megmaradnak a szerveren és az eszközökön.</value></data>
+  <data name="health,cpu,memory" xml:space="preserve"><value>állapot,processzor,memória</value></data>
+  <data name="in total" xml:space="preserve"><value>összesen</value></data>
+  <data name="intro" xml:space="preserve"><value>intró</value></data>
+  <data name="language,dubbing,fallback" xml:space="preserve"><value>nyelv,szinkron,tartalék</value></data>
+  <data name="language,dubbing,soundtrack" xml:space="preserve"><value>nyelv,szinkron,hangsáv</value></data>
+  <data name="logs,timing,playback problems" xml:space="preserve"><value>naplók,időzítés,lejátszási problémák</value></data>
+  <data name="loud,quiet,normalisation" xml:space="preserve"><value>hangos,halk,normalizálás</value></data>
+  <data name="matching titles, row {0}" xml:space="preserve"><value>Találatok, {0}. sor</value></data>
+  <data name="monthly" xml:space="preserve"><value>havi</value></data>
+  <data name="movies,bandwidth,data saver,bitrate" xml:space="preserve"><value>filmek,sávszélesség,adattakarékos mód,bitráta</value></data>
+  <data name="new releases" xml:space="preserve"><value>új megjelenések</value></data>
+  <data name="normalization,normalisation,loudness" xml:space="preserve"><value>normalizálás,egyenletes hangerő,hangosság</value></data>
+  <data name="notifications,alerts,new releases,continue watching" xml:space="preserve"><value>értesítések,jelzések,újdonságok,folytatás</value></data>
+  <data name="notifications,alerts,requested titles" xml:space="preserve"><value>értesítések,jelzések,kért filmek</value></data>
+  <data name="offline,audio quality,bitrate" xml:space="preserve"><value>offline,hangminőség,bitráta</value></data>
+  <data name="opening,skip introduction" xml:space="preserve"><value>nyitány,bevezető átugrása</value></data>
+  <data name="performance,server metrics" xml:space="preserve"><value>teljesítmény,szervermérések</value></data>
+  <data name="presence,status" xml:space="preserve"><value>jelenlét,állapot</value></data>
+  <data name="previously on,skip summary" xml:space="preserve"><value>az előző részekben,összefoglaló átugrása</value></data>
+  <data name="privacy,stop tracking,listening history" xml:space="preserve"><value>adatvédelem,követés leállítása,zenehallgatási előzmények</value></data>
+  <data name="queues,workers" xml:space="preserve"><value>sorok,feldolgozók</value></data>
+  <data name="recap" xml:space="preserve"><value>összefoglaló</value></data>
+  <data name="rename,username,profile name" xml:space="preserve"><value>átnevezés,felhasználónév,profilnév</value></data>
+  <data name="resolution,display,4k,projector" xml:space="preserve"><value>felbontás,kijelző,4k,projektor</value></data>
+  <data name="right spot" xml:space="preserve"><value>jó helyen</value></data>
+  <data name="samsung,battery,unrestricted,screen off" xml:space="preserve"><value>samsung,akkumulátor,korlátlan,kikapcsolt képernyő</value></data>
+  <data name="shortcut,SideStore" xml:space="preserve"><value>parancsikon,SideStore</value></data>
+  <data name="size unknown" xml:space="preserve"><value>ismeretlen méret</value></data>
+  <data name="solved in {0} guesses" xml:space="preserve"><value>{0} tippből megfejtette</value></data>
+  <data name="storage,space,cache size" xml:space="preserve"><value>tárhely,hely,gyorsítótár mérete</value></data>
+  <data name="subscription,account" xml:space="preserve"><value>előfizetés,fiók</value></data>
+  <data name="subtitle language,captions,cc" xml:space="preserve"><value>felirat nyelve,zárt felirat,cc</value></data>
+  <data name="the upload failed." xml:space="preserve"><value>a feltöltés sikertelen.</value></data>
+  <data name="timeline,chapter markers,scrub" xml:space="preserve"><value>idővonal,fejezetjelölők,tekerés</value></data>
+  <data name="torrents,ratio,uploads" xml:space="preserve"><value>torrentek,arány,feltöltések</value></data>
+  <data name="trickplay,thumbnail,scrubbing,timeline" xml:space="preserve"><value>trickplay,bélyegkép,tekerés,idővonal</value></data>
+  <data name="update,upgrade" xml:space="preserve"><value>frissítés,verzióváltás</value></data>
+  <data name="usage,cellular,this month" xml:space="preserve"><value>használat,mobilnet,ebben a hónapban</value></data>
+  <data name="used" xml:space="preserve"><value>felhasznált</value></data>
+  <data name="weekly" xml:space="preserve"><value>heti</value></data>
+  <data name="your playlists" xml:space="preserve"><value>lejátszási listáid</value></data>
+  <data name="{0:0.0} GB" xml:space="preserve"><value>{0:0.0} GB</value></data>
+  <data name="{0:0.0} MB" xml:space="preserve"><value>{0:0.0} MB</value></data>
+  <data name="{0:N0} words fit the clues before the final guess." xml:space="preserve"><value>Az utolsó tipp előtt {0:N0} szó felelt meg a nyomoknak.</value></data>
+  <data name="{0} (build {1}), {2}" xml:space="preserve"><value>{0} ({1}. build), {2}</value></data>
+  <data name="{0} (you)" xml:space="preserve"><value>{0} (te)</value></data>
+  <data name="{0} Confidence {1}." xml:space="preserve"><value>{0} Megbízhatóság: {1}.</value></data>
+  <data name="{0} GB" xml:space="preserve"><value>{0} GB</value></data>
+  <data name="{0} MB" xml:space="preserve"><value>{0} MB</value></data>
+  <data name="{0} audio unavailable. Using the default track." xml:space="preserve"><value>A(z) {0} hangsáv nem érhető el. Az alapértelmezett sáv szól.</value></data>
+  <data name="{0} available" xml:space="preserve"><value>Elérhető a(z) {0}</value></data>
+  <data name="{0} ch" xml:space="preserve"><value>{0} csat.</value></data>
+  <data name="{0} channels" xml:space="preserve"><value>{0} csatorna</value></data>
+  <data name="{0} day" xml:space="preserve"><value>{0} nap</value></data>
+  <data name="{0} days" xml:space="preserve"><value>{0} nap</value></data>
+  <data name="{0} download complete." xml:space="preserve"><value>A letöltés elkészült: {0}.</value></data>
+  <data name="{0} episode" xml:space="preserve"><value>{0} epizód</value></data>
+  <data name="{0} episodes" xml:space="preserve"><value>{0} epizód</value></data>
+  <data name="{0} found." xml:space="preserve"><value>{0} találat.</value></data>
+  <data name="{0} h" xml:space="preserve"><value>{0} óra</value></data>
+  <data name="{0} h {1} min" xml:space="preserve"><value>{0} óra {1} perc</value></data>
+  <data name="{0} hour" xml:space="preserve"><value>{0} óra</value></data>
+  <data name="{0} hours" xml:space="preserve"><value>{0} óra</value></data>
+  <data name="{0} is ready. Choose where to keep it." xml:space="preserve"><value>A(z) {0} elkészült. Válassz mentési helyet.</value></data>
+  <data name="{0} left" xml:space="preserve"><value>{0} van hátra</value></data>
+  <data name="{0} listening" xml:space="preserve"><value>Zenehallgatás {0}-ben</value></data>
+  <data name="{0} min" xml:space="preserve"><value>{0} perc</value></data>
+  <data name="{0} min {1} s" xml:space="preserve"><value>{0} perc {1} mp</value></data>
+  <data name="{0} minute" xml:space="preserve"><value>{0} perc</value></data>
+  <data name="{0} minutes" xml:space="preserve"><value>{0} perc</value></data>
+  <data name="{0} more site" xml:space="preserve"><value>még {0} oldal</value></data>
+  <data name="{0} more sites" xml:space="preserve"><value>még {0} oldal</value></data>
+  <data name="{0} opened. Download started." xml:space="preserve"><value>Megnyitva: {0}. A letöltés elindult.</value></data>
+  <data name="{0} results" xml:space="preserve"><value>{0} találat</value></data>
+  <data name="{0} s" xml:space="preserve"><value>{0} mp</value></data>
+  <data name="{0} second" xml:space="preserve"><value>{0} másodperc</value></data>
+  <data name="{0} seconds" xml:space="preserve"><value>{0} másodperc</value></data>
+  <data name="{0} selected" xml:space="preserve"><value>{0} kijelölve</value></data>
+  <data name="{0} setting found." xml:space="preserve"><value>{0} találat.</value></data>
+  <data name="{0} settings" xml:space="preserve"><value>{0} beállítások</value></data>
+  <data name="{0} settings found." xml:space="preserve"><value>{0} találat.</value></data>
+  <data name="{0} song to download" xml:space="preserve"><value>{0} letöltendő dal</value></data>
+  <data name="{0} songs to download" xml:space="preserve"><value>{0} letöltendő dal</value></data>
+  <data name="{0} subtitles resynced" xml:space="preserve"><value>A(z) {0} felirat időzítése javítva</value></data>
+  <data name="{0} title" xml:space="preserve"><value>{0} cím</value></data>
+  <data name="{0} titles" xml:space="preserve"><value>{0} cím</value></data>
+  <data name="{0} view" xml:space="preserve"><value>{0} megtekintés</value></data>
+  <data name="{0} views" xml:space="preserve"><value>{0} megtekintés</value></data>
+  <data name="{0} {1}" xml:space="preserve"><value>{0} {1}</value></data>
+  <data name="{0} {1} this file" xml:space="preserve"><value>{0} {1} ezt a fájlt</value></data>
+  <data name="{0} {1} uploaded." xml:space="preserve"><value>{0} {1} feltöltve.</value></data>
+  <data name="{0}% watched" xml:space="preserve"><value>Megnézve: {0}%</value></data>
+  <data name="{0}, in your library" xml:space="preserve"><value>{0}, a könyvtáradban</value></data>
+  <data name="{0}, new" xml:space="preserve"><value>{0}, új</value></data>
+  <data name="{0}, {1} of 6 guesses" xml:space="preserve"><value>{0}, {1} tipp a 6-ból</value></data>
+  <data name="{0}, {1}% downloaded." xml:space="preserve"><value>{0}, letöltve: {1}%.</value></data>
+  <data name="{0}. {1:N0} word left." xml:space="preserve"><value>{0}. Még {1:N0} szó maradt.</value></data>
+  <data name="{0}. {1:N0} words left." xml:space="preserve"><value>{0}. Még {1:N0} szó maradt.</value></data>
+  <data name="{0}: no longer works" xml:space="preserve"><value>{0}: már nem érvényes</value></data>
+  <data name="{0}: the upload did not finish." xml:space="preserve"><value>{0}: a feltöltés nem fejeződött be.</value></data>
+  <data name="{0}: {1} percent" xml:space="preserve"><value>{0}: {1} százalék</value></data>
+  <data name="{0}h" xml:space="preserve"><value>{0} óra</value></data>
+  <data name="{0}h {1}m" xml:space="preserve"><value>{0} óra {1} perc</value></data>
+  <data name="{0}m" xml:space="preserve"><value>{0} perc</value></data>
+  <data name="“{0}” and everything inside it will be deleted for good." xml:space="preserve"><value>A(z) „{0}” és a teljes tartalma végleg törlődik.</value></data>
+  <data name="“{0}” will be deleted for good." xml:space="preserve"><value>A(z) „{0}” végleg törlődik.</value></data>
+  <data name="“{0}” will be deleted for good. Links to it stop working." xml:space="preserve"><value>A(z) „{0}” végleg törlődik. A hozzá tartozó linkek érvénytelenné válnak.</value></data>
+  <data name="S{0} E{1}" xml:space="preserve"><value>{0}. évad {1}. rész</value></data>
+  <data name="from {0}" xml:space="preserve"><value>innen: {0}</value></data>
+</root>

@@ -942,7 +942,8 @@ body[data-effects="off"] .movie-library .movie-shelf-scroll .movie-resume-card {
 @media (min-width: 1600px) {
     .movie-library .movie-continue-menu-button:focus-visible,
     .movie-library .movie-continue-menu button:focus-visible,
-    .movie-library .movie-shelf-scroll [data-edge] > .movie-card:focus-visible {
+    /* Related rows put data-edge on the card itself, not on a wrapper. */
+    .movie-library .movie-shelf-scroll :is([data-edge] > .movie-card, .movie-card[data-edge]):focus-visible {
         outline-width: 4px; outline-offset: -4px;
     }
 }
@@ -2331,6 +2332,8 @@ body[data-effects="off"] .movie-library :is(.movie-title-actions button.movie-he
 .movie-library .movie-shelf[data-format="resume"][data-resume-style="poster"] .movie-art { aspect-ratio: 2 / 3; }
 :is(.movie-art, .movie-episode-still)[data-spoiler] img { filter: blur(14px); transform: scale(1.12); }
 .movie-customise-bar { display: flex; justify-content: center; padding: 1.25rem 0 .5rem; }
+/* An empty library has no rows to customise. */
+.movie-browse:has(> .movie-library-empty:not([hidden])) .movie-customise-bar { display: none; }
 .movie-library button.movie-customise-home {
     display: inline-flex; align-items: center; gap: .5rem; min-height: var(--movie-target, 44px); padding: .4em 1.1em;
     border: 1px solid #ffffff2e; border-radius: 999px; background: transparent; color: #c9cde0; font: inherit;

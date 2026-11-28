@@ -11,9 +11,9 @@
 <button id="connect-device" class="quiet @(Player.RemoteDeviceName.Length > 0 ? "is-remote" : "")" aria-label="@ButtonLabel" title="@ButtonLabel" aria-haspopup="dialog" @onclick="Open"><MusicIcon Name="device" /><span class="toolbar-label">@ButtonLabel</span></button>
 <dialog id="audio-output-dialog" class="popup-panel connect-panel" aria-labelledby="audio-output-title" @onclose="StopRefreshing">
     <div class="connect-body">
-        <div class="dialog-heading"><h2 id="audio-output-title">Connect</h2><button id="audio-output-close" class="quiet" aria-label="Close Connect" @onclick="Close"><MusicIcon Name="close" /></button></div>
-        @if (Connection.ConnectingTo is not null) { <Notice Message="Connecting…" /> }
-        <section class="connect-devices" aria-label="Devices">
+        <div class="dialog-heading"><h2 id="audio-output-title">@L["Connect"]</h2><button id="audio-output-close" class="quiet" aria-label="@L["Close Connect"].Value" @onclick="Close"><MusicIcon Name="close" /></button></div>
+        @if (Connection.ConnectingTo is not null) { <Notice Message="@L["Connecting…"].Value" /> }
+        <section class="connect-devices" aria-label="@L["Devices"].Value">
             @{ var remote = RemoteSource;
                var here = !Player.RemoteActive && remote is null;
                var currentKind = here ? MusicSession.DeviceKind : remote?.Kind ?? "";
@@ -25,7 +25,7 @@
                     <strong class="connect-current-name">@(here ? MusicSession.DeviceName : remote?.Name ?? Player.RemoteDeviceName)</strong>
                     @if (title is not null)
                     {
-                        <span class="connect-current-song">@if (currentPlaying) { <span class="device-playing" role="img" aria-label="Playing now"><span></span><span></span><span></span></span> }<span>@title – @artist</span></span>
+                        <span class="connect-current-song">@if (currentPlaying) { <span class="device-playing" role="img" aria-label="@L["Playing now"].Value"><span></span><span></span><span></span></span> }<span>@title – @artist</span></span>
                     }
                 </span>
                 <span class="connect-current-icon"><MusicIcon Name="@KindIcon(currentKind)" /></span>
@@ -34,7 +34,7 @@
                 {
                     <span class="connect-volume" style="--volume-level:@((Player.Volume * 100).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture))%">
                         <MusicIcon Name="volume-low" />
-                        <input id="connect-volume" type="range" min="0" max="1" step="0.01" value="@Player.Volume" aria-label="Volume" @oninput="VolumeChanged" @onchange="SaveVolume" />
+                        <input id="connect-volume" type="range" min="0" max="1" step="0.01" value="@Player.Volume" aria-label="@L["Volume"].Value" @oninput="VolumeChanged" @onchange="SaveVolume" />
                         <MusicIcon Name="volume" />
                     </span>
                 }
@@ -51,33 +51,33 @@
                 <button class="device-option" @key="device.Id" id="@("device-" + device.Id)" aria-disabled="@(Connection.ConnectingTo is not null ? "true" : "false")" @onclick="() => Transfer(device)">
                     <span class="device-icon"><MusicIcon Name="@KindIcon(device.Kind)" /></span>
                     <span class="device-text"><strong>@device.Name</strong>
-                        @if (device.Playing && device.Track is { } track) { <small class="is-playing"><span class="device-playing" role="img" aria-label="Playing now"><span></span><span></span><span></span></span><span>@track.Title – @track.Channel</span></small> }
+                        @if (device.Playing && device.Track is { } track) { <small class="is-playing"><span class="device-playing" role="img" aria-label="@L["Playing now"].Value"><span></span><span></span><span></span></span><span>@track.Title – @track.Channel</span></small> }
                     </span>
                 </button>
             }
-            @if (loadedDevices && here && !devices.Any(d => !d.This)) { <Notice Level="empty" Message="Open FamilyHub on another device with this profile to play there." /> }
+            @if (loadedDevices && here && !devices.Any(d => !d.This)) { <Notice Level="empty" Message="@L["Open FamilyHub on another device with this profile to play there."].Value" /> }
         </section>
         @if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid())
         {
             <section class="connect-outputs" aria-labelledby="connect-outputs-title">
-                <h3 id="connect-outputs-title">Speakers on this device</h3>
-                @if (loading) { <Notice Message="Loading audio outputs…" /> }
+                <h3 id="connect-outputs-title">@L["Speakers on this device"]</h3>
+                @if (loading) { <Notice Message="@L["Loading audio outputs…"].Value" /> }
                 @foreach (var output in outputs)
                 { <button class="audio-output-option" @key="output.Id" aria-pressed="@(Player.AudioOutputId == output.Id ? "true" : "false")" @onclick="() => Select(output.Id)"><MusicIcon Name="@(Player.AudioOutputId == output.Id ? "check-circle" : "volume")" /><span>@output.Name</span></button> }
-                @if (OperatingSystem.IsAndroid()) { <button class="audio-output-option" @onclick="SystemPicker"><MusicIcon Name="volume" /><span>Choose audio output</span></button> }
+                @if (OperatingSystem.IsAndroid()) { <button class="audio-output-option" @onclick="SystemPicker"><MusicIcon Name="volume" /><span>@L["Choose audio output"]</span></button> }
             </section>
         }
         @if (error is not null) { <Notice Level="error" Message="@error" /> }
         <div class="connect-spacer"></div>
         <div class="connect-help">
-            <button id="connect-help-missing" class="connect-help-row" aria-expanded="@Aria(help == "missing")" aria-controls="connect-help-missing-text" @onclick='() => ToggleHelp("missing")'><span>Don't see your device?</span><MusicIcon Name="chevron-down" /></button>
-            @if (help == "missing") { <p id="connect-help-missing-text" class="connect-help-text">Open FamilyHub on the other device and sign in with this profile. It then appears in this list.</p> }
-            <button id="connect-help-what" class="connect-help-row" aria-expanded="@Aria(help == "what")" aria-controls="connect-help-what-text" @onclick='() => ToggleHelp("what")'><span>What can I connect to?</span><MusicIcon Name="chevron-down" /></button>
-            @if (help == "what") { <p id="connect-help-what-text" class="connect-help-text">Other computers and phones running FamilyHub with this profile.</p> }
+            <button id="connect-help-missing" class="connect-help-row" aria-expanded="@Aria(help == "missing")" aria-controls="connect-help-missing-text" @onclick='() => ToggleHelp("missing")'><span>@L["Don't see your device?"]</span><MusicIcon Name="chevron-down" /></button>
+            @if (help == "missing") { <p id="connect-help-missing-text" class="connect-help-text">@L["Open FamilyHub on the other device and sign in with this profile. It then appears in this list."]</p> }
+            <button id="connect-help-what" class="connect-help-row" aria-expanded="@Aria(help == "what")" aria-controls="connect-help-what-text" @onclick='() => ToggleHelp("what")'><span>@L["What can I connect to?"]</span><MusicIcon Name="chevron-down" /></button>
+            @if (help == "what") { <p id="connect-help-what-text" class="connect-help-text">@L["Other computers and phones running FamilyHub with this profile."]</p> }
         </div>
         @if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid())
         {
-            <button id="connect-bluetooth" class="connect-bluetooth" @onclick="Bluetooth"><MusicIcon Name="bluetooth" /><span>Find Bluetooth devices</span></button>
+            <button id="connect-bluetooth" class="connect-bluetooth" @onclick="Bluetooth"><MusicIcon Name="bluetooth" /><span>@L["Find Bluetooth devices"]</span></button>
         }
     </div>
 </dialog>

@@ -2,8 +2,8 @@
 @inject MusicSession Session
 
 <div class="stats-server-status" role="status" hidden="@failed"><MusicIcon Name="film" /><span>@message</span></div>
-<ServiceStatus Active="failed" Detail="Check the Jellyfin connection to load its status."
-               RetryLabel="Retry movie server check" Retry="Refresh" Busy="loading" AutoRetry="true" FocusTarget="#server-stats-refresh" />
+<ServiceStatus Active="failed" Detail="@L["Check the Jellyfin connection to load its status."].Value"
+               RetryLabel="@L["Retry movie server check"].Value" Retry="Refresh" Busy="loading" AutoRetry="true" FocusTarget="#server-stats-refresh" />
 
 @code {
     private sealed record Health(bool Healthy);

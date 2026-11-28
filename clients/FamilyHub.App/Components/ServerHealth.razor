@@ -5,13 +5,13 @@
 <div class="health-dashboard">
     <section aria-labelledby="health-current-title" class="health-panel glass-panel">
         <header class="health-header">
-            <h2 id="health-current-title">Current readings</h2>
+            <h2 id="health-current-title">@L["Current readings"]</h2>
             <button id="health-refresh-current" type="button" class="quiet health-action" @onclick="LoadCurrent" aria-disabled="@Flag(currentLoading)">
-                Refresh readings
+                @L["Refresh readings"]
             </button>
         </header>
         <ServiceStatus Active="currentError" Detail="@(current is null ? "Current readings did not load." : "Showing the last loaded readings.")"
-                       RetryLabel="Retry current readings" Retry="LoadCurrent" Busy="currentLoading" AutoRetry="true"
+                       RetryLabel="@L["Retry current readings"].Value" Retry="LoadCurrent" Busy="currentLoading" AutoRetry="true"
                        Status="@SnapshotTime(current?.At)" FocusTarget="#health-refresh-current" />
         @if (!currentError) { <p class="health-status" role="status">@Status(currentLoading, current?.At, "readings")</p> }
         @if (current is { } snapshot)
@@ -20,7 +20,7 @@
                 @foreach (var mount in snapshot.Mounts)
                 {
                     <article class="health-tile" @key="mount.Mount">
-                        <h3>Disk <span class="health-device">@mount.Mount</span></h3>
+                        <h3>@L["Disk"] <span class="health-device">@mount.Mount</span></h3>
                         @if (mount.Used is { } used && mount.Total is > 0)
                         {
                             <strong class="health-value">@Bytes(used) used</strong>
@@ -32,36 +32,36 @@
                                 <p><span class="health-device">@disk.Name</span> SMART: @(disk.Smart ?? NotMeasured)</p>
                             }
                         }
-                        else { <p>Mount unavailable</p> }
+                        else { <p>@L["Mount unavailable"]</p> }
                     </article>
                 }
                 <article class="health-tile">
-                    <h3>CPU load</h3>
+                    <h3>@L["CPU load"]</h3>
                     <strong class="health-value">@Number(Value(snapshot, "cpu"))</strong>
-                    <p>1-minute load average</p>
-                    <h3>Memory</h3>
+                    <p>@L["1-minute load average"]</p>
+                    <h3>@L["Memory"]</h3>
                     <p>@(Value(snapshot, "memory:used") is { } memory ? Bytes(memory) + " used" : NotMeasured)</p>
                     @if (Value(snapshot, "memory:available") is { } available)
                     { <p>@Bytes(available) available</p> }
                 </article>
                 <article class="health-tile">
-                    <h3>Power</h3>
-                    <p>CPU package: <strong>@Number(Value(snapshot, "power:cpu"), " W")</strong></p>
-                    <p>Whole machine: <strong>@Number(Value(snapshot, "power:machine"), " W")</strong></p>
-                    <h3>Monthly energy estimate</h3>
+                    <h3>@L["Power"]</h3>
+                    <p>@L["CPU package:"] <strong>@Number(Value(snapshot, "power:cpu"), " W")</strong></p>
+                    <p>@L["Whole machine:"] <strong>@Number(Value(snapshot, "power:machine"), " W")</strong></p>
+                    <h3>@L["Monthly energy estimate"]</h3>
                     <p>CPU package: @Energy(snapshot, "power:cpu")</p>
                     <p>Whole machine: @Energy(snapshot, "power:machine")</p>
                 </article>
                 <article class="health-tile">
-                    <h3>Temperature</h3>
+                    <h3>@L["Temperature"]</h3>
                     @Temperature(snapshot, "cpu", "CPU package", 70, 85)
-                    <p>CPU warm at 70 °C, hot at 85 °C</p>
+                    <p>@L["CPU warm at 70 °C, hot at 85 °C"]</p>
                     @foreach (var disk in snapshot.Mounts.SelectMany(m => m.Disks).Select(d => d.Name).Distinct())
                     { @Temperature(snapshot, disk, disk, 45, 55) }
-                    <p>Disks warm at 45 °C, hot at 55 °C</p>
+                    <p>@L["Disks warm at 45 °C, hot at 55 °C"]</p>
                 </article>
                 <article class="health-tile">
-                    <h3>Network</h3>
+                    <h3>@L["Network"]</h3>
                     @foreach (var name in snapshot.Networks)
                     {
                         <p><strong class="health-device">@NetworkName(name)</strong></p>
@@ -78,12 +78,12 @@
 
     <section aria-labelledby="health-history-title" class="health-panel glass-panel" data-range="@shownRange">
         <header class="health-header">
-            <h2 id="health-history-title">History</h2>
+            <h2 id="health-history-title">@L["History"]</h2>
             <button id="health-refresh-history" type="button" class="quiet health-action" @onclick="() => LoadHistory(range)" aria-disabled="@Flag(historyLoading)">
-                Refresh history
+                @L["Refresh history"]
             </button>
         </header>
-        <div role="radiogroup" aria-label="History range" class="health-ranges">
+        <div role="radiogroup" aria-label="@L["History range"].Value" class="health-ranges">
             @foreach (var choice in Ranges)
             {
                 <label class="health-range">
@@ -94,7 +94,7 @@
             }
         </div>
         <ServiceStatus Active="historyError" Detail="@(history is null ? "History did not load." : "Showing the last loaded history.")"
-                       RetryLabel="Retry history" Retry="() => LoadHistory(range)" Busy="historyLoading" AutoRetry="true"
+                       RetryLabel="@L["Retry history"].Value" Retry="() => LoadHistory(range)" Busy="historyLoading" AutoRetry="true"
                        Status="@SnapshotTime(history?.At)" FocusTarget="#health-refresh-history" />
         <p class="health-status" role="status">
             @if (!historyError) { @Status(historyLoading, history?.At, "history") }
@@ -102,7 +102,7 @@
         </p>
         @if (history is { } data)
         {
-            @if (data.Series.Count == 0) { <p>No readings in this range.</p> }
+            @if (data.Series.Count == 0) { <p>@L["No readings in this range."]</p> }
             <div class="health-charts">
                 @foreach (var group in Charts(data))
                 {

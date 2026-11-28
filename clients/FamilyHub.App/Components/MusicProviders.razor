@@ -4,7 +4,7 @@
 }
 else
 {
-    <ul class="create-sites" aria-label="Supported sites">
+    <ul class="create-sites" aria-label="@L["Supported sites"].Value">
         @foreach (var site in Sites)
         {
             <li class="@(Detected == site ? "is-detected" : Detected is not null ? "is-hidden" : "")" aria-hidden="@(Detected is not null && Detected != site ? "true" : null)">

@@ -3,9 +3,9 @@
 
 @if (Playlist.CanManageAuthors)
 {
-    @if (!HideTrigger) { <button id="playlist-coauthors" class="quiet playlist-coauthors" aria-haspopup="dialog" @onclick="Open"><MusicIcon Name="people" />Invite collaborators</button> }
+    @if (!HideTrigger) { <button id="playlist-coauthors" class="quiet playlist-coauthors" aria-haspopup="dialog" @onclick="Open"><MusicIcon Name="people" />@L["Invite collaborators"]</button> }
     <dialog id="playlist-coauthors-dialog" class="popup-panel" aria-labelledby="coauthors-heading">
-        <div class="dialog-heading"><h2 id="coauthors-heading">Co-authors</h2><button id="coauthors-close" class="quiet" aria-label="Close co-authors" @onclick="Close"><MusicIcon Name="close" /></button></div>
+        <div class="dialog-heading"><h2 id="coauthors-heading">@L["Co-authors"]</h2><button id="coauthors-close" class="quiet" aria-label="@L["Close co-authors"].Value" @onclick="Close"><MusicIcon Name="close" /></button></div>
         <div class="coauthor-list">
         @foreach (var profile in Session.Profiles.Where(p => p.Id != Playlist.OwnerId))
         {
@@ -13,7 +13,7 @@
         }
         </div>
         @if (error is not null) { <Notice Level="error" Message="@error" /> }
-        <div class="actions"><button class="quiet" @onclick="Close" aria-disabled="@(saving ? "true" : "false")">Cancel</button><button class="primary" @onclick="Save" aria-disabled="@(saving ? "true" : "false")">@(saving ? "Saving..." : "Done")</button></div>
+        <div class="actions"><button class="quiet" @onclick="Close" aria-disabled="@(saving ? "true" : "false")">@L["Cancel"]</button><button class="primary" @onclick="Save" aria-disabled="@(saving ? "true" : "false")">@(saving ? "Saving..." : "Done")</button></div>
     </dialog>
 }
 

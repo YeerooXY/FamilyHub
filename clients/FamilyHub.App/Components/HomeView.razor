@@ -4,10 +4,10 @@
 
 <div class="home-view">
     <DiscoveryShelf PlayTracks="PlayTracks" />
-    <h1 id="view-title" class="sr" tabindex="-1">Home</h1>
+    <h1 id="view-title" class="sr" tabindex="-1">@L["Home"]</h1>
 
     <section class="home-section home-radio" aria-labelledby="home-radio-title">
-        <h2 id="home-radio-title" tabindex="-1">Radio</h2>
+        <h2 id="home-radio-title" tabindex="-1">@L["Radio"]</h2>
         @if (radioSeeds.Count > 0)
         {
             <div class="home-shortcuts">
@@ -25,20 +25,20 @@
         }
         else if (Session.Connected && !loadingRadio && !radioFailed)
         {
-            <p class="note">Add songs to your library to start a mix.</p>
+            <p class="note">@L["Add songs to your library to start a mix."]</p>
         }
         @if (Session.Connected)
         {
             <div role="status" class="sr">@(loadingRadio ? "Loading radio shortcuts…" : null)</div>
             <Notice Id="home-radio-status" Level="error" Message="@(radioFailed ? "Radio shortcuts could not load." : null)"
-                    ActionLabel="Retry radio shortcuts" Action="LoadRadio" Busy="loadingRadio" FocusTarget="#home-radio-title" />
+                    ActionLabel="@L["Retry radio shortcuts"].Value" Action="LoadRadio" Busy="loadingRadio" FocusTarget="#home-radio-title" />
         }
     </section>
 
     @if (recent.Count > 0)
     {
         <section class="home-section" aria-labelledby="home-recent-title">
-            <h2 id="home-recent-title" class="sr">Recently played</h2>
+            <h2 id="home-recent-title" class="sr">@L["Recently played"]</h2>
             <div class="home-shortcuts">
                 @foreach (var (track, index) in recent.Select((t, i) => (t, i)))
                 {
@@ -49,7 +49,7 @@
     }
 
     <section class="home-section home-activity" aria-labelledby="home-activity-title">
-        <h2 id="home-activity-title" class="sr">Family activity</h2>
+        <h2 id="home-activity-title" class="sr">@L["Family activity"]</h2>
         <OnlineNow />
         <ServerStats Leaderboard="true" Embedded="true" />
     </section>
@@ -57,8 +57,8 @@
     @if (Session.Playlists.Count > 0)
     {
         <section class="home-section home-collection" aria-labelledby="home-playlists-title">
-            <div class="home-section-heading"><h2 id="home-playlists-title">Your playlists</h2></div>
-            <ShelfArrows Target="home-playlists-shelf" Label="your playlists"><div class="home-shelf" id="home-playlists-shelf">
+            <div class="home-section-heading"><h2 id="home-playlists-title">@L["Your playlists"]</h2></div>
+            <ShelfArrows Target="home-playlists-shelf" Label="@L["your playlists"].Value"><div class="home-shelf" id="home-playlists-shelf">
                 @foreach (var playlist in Session.Playlists.Take(10))
                 {
                     <button class="home-card" @key="playlist.OwnerId + ':' + playlist.Id" @onclick="() => OpenPlaylist.InvokeAsync(playlist)"><PlaylistCover Playlist="playlist" /><strong>@playlist.Name</strong><PlaylistAttribution Playlist="playlist" /><span>@playlist.Tracks.Count @(playlist.Tracks.Count == 1 ? "song" : "songs")</span></button>
@@ -70,7 +70,7 @@
     @if (albums.Count > 0)
     {
         <section class="home-section home-collection" aria-labelledby="home-albums-title">
-            <div class="home-section-heading"><h2 id="home-albums-title">Albums for you</h2></div>
+            <div class="home-section-heading"><h2 id="home-albums-title">@L["Albums for you"]</h2></div>
             <ShelfArrows Target="home-albums-shelf" Label="albums"><div class="home-shelf" id="home-albums-shelf">
                 @foreach (var album in albums)
                 {

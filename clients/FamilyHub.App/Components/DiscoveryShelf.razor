@@ -4,10 +4,10 @@
 @if (items.Count > 0 || loadFailed)
 {
     <section class="home-section" aria-labelledby="discovery-title">
-        <div class="home-section-heading"><h2 id="discovery-title" tabindex="-1">New from artists you play</h2></div>
-        <ServiceStatus Active="loadFailed" Detail="Reconnect to load new releases." RetryLabel="Retry new releases"
+        <div class="home-section-heading"><h2 id="discovery-title" tabindex="-1">@L["New from artists you play"]</h2></div>
+        <ServiceStatus Active="loadFailed" Detail="@L["Reconnect to load new releases."].Value" RetryLabel="@L["Retry new releases"].Value"
                        Retry="RetryLoad" Busy="loading" AutoRetry="true" FocusTarget="#discovery-title" />
-        <ShelfArrows Target="discovery-shelf" Label="new releases"><div class="home-shelf" id="discovery-shelf">
+        <ShelfArrows Target="discovery-shelf" Label="@L["new releases"].Value"><div class="home-shelf" id="discovery-shelf">
             @foreach (var item in items)
             {
                 var cover = failedCovers.Contains(item.Id) ? null : item.CoverUrl;
@@ -18,8 +18,8 @@
                                 <span class="discovery-cover-empty"><MusicIcon Name="music" /></span>
                                 @if (cover is not null) { <img src="@cover" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" @onerror="() => failedCovers.Add(item.Id)" /> }
                             </span>
-                            <button id="@("discovery-play-" + item.Id)" class="discovery-play" aria-disabled="@(busy ? "true" : "false")" aria-label="Play @item.Title" title="Play" @onclick="() => Play(item)"><MusicIcon Name="play" /></button>
-                            <button id="@("discovery-dismiss-" + item.Id)" class="discovery-dismiss" aria-disabled="@(busy ? "true" : "false")" aria-label="Dismiss @item.Title" title="Dismiss" @onclick="() => Dismiss(item)"><MusicIcon Name="close" /></button>
+                            <button id="@("discovery-play-" + item.Id)" class="discovery-play" aria-disabled="@(busy ? "true" : "false")" aria-label="Play @item.Title" title="@L["Play"].Value" @onclick="() => Play(item)"><MusicIcon Name="play" /></button>
+                            <button id="@("discovery-dismiss-" + item.Id)" class="discovery-dismiss" aria-disabled="@(busy ? "true" : "false")" aria-label="Dismiss @item.Title" title="@L["Dismiss"].Value" @onclick="() => Dismiss(item)"><MusicIcon Name="close" /></button>
                         </div>
                         <strong title="@item.Title">@item.Title</strong>
                         <span>@item.Artist</span>
@@ -30,9 +30,9 @@
         <Notice Level="@(busy ? "info" : "error")" Message="@message" />
         @if (choices.Count > 0)
         {
-            <h3>Choose a recording</h3>
+            <h3>@L["Choose a recording"]</h3>
             @foreach (var track in choices) { <SongRow Track="track" Play="() => PlayTracks.InvokeAsync((new[] { track }, MusicPlayer.PlaybackTimestamp()))" /> }
-            <button @onclick="() => choices.Clear()">Close recording choices</button>
+            <button @onclick="() => choices.Clear()">@L["Close recording choices"]</button>
         }
     </section>
 }

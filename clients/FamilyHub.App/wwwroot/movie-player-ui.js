@@ -1,3 +1,5 @@
+import { fixed, text as t } from "./strings.js";
+
 // Player controls. movies.js owns the video, Jellyfin and progress reporting.
 
 import { attachSound, soundPanelWanted, SOUND_MODES, MAX_VOLUME } from "./movie-sound.js";
@@ -38,15 +40,15 @@ const timingLabels = new Map([
 ]);
 
 function subtitleTimingLabel(timing) {
-    return timing?.running ? "Checking timing" : timingLabels.get(timing?.method) ??
-        (timing?.sidecar || timing?.method != null ? "Timing not checked" : "");
+    return timing?.running ? t("Checking timing") : t(timingLabels.get(timing?.method)) ??
+        (timing?.sidecar || timing?.method != null ? t("Timing not checked") : "");
 }
 
 export function formatMovieBytes(bytes) {
-    if (!Number.isFinite(bytes) || bytes < 0) return "Unavailable";
+    if (!Number.isFinite(bytes) || bytes < 0) return t("Unavailable");
     if (!bytes) return "0 MB";
     if (bytes < 1e6) return "< 1 MB";
-    return bytes < 1e9 ? `${Math.round(bytes / 1e6)} MB` : `${(bytes / 1e9).toFixed(1)} GB`;
+    return bytes < 1e9 ? t("{0} MB", Math.round(bytes / 1e6)) : t("{0} GB", fixed(bytes / 1e9, 1));
 }
 
 function make(tag, className, text) {
@@ -209,7 +211,7 @@ export function buildPlayerUi(ctx) {
     if (ctx.kicker) heading.append(make("p", "movie-ui-kicker", ctx.kicker));
     heading.append(make("h2", "movie-ui-title", ctx.title));
     back.classList.add("movie-ui-back");
-    back.setAttribute("aria-label", "Back to movies");
+    back.setAttribute("aria-label", t("Back to movies"));
     back.replaceChildren(icon(paths.back));
     top.append(back, heading);
 
@@ -223,13 +225,13 @@ export function buildPlayerUi(ctx) {
         if (starting) media.play().catch(() => {}); else media.pause();
         show(starting ? 1000 : undefined);
     };
-    const rewind = button("movie-ui-skip", "Back 10 seconds", paths.skip, { label: "10" }, () => skip(-10));
-    const forward = button("movie-ui-skip", "Forward 10 seconds", paths.skip, { flip: true, label: "10" }, () => skip(10));
-    const playPause = button("movie-ui-play", "Play", paths.play, {}, toggle);
+    const rewind = button("movie-ui-skip", t("Back 10 seconds"), paths.skip, { label: "10" }, () => skip(-10));
+    const forward = button("movie-ui-skip", t("Forward 10 seconds"), paths.skip, { flip: true, label: "10" }, () => skip(10));
+    const playPause = button("movie-ui-play", t("Play"), paths.play, {}, toggle);
     const spinner = make("div", "movie-ui-spinner");
     spinner.hidden = media.readyState >= 3;
     spinner.setAttribute("role", "status");
-    const spinnerLabel = make("span", "movie-player-sr", "Loading");
+    const spinnerLabel = make("span", "movie-player-sr", t("Loading"));
     spinner.append(spinnerLabel);
     const mid = make("div", "movie-ui-mid");
     mid.append(playPause, rewind, forward);
@@ -241,9 +243,9 @@ export function buildPlayerUi(ctx) {
     seek.max = "1";
     seek.step = "any";
     seek.value = "0";
-    seek.setAttribute("aria-label", "Seek");
+    seek.setAttribute("aria-label", t("Seek"));
     const remaining = make("span", "movie-ui-remaining", "0:00");
-    remaining.title = "Time remaining";
+    remaining.title = t("Time remaining");
     const tip = make("span", "movie-seek-tip");
     tip.hidden = true;
     tip.setAttribute("aria-hidden", "true");
@@ -275,7 +277,7 @@ export function buildPlayerUi(ctx) {
                 await (document.exitFullscreen ?? document.webkitExitFullscreen).call(document);
             }
         } catch {
-            if (!signal.aborted) failure.textContent = on ? "Could not enter full screen. Try again." : "Could not exit full screen. Try again.";
+            if (!signal.aborted) failure.textContent = on ? t("Could not enter full screen. Try again.") : t("Could not exit full screen. Try again.");
         } finally {
             fullscreenPending = false;
         }
@@ -285,23 +287,23 @@ export function buildPlayerUi(ctx) {
             (root.contains(focused) ? focused : playPause).focus({ preventScroll: true });
         show();
     }
-    const fullscreen = button("movie-ui-action", "Full screen", paths.expand, {}, toggleFullscreen);
+    const fullscreen = button("movie-ui-action", t("Full screen"), paths.expand, {}, toggleFullscreen);
     const fullscreenAvailable = !/iPhone|iPod/.test(navigator.userAgent) &&
         (ctx.fullscreenEnabled || document.fullscreenEnabled || document.webkitFullscreenEnabled);
-    const episodesButton = button("movie-ui-action", "Episodes", paths.episodes, {}, () => toggleSheet("episodes"));
+    const episodesButton = button("movie-ui-action", t("Episodes"), paths.episodes, {}, () => toggleSheet("episodes"));
     episodesButton.hidden = true;
     const chapterStrip = make("div", "movie-chapter-strip");
     chapterStrip.hidden = true;
     chapterStrip.setAttribute("role", "group");
-    chapterStrip.setAttribute("aria-label", "Chapter list");
-    const chaptersButton = button("movie-ui-action", "Chapters", paths.chapters, {}, () => setChapterStrip(chapterStrip.hidden));
+    chapterStrip.setAttribute("aria-label", t("Chapter list"));
+    const chaptersButton = button("movie-ui-action", t("Chapters"), paths.chapters, {}, () => setChapterStrip(chapterStrip.hidden));
     chaptersButton.setAttribute("aria-expanded", "false");
     chaptersButton.hidden = true;
-    const tracksButton = button("movie-ui-action", "Audio & Subtitles", paths.subtitles, {}, () => toggleSheet("audio"));
-    const styleButton = button("movie-ui-action", "Sound & subtitle style", paths.style, {}, () => toggleSheet("style"));
+    const tracksButton = button("movie-ui-action", t("Audio & Subtitles"), paths.subtitles, {}, () => toggleSheet("audio"));
+    const styleButton = button("movie-ui-action", t("Sound & subtitle style"), paths.style, {}, () => toggleSheet("style"));
     const sound = soundPanelWanted() ? attachSound(media, { signal }) : null;
     root.classList.toggle("movie-hardware-volume", !sound);
-    const nextButton = button("movie-ui-action", "Next episode", paths.next, {}, playNext);
+    const nextButton = button("movie-ui-action", t("Next episode"), paths.next, {}, playNext);
     nextButton.hidden = true;
     const actions = make("div", "movie-ui-actions");
     actions.append(episodesButton, nextButton, tracksButton, styleButton, chaptersButton, fullscreen);
@@ -309,32 +311,32 @@ export function buildPlayerUi(ctx) {
     transport.append(mid, actions);
     const bottom = make("div", "movie-ui-bottom");
     bottom.append(chapterStrip, seekRow, transport);
-    const skipSegment = button("movie-segment-skip", "Skip intro", null, {}, () => jumpSegment(activeSkip));
+    const skipSegment = button("movie-segment-skip", t("Skip intro"), null, {}, () => jumpSegment(activeSkip));
     skipSegment.hidden = true;
     skipSegment.tabIndex = -1;
     skipSegment.setAttribute("aria-hidden", "true");
 
     const nextCard = make("section", "movie-next-card");
-    nextCard.setAttribute("aria-label", "Next episode");
+    nextCard.setAttribute("aria-label", t("Next episode"));
     nextCard.hidden = true;
     const nextStill = make("div", "movie-next-still"), nextDetails = make("div", "movie-next-details");
     const nextNumber = make("p", "movie-next-number"), nextTitle = make("h3", "movie-next-title");
     const nextOverview = make("p", "movie-next-overview");
     const nextCount = make("span", "movie-next-count");
     nextCount.setAttribute("aria-hidden", "true");
-    const playNow = button("movie-next-primary", "Play now", null, {}, playNext);
-    playNow.append(nextCount, make("span", "", "Play now"));
-    const watchCredits = button("movie-next-dismiss", "Watch credits", null, {}, () => {
+    const playNow = button("movie-next-primary", t("Play now"), null, {}, playNext);
+    playNow.append(nextCount, make("span", "", t("Play now")));
+    const watchCredits = button("movie-next-dismiss", t("Watch credits"), null, {}, () => {
         dismissedNext = true;
         hideNext();
     });
-    watchCredits.textContent = "Watch credits";
+    watchCredits.textContent = t("Watch credits");
     nextDetails.append(nextNumber, nextTitle, nextOverview, playNow, watchCredits);
     nextCard.append(nextStill, nextDetails);
     let nextTimer, nextRunningAt, nextRemaining = 10000, dismissedNext = false, hoveringNext = false;
 
     const guide = make("section", "movie-parental-guide");
-    guide.setAttribute("aria-label", "Parental guide");
+    guide.setAttribute("aria-label", t("Parental guide"));
     guide.hidden = true;
     const guideBadge = make("div", "movie-guide-badge"), guideCategories = make("ul", "movie-guide-categories");
     guideCategories.setAttribute("role", "list");
@@ -353,11 +355,11 @@ export function buildPlayerUi(ctx) {
         }
         try {
             media.currentTime = Math.min(end / 1e7, duration());
-            if (automatic) showShortcut(`Skipped ${skipLabels[row.Type]}`);
+            if (automatic) showShortcut(t("Skipped {0}", t(skipLabels[row.Type])));
             updatePlaybackOverlays();
         } catch {
             ctx.segmentSeekFailed?.();
-            if (!automatic) showShortcut("Could not skip. Try again.");
+            if (!automatic) showShortcut(t("Could not skip. Try again."));
         }
     }
     function updateSkip(row) {
@@ -365,7 +367,7 @@ export function buildPlayerUi(ctx) {
         const wasVisible = Boolean(activeSkip);
         activeSkip = row;
         if (row) {
-            const label = `Skip ${skipLabels[row.Type]}`;
+            const label = t("Skip {0}", t(skipLabels[row.Type]));
             skipSegment.textContent = label;
             skipSegment.setAttribute("aria-label", label);
             skipSegment.hidden = false;
@@ -473,7 +475,7 @@ export function buildPlayerUi(ctx) {
     }
 
     function startGuide(badge, levels) {
-        const categories = {violence: "Violence", language: "Language", frightening: "Frightening scenes", nudity: "Nudity"};
+        const categories = {violence: t("Violence"), language: t("Language"), frightening: t("Frightening scenes"), nudity: t("Nudity")};
         const spoken = [];
         if (badge) {
             guideBadge.append(badge);
@@ -518,31 +520,31 @@ export function buildPlayerUi(ctx) {
         sheets[name] = { node: sheet, body, close, opener };
         return sheet;
     }
-    const audioSheet = makeSheet("audio", "Audio & Subtitles", "Close audio and subtitles", tracksButton);
+    const audioSheet = makeSheet("audio", t("Audio & Subtitles"), t("Close audio and subtitles"), tracksButton);
     audioSheet.classList.add("movie-sheet-tracks");
     const audio = make("section", "movie-track-col");
     const subtitles = make("section", "movie-track-col");
     const searchStatus = make("p", "movie-subtitle-status");
     searchStatus.setAttribute("role", "status");
-    audio.append(make("h4", "", "Audio"));
-    subtitles.append(make("h4", "", "Subtitles"));
+    audio.append(make("h4", "", t("Audio")));
+    subtitles.append(make("h4", "", t("Subtitles")));
     sheets.audio.body.append(audio, subtitles);
-    const styleSheet = makeSheet("style", "Sound & subtitle style", "Close sound and subtitle style", styleButton);
+    const styleSheet = makeSheet("style", t("Sound & subtitle style"), t("Close sound and subtitle style"), styleButton);
     styleSheet.classList.add("movie-sheet-tracks", "movie-sheet-style");
     const soundSection = make("section", "movie-track-col");
-    const episodesSheet = makeSheet("episodes", "Episodes", "Close episodes", episodesButton);
+    const episodesSheet = makeSheet("episodes", t("Episodes"), t("Close episodes"), episodesButton);
     bottom.append(episodesSheet);
     let loadOutputs = async () => {};
     if (sound) {
         const volumeRow = make("div", "movie-volume");
-        const mute = button("movie-ui-action", "Mute", paths.sound, {}, () => sound.toggleMute());
+        const mute = button("movie-ui-action", t("Mute"), paths.sound, {}, () => sound.toggleMute());
         const volumeWrap = make("div", "movie-volume-track");
         const volume = make("input", "movie-sound-slider");
         Object.assign(volume, { type: "range", min: 0, max: MAX_VOLUME * 100, step: 1 });
-        volume.setAttribute("aria-label", "Volume");
+        volume.setAttribute("aria-label", t("Volume"));
         const readout = make("span", "movie-volume-tip");
         readout.setAttribute("aria-hidden", "true");
-        const hint = make("p", "movie-sound-hint", "Volume above 100% can distort.");
+        const hint = make("p", "movie-sound-hint", t("Volume above 100% can distort."));
         hint.id = "movie-volume-boost-hint";
         volumeWrap.append(volume, readout, hint);
         volumeRow.append(mute, volumeWrap);
@@ -555,9 +557,9 @@ export function buildPlayerUi(ctx) {
             column.append(make("h4", "", heading), list);
             return { column, list };
         };
-        const modes = options("Sound mode", "Sound mode"), outputs = options("Output", "Sound output");
+        const modes = options(t("Sound mode"), t("Sound mode")), outputs = options(t("Output"), t("Sound output"));
         const modeRows = SOUND_MODES.map(([id, name]) => {
-            const row = make("button", "movie-track-option", name);
+            const row = make("button", "movie-track-option", t(name));
             row.type = "button";
             row.setAttribute("role", "radio");
             row.dataset.value = id;
@@ -574,7 +576,7 @@ export function buildPlayerUi(ctx) {
             volume.setAttribute("aria-valuetext", readout.textContent);
             volume.style.setProperty("--pct", Number(volume.value) / Number(volume.max) * 100 + "%");
             placeVolumeTip();
-            mute.setAttribute("aria-label", state.muted ? "Unmute" : "Mute");
+            mute.setAttribute("aria-label", state.muted ? t("Unmute") : t("Mute"));
             mute.setAttribute("aria-pressed", String(state.muted));
             mute.replaceChildren(icon(state.muted || state.volume === 0 ? paths.soundOff : paths.sound));
             hint.hidden = state.muted || state.volume <= 1;
@@ -611,7 +613,7 @@ export function buildPlayerUi(ctx) {
     }
     // The hidden selects keep playback and the track rows in sync.
     let searchingLanguage, announcedTrack;
-    const languages = [["en", "English"], ["hu", "Hungarian"]];
+    const languages = [["en", t("English")], ["hu", t("Hungarian")]];
     function trackList(sheet, pick, name, choices, findAction) {
         const isSubtitle = pick === ctx.subtitlePick;
         pick.closest("label").hidden = true;
@@ -627,7 +629,7 @@ export function buildPlayerUi(ctx) {
             row.setAttribute("aria-label", label);
             const dot = make("span", "movie-track-dot");
             dot.append(icon(paths.check));
-            const unavailable = make("span", "movie-track-unavailable", "Not available");
+            const unavailable = make("span", "movie-track-unavailable", t("Not available"));
             const timingLabel = isSubtitle && key !== "off" ? make("span", "movie-track-timing") : null;
             const caption = make("span", timingLabel ? "movie-track-label" : "", label);
             if (timingLabel) {
@@ -693,7 +695,7 @@ export function buildPlayerUi(ctx) {
                         downloadIcon.toggleAttribute("hidden", sidecar || spinning);
                         if (resyncIcon) {
                             resyncIcon.toggleAttribute("hidden", !sidecar || spinning);
-                            actionButton.setAttribute("aria-label", sidecar ? `Resync ${label} subtitles` : action.label);
+                            actionButton.setAttribute("aria-label", sidecar ? t("Resync {0} subtitles", label) : action.label);
                             if (sidecar && spinning) actionButton.setAttribute("aria-describedby", timingLabel.id);
                             else actionButton.removeAttribute("aria-describedby");
                         }
@@ -723,15 +725,15 @@ export function buildPlayerUi(ctx) {
         return sync;
     }
     const audioChoices = ctx.originalLanguage === "en"
-        ? [["en", "English (original)"], languages[1]]
-        : [["original", "Original"], ...languages];
-    const syncAudio = trackList(audio, ctx.audioPick, "Audio track", audioChoices, key => key !== "original" && ctx.findAudio && {
-        label: `Find ${key === "en" ? "English" : "Hungarian"} audio`,
+        ? [["en", t("English (original)")], languages[1]]
+        : [["original", t("Original")], ...languages];
+    const syncAudio = trackList(audio, ctx.audioPick, t("Audio track"), audioChoices, key => key !== "original" && ctx.findAudio && {
+        label: t("Find {0} audio", t(key === "en" ? "English" : "Hungarian")),
         run: opener => ctx.findAudio(opener, key), dialog: true
     });
-    const syncSubtitleRows = trackList(subtitles, ctx.subtitlePick, "Subtitle track", [["off", "Off"], ...languages],
+    const syncSubtitleRows = trackList(subtitles, ctx.subtitlePick, t("Subtitle track"), [["off", t("Off")], ...languages],
         (key, label) => key !== "off" && {
-            label: `Find ${label} subtitles`, run: () => void ctx.subtitleSearch.run(key)
+            label: t("Find {0} subtitles", label), run: () => void ctx.subtitleSearch.run(key)
         });
     subtitles.append(searchStatus);
     // Subtitle style is saved per profile and per device class (TV and phone sizes differ).
@@ -751,20 +753,20 @@ export function buildPlayerUi(ctx) {
     const look = make("section", "movie-track-col movie-subtitle-style");
     const preview = make("div", "movie-style-preview");
     preview.setAttribute("role", "img");
-    preview.setAttribute("aria-label", "Subtitle preview");
+    preview.setAttribute("aria-label", t("Subtitle preview"));
     const previewStill = make("canvas", "movie-style-still");
-    const previewLine = make("span", "movie-ui-sub", "This is how subtitles look.");
+    const previewLine = make("span", "movie-ui-sub", t("This is how subtitles look."));
     preview.append(previewStill, previewLine);
     const hideSdhSwitch = make("button", "movie-switch");
     hideSdhSwitch.type = "button";
     hideSdhSwitch.setAttribute("role", "switch");
-    hideSdhSwitch.append(make("span", "", "Hide sound descriptions"), make("span", "movie-switch-track"));
+    hideSdhSwitch.append(make("span", "", t("Hide sound descriptions")), make("span", "movie-switch-track"));
     const segmented = (label, choices, field) => {
         const group = make("div", "movie-segmented");
         group.setAttribute("role", "radiogroup");
         group.setAttribute("aria-label", label);
         for (const [value, text] of choices) {
-            const row = make("button", "movie-track-option", text);
+            const row = make("button", "movie-track-option", t(text));
             row.type = "button";
             row.dataset.value = value;
             row.setAttribute("role", "radio");
@@ -777,8 +779,8 @@ export function buildPlayerUi(ctx) {
         group.dataset.field = field;
         return group;
     };
-    const size = segmented("Subtitle size", subtitleSizes, "size");
-    const background = segmented("Subtitle background", subtitleBackgrounds, "background");
+    const size = segmented(t("Subtitle size"), subtitleSizes, "size");
+    const background = segmented(t("Subtitle background"), subtitleBackgrounds, "background");
     function paintSubtitleStyle() {
         root.dataset.subtitleSize = subtitleStyle.size;
         root.dataset.subtitleBackground = subtitleStyle.background;
@@ -806,18 +808,18 @@ export function buildPlayerUi(ctx) {
         previewStill.height = Math.round(320 * height / width);
         try { previewStill.getContext("2d").drawImage(media, 0, 0, previewStill.width, previewStill.height); } catch {}
     }
-    look.append(make("h4", "", "Subtitle style"), size, background, preview, hideSdhSwitch);
+    look.append(make("h4", "", t("Subtitle style")), size, background, preview, hideSdhSwitch);
     paintSubtitleStyle();
 
     // Audio delay: the existing audio pipeline only exists for an added audio track, so otherwise the controls stay off.
     const delay = make("section", "movie-track-col movie-audio-delay");
     const delayHead = make("div", "movie-timing-label");
     const delayOutput = make("output");
-    delayOutput.setAttribute("aria-label", "Audio delay value");
-    delayHead.append(make("h4", "", "Audio delay"), delayOutput);
+    delayOutput.setAttribute("aria-label", t("Audio delay value"));
+    delayHead.append(make("h4", "", t("Audio delay")), delayOutput);
     const delaySlider = make("input", "movie-delay-slider");
     Object.assign(delaySlider, { type: "range", min: -AUDIO_DELAY_LIMIT, max: AUDIO_DELAY_LIMIT, step: AUDIO_DELAY_STEP, value: 0 });
-    delaySlider.setAttribute("aria-label", "Audio delay");
+    delaySlider.setAttribute("aria-label", t("Audio delay"));
     const setDelay = ms => {
         if (!ctx.audioSync) return;
         ctx.audioSync.step(ms - ctx.audioSync.value);
@@ -827,18 +829,18 @@ export function buildPlayerUi(ctx) {
         const ms = ctx.audioSync?.value ?? 0;
         delayOutput.textContent = ms === 0 ? "0 ms" : `${ms < 0 ? "\u2212" : "+"}${Math.abs(ms)} ms`;
         delaySlider.value = String(ms);
-        delaySlider.setAttribute("aria-valuetext", ms === 0 ? "No delay" : `${Math.abs(ms)} ms ${ms < 0 ? "earlier" : "later"}`);
+        delaySlider.setAttribute("aria-valuetext", ms === 0 ? t("No delay") : `${Math.abs(ms)} ms ${ms < 0 ? "earlier" : "later"}`);
         delaySlider.style.setProperty("--pct", (ms + AUDIO_DELAY_LIMIT) / (2 * AUDIO_DELAY_LIMIT) * 100 + "%");
     }
-    const delayLess = button("movie-track-icon", "Decrease audio delay", paths.minus, {}, () => setDelay((ctx.audioSync?.value ?? 0) - AUDIO_DELAY_STEP));
-    const delayMore = button("movie-track-icon", "Increase audio delay", paths.plus, {}, () => setDelay((ctx.audioSync?.value ?? 0) + AUDIO_DELAY_STEP));
+    const delayLess = button("movie-track-icon", t("Decrease audio delay"), paths.minus, {}, () => setDelay((ctx.audioSync?.value ?? 0) - AUDIO_DELAY_STEP));
+    const delayMore = button("movie-track-icon", t("Increase audio delay"), paths.plus, {}, () => setDelay((ctx.audioSync?.value ?? 0) + AUDIO_DELAY_STEP));
     delaySlider.addEventListener("input", () => setDelay(Number(delaySlider.value)), { signal });
     const delayRow = make("div", "movie-delay-row");
     delayRow.append(delayLess, delaySlider, delayMore);
     delay.append(delayHead, delayRow);
     if (!ctx.audioSync) {
         for (const control of [delayLess, delayMore, delaySlider]) control.disabled = true;
-        delay.append(make("p", "", "Audio delay is available for audio tracks you add. Use Find audio in Audio & Subtitles."));
+        delay.append(make("p", "", t("Audio delay is available for audio tracks you add. Use Find audio in Audio & Subtitles.")));
     }
     paintDelay();
     const subtitleAnnouncement = make("span", "movie-player-sr");
@@ -850,12 +852,12 @@ export function buildPlayerUi(ctx) {
     const timingFields = make("div", "movie-timing-fields");
     const timingNote = make("p");
     timingNote.id = "movie-subtitle-timing-note";
-    timingControls.setAttribute("aria-label", "Subtitle timing");
+    timingControls.setAttribute("aria-label", t("Subtitle timing"));
     timingControls.append(timingFields);
-    timing.append(make("h4", "", "Timing"), timingNote, timingControls);
+    timing.append(make("h4", "", t("Timing")), timingNote, timingControls);
     sheets.style.body.append(timing, look, delay);
-    const infoOpener = button("movie-track-option movie-info-opener", "Playback info", null, {}, () => togglePlaybackInfo(infoOpener));
-    infoOpener.textContent = "Playback info";
+    const infoOpener = button("movie-track-option movie-info-opener", t("Playback info"), null, {}, () => togglePlaybackInfo(infoOpener));
+    infoOpener.textContent = t("Playback info");
     infoOpener.setAttribute("aria-expanded", "false");
     infoOpener.setAttribute("aria-haspopup", "dialog");
     infoOpener.setAttribute("aria-controls", "movie-playback-info");
@@ -866,13 +868,13 @@ export function buildPlayerUi(ctx) {
     info.hidden = true;
     info.setAttribute("role", "dialog");
     info.setAttribute("aria-labelledby", "movie-playback-info-title");
-    const infoHeading = make("h3", "", "Playback info");
+    const infoHeading = make("h3", "", t("Playback info"));
     infoHeading.id = "movie-playback-info-title";
-    const infoClose = button("movie-sheet-close", "Close playback info", paths.close, {}, closePlaybackInfo);
+    const infoClose = button("movie-sheet-close", t("Close playback info"), paths.close, {}, closePlaybackInfo);
     const infoHeader = make("div", "movie-sheet-head");
     infoHeader.append(infoHeading, infoClose);
     const infoList = make("dl");
-    const infoFields = ["Playback", "Video", "Audio", "Subtitles", "Data used", "Connection"].map(label => {
+    const infoFields = [t("Playback"), t("Video"), t("Audio"), t("Subtitles"), t("Data used"), t("Connection")].map(label => {
         const value = make("dd");
         infoList.append(make("dt", "", label), value);
         return value;
@@ -885,9 +887,9 @@ export function buildPlayerUi(ctx) {
         const track = ctx.subtitlePick?.selectedOptions[0];
         const timingLabel = track?.dataset.language && subtitleTimingLabel(ctx.subtitleSync?.timing(track.dataset.language));
         const values = [reason ? `${playback} (${reason})` : playback, video, audio,
-            [track?.text || "Off", timingLabel].filter(Boolean).join(", "), formatMovieBytes(bytes), connection];
+            [track?.text || t("Off"), timingLabel].filter(Boolean).join(", "), formatMovieBytes(bytes), connection];
         values.forEach((value, index) => {
-            const field = infoFields[index], text = value || "Unavailable";
+            const field = infoFields[index], text = value || t("Unavailable");
             if (field.textContent !== text) field.textContent = text;
         });
     }
@@ -923,7 +925,7 @@ export function buildPlayerUi(ctx) {
     let timingKey, shift = 0, speed = 0;
     let stopHold = () => {};
     const shiftControl = stepper("Shift", 600, 1, "s", () => shift, value => { shift = value; });
-    const speedControl = stepper("Speed", 500, 2, "%", () => speed, value => { speed = value; });
+    const speedControl = stepper(t("Speed"), 500, 2, "%", () => speed, value => { speed = value; });
     function stepper(label, limit, places, unit, read, write) {
         const group = make("div", "movie-timing-stepper");
         group.setAttribute("role", "group");
@@ -932,7 +934,7 @@ export function buildPlayerUi(ctx) {
         const controls = make("div", "movie-timing-controls");
         const output = make("output");
         output.setAttribute("aria-label", label + " value");
-        const reset = button("movie-track-icon", "Reset subtitle " + label.toLowerCase(), paths.reset, {}, () => set(0));
+        const reset = button("movie-track-icon", t("Reset subtitle ") + label.toLowerCase(), paths.reset, {}, () => set(0));
         function set(value) {
             if (timingControls.disabled) return;
             write(Math.min(limit, Math.max(-limit, value)));
@@ -947,7 +949,7 @@ export function buildPlayerUi(ctx) {
         }
         function paint() {
             const value = read();
-            output.textContent = (value > 0 ? "+" : "") + (value / 10 ** places).toFixed(places) + " " + unit;
+            output.textContent = (value > 0 ? "+" : "") + fixed(value / 10 ** places, places) + " " + unit;
             if (value === 0 && reset === document.activeElement) increase.focus({ preventScroll: true });
             reset.hidden = value === 0;
         }
@@ -978,7 +980,7 @@ export function buildPlayerUi(ctx) {
                 control.addEventListener(type, () => stopHold(), { signal });
             return control;
         }
-        const decrease = adjust(-1, paths.minus, "Decrease"), increase = adjust(1, paths.plus, "Increase");
+        const decrease = adjust(-1, paths.minus, t("Decrease")), increase = adjust(1, paths.plus, t("Increase"));
         heading.append(make("span", "", label), reset);
         controls.append(decrease, output, increase);
         group.append(heading, controls);
@@ -1002,7 +1004,7 @@ export function buildPlayerUi(ctx) {
         if (disabled) timingControls.setAttribute("aria-describedby", timingNote.id);
         else timingControls.removeAttribute("aria-describedby");
         timingNote.hidden = !disabled;
-        timingNote.textContent = bitmap ? "Timing is unavailable for image subtitles." : "Select a text subtitle to adjust timing.";
+        timingNote.textContent = bitmap ? t("Timing is unavailable for image subtitles.") : t("Select a text subtitle to adjust timing.");
         const key = language && !bitmap && ctx.itemId != null
             ? "familyhub.movie.subtitle-timing.v1:" + JSON.stringify([ctx.itemId, language]) : undefined;
         if (key !== timingKey) {
@@ -1026,7 +1028,7 @@ export function buildPlayerUi(ctx) {
         syncTiming();
         const label = ctx.subtitlePick?.selectedOptions[0]?.text;
         if (openSheet === "audio" && label && label !== announcedTrack)
-            subtitleAnnouncement.textContent = `Subtitles: ${label}`;
+            subtitleAnnouncement.textContent = t("Subtitles: {0}", label);
         announcedTrack = label;
         updatePlaybackInfo();
     }
@@ -1134,7 +1136,7 @@ export function buildPlayerUi(ctx) {
     const failure = make("p", "movie-ui-line");
     failure.id = "movie-playback-error";
     failure.setAttribute("role", "status");
-    const retry = make("button", "movie-ui-retry", "Try again");
+    const retry = make("button", "movie-ui-retry", t("Try again"));
     retry.type = "button";
     retry.setAttribute("aria-describedby", failure.id);
     retry.hidden = true;
@@ -1396,12 +1398,12 @@ export function buildPlayerUi(ctx) {
     // Media state.
     const sync = () => {
         const paused = media.paused || media.ended;
-        playPause.setAttribute("aria-label", paused ? "Play" : "Pause");
+        playPause.setAttribute("aria-label", paused ? t("Play") : t("Pause"));
         playPause.replaceChildren(icon(paused ? paths.play : paths.pause));
         root.classList.toggle("movie-paused", paused);
         show();
     };
-    const busy = (on, label = "Buffering") => {
+    const busy = (on, label = t("Buffering")) => {
         spinner.hidden = !on;
         if (on && spinnerLabel.textContent !== label) spinnerLabel.textContent = label;
     };
@@ -1412,7 +1414,7 @@ export function buildPlayerUi(ctx) {
         retry.hidden = true;
         sync();
     }],
-        ["waiting", () => busy(true, media.readyState < 1 ? "Loading" : "Buffering")],
+        ["waiting", () => busy(true, media.readyState < 1 ? t("Loading") : t("Buffering"))],
         ["seeking", () => busy(true)], ["seeked", () => busy(false)], ["ended", () => { busy(false); sync(); }],
         ["canplay", () => busy(false)], ["timeupdate", paint], ["durationchange", paint], ["loadedmetadata", paint]])
         media.addEventListener(type, run, { signal });
@@ -1424,7 +1426,7 @@ export function buildPlayerUi(ctx) {
         const hide = !fullscreenAvailable || ctx.appFullscreen?.() === true;
         if (hide && document.activeElement === fullscreen) playPause.focus({preventScroll: true});
         fullscreen.hidden = hide;
-        const label = isFullscreen() ? "Exit full screen" : "Full screen";
+        const label = isFullscreen() ? t("Exit full screen") : t("Full screen");
         fullscreen.replaceChildren(icon(isFullscreen() ? paths.collapse : paths.expand));
         fullscreen.setAttribute("aria-label", label);
     }
@@ -1564,7 +1566,8 @@ export function buildPlayerUi(ctx) {
             if (tv && arrow && moveFocus(target, event.key)) event.preventDefault();
             return;
         }
-        if ((key === " " || key === "spacebar") && target.closest(".movie-segment-skip, .movie-next-card button, .movie-playback-info button, .movie-chapter-strip button, [aria-label='Chapters']")) return;
+        if ((key === " " || key === "spacebar") && (chaptersButton.contains(target) ||
+            target.closest(".movie-segment-skip, .movie-next-card button, .movie-playback-info button, .movie-chapter-strip button"))) return;
         if (key === " " || key === "spacebar" || key === "k" || key === "enter" && !target.closest("button")) {
             event.preventDefault();
             if (!event.repeat) toggle();
@@ -1590,7 +1593,7 @@ export function buildPlayerUi(ctx) {
     }, { signal, capture: true });
     function volumeLabel() {
         const { muted, volume } = sound.state;
-        return muted ? "Muted" : `Volume ${Math.round(volume * 100)}%`;
+        return muted ? t("Muted") : t("Volume {0}%", Math.round(volume * 100));
     }
 
     sync();
@@ -1610,7 +1613,7 @@ export function buildPlayerUi(ctx) {
                 const action = button("movie-chapter", `${chapter.name}, ${clock(chapter.time)}`, null, {}, () => {
                     if (!duration()) return;
                     try { media.currentTime = Math.min(chapter.time, duration()); }
-                    catch { ctx.chapterFailed?.("seek_failed"); showShortcut("Could not open this chapter. Try again."); return; }
+                    catch { ctx.chapterFailed?.("seek_failed"); showShortcut(t("Could not open this chapter. Try again.")); return; }
                     setChapterStrip(false);
                 });
                 if (chapter.image) {
@@ -1661,7 +1664,7 @@ export function buildPlayerUi(ctx) {
             if (!episode && nextButton === document.activeElement) tracksButton.focus({ preventScroll: true });
             nextButton.hidden = !episode;
             if (episode) {
-                nextButton.setAttribute("aria-label", "Next episode: " + episode.Name);
+                nextButton.setAttribute("aria-label", t("Next episode: ") + episode.Name);
                 nextTitle.textContent = episode.Name;
                 const numbered = episode.ParentIndexNumber != null && episode.IndexNumber != null;
                 nextNumber.textContent = numbered ? `S${episode.ParentIndexNumber} E${episode.IndexNumber}` : "";
@@ -1714,7 +1717,7 @@ export function buildPlayerUi(ctx) {
             if (name && sheets[name]) toggleSheet(name, name === "audio"
                 ? (focusSubtitle ? subtitles : audio).querySelector("[aria-checked='true']") : null);
             if (name === "audio" && focusSubtitle && announcedTrack)
-                subtitleAnnouncement.textContent = `Subtitles: ${announcedTrack}`;
+                subtitleAnnouncement.textContent = t("Subtitles: {0}", announcedTrack);
         },
         dispose() { root.remove(); }
     };

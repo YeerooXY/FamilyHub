@@ -4,10 +4,10 @@
 
 @* Online family members and what each is doing. Refreshes every 30 s while the app is visible and stops when it is hidden. *@
 <section class="online-now glass-panel" aria-labelledby="online-now-title" aria-busy="@(fetching && rows.Count == 0 ? "true" : "false")">
-    <h2 id="online-now-title" tabindex="-1">Online now</h2>
+    <h2 id="online-now-title" tabindex="-1">@L["Online now"]</h2>
     @if (rows.Count > 0)
     {
-        <ul class="online-list" aria-label="Family members who are online">
+        <ul class="online-list" aria-label="@L["Family members who are online"].Value">
             @foreach (var row in rows)
             {
                 var member = row.Member;
@@ -45,13 +45,13 @@
     }
     else if (!Session.Connected)
     {
-        <p class="lb-empty">Connect to your server to see who is online.</p>
+        <p class="lb-empty">@L["Connect to your server to see who is online."]</p>
     }
     else if (loaded && error is null)
     {
-        <p class="lb-empty">Nobody is online right now.</p>
+        <p class="lb-empty">@L["Nobody is online right now."]</p>
     }
-    <Notice Id="online-now-status" Level="error" Message="@error" ActionLabel="Retry online list" Action="Refresh" Busy="fetching" FocusTarget="#online-now-title" />
+    <Notice Id="online-now-status" Level="error" Message="@error" ActionLabel="@L["Retry online list"].Value" Action="Refresh" Busy="fetching" FocusTarget="#online-now-title" />
 </section>
 
 @code {

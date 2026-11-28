@@ -4,39 +4,39 @@
 
 <dialog id="add-songs-dialog" class="popup-panel create-playlist-screen animated-dialog" aria-labelledby="add-songs-heading"
         data-return-focus="content" @onclose="Closed">
-    <div class="dialog-heading"><h2 id="add-songs-heading" tabindex="-1">Add songs</h2>
-        <button class="quiet" aria-label="Close Add songs" @onclick="Close"><MusicIcon Name="close" /></button>
+    <div class="dialog-heading"><h2 id="add-songs-heading" tabindex="-1">@L["Add songs"]</h2>
+        <button class="quiet" aria-label="@L["Close Add songs"].Value" @onclick="Close"><MusicIcon Name="close" /></button>
     </div>
     <form class="create-playlist-form inline-form" @onsubmit="Submit" @onsubmit:preventDefault>
         <section class="create-section" aria-labelledby="add-songs-link-title">
-            <h3 id="add-songs-link-title"><label for="add-songs-links">YouTube video links</label></h3>
+            <h3 id="add-songs-link-title"><label for="add-songs-links">@L["YouTube video links"]</label></h3>
             <div class="create-link">
                 <span class="create-link-icon" aria-hidden="true"><MusicIcon Name="link" /></span>
-                <textarea id="add-songs-links" rows="2" maxlength="40200" placeholder="Paste YouTube links"
+                <textarea id="add-songs-links" rows="2" maxlength="40200" placeholder="@L["Paste YouTube links"].Value"
                           aria-describedby="add-songs-link-help" autocomplete="off" spellcheck="false"
                           @bind="links" @bind:event="oninput" disabled="@Busy"></textarea>
                 @if (links.Length > 0)
                 {
-                    <button type="button" class="create-link-clear" aria-label="Clear YouTube links" @onclick="ClearLinks" disabled="@Busy"><MusicIcon Name="close" /></button>
+                    <button type="button" class="create-link-clear" aria-label="@L["Clear YouTube links"].Value" @onclick="ClearLinks" disabled="@Busy"><MusicIcon Name="close" /></button>
                 }
             </div>
-            <p class="create-link-status" id="add-songs-link-help">Up to 200 links, separated by spaces or new lines.</p>
+            <p class="create-link-status" id="add-songs-link-help">@L["Up to 200 links, separated by spaces or new lines."]</p>
             <MusicProviders Sites="YouTube" />
         </section>
 
         <section class="create-section" aria-labelledby="add-songs-files-title">
-            <h3 id="add-songs-files-title">Add songs from this device</h3>
+            <h3 id="add-songs-files-title">@L["Add songs from this device"]</h3>
             <UploadSongs @ref="uploader" Prefix="add-songs-upload" SubmitId="add-songs-submit" Disabled="posting"
                          Changed="StateHasChanged" JobChanged="ReceiveUpload" />
         </section>
 
-        <section class="create-section create-options" aria-label="Where to save">
-            <label class="create-toggle"><span><strong>Add to a playlist</strong></span>
+        <section class="create-section create-options" aria-label="@L["Where to save"].Value">
+            <label class="create-toggle"><span><strong>@L["Add to a playlist"]</strong></span>
                 <input type="checkbox" role="switch" @bind="addToPlaylist" disabled="@Busy" />
             </label>
             @if (addToPlaylist)
             {
-                <label class="create-field"><span>Playlist</span>
+                <label class="create-field"><span>@L["Playlist"]</span>
                     <select @bind="playlistKey" disabled="@Busy">
                         <option value="">@(Session.Playlists.Any(list => list.CanEdit) ? "Choose a playlist" : "No editable playlists")</option>
                         @foreach (var list in Session.Playlists.Where(list => list.CanEdit))
@@ -49,10 +49,10 @@
         </section>
 
         @if (jobs.Count > 0) { <LibraryAdditions Jobs="jobs" Retry="Retry" Busy="Busy" /> }
-        <ServiceStatus Active="@(!Session.Connected || postingFailed)" Detail="Check your connection before adding songs."
-                       RetryLabel="Retry Add songs connection" Retry="Reconnect" Busy="Busy" FocusTarget="#add-songs-links" />
-        <ServiceStatus Active="@(Session.Connected && jobsFailed)" Detail="Songs can keep processing on the server."
-                       RetryLabel="Retry song job status" Retry="StartWatch" Busy="@(watch is not null)" AutoRetry="true" FocusTarget="#add-songs-links" />
+        <ServiceStatus Active="@(!Session.Connected || postingFailed)" Detail="@L["Check your connection before adding songs."].Value"
+                       RetryLabel="@L["Retry Add songs connection"].Value" Retry="Reconnect" Busy="Busy" FocusTarget="#add-songs-links" />
+        <ServiceStatus Active="@(Session.Connected && jobsFailed)" Detail="@L["Songs can keep processing on the server."].Value"
+                       RetryLabel="@L["Retry song job status"].Value" Retry="StartWatch" Busy="@(watch is not null)" AutoRetry="true" FocusTarget="#add-songs-links" />
         <Notice Level="error" Message="@(Session.Connected ? message : null)" />
         <div class="actions">
             <button id="add-songs-submit" type="submit" class="primary" aria-disabled="@(CanSubmit ? "false" : "true")">

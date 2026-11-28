@@ -7,7 +7,7 @@
     <span class="seek-elapsed">@Time(Position)</span>
     <div class="seek-control" style="@($"--seek-position:{Percent.ToString("0.###", CultureInfo.InvariantCulture)}%")">
         <output class="seek-tooltip" aria-hidden="true"></output>
-        <input @ref="slider" aria-label="Playback position" aria-valuetext="@Time(Position)" disabled="@(!CanSeek)"
+        <input @ref="slider" aria-label="@L["Playback position"].Value" aria-valuetext="@Time(Position)" disabled="@(!CanSeek)"
                aria-disabled="@(CanSeek ? "false" : "true")" type="range"
                min="0" max="@RangeNumber(RangeMaximum)" value="@RangeNumber(Position)" step="0.1"
                @oninput="Preview" @onchange="Commit"

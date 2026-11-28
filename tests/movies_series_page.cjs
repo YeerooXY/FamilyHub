@@ -113,7 +113,7 @@ async function check(browser, profile, options) {
         await checkTargets(options.viewport.width >= 1600 ? 60 : 44);
         assert.equal(await episode.locator(".movie-release-quality").getAttribute("data-level"), "web");
         assert.equal(await episode.locator(".movie-episode-overview").textContent(), "The crew receives a radio signal.");
-        assert.equal(await episode.locator(".movie-episode-facts > span").textContent(), "46 min");
+        assert.equal(await episode.locator(".movie-episode-facts > span").first().textContent(), "46 min"); // a rating may follow (round 6)
         assert.equal(await episode.evaluate(node => {
             const card = node.getBoundingClientRect();
             const quality = node.querySelector(".movie-release-quality").getBoundingClientRect();

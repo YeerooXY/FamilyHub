@@ -6,14 +6,14 @@
     @if (PlaylistColumns) { <span class="playlist-track-number">@Number</span> }
     <button id="@primaryId" class="song-primary @(Current ? "is-current" : "") @(Current && Playing ? "is-playing" : "")" @onclick="Play" aria-label="@((FindRecording ? "Find recording for " : "Play ") + Track.Title)" aria-describedby="@MissingStatusId" aria-disabled="@(PlayDisabled ? "true" : null)">
         <span class="song-artwork"><TrackCover Track="Track" /><span class="artwork-play" aria-hidden="true"><MusicIcon Name="@(FindRecording ? "search" : "play")" /></span></span>
-        <span class="song-text"><strong title="@Track.Title">@Track.DisplayTitle</strong><small>@Track.Channel</small>@if (MissingStatusId is { } statusId) { <small id="@statusId" class="album-track-status">Missing from library</small> }</span>
+        <span class="song-text"><strong title="@Track.Title">@Track.DisplayTitle</strong><small>@Track.Channel</small>@if (MissingStatusId is { } statusId) { <small id="@statusId" class="album-track-status">@L["Missing from library"]</small> }</span>
     </button>
     @if (PlaylistColumns)
     {
         <span class="playlist-track-album" title="@Album">@Album</span>
         <span class="playlist-track-added">
             <span class="playlist-track-date" title="@AddedExact">@AddedAgo</span>
-            <span class="playlist-track-author" title="@AddedBy?.Name"><span class="sr">Added by </span><ProfileAvatar Profile="AddedBy" Size="24" ShowCrown="false" /><span>@(AddedBy?.Name ?? "Unknown")</span></span>
+            <span class="playlist-track-author" title="@AddedBy?.Name"><span class="sr">@L["Added by"] </span><ProfileAvatar Profile="AddedBy" Size="24" ShowCrown="false" /><span>@(AddedBy?.Name ?? "Unknown")</span></span>
         </span>
         <span class="playlist-track-bpm">@Track.Bpm</span>
         <span class="playlist-track-key" title="@Track.KeyName">@Track.Key</span>
@@ -50,7 +50,7 @@
     {
         <button id="@playlistButtonId" class="row-action song-playlist-add @(InPlaylist ? "is-added" : "")"
                 @onclick="() => AddToPlaylist.InvokeAsync((Track, playlistButtonId))" aria-label="Add @Track.Title to playlist"
-                title="Add to playlist" aria-haspopup="dialog">
+                title="@L["Add to playlist"].Value" aria-haspopup="dialog">
             <MusicIcon Name="@(InPlaylist ? "check-circle" : "plus-circle")" />
         </button>
     }
@@ -58,11 +58,11 @@
     {
         <button class="row-action row-reveal" aria-disabled="@SaveDisabled" @onclick="SaveToLibrary" aria-label="@($"{SaveLabel}: {Track.Title}")" title="@SaveLabel"><MusicIcon Name="@(saveState == "Saved" ? "cloud-check" : "cloud-empty")" /><span class="sr" role="status">@saveState</span></button>
     }
-    <button id="@moreId" class="row-action row-reveal row-more" @onclick="OpenMenu" aria-label="More options for @Track.Title" title="More options" aria-haspopup="dialog"><MusicIcon Name="more" /></button>
+    <button id="@moreId" class="row-action row-reveal row-more" @onclick="OpenMenu" aria-label="More options for @Track.Title" title="@L["More options"].Value" aria-haspopup="dialog"><MusicIcon Name="more" /></button>
     <dialog id="@menuId" class="popup-panel popup-menu song-menu" aria-labelledby="@(menuId + "-heading")">
-        <div class="dialog-heading"><h2 id="@(menuId + "-heading")">@Track.Title</h2><button id="@(menuId + "-close")" class="quiet" aria-label="Close song options" @onclick="CloseMenu"><MusicIcon Name="close" /></button></div>
-        @if (AddToPlaylist.HasDelegate && !FindRecording) { <button id="@(menuId + "-playlist")" @onclick="MenuPlaylist"><MusicIcon Name="plus-circle" />Add to playlist</button> }
-        @if (!FindRecording) { <button @onclick="MenuQueue"><MusicIcon Name="queue" />Add to queue</button> }
+        <div class="dialog-heading"><h2 id="@(menuId + "-heading")">@Track.Title</h2><button id="@(menuId + "-close")" class="quiet" aria-label="@L["Close song options"].Value" @onclick="CloseMenu"><MusicIcon Name="close" /></button></div>
+        @if (AddToPlaylist.HasDelegate && !FindRecording) { <button id="@(menuId + "-playlist")" @onclick="MenuPlaylist"><MusicIcon Name="plus-circle" />@L["Add to playlist"]</button> }
+        @if (!FindRecording) { <button @onclick="MenuQueue"><MusicIcon Name="queue" />@L["Add to queue"]</button> }
         @if (!FindRecording && !Track.Saved && !AlbumTrack) { <button aria-disabled="@SaveDisabled" @onclick="SaveToLibrary"><MusicIcon Name="plus-circle" />@SaveLabel</button> }
         @if (!FindRecording || MoveEarlier.HasDelegate || MoveLater.HasDelegate)
         {
@@ -73,7 +73,7 @@
         @if (Track.Saved) { <TrimRequest Track="Track" ShowText="true" /> }
         @if (Track.Saved && Report.HasDelegate)
         {
-            <button id="@(menuId + "-report")" aria-haspopup="dialog" @onclick='() => Report.InvokeAsync((Track, menuId + "-report"))'><MusicIcon Name="alert" /><span>Report problem</span></button>
+            <button id="@(menuId + "-report")" aria-haspopup="dialog" @onclick='() => Report.InvokeAsync((Track, menuId + "-report"))'><MusicIcon Name="alert" /><span>@L["Report problem"]</span></button>
         }
         @if (Remove.HasDelegate) { <button class="song-menu-remove" @onclick="MenuRemove"><MusicIcon Name="trash" />@RemoveLabel</button> }
     </dialog>

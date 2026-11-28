@@ -6,12 +6,12 @@
 }
 @if (ShowSizes)
 {
-    <div class="device-sizes" role="group" aria-label="Songs on this device">
+    <div class="device-sizes" role="group" aria-label="@L["Songs on this device"].Value">
         <button id="kept-downloads" type="button" aria-pressed="@(!CacheSelected ? "true" : "false")" @onclick="() => CacheSelectedChanged.InvokeAsync(false)">
-            <strong>Kept downloads</strong><span class="device-size">@Songs(downloaded), @Size(Session.DownloadedBytes)</span>
+            <strong>@L["Kept downloads"]</strong><span class="device-size">@Songs(downloaded), @Size(Session.DownloadedBytes)</span>
         </button>
         <button id="cached-downloads" type="button" aria-pressed="@(CacheSelected ? "true" : "false")" @onclick="() => CacheSelectedChanged.InvokeAsync(true)">
-            <strong>Playback cache</strong><span class="device-size">@Songs(cached), @Size(Math.Max(0, Session.DeviceBytes - Session.DownloadedBytes))</span>
+            <strong>@L["Playback cache"]</strong><span class="device-size">@Songs(cached), @Size(Math.Max(0, Session.DeviceBytes - Session.DownloadedBytes))</span>
         </button>
     </div>
 }

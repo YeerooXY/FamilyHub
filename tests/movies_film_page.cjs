@@ -176,7 +176,7 @@ async function check(browser, profile, options) {
                 await page.waitForFunction(({node, width}) => {
                     const style = getComputedStyle(node);
                     return style.outlineStyle === "solid" && style.outlineWidth === width && style.outlineColor === "rgb(255, 255, 255)";
-                }, {node: await target.elementHandle(), width});
+                }, {node: await target.elementHandle(), width}, {polling: 100});
             };
             for (const target of [owned, play, cast]) {
                 await target.hover();

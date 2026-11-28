@@ -6,7 +6,8 @@ from flask import abort, send_from_directory
 FILES = {'admin.css': 'text/css', 'admin.js': 'text/javascript'}
 ROOT = Path(__file__).with_name('admin_static')
 WEBROOT = ROOT.parents[1] / 'clients' / 'FamilyHub.App' / 'wwwroot'
-SHARED = {'service-status.css': 'text/css', 'service-status.js': 'text/javascript'}
+SHARED = {'service-status.css': 'text/css', 'service-status.js': 'text/javascript',
+          'strings.js': 'text/javascript', 'strings.hu.json': 'application/json'}
 
 
 def register(app):

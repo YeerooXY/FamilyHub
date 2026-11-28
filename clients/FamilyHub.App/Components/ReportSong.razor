@@ -2,15 +2,15 @@
 @inject MusicPlayer Player
 @inject IJSRuntime JS
 <dialog id="report-song-dialog" class="popup-panel animated-dialog report-dialog" aria-labelledby="report-song-title" aria-describedby="report-song-track">
-    <div class="dialog-heading"><h2 id="report-song-title">Report song</h2><button id="report-song-close" class="quiet" aria-label="Close Report song" @onclick="Close"><MusicIcon Name="close" /></button></div>
+    <div class="dialog-heading"><h2 id="report-song-title">@L["Report song"]</h2><button id="report-song-close" class="quiet" aria-label="@L["Close Report song"].Value" @onclick="Close"><MusicIcon Name="close" /></button></div>
     <p id="report-song-track">@reportTrack?.Title</p>
     <div class="report-choices">
-        <button id="report-quality" class="quiet" disabled="@busy" @onclick='() => Send("bad_quality")'><MusicIcon Name="volume" /><span><strong>Bad quality or live performance</strong></span></button>
-        <button class="quiet" disabled="@busy" @onclick='() => Send("wrong_source")'><MusicIcon Name="refresh" /><span><strong>Wrong source</strong><small>A different song or version plays. An admin picks a new source.</small></span></button>
-        <button class="quiet" disabled="@busy" @onclick='() => Send("trimming")'><MusicIcon Name="scissors" /><span><strong>Needs trimming</strong><small>Silence, talking or an intro should be cut.</small></span></button>
+        <button id="report-quality" class="quiet" disabled="@busy" @onclick='() => Send("bad_quality")'><MusicIcon Name="volume" /><span><strong>@L["Bad quality or live performance"]</strong></span></button>
+        <button class="quiet" disabled="@busy" @onclick='() => Send("wrong_source")'><MusicIcon Name="refresh" /><span><strong>@L["Wrong source"]</strong><small>@L["A different song or version plays. An admin picks a new source."]</small></span></button>
+        <button class="quiet" disabled="@busy" @onclick='() => Send("trimming")'><MusicIcon Name="scissors" /><span><strong>@L["Needs trimming"]</strong><small>@L["Silence, talking or an intro should be cut."]</small></span></button>
     </div>
-    <ServiceStatus Active="connectionFailed" Detail="Reconnect before sending this report."
-                   RetryLabel="Retry report connection" Retry="Reconnect" Busy="busy" FocusTarget="#report-quality" />
+    <ServiceStatus Active="connectionFailed" Detail="@L["Reconnect before sending this report."].Value"
+                   RetryLabel="@L["Retry report connection"].Value" Retry="Reconnect" Busy="busy" FocusTarget="#report-quality" />
     <Notice Level="error" Message="@status" />
 </dialog>
 

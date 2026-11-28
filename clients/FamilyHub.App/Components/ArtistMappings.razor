@@ -5,19 +5,19 @@
 
 <div class="music-admin artist-mappings" aria-busy="@(loading && mappings is null ? "true" : "false")">
     <header class="music-admin-heading">
-        <p class="muted">Discovery uses these mappings to find new releases on Deezer.</p>
+        <p class="muted">@L["Discovery uses these mappings to find new releases on Deezer."]</p>
         <div class="artist-mapping-actions">
-            <button id="artist-mapping-refresh" class="quiet" @onclick="Load" disabled="@(Offline || loading || saving)"><MusicIcon Name="refresh" />Refresh</button>
+            <button id="artist-mapping-refresh" class="quiet" @onclick="Load" disabled="@(Offline || loading || saving)"><MusicIcon Name="refresh" />@L["Refresh"]</button>
             @if (mappings is not null)
             {
-                <button id="artist-mapping-add" class="primary" @onclick="BeginAdd" disabled="@(Editing || Offline || loading)"><MusicIcon Name="plus" />Add mapping</button>
+                <button id="artist-mapping-add" class="primary" @onclick="BeginAdd" disabled="@(Editing || Offline || loading)"><MusicIcon Name="plus" />@L["Add mapping"]</button>
             }
         </div>
     </header>
 
     <Notice Level="error" Message="@error" />
-    <ServiceStatus Active="@(Offline || loadFailed)" Detail="Reconnect to update artist mappings."
-                   RetryLabel="Retry artist mappings" Retry="RetryLoad" Busy="@(loading || saving)"
+    <ServiceStatus Active="@(Offline || loadFailed)" Detail="@L["Reconnect to update artist mappings."].Value"
+                   RetryLabel="@L["Retry artist mappings"].Value" Retry="RetryLoad" Busy="@(loading || saving)"
                    AutoRetry="@(!Offline)" FocusTarget="#artist-mapping-refresh" />
     <Notice Message="@StatusMessage" />
 
@@ -26,11 +26,11 @@
         var visible = mappings.Where(Matches).ToList();
         <section class="glass-panel artist-mapping-panel" aria-labelledby="artist-mapping-results">
             <div class="music-admin-heading">
-                <h2 id="artist-mapping-results" tabindex="-1">Mappings <span class="music-admin-count">@visible.Count</span></h2>
+                <h2 id="artist-mapping-results" tabindex="-1">@L["Mappings"] <span class="music-admin-count">@visible.Count</span></h2>
                 <form class="artist-mapping-search" role="search" @onsubmit="SubmitSearch" @onsubmit:preventDefault>
-                    <label for="artist-mapping-search" class="sr">Search artist mappings</label>
+                    <label for="artist-mapping-search" class="sr">@L["Search artist mappings"]</label>
                     <MusicIcon Name="search" />
-                    <input id="artist-mapping-search" type="search" placeholder="Search artists or IDs" @bind="query" @bind:event="oninput" />
+                    <input id="artist-mapping-search" type="search" placeholder="@L["Search artists or IDs"].Value" @bind="query" @bind:event="oninput" />
                 </form>
             </div>
 
@@ -54,7 +54,7 @@
                             </div>
                             @if (editing?.Name != row.Name)
                             {
-                                <button id="@EditButtonId(row.Name)" class="quiet" @onclick="() => BeginEdit(row)" aria-label="@($"Edit mapping for {row.Name}")" disabled="@(Editing || Offline || loading)"><MusicIcon Name="pencil" />Edit</button>
+                                <button id="@EditButtonId(row.Name)" class="quiet" @onclick="() => BeginEdit(row)" aria-label="@($"Edit mapping for {row.Name}")" disabled="@(Editing || Offline || loading)"><MusicIcon Name="pencil" />@L["Edit"]</button>
                             }
                         </div>
                         @if (editing?.Name == row.Name)
@@ -85,16 +85,16 @@
         @if (adding)
         {
             <div>
-                <label for="artist-mapping-name">Artist name</label>
+                <label for="artist-mapping-name">@L["Artist name"]</label>
                 <input id="artist-mapping-name" @bind="artistName" maxlength="120" disabled="@saving" />
             </div>
         }
         <div>
-            <label for="artist-mapping-identifier">Deezer artist ID</label>
-            <input id="artist-mapping-identifier" type="text" inputmode="numeric" placeholder="Enter an artist ID" @bind="identifier" maxlength="19" disabled="@saving" />
+            <label for="artist-mapping-identifier">@L["Deezer artist ID"]</label>
+            <input id="artist-mapping-identifier" type="text" inputmode="numeric" placeholder="@L["Enter an artist ID"].Value" @bind="identifier" maxlength="19" disabled="@saving" />
         </div>
         <div class="artist-mapping-actions">
-            <button class="quiet" type="button" @onclick="CancelEdit" disabled="@saving">Cancel</button>
+            <button class="quiet" type="button" @onclick="CancelEdit" disabled="@saving">@L["Cancel"]</button>
             <button class="primary" type="submit" disabled="@(saving || Offline)">@(saving ? "Saving…" : "Save mapping")</button>
         </div>
         @if (editing?.Candidates is { Count: > 1 } candidates)

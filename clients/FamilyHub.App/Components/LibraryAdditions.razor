@@ -1,6 +1,6 @@
 @inject IJSRuntime JS
 
-<section class="library-addition-status" aria-label="Save status">
+<section class="library-addition-status" aria-label="@L["Save status"].Value">
     <p class="sr" role="status">@Jobs.Count(job => job.Pending) songs pending, @Jobs.Count(job => !job.Pending && job.Saved) saved, @Jobs.Count(job => !job.Pending && !job.Saved) failed.</p>
     <ul class="addition-list">
         @foreach (var job in Jobs.Take(limit))
@@ -16,14 +16,14 @@
                 <span class="music-admin-count">@Status(job)</span>
                 @if (Retry.HasDelegate && job.SourceId is { Length: 11 } && (job.State is "error" or "cancelled" && !job.Saved || job.PlaylistError is not null))
                 {
-                    <button type="button" class="quiet" aria-label="Retry @job.Title" aria-disabled="@(Busy ? "true" : "false")" @onclick="() => RetryJob(job)">Retry</button>
+                    <button type="button" class="quiet" aria-label="Retry @job.Title" aria-disabled="@(Busy ? "true" : "false")" @onclick="() => RetryJob(job)">@L["Retry"]</button>
                 }
             </li>
         }
     </ul>
     @if (Jobs.Count > limit)
     {
-        <button id="@(Prefix + "-addition-more")" class="quiet" type="button" @onclick="More">Show more additions</button>
+        <button id="@(Prefix + "-addition-more")" class="quiet" type="button" @onclick="More">@L["Show more additions"]</button>
     }
 </section>
 

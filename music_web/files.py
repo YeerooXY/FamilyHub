@@ -30,9 +30,10 @@ GIB = 1 << 30
 
 
 class FileError(Exception):
-    def __init__(self, message, status=400):
+    def __init__(self, message, status=400, code=None):
         super().__init__(message)
         self.status = status
+        self.code = code
 
 
 @dataclass
@@ -297,7 +298,10 @@ def register_files(app, cfg, body, allow, is_admin, private_access, csrf_exempt)
         return None
 
     def fail(error):
-        return jsonify(error=str(error)), error.status
+        payload = {'error': str(error)}
+        if error.code:
+            payload['code'] = error.code
+        return jsonify(payload), error.status
 
     def space_and_parts(data):
         space = data.get('space')
@@ -468,7 +472,7 @@ def register_files(app, cfg, body, allow, is_admin, private_access, csrf_exempt)
                     if not store.may_delete_tree(space, parts, g.user, is_admin()):
                         raise FileError('This folder contains files added by another profile.', 403)
                     if os.listdir(target) and request.args.get('recursive') != 'true':
-                        raise FileError('That folder is not empty.', 409)
+                        raise FileError('That folder is not empty.', 409, 'folder_not_empty')
                     store.invalidate_uploads(target)
                     shutil.rmtree(target)
                 else:

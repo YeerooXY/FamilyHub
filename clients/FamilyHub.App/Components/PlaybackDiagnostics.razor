@@ -4,18 +4,18 @@
 @using System.Text.Json.Serialization
 
 <section id="playback-diagnostics" class="settings-panel glass-panel" aria-labelledby="playback-timing-title">
-    <h2 id="playback-timing-title">Playback diagnostics</h2>
+    <h2 id="playback-timing-title">@L["Playback diagnostics"]</h2>
     @if (Session.LastExitReason is { } reason)
     {
         <p class="setting-help">The last Android app exit reason was @(ExitReasonLabel(reason)).</p>
     }
     <div class="setting-row">
-        <span>Music playback attempts in the last 30 minutes</span>
+        <span>@L["Music playback attempts in the last 30 minutes"]</span>
         <button id="playback-diagnostics-refresh" @onclick="Read" aria-disabled="@(loading ? "true" : "false")">@(actions is null ? "Load attempts" : "Refresh attempts")</button>
     </div>
     @if (!failed) { <p class="setting-help" role="status">@status</p> }
     <ServiceStatus Active="failed" Detail="@(DeviceStatus("Server timings did not load."))"
-                   RetryLabel="Retry playback diagnostics" Retry="Read" Busy="loading" AutoRetry="true" FocusTarget="#playback-diagnostics-refresh" />
+                   RetryLabel="@L["Retry playback diagnostics"].Value" Retry="Read" Busy="loading" AutoRetry="true" FocusTarget="#playback-diagnostics-refresh" />
     @if (actions is { Length: > 0 })
     {
         @foreach (var action in actions)
@@ -29,7 +29,7 @@
                 </summary>
                 @if (attempt?.Observations is { Length: > 0 } observations)
                 {
-                    <h3>On this device</h3>
+                    <h3>@L["On this device"]</h3>
                     <dl>
                         @foreach (var observation in observations)
                         {

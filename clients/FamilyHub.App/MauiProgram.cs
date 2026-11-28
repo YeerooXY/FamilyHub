@@ -27,6 +27,9 @@ public static class MauiProgram
             handlers.AddHandler<CommunityToolkit.Maui.Views.MediaElement, LocalAudioHandler>());
 #endif
 		builder.Services.AddMauiBlazorWebView();
+        builder.Services.AddSingleton(_ => new AppStrings(Preferences.Default.Get(AppStrings.PreferenceKey, ""),
+            System.Globalization.CultureInfo.CurrentUICulture));
+        builder.Services.AddSingleton<Microsoft.Extensions.Localization.IStringLocalizer>(services => services.GetRequiredService<AppStrings>());
         builder.Services.AddSingleton<MusicSession>();
         builder.Services.AddSingleton(_ => new FeedbackDrafts(Path.Combine(FileSystem.AppDataDirectory, "feedback-drafts")));
         builder.Services.AddSingleton(_ => new FamilyHub.Client.Core.PublicAppReleases(

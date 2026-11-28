@@ -20,7 +20,10 @@ internal static class DownloadStateChecks
         var session = await server.ConnectAsync();
         server.WaitingForAutoDownload = true;
         var activator = new CaptureActivator();
-        await using var services = new ServiceCollection().AddLogging().AddSingleton(session)
+        await using var services = new ServiceCollection().AddLogging().AddLocalization()
+            .AddSingleton<Microsoft.Extensions.Localization.IStringLocalizer>(services =>
+                services.GetRequiredService<Microsoft.Extensions.Localization.IStringLocalizerFactory>().Create(typeof(DownloadStateChecks)))
+            .AddSingleton(session)
             .AddSingleton<MusicPlayer>().AddSingleton<IJSRuntime, NoJs>().AddSingleton<IComponentActivator>(activator).BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
         var page = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderComponentAsync<DownloadPlaylistFixture>());

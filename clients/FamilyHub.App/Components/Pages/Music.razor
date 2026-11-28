@@ -37,7 +37,7 @@ else if (EntryScreen)
             <section class="profile-picker" aria-labelledby="@(protectedProfile is null ? "profile-heading" : "profile-password-title")" @onkeydown="ProfilePickerKeyDown">
                 <div class="profile-stage">
                     <div class="profile-choices" inert="@(protectedProfile is not null)">
-                        <h1 id="profile-heading">Choose a profile</h1>
+                        <h1 id="profile-heading">@L["Choose a profile"]</h1>
                         <div class="profile-grid">
                             @foreach (var profile in Session.Profiles)
                             {
@@ -45,7 +45,7 @@ else if (EntryScreen)
                                     <ProfileAvatar Profile="profile" Size="112" /><span>@profile.Name</span>
                                 </button>
                             }
-                            <button id="add-profile" class="profile-choice" @onclick="ShowAddProfile" aria-disabled="@Aria(busy)"><span class="profile-image profile-add" aria-hidden="true"><MusicIcon Name="plus" /></span><span>Add profile</span></button>
+                            <button id="add-profile" class="profile-choice" @onclick="ShowAddProfile" aria-disabled="@Aria(busy)"><span class="profile-image profile-add" aria-hidden="true"><MusicIcon Name="plus" /></span><span>@L["Add profile"]</span></button>
                         </div>
                     </div>
                     @if (protectedProfile is { } selected)
@@ -57,23 +57,23 @@ else if (EntryScreen)
                                 <h1 id="profile-password-title">@selected.Name</h1>
                             </header>
                             <div class="profile-sign-in-fields">
-                                <label for="profile-password">@(creating ? "New password" : "Password")</label>
-                                @if (creating) { <p id="profile-password-requirement">Use at least 8 characters.</p> }
+                                <label for="profile-password">@L[creating ? "New password" : "Password"]</label>
+                                @if (creating) { <p id="profile-password-requirement">@L["Use at least 8 characters."]</p> }
                                 <div class="password-field">
                                     <input id="profile-password" type="@(showPassword ? "text" : "password")" @bind="profilePassword" @bind:event="oninput" minlength="@(creating ? 8 : 1)" maxlength="256" autocomplete="@(creating ? "new-password" : "current-password")" aria-describedby="@(creating ? "profile-password-requirement" : null)" readonly="@busy" required />
-                                    <button type="button" class="password-eye" @onclick="() => showPassword = !showPassword" aria-pressed="@(showPassword ? "true" : "false")" aria-label="Show password" title="Show password"><MusicIcon Name="@(showPassword ? "eye-off" : "eye")" /></button>
+                                    <button type="button" class="password-eye" @onclick="() => showPassword = !showPassword" aria-pressed="@(showPassword ? "true" : "false")" aria-label="@L["Show password"].Value" title="@L["Show password"].Value"><MusicIcon Name="@(showPassword ? "eye-off" : "eye")" /></button>
                                 </div>
                                 @if (creating)
                                 {
-                                    <label for="profile-password-confirm">Repeat password</label>
+                                    <label for="profile-password-confirm">@L["Repeat password"]</label>
                                     <div class="password-field">
                                         <input id="profile-password-confirm" type="@(showPassword ? "text" : "password")" @bind="profilePasswordRepeat" @bind:event="oninput" maxlength="256" autocomplete="new-password" readonly="@busy" required />
                                     </div>
-                                    @if (profilePasswordRepeat.Length > 0 && profilePasswordRepeat != profilePassword) { <p class="password-hint" role="status">The passwords do not match yet.</p> }
+                                    @if (profilePasswordRepeat.Length > 0 && profilePasswordRepeat != profilePassword) { <p class="password-hint" role="status">@L["The passwords do not match yet."]</p> }
                                 }
                                 <div class="password-actions">
-                                    <button class="primary" type="submit" aria-disabled="@Aria(busy || profilePassword.Length == 0 || (creating && (profilePassword.Length < 8 || profilePassword != profilePasswordRepeat)))">@(busy ? "Signing in…" : creating ? "Create password and sign in" : "Sign in")</button>
-                                    <button class="quiet" type="button" @onclick="ClosePasswordCard" aria-disabled="@Aria(busy)">Back to profiles</button>
+                                    <button class="primary" type="submit" aria-disabled="@Aria(busy || profilePassword.Length == 0 || (creating && (profilePassword.Length < 8 || profilePassword != profilePasswordRepeat)))">@L[busy ? "Signing in…" : creating ? "Create password and sign in" : "Sign in"]</button>
+                                    <button class="quiet" type="button" @onclick="ClosePasswordCard" aria-disabled="@Aria(busy)">@L["Back to profiles"]</button>
                                 </div>
                                 <Notice Level="error" Message="@error" />
                             </div>
@@ -83,12 +83,12 @@ else if (EntryScreen)
                 @if (addingProfile)
                 {
                     <form class="profile-name-form" @onsubmit="CreateProfile" @onsubmit:preventDefault>
-                        <label class="sr" for="new-profile-name">Name</label><input id="new-profile-name" @bind="profileName" placeholder="Name" maxlength="40" required />
-                        <button class="primary" type="submit" aria-disabled="@Aria(busy)">Create profile</button><button type="button" @onclick="CancelAddProfile">Cancel</button>
+                        <label class="sr" for="new-profile-name">@L["Name"]</label><input id="new-profile-name" @bind="profileName" placeholder="@L["Name"].Value" maxlength="40" required />
+                        <button class="primary" type="submit" aria-disabled="@Aria(busy)">@L["Create profile"]</button><button type="button" @onclick="CancelAddProfile">@L["Cancel"]</button>
                     </form>
                 }
                 @if (protectedProfile is null) { <Notice Level="@(error is null ? Session.MessageLevel : "error")" Message="@(error ?? EntryMessage)" /> }
-                <button class="quiet change-server" @onclick='() => Navigate("Settings")'>Change server</button>
+                <button class="quiet change-server" @onclick='() => Navigate("Settings")'>@L["Change server"]</button>
                 <AppUpdate InitialRelease="startupUpdate" />
             </section>
         }
@@ -96,12 +96,12 @@ else if (EntryScreen)
         {
             <form class="connect-form" @onsubmit="Connect" @onsubmit:preventDefault>
                 <img class="connect-mark" src="familyhub-mark.png" alt="FamilyHub" />
-                <div class="connect-fields"><label class="sr" for="server">Server address</label><input id="server" type="url" @bind="server" placeholder="Server address" autocomplete="url" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url" required /><button class="primary" type="submit" aria-disabled="@Aria(busy)">@(busy ? "Connecting..." : "Connect")</button></div>
+                <div class="connect-fields"><label class="sr" for="server">@L["Server address"]</label><input id="server" type="url" @bind="server" placeholder="@L["Server address"].Value" autocomplete="url" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url" required /><button class="primary" type="submit" aria-disabled="@Aria(busy)">@L[busy ? "Connecting..." : "Connect"]</button></div>
                 <ServiceStatus Active="@(Session.ServerStatusMessage is null && (connectFailed || ConnectionLost))" FullSection="true"
-                               Detail="Check the server address and your connection." RetryLabel="Retry server connection"
+                               Detail="@L["Check the server address and your connection."].Value" RetryLabel="@L["Retry server connection"].Value"
                                Retry="Connect" Busy="busy" FocusTarget="#server" />
                 <Notice Level="@(error is null ? Session.MessageLevel : "error")" Message="@(Session.ServerStatusMessage is not null || connectFailed || ConnectionLost ? null : error ?? EntryMessage)" />
-                @if (!string.IsNullOrEmpty(Session.User)) { <button class="quiet change-server" type="button" @onclick='() => Navigate("Library")'>Back</button> }
+                @if (!string.IsNullOrEmpty(Session.User)) { <button class="quiet change-server" type="button" @onclick='() => Navigate("Library")'>@L["Back"]</button> }
                 <AppUpdate @key="Session.Server" InitialRelease="startupUpdate" />
             </form>
         }
@@ -109,26 +109,26 @@ else if (EntryScreen)
 }
 else
 {
-<a class="skip" href="#content">Skip to content</a>
+<a class="skip" href="#content">@L["Skip to content"]</a>
 <header class="app-header @(AppFullscreen ? "app-fullscreen" : "")">
     <div class="header-start">
-        <button id="open-hub" type="button" class="brand hub-launcher" @onclick="OpenAppSwitcher" aria-label="Switch apps" aria-describedby="current-app" title="Switch apps" aria-haspopup="dialog" aria-controls="app-switcher" aria-expanded="@Aria(appSwitcherOpen)"><MusicIcon Name="@(appSwitcherOpen ? "apps" : HubApps.AppIcon(SwitcherApp))" /><span id="current-app" hidden>@HubApps.AppLabel(SwitcherApp)</span></button>
-        <dialog id="app-switcher" class="popup-panel" aria-label="Switch apps" data-popup-anchor="open-hub" @onclose="() => appSwitcherOpen = false">
+        <button id="open-hub" type="button" class="brand hub-launcher" @onclick="OpenAppSwitcher" aria-label="@L["Switch apps"].Value" aria-describedby="current-app" title="@L["Switch apps"].Value" aria-haspopup="dialog" aria-controls="app-switcher" aria-expanded="@Aria(appSwitcherOpen)"><MusicIcon Name="@(appSwitcherOpen ? "apps" : HubApps.AppIcon(SwitcherApp))" /><span id="current-app" hidden>@L[HubApps.AppLabel(SwitcherApp)]</span></button>
+        <dialog id="app-switcher" class="popup-panel" aria-label="@L["Switch apps"].Value" data-popup-anchor="open-hub" @onclose="() => appSwitcherOpen = false">
             <HubApps Current="@SwitcherApp" Open="SwitchApp" />
-            <button id="switcher-hub" type="button" @onclick='() => SwitchApp("Hub")'><MusicIcon Name="home" /> FamilyHub home</button>
+            <button id="switcher-hub" type="button" @onclick='() => SwitchApp("Hub")'><MusicIcon Name="home" /> @L["FamilyHub home"]</button>
         </dialog>
-        <nav class="view-history" aria-label="View history">
-            <button id="header-back" class="header-icon header-history" @onclick="() => StepHistory(false, true)" aria-label="Go back" title="Go back" aria-disabled="@Aria(!viewHistory.CanBack)"><MusicIcon Name="back" /></button>
-            <button id="header-forward" class="header-icon header-history" @onclick="() => StepHistory(true, true)" aria-label="Go forward" title="Go forward" aria-disabled="@Aria(!viewHistory.CanForward)"><MusicIcon Name="forward" /></button>
+        <nav class="view-history" aria-label="@L["View history"].Value">
+            <button id="header-back" class="header-icon header-history" @onclick="() => StepHistory(false, true)" aria-label="@L["Go back"].Value" title="@L["Go back"].Value" aria-disabled="@Aria(!viewHistory.CanBack)"><MusicIcon Name="back" /></button>
+            <button id="header-forward" class="header-icon header-history" @onclick="() => StepHistory(true, true)" aria-label="@L["Go forward"].Value" title="@L["Go forward"].Value" aria-disabled="@Aria(!viewHistory.CanForward)"><MusicIcon Name="forward" /></button>
         </nav>
     </div>
     <div class="header-search">
-    <button class="header-icon home-button" @onclick='() => Navigate("Home")' aria-label="Home" title="Home"><MusicIcon Name="home" /></button>
+    <button class="header-icon home-button" @onclick='() => Navigate("Home")' aria-label="@L["Home"].Value" title="@L["Home"].Value"><MusicIcon Name="home" /></button>
     <form id="search-form" class="@(searching ? "is-searching" : "")" role="search" @onsubmit="Search" @onsubmit:preventDefault>
-        <label class="sr" for="q">Song or artist</label>
-        <button class="search-submit" type="submit" aria-label="Search songs" aria-disabled="@Aria(busy)"><MusicIcon Name="search" /></button>
-        <input id="q" type="search" value="@query" @oninput="SearchInput" placeholder="Search songs or artists" maxlength="200" autocomplete="off" />
-        @if (!string.IsNullOrEmpty(query)) { <button id="clear-search" type="button" aria-label="Clear search" @onclick="ClearSearch"><MusicIcon Name="close" /></button> }
+        <label class="sr" for="q">@L["Song or artist"]</label>
+        <button class="search-submit" type="submit" aria-label="@L["Search songs"].Value" aria-disabled="@Aria(busy)"><MusicIcon Name="search" /></button>
+        <input id="q" type="search" value="@query" @oninput="SearchInput" placeholder="@L["Search songs or artists"].Value" maxlength="200" autocomplete="off" />
+        @if (!string.IsNullOrEmpty(query)) { <button id="clear-search" type="button" aria-label="@L["Clear search"].Value" @onclick="ClearSearch"><MusicIcon Name="close" /></button> }
     </form>
     </div>
     <div class="sidebar-account"><AppUpdate Id="header-update" Compact="true" InitialRelease="startupUpdate" Available="ShowAvailableUpdate" />
@@ -136,28 +136,28 @@ else
     {
         <button id="app-fullscreen-toggle" type="button" class="header-icon" @onclick="ToggleAppFullscreen" aria-label="@FullscreenLabel" title="@FullscreenLabel" aria-pressed="@Aria(AppFullscreen)"><MusicIcon Name="fullscreen" /></button>
     }
-    <button id="profile-toggle" @onclick="OpenProfileMenu" aria-label="Profile menu" title="@Session.ProfileName" aria-expanded="@Aria(profileMenu)" aria-controls="profile-menu" aria-haspopup="dialog"><ProfileAvatar Profile="CurrentProfile" Size="32" /></button>
+    <button id="profile-toggle" @onclick="OpenProfileMenu" aria-label="@L["Profile menu"].Value" title="@Session.ProfileName" aria-expanded="@Aria(profileMenu)" aria-controls="profile-menu" aria-haspopup="dialog"><ProfileAvatar Profile="CurrentProfile" Size="32" /></button>
     @if (profileMenu)
     {
         <dialog id="profile-menu" class="popup-panel popup-menu" aria-labelledby="profile-menu-heading" data-popup-anchor="profile-toggle" @onclose="() => profileMenu = false">
-            <div class="dialog-heading"><h2 id="profile-menu-heading">@Session.ProfileName</h2><button id="profile-menu-close" class="quiet" aria-label="Close profile menu" data-popup-close><MusicIcon Name="close" /></button></div>
-            <button @onclick="SwitchProfile"><MusicIcon Name="person" />Switch profile</button>
-            <button id="open-settings" @onclick="OpenSettings"><MusicIcon Name="settings" />Settings</button>
-            <button id="open-feedback" aria-haspopup="dialog" @onclick="OpenProfileFeedback"><MusicIcon Name="alert" />Feedback</button>
+            <div class="dialog-heading"><h2 id="profile-menu-heading">@Session.ProfileName</h2><button id="profile-menu-close" class="quiet" aria-label="@L["Close profile menu"].Value" data-popup-close><MusicIcon Name="close" /></button></div>
+            <button @onclick="SwitchProfile"><MusicIcon Name="person" />@L["Switch profile"]</button>
+            <button id="open-settings" @onclick="OpenSettings"><MusicIcon Name="settings" />@L["Settings"]</button>
+            <button id="open-feedback" aria-haspopup="dialog" @onclick="OpenProfileFeedback"><MusicIcon Name="alert" />@L["Feedback"]</button>
         </dialog>
     }
     </div>
 </header>
 <aside class="sidebar">
     <nav id="music-navigation" aria-label="FamilyHub">
-    <button id="open-home" class="nav-button" aria-label="Home" title="Home" aria-current='@(view == "Home" ? "page" : null)' @onclick='() => Navigate("Home")'><MusicIcon Name="home" /><span class="nav-label">Home</span></button>
-    <button class="nav-button phone-nav" aria-label="Search" aria-current='@(view == "Search" ? "page" : null)' @onclick="OpenSearchTab"><MusicIcon Name="search" /><span class="nav-label">Search</span></button>
-    <button class="nav-button phone-nav" aria-label="Playlists" aria-current='@(LibraryViews.Contains(view) ? "page" : null)' @onclick='() => Navigate("Playlists")'><MusicIcon Name="playlist" /><span class="nav-label">Playlists</span></button>
-    <button id="open-library" class="nav-button desktop-nav" aria-label="Your library" title="Your library" aria-current='@(view == "Library" ? "page" : null)' @onclick='() => Navigate("Library")'><MusicIcon Name="library" /><span class="nav-label">Your library</span></button>
+    <button id="open-home" class="nav-button" aria-label="@L["Home"].Value" title="@L["Home"].Value" aria-current='@(view == "Home" ? "page" : null)' @onclick='() => Navigate("Home")'><MusicIcon Name="home" /><span class="nav-label">@L["Home"]</span></button>
+    <button class="nav-button phone-nav" aria-label="@L["Search"].Value" aria-current='@(view == "Search" ? "page" : null)' @onclick="OpenSearchTab"><MusicIcon Name="search" /><span class="nav-label">@L["Search"]</span></button>
+    <button class="nav-button phone-nav" aria-label="@L["Playlists"].Value" aria-current='@(LibraryViews.Contains(view) ? "page" : null)' @onclick='() => Navigate("Playlists")'><MusicIcon Name="playlist" /><span class="nav-label">@L["Playlists"]</span></button>
+    <button id="open-library" class="nav-button desktop-nav" aria-label="@L["Your library"].Value" title="@L["Your library"].Value" aria-current='@(view == "Library" ? "page" : null)' @onclick='() => Navigate("Library")'><MusicIcon Name="library" /><span class="nav-label">@L["Your library"]</span></button>
     @foreach (var tab in new[] { "Downloads", "Playlists" })
     { <button class="nav-button desktop-nav" aria-label="@NavLabel(tab)" title="@NavLabel(tab)" aria-current="@(view == tab ? "page" : null)" @onclick="() => Navigate(tab)"><MusicIcon Name="@NavIcon(tab)" /><span class="nav-label">@NavLabel(tab)</span></button> }
     </nav>
-    <div id="sidebar-resize" role="separator" tabindex="0" aria-label="Resize library sidebar" aria-orientation="vertical" aria-valuemin="72" aria-valuemax="420" aria-valuenow="@(sidebarCollapsed ? 72 : sidebarWidth)"></div>
+    <div id="sidebar-resize" role="separator" tabindex="0" aria-label="@L["Resize library sidebar"].Value" aria-orientation="vertical" aria-valuemin="72" aria-valuemax="420" aria-valuenow="@(sidebarCollapsed ? 72 : sidebarWidth)"></div>
 </aside>
 <div class="workspace" data-app-view="@view"><main id="content" class="@(Session.ReconnectingToServer ? "server-reconnecting" : null)" tabindex="-1">
     @{ var restartBanner = Session.ServerStatusMessage;
@@ -166,25 +166,25 @@ else
     <div class="shell-status">
     <Notice Id="server-restart-status" Level="@(Session.ReconnectingToServer ? "info" : "warning")" Message="@restartBanner" Announce="false" />
     <ServiceStatus Active="@connectionBanner"
-                   Detail="@ConnectionDetail" RetryLabel="Retry server connection" Retry="Reconnect" Busy="reconnecting" AutoRetry="true"
+                   Detail="@ConnectionDetail" RetryLabel="@L["Retry server connection"].Value" Retry="Reconnect" Busy="reconnecting" AutoRetry="true"
                    FocusTarget="@(view == "Home" ? "#open-home" : view == "Library" ? "#open-library" : "#open-hub")" />
-    <ServiceStatus Active="@searchBanner" Detail="Reconnect to search for songs."
-                   RetryLabel="Retry search" Retry="RetrySongSearch" Busy="retryingSearch" AutoRetry="true" FocusTarget="#q" />
+    <ServiceStatus Active="@searchBanner" Detail="@L["Reconnect to search for songs."].Value"
+                   RetryLabel="@L["Retry search"].Value" Retry="RetrySongSearch" Busy="retryingSearch" AutoRetry="true" FocusTarget="#q" />
     <Notice Id="feedback" Level="@(error is not null ? "error" : radioProgress is not null ? "info" : Session.MessageLevel)"
         Message="@(restartBanner is not null || searchBanner || connectionBanner ? null : error ?? radioProgress ?? (!ConnectionLost && Session.DownloadingId is null && Session.MessageLevel != "success" ? Session.Message : ""))"
         ActionLabel="@(restartBanner is not null || searchBanner || connectionBanner ? null : RecoveryLabel)" Action="RetryNotice" FocusTarget="@(searchFailed ? "#view-title" : "#play")" />
     </div>
     @if (view is not ("Playlists" or "Home" or "Album" or "Hub" or "Wordle" or "Preferences")) { <h1 id="view-title" tabindex="-1">@NavLabel(view)</h1> }
     @if (error is not null && playbackRetry is not null)
-    { <button id="report-playback-problem" class="quiet" type="button" aria-haspopup="dialog" @onclick="OpenPlaybackFeedback">Report this problem</button> }
+    { <button id="report-playback-problem" class="quiet" type="button" aria-haspopup="dialog" @onclick="OpenPlaybackFeedback">@L["Report this problem"]</button> }
     @if (Session.DownloadingId is not null) { <DeviceDownloadProgress Status="@Session.DownloadStatus" /> }
     @if (LibraryViews.Contains(view) && (view != "Playlists" || Selected is null))
     {
         <div class="library-switch-row @(view == "Playlists" ? "playlist-switch-row" : "")">
-            <div class="library-switch" role="group" aria-label="Library sections">@foreach (var (tab, label) in new[] { ("Playlists", "Playlists"), ("Library", "Songs"), ("Downloads", "Downloaded") }) { <button aria-pressed="@Aria(view == tab)" @onclick="() => Navigate(tab)">@label</button> }</div>
+            <div class="library-switch" role="group" aria-label="@L["Library sections"].Value">@foreach (var (tab, label) in new[] { ("Playlists", "Playlists"), ("Library", "Songs"), ("Downloads", "Downloaded") }) { <button aria-pressed="@Aria(view == tab)" @onclick="() => Navigate(tab)">@L[label]</button> }</div>
             @if (view == "Playlists")
             {
-                <button id="create-playlist" class="quiet round" aria-label="Create playlist" title="Create playlist" aria-haspopup="dialog" aria-controls="create-playlist-dialog" @onclick="NewPlaylist"><MusicIcon Name="plus" /></button>
+                <button id="create-playlist" class="quiet round" aria-label="@L["Create playlist"].Value" title="@L["Create playlist"].Value" aria-haspopup="dialog" aria-controls="create-playlist-dialog" @onclick="NewPlaylist"><MusicIcon Name="plus" /></button>
             }
         </div>
     }
@@ -215,7 +215,7 @@ else
         var count = tracks.Count(t => t.Saved);
         <section class="playlist-hero glass-panel home-album-hero">
             <div class="playlist-band">
-                <button class="quiet playlist-back" @onclick="GoBack"><MusicIcon Name="back" />Home</button>
+                <button class="quiet playlist-back" @onclick="GoBack"><MusicIcon Name="back" />@L["Home"]</button>
                 <div class="playlist-identity">
                     <TrackCover Track="album.Tracks[0]" />
                     <div class="playlist-heading">
@@ -229,11 +229,11 @@ else
                 @{ var playLabel = entries is null && !albumLoading ? "Play library songs" : "Play album"; }
                 @{ var missingSongs = Session.Connected && entries is not null && count < tracks.Count; }
                 <button id="play-album" class="primary round playlist-play" @onclick="() => PlayAlbum()" aria-label="@playLabel" title="@playLabel" aria-describedby="@(missingSongs ? "album-play-detail" : null)" aria-disabled="@Aria(Player.FollowingHost || Player.RemoteActive || albumLoading || albumStarting || albumWaiting is not null)"><MusicIcon Name="play" /></button>
-                @if (missingSongs) { <span id="album-play-detail" class="playlist-summary">Playing downloads missing songs.</span> }
+                @if (missingSongs) { <span id="album-play-detail" class="playlist-summary">@L["Playing downloads missing songs."]</span> }
             </div>
         </section>
         <Notice Id="album-lookup-status" Level="error" Message="@(albumFailed ? "The full album could not load from Deezer." : null)"
-                ActionLabel="Retry album" Action="LoadAlbum" Busy="albumLoading" FocusTarget="#view-title" />
+                ActionLabel="@L["Retry album"].Value" Action="LoadAlbum" Busy="albumLoading" FocusTarget="#view-title" />
         <Notice Message="@(albumStarting || albumWaiting is not null ? "Preparing album songs…" : null)" />
         <div class="library-list unified-song-list">
             @foreach (var (track, position) in tracks.Take(Shown(album.Opener)).Select((track, position) => (track, position)))
@@ -249,26 +249,26 @@ else
         var searchText = filter.Trim();
         var tracks = source.Where(t => Matches(t, searchText) && (genre.Length == 0 || GenreNames.Key(t.Genre) == genre)).ToList();
         <div class="library-toolbar">
-            <div class="collection-search" role="search" aria-label="Search songs">
-                <label class="sr" for="library-filter">Search songs</label>
+            <div class="collection-search" role="search" aria-label="@L["Search songs"].Value">
+                <label class="sr" for="library-filter">@L["Search songs"]</label>
                 <MusicIcon Name="search" />
-                <input id="library-filter" type="search" @bind="filter" @bind:event="oninput" placeholder="Search songs" maxlength="200" />
+                <input id="library-filter" type="search" @bind="filter" @bind:event="oninput" placeholder="@L["Search songs"].Value" maxlength="200" />
                 @if (filter.Length > 0)
-                { <button class="quiet collection-search-clear" type="button" aria-label="Clear song search" @onclick="ClearLibrarySearch"><MusicIcon Name="close" /></button> }
+                { <button class="quiet collection-search-clear" type="button" aria-label="@L["Clear song search"].Value" @onclick="ClearLibrarySearch"><MusicIcon Name="close" /></button> }
             </div>
             <GenreFilter @key="view" Tracks="source" @bind-Value="genre" />
             @if (!downloadedView)
-            { <button id="library-add-songs" class="quiet upload-open" aria-haspopup="dialog" @onclick='() => addSongs?.Open("library-add-songs")'><MusicIcon Name="plus" />Add songs</button> }
+            { <button id="library-add-songs" class="quiet upload-open" aria-haspopup="dialog" @onclick='() => addSongs?.Open("library-add-songs")'><MusicIcon Name="plus" />@L["Add songs"]</button> }
         </div>
         @if (deviceTracks is not null)
         {
             <DeviceDownloadCounts Tracks="deviceTracks" ShowSizes="true" CacheSelected="showPlaybackCache" CacheSelectedChanged="SelectDownloadSource" />
-            @if (showPlaybackCache) { <p class="note playback-cache-note">The app may clear cached songs to free up space.</p> }
+            @if (showPlaybackCache) { <p class="note playback-cache-note">@L["The app may clear cached songs to free up space."]</p> }
         }
         <span class="sr" role="status">@tracks.Count @(tracks.Count == 1 ? "song" : "songs")</span>
         @if (CurrentAdditionJobs.Count > 0 && view == "Library")
         {
-            <details class="library-additions glass-panel" open><summary>Library additions <span class="music-admin-count">@CurrentAdditionJobs.Count</span></summary><LibraryAdditions Jobs="CurrentAdditionJobs" Prefix="library" /></details>
+            <details class="library-additions glass-panel" open><summary>@L["Library additions"] <span class="music-admin-count">@CurrentAdditionJobs.Count</span></summary><LibraryAdditions Jobs="CurrentAdditionJobs" Prefix="library" /></details>
         }
         @if (tracks.Count == 0)
         {
@@ -286,41 +286,41 @@ else
     {
         <div class="settings-shell @(settingsDrilled ? "settings-drilled" : null) @(SearchingSettings ? "settings-searching" : null)">
             <header class="settings-header">
-                <h1 id="view-title" tabindex="-1">Settings</h1>
-                <div class="settings-search" role="search" aria-label="Find a setting">
+                <h1 id="view-title" tabindex="-1">@L["Settings"]</h1>
+                <div class="settings-search" role="search" aria-label="@L["Find a setting"].Value">
                     <MusicIcon Name="search" />
-                    <label class="sr" for="settings-search">Search settings</label>
-                    <input id="settings-search" type="search" placeholder="Search settings" maxlength="100" @bind="settingsQuery" @bind:event="oninput" @onkeydown="SettingsSearchKey" />
+                    <label class="sr" for="settings-search">@L["Search settings"]</label>
+                    <input id="settings-search" type="search" placeholder="@L["Search settings"].Value" maxlength="100" @bind="settingsQuery" @bind:event="oninput" @onkeydown="SettingsSearchKey" />
                     @if (settingsQuery.Length > 0)
                     {
-                        <button id="settings-search-clear" class="quiet" type="button" aria-label="Clear settings search" @onclick="ClearSettingsSearch"><MusicIcon Name="close" /></button>
+                        <button id="settings-search-clear" class="quiet" type="button" aria-label="@L["Clear settings search"].Value" @onclick="ClearSettingsSearch"><MusicIcon Name="close" /></button>
                     }
                 </div>
                 <button id="settings-exit" class="quiet" type="button" @onclick="BackFromSettings">
-                    <span class="settings-close"><MusicIcon Name="close" /><span class="sr">Close settings</span></span>
-                    <span class="settings-back"><MusicIcon Name="back" /><span class="sr">Back to settings categories</span></span>
+                    <span class="settings-close"><MusicIcon Name="close" /><span class="sr">@L["Close settings"]</span></span>
+                    <span class="settings-back"><MusicIcon Name="back" /><span class="sr">@L["Back to settings categories"]</span></span>
                 </button>
             </header>
-            <nav class="settings-sections" aria-label="Settings categories">
+            <nav class="settings-sections" aria-label="@L["Settings categories"].Value">
                 @foreach (var (id, label, icon) in SettingsCategories.Where(category => category.Id != "server" || Session.ServerHealthAdmin))
                 {
                     <button id="settings-@id" type="button" aria-current='@(settingsSection == id ? "true" : null)' @onclick="() => SelectSettingsSection(id)">
-                        <MusicIcon Name="@icon" /><span>@label</span><span class="settings-chevron"><MusicIcon Name="forward" /></span>
+                        <MusicIcon Name="@icon" /><span>@L[label]</span><span class="settings-chevron"><MusicIcon Name="forward" /></span>
                     </button>
                 }
             </nav>
             @if (SearchingSettings)
             {
                 var matches = SettingsSearchEntries.Where(MatchesSetting).ToArray();
-                <div class="settings-page settings-search-results" role="region" aria-label="Settings search results">
-                    <p class="@(matches.Length > 0 ? "sr" : "setting-help")" role="status">@(matches.Length == 0 ? "No matching settings." : $"{matches.Length} {(matches.Length == 1 ? "setting" : "settings")} found.")</p>
+                <div class="settings-page settings-search-results" role="region" aria-label="@L["Settings search results"].Value">
+                    <p class="@(matches.Length > 0 ? "sr" : "setting-help")" role="status">@(matches.Length == 0 ? L["No matching settings."] : L[matches.Length == 1 ? "{0} setting found." : "{0} settings found.", matches.Length])</p>
                     @foreach (var setting in matches)
                     {
                         var synonym = MatchedSettingSynonym(setting);
                         <button @key="setting" class="settings-search-result" type="button" @onclick="() => OpenSetting(setting)">
                             <span>
-                                <strong>@HighlightSetting(setting.Label)</strong>
-                                <small>@(SettingsCategories.First(category => category.Id == setting.Section).Label) @if (synonym is not null) { <span class="settings-search-alias">@HighlightSetting(synonym)</span> }</small>
+                                <strong>@HighlightSetting(L[setting.Label].Value)</strong>
+                                <small>@L[SettingsCategories.First(category => category.Id == setting.Section).Label] @if (synonym is not null) { <span class="settings-search-alias">@HighlightSetting(synonym)</span> }</small>
                             </span>
                             <MusicIcon Name="forward" />
                         </button>
@@ -329,84 +329,95 @@ else
             }
             else
             {
-            <div id="settings-category" @key="settingsSection" class="settings-page" role="region" aria-label="@($"{SettingsCategories.First(category => category.Id == settingsSection).Label} settings")" tabindex="-1">
+            <div id="settings-category" @key="settingsSection" class="settings-page" role="region" aria-label="@L["{0} settings", L[SettingsCategories.First(category => category.Id == settingsSection).Label].Value].Value" tabindex="-1">
             @if (settingsSection == "general")
             {
+                <section class="settings-panel glass-panel" aria-labelledby="general-settings-heading">
+                    <h2 id="general-settings-heading">@L["General"]</h2>
+                    <div class="setting-row">
+                        <label for="settings-language">@L["Language"]</label>
+                        <select id="settings-language" value="@Language.Preference" @onchange="SetLanguage">
+                            <option value="">@L["Device language"]</option>
+                            <option value="en" lang="en">English</option>
+                            <option value="hu" lang="hu">Magyar</option>
+                        </select>
+                    </div>
+                </section>
                 <section class="settings-panel glass-panel" aria-labelledby="profile-settings-heading">
-                    <h2 id="profile-settings-heading">Profile</h2>
+                    <h2 id="profile-settings-heading">@L["Profile"]</h2>
                     <ProfileImagePicker Profile="CurrentProfile" />
                 </section>
             }
             else if (settingsSection == "appearance")
             {
                 <section class="settings-panel glass-panel" aria-labelledby="appearance-settings-heading">
-                    <h2 id="appearance-settings-heading">Appearance</h2>
-                    <div class="setting-row"><label for="appearance-theme">Theme</label><select id="appearance-theme" value="@theme" @onchange="SetTheme">@foreach (var option in themes) { <option value="@option.Id">@option.Label</option> }</select></div>
-                    <label class="setting-toggle"><input id="settings-theme-effects" type="checkbox" checked="@themeEffects" @onchange="SetEffects" /><span>Theme effects</span></label>
+                    <h2 id="appearance-settings-heading">@L["Appearance"]</h2>
+                    <div class="setting-row"><label for="appearance-theme">@L["Theme"]</label><select id="appearance-theme" value="@theme" @onchange="SetTheme">@foreach (var option in themes) { <option value="@option.Id">@L[option.Label]</option> }</select></div>
+                    <label class="setting-toggle"><input id="settings-theme-effects" type="checkbox" checked="@themeEffects" @onchange="SetEffects" /><span>@L["Theme effects"]</span></label>
                 </section>
             }
             else if (settingsSection == "about")
             {
                 <section class="settings-panel glass-panel" aria-labelledby="connection-settings-heading">
-                    <h2 id="connection-settings-heading">Server and updates</h2>
-                    <div class="setting-row"><span>Server <span class="settings-connection-state">@(Session.Connected ? "Connected" : "Offline")</span></span><button id="settings-change-server" @onclick='() => Navigate("Settings")'>Change server</button></div>
-                    <div class="setting-row"><span>Installed version</span><span id="installed-app-version">@($"{AppUpdater.CurrentVersion} (build {AppUpdater.CurrentBuild}), {AppUpdater.PlatformDisplay}")</span></div>
-                    <div class="setting-row"><span>Latest release</span><span id="settings-update-status" role="status">@UpdateStatus</span></div>
-                    <div class="setting-row"><button id="settings-release-history" type="button" @onclick="OpenReleaseHistory">Release history</button></div>
+                    <h2 id="connection-settings-heading">@L["Server and updates"]</h2>
+                    <div class="setting-row"><span>@L["Server"] <span class="settings-connection-state">@L[Session.Connected ? "Connected" : "Offline"]</span></span><button id="settings-change-server" @onclick='() => Navigate("Settings")'>@L["Change server"]</button></div>
+                    <div class="setting-row"><span>@L["Installed version"]</span><span id="installed-app-version">@L["{0} (build {1}), {2}", AppUpdater.CurrentVersion, AppUpdater.CurrentBuild, AppUpdater.PlatformDisplay]</span></div>
+                    <div class="setting-row"><span>@L["Latest release"]</span><span id="settings-update-status" role="status">@L[UpdateStatus]</span></div>
+                    <div class="setting-row"><button id="settings-release-history" type="button" @onclick="OpenReleaseHistory">@L["Release history"]</button></div>
                     <AppUpdate Id="settings-app-update" @key="Session.Server" InitialRelease="@(updateCheckOrigin == Session.Server ? startupUpdate : null)" VersionInHeading="true" />
-                    <p id="settings-tmdb-credit" class="muted"><strong>TMDB</strong> <span>Film data from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</span></p>
+                    <p id="settings-tmdb-credit" class="muted"><strong>TMDB</strong> <span>@L["Film data from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB."]</span></p>
                 </section>
             }
             else if (settingsSection == "music")
             {
                 <section class="settings-panel glass-panel" aria-label="Spotify"><SpotifyProfilePreference /></section>
                 <section class="settings-panel glass-panel" aria-labelledby="playback-settings-heading">
-                    <h2 id="playback-settings-heading">Music playback</h2>
+                    <h2 id="playback-settings-heading">@L["Music playback"]</h2>
                     <div class="setting-crossfade">
-                        <label for="crossfade-seconds">Crossfade songs</label>
-                        <output for="crossfade-seconds" aria-live="polite">@(CrossfadeShown == 0 ? "Off" : CrossfadeShown + " s")</output>
-                        <span class="crossfade-scale" aria-hidden="true">0 s</span>
-                        <input id="crossfade-seconds" type="range" min="0" max="12" step="1" value="@CrossfadeShown" @oninput="PreviewCrossfade" @onchange="SetCrossfade" disabled="@Player.FollowingHost" aria-valuetext="@(CrossfadeShown == 0 ? "Off" : CrossfadeShown + " seconds")" style="--crossfade-fill:@(CrossfadeShown * 100 / 12)%" />
-                        <span class="crossfade-scale" aria-hidden="true">12 s</span>
+                        <label for="crossfade-seconds">@L["Crossfade songs"]</label>
+                        <output for="crossfade-seconds" aria-live="polite">@(CrossfadeShown == 0 ? L["Off"] : L["{0} s", CrossfadeShown])</output>
+                        <span class="crossfade-scale" aria-hidden="true">@L["{0} s", 0]</span>
+                        <input id="crossfade-seconds" type="range" min="0" max="12" step="1" value="@CrossfadeShown" @oninput="PreviewCrossfade" @onchange="SetCrossfade" disabled="@Player.FollowingHost" aria-valuetext="@(CrossfadeShown == 0 ? L["Off"].Value : L["{0} seconds", CrossfadeShown].Value)" style="--crossfade-fill:@(CrossfadeShown * 100 / 12)%" />
+                        <span class="crossfade-scale" aria-hidden="true">@L["{0} s", 12]</span>
                     </div>
-                    <p class="setting-help">The end of a song fades into the start of the next. At 0 each song plays to the end.</p>
-                    <label class="setting-toggle"><input id="settings-even-volume" type="checkbox" checked="@Session.EvenSongVolume" @onchange="args => Player.SetEvenSongVolumeAsync(args.Value is true)" aria-describedby="even-song-volume-help" /><span>Even out song volume</span></label>
-                    <p class="setting-help" id="even-song-volume-help">Limits loud peaks on this device, including in Listen Together.</p>
-                    <div class="setting-row"><label for="volume-level">Volume level</label><select id="volume-level" disabled="@(!Session.EvenSongVolume)" value="@Session.PlaybackPreferences.VolumeLevel" @onchange='args => Session.SavePreferencesAsync(SavedVolume, Session.PlaybackPreferences.Shuffle, volumeLevel: args.Value?.ToString() ?? "normal")'><option value="loud">Loud</option><option value="normal">Normal</option><option value="quiet">Quiet</option></select></div>
-                    <label class="setting-toggle"><input id="settings-music-data-saver" type="checkbox" checked="@Session.DataSaver" @onchange="SetMusicDataSaver" aria-describedby="music-data-saver-help" /><span>Data saver</span></label>
-                    <p class="setting-help" id="music-data-saver-help">@(OperatingSystem.IsAndroid() ? "Uses Low quality on mobile data and skips early song downloads." : "Uses Low quality and skips preloading songs on mobile data.")</p>
-                    <div class="setting-row"><label for="streaming-wifi">Streaming on Wi-Fi</label><select id="streaming-wifi" value="@Session.StreamingQualityWifi" @onchange="SetStreamingQualityWifi" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
-                    <div class="setting-row"><label for="streaming-mobile">Streaming on mobile data</label><select id="streaming-mobile" value="@Session.StreamingQualityMobile" @onchange="SetStreamingQualityMobile" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
+                    <p class="setting-help">@L["The end of a song fades into the start of the next. At 0 each song plays to the end."]</p>
+                    <label class="setting-toggle"><input id="settings-even-volume" type="checkbox" checked="@Session.EvenSongVolume" @onchange="args => Player.SetEvenSongVolumeAsync(args.Value is true)" aria-describedby="even-song-volume-help" /><span>@L["Even out song volume"]</span></label>
+                    <p class="setting-help" id="even-song-volume-help">@L["Limits loud peaks on this device, including in Listen Together."]</p>
+                    <div class="setting-row"><label for="volume-level">@L["Volume level"]</label><select id="volume-level" disabled="@(!Session.EvenSongVolume)" value="@Session.PlaybackPreferences.VolumeLevel" @onchange='args => Session.SavePreferencesAsync(SavedVolume, Session.PlaybackPreferences.Shuffle, volumeLevel: args.Value?.ToString() ?? "normal")'><option value="loud">@L["Loud"]</option><option value="normal">@L["Normal"]</option><option value="quiet">@L["Quiet"]</option></select></div>
+                    <label class="setting-toggle"><input id="settings-music-data-saver" type="checkbox" checked="@Session.DataSaver" @onchange="SetMusicDataSaver" aria-describedby="music-data-saver-help" /><span>@L["Data saver"]</span></label>
+                    <p class="setting-help" id="music-data-saver-help">@L[OperatingSystem.IsAndroid() ? "Uses Low quality on mobile data and skips early song downloads." : "Uses Low quality and skips preloading songs on mobile data."]</p>
+                    <div class="setting-row"><label for="streaming-wifi">@L["Streaming on Wi-Fi"]</label><select id="streaming-wifi" value="@Session.StreamingQualityWifi" @onchange="SetStreamingQualityWifi" disabled="@Player.Preparing"><option value="low">@L["Low"]</option><option value="normal">@L["Normal"]</option><option value="high">@L["High"]</option><option value="max">@L["Max"]</option></select></div>
+                    <div class="setting-row"><label for="streaming-mobile">@L["Streaming on mobile data"]</label><select id="streaming-mobile" value="@Session.StreamingQualityMobile" @onchange="SetStreamingQualityMobile" disabled="@Player.Preparing"><option value="low">@L["Low"]</option><option value="normal">@L["Normal"]</option><option value="high">@L["High"]</option><option value="max">@L["Max"]</option></select></div>
                     @if (OperatingSystem.IsAndroid())
                     {
                         <div class="setting-row">
-                            <span id="screen-off-playback-help">On Samsung, set FamilyHub’s Battery option to Unrestricted if music stops with the screen off.</span>
-                            <button id="settings-battery" type="button" aria-describedby="screen-off-playback-help" @onclick="OpenPlaybackAppSettingsAsync"><MusicIcon Name="external-link" /> Open app settings</button>
+                            <span id="screen-off-playback-help">@L["On Samsung, set FamilyHub’s Battery option to Unrestricted if music stops with the screen off."]</span>
+                            <button id="settings-battery" type="button" aria-describedby="screen-off-playback-help" @onclick="OpenPlaybackAppSettingsAsync"><MusicIcon Name="external-link" /> @L["Open app settings"]</button>
                         </div>
                     }
                     @if (OperatingSystem.IsWindows() && DiscordPresence.ApplicationId.Length > 0)
                     {
-                        <label class="setting-toggle"><input id="settings-discord" type="checkbox" checked="@DiscordPresence.Enabled" @onchange="args => DiscordPresence.SetEnabled(args.Value is true)" /><span>Show what I'm listening to on Discord</span></label>
-                        <p class="setting-help">Friends on Discord see the song and artist while the Discord app is open.</p>
+                        <label class="setting-toggle"><input id="settings-discord" type="checkbox" checked="@DiscordPresence.Enabled" @onchange="args => DiscordPresence.SetEnabled(args.Value is true)" /><span>@L["Show what I'm listening to on Discord"]</span></label>
+                        <p class="setting-help">@L["Friends on Discord see the song and artist while the Discord app is open."]</p>
                     }
                 </section>
                 <section class="settings-panel glass-panel" aria-labelledby="listening-history-heading">
-                    <h2 id="listening-history-heading">Listening history</h2>
-                    <label class="setting-toggle"><input id="settings-pause-history" type="checkbox" checked="@Session.PlaybackPreferences.ListeningHistoryPaused" @onchange="SetHistoryPaused" disabled="@busy" /><span>Pause history</span></label>
-                    <div class="setting-row"><span>Family profiles can see your Leaderboard stats. Admins can see individual plays.</span><button id="clear-history" @onclick='() => JS.InvokeVoidAsync("familyhub.showDialog", "clear-history-dialog", "cancel-clear-history", "clear-history").AsTask()' disabled="@(!Session.Connected)">Clear listening history</button></div>
-                    @if (!Session.Connected) { <p class="setting-help">Connect to clear shared listening history.</p> }
+                    <h2 id="listening-history-heading">@L["Listening history"]</h2>
+                    <label class="setting-toggle"><input id="settings-pause-history" type="checkbox" checked="@Session.PlaybackPreferences.ListeningHistoryPaused" @onchange="SetHistoryPaused" disabled="@busy" /><span>@L["Pause history"]</span></label>
+                    <div class="setting-row"><span>@L["Family profiles can see your Leaderboard stats. Admins can see individual plays."]</span><button id="clear-history" @onclick='() => JS.InvokeVoidAsync("familyhub.showDialog", "clear-history-dialog", "cancel-clear-history", "clear-history").AsTask()' disabled="@(!Session.Connected)">@L["Clear listening history"]</button></div>
+                    @if (!Session.Connected) { <p class="setting-help">@L["Connect to clear shared listening history."]</p> }
                 </section>
                 <PlaybackDiagnostics @key="(Session.Server, Session.User)" />
             }
             else if (settingsSection == "storage")
             {
                 <section class="settings-panel glass-panel" aria-labelledby="storage-settings-heading">
-                    <h2 id="storage-settings-heading">Storage and downloads</h2>
-                    <div class="setting-row"><label for="downloads-quality">Downloads</label><select id="downloads-quality" value="@Session.DownloadQuality" @onchange="SetDownloadQuality" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
-                    <p class="setting-help">Max uses the original file, lossless when available. Downloaded songs always play from the device.</p>
-                    <div class="setting-row"><label for="cache-limit">Music cache</label><select id="cache-limit" value="@Session.CacheLimitGb" @onchange="SetMusicCacheLimit"><option value="1">1 GB</option><option value="3">3 GB</option><option value="5">5 GB</option><option value="10">10 GB</option></select></div>
-                    <p class="setting-help">Stores songs prepared for playback. Songs you choose to download are stored separately.</p>
-                    <label class="setting-toggle"><input id="settings-downloads-wifi" type="checkbox" checked="@Session.DownloadsWifiOnly" @onchange="args => Session.SetDownloadsWifiOnly(args.Value is true)" /><span>Wi-Fi-only downloads</span></label>
+                    <h2 id="storage-settings-heading">@L["Storage and downloads"]</h2>
+                    <div class="setting-row"><label for="downloads-quality">@L["Downloads"]</label><select id="downloads-quality" value="@Session.DownloadQuality" @onchange="SetDownloadQuality" disabled="@Player.Preparing"><option value="low">@L["Low"]</option><option value="normal">@L["Normal"]</option><option value="high">@L["High"]</option><option value="max">@L["Max"]</option></select></div>
+                    <p class="setting-help">@L["Max uses the original file, lossless when available. Downloaded songs always play from the device."]</p>
+                    <div class="setting-row"><label for="cache-limit">@L["Music cache"]</label><select id="cache-limit" value="@Session.CacheLimitGb" @onchange="SetMusicCacheLimit"><option value="1">@L["1 GB"]</option><option value="3">@L["3 GB"]</option><option value="5">@L["5 GB"]</option><option value="10">@L["10 GB"]</option></select></div>
+                    <p class="setting-help">@L["Stores songs prepared for playback. Songs you choose to download are stored separately."]</p>
+                    <label class="setting-toggle"><input id="settings-downloads-wifi" type="checkbox" checked="@Session.DownloadsWifiOnly" @onchange="args => Session.SetDownloadsWifiOnly(args.Value is true)" /><span>@L["Wi-Fi-only downloads"]</span></label>
                 </section>
             }
             else if (settingsSection == "accounts")
@@ -419,7 +430,7 @@ else
             }
             else if (settingsSection == "server" && !Session.ServerHealthAdmin)
             {
-                <Notice Level="error" Message="Only an administrator can view server statistics." />
+                <Notice Level="error" Message="@L["Only an administrator can view server statistics."].Value" />
             }
             else if (settingsSection == "server")
             {
@@ -433,7 +444,7 @@ else
                         <CatalogueReviewPanel @ref="songReview" OpenPlaylist="OpenPlaylistReviewGap" />
                     </ServerStats>
                     <details class="server-work-mappings glass-panel" open="@mappingsOpen">
-                        <summary id="artist-mappings-title" @onclick="ToggleMappings" @onclick:preventDefault><MusicIcon Name="chevron-down" />Artist mappings</summary>
+                        <summary id="artist-mappings-title" @onclick="ToggleMappings" @onclick:preventDefault><MusicIcon Name="chevron-down" />@L["Artist mappings"]</summary>
                         @if (mappingsLoaded) { <ArtistMappings @key="(Session.Server, Session.User)" /> }
                     </details>
                 </div>
@@ -457,23 +468,23 @@ else
             var recent = showSections ? playlists.Where(p => playlistCollection.Recent.Contains(PlaylistKey(p)) && !pinned.Contains(p))
                 .OrderBy(p => playlistCollection.Recent.IndexOf(PlaylistKey(p))).ToList() : [];
             var more = playlists.Except(pinned).Except(recent).ToList();
-            <h1 id="view-title" class="sr" tabindex="-1">Playlists</h1>
+            <h1 id="view-title" class="sr" tabindex="-1">@L["Playlists"]</h1>
             <div class="playlist-tools">
-                <div class="genre-pills playlist-filters" role="group" aria-label="Filter playlists">
+                <div class="genre-pills playlist-filters" role="group" aria-label="@L["Filter playlists"].Value">
                     @foreach (var chip in new[] { "All", "Mine", "Shared with me", "Radio & mixes" })
-                    { <button id="@(chip == "All" ? "playlist-filter-all" : null)" aria-pressed="@Aria(playlistFilter == chip)" @onclick="() => playlistFilter = chip">@chip</button> }
+                    { <button id="@(chip == "All" ? "playlist-filter-all" : null)" aria-pressed="@Aria(playlistFilter == chip)" @onclick="() => playlistFilter = chip">@L[chip]</button> }
                 </div>
-                <div class="collection-search playlist-search" role="search" aria-label="Search playlists">
-                    <MusicIcon Name="search" /><label class="sr" for="playlist-search">Search playlists</label>
-                    <input id="playlist-search" type="search" placeholder="Search playlists" maxlength="200" value="@playlistSearch" @oninput="SearchPlaylists" />
+                <div class="collection-search playlist-search" role="search" aria-label="@L["Search playlists"].Value">
+                    <MusicIcon Name="search" /><label class="sr" for="playlist-search">@L["Search playlists"]</label>
+                    <input id="playlist-search" type="search" placeholder="@L["Search playlists"].Value" maxlength="200" value="@playlistSearch" @oninput="SearchPlaylists" />
                     @if (playlistSearch.Length > 0)
-                    { <button class="quiet collection-search-clear" type="button" aria-label="Clear playlist search" @onclick="ClearPlaylistSearch"><MusicIcon Name="close" /></button> }
+                    { <button class="quiet collection-search-clear" type="button" aria-label="@L["Clear playlist search"].Value" @onclick="ClearPlaylistSearch"><MusicIcon Name="close" /></button> }
                 </div>
                 <button id="playlist-sort" class="quiet" aria-label="@($"Sort playlists: {playlistSort}")" title="@($"Sort playlists: {playlistSort}")" aria-haspopup="dialog" aria-controls="playlist-sort-options" @onclick="OpenPlaylistSort"><span>@playlistSort</span><MusicIcon Name="sort" /></button>
                 <dialog id="playlist-sort-options" class="popup-panel popup-menu playlist-options playlist-sort-options" aria-labelledby="playlist-sort-options-heading">
-                    <div class="dialog-heading"><h2 id="playlist-sort-options-heading">Sort playlists</h2><button class="quiet" aria-label="Close sort playlists" data-popup-close><MusicIcon Name="close" /></button></div>
+                    <div class="dialog-heading"><h2 id="playlist-sort-options-heading">@L["Sort playlists"]</h2><button class="quiet" aria-label="@L["Close sort playlists"].Value" data-popup-close><MusicIcon Name="close" /></button></div>
                     @foreach (var order in new[] { "Recent", "Alphabetical", "Most songs" })
-                    { <button id="@(order == "Recent" ? "playlist-sort-recent" : null)" class="quiet" aria-pressed="@Aria(playlistSort == order)" @onclick="() => SortPlaylists(order)"><MusicIcon Name="@(playlistSort == order ? "check" : "sort")" /><span>@order</span></button> }
+                    { <button id="@(order == "Recent" ? "playlist-sort-recent" : null)" class="quiet" aria-pressed="@Aria(playlistSort == order)" @onclick="() => SortPlaylists(order)"><MusicIcon Name="@(playlistSort == order ? "check" : "sort")" /><span>@L[order]</span></button> }
                 </dialog>
             </div>
             <span class="sr" role="status">@playlists.Count @(playlists.Count == 1 ? "playlist" : "playlists")</span>
@@ -490,18 +501,18 @@ else
             var deviceTracks = PlaylistDeviceTracks(selected);
             <PlaylistTransfer @ref="playlistTransfer" @key="PlaylistKey(selected)" Playlist="selected" InitialReviewIndex="initialPlaylistReviewIndex" ReportProblem="OpenImportFeedback">
             <Header Context="transfer">
-            <div class="playlist-sticky" inert><PlaylistCover Playlist="selected" /><strong>@selected.Name</strong><button class="primary round" tabindex="-1" @onclick="() => PlayVisiblePlaylist(selected, playlistPositions)" aria-label="Play playlist" aria-disabled="@Aria(playlistPositions.Count == 0 || Player.FollowingHost)"><MusicIcon Name="play" /></button></div>
+            <div class="playlist-sticky" inert><PlaylistCover Playlist="selected" /><strong>@selected.Name</strong><button class="primary round" tabindex="-1" @onclick="() => PlayVisiblePlaylist(selected, playlistPositions)" aria-label="@L["Play playlist"].Value" aria-disabled="@Aria(playlistPositions.Count == 0 || Player.FollowingHost)"><MusicIcon Name="play" /></button></div>
             <section class="playlist-hero glass-panel">
                 <div class="playlist-band">
-                <button class="quiet playlist-back" @onclick="AllPlaylists"><MusicIcon Name="back" />All playlists</button>
+                <button class="quiet playlist-back" @onclick="AllPlaylists"><MusicIcon Name="back" />@L["All playlists"]</button>
                 <div class="playlist-identity">
                 @if (selected.CanEdit)
                 {
-                    <label class="playlist-image-picker" title="Choose playlist image"><PlaylistCover Playlist="selected" /><span class="image-picker-caption">Choose image</span><InputFile id="playlist-image" OnChange="ChoosePlaylistImage" accept="image/jpeg,image/png" aria-label="Choose playlist image" /></label>
+                    <label class="playlist-image-picker" title="@L["Choose playlist image"].Value"><PlaylistCover Playlist="selected" /><span class="image-picker-caption">@L["Choose image"]</span><InputFile id="playlist-image" OnChange="ChoosePlaylistImage" accept="image/jpeg,image/png" aria-label="@L["Choose playlist image"].Value" /></label>
                 }
                 else { <PlaylistCover Playlist="selected" /> }
                 <div class="playlist-heading">
-                    <span class="playlist-kind">@(selected.Shared ? "Shared playlist" : "Private playlist")</span>
+                    <span class="playlist-kind">@L[selected.Shared ? "Shared playlist" : "Private playlist"].Value</span>
                     <h1 id="view-title" tabindex="-1">@selected.Name</h1>
                     @if (!string.IsNullOrWhiteSpace(selected.Description)) { <p class="playlist-description">@selected.Description</p> }
                     <div class="playlist-summary"><ProfileAvatar Profile="PlaylistOwner(selected)" Size="28" /><strong>@PlaylistOwner(selected).Name</strong><span>@selected.Tracks.Count songs</span><span>@PlaylistLength(selected)</span>
@@ -512,49 +523,49 @@ else
                 </div>
                 </div>
             <div class="playlist-action-bar">
-                <button id="play-playlist" class="primary round playlist-play" @onclick="() => PlayVisiblePlaylist(selected, playlistPositions)" aria-label="Play playlist" title="Play playlist" aria-disabled="@Aria(playlistPositions.Count == 0 || Player.FollowingHost)"><MusicIcon Name="play" /></button>
-                <button id="shuffle-playlist" class="quiet playlist-shuffle" @onclick="ToggleShuffle" aria-label="Shuffle playlist" title="Shuffle playlist" aria-pressed="@Aria(Player.Shuffle)" aria-disabled="@Aria(Player.FollowingHost)"><MusicIcon Name="shuffle" /></button>
+                <button id="play-playlist" class="primary round playlist-play" @onclick="() => PlayVisiblePlaylist(selected, playlistPositions)" aria-label="@L["Play playlist"].Value" title="@L["Play playlist"].Value" aria-disabled="@Aria(playlistPositions.Count == 0 || Player.FollowingHost)"><MusicIcon Name="play" /></button>
+                <button id="shuffle-playlist" class="quiet playlist-shuffle" @onclick="ToggleShuffle" aria-label="@L["Shuffle playlist"].Value" title="@L["Shuffle playlist"].Value" aria-pressed="@Aria(Player.Shuffle)" aria-disabled="@Aria(Player.FollowingHost)"><MusicIcon Name="shuffle" /></button>
                 <PlaylistDownloadButton Transfer="transfer" Tracks="deviceTracks" Unavailable="busy" Download="OpenPreload" Remove="OpenRemovePlaylistDownloads" />
                 @if (selected.CanManageAuthors)
-                { <button id="share-playlist" class="quiet playlist-sharing" aria-pressed="@Aria(selected.Shared)" aria-label="@(selected.Shared ? "Shared playlist; make private" : "Private playlist; share with family")" title="@(selected.Shared ? "Shared playlist" : "Private playlist")" aria-disabled="@Aria(!Session.Connected || busy)" @onclick="() => SharePlaylist(selected, !selected.Shared)"><MusicIcon Name="@(selected.Shared ? "people" : "person")" /></button> }
-                else { <span class="playlist-privacy" title="@(selected.Shared ? "Shared playlist" : "Private playlist")"><MusicIcon Name="@(selected.Shared ? "people" : "person")" /><span class="sr">@(selected.Shared ? "Shared playlist" : "Private playlist")</span></span> }
-                <button id="playlist-menu-toggle" class="quiet" aria-label="Playlist options" title="Playlist options" aria-haspopup="dialog" @onclick="OpenPlaylistOptions"><MusicIcon Name="more" /></button>
-                @if (selected.CanEdit) { <button id="add-playlist-song" class="quiet playlist-add-song" aria-haspopup="dialog" @onclick='() => addSongs?.Open("add-playlist-song", selected)'><MusicIcon Name="plus" />Add songs</button> }
+                { <button id="share-playlist" class="quiet playlist-sharing" aria-pressed="@Aria(selected.Shared)" aria-label="@L[selected.Shared ? "Shared playlist; make private" : "Private playlist; share with family"].Value" title="@L[selected.Shared ? "Shared playlist" : "Private playlist"].Value" aria-disabled="@Aria(!Session.Connected || busy)" @onclick="() => SharePlaylist(selected, !selected.Shared)"><MusicIcon Name="@(selected.Shared ? "people" : "person")" /></button> }
+                else { <span class="playlist-privacy" title="@L[selected.Shared ? "Shared playlist" : "Private playlist"].Value"><MusicIcon Name="@(selected.Shared ? "people" : "person")" /><span class="sr">@L[selected.Shared ? "Shared playlist" : "Private playlist"].Value</span></span> }
+                <button id="playlist-menu-toggle" class="quiet" aria-label="@L["Playlist options"].Value" title="@L["Playlist options"].Value" aria-haspopup="dialog" @onclick="OpenPlaylistOptions"><MusicIcon Name="more" /></button>
+                @if (selected.CanEdit) { <button id="add-playlist-song" class="quiet playlist-add-song" aria-haspopup="dialog" @onclick='() => addSongs?.Open("add-playlist-song", selected)'><MusicIcon Name="plus" />@L["Add songs"]</button> }
             </div>
             </section>
             </Header>
             <ChildContent Context="transfer">
             <dialog id="playlist-options" class="popup-panel popup-menu playlist-options" aria-labelledby="playlist-options-heading">
-                <div class="dialog-heading"><h2 id="playlist-options-heading">Playlist options</h2><button class="quiet" aria-label="Close playlist options" data-popup-close><MusicIcon Name="close" /></button></div>
-                <button id="queue-playlist" class="quiet" @onclick="() => QueuePlaylist(selected, playNext: false)" aria-disabled="@Aria(Player.FollowingHost || selected.Tracks.Count == 0)"><MusicIcon Name="queue" />Add to queue</button>
-                <button class="quiet" @onclick="() => QueuePlaylist(selected, playNext: true)" aria-disabled="@Aria(Player.FollowingHost || selected.Tracks.Count == 0)"><MusicIcon Name="next" />Play next</button>
-                <button id="pin-playlist" class="quiet" @onclick="() => TogglePlaylistPin(selected)"><MusicIcon Name="pin" />@(playlistCollection.Pinned.Contains(PlaylistKey(selected)) ? "Unpin playlist" : "Pin playlist")</button>
+                <div class="dialog-heading"><h2 id="playlist-options-heading">@L["Playlist options"]</h2><button class="quiet" aria-label="@L["Close playlist options"].Value" data-popup-close><MusicIcon Name="close" /></button></div>
+                <button id="queue-playlist" class="quiet" @onclick="() => QueuePlaylist(selected, playNext: false)" aria-disabled="@Aria(Player.FollowingHost || selected.Tracks.Count == 0)"><MusicIcon Name="queue" />@L["Add to queue"]</button>
+                <button class="quiet" @onclick="() => QueuePlaylist(selected, playNext: true)" aria-disabled="@Aria(Player.FollowingHost || selected.Tracks.Count == 0)"><MusicIcon Name="next" />@L["Play next"]</button>
+                <button id="pin-playlist" class="quiet" @onclick="() => TogglePlaylistPin(selected)"><MusicIcon Name="pin" />@L[playlistCollection.Pinned.Contains(PlaylistKey(selected)) ? "Unpin playlist" : "Pin playlist"]</button>
                 @if (selected.CanEdit)
                 {
-                    <button id="playlist-saved-songs" class="quiet" aria-haspopup="dialog" @onclick="OpenSongPicker"><MusicIcon Name="library" />Choose saved songs</button>
-                    <button id="playlist-import-link" class="quiet" aria-haspopup="dialog" @onclick="AppendPlaylistLink"><MusicIcon Name="link" />Import playlist link</button>
+                    <button id="playlist-saved-songs" class="quiet" aria-haspopup="dialog" @onclick="OpenSongPicker"><MusicIcon Name="library" />@L["Choose saved songs"]</button>
+                    <button id="playlist-import-link" class="quiet" aria-haspopup="dialog" @onclick="AppendPlaylistLink"><MusicIcon Name="link" />@L["Import playlist link"]</button>
                 }
-                @if (selected.CanEdit) { <button id="playlist-details-open" class="quiet" @onclick="() => playlistDetails?.Open() ?? Task.CompletedTask"><MusicIcon Name="pencil" />Edit details</button> }
-                @if (selected.CanManageAuthors) { <button id="playlist-coauthors" class="quiet" @onclick="() => playlistAuthors?.Open() ?? Task.CompletedTask"><MusicIcon Name="people" />Invite collaborators</button> }
-                @if (selected.CanDelete) { <button id="delete-playlist" class="quiet playlist-delete" aria-disabled="@Aria(!Session.Connected || busy)" @onclick="DeleteFromMenu"><MusicIcon Name="trash" />Delete playlist</button> }
+                @if (selected.CanEdit) { <button id="playlist-details-open" class="quiet" @onclick="() => playlistDetails?.Open() ?? Task.CompletedTask"><MusicIcon Name="pencil" />@L["Edit details"]</button> }
+                @if (selected.CanManageAuthors) { <button id="playlist-coauthors" class="quiet" @onclick="() => playlistAuthors?.Open() ?? Task.CompletedTask"><MusicIcon Name="people" />@L["Invite collaborators"]</button> }
+                @if (selected.CanDelete) { <button id="delete-playlist" class="quiet playlist-delete" aria-disabled="@Aria(!Session.Connected || busy)" @onclick="DeleteFromMenu"><MusicIcon Name="trash" />@L["Delete playlist"]</button> }
             </dialog>
             <PlaylistDetails @ref="playlistDetails" Playlist="selected" ReturnFocusId="playlist-menu-toggle" HideTrigger="true" />
             <PlaylistCoAuthors @ref="playlistAuthors" Playlist="selected" ReturnFocusId="playlist-menu-toggle" HideTrigger="true" />
             <div class="playlist-tools playlist-song-tools">
                 <div class="playlist-song-search @(songSearchOpen ? "is-open" : "")">
-                    <button id="playlist-song-search-toggle" class="quiet" aria-label="@(songSearchOpen ? "Close playlist search" : "Open playlist search")" aria-expanded="@Aria(songSearchOpen)" aria-controls="playlist-song-search" @onclick="ToggleSongSearch"><MusicIcon Name="search" /></button>
-                    <input id="playlist-song-search" type="search" aria-label="Search in playlist" placeholder="Search in playlist" disabled="@(!songSearchOpen)" @bind="songSearch" @bind:event="oninput" @onkeydown="PlaylistSearchKey" />
+                    <button id="playlist-song-search-toggle" class="quiet" aria-label="@L[songSearchOpen ? "Close playlist search" : "Open playlist search"].Value" aria-expanded="@Aria(songSearchOpen)" aria-controls="playlist-song-search" @onclick="ToggleSongSearch"><MusicIcon Name="search" /></button>
+                    <input id="playlist-song-search" type="search" aria-label="@L["Search in playlist"].Value" placeholder="@L["Search in playlist"].Value" disabled="@(!songSearchOpen)" @bind="songSearch" @bind:event="oninput" @onkeydown="PlaylistSearchKey" />
                 </div>
-                <button id="playlist-mixes" class="quiet mix-filter" aria-pressed="@Aria(mixesOnly)" @onclick="ToggleMixFilter">Mixes with current song</button>
+                <button id="playlist-mixes" class="quiet mix-filter" aria-pressed="@Aria(mixesOnly)" @onclick="ToggleMixFilter">@L["Mixes with current song"]</button>
             </div>
             <span class="sr" role="status">@playlistPositions.Count songs. @(songSort == "Custom order" ? "Playlist order" : $"{songSort}, {(songDescending ? "descending" : "ascending")}")</span>
             @if (mixesOnly && !PlaylistSongs.MixesWith(CurrentMixSong, CurrentMixSong))
-            { <p class="note">Play a song with BPM and key to find compatible songs.</p> }
+            { <p class="note">@L["Play a song with BPM and key to find compatible songs."]</p> }
             else if (playlistPositions.Count == 0)
             { <Notice Level="empty" Message="@(selected.Tracks.Count == 0 ? "No songs in this playlist." : "No songs match these filters.")"
                 ActionLabel="@(selected.Tracks.Count == 0 ? (selected.CanEdit ? "Choose songs for this playlist" : "Browse other playlists") : "Reset playlist song filters")"
                 Action="PlaylistEmptyAction" FocusTarget="#playlist-song-search-toggle" /> }
-            <div class="playlist-column-headings" role="group" aria-label="Sort playlist songs">
+            <div class="playlist-column-headings" role="group" aria-label="@L["Sort playlist songs"].Value">
                 <span>@SortHeader("Position", "#")</span><span class="playlist-title-heading">@SortHeader("Title") @SortHeader("Artist")</span>
                 <span>@SortHeader("Album")</span><span class="playlist-added-heading">@SortHeader("Date added") @SortHeader("Added by")</span>
                 <span class="playlist-track-bpm">@SortHeader("BPM")</span><span class="playlist-track-key">@SortHeader("Key")</span><span>@SortHeader("Duration")</span>
@@ -577,7 +588,7 @@ else
                     OptionsId="@PlaylistRowOptionsId(position)"
                     MoveEarlier="@(canReorder && position > 0 ? EventCallback.Factory.Create(this, () => MoveEntry(selected, position, position - 1)) : default)"
                     MoveLater="@(canReorder && position < selected.Tracks.Count - 1 ? EventCallback.Factory.Create(this, () => MoveEntry(selected, position, position + 1)) : default)"
-                    Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="Remove from playlist" />
+                    Remove="@(selected.CanEdit ? EventCallback.Factory.Create(this, () => RemoveEntry(selected, position)) : default)" RemoveLabel="@L["Remove from playlist"].Value" />
             }
             </div>
             @if (pageLimit < playlistPositions.Count)
@@ -590,7 +601,7 @@ else
     }
     else if (view == "Queue")
     {
-        @if (Player.Queue.Count == 0) { <Notice Level="empty" Message="No songs queued." ActionLabel="Browse saved songs" Action='() => Navigate("Library")' /> }
+        @if (Player.Queue.Count == 0) { <Notice Level="empty" Message="@L["No songs queued."].Value" ActionLabel="@L["Browse saved songs"].Value" Action='() => Navigate("Library")' /> }
         <div id="queue" class="library-list unified-song-list">
         @{ var queuedTracks = Player.Queue.ToList(); }
         @{ var queueStart = Math.Max(0, Player.QueueIndex - 3); }
@@ -601,8 +612,8 @@ else
     }
     else if (view == "Search")
     {
-        @if (!searching && error is null && searchResults.Count == 0 && searchStatus.Length > 0) { <Notice Level="empty" Message="No songs match this search." ActionLabel="Edit search" Action='() => JS.InvokeVoidAsync("familyhub.focus", "q").AsTask()' FocusTarget="#view-title" /> }
-        <div id="pick" class="search-workspace" aria-busy="@Aria(searching)"><span class="sr" role="status">@searchStatus</span><div class="search-loading song-placeholders" aria-hidden="true">@for (var i = 0; i < 5; i++) { <div class="song-placeholder"><span class="placeholder-cover"></span><span class="placeholder-text"><span></span><span></span></span><span class="placeholder-action"></span></div> }</div><div id="results" class="library-list unified-song-list search-results" tabindex="0" aria-label="Search results"><Virtualize Items="searchResults" Context="track" ItemSize="100" OverscanCount="3">@TrackRow(track, searchResults, false)</Virtualize>@if (nextSearchOffset is not null) { <div id="search-more-sentinel"><button id="search-more" data-notice-focus="#results" class="quiet" @onclick="() => LoadMoreSearch(searchVersion)" aria-disabled="@Aria(loadingMore)">@(loadingMore ? "Loading more songs..." : moreSearchFailed ? "Retry loading songs" : "More songs")</button></div> }</div></div>
+        @if (!searching && error is null && searchResults.Count == 0 && searchStatus.Length > 0) { <Notice Level="empty" Message="@L["No songs match this search."].Value" ActionLabel="@L["Edit search"].Value" Action='() => JS.InvokeVoidAsync("familyhub.focus", "q").AsTask()' FocusTarget="#view-title" /> }
+        <div id="pick" class="search-workspace" aria-busy="@Aria(searching)"><span class="sr" role="status">@searchStatus</span><div class="search-loading song-placeholders" aria-hidden="true">@for (var i = 0; i < 5; i++) { <div class="song-placeholder"><span class="placeholder-cover"></span><span class="placeholder-text"><span></span><span></span></span><span class="placeholder-action"></span></div> }</div><div id="results" class="library-list unified-song-list search-results" tabindex="0" aria-label="@L["Search results"].Value"><Virtualize Items="searchResults" Context="track" ItemSize="100" OverscanCount="3">@TrackRow(track, searchResults, false)</Virtualize>@if (nextSearchOffset is not null) { <div id="search-more-sentinel"><button id="search-more" data-notice-focus="#results" class="quiet" @onclick="() => LoadMoreSearch(searchVersion)" aria-disabled="@Aria(loadingMore)">@L[loadingMore ? "Loading more songs..." : moreSearchFailed ? "Retry loading songs" : "More songs"]</button></div> }</div></div>
 
     }
     @if (view == "Similar songs")
@@ -611,9 +622,9 @@ else
         <Notice Id="similar-status" Level="@(recommendationError is null ? "info" : recommendations is { Count: > 0 } ? "warning" : "error")"
             Message="@(recommendationError ?? (recommendationLookup is not null ? recommendations is { Count: > 0 } ? "Checking for more similar songs…" : "Finding similar songs…" : ""))"
             ActionLabel='@(recommendationError is not null ? "Try again" : null)' Action="Recommend" Busy="CannotRecommend" FocusTarget="#view-title" />
-        <section aria-label="Similar songs" aria-busy="@Aria(recommendationLookup is not null)">
+        <section aria-label="@L["Similar songs"].Value" aria-busy="@Aria(recommendationLookup is not null)">
             <span class="sr" role="status">@(recommendations is { Count: > 0 } ? $"{recommendations.Count} similar songs found." : "")</span>
-            @if (recommendationLookup is null && recommendationError is null && recommendations is { Count: 0 }) { <Notice Level="empty" Message="No similar songs found." ActionLabel="Browse your library" Action='() => Navigate("Library")' /> }
+            @if (recommendationLookup is null && recommendationError is null && recommendations is { Count: 0 }) { <Notice Level="empty" Message="@L["No similar songs found."].Value" ActionLabel="@L["Browse your library"].Value" Action='() => Navigate("Library")' /> }
             @if (recommendations is { Count: > 0 })
             {
                 <div class="library-list unified-song-list">
@@ -628,60 +639,60 @@ else
 <footer class="player-bar @(playerExpanded && !lyricsOpen ? "is-expanded" : "") @(Player.RemotePeek && !playerExpanded ? "is-remote-peek" : "")" @onkeydown="PlayerKeyDown">
     @if (playerExpanded)
     {
-        <button id="player-collapse" class="quiet player-collapse" aria-label="Close Now Playing" title="Close Now Playing" @onclick="CollapsePlayer"><MusicIcon Name="chevron-down" /></button>
+        <button id="player-collapse" class="quiet player-collapse" aria-label="@L["Close Now Playing"].Value" title="@L["Close Now Playing"].Value" @onclick="CollapsePlayer"><MusicIcon Name="chevron-down" /></button>
     }
-    <div class="now-playing-group"><button id="show-queue" class="now-playing" @onclick="PlayerArea" aria-label='@(Player.Current is null ? "Quick play" : "Open playback queue")'>
+    <div class="now-playing-group"><button id="show-queue" class="now-playing" @onclick="PlayerArea" aria-label='@L[Player.Current is null ? "Quick play" : "Open playback queue"].Value'>
         @if (Player.Current is null) { <span class="cover quick-play-art"><MusicIcon Name="play" /></span> } else { <TrackCover @key="Player.Current.Id" Track="Player.Current" /> }
-        <span class="now-copy"><strong id="now-title"><span class="marquee-text">@(Player.Current?.DisplayTitle ?? "Quick play")</span></strong><span id="now-artist">@(Player.Preparing ? "Preparing song..." : Player.Current?.Channel ?? (Player.Queue.Count > 0 ? "Play your queue" : Session.HasListeningHistory ? "Based on your listening" : "Shuffle your library"))</span></span>
+        <span class="now-copy"><strong id="now-title"><span class="marquee-text">@(Player.Current?.DisplayTitle ?? L["Quick play"].Value)</span></strong><span id="now-artist">@(Player.Preparing ? L["Preparing song..."].Value : Player.Current?.Channel ?? L[Player.Queue.Count > 0 ? "Play your queue" : Session.HasListeningHistory ? "Based on your listening" : "Shuffle your library"].Value)</span></span>
     </button>
     @if (Player.Current is { } currentSong)
     {
         var inPlaylist = Session.Playlists.Any(p => p.Tracks.Any(t => t.RecordingId == currentSong.Id));
-        <button id="now-add-playlist" type="button" class="quiet row-action song-playlist-add @(inPlaylist ? "is-added" : "")" @onclick='() => OpenPlaylistPicker((currentSong, "now-add-playlist"))' aria-label="Add @currentSong.Title to playlist" title="Add to playlist" aria-haspopup="dialog"><MusicIcon Name="@(inPlaylist ? "check-circle-outline" : "plus-circle")" /></button>
+        <button id="now-add-playlist" type="button" class="quiet row-action song-playlist-add @(inPlaylist ? "is-added" : "")" @onclick='() => OpenPlaylistPicker((currentSong, "now-add-playlist"))' aria-label="@L["Add {0} to playlist", currentSong.Title].Value" title="@L["Add to playlist"].Value" aria-haspopup="dialog"><MusicIcon Name="@(inPlaylist ? "check-circle-outline" : "plus-circle")" /></button>
     }
     </div>
     <div class="transport"><div class="transport-buttons">
-        <button id="shuffle-toggle" class="quiet" @onclick="ToggleShuffle" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Shuffle" aria-pressed="@Aria(Player.Shuffle)"><MusicIcon Name="shuffle" /></button>
-        <button class="quiet" @onclick="() => RunPlayback(Player.PreviousAsync)" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Previous song"><MusicIcon Name="previous" /></button>
+        <button id="shuffle-toggle" class="quiet" @onclick="ToggleShuffle" aria-disabled="@Aria(Player.FollowingHost)" aria-label="@L["Shuffle"].Value" aria-pressed="@Aria(Player.Shuffle)"><MusicIcon Name="shuffle" /></button>
+        <button class="quiet" @onclick="() => RunPlayback(Player.PreviousAsync)" aria-disabled="@Aria(Player.FollowingHost)" aria-label="@L["Previous song"].Value"><MusicIcon Name="previous" /></button>
         <button id="play" class="primary round @(Player.Preparing ? "is-preparing" : "")" @onclick="TogglePlayback" aria-busy="@Aria(Player.Preparing || Session.HandoffPending)" aria-label="@PlaybackButtonLabel"><MusicIcon Name='@(ShowPause ? "pause" : "play")' /></button>
-        <button class="quiet" @onclick="() => RunPlayback(Player.NextAsync)" aria-disabled="@Aria(Player.FollowingHost)" aria-label="Next song"><MusicIcon Name="next" /></button>
-        <button id="repeat-toggle" class="quiet" @onclick="ToggleRepeat" aria-disabled="@Aria(Player.FollowingHost)" aria-pressed="@Aria(Player.RepeatMode != "off")" aria-label="@("Repeat " + Player.RepeatMode)" title="@("Repeat " + Player.RepeatMode)"><MusicIcon Name="@(Player.RepeatMode == "one" ? "repeat-one" : "repeat")" /></button>
+        <button class="quiet" @onclick="() => RunPlayback(Player.NextAsync)" aria-disabled="@Aria(Player.FollowingHost)" aria-label="@L["Next song"].Value"><MusicIcon Name="next" /></button>
+        <button id="repeat-toggle" class="quiet" @onclick="ToggleRepeat" aria-disabled="@Aria(Player.FollowingHost)" aria-pressed="@Aria(Player.RepeatMode != "off")" aria-label="@L["Repeat " + Player.RepeatMode].Value" title="@L["Repeat " + Player.RepeatMode].Value"><MusicIcon Name="@(Player.RepeatMode == "one" ? "repeat-one" : "repeat")" /></button>
         @if (playerExpanded)
         {
-            <button id="player-queue" class="quiet player-queue" aria-label="Open playback queue" title="Queue" @onclick="OpenQueueFromPlayer"><MusicIcon Name="queue" /></button>
+            <button id="player-queue" class="quiet player-queue" aria-label="@L["Open playback queue"].Value" title="@L["Queue"].Value" @onclick="OpenQueueFromPlayer"><MusicIcon Name="queue" /></button>
         }
     </div><SeekBar /></div>
     @if (Player.Current is not null) { <LyricsView Expanded="lyricsOpen" ExpandedChanged="SetLyricsOpen" AvailabilityChanged="LyricsAvailabilityChanged" /> }
-    <button id="player-more" class="quiet player-more" aria-label="Player options" aria-expanded="@Aria(playerToolsOpen)" aria-controls="player-options" @onclick="TogglePlayerTools"><MusicIcon Name="more" /></button>
+    <button id="player-more" class="quiet player-more" aria-label="@L["Player options"].Value" aria-expanded="@Aria(playerToolsOpen)" aria-controls="player-options" @onclick="TogglePlayerTools"><MusicIcon Name="more" /></button>
     @if (playerToolsOpen) { <div class="player-tools-backdrop" aria-hidden="true" @onclick="ClosePlayerTools"></div> }
     <div id="player-options" class="player-tools @(playerToolsOpen ? "popup-panel popup-menu is-open" : "")"
          role="@(playerToolsOpen ? "dialog" : null)" aria-modal="@(playerToolsOpen ? "true" : null)" aria-labelledby="@(playerToolsOpen ? "player-options-heading" : null)">
         @if (playerToolsOpen)
         {
-            <div class="dialog-heading"><h2 id="player-options-heading">@(Player.Current?.Title ?? "Player options")</h2><button id="player-options-close" class="quiet" aria-label="Close player options" @onclick="ClosePlayerTools"><MusicIcon Name="close" /></button></div>
+            <div class="dialog-heading"><h2 id="player-options-heading">@(Player.Current?.Title ?? L["Player options"].Value)</h2><button id="player-options-close" class="quiet" aria-label="@L["Close player options"].Value" @onclick="ClosePlayerTools"><MusicIcon Name="close" /></button></div>
         }
         @if (Player.Current is { } sheetSong)
         {
-            @if (lyricsAvailable) { <button id="sheet-lyrics" class="quiet" aria-label="Lyrics" @onclick="OpenLyricsFromSheet"><MusicIcon Name="lyrics" /><span class="toolbar-label">Lyrics</span></button> }
-            <button id="sheet-add-playlist" class="quiet sheet-only" aria-label="Add to playlist" aria-haspopup="dialog" @onclick='() => { playerToolsOpen = false; OpenPlaylistPicker((sheetSong, "player-more")); }'><MusicIcon Name="plus-circle" /><span class="toolbar-label">Add to playlist</span></button>
-            <button id="sheet-queue" class="quiet sheet-only" aria-label="Go to queue" @onclick="OpenQueueFromSheet"><MusicIcon Name="queue" /><span class="toolbar-label">Go to queue</span></button>
+            @if (lyricsAvailable) { <button id="sheet-lyrics" class="quiet" aria-label="@L["Lyrics"].Value" @onclick="OpenLyricsFromSheet"><MusicIcon Name="lyrics" /><span class="toolbar-label">@L["Lyrics"]</span></button> }
+            <button id="sheet-add-playlist" class="quiet sheet-only" aria-label="@L["Add to playlist"].Value" aria-haspopup="dialog" @onclick='() => { playerToolsOpen = false; OpenPlaylistPicker((sheetSong, "player-more")); }'><MusicIcon Name="plus-circle" /><span class="toolbar-label">@L["Add to playlist"]</span></button>
+            <button id="sheet-queue" class="quiet sheet-only" aria-label="@L["Go to queue"].Value" @onclick="OpenQueueFromSheet"><MusicIcon Name="queue" /><span class="toolbar-label">@L["Go to queue"]</span></button>
             @if (playerToolsOpen)
             {
-                <button aria-disabled="@Aria(Player.FollowingHost)" @onclick="async () => { await ClosePlayerTools(); QueueTrack(sheetSong); }"><MusicIcon Name="queue" /><span>Add to queue</span></button>
+                <button aria-disabled="@Aria(Player.FollowingHost)" @onclick="async () => { await ClosePlayerTools(); QueueTrack(sheetSong); }"><MusicIcon Name="queue" /><span>@L["Add to queue"]</span></button>
                 <SongMenuActions @key="sheetSong.Id" @ref="playerSongActions" Track="sheetSong" Keep="() => Download(sheetSong)" />
                 @if (sheetSong.Saved) { <TrimRequest Track="sheetSong" ShowText="true" /> }
             }
         }
-        <button id="sheet-repeat-toggle" class="quiet sheet-only" @onclick="ToggleRepeat" aria-disabled="@Aria(Player.FollowingHost)" aria-pressed="@Aria(Player.RepeatMode != "off")" aria-label="@("Repeat " + Player.RepeatMode)" title="@("Repeat " + Player.RepeatMode)"><MusicIcon Name="@(Player.RepeatMode == "one" ? "repeat-one" : "repeat")" /><span class="toolbar-label">@("Repeat " + Player.RepeatMode)</span></button>
+        <button id="sheet-repeat-toggle" class="quiet sheet-only" @onclick="ToggleRepeat" aria-disabled="@Aria(Player.FollowingHost)" aria-pressed="@Aria(Player.RepeatMode != "off")" aria-label="@L["Repeat " + Player.RepeatMode].Value" title="@L["Repeat " + Player.RepeatMode].Value"><MusicIcon Name="@(Player.RepeatMode == "one" ? "repeat-one" : "repeat")" /><span class="toolbar-label">@L["Repeat " + Player.RepeatMode].Value</span></button>
         <ListenTogetherPanel />
         <AudioOutputPicker />
         @if (Player.Current is { Saved: true } reportTrack)
         {
-            <button id="report-song" class="quiet" aria-haspopup="dialog" aria-label="Report problem" title="Report problem" @onclick='() => OpenReportSong((reportTrack, "report-song"))'><MusicIcon Name="alert" /><span class="toolbar-label">Report problem</span></button>
+            <button id="report-song" class="quiet" aria-haspopup="dialog" aria-label="@L["Report problem"].Value" title="@L["Report problem"].Value" @onclick='() => OpenReportSong((reportTrack, "report-song"))'><MusicIcon Name="alert" /><span class="toolbar-label">@L["Report problem"]</span></button>
         }
 
-        <button id="recommend-similar" class="quiet discover-button" @onclick="Recommend" aria-disabled="@Aria(CannotRecommend)" aria-label="Play similar songs next" title="Play similar songs next"><MusicIcon Name="sparkle" /><span class="toolbar-label">Play similar songs next</span></button>
-        <label class="sr" for="volume">Volume</label><button id="mute-toggle" class="quiet" @onclick="ToggleMute" aria-label="@(Player.Volume == 0 ? "Unmute" : "Mute")" title="@(Player.Volume == 0 ? "Unmute" : "Mute")" aria-pressed="@Aria(Player.Volume == 0)"><MusicIcon Name="@(Player.Volume == 0 ? "volume-off" : "volume")" /></button><span class="volume-meter" style="--volume-level:@((Player.Volume * 100).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture))%"><span class="volume-bars" aria-hidden="true"><span></span></span><input id="volume" type="range" min="0" max="1" step="0.01" value="@Player.Volume" @oninput="VolumeChanged" @onchange="SavePlaybackPreferences" /></span>
+        <button id="recommend-similar" class="quiet discover-button" @onclick="Recommend" aria-disabled="@Aria(CannotRecommend)" aria-label="@L["Play similar songs next"].Value" title="@L["Play similar songs next"].Value"><MusicIcon Name="sparkle" /><span class="toolbar-label">@L["Play similar songs next"]</span></button>
+        <label class="sr" for="volume">@L["Volume"]</label><button id="mute-toggle" class="quiet" @onclick="ToggleMute" aria-label="@L[Player.Volume == 0 ? "Unmute" : "Mute"].Value" title="@L[Player.Volume == 0 ? "Unmute" : "Mute"].Value" aria-pressed="@Aria(Player.Volume == 0)"><MusicIcon Name="@(Player.Volume == 0 ? "volume-off" : "volume")" /></button><span class="volume-meter" style="--volume-level:@((Player.Volume * 100).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture))%"><span class="volume-bars" aria-hidden="true"><span></span></span><input id="volume" type="range" min="0" max="1" step="0.01" value="@Player.Volume" @oninput="VolumeChanged" @onchange="SavePlaybackPreferences" /></span>
     </div>
 </footer>
 <ListeningRequests />
@@ -691,45 +702,45 @@ else
 {
     <dialog id="update-dialog" class="popup-panel update-dialog night-backdrop @(updateFullScreen ? "is-updating" : "")" aria-labelledby="@(updateFullScreen ? "update-screen-title" : "update-heading")">
         <div class="dialog-heading">
-            <h2 id="update-heading">FamilyHub @startupUpdate.Version is available</h2>
-            <button class="quiet" aria-label="Close update" @onclick="LaterUpdate"><MusicIcon Name="close" /></button>
+            <h2 id="update-heading">@L["FamilyHub {0} is available", startupUpdate.Version]</h2>
+            <button class="quiet" aria-label="@L["Close update"].Value" @onclick="LaterUpdate"><MusicIcon Name="close" /></button>
         </div>
         <AppUpdate Id="dialog-update" InitialRelease="startupUpdate" VersionInHeading="true" FullScreenChanged="UpdateFullScreenChanged" />
-        <button id="update-later" class="quiet" @onclick="LaterUpdate">Later</button>
+        <button id="update-later" class="quiet" @onclick="LaterUpdate">@L["Later"]</button>
     </dialog>
 }
 <dialog id="spotify-question-dialog" class="popup-panel" aria-labelledby="spotify-question-title">
-    <div class="dialog-heading"><h2 id="spotify-question-title">Do you have Spotify Premium?</h2><button class="quiet" aria-label="Close Spotify question" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "spotify-question-dialog", "profile-toggle")'><MusicIcon Name="close" /></button></div>
+    <div class="dialog-heading"><h2 id="spotify-question-title">@L["Do you have Spotify Premium?"]</h2><button class="quiet" aria-label="@L["Close Spotify question"].Value" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "spotify-question-dialog", "profile-toggle")'><MusicIcon Name="close" /></button></div>
     <Notice Level="error" Message="@error" />
-    <div class="actions"><button id="spotify-yes" class="primary" aria-disabled="@Aria(busy)" @onclick="() => AnswerSpotify(true)">Yes</button><button aria-disabled="@Aria(busy)" @onclick="() => AnswerSpotify(false)">No</button></div>
+    <div class="actions"><button id="spotify-yes" class="primary" aria-disabled="@Aria(busy)" @onclick="() => AnswerSpotify(true)">@L["Yes"]</button><button aria-disabled="@Aria(busy)" @onclick="() => AnswerSpotify(false)">@L["No"]</button></div>
 </dialog>
 <CreatePlaylist Created="PlaylistCreated" />
 <FeedbackDialog @ref="feedbackDialog" @key="(nameof(FeedbackDialog), AppearanceKey)" />
 <AddSongs @key="AppearanceKey" @ref="addSongs" InLibrary='@(view == "Library")' JobsChanged="SetAdditionJobs" />
 <dialog id="preload-dialog" class="popup-panel preload-dialog" aria-labelledby="preload-heading">
-    <div class="dialog-heading"><h2 id="preload-heading">Keep on this device</h2><button class="quiet" aria-label="Close keep on this device" data-popup-close><MusicIcon Name="close" /></button></div>
-    <p>@preloadTracks.Count @(preloadTracks.Count == 1 ? "song" : "songs") to download</p>
-    <div class="preload-qualities" role="group" aria-label="Download quality">
-        <button id="preload-low" aria-pressed="@Aria(preloadQuality == "low")" @onclick='() => preloadQuality = "low"'><strong>Low</strong><span>Opus 48 kbps</span></button>
-        <button id="preload-normal" aria-pressed="@Aria(preloadQuality == "normal")" @onclick='() => preloadQuality = "normal"'><strong>Normal</strong><span>Opus 96 kbps</span></button>
-        <button id="preload-high" aria-pressed="@Aria(preloadQuality == "high")" @onclick='() => preloadQuality = "high"'><strong>High</strong><span>Opus 160 kbps</span></button>
-        <button id="preload-max" aria-pressed="@Aria(preloadQuality == "max")" @onclick='() => preloadQuality = "max"'><strong>Max</strong><span>Original, @Size(preloadTracks.Sum(t => t.DownloadSize))</span></button>
+    <div class="dialog-heading"><h2 id="preload-heading">@L["Keep on this device"]</h2><button class="quiet" aria-label="@L["Close keep on this device"].Value" data-popup-close><MusicIcon Name="close" /></button></div>
+    <p>@L[preloadTracks.Count == 1 ? "{0} song to download" : "{0} songs to download", preloadTracks.Count]</p>
+    <div class="preload-qualities" role="group" aria-label="@L["Download quality"].Value">
+        <button id="preload-low" aria-pressed="@Aria(preloadQuality == "low")" @onclick='() => preloadQuality = "low"'><strong>@L["Low"]</strong><span>@L["Opus 48 kbps"]</span></button>
+        <button id="preload-normal" aria-pressed="@Aria(preloadQuality == "normal")" @onclick='() => preloadQuality = "normal"'><strong>@L["Normal"]</strong><span>@L["Opus 96 kbps"]</span></button>
+        <button id="preload-high" aria-pressed="@Aria(preloadQuality == "high")" @onclick='() => preloadQuality = "high"'><strong>@L["High"]</strong><span>@L["Opus 160 kbps"]</span></button>
+        <button id="preload-max" aria-pressed="@Aria(preloadQuality == "max")" @onclick='() => preloadQuality = "max"'><strong>@L["Max"]</strong><span>Original, @Size(preloadTracks.Sum(t => t.DownloadSize))</span></button>
     </div>
-    <p class="setting-help">@(Session.DownloadsWifiOnly ? "Downloads use Wi-Fi or Ethernet. Keep the app open until they finish." : "Mobile data is allowed for downloads. Keep the app open until they finish.")</p>
+    <p class="setting-help">@L[Session.DownloadsWifiOnly ? "Downloads use Wi-Fi or Ethernet. Keep the app open until they finish." : "Mobile data is allowed for downloads. Keep the app open until they finish."]</p>
     <Notice Level="error" Message="@error" />
-    <div class="actions"><button class="primary" @onclick="StartPreload" aria-disabled="@Aria(preloadTracks.Count == 0 || busy)">Keep @preloadTracks.Count songs</button><button @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "preload-dialog", "keep-playlist").AsTask()'>Cancel</button></div>
+    <div class="actions"><button class="primary" @onclick="StartPreload" aria-disabled="@Aria(preloadTracks.Count == 0 || busy)">@L["Keep {0} songs", preloadTracks.Count]</button><button @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "preload-dialog", "keep-playlist").AsTask()'>@L["Cancel"]</button></div>
 </dialog>
 <dialog id="remove-playlist-downloads" class="popup-panel" aria-labelledby="remove-playlist-downloads-heading" data-return-focus="keep-playlist">
-    <div class="dialog-heading"><h2 id="remove-playlist-downloads-heading">Remove downloaded songs?</h2><button class="quiet" aria-label="Close remove downloaded songs" @onclick="CloseRemovePlaylistDownloads"><MusicIcon Name="close" /></button></div>
-    <p>This removes the playlist’s downloaded songs from this device, including copies used by other playlists.</p>
+    <div class="dialog-heading"><h2 id="remove-playlist-downloads-heading">@L["Remove downloaded songs?"]</h2><button class="quiet" aria-label="@L["Close remove downloaded songs"].Value" @onclick="CloseRemovePlaylistDownloads"><MusicIcon Name="close" /></button></div>
+    <p>@L["This removes the playlist’s downloaded songs from this device, including copies used by other playlists."]</p>
     <div class="actions">
-        <button id="cancel-remove-playlist-downloads" @onclick="CloseRemovePlaylistDownloads">Cancel</button>
-        <button @onclick="RemovePlaylistDownloads" aria-disabled="@Aria(busy)">Remove from this device</button>
+        <button id="cancel-remove-playlist-downloads" @onclick="CloseRemovePlaylistDownloads">@L["Cancel"]</button>
+        <button @onclick="RemovePlaylistDownloads" aria-disabled="@Aria(busy)">@L["Remove from this device"]</button>
     </div>
 </dialog>
 <dialog id="add-song-dialog" class="popup-panel song-picker-dialog" aria-labelledby="add-song-heading" @onclose="() => songPickerShown = false">
-    <div class="dialog-heading"><h2 id="add-song-heading">Choose saved songs</h2><button class="quiet" aria-label="Close song picker" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "add-song-dialog", "playlist-menu-toggle").AsTask()'><MusicIcon Name="close" /></button></div>
-    <label class="sr" for="add-song-filter">Search saved songs</label><input id="add-song-filter" type="search" placeholder="Search saved songs" value="@songFilter" @oninput='args => songFilter = args.Value?.ToString() ?? ""' />
+    <div class="dialog-heading"><h2 id="add-song-heading">@L["Choose saved songs"]</h2><button class="quiet" aria-label="@L["Close song picker"].Value" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "add-song-dialog", "playlist-menu-toggle").AsTask()'><MusicIcon Name="close" /></button></div>
+    <label class="sr" for="add-song-filter">@L["Search saved songs"]</label><input id="add-song-filter" type="search" placeholder="@L["Search saved songs"].Value" value="@songFilter" @oninput='args => songFilter = args.Value?.ToString() ?? ""' />
     <Notice Level="error" Message="@error" />
     <div class="song-picker-results">
         @* Rows exist only while the picker is open, and at most 60 at a time. *@
@@ -740,10 +751,10 @@ else
         {
             <button id="@("add-saved-song-" + song.Id)" class="song-picker-row" @key="song.Id" @onclick="() => AddPickedSong(song)" aria-disabled="@Aria(busy)"><TrackCover Track="song" /><span><strong>@song.Title</strong><small>@song.Channel</small></span><MusicIcon Name="plus" /></button>
         }
-        @if (matches.Count > 60) { <p class="song-picker-more">Type to find more songs.</p> }
-        @if (matches.Count == 0 && Session.Library.Count > 0) { <Notice Level="empty" Message="No saved songs match this search." ActionLabel="Reset saved song search" Action='() => songFilter = ""' FocusTarget="#add-song-filter" /> }
+        @if (matches.Count > 60) { <p class="song-picker-more">@L["Type to find more songs."]</p> }
+        @if (matches.Count == 0 && Session.Library.Count > 0) { <Notice Level="empty" Message="@L["No saved songs match this search."].Value" ActionLabel="@L["Reset saved song search"].Value" Action='() => songFilter = ""' FocusTarget="#add-song-filter" /> }
         }
-        @if (Session.Library.Count == 0) { <Notice Level="empty" Message="No saved songs." /> }
+        @if (Session.Library.Count == 0) { <Notice Level="empty" Message="@L["No saved songs."].Value" /> }
     </div>
 </dialog>
 
@@ -754,16 +765,16 @@ else
 <ReportSong @ref="reportSong" />
 
 <dialog id="clear-history-dialog" class="popup-panel" aria-labelledby="clear-history-title">
-    <div class="dialog-heading"><h2 id="clear-history-title">Clear listening history?</h2><button class="quiet" aria-label="Close clear listening history" data-popup-close><MusicIcon Name="close" /></button></div>
-    <p>This removes your listening history, yearly listening stats, and this device's pending events. Songs you added remain credited to you.</p>
+    <div class="dialog-heading"><h2 id="clear-history-title">@L["Clear listening history?"]</h2><button class="quiet" aria-label="@L["Close clear listening history"].Value" data-popup-close><MusicIcon Name="close" /></button></div>
+    <p>@L["This removes your listening history, yearly listening stats, and this device's pending events. Songs you added remain credited to you."]</p>
     <Notice Level="error" Message="@error" />
-    <div class="actions"><button id="cancel-clear-history" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "clear-history-dialog", "clear-history").AsTask()'>Cancel</button><button disabled="@busy" @onclick="ClearHistory">Clear listening history</button></div>
+    <div class="actions"><button id="cancel-clear-history" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "clear-history-dialog", "clear-history").AsTask()'>@L["Cancel"]</button><button disabled="@busy" @onclick="ClearHistory">@L["Clear listening history"]</button></div>
 </dialog>
 <dialog id="delete-playlist-dialog" class="popup-panel" aria-labelledby="delete-playlist-heading">
-    <div class="dialog-heading"><h2 id="delete-playlist-heading">Delete playlist?</h2><button class="quiet" aria-label="Close delete playlist" data-popup-close><MusicIcon Name="close" /></button></div>
-    <p>Delete <strong>@Selected?.Name</strong> from FamilyHub? Downloaded songs stay on the server and devices.</p>
+    <div class="dialog-heading"><h2 id="delete-playlist-heading">@L["Delete playlist?"]</h2><button class="quiet" aria-label="@L["Close delete playlist"].Value" data-popup-close><MusicIcon Name="close" /></button></div>
+    <p>@L["Delete"] <strong>@Selected?.Name</strong> @L["from FamilyHub? Downloaded songs stay on the server and devices."]</p>
     <Notice Level="error" Message="@error" />
-    <div class="actions"><button id="cancel-delete-playlist" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "delete-playlist-dialog", "playlist-menu-toggle").AsTask()'>Cancel</button><button class="playlist-delete" aria-disabled="@Aria(busy)" @onclick="DeletePlaylist">Delete playlist</button></div>
+    <div class="actions"><button id="cancel-delete-playlist" @onclick='() => JS.InvokeVoidAsync("familyhub.closeDialog", "delete-playlist-dialog", "playlist-menu-toggle").AsTask()'>@L["Cancel"]</button><button class="playlist-delete" aria-disabled="@Aria(busy)" @onclick="DeletePlaylist">@L["Delete playlist"]</button></div>
 </dialog>
 
 @code {
@@ -781,9 +792,9 @@ else
     // Pause appears only once audio is playing; preparing a song keeps the play icon with a loading state.
     private bool ShowPause => Player.RemoteActive ? Player.RemotePlaying : (Player.Playing || Player.Seeking) && Player.PlaybackRequested && !Player.Preparing;
     private string PlaybackButtonLabel => Player.FollowingHost
-        ? Together.LocallyPaused ? "Resume live session" : "Pause only for me"
-        : Player.RemoteActive ? Player.RemotePlaying ? "Pause on " + Player.RemoteDeviceName : "Play on this device"
-        : ShowPause ? "Pause" : "Play";
+        ? L[Together.LocallyPaused ? "Resume live session" : "Pause only for me"].Value
+        : Player.RemoteActive ? Player.RemotePlaying ? L["Pause on {0}", Player.RemoteDeviceName ?? ""].Value : L["Play on this device"].Value
+        : L[ShowPause ? "Pause" : "Play"].Value;
     private void OpenPlaylistPicker((MusicTrack Track, string Opener) value) => playlistPicker?.Open(value.Track, value.Opener);
     private Task SetHistoryPaused(ChangeEventArgs args) => Run(async () =>
     {
@@ -888,7 +899,7 @@ else
     }
     private static readonly (string Id, string Label, string Icon)[] SettingsCategories =
     [
-        ("general", "Profile", "person"),
+        ("general", "General", "person"),
         ("music", "Music", "music"),
         ("movies", "Movies & TV", "film"),
         ("data", "Data", "device"),
@@ -909,6 +920,7 @@ else
     private sealed record SettingsEntry(string Section, string Label, string Target, string Synonyms);
     private static readonly SettingsEntry[] SettingsSearchEntries =
     [
+        new("general", "Language", "#settings-language", "English,Magyar"),
         new("general", "Change picture", "#profile-image-file", "avatar,photo,profile image"),
         new("general", "Display name", "#profile-display-name", "rename,username,profile name"),
         new("appearance", "Theme", "#appearance-theme", "appearance,colour,color,dark"),
@@ -967,14 +979,17 @@ else
         if (setting.Target == "#settings-discord" && (!OperatingSystem.IsWindows() || DiscordPresence.ApplicationId.Length == 0)) return false;
         if (setting.Target.StartsWith("#movie-notify-", StringComparison.Ordinal) && (!MovieNotifications.Supported || !Session.MoviesEnabled)) return false;
         if (setting.Target == ".one-tap-option input" && !AppUpdater.UpdatesInSideStore) return false;
-        return SettingsSearchTerms.All(term => setting.Label.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-            setting.Synonyms.Contains(term, StringComparison.OrdinalIgnoreCase));
+        var label = L[setting.Label].Value;
+        var synonyms = L[setting.Synonyms].Value;
+        return SettingsSearchTerms.All(term => label.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+            synonyms.Contains(term, StringComparison.OrdinalIgnoreCase));
     }
 
     private string? MatchedSettingSynonym(SettingsEntry setting)
     {
-        var terms = SettingsSearchTerms.Where(term => !setting.Label.Contains(term, StringComparison.OrdinalIgnoreCase)).ToArray();
-        return terms.Length == 0 ? null : string.Join(", ", setting.Synonyms.Split(',').Where(alias =>
+        var label = L[setting.Label].Value;
+        var terms = SettingsSearchTerms.Where(term => !label.Contains(term, StringComparison.OrdinalIgnoreCase)).ToArray();
+        return terms.Length == 0 ? null : string.Join(", ", L[setting.Synonyms].Value.Split(',').Where(alias =>
             terms.Any(term => alias.Contains(term, StringComparison.OrdinalIgnoreCase))));
     }
 
@@ -1028,6 +1043,25 @@ else
         profileMenu = false;
         await JS.InvokeVoidAsync("familyhub.closeDialog", "profile-menu", "content");
         await Navigate("Preferences");
+    }
+
+    private async Task SetLanguage(ChangeEventArgs args)
+    {
+        Language.Save(args.Value?.ToString());
+        await ApplyLanguage();
+    }
+
+    private async Task ApplyLanguage()
+    {
+        try
+        {
+            await using var module = await JS.InvokeAsync<IJSObjectReference>("import", "./strings.js");
+            await module.InvokeVoidAsync("setLanguage", Language.Language);
+        }
+        catch (Exception error) when (PlaybackInterop.IsUnavailable(error))
+        {
+            PlaybackInterop.Report("familyhub.strings", error);
+        }
     }
 
     private async Task SelectSettingsSection(string section)
@@ -1264,9 +1298,9 @@ else
         : updateStatusError is not null ? updateStatusError
         : serverRelease is { } release ? AppUpdater.CompareToInstalled(release) switch
         {
-            > 0 => $"{release.Version} available",
-            < 0 => $"Installed version is newer than {release.Version}",
-            _ => $"Up to date ({release.Version})"
+            > 0 => L["{0} available", release.Version].Value,
+            < 0 => L["Installed version is newer than {0}", release.Version].Value,
+            _ => L["Up to date ({0})", release.Version].Value
         }
         : "No release for this platform";
 
@@ -1600,7 +1634,7 @@ else
     private static bool SupportsAppFullscreen => false;
     private static bool AppFullscreen => false;
 #endif
-    private static string FullscreenLabel => AppFullscreen ? "Exit full screen (F11)" : "Full screen (F11)";
+    private string FullscreenLabel => L[AppFullscreen ? "Exit full screen (F11)" : "Full screen (F11)"].Value;
     private bool? renderedAppFullscreen;
 
     [JSInvokable]
@@ -1691,7 +1725,7 @@ else
     private bool CannotRecommend => recommendationLookup is not null || Player.Current is null;
     private static string PlaylistAlbum(PlaylistTrack entry, MusicTrack? track) => PlaylistSongs.Album(entry, track);
     private MusicTrack? NextTrack => Player.QueueIndex + 1 < Player.Queue.Count ? Player.Queue[Player.QueueIndex + 1] : null;
-    private static string NavLabel(string tab) => tab switch { "Downloads" => "Downloaded", _ => tab };
+    private string NavLabel(string tab) => L[tab == "Downloads" ? "Downloaded" : tab].Value;
     private static string NavIcon(string tab) => tab switch { "Library" => "library", "Search" => "search", "Downloads" => "down", "Movies & TV" => "film", "Files" => "folder", "Playlists" => "playlist", _ => "queue" };
     private Task VolumeChanged(ChangeEventArgs args)
     {
@@ -1896,12 +1930,13 @@ else
         if (!EntryScreen && Session.MessageLevel == "success" && shownConfirmation != Session.MessageRevision)
         {
             shownConfirmation = Session.MessageRevision;
-            await RenderJs("FamilyHubNotices.toast", Session.Message);
+            await RenderJs("FamilyHubNotices.toast", Session.Message is { } confirmation ? L[confirmation].Value : null);
         }
         if (!chromeReady)
         {
             if (preparingChrome) return;
             preparingChrome = true;
+            await ApplyLanguage();
             await RenderJs("familyhub.prepareChrome");
             chromeReady = true;
             await InvokeAsync(StateHasChanged);
@@ -2609,14 +2644,16 @@ else
     private Task Seek(ChangeEventArgs args) => double.TryParse(args.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var seconds) ? Player.SeekAsync(seconds) : Task.CompletedTask;
     private static bool Matches(MusicTrack track, string text) => (track.Title + " " + track.Channel).Contains(text, StringComparison.OrdinalIgnoreCase);
     private static string Time(double seconds) => TimeSpan.FromSeconds(Math.Max(0, seconds)).ToString(@"m\:ss");
-    private static string Size(long bytes) => bytes >= 1L << 30 ? $"{bytes / (double)(1L << 30):0.0} GB" : $"{bytes / (double)(1L << 20):0.0} MB";
+    private string Size(long bytes) => bytes >= 1L << 30
+        ? L["{0:0.0} GB", bytes / (double)(1L << 30)].Value
+        : L["{0:0.0} MB", bytes / (double)(1L << 20)].Value;
     private RenderFragment TrackRow(MusicTrack track, List<MusicTrack> sequence, bool removable, int? position = null) => @<text>
         @{ var albumTrack = view == "Album"; }
         <SongRow @key="(albumTrack ? string.Empty : track.Id, position)" Track="track" AlbumTrack="albumTrack"
                  PlayDisabled="@(albumTrack && (albumStarting || albumWaiting is not null || Player.FollowingHost || Player.RemoteActive || !Session.Connected && Session.LocalPath(track) is null))"
                  Current="@(Player.Current?.Id == track.Id && (view != "Queue" || position == Player.QueueIndex))" Playing="ShowPause" Play="() => PlayRow(track, sequence, position)"
                  AddToPlaylist="OpenPlaylistPicker" Report="OpenReportSong" Queue="() => QueueTrack(track)" Keep="() => KeepLibraryTrack(track)"
-                 OptionsId="@(view == "Downloads" && showPlaybackCache ? "cache-song-" + track.Id : null)" Remove="@(removable ? EventCallback.Factory.Create(this, () => RemoveDownload(track)) : default)" RemoveLabel="Remove download" />
+                 OptionsId="@(view == "Downloads" && showPlaybackCache ? "cache-song-" + track.Id : null)" Remove="@(removable ? EventCallback.Factory.Create(this, () => RemoveDownload(track)) : default)" RemoveLabel="@L["Remove download"].Value" />
     </text>;
     private async Task KeepLibraryTrack(MusicTrack track)
     {

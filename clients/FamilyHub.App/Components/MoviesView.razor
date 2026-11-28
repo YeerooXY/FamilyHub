@@ -6,8 +6,8 @@
 
 <div class="service-status-stage">
     <div @ref="host" id="movie-service-content" class="movie-library" data-native-fullscreen="@(OperatingSystem.IsWindows() ? "true" : null)"></div>
-    <ServiceStatus Active="failed" FullSection="true" Detail="Check the Jellyfin connection for this profile."
-                   RetryLabel="Retry movies" Retry="Load" Busy="loading" AutoRetry="true" RecoveryTarget="#movie-service-content" />
+    <ServiceStatus Active="failed" FullSection="true" Detail="@L["Check the Jellyfin connection for this profile."].Value"
+                   RetryLabel="@L["Retry movies"].Value" Retry="Load" Busy="loading" AutoRetry="true" RecoveryTarget="#movie-service-content" />
 </div>
 
 @code {

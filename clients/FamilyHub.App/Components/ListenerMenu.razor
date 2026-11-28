@@ -4,8 +4,8 @@
 
 <button id="@buttonId" class="quiet listener-options" aria-label="Options for @Profile.Name" aria-haspopup="dialog" @onclick="Open"><MusicIcon Name="more" /></button>
 <dialog id="@dialogId" class="popup-panel popup-menu listener-menu" aria-labelledby="@(dialogId + "-heading")">
-    <div class="dialog-heading"><h2 id="@(dialogId + "-heading")">@Profile.Name</h2><button id="@(dialogId + "-close")" class="quiet" aria-label="Close listener options" @onclick="Close"><MusicIcon Name="close" /></button></div>
-    @if (loading) { <Notice Message="Loading sessions…" /> }
+    <div class="dialog-heading"><h2 id="@(dialogId + "-heading")">@Profile.Name</h2><button id="@(dialogId + "-close")" class="quiet" aria-label="@L["Close listener options"].Value" @onclick="Close"><MusicIcon Name="close" /></button></div>
+    @if (loading) { <Notice Message="@L["Loading sessions…"].Value" /> }
     else if (Together.Room is not null) { <p>@(Together.Room.IsHost ? "You're hosting a session." : "You're already in a session.")</p> }
     else if (rooms.Count == 0) { <p>@Profile.Name hasn't started a session.</p> }
     @if (!loading && rooms.Count == 0 && Together.Room is null && Profile.Id != Session.User) { <button class="listener-join" @onclick="Poke" aria-disabled="@(busy || poked ? "true" : "false")"><MusicIcon Name="people" />@(poked ? "Poke sent" : "Poke to start a session")</button> }

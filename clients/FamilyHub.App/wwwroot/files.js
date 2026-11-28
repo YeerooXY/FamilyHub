@@ -1,3 +1,5 @@
+import { fixed, locale, serverError, text as t } from "./strings.js";
+
 // Files: the family's shared folder and each profile's private folder, with share links.
 // This module owns the screen. The .NET side owns the network, the file picker and the clipboard: it answers
 // `FilesCall` (JSON endpoints), `FilesUpload`, `FilesDownload`, `FilesCopy` and `FilesShare`.
@@ -16,11 +18,9 @@ function bytes(n) {
     const units = ["KB", "MB", "GB", "TB"];
     let value = n / 1024, unit = 0;
     while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
-    return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+    return `${value >= 100 ? Math.round(value) : fixed(value, 1)} ${units[unit]}`;
 }
 
-const day = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric" });
-const stamp = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const EXPIRY = [[1, "1 hour"], [24, "1 day"], [168, "7 days"], [720, "30 days"]];
 // Matches MusicIcon's outlined 24 px grid and 2 px stroke.
 const FOLDER = "M3 7V5a2 2 0 0 1 2-2h4l2 4h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z";
@@ -63,7 +63,7 @@ const SORTS = [["newest", "Newest first"], ["oldest", "Oldest first"], ["name", 
 const SORT_BY = {
     newest: (a, b) => b.modified - a.modified,
     oldest: (a, b) => a.modified - b.modified,
-    name: (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }),
+    name: (a, b) => a.name.localeCompare(b.name, locale(), { numeric: true, sensitivity: "base" }),
     size: (a, b) => b.size - a.size,
 };
 const VIEW_KEY = "familyhub.files.view";
@@ -96,12 +96,14 @@ function button(className, label, shape) {
     return node;
 }
 
-function errorText(value, fallback = "That did not work. Try again.") {
+function errorText(value, fallback = t("That did not work. Try again.")) {
     return typeof value === "string" && value.trim() &&
         !/\b(?:HTTP(?:\/\d(?:\.\d)?)?|status(?: code)?|error)\s*[:(]?\s*[1-5]\d{2}\b|^\s*[1-5]\d{2}(?:\s|:|$)/i.test(value) ? value : fallback;
 }
 
 export function openFiles(host, app, viewer) {
+    const day = new Intl.DateTimeFormat(locale(), { day: "numeric", month: "short", year: "numeric" });
+    const stamp = new Intl.DateTimeFormat(locale(), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
     const life = new AbortController();
     let space = "mine", path = "", entries = [], menu = null, sheet = null, busy = false;
     let navigation = 0, listing = 0, uploadNavigation, tileCount = 0;
@@ -115,15 +117,18 @@ export function openFiles(host, app, viewer) {
     const root = el("div", "files");
     host.replaceChildren(root);
 
-    // The server answers every JSON call as {status, body}. Error text comes from the server, so say it as it is.
+    // Older servers return the folder conflict as text.
     async function call(method, url, json) {
         let reply;
         try { reply = JSON.parse(await app.invokeMethodAsync("FilesCall", method, url, json === undefined ? null : JSON.stringify(json))); }
-        catch { return { ok: false, unavailable: true, error: "The server did not answer. Check the connection and try again." }; }
+        catch { return { ok: false, unavailable: true, error: t("The server did not answer. Check the connection and try again.") }; }
         let body = null;
         try { body = reply.body ? JSON.parse(reply.body) : null; } catch { /* a non-JSON body */ }
         if (reply.status >= 200 && reply.status < 300) return { ok: true, body };
-        return { ok: false, unavailable: reply.status === 0 || reply.status >= 500, error: errorText(body?.error) };
+        const error = errorText(body?.error);
+        return { ok: false, unavailable: reply.status === 0 || reply.status >= 500,
+            notEmpty: body?.code === "folder_not_empty" || /not empty/i.test(body?.error ?? ""),
+            error: serverError({code: body?.code, error}, error) };
     }
     const q = (p) => encodeURIComponent(p);
     const here = (name) => (path ? path + "/" : "") + name;
@@ -132,36 +137,36 @@ export function openFiles(host, app, viewer) {
     const toolbar = el("div", "files-toolbar");
     const tabs = el("div", "files-tabs");
     tabs.setAttribute("role", "tablist");
-    tabs.setAttribute("aria-label", "Whose files");
+    tabs.setAttribute("aria-label", t("Whose files"));
     const tabButtons = {};
-    for (const [key, label] of [["mine", "My files"], ["family", "Family"]]) {
+    for (const [key, label] of [["mine", t("My files")], ["family", t("Family")]]) {
         const b = el("button", "files-tab", label);
         b.type = "button"; b.setAttribute("role", "tab"); b.dataset.space = key;
         b.onclick = () => { if (space !== key) navigate(key, "", b); };
         tabButtons[key] = b; tabs.append(b);
     }
     const actions = el("div", "files-actions");
-    const upload = button("files-primary", "Upload files", UPLOAD);
-    const newFolder = button("files-quiet", "New folder", FOLDER + "M12 11v6m-3-3h6");
-    const linksButton = button("files-quiet", "Your links", "m10 13 4-4M8 16l-1 1a3.5 3.5 0 0 1-5-5l4-4a3.5 3.5 0 0 1 5 0m2 8a3.5 3.5 0 0 0 5 0l4-4a3.5 3.5 0 0 0-5-5l-1 1");
+    const upload = button("files-primary", t("Upload files"), UPLOAD);
+    const newFolder = button("files-quiet", t("New folder"), FOLDER + "M12 11v6m-3-3h6");
+    const linksButton = button("files-quiet", t("Your links"), "m10 13 4-4M8 16l-1 1a3.5 3.5 0 0 1-5-5l4-4a3.5 3.5 0 0 1 5 0m2 8a3.5 3.5 0 0 0 5 0l4-4a3.5 3.5 0 0 0-5-5l-1 1");
     actions.append(upload, newFolder, linksButton);
     toolbar.append(tabs, actions);
     const crumbs = el("nav", "files-crumbs");
-    crumbs.setAttribute("aria-label", "Folder");
+    crumbs.setAttribute("aria-label", t("Folder"));
     const finder = el("div", "files-finder");
     const tools = el("div", "files-tools");
     const searchBox = el("label", "files-search");
     const search = el("input");
-    search.type = "search"; search.placeholder = "Search this folder"; search.autocomplete = "off"; search.enterKeyHint = "search";
-    search.setAttribute("aria-label", "Search this folder");
+    search.type = "search"; search.placeholder = t("Search this folder"); search.autocomplete = "off"; search.enterKeyHint = "search";
+    search.setAttribute("aria-label", t("Search this folder"));
     searchBox.append(icon(SEARCH), search);
     const sort = el("select", "files-sort");
-    sort.setAttribute("aria-label", "Sort files");
-    for (const [value, label] of SORTS) { const o = el("option", "", label); o.value = value; sort.append(o); }
+    sort.setAttribute("aria-label", t("Sort files"));
+    for (const [value, label] of SORTS) { const o = el("option", "", t(label)); o.value = value; sort.append(o); }
     const views = el("div", "files-views");
-    views.setAttribute("role", "group"); views.setAttribute("aria-label", "View");
+    views.setAttribute("role", "group"); views.setAttribute("aria-label", t("View"));
     const viewButtons = {};
-    for (const [key, label, shape] of [["grid", "Grid view", GRID], ["list", "List view", ROWS]]) {
+    for (const [key, label, shape] of [["grid", t("Grid view"), GRID], ["list", t("List view"), ROWS]]) {
         const b = button("files-view", undefined, shape);
         b.setAttribute("aria-label", label); b.title = label; b.dataset.view = key;
         viewButtons[key] = b; views.append(b);
@@ -170,7 +175,7 @@ export function openFiles(host, app, viewer) {
     finder.append(crumbs, tools);
     const status = el("p", "files-status"); status.setAttribute("role", "status");
     const outage = createServiceStatus({
-        detail: "Reconnect to load this folder.", label: "Retry folder listing", retry: () => load(),
+        detail: t("Reconnect to load this folder."), label: t("Retry folder listing"), retry: () => load(),
         focus: () => currentCrumb() || tabButtons[space], automatic: true, fullSection: true
     });
     const progress = el("div", "files-progress"); progress.hidden = true;
@@ -179,22 +184,22 @@ export function openFiles(host, app, viewer) {
     progress.append(bar, thumb);
     const noMatch = el("p", "files-note");
     noMatch.setAttribute("role", "status");
-    const folderHeading = el("h2", "files-heading", "Folders");
+    const folderHeading = el("h2", "files-heading", t("Folders"));
     const folders = el("ul", "files-folders");
-    folders.setAttribute("aria-label", "Folders");
-    const fileHeading = el("h2", "files-heading", "Files");
+    folders.setAttribute("aria-label", t("Folders"));
+    const fileHeading = el("h2", "files-heading", t("Files"));
     const list = el("ul", "files-list");
-    list.setAttribute("aria-label", "Files");
+    list.setAttribute("aria-label", t("Files"));
     const selbar = el("div", "files-selbar");
-    selbar.setAttribute("role", "region"); selbar.setAttribute("aria-label", "Selected files"); selbar.hidden = true;
+    selbar.setAttribute("role", "region"); selbar.setAttribute("aria-label", t("Selected files")); selbar.hidden = true;
     const selCount = el("span", "files-count");
     selCount.setAttribute("role", "status");
     const selDownload = button("files-quiet files-icon-button", undefined, DOWNLOAD);
-    selDownload.setAttribute("aria-label", "Download selected files"); selDownload.title = "Download";
-    const selShare = button("files-quiet", "Share link", SHARE);
-    const selDelete = button("files-quiet", "Delete", TRASH);
+    selDownload.setAttribute("aria-label", t("Download selected files")); selDownload.title = t("Download");
+    const selShare = button("files-quiet", t("Share link"), SHARE);
+    const selDelete = button("files-quiet", t("Delete"), TRASH);
     const selClear = button("files-quiet files-icon-button", undefined, CLOSE);
-    selClear.setAttribute("aria-label", "Clear selection"); selClear.title = "Clear selection";
+    selClear.setAttribute("aria-label", t("Clear selection")); selClear.title = t("Clear selection");
     selbar.append(selCount, selDownload, selShare, selDelete, selClear);
     const empty = el("div", "files-empty");
     empty.hidden = true;
@@ -202,7 +207,7 @@ export function openFiles(host, app, viewer) {
     illustration.append(icon(FOLDER));
     const emptyText = el("p");
     emptyText.setAttribute("role", "status");
-    const emptyUpload = button("files-primary", "Upload to this folder", UPLOAD);
+    const emptyUpload = button("files-primary", t("Upload to this folder"), UPLOAD);
     empty.append(illustration, emptyText, emptyUpload);
     root.append(toolbar, finder, status, outage.card, progress, noMatch, folderHeading, folders, fileHeading, list, empty, selbar);
     const currentCrumb = () => crumbs.querySelector("[aria-current]");
@@ -220,7 +225,7 @@ export function openFiles(host, app, viewer) {
             b.onclick = () => navigate(space, target);
             return b;
         };
-        crumbs.append(make(space === "mine" ? "My files" : "Family", "", !parts.length));
+        crumbs.append(make(space === "mine" ? t("My files") : t("Family"), "", !parts.length));
         parts.forEach((part, i) => {
             crumbs.append(icon("m9 5 7 7-7 7"), make(part, parts.slice(0, i + 1).join("/"), i === parts.length - 1));
         });
@@ -249,22 +254,22 @@ export function openFiles(host, app, viewer) {
         const art = el("span", folder ? "files-thumb files-folder-icon" : "files-thumb");
         art.append(icon(folder ? FOLDER : kind.icon));
         const name = el("span", "files-label", entry.name);
-        const meta = el("span", "files-meta", folder ? "Folder" : bytes(entry.size));
+        const meta = el("span", "files-meta", folder ? t("Folder") : bytes(entry.size));
         meta.append(el("span", "", day.format(new Date(entry.modified * 1000))));
         main.append(art, name, meta);
         const preview = !folder && previewKind(entry.name) && entry.size <= PREVIEW_LIMIT[previewKind(entry.name)];
-        main.setAttribute("aria-label", folder ? `Open folder ${entry.name}` : preview ? `Preview ${entry.name}` : `Download ${entry.name}`);
+        main.setAttribute("aria-label", folder ? t("Open folder {0}", entry.name) : preview ? t("Preview {0}", entry.name) : t("Download {0}", entry.name));
         meta.id = `files-meta-${tileCount++}`;
         main.setAttribute("aria-describedby", meta.id);
         main.onclick = () => folder ? navigate(space, here(entry.name)) : preview ? openPreview(entry, main) : download(entry, main);
-        more.setAttribute("aria-label", `Actions for ${entry.name}`);
+        more.setAttribute("aria-label", t("Actions for {0}", entry.name));
         more.setAttribute("aria-haspopup", "menu"); more.setAttribute("aria-expanded", "false");
         more.onclick = () => openMenu(entry, more);
         row.append(main);
         if (!folder) {
             const pick = el("button", "files-pick");
             pick.type = "button"; pick.setAttribute("role", "checkbox");
-            pick.setAttribute("aria-label", `Select ${entry.name}`);
+            pick.setAttribute("aria-label", t("Select {0}", entry.name));
             pick.append(el("span", "files-pick-box"));
             pick.firstChild.append(icon(CHECK));
             pick.onclick = () => toggle(entry.name);
@@ -353,7 +358,7 @@ export function openFiles(host, app, viewer) {
         const count = selected.size;
         selbar.hidden = !count;
         root.classList.toggle("has-selection", count > 0);
-        selCount.textContent = count ? `${count} selected` : "";
+        selCount.textContent = count ? t("{0} selected", count) : "";
         selShare.hidden = count !== 1;
     }
     const selectedEntries = () => entries.filter((entry) => selected.has(entry.name));
@@ -366,7 +371,7 @@ export function openFiles(host, app, viewer) {
     // The search result message is announced once per pause in typing, never per key.
     function redraw() {
         const { needle, found } = draw();
-        noMatch.textContent = needle && !found && entries.length ? `Nothing in this folder matches “${search.value.trim()}”.` : "";
+        noMatch.textContent = needle && !found && entries.length ? t("Nothing in this folder matches “{0}”.", search.value.trim()) : "";
     }
     let typing = 0;
     search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(redraw, 250); });
@@ -405,7 +410,7 @@ export function openFiles(host, app, viewer) {
         const request = ++listing;
         closeMenu(true);
         const previousFocus = document.activeElement;
-        if (outage.card.hidden) status.textContent = "Loading…";
+        if (outage.card.hidden) status.textContent = t("Loading…");
         const r = await call("GET", `/api/files/list?space=${space}&path=${q(path)}`);
         if (life.signal.aborted || request !== listing) return;
         if (r.unavailable) {
@@ -431,7 +436,7 @@ export function openFiles(host, app, viewer) {
         }
         if (!isEmpty && document.activeElement === emptyUpload) upload.focus();
         empty.hidden = !isEmpty;
-        emptyText.textContent = isEmpty ? "This folder is empty." : "";
+        emptyText.textContent = isEmpty ? t("This folder is empty.") : "";
     }
 
     // Arrow keys move between tiles; Up and Down step by one row of the visible grid, and the list continues into the folders.
@@ -472,9 +477,9 @@ export function openFiles(host, app, viewer) {
             b.onclick = () => { closeMenu(true); run(); };
             node.append(b);
         };
-        if (entry.type === "file") { item("Download", () => download(entry, opener)); item("Share link", () => shareSheet(entry, opener)); }
-        item("Rename", () => nameSheet("Rename", entry.name, "Rename", (value) => call("POST", "/api/files/rename", { space, path: here(entry.name), name: value }), opener));
-        item("Delete", () => deleteSheet(entry, opener));
+        if (entry.type === "file") { item(t("Download"), () => download(entry, opener)); item(t("Share link"), () => shareSheet(entry, opener)); }
+        item(t("Rename"), () => nameSheet(t("Rename"), entry.name, t("Rename"), (value) => call("POST", "/api/files/rename", { space, path: here(entry.name), name: value }), opener));
+        item(t("Delete"), () => deleteSheet(entry, opener));
         opener.parentElement.append(node);
         opener.setAttribute("aria-expanded", "true");
         menu = { node, opener };
@@ -502,7 +507,7 @@ export function openFiles(host, app, viewer) {
         card.setAttribute("aria-label", heading);
         const head = el("div", "dialog-heading"), h = el("h2", "", heading);
         const close = button("files-close", undefined, "m5 5 14 14M19 5 5 19");
-        close.setAttribute("aria-label", `Close ${heading.toLowerCase()}`);
+        close.setAttribute("aria-label", t("Close {0}", heading.toLowerCase()));
         close.onclick = () => closeSheet(true);
         head.append(h, close);
         const body = el("div", "files-sheet-body");
@@ -574,8 +579,8 @@ export function openFiles(host, app, viewer) {
         const input = el("input"); input.type = "text"; input.value = value; input.maxLength = 120;
         const validate = () => {
             const name = input.value.trim();
-            if (!name) return "Enter a name.";
-            if (name.startsWith(".")) return "Start the name with a character other than a dot.";
+            if (!name) return t("Enter a name.");
+            if (name.startsWith(".")) return t("Start the name with a character other than a dot.");
             if (/[<>:"/\\|?*\x00-\x1f\x7f]/.test(name)) return 'Remove / \\ : * ? " < > | and any control characters from the name.';
             return "";
         };
@@ -589,17 +594,19 @@ export function openFiles(host, app, viewer) {
             if (ownsFocus) closeSheet(true);
             await load({ focusName: r.body?.name ?? name, focusTarget: ownsFocus ? currentCrumb() : null });
         });
-        form.append(field("Name", input), error, go);
+        form.append(field(t("Name"), input), error, go);
         input.focus(); input.select();
     }
-    newFolder.onclick = () => nameSheet("New folder", "", "Create folder", (value) => call("POST", "/api/files/folder", { space, path, name: value }), newFolder);
+    newFolder.onclick = () => nameSheet(t("New folder"), "", t("Create folder"), (value) => call("POST", "/api/files/folder", { space, path, name: value }), newFolder);
 
     function deleteSheet(entry, opener, recursive = false) {
         const folder = entry.type === "dir";
-        const { body, card } = openSheet(recursive ? "Delete everything inside" : folder ? "Delete folder" : "Delete file", opener);
-        body.append(el("p", "", recursive ? `“${entry.name}” and everything inside it will be deleted for good.` : `“${entry.name}” will be deleted for good.${entry.type === "file" ? " Links to it stop working." : ""}`));
-        const error = message(), go = el("button", "files-danger", "Delete"); go.type = "button";
-        const keep = el("button", "files-quiet", "Keep it"); keep.type = "button"; keep.onclick = () => closeSheet(true);
+        const { body, card } = openSheet(recursive ? t("Delete everything inside") : folder ? t("Delete folder") : t("Delete file"), opener);
+        const warning = recursive ? "“{0}” and everything inside it will be deleted for good."
+            : folder ? "“{0}” will be deleted for good." : "“{0}” will be deleted for good. Links to it stop working.";
+        body.append(el("p", "", t(warning, entry.name)));
+        const error = message(), go = el("button", "files-danger", t("Delete")); go.type = "button";
+        const keep = el("button", "files-quiet", t("Keep it")); keep.type = "button"; keep.onclick = () => closeSheet(true);
         go.onclick = async () => {
             const location = navigation;
             if (go.hasAttribute("aria-disabled")) return;
@@ -607,14 +614,14 @@ export function openFiles(host, app, viewer) {
             const r = await call("DELETE", `/api/files?space=${space}&path=${q(here(entry.name))}${recursive ? "&recursive=true" : ""}`);
             go.removeAttribute("aria-disabled");
             if (life.signal.aborted || location !== navigation) return;
-            if (!r.ok && card.open && folder && !recursive && /not empty/i.test(r.error)) { closeSheet(true); deleteSheet(entry, opener, true); return; }
+            if (!r.ok && card.open && folder && !recursive && r.notEmpty) { closeSheet(true); deleteSheet(entry, opener, true); return; }
             if (!r.ok) { error.textContent = r.error; return; }
             // The deleted row's neighbour gets focus, so keyboard focus never falls to the page.
             const at = entries.findIndex((e) => e.name === entry.name);
             const next = entries[at + 1] ?? entries[at - 1];
             const ownsFocus = card.open;
             if (ownsFocus) closeSheet(true);
-            await load({ focusName: next?.name, focusTarget: ownsFocus ? currentCrumb() : null, notice: `Deleted ${entry.name}.` });
+            await load({ focusName: next?.name, focusTarget: ownsFocus ? currentCrumb() : null, notice: t("Deleted {0}.", entry.name) });
         };
         body.append(error, el("div", "files-buttons"));
         body.lastChild.append(keep, go);
@@ -625,10 +632,10 @@ export function openFiles(host, app, viewer) {
     function deleteMany(chosen, opener) {
         if (!chosen.length) return;
         if (chosen.length === 1) { deleteSheet(chosen[0], opener); return; }
-        const { body, card } = openSheet(`Delete ${chosen.length} files`, opener);
-        body.append(el("p", "", `These ${chosen.length} files will be deleted for good. Links to them stop working.`));
-        const error = message(), go = el("button", "files-danger", "Delete"); go.type = "button";
-        const keep = el("button", "files-quiet", "Keep them"); keep.type = "button"; keep.onclick = () => closeSheet(true);
+        const { body, card } = openSheet(t("Delete {0} files", chosen.length), opener);
+        body.append(el("p", "", t("These {0} files will be deleted for good. Links to them stop working.", chosen.length)));
+        const error = message(), go = el("button", "files-danger", t("Delete")); go.type = "button";
+        const keep = el("button", "files-quiet", t("Keep them")); keep.type = "button"; keep.onclick = () => closeSheet(true);
         go.onclick = async () => {
             const location = navigation;
             if (go.hasAttribute("aria-disabled")) return;
@@ -642,7 +649,7 @@ export function openFiles(host, app, viewer) {
             go.removeAttribute("aria-disabled");
             if (life.signal.aborted || location !== navigation) return;
             const removed = chosen.length - failed.length;
-            const notice = [removed ? `Deleted ${removed} ${removed === 1 ? "file" : "files"}.` : "", ...failed].filter(Boolean).join(" ");
+            const notice = [removed ? t("Deleted {0} {1}.", removed, removed === 1 ? "file" : "files") : "", ...failed].filter(Boolean).join(" ");
             const ownsFocus = card.open;
             if (ownsFocus) closeSheet(true);
             const survivor = entries.find((entry) => !chosen.includes(entry) && entry.type === "file");
@@ -659,13 +666,13 @@ export function openFiles(host, app, viewer) {
         let at = Math.max(0, siblings.findIndex((file) => file.name === entry.name));
         const { body, card, close } = openSheet(entry.name, opener);
         card.classList.add("files-preview");
-        close.setAttribute("aria-label", "Close preview");
+        close.setAttribute("aria-label", t("Close preview"));
         const stage = el("div", "files-stage"), caption = el("p", "files-note");
         stage.setAttribute("role", "img");
         caption.setAttribute("role", "status");
         const previous = button("files-quiet files-icon-button", undefined, BACK), next = button("files-quiet files-icon-button", undefined, FORWARD);
-        previous.setAttribute("aria-label", "Previous file"); next.setAttribute("aria-label", "Next file");
-        const save = button("files-primary", "Download", DOWNLOAD), share = button("files-quiet", "Share link", SHARE);
+        previous.setAttribute("aria-label", t("Previous file")); next.setAttribute("aria-label", t("Next file"));
+        const save = button("files-primary", t("Download"), DOWNLOAD), share = button("files-quiet", t("Share link"), SHARE);
         const controls = el("div", "files-preview-actions");
         controls.append(previous, next, el("span", "files-grow"), save, share);
         body.append(stage, caption, controls);
@@ -678,7 +685,7 @@ export function openFiles(host, app, viewer) {
             card.setAttribute("aria-label", file.name);
             card.querySelector("h2").textContent = file.name;
             stage.setAttribute("aria-label", file.name);
-            stage.replaceChildren(el("p", "files-note", "Loading preview…"));
+            stage.replaceChildren(el("p", "files-note", t("Loading preview…")));
             caption.textContent = `${bytes(file.size)}, ${day.format(new Date(file.modified * 1000))}${siblings.length > 1 ? `, ${at + 1} of ${siblings.length}` : ""}`;
             previous.setAttribute("aria-disabled", String(at === 0)); next.setAttribute("aria-disabled", String(at >= siblings.length - 1));
             save.onclick = () => download(file, save);
@@ -686,16 +693,16 @@ export function openFiles(host, app, viewer) {
             const blob = await readFile(file, PREVIEW_LIMIT[kind]);
             if (mine !== request || !card.isConnected) return;
             clear();
-            if (!blob) { stage.replaceChildren(el("p", "files-error", "This file could not be opened here. Download it instead.")); return; }
+            if (!blob) { stage.replaceChildren(el("p", "files-error", t("This file could not be opened here. Download it instead."))); return; }
             if (kind === "image") {
                 const url = URL.createObjectURL(blob); urls.push(url);
                 const image = el("img", "files-large"); image.alt = file.name; image.src = url;
-                image.onerror = () => stage.replaceChildren(el("p", "files-error", "This picture format cannot be shown here. Download it instead."));
+                image.onerror = () => stage.replaceChildren(el("p", "files-error", t("This picture format cannot be shown here. Download it instead.")));
                 stage.removeAttribute("role"); stage.replaceChildren(image);
             } else {
                 const text = await blob.text();
                 const pre = el("pre", "files-text", text);
-                pre.tabIndex = 0; pre.setAttribute("aria-label", `Contents of ${file.name}`);
+                pre.tabIndex = 0; pre.setAttribute("aria-label", t("Contents of {0}", file.name));
                 stage.removeAttribute("role"); stage.replaceChildren(pre);
             }
         }
@@ -718,10 +725,10 @@ export function openFiles(host, app, viewer) {
     async function download(entry, opener) {
         const location = navigation;
         const previousFocus = document.activeElement;
-        status.textContent = `Downloading ${entry.name}…`;
+        status.textContent = t("Downloading {0}…", entry.name);
         let result;
         try { result = await app.invokeMethodAsync("FilesDownload", space, here(entry.name), entry.name); }
-        catch { result = `Could not download ${entry.name}. Try again.`; }
+        catch { result = t("Could not download {0}. Try again.", entry.name); }
         if (life.signal.aborted || location !== navigation) return;
         status.textContent = result;
         if (opener.isConnected && document.activeElement === previousFocus) opener.focus();
@@ -736,14 +743,14 @@ export function openFiles(host, app, viewer) {
         uploadNavigation = navigation;
         let result;
         try { result = JSON.parse(await app.invokeMethodAsync("FilesUpload", uploadSpace, uploadPath)); }
-        catch { result = { uploaded: [], errors: ["The upload did not finish. Try again."] }; }
+        catch { result = { uploaded: [], errors: [t("The upload did not finish. Try again.")] }; }
         busy = false;
         for (const control of [upload, emptyUpload]) control.removeAttribute("aria-disabled");
         progress.hidden = true;
         if (life.signal.aborted || uploadSpace !== space || uploadPath !== path) return;
         const sameVisit = uploadNavigation === navigation;
         const parts = [];
-        if (result.uploaded.length) parts.push(`${result.uploaded.length} ${result.uploaded.length === 1 ? "file" : "files"} uploaded.`);
+        if (result.uploaded.length) parts.push(t("{0} {1} uploaded.", result.uploaded.length, result.uploaded.length === 1 ? "file" : "files"));
         parts.push(...result.errors.map((error) => errorText(error, "A file could not be uploaded. Try again.")));
         if (sameVisit && document.activeElement === document.body) opener.focus();
         await load({
@@ -754,51 +761,51 @@ export function openFiles(host, app, viewer) {
     function showProgress(name, sent, total) {
         const percent = total ? Math.min(100, Math.round(sent * 100 / total)) : 0;
         progress.hidden = false;
-        progress.setAttribute("aria-valuenow", String(percent)); progress.setAttribute("aria-label", `Uploading ${name}`);
-        progress.setAttribute("aria-valuetext", `${name}: ${percent} percent`);
+        progress.setAttribute("aria-valuenow", String(percent)); progress.setAttribute("aria-label", t("Uploading {0}", name));
+        progress.setAttribute("aria-valuetext", t("{0}: {1} percent", name, percent));
         bar.style.width = percent + "%"; thumb.style.left = percent + "%";
-        if (uploadNavigation === navigation) status.textContent = `Uploading ${name}: ${percent}%`;
+        if (uploadNavigation === navigation) status.textContent = t("Uploading {0}: {1}%", name, percent);
     }
 
     // ---- share links ----
     function shareSheet(entry, opener) {
-        const { body, card } = openSheet("Share link", opener);
-        body.append(el("p", "", `Anyone with the link can download “${entry.name}” until it expires.`));
+        const { body, card } = openSheet(t("Share link"), opener);
+        body.append(el("p", "", t("Anyone with the link can download “{0}” until it expires.", entry.name)));
         const expiry = el("select");
-        for (const [hours, label] of EXPIRY) { const o = el("option", "", label); o.value = String(hours); if (hours === 168) o.selected = true; expiry.append(o); }
+        for (const [hours, label] of EXPIRY) { const o = el("option", "", t(label)); o.value = String(hours); if (hours === 168) o.selected = true; expiry.append(o); }
         const password = el("input"); password.type = "password"; password.maxLength = 200;
         const once = el("input"); once.type = "checkbox";
-        const onceLabel = el("label", "files-check"); onceLabel.append(once, el("span", "", "One-off: works for a single download"));
+        const onceLabel = el("label", "files-check"); onceLabel.append(once, el("span", "", t("One-off: works for a single download")));
         const result = el("div", "files-result"); result.hidden = true;
-        const validate = () => password.value && password.value.length < 4 ? "The password needs at least 4 characters." : "";
-        const { form, error, go } = submitForm(body, password, "Create link", validate, async () => {
+        const validate = () => password.value && password.value.length < 4 ? t("The password needs at least 4 characters.") : "";
+        const { form, error, go } = submitForm(body, password, t("Create link"), validate, async () => {
             const r = await call("POST", "/api/files/links", { space, path: here(entry.name), expires_hours: Number(expiry.value), password: password.value || undefined, max_downloads: once.checked ? 1 : undefined });
             if (!card.open) return;
             if (!r.ok) return r.error;
             const url = r.body.url.startsWith("http") ? r.body.url : viewer.server.replace(/\/+$/, "") + r.body.url;
             result.hidden = false; result.replaceChildren();
-            const address = el("input"); address.type = "text"; address.readOnly = true; address.value = url; address.autocomplete = "off"; address.setAttribute("aria-label", "Link address");
-            const copy = el("button", "files-primary", "Copy link"); copy.type = "button";
-            copy.onclick = async () => { const ok = await app.invokeMethodAsync("FilesCopy", url).catch(() => false); message2.textContent = ok ? "Copied." : "Select the link and copy it."; };
-            const send = el("button", "files-quiet", "Share…"); send.type = "button";
+            const address = el("input"); address.type = "text"; address.readOnly = true; address.value = url; address.autocomplete = "off"; address.setAttribute("aria-label", t("Link address"));
+            const copy = el("button", "files-primary", t("Copy link")); copy.type = "button";
+            copy.onclick = async () => { const ok = await app.invokeMethodAsync("FilesCopy", url).catch(() => false); message2.textContent = ok ? t("Copied.") : t("Select the link and copy it."); };
+            const send = el("button", "files-quiet", t("Share…")); send.type = "button";
             send.onclick = () => app.invokeMethodAsync("FilesShare", url).catch(() => {});
             const message2 = el("p", "files-note"); message2.setAttribute("role", "status");
-            const when = el("p", "files-note", `Works until ${stamp.format(new Date(r.body.expires * 1000))}. This is the only time the address is shown; make a new link if you lose it.`);
-            result.append(field("Link address", address), el("div", "files-buttons"), message2, when);
+            const when = el("p", "files-note", t("Works until {0}. This is the only time the address is shown; make a new link if you lose it.", stamp.format(new Date(r.body.expires * 1000))));
+            result.append(field(t("Link address"), address), el("div", "files-buttons"), message2, when);
             result.children[1].append(copy, send);
             form.hidden = true; address.focus(); address.select();
         });
-        form.append(field("Link works for", expiry), field("Password (optional)", password), error, onceLabel, go);
+        form.append(field(t("Link works for"), expiry), field(t("Password (optional)"), password), error, onceLabel, go);
         body.append(result);
         expiry.focus();
     }
     linksButton.onclick = async () => {
-        const { body, card, close } = openSheet("Your links", linksButton);
-        const note = el("p", "files-note", "Loading…");
+        const { body, card, close } = openSheet(t("Your links"), linksButton);
+        const note = el("p", "files-note", t("Loading…"));
         note.setAttribute("role", "status");
         body.append(note);
         const unavailable = createServiceStatus({
-            detail: "Reconnect to load your share links.", label: "Retry share links",
+            detail: t("Reconnect to load your share links."), label: t("Retry share links"),
             retry: loadLinks, focus: () => close, automatic: true
         });
         body.append(unavailable.card);
@@ -812,7 +819,7 @@ export function openFiles(host, app, viewer) {
             }
             unavailable.clear();
             if (!r.ok) { note.textContent = r.error; return; }
-            note.textContent = r.body.links.length ? "Copy the address when you create a link." : "You have not made any links yet.";
+            note.textContent = r.body.links.length ? t("Copy the address when you create a link.") : t("You have not made any links yet.");
             const ul = el("ul", "files-links");
             for (const link of r.body.links) {
                 const li = el("li", "files-link");
@@ -820,10 +827,10 @@ export function openFiles(host, app, viewer) {
                 const expiration = el("span", "", `${link.name}: ${link.active ? "works until " + stamp.format(new Date(link.expires * 1000)) : "no longer works"}`);
                 const count = el("span", "files-chip", `${link.downloads}${link.max_downloads ? " of " + link.max_downloads : ""} ${link.downloads === 1 ? "download" : "downloads"}`);
                 details.append(expiration, count);
-                if (link.protected) details.append(el("span", "files-chip", "Password"));
+                if (link.protected) details.append(el("span", "files-chip", t("Password")));
                 li.append(details);
                 if (link.active) {
-                    const revoke = el("button", "files-quiet", "Revoke"); revoke.type = "button"; revoke.setAttribute("aria-label", `Revoke link to ${link.name}`);
+                    const revoke = el("button", "files-quiet", t("Revoke")); revoke.type = "button"; revoke.setAttribute("aria-label", t("Revoke link to {0}", link.name));
                     revoke.onclick = async () => {
                         if (revoke.hasAttribute("aria-disabled")) return;
                         revoke.setAttribute("aria-disabled", "true");
@@ -831,9 +838,9 @@ export function openFiles(host, app, viewer) {
                         if (!card.open) return;
                         if (!done.ok) { revoke.removeAttribute("aria-disabled"); note.textContent = done.error; return; }
                         const hadFocus = document.activeElement === revoke;
-                        expiration.textContent = `${link.name}: no longer works`;
+                        expiration.textContent = t("{0}: no longer works", link.name);
                         revoke.remove();
-                        note.textContent = `Revoked the link to ${link.name}.`;
+                        note.textContent = t("Revoked the link to {0}.", link.name);
                         if (hadFocus || document.activeElement === document.body) (ul.querySelector(".files-quiet:not([aria-disabled])") ?? close).focus();
                     };
                     li.append(revoke);

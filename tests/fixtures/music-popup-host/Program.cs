@@ -23,6 +23,8 @@ var repo = checkout?.FullName ?? throw new InvalidOperationException("Run the fi
 var feedbackDrafts = Path.Combine(repo, ".local", "popup-feedback-drafts", Guid.NewGuid().ToString("N"));
 builder.Services.AddRazorComponents().AddInteractiveServerComponents()
     .AddHubOptions(options => options.MaximumReceiveMessageSize = 256 * 1024);
+builder.Services.AddSingleton(new AppStrings(Environment.GetEnvironmentVariable("FAMILYHUB_LANGUAGE") ?? "en"));
+builder.Services.AddSingleton<Microsoft.Extensions.Localization.IStringLocalizer>(services => services.GetRequiredService<AppStrings>());
 builder.Services.AddScoped<MusicSession>(_ => MakeSession(repo));
 builder.Services.AddScoped(_ => new FixtureDeck());
 builder.Services.AddSingleton(new FeedbackDrafts(feedbackDrafts));
@@ -53,6 +55,8 @@ patcher.Patch(AccessTools.Method(typeof(AudioOutputs), nameof(AudioOutputs.ListA
 patcher.Patch(AccessTools.Method(typeof(FamilyHubApi), "DefaultHandler"), prefix: new HarmonyMethod(typeof(PlatformStubs), nameof(PlatformStubs.DefaultHttpHandler)));
 var app = builder.Build();
 
+app.MapGet("/strings.hu.json", () => Results.Json(new AppStrings("hu").GetAllStrings(false)
+    .ToDictionary(entry => entry.Name, entry => entry.Value)));
 foreach (var folder in new[] { "clients/FamilyHub.App/wwwroot", "music_web/static" })
     app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(folder.StartsWith("clients") && Environment.GetEnvironmentVariable("POPUP_BASELINE_ASSETS") is { } assets ? assets : Path.Combine(repo, folder)) });
 app.UseAntiforgery();

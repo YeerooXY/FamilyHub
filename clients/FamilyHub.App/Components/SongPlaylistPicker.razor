@@ -2,16 +2,16 @@
 @inject IJSRuntime JS
 
 <dialog id="song-playlist-dialog" class="popup-panel song-playlist-picker" aria-labelledby="song-playlist-heading">
-    <div class="dialog-heading"><h2 id="song-playlist-heading">Add to playlist</h2><button id="song-playlist-close" class="quiet" aria-label="Close playlist picker" @onclick="Close"><MusicIcon Name="close" /></button></div>
-    <label class="picker-filter"><MusicIcon Name="search" /><input id="playlist-picker-filter" aria-label="Find a playlist" placeholder="Find a playlist" @bind="filter" @bind:event="oninput" /></label>
+    <div class="dialog-heading"><h2 id="song-playlist-heading">@L["Add to playlist"]</h2><button id="song-playlist-close" class="quiet" aria-label="@L["Close playlist picker"].Value" @onclick="Close"><MusicIcon Name="close" /></button></div>
+    <label class="picker-filter"><MusicIcon Name="search" /><input id="playlist-picker-filter" aria-label="@L["Find a playlist"].Value" placeholder="@L["Find a playlist"].Value" @bind="filter" @bind:event="oninput" /></label>
     <div class="picker-new-row @(creating ? "is-editing" : "")">
-        <button id="picker-new-button" class="quiet picker-new" @onclick="BeginCreate" aria-expanded="@(creating ? "true" : "false")"><MusicIcon Name="plus" />New playlist</button>
+        <button id="picker-new-button" class="quiet picker-new" @onclick="BeginCreate" aria-expanded="@(creating ? "true" : "false")"><MusicIcon Name="plus" />@L["New playlist"]</button>
         <form class="picker-create" aria-hidden="@(!creating ? "true" : "false")" inert="@(!creating)" @onsubmit="CreateAndSave" @onsubmit:preventDefault>
-            <input id="picker-new-name" aria-label="New playlist name" @bind="name" maxlength="200" placeholder="Playlist name" required />
-            <button type="submit" class="quiet picker-confirm" aria-label="Create playlist" title="Create playlist" aria-disabled="@(saving || creatingPlaylist ? "true" : "false")"><MusicIcon Name="check" /></button>
+            <input id="picker-new-name" aria-label="@L["New playlist name"].Value" @bind="name" maxlength="200" placeholder="@L["Playlist name"].Value" required />
+            <button type="submit" class="quiet picker-confirm" aria-label="@L["Create playlist"].Value" title="@L["Create playlist"].Value" aria-disabled="@(saving || creatingPlaylist ? "true" : "false")"><MusicIcon Name="check" /></button>
         </form>
     </div>
-    <div class="picker-playlists" aria-label="Your playlists">
+    <div class="picker-playlists" aria-label="@L["Your playlists"].Value">
         @foreach (var playlist in Session.Playlists.Where(p => p.CanEdit && p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)))
         {
             <label class="picker-choice" @key="Key(playlist)"><PlaylistCover Playlist="playlist" /><span><strong>@playlist.Name</strong><small>@playlist.Tracks.Count songs</small></span><input type="checkbox" aria-label="@playlist.Name" checked="@chosen.Contains(Key(playlist))" @onchange="args => Select(Key(playlist), args)" disabled="@saving" /></label>
@@ -19,11 +19,11 @@
         @if (!Session.Playlists.Any(p => p.CanEdit && p.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))) { <Notice Level="empty" Message="@(filter.Length > 0 ? "No playlists match this search." : "You have no editable playlists.")"
                ActionLabel="@(filter.Length > 0 ? "Reset playlist search" : null)" Action='() => filter = ""' FocusTarget="#playlist-picker-filter" /> }
     </div>
-    <ServiceStatus Active="connectionFailed" Detail="Check the playlist before retrying the save."
-                   RetryLabel="Retry playlist connection" Retry="RetryConnection" Busy="@(saving || creatingPlaylist || reconnecting)"
+    <ServiceStatus Active="connectionFailed" Detail="@L["Check the playlist before retrying the save."].Value"
+                   RetryLabel="@L["Retry playlist connection"].Value" Retry="RetryConnection" Busy="@(saving || creatingPlaylist || reconnecting)"
                    FocusTarget="#playlist-picker-done" />
     <Notice Level="@(saving && !saveFailed ? "info" : "error")" Message="@(connectionFailed ? null : message)" />
-    <div class="actions picker-footer"><button class="quiet" @onclick="Close" aria-disabled="@(saving ? "true" : "false")">Cancel</button><button id="playlist-picker-done" class="primary" @onclick="Save" aria-disabled="@(saving ? "true" : "false")">@(saving ? "Saving..." : "Done")</button></div>
+    <div class="actions picker-footer"><button class="quiet" @onclick="Close" aria-disabled="@(saving ? "true" : "false")">@L["Cancel"]</button><button id="playlist-picker-done" class="primary" @onclick="Save" aria-disabled="@(saving ? "true" : "false")">@(saving ? "Saving..." : "Done")</button></div>
 </dialog>
 
 @code {

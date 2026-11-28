@@ -7,18 +7,18 @@
 </button>
 <dialog id="genre-dialog" class="popup-panel popup-centered genre-dialog" aria-labelledby="genre-heading" @onclose="Reset">
     <div class="dialog-heading">
-        <h2 id="genre-heading">Genre</h2>
-        <button id="genre-close" type="button" class="quiet" aria-label="Close genre chooser" data-popup-close><MusicIcon Name="close" /></button>
+        <h2 id="genre-heading">@L["Genre"]</h2>
+        <button id="genre-close" type="button" class="quiet" aria-label="@L["Close genre chooser"].Value" data-popup-close><MusicIcon Name="close" /></button>
     </div>
     <div class="collection-search genre-search">
-        <label class="sr" for="genre-search">Search genres</label>
+        <label class="sr" for="genre-search">@L["Search genres"]</label>
         <MusicIcon Name="search" />
         <input id="genre-search" role="combobox" type="text" autocomplete="off" spellcheck="false" maxlength="100"
-               placeholder="Search genres" aria-autocomplete="list" aria-controls="genre-options"
+               placeholder="@L["Search genres"].Value" aria-autocomplete="list" aria-controls="genre-options"
                aria-expanded="@Aria(open && suggestions.Count > 0)" aria-activedescendant="@(active >= 0 ? OptionId(active) : null)"
                value="@query" @oninput="Search" @onkeydown="KeyDown" />
     </div>
-    <ul id="genre-options" role="listbox" aria-label="Genres" hidden="@(suggestions.Count == 0)">
+    <ul id="genre-options" role="listbox" aria-label="@L["Genres"].Value" hidden="@(suggestions.Count == 0)">
         @for (var i = 0; i < suggestions.Count; i++)
         {
             var option = suggestions[i];
@@ -29,7 +29,7 @@
             </li>
         }
     </ul>
-    @if (suggestions.Count == 0) { <Notice Level="empty" Message="No genres match this search." /> }
+    @if (suggestions.Count == 0) { <Notice Level="empty" Message="@L["No genres match this search."].Value" /> }
 </dialog>
 
 @code {

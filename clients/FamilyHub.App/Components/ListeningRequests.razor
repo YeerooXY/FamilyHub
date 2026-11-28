@@ -6,7 +6,7 @@
 @if (Session.Connected && sourceIdentity == Session.Server + "|" + Session.User && requests.FirstOrDefault() is { } request)
 {
     <aside id="listening-request" class="popup-panel listening-poke is-open" aria-labelledby="listening-request-heading">
-        <div class="dialog-heading"><h2 id="listening-request-heading">Listening request</h2><button id="listening-request-close" class="quiet" aria-label="Dismiss listening request" @onclick="() => Dismiss(request)" aria-disabled="@(busy ? "true" : "false")"><MusicIcon Name="close" /></button></div>
+        <div class="dialog-heading"><h2 id="listening-request-heading">@L["Listening request"]</h2><button id="listening-request-close" class="quiet" aria-label="@L["Dismiss listening request"].Value" @onclick="() => Dismiss(request)" aria-disabled="@(busy ? "true" : "false")"><MusicIcon Name="close" /></button></div>
         <Notice Message="@(request.Kind == "invite" ? request.Name + " invited you to listen." : request.Name + " wants to listen with you.")" />
         <div class="actions">@if (Together.Room is null) { <button class="primary" @onclick="() => Accept(request)" aria-disabled="@(busy ? "true" : "false")">@(request.Kind == "invite" ? "Join session" : "Start session")</button> }</div>
         @if (error is not null) { <Notice Level="error" Message="@error" /> }

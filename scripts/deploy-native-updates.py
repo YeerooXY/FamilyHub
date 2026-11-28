@@ -39,13 +39,13 @@ def main():
         'library_index.py', 'movies.py', 'movie_trakt.py', 'movie_search.py', 'movie_youtube_downloads.py', 'movie_import.py', 'movie_subtitle_import.py', 'torrent_seeding.py', 'tmdb_stills.py', 'admin_page.py', 'movie_media.py', 'movie_metadata.py', 'tmdb.py', 'audio_tracks.py', 'movie_subtitles.py', 'server_stats.py', 'verified_hashes.py', 'mixing.py', 'wrapped.py', 'files.py', 'wordle.py', 'wordle_source.py', 'feedback.py', 'http_limits.py', 'state.py',
         'similar_songs.py', 'home_albums.py', 'home_radio.py', 'library_loudness.py', 'subtitle_sync.py', 'wordle_data/answers.txt', 'wordle_data/guesses.txt', 'wordle_data/SOURCES.txt',
         'wordle_data/SCOWL-en-US.txt', 'wordle_data/SCOWL-en-GB.txt',
-        'admin_static/admin.html', 'admin_static/admin.css', 'admin_static/admin.js', 'admin_static/service-status.js', 'admin_static/service-status.css',
+        'admin_static/admin.html', 'admin_static/admin.css', 'admin_static/admin.js', 'admin_static/service-status.js', 'admin_static/service-status.css', 'admin_static/strings.js', 'admin_static/strings.hu.json',
         'static/app.js', 'static/playlists.js', 'static/prefix-cache.js', 'static/share.css', 'templates/index.html', 'templates/login.html',
     )
     files = []
     if not args.assets_only:
         for name in web_files:
-            if name.startswith('admin_static/service-status.'):
+            if name.startswith(('admin_static/service-status.', 'admin_static/strings.')):
                 files.append(ROOT / 'clients' / 'FamilyHub.App' / 'wwwroot' / Path(name).name)
             else:
                 files.append(ROOT / 'music_web' / name)

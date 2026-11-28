@@ -6,30 +6,30 @@
 
 <div class="create-files @(Illustrated ? "illustrated-file-choices" : "")">
     <label class="create-file-choice choose-songs" aria-disabled="@Aria(Disabled || Busy)">
-        <MusicIcon Name="music" /><span class="create-file-text"><strong>Choose songs</strong></span>
+        <MusicIcon Name="music" /><span class="create-file-text"><strong>@L["Choose songs"]</strong></span>
         <InputFile @key="fileInputGeneration" id="@(Prefix + "-audio-file")" OnChange="Choose"
                    accept="audio/*,.mp3,.flac,.m4a,.opus,.ogg,.oga,.wav,.aac,.webm,.mka,.wv,.aiff,.aif"
-                   multiple disabled="@(Disabled || Busy)" aria-label="Choose songs" />
+                   multiple disabled="@(Disabled || Busy)" aria-label="@L["Choose songs"].Value" />
     </label>
     @if (OperatingSystem.IsWindows() || OperatingSystem.IsAndroid())
     {
         <button id="@(Prefix + "-folder")" type="button" class="create-file-choice choose-folder" @onclick="ChooseFolder"
                 aria-disabled="@Aria(Disabled || Busy)">
             <MusicIcon Name="folder" />
-            <span class="create-file-text"><strong>Choose a folder</strong><small>Includes subfolders</small></span>
+            <span class="create-file-text"><strong>@L["Choose a folder"]</strong><small>@L["Includes subfolders"]</small></span>
         </button>
     }
     else
     {
         <label class="create-file-choice choose-folder" aria-disabled="@Aria(Disabled || Busy)">
             <MusicIcon Name="folder" />
-            <span class="create-file-text"><strong>Choose a folder</strong><small>Includes subfolders</small></span>
+            <span class="create-file-text"><strong>@L["Choose a folder"]</strong><small>@L["Includes subfolders"]</small></span>
             <InputFile @key="fileInputGeneration" id="@(Prefix + "-folder")" OnChange="Choose"
-                       webkitdirectory="" directory="" multiple disabled="@(Disabled || Busy)" aria-label="Choose a folder" />
+                       webkitdirectory="" directory="" multiple disabled="@(Disabled || Busy)" aria-label="@L["Choose a folder"].Value" />
         </label>
     }
 </div>
-    @if (picking) { <Notice Message="Reading folder…" /> }
+    @if (picking) { <Notice Message="@L["Reading folder…"].Value" /> }
     @if (files.Count > 0) {
         <section class="upload-selection" aria-labelledby="@(Prefix + "-selection-title")"><div><strong id="@(Prefix + "-selection-title")">@files.Count @(files.Count == 1 ? "song" : "songs")</strong><span>@((files.Sum(f => f.Size) / 1048576d).ToString("0.0")) MB</span></div>
         <ul>@foreach (var song in files.Take(6)) { <li><MusicIcon Name="music" /><span>@song.Name</span>@if (completed.Contains(song)) { <MusicIcon Name="check-circle" /> }</li> }</ul>
@@ -46,11 +46,11 @@
             @if (otherFiles > 0) { <small class="upload-problem-other">@(otherFiles == 1 ? "1 other file isn't audio" : $"{otherFiles} other files aren't audio") (@string.Join(", ", otherTypes)), so @(otherFiles == 1 ? "it was" : "they were") left out.</small> }
         </section>
     }
-    @if (working || completed.Count > 0) { <div class="upload-status" role="status"><div><strong>@status</strong><span>@completed.Count / @files.Count saved</span></div>@if (currentName is not null) { <small>@currentName</small> }@if (uploading) { <progress aria-label="Uploading song" max="100" value="@percent"></progress> } else if (working) { <progress aria-label="Preparing song on server"></progress> }</div> }
-    <ServiceStatus Active="statusUnavailable" Detail="Check the status of the accepted upload."
-                   RetryLabel="Retry upload status" Retry="RetryUploadStatus" Busy="Busy" FocusTarget="@("#" + SubmitId)" />
-    <ServiceStatus Active="uploadConnectionFailed" Detail="Check the library before resubmitting the song."
-                   RetryLabel="Retry upload connection" Retry="RetryUploadConnection"
+    @if (working || completed.Count > 0) { <div class="upload-status" role="status"><div><strong>@status</strong><span>@completed.Count / @files.Count saved</span></div>@if (currentName is not null) { <small>@currentName</small> }@if (uploading) { <progress aria-label="@L["Uploading song"].Value" max="100" value="@percent"></progress> } else if (working) { <progress aria-label="@L["Preparing song on server"].Value"></progress> }</div> }
+    <ServiceStatus Active="statusUnavailable" Detail="@L["Check the status of the accepted upload."].Value"
+                   RetryLabel="@L["Retry upload status"].Value" Retry="RetryUploadStatus" Busy="Busy" FocusTarget="@("#" + SubmitId)" />
+    <ServiceStatus Active="uploadConnectionFailed" Detail="@L["Check the library before resubmitting the song."].Value"
+                   RetryLabel="@L["Retry upload connection"].Value" Retry="RetryUploadConnection"
                    Busy="@(Busy || checkingConnection)" FocusTarget="@("#" + SubmitId)" />
     @if (error is not null) { <Notice Level="error" Message="@error" /> }
 @if (working)

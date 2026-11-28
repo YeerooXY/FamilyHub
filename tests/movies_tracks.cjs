@@ -80,6 +80,8 @@ async function check(browser, options) {
                 return route.fulfill({ headers, json: { Items, TotalRecordCount: Items.length } });
             }
             const types = url.searchParams.get("includeItemTypes");
+            // The player's chapter and seek-preview lookup (round 6) asks for chapters only, without images.
+            if (url.searchParams.get("fields")?.includes("Chapters")) return route.fulfill({ headers, json: { Items: [], TotalRecordCount: 0 } });
             assert.equal(url.searchParams.get("enableImageTypes"), "Primary,Thumb,Backdrop,Logo");
             const films = [
                 { Id: "full", Name: "Two languages", Type: "Movie", ImageTags: { Primary: "poster" } },
@@ -235,7 +237,7 @@ async function check(browser, options) {
         Object.defineProperty(track, "activeCues", { configurable: true, get: () => [{ text: ">> Hello &amp; welcome\n<i>Second line</i>" }] });
         track.dispatchEvent(new Event("cuechange"));
     });
-    assert.deepEqual(await page.locator(".movie-ui-sub").allInnerTexts(), ["Hello & welcome", "Second line"]);
+    assert.deepEqual(await page.locator(".movie-ui-subs .movie-ui-sub").allInnerTexts(), ["Hello & welcome", "Second line"]);
     if (browser.browserType() === chromium)
         await page.waitForFunction(() => [...document.querySelector("video").textTracks]
             .find(track => track.language === "hu-HU").cues?.length === 1);
@@ -246,7 +248,7 @@ async function check(browser, options) {
     await group("Audio track").waitFor();
     await focused(checkedIn("Audio track"));
     assert.equal(await subtitle.inputValue(), "-1");
-    assert.deepEqual(await preferences("viewer-a"), { audio: "hu", subtitles: "hu", dataSaver: "auto", screen: "auto" });
+    assert.deepEqual(await preferences("viewer-a"), { audio: "hu", backupAudio: "none", subtitles: "hu", dataSaver: "auto", screen: "auto" });
     await closePlayer(twoPlay, two);
     const onePlay = await playMovieDetails(page, one, "One language");
     await openTracks();
@@ -263,7 +265,7 @@ async function check(browser, options) {
     assert.equal(await page.locator("main").evaluate(node => node.scrollWidth <= node.clientWidth), true);
 
     await open("viewer-b");
-    assert.deepEqual(await preferences("viewer-b"), { audio: "default", subtitles: "default", dataSaver: "auto", screen: "auto" });
+    assert.deepEqual(await preferences("viewer-b"), { audio: "default", backupAudio: "none", subtitles: "default", dataSaver: "auto", screen: "auto" });
     await playMovieDetails(page, two, "Two languages");
     await back.waitFor();
     await openTracks();
@@ -276,7 +278,7 @@ async function check(browser, options) {
     assert.equal(await subtitle.inputValue(), "-1");
     await page.reload();
     await open("viewer-a");
-    assert.deepEqual(await preferences("viewer-a"), { audio: "hu", subtitles: "hu", dataSaver: "auto", screen: "auto" });
+    assert.deepEqual(await preferences("viewer-a"), { audio: "hu", backupAudio: "none", subtitles: "hu", dataSaver: "auto", screen: "auto" });
 
     // The library card predates the position saved on another device.
     savedPosition = 180;

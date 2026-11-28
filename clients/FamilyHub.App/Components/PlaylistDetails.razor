@@ -3,16 +3,16 @@
 @implements IDisposable
 @if (Playlist.CanEdit)
 {
-    @if (!HideTrigger) { <button id="playlist-details-open" class="quiet playlist-details-open" @onclick="Open"><MusicIcon Name="pencil" />Edit details</button> }
+    @if (!HideTrigger) { <button id="playlist-details-open" class="quiet playlist-details-open" @onclick="Open"><MusicIcon Name="pencil" />@L["Edit details"]</button> }
     <dialog id="playlist-details-dialog" class="popup-panel playlist-details-dialog" aria-labelledby="playlist-details-heading">
-        <div class="dialog-heading"><h2 id="playlist-details-heading">Edit details</h2><button class="quiet" aria-label="Close playlist details" @onclick="Close"><MusicIcon Name="close" /></button></div>
+        <div class="dialog-heading"><h2 id="playlist-details-heading">@L["Edit details"]</h2><button class="quiet" aria-label="@L["Close playlist details"].Value" @onclick="Close"><MusicIcon Name="close" /></button></div>
         <form @onsubmit="Save" @onsubmit:preventDefault>
             <div class="playlist-details-fields">
                 <div class="details-cover-column">
-                    <label class="details-cover"><span class="sr">Choose playlist image</span>@if (cover is not null) { <img src="@cover" alt="Playlist cover preview" /> } else { <PlaylistCover Playlist="Playlist" /> }<span class="details-cover-caption">Choose image</span><InputFile OnChange="ChooseCover" accept="image/jpeg,image/png" /></label>
-                    <button type="button" class="quiet details-cover-paste" @onclick="PasteFromClipboard"><MusicIcon Name="image" />Paste image</button>
+                    <label class="details-cover"><span class="sr">@L["Choose playlist image"]</span>@if (cover is not null) { <img src="@cover" alt="@L["Playlist cover preview"].Value" /> } else { <PlaylistCover Playlist="Playlist" /> }<span class="details-cover-caption">@L["Choose image"]</span><InputFile OnChange="ChooseCover" accept="image/jpeg,image/png" /></label>
+                    <button type="button" class="quiet details-cover-paste" @onclick="PasteFromClipboard"><MusicIcon Name="image" />@L["Paste image"]</button>
                 </div>
-                <div class="details-text"><label class="sr" for="details-name">Playlist name</label><input id="details-name" @bind="name" maxlength="200" required /><label class="sr" for="details-description">Description</label><textarea id="details-description" @bind="description" maxlength="2000" placeholder="Add a description"></textarea></div>
+                <div class="details-text"><label class="sr" for="details-name">@L["Playlist name"]</label><input id="details-name" @bind="name" maxlength="200" required /><label class="sr" for="details-description">@L["Description"]</label><textarea id="details-description" @bind="description" maxlength="2000" placeholder="@L["Add a description"].Value"></textarea></div>
             </div>
             <Notice Level="error" Message="@error" />
             <div class="details-footer">@if (Playlist.CanManageAuthors) { <button class="quiet" type="button" @onclick="() => shared = !shared"><MusicIcon Name="@(shared ? "people" : "person")" />@(shared ? "Make private" : "Make public")</button> }<button class="primary" type="submit" aria-disabled="@(saving ? "true" : "false")">@(saving ? "Saving..." : "Save")</button></div>

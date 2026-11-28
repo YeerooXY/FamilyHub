@@ -5,14 +5,14 @@
 @if (DataOnly)
 {
     <section class="settings-panel glass-panel" aria-labelledby="movie-data-heading">
-        <h2 id="movie-data-heading">Data</h2>
+        <h2 id="movie-data-heading">@L["Data"]</h2>
         <fieldset id="movie-data-saver" class="movie-data-options" disabled="@(!ready)" aria-describedby="movie-data-saver-help">
-            <legend>Streaming quality</legend>
+            <legend>@L["Streaming quality"]</legend>
             @foreach (var (id, label) in qualityOptions)
             {
                 <label class="movie-data-option">
                     <input type="radio" name="movie-data-quality" value="@id" checked="@(preferences.DataSaver == id)" @onchange="() => SaveQuality(id)" />
-                    <span>@label</span>
+                    <span>@L[label]</span>
                     @if (estimates.TryGetValue(id, out var estimate))
                     {
                         <span class="muted">@estimate</span>
@@ -20,135 +20,135 @@
                 </label>
             }
         </fieldset>
-        <p class="setting-help" id="movie-data-saver-help">Estimates for a typical film. Auto uses Original on Wi-Fi and Saver on mobile data.</p>
-        <p class="setting-help" role="status">@message</p>
+        <p class="setting-help" id="movie-data-saver-help">@L["Estimates for a typical film. Auto uses Original on Wi-Fi and Saver on mobile data."]</p>
+        <p class="setting-help" role="status">@(message.Length == 0 ? "" : L[message].Value)</p>
     </section>
     <section class="settings-panel glass-panel" aria-labelledby="movie-data-month">
-        <h2 id="movie-data-month">This month</h2>
-        <div class="setting-row"><span>Movies &amp; TV streamed on mobile data</span><span id="movie-data-used">@monthlyUsage</span></div>
+        <h2 id="movie-data-month">@L["This month"]</h2>
+        <div class="setting-row"><span>@L["Movies & TV streamed on mobile data"]</span><span id="movie-data-used">@monthlyUsage</span></div>
     </section>
 }
 else
 {
 <section class="settings-panel glass-panel" aria-labelledby="movie-settings-heading">
-    <h2 id="movie-settings-heading">Movie playback</h2>
+    <h2 id="movie-settings-heading">@L["Movie playback"]</h2>
     <div class="setting-row">
-        <label for="movie-screen">My screen</label>
+        <label for="movie-screen">@L["My screen"]</label>
         <select id="movie-screen" @bind="preferences.Screen" @bind:after="Save" disabled="@(!ready)" aria-describedby="movie-screen-help">
-            <option value="auto">Automatic</option>
+            <option value="auto">@L["Automatic"]</option>
             <option value="1080">1080p / Full HD</option>
             <option value="1440">1440p</option>
             <option value="2160">4K / UHD</option>
             <option value="4320">8K</option>
-            <option value="projector">Projector or very large screen</option>
+            <option value="projector">@L["Projector or very large screen"]</option>
         </select>
     </div>
-    <p class="setting-help" id="movie-screen-help">This sets the resolution limit for converted playback and flags larger downloads. Automatic uses your display’s pixel size. The projector setting allows up to 8K.</p>
+    <p class="setting-help" id="movie-screen-help">@L["This sets the resolution limit for converted playback and flags larger downloads. Automatic uses your display’s pixel size. The projector setting allows up to 8K."]</p>
     <div class="setting-row">
-        <label for="movie-background-style">Background style</label>
+        <label for="movie-background-style">@L["Background style"]</label>
         <select id="movie-background-style" @bind="preferences.BackgroundStyle" @bind:after="Save" disabled="@(!ready)" aria-describedby="movie-background-style-help">
-            <option value="auto">Automatic</option>
-            <option value="preset">Always preset</option>
-            <option value="backdrop">Always backdrop</option>
+            <option value="auto">@L["Automatic"]</option>
+            <option value="preset">@L["Always preset"]</option>
+            <option value="backdrop">@L["Always backdrop"]</option>
         </select>
     </div>
-    <p class="setting-help" id="movie-background-style-help">For titles missing a backdrop, Automatic uses the preset and Always backdrop uses a neutral background.</p>
+    <p class="setting-help" id="movie-background-style-help">@L["For titles missing a backdrop, Automatic uses the preset and Always backdrop uses a neutral background."]</p>
     <div class="setting-row">
-        <label for="movie-preferred-audio">Preferred audio</label>
+        <label for="movie-preferred-audio">@L["Preferred audio"]</label>
         <select id="movie-preferred-audio" @bind="preferences.Audio" @bind:after="Save" disabled="@(!ready)">
-            <option value="default">Media default</option>
-            <option value="hu">Hungarian</option>
-            <option value="en">English</option>
+            <option value="default">@L["Media default"]</option>
+            <option value="hu">@L["Hungarian"]</option>
+            <option value="en">@L["English"]</option>
         </select>
     </div>
     <div class="setting-row">
-        <label for="movie-backup-audio">Backup audio</label>
+        <label for="movie-backup-audio">@L["Backup audio"]</label>
         <select id="movie-backup-audio" @bind="preferences.BackupAudio" @bind:after="Save" disabled="@(!ready)" aria-describedby="movie-backup-audio-help">
-            <option value="none">None</option>
-            <option value="hu">Hungarian</option>
-            <option value="en">English</option>
+            <option value="none">@L["None"]</option>
+            <option value="hu">@L["Hungarian"]</option>
+            <option value="en">@L["English"]</option>
         </select>
     </div>
-    <p class="setting-help" id="movie-backup-audio-help">Used when a movie has no preferred audio. Has no effect while Preferred audio is Media default.</p>
+    <p class="setting-help" id="movie-backup-audio-help">@L["Used when a movie has no preferred audio. Has no effect while Preferred audio is Media default."]</p>
     <div class="setting-row">
-        <label for="movie-preferred-subtitles">Preferred subtitles</label>
+        <label for="movie-preferred-subtitles">@L["Preferred subtitles"]</label>
         <select id="movie-preferred-subtitles" @bind="preferences.Subtitles" @bind:after="Save" disabled="@(!ready)">
-            <option value="default">Media default</option>
-            <option value="off">Off</option>
-            <option value="hu">Hungarian</option>
-            <option value="en">English</option>
+            <option value="default">@L["Media default"]</option>
+            <option value="off">@L["Off"]</option>
+            <option value="hu">@L["Hungarian"]</option>
+            <option value="en">@L["English"]</option>
         </select>
     </div>
     <label class="setting-row movie-playback-toggle" for="movie-auto-skip-intro">
-        <span>Skip intros automatically</span>
+        <span>@L["Skip intros automatically"]</span>
         <input id="movie-auto-skip-intro" type="checkbox" role="switch" @bind="preferences.AutoSkipIntro" @bind:after="Save" disabled="@(!ready)" />
     </label>
     <label class="setting-row movie-playback-toggle" for="movie-auto-skip-recap">
-        <span>Skip recaps automatically</span>
+        <span>@L["Skip recaps automatically"]</span>
         <input id="movie-auto-skip-recap" type="checkbox" role="switch" @bind="preferences.AutoSkipRecap" @bind:after="Save" disabled="@(!ready)" />
     </label>
     <label class="setting-row movie-playback-toggle" for="movie-auto-next">
-        <span>Play the next episode automatically</span>
+        <span>@L["Play the next episode automatically"]</span>
         <input id="movie-auto-next" type="checkbox" role="switch" @bind="preferences.AutoNext" @bind:after="Save" disabled="@(!ready)" />
     </label>
     <label class="setting-row movie-playback-toggle" for="movie-parental-guide">
-        <span>Show the parental guide</span>
+        <span>@L["Show the parental guide"]</span>
         <input id="movie-parental-guide" type="checkbox" role="switch" @bind="preferences.ParentalGuide" @bind:after="Save" disabled="@(!ready)" />
     </label>
     <label class="setting-row movie-playback-toggle" for="movie-chapter-marks">
-        <span>Chapter marks on the seek bar</span>
+        <span>@L["Chapter marks on the seek bar"]</span>
         <input id="movie-chapter-marks" type="checkbox" role="switch" @bind="preferences.ChapterMarks" @bind:after="Save" disabled="@(!ready)" />
     </label>
     <label class="setting-row movie-playback-toggle" for="movie-seek-pictures">
-        <span>Picture previews when seeking</span>
+        <span>@L["Picture previews when seeking"]</span>
         <input id="movie-seek-pictures" type="checkbox" role="switch" @bind="preferences.SeekPictures" @bind:after="Save" disabled="@(!ready)" />
     </label>
     <div class="setting-row">
-        <label for="movie-home-background">Preset colour</label>
+        <label for="movie-home-background">@L["Preset colour"]</label>
         <select id="movie-home-background" @bind="preferences.HomeBackground" @bind:after="Save" disabled="@(!ready)">
-            <option value="auto">Match genre</option>
-            <option value="violet">Violet</option>
-            <option value="blue">Blue</option>
-            <option value="green">Green</option>
-            <option value="amber">Amber</option>
-            <option value="red">Red</option>
-            <option value="slate">Slate</option>
+            <option value="auto">@L["Match genre"]</option>
+            <option value="violet">@L["Violet"]</option>
+            <option value="blue">@L["Blue"]</option>
+            <option value="green">@L["Green"]</option>
+            <option value="amber">@L["Amber"]</option>
+            <option value="red">@L["Red"]</option>
+            <option value="slate">@L["Slate"]</option>
         </select>
     </div>
     <div class="setting-row">
-        <label for="movie-layout-preview">Layout preview</label>
+        <label for="movie-layout-preview">@L["Layout preview"]</label>
         <input id="movie-layout-preview" type="checkbox" role="switch" @bind="preferences.LayoutPreview" @bind:after="Save"
                disabled="@(!ready)" aria-describedby="movie-layout-preview-help" />
     </div>
-    <p class="setting-help" id="movie-layout-preview-help">Show demo titles in Movies Home. Playback and downloads are unavailable in preview.</p>
+    <p class="setting-help" id="movie-layout-preview-help">@L["Show demo titles in Movies Home. Playback and downloads are unavailable in preview."]</p>
     <div class="setting-row">
-        <label for="movie-ratings">Ratings on title pages</label>
+        <label for="movie-ratings">@L["Ratings on title pages"]</label>
         <input id="movie-ratings" type="checkbox" role="switch" @bind="preferences.Ratings" @bind:after="Save"
                disabled="@(!ready)" aria-describedby="movie-ratings-help" />
     </div>
-    <p class="setting-help" id="movie-ratings-help">Show IMDb, Rotten Tomatoes and Metacritic scores when they are known.</p>
-    <p class="setting-help">Saved on this device for your profile.</p>
+    <p class="setting-help" id="movie-ratings-help">@L["Show IMDb, Rotten Tomatoes and Metacritic scores when they are known."]</p>
+    <p class="setting-help">@L["Saved on this device for your profile."]</p>
     <div class="setting-row">
-        <span id="movie-customise-label">Movies Home layout</span>
-        <button type="button" id="movie-customise-home" aria-labelledby="movie-customise-label" @onclick="CustomiseHome" disabled="@(!ready)">Customise Home</button>
+        <span id="movie-customise-label">@L["Movies Home layout"]</span>
+        <button type="button" id="movie-customise-home" aria-labelledby="movie-customise-label" @onclick="CustomiseHome" disabled="@(!ready)">@L["Customise Home"]</button>
     </div>
-    <p class="setting-help">Rows, the banner, Continue watching, title pages and OLED black. Saved to your profile on the server.</p>
-    <p class="setting-help" role="status">@message</p>
+    <p class="setting-help">@L["Rows, the banner, Continue watching, title pages and OLED black. Saved to your profile on the server."]</p>
+    <p class="setting-help" role="status">@(message.Length == 0 ? "" : L[message].Value)</p>
 </section>
 @if (MovieNotifications.Supported && Session.MoviesEnabled)
 {
     <section class="settings-panel glass-panel" aria-labelledby="movie-notifications-heading">
-        <h2 id="movie-notifications-heading">Notifications</h2>
+        <h2 id="movie-notifications-heading">@L["Notifications"]</h2>
         <label class="setting-row movie-playback-toggle" for="movie-notify-episodes">
-            <span>New episode available</span>
+            <span>@L["New episode available"]</span>
             <input id="movie-notify-episodes" type="checkbox" role="switch" checked="@notifyEpisodes" @onchange="args => SaveNotification(true, args.Value is true)" aria-disabled="@(notificationSaving ? "true" : null)" />
         </label>
         <label class="setting-row movie-playback-toggle" for="movie-notify-downloads">
-            <span>Download ready</span>
+            <span>@L["Download ready"]</span>
             <input id="movie-notify-downloads" type="checkbox" role="switch" checked="@notifyDownloads" @onchange="args => SaveNotification(false, args.Value is true)" aria-disabled="@(notificationSaving ? "true" : null)" />
         </label>
-        <p class="setting-help">Notifications appear when FamilyHub syncs. Allow notifications in your device settings.</p>
-        <p class="setting-help" role="status">@notificationMessage</p>
+        <p class="setting-help">@L["Notifications appear when FamilyHub syncs. Allow notifications in your device settings."]</p>
+        <p class="setting-help" role="status">@(notificationMessage.Length == 0 ? "" : L[notificationMessage].Value)</p>
     </section>
 }
 }

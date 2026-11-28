@@ -8,8 +8,8 @@
     {
         <p role="status">@message</p>
     }
-    <ServiceStatus Active="failed" FullSection="true" Detail="Check your connection to load files."
-                   RetryLabel="Retry files" Retry="Load" Busy="loading" AutoRetry="true" RecoveryTarget="#files-service-content" />
+    <ServiceStatus Active="failed" FullSection="true" Detail="@L["Check your connection to load files."].Value"
+                   RetryLabel="@L["Retry files"].Value" Retry="Load" Busy="loading" AutoRetry="true" RecoveryTarget="#files-service-content" />
 </div>
 
 @code {
@@ -90,10 +90,10 @@
     {
         var uploaded = new List<string>();
         var errors = new List<string>();
-        if (Session.Api is not { } api) return System.Text.Json.JsonSerializer.Serialize(new { uploaded, errors = new[] { "Sign in again to upload." } });
+        if (Session.Api is not { } api) return System.Text.Json.JsonSerializer.Serialize(new { uploaded, errors = new[] { L["Sign in again to upload."].Value } });
         IEnumerable<Microsoft.Maui.Storage.FileResult>? picks = null;
         try { picks = await Microsoft.Maui.Storage.FilePicker.Default.PickMultipleAsync(); }
-        catch (Exception) { errors.Add("The file picker could not open."); }
+        catch (Exception) { errors.Add(L["The file picker could not open."].Value); }
         foreach (var pick in picks ?? [])
         {
             string? copy = null;
@@ -116,12 +116,12 @@
                         if (sent == total || DateTime.UtcNow - last > TimeSpan.FromMilliseconds(250)) { last = DateTime.UtcNow; _ = Report(pick.FileName, sent, total); }
                     }, closed.Token);
                     if (status is >= 200 and < 300) uploaded.Add(pick.FileName);
-                    else errors.Add($"{pick.FileName}: {ErrorText(body, "the upload failed.")}");
+                    else errors.Add($"{pick.FileName}: {L[ErrorText(body, "the upload failed.")].Value}");
                 }
                 finally { if (!ReferenceEquals(source, stream)) await source.DisposeAsync(); }
             }
             catch (OperationCanceledException) { break; }
-            catch (Exception) { errors.Add($"{pick.FileName}: the upload did not finish."); }
+            catch (Exception) { errors.Add(L["{0}: the upload did not finish.", pick.FileName].Value); }
             finally { if (copy is not null) { try { File.Delete(copy); } catch (IOException) { } } }
         }
         return System.Text.Json.JsonSerializer.Serialize(new { uploaded, errors });
@@ -132,11 +132,11 @@
     [JSInvokable]
     public async Task<string> FilesDownload(string space, string path, string name)
     {
-        if (Session.Api is not { } api) return "Sign in again to download.";
+        if (Session.Api is not { } api) return L["Sign in again to download."].Value;
         try
         {
             using var response = await api.OpenFileAsync(space, path, closed.Token);
-            if (!response.IsSuccessStatusCode) return $"Could not download {name}. It may have been removed.";
+            if (!response.IsSuccessStatusCode) return L["Could not download {0}. It may have been removed.", name].Value;
 #if WINDOWS
             var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
 #else
@@ -145,15 +145,15 @@
             Directory.CreateDirectory(folder);
             var target = await FileDownload.SaveNewAsync(folder, name, response.Content, closed.Token);
 #if WINDOWS
-            return $"Saved {Path.GetFileName(target)} to your Downloads folder.";
+            return L["Saved {0} to your Downloads folder.", Path.GetFileName(target)].Value;
 #else
             await Microsoft.Maui.ApplicationModel.DataTransfer.Share.Default.RequestAsync(new Microsoft.Maui.ApplicationModel.DataTransfer.ShareFileRequest
             { Title = name, File = new Microsoft.Maui.ApplicationModel.DataTransfer.ShareFile(target) });
-            return $"{name} is ready. Choose where to keep it.";
+            return L["{0} is ready. Choose where to keep it.", name].Value;
 #endif
         }
         catch (OperationCanceledException) { return ""; }
-        catch (Exception) { return $"Could not download {name}. Check the connection and try again."; }
+        catch (Exception) { return L["Could not download {0}. Check the connection and try again.", name].Value; }
     }
 
     // Previews and thumbnails: the bytes come through the signed-in session and reach the page as a data address.
@@ -194,7 +194,7 @@
     [JSInvokable]
     public async Task FilesShare(string text)
     {
-        try { await Microsoft.Maui.ApplicationModel.DataTransfer.Share.Default.RequestAsync(new Microsoft.Maui.ApplicationModel.DataTransfer.ShareTextRequest { Text = text, Title = "FamilyHub file link" }); }
+        try { await Microsoft.Maui.ApplicationModel.DataTransfer.Share.Default.RequestAsync(new Microsoft.Maui.ApplicationModel.DataTransfer.ShareTextRequest { Text = text, Title = L["FamilyHub file link"].Value }); }
         catch (Exception) { }
     }
 

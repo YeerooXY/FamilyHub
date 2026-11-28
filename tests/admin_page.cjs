@@ -58,7 +58,7 @@ async function verify(browser, profile, options) {
             if (resource === "/fixture-poster.svg") return route.fulfill({contentType: "image/svg+xml", body:
                 '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 60"><path fill="#94534a" d="M0 0h40v60H0z"/><circle fill="#ffcd8b" cx="26" cy="20" r="9"/><path fill="#2d465a" d="M0 50 15 23 40 50v10H0z"/></svg>'});
             const asset = resource === "/admin" ? "admin.html" : path.basename(resource);
-            return route.fulfill({path: path.join(asset.startsWith("service-status.") ? shared : assets, asset), headers: {
+            return route.fulfill({path: path.join(/^(service-status|strings)\./.test(asset) ? shared : assets, asset), headers: {
                 "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'"
             }});
         });

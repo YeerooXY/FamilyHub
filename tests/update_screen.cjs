@@ -5,7 +5,9 @@ const { chromium, webkit } = require(require.resolve("playwright", { paths: [pro
 const wwwroot = path.join(__dirname, "../clients/FamilyHub.App/wwwroot");
 const shellCss = path.join(__dirname, "../music_web/static/shell.css");
 const out = path.join(__dirname, "../docs/verification/update-screen-2026-11-23");
-const razor = fs.readFileSync(path.join(__dirname, "../clients/FamilyHub.App/Components/AppUpdate.razor"), "utf8");
+// English text is the string key, so @L["Text"] renders as Text in the default language.
+const razor = fs.readFileSync(path.join(__dirname, "../clients/FamilyHub.App/Components/AppUpdate.razor"), "utf8")
+    .replace(/@L\["((?:[^"\\]|\\.)*)"\](?:\.Value)?/g, "$1");
 const stage = razor.slice(razor.indexOf('<div class="update-stage"'), razor.indexOf("@* /stage *@"));
 const summary = razor.slice(razor.indexOf('<div class="update-summary">'), razor.indexOf("                @WhatsNew", razor.indexOf('<div class="update-summary">')))
     .replace('@ref="titleRef" ', "").replace("@AppUpdater.CurrentVersion", "0.1.85").replace("@available.Version", "0.1.87")

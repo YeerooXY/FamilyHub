@@ -1,3 +1,5 @@
+import { text as t } from "./strings.js";
+
 // Sound settings for the movie player on a PC or Mac.
 // Settings belong to the device (one speaker setup), not to a profile, so they live under one storage key.
 // Phones and televisions use hardware volume.
@@ -160,7 +162,7 @@ export function attachSound(media, { signal, storage, AudioContextClass = global
                 const all = await navigator.mediaDevices.enumerateDevices();
                 let count = 0;
                 return all.filter(device => device.kind === "audiooutput").map(device => ({
-                    id: device.deviceId, label: device.label || (device.deviceId === "default" ? "System default" : `Output ${++count}`)
+                    id: device.deviceId, label: device.label || (device.deviceId === "default" ? t("System default") : t("Output {0}", ++count))
                 }));
             } catch { return []; }
         }

@@ -1,3 +1,5 @@
+import { text as t } from "./strings.js";
+
 const retries = new WeakMap();
 
 export function configureServiceStatus(card, active, automatic, handoff) {
@@ -12,7 +14,7 @@ export function configureServiceStatus(card, active, automatic, handoff) {
         retries.delete(card);
         const timing = card.querySelector(".service-status-clock");
         if (active && timing && card.querySelector(".service-status-retry")) {
-            timing.textContent = card.hasAttribute("data-reconnecting") ? "Trying again…" : "Manual retry";
+            timing.textContent = card.hasAttribute("data-reconnecting") ? t("Trying again…") : t("Manual retry");
         }
         return;
     }
@@ -34,8 +36,8 @@ export function configureServiceStatus(card, active, automatic, handoff) {
             action.click();
             due = Date.now() + Math.min(30000, 8000 * 2 ** Math.min(++retry.round, 2));
         }
-        timing.textContent = action.getAttribute("aria-disabled") === "true" ? "Trying again… "
-            : "Trying again in " + Math.max(1, Math.ceil((due - Date.now()) / 1000)) + " s. ";
+        timing.textContent = action.getAttribute("aria-disabled") === "true" ? t("Trying again… ")
+            : t("Trying again in {0} s. ", Math.max(1, Math.ceil((due - Date.now()) / 1000)));
         retry.timer = setTimeout(tick, 1000);
     }
     tick();
@@ -68,7 +70,7 @@ export function createServiceStatus({ title = serverOutageTitle, detail, label, 
     announcement.setAttribute("role", "status");
     announcement.setAttribute("aria-atomic", "true");
     const description = make("p", "", detail);
-    announcement.append(make("strong", "", title), description);
+    announcement.append(make("strong", "", t(title)), description);
     const timing = make("p", "service-status-timing");
     timing.setAttribute("aria-live", "off");
     const clock = make("span", "service-status-clock");
@@ -80,7 +82,7 @@ export function createServiceStatus({ title = serverOutageTitle, detail, label, 
     const busy = value => {
         action.setAttribute("aria-disabled", String(value));
         card.toggleAttribute("data-reconnecting", value);
-        if (!card.hidden) clock.textContent = value ? "Trying again…" : automatic ? clock.textContent : "Manual retry";
+        if (!card.hidden) clock.textContent = value ? t("Trying again…") : automatic ? clock.textContent : t("Manual retry");
     };
     action.onclick = async () => {
         if (action.getAttribute("aria-disabled") === "true") return;

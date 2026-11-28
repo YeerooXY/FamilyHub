@@ -11,14 +11,14 @@
     {
         <section id="lyrics-view" class="popup-panel lyrics-view is-open" role="dialog" aria-labelledby="lyrics-title">
             <div class="lyrics-header">
-                <div class="dialog-heading"><h2 id="lyrics-title">Lyrics</h2><button id="lyrics-close" class="quiet" aria-label="Close lyrics" @onclick="Close"><MusicIcon Name="close" /></button></div>
+                <div class="dialog-heading"><h2 id="lyrics-title">@L["Lyrics"]</h2><button id="lyrics-close" class="quiet" aria-label="@L["Close lyrics"].Value" @onclick="Close"><MusicIcon Name="close" /></button></div>
                 <div class="lyrics-song"><TrackCover @key="track.Id" Track="track" /><div><strong>@track.DisplayTitle</strong><span>@track.Channel</span></div>
                 @if (current.State == "synced")
                 {
-                    <div class="lyrics-timing" role="group" aria-label="Lyrics timing">
-                        <button id="lyrics-earlier" class="quiet" @onclick="() => Nudge(.5)" aria-label="Show lyrics earlier">Earlier</button>
+                    <div class="lyrics-timing" role="group" aria-label="@L["Lyrics timing"].Value">
+                        <button id="lyrics-earlier" class="quiet" @onclick="() => Nudge(.5)" aria-label="@L["Show lyrics earlier"].Value">@L["Earlier"]</button>
                         <span aria-live="polite">@ShiftLabel</span>
-                        <button id="lyrics-later" class="quiet" @onclick="() => Nudge(-.5)" aria-label="Show lyrics later">Later</button>
+                        <button id="lyrics-later" class="quiet" @onclick="() => Nudge(-.5)" aria-label="@L["Show lyrics later"].Value">@L["Later"]</button>
                     </div>
                 }
                 </div>
@@ -39,15 +39,15 @@
     }
     else
     {
-        <button id="lyrics-preview" class="lyrics-preview" @onclick="Open" aria-label="Open lyrics">
-            <strong>Lyrics</strong>
+        <button id="lyrics-preview" class="lyrics-preview" @onclick="Open" aria-label="@L["Open lyrics"].Value">
+            <strong>@L["Lyrics"]</strong>
             @foreach (var text in PreviewLines(current)) { <span>@text</span> }
         </button>
     }
 }
 else if (loadFailed)
 {
-    <ServiceStatus Detail="Reconnect to load lyrics for this song." RetryLabel="Retry lyrics"
+    <ServiceStatus Detail="@L["Reconnect to load lyrics for this song."].Value" RetryLabel="@L["Retry lyrics"].Value"
                    Retry="Load" Busy="@(requestedFor is not null)" AutoRetry="true" />
 }
 

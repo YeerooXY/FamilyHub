@@ -11,13 +11,13 @@
        artist, play/pause), with the "Playing on" line under it. *@
     var known = Session.Library.Concat(Session.Downloads).FirstOrDefault(s => s.Id == track.Id);
     <div id="remote-now-playing" class="remote-mini" role="group" aria-label="@("Playback on " + device.Name)">
-        <button id="remote-take-over" class="remote-mini-main" @onclick="() => ConnectAsync(device)" aria-disabled="@(connectingDevice is not null ? "true" : "false")" aria-label="@($"Move {track.Title} to this device")" title="Play on this device">
+        <button id="remote-take-over" class="remote-mini-main" @onclick="() => ConnectAsync(device)" aria-disabled="@(connectingDevice is not null ? "true" : "false")" aria-label="@($"Move {track.Title} to this device")" title="@L["Play on this device"].Value">
             <TrackCover Track="@(known ?? new MusicTrack { Id = track.Id, Title = track.Title, Channel = track.Channel })" />
             <span class="remote-mini-copy">
                 <strong id="remote-song-title"><span class="marquee-text">@(known?.DisplayTitle ?? MusicTrack.CompactTitle(track.Title))</span></strong>
                 @if (connectingDevice is not null)
                 {
-                    <small role="status">Connecting...</small>
+                    <small role="status">@L["Connecting..."]</small>
                 }
                 else
                 {

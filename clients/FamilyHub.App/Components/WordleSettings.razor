@@ -4,17 +4,17 @@
 @using System.Text.Json.Serialization
 
 <section class="settings-panel glass-panel" aria-labelledby="wordle-settings-title">
-    <h2 id="wordle-settings-title">Wordle</h2>
+    <h2 id="wordle-settings-title">@L["Wordle"]</h2>
     <label class="setting-toggle">
         <input id="wordle-settings-choice" type="checkbox" checked="@hideFamily" disabled="@(!loaded)" aria-disabled="@(busy ? "true" : "false")"
                aria-describedby="wordle-settings-help" @onchange="SetPreference" />
-        <span>Hide family results until I finish</span>
+        <span>@L["Hide family results until I finish"]</span>
     </label>
-    <p id="wordle-settings-help" class="setting-help">This applies to today’s family boards and results.</p>
-    @if (!loadFailed && !saveUnavailable) { <p class="setting-help" role="status">@status</p> }
+    <p id="wordle-settings-help" class="setting-help">@L["This applies to today’s family boards and results."]</p>
+    @if (!loadFailed && !saveUnavailable) { <p class="setting-help" role="status">@L[status]</p> }
     <ServiceStatus Active="@(loadFailed || saveUnavailable)"
                    Detail="@(saveUnavailable ? "Reload your preferences to check whether the change was saved." : "Reconnect to load your Wordle preferences.")"
-                   RetryLabel="Retry Wordle settings" Retry="Load" Busy="busy" AutoRetry="true" FocusTarget="#wordle-settings-choice" />
+                   RetryLabel="@L["Retry Wordle settings"].Value" Retry="Load" Busy="busy" AutoRetry="true" FocusTarget="#wordle-settings-choice" />
 </section>
 
 @code {

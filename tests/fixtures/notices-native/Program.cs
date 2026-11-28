@@ -12,6 +12,8 @@ using NoticesHost;
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseStaticWebAssets();
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+builder.Services.AddSingleton(new AppStrings(Environment.GetEnvironmentVariable("FAMILYHUB_LANGUAGE") ?? "en"));
+builder.Services.AddSingleton<Microsoft.Extensions.Localization.IStringLocalizer>(services => services.GetRequiredService<AppStrings>());
 builder.Services.AddScoped(_ =>
 {
     var server = new Uri("https://notices.fixture.test/");
@@ -42,6 +44,8 @@ new Harmony("familyhub.notices.fixture").Patch(AccessTools.PropertyGetter(typeof
 var app = builder.Build();
 var repo = Path.GetFullPath(Path.Combine(app.Environment.ContentRootPath, "..", "..", ".."));
 var native = Path.Combine(repo, "clients", "FamilyHub.App", "wwwroot");
+app.MapGet("/strings.hu.json", () => Results.Json(new AppStrings("hu").GetAllStrings(false)
+    .ToDictionary(entry => entry.Name, entry => entry.Value)));
 app.MapGet("/native.js", () => Results.File(Path.Combine(native, "app.js"), "text/javascript"));
 foreach (var folder in new[] { native, Path.Combine(repo, "music_web", "static") })
     app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(folder) });

@@ -1,0 +1,1570 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="(you)" xml:space="preserve"><value>(you)</value></data>
+  <data name="({0:N0} left)" xml:space="preserve"><value>({0:N0} left)</value></data>
+  <data name=", Hard Mode rules" xml:space="preserve"><value>, Hard Mode rules</value></data>
+  <data name=", playing" xml:space="preserve"><value>, playing</value></data>
+  <data name=", typing, {0} tiles filled" xml:space="preserve"><value>, typing, {0} tiles filled</value></data>
+  <data name=", won the round" xml:space="preserve"><value>, won the round</value></data>
+  <data name=", {0} active time" xml:space="preserve"><value>, {0} active time</value></data>
+  <data name="1 GB" xml:space="preserve"><value>1 GB</value></data>
+  <data name="1 day" xml:space="preserve"><value>1 day</value></data>
+  <data name="1 hour" xml:space="preserve"><value>1 hour</value></data>
+  <data name="1-minute load average" xml:space="preserve"><value>1-minute load average</value></data>
+  <data name="10 GB" xml:space="preserve"><value>10 GB</value></data>
+  <data name="3 GB" xml:space="preserve"><value>3 GB</value></data>
+  <data name="30 days" xml:space="preserve"><value>30 days</value></data>
+  <data name="4K HDR or Remux" xml:space="preserve"><value>4K HDR or Remux</value></data>
+  <data name="4K streaming copy" xml:space="preserve"><value>4K streaming copy</value></data>
+  <data name="5 GB" xml:space="preserve"><value>5 GB</value></data>
+  <data name="7 days" xml:space="preserve"><value>7 days</value></data>
+  <data name="A different song or version plays. An admin picks a new source." xml:space="preserve"><value>A different song or version plays. An admin picks a new source.</value></data>
+  <data name="A file could not be uploaded. Try again." xml:space="preserve"><value>A file could not be uploaded. Try again.</value></data>
+  <data name="A new daily puzzle is ready." xml:space="preserve"><value>A new daily puzzle is ready.</value></data>
+  <data name="A profile with this name already exists." xml:space="preserve"><value>A profile with this name already exists.</value></data>
+  <data name="A solid guess. Another word narrowed the options more." xml:space="preserve"><value>A solid guess. Another word narrowed the options more.</value></data>
+  <data name="A strong opening word. It tests common letters in useful places." xml:space="preserve"><value>A strong opening word. It tests common letters in useful places.</value></data>
+  <data name="A word that guaranteed a solve was available. This guess did not." xml:space="preserve"><value>A word that guaranteed a solve was available. This guess did not.</value></data>
+  <data name="About {0} GB per hour" xml:space="preserve"><value>About {0} GB per hour</value></data>
+  <data name="About {0} left" xml:space="preserve"><value>About {0} left</value></data>
+  <data name="Accounts" xml:space="preserve"><value>Accounts</value></data>
+  <data name="Actions for {0}" xml:space="preserve"><value>Actions for {0}</value></data>
+  <data name="Active jobs" xml:space="preserve"><value>Active jobs</value></data>
+  <data name="Active time" xml:space="preserve"><value>Active time</value></data>
+  <data name="Activity" xml:space="preserve"><value>Activity</value></data>
+  <data name="Actor" xml:space="preserve"><value>Actor</value></data>
+  <data name="Add a description" xml:space="preserve"><value>Add a description</value></data>
+  <data name="Add audio track" xml:space="preserve"><value>Add audio track</value></data>
+  <data name="Add mapping" xml:space="preserve"><value>Add mapping</value></data>
+  <data name="Add profile" xml:space="preserve"><value>Add profile</value></data>
+  <data name="Add songs" xml:space="preserve"><value>Add songs</value></data>
+  <data name="Add songs from this device" xml:space="preserve"><value>Add songs from this device</value></data>
+  <data name="Add songs to your library to start a mix." xml:space="preserve"><value>Add songs to your library to start a mix.</value></data>
+  <data name="Add to a playlist" xml:space="preserve"><value>Add to a playlist</value></data>
+  <data name="Add to playlist" xml:space="preserve"><value>Add to playlist</value></data>
+  <data name="Add to queue" xml:space="preserve"><value>Add to queue</value></data>
+  <data name="Add {0} to playlist" xml:space="preserve"><value>Add {0} to playlist</value></data>
+  <data name="Added" xml:space="preserve"><value>Added</value></data>
+  <data name="Added automatically" xml:space="preserve"><value>Added automatically</value></data>
+  <data name="Added by" xml:space="preserve"><value>Added by</value></data>
+  <data name="Added {0} to the download queue." xml:space="preserve"><value>Added {0} to the download queue.</value></data>
+  <data name="Adults only" xml:space="preserve"><value>Adults only</value></data>
+  <data name="Adventure" xml:space="preserve"><value>Adventure</value></data>
+  <data name="Age rating {0}" xml:space="preserve"><value>Age rating {0}</value></data>
+  <data name="Album" xml:space="preserve"><value>Album</value></data>
+  <data name="Albums for you" xml:space="preserve"><value>Albums for you</value></data>
+  <data name="All" xml:space="preserve"><value>All</value></data>
+  <data name="All playlists" xml:space="preserve"><value>All playlists</value></data>
+  <data name="All time" xml:space="preserve"><value>All time</value></data>
+  <data name="Almost done" xml:space="preserve"><value>Almost done</value></data>
+  <data name="Almost the best choice. Another word narrowed the options slightly more." xml:space="preserve"><value>Almost the best choice. Another word narrowed the options slightly more.</value></data>
+  <data name="Alphabetical" xml:space="preserve"><value>Alphabetical</value></data>
+  <data name="Already guessed." xml:space="preserve"><value>Already guessed.</value></data>
+  <data name="Already requested or available" xml:space="preserve"><value>Already requested or available</value></data>
+  <data name="Also searched for " xml:space="preserve"><value>Also searched for </value></data>
+  <data name="Always backdrop" xml:space="preserve"><value>Always backdrop</value></data>
+  <data name="Always preset" xml:space="preserve"><value>Always preset</value></data>
+  <data name="Amber" xml:space="preserve"><value>Amber</value></data>
+  <data name="Another word had much better odds or revealed much more." xml:space="preserve"><value>Another word had much better odds or revealed much more.</value></data>
+  <data name="Another word made better use of the clues." xml:space="preserve"><value>Another word made better use of the clues.</value></data>
+  <data name="Anyone with the link can download “{0}” until it expires." xml:space="preserve"><value>Anyone with the link can download “{0}” until it expires.</value></data>
+  <data name="Appearance" xml:space="preserve"><value>Appearance</value></data>
+  <data name="Apply my change again" xml:space="preserve"><value>Apply my change again</value></data>
+  <data name="Apps" xml:space="preserve"><value>Apps</value></data>
+  <data name="Artist" xml:space="preserve"><value>Artist</value></data>
+  <data name="Artist mappings" xml:space="preserve"><value>Artist mappings</value></data>
+  <data name="Artist name" xml:space="preserve"><value>Artist name</value></data>
+  <data name="Ascending" xml:space="preserve"><value>Ascending</value></data>
+  <data name="Ask the server owner to enable downloads for your profile." xml:space="preserve"><value>Ask the server owner to enable downloads for your profile.</value></data>
+  <data name="Ask the server owner to set a profile password to use your private files." xml:space="preserve"><value>Ask the server owner to set a profile password to use your private files.</value></data>
+  <data name="Attach pictures here" xml:space="preserve"><value>Attach pictures here</value></data>
+  <data name="Audio" xml:space="preserve"><value>Audio</value></data>
+  <data name="Audio &amp; Subtitles" xml:space="preserve"><value>Audio &amp; Subtitles</value></data>
+  <data name="Audio added to {0}." xml:space="preserve"><value>Audio added to {0}.</value></data>
+  <data name="Audio channel limit" xml:space="preserve"><value>Audio channel limit</value></data>
+  <data name="Audio delay" xml:space="preserve"><value>Audio delay</value></data>
+  <data name="Audio delay is available for audio tracks you add. Use Find audio in Audio &amp; Subtitles." xml:space="preserve"><value>Audio delay is available for audio tracks you add. Use Find audio in Audio &amp; Subtitles.</value></data>
+  <data name="Audio delay value" xml:space="preserve"><value>Audio delay value</value></data>
+  <data name="Audio sync is unavailable for this stream." xml:space="preserve"><value>Audio sync is unavailable for this stream.</value></data>
+  <data name="Audio timing unchanged." xml:space="preserve"><value>Audio timing unchanged.</value></data>
+  <data name="Audio track" xml:space="preserve"><value>Audio track</value></data>
+  <data name="Audio track added." xml:space="preserve"><value>Audio track added.</value></data>
+  <data name="Auto" xml:space="preserve"><value>Auto</value></data>
+  <data name="Automatic" xml:space="preserve"><value>Automatic</value></data>
+  <data name="Automatic catalogue attempts per hour" xml:space="preserve"><value>Automatic catalogue attempts per hour</value></data>
+  <data name="Automatic lookup is off." xml:space="preserve"><value>Automatic lookup is off.</value></data>
+  <data name="Automatic source replacement" xml:space="preserve"><value>Automatic source replacement</value></data>
+  <data name="Automatic work" xml:space="preserve"><value>Automatic work</value></data>
+  <data name="Availability" xml:space="preserve"><value>Availability</value></data>
+  <data name="Availability unknown" xml:space="preserve"><value>Availability unknown</value></data>
+  <data name="Available" xml:space="preserve"><value>Available</value></data>
+  <data name="Available in the library" xml:space="preserve"><value>Available in the library</value></data>
+  <data name="Available sessions" xml:space="preserve"><value>Available sessions</value></data>
+  <data name="Average guesses to solve" xml:space="preserve"><value>Average guesses to solve</value></data>
+  <data name="Back" xml:space="preserve"><value>Back</value></data>
+  <data name="Back 10 seconds" xml:space="preserve"><value>Back 10 seconds</value></data>
+  <data name="Back from " xml:space="preserve"><value>Back from </value></data>
+  <data name="Back to feedback" xml:space="preserve"><value>Back to feedback</value></data>
+  <data name="Back to movies" xml:space="preserve"><value>Back to movies</value></data>
+  <data name="Back to profiles" xml:space="preserve"><value>Back to profiles</value></data>
+  <data name="Back to puzzle" xml:space="preserve"><value>Back to puzzle</value></data>
+  <data name="Back to settings categories" xml:space="preserve"><value>Back to settings categories</value></data>
+  <data name="Back to song review" xml:space="preserve"><value>Back to song review</value></data>
+  <data name="Back to titles" xml:space="preserve"><value>Back to titles</value></data>
+  <data name="Backdrop" xml:space="preserve"><value>Backdrop</value></data>
+  <data name="Background style" xml:space="preserve"><value>Background style</value></data>
+  <data name="Backup audio" xml:space="preserve"><value>Backup audio</value></data>
+  <data name="Bad quality or live performance" xml:space="preserve"><value>Bad quality or live performance</value></data>
+  <data name="Based on your listening" xml:space="preserve"><value>Based on your listening</value></data>
+  <data name="Bass boost" xml:space="preserve"><value>Bass boost</value></data>
+  <data name="Best" xml:space="preserve"><value>Best</value></data>
+  <data name="Bitrate limit" xml:space="preserve"><value>Bitrate limit</value></data>
+  <data name="Blue" xml:space="preserve"><value>Blue</value></data>
+  <data name="Blunder" xml:space="preserve"><value>Blunder</value></data>
+  <data name="Blur unwatched episode stills" xml:space="preserve"><value>Blur unwatched episode stills</value></data>
+  <data name="Blurred" xml:space="preserve"><value>Blurred</value></data>
+  <data name="Book" xml:space="preserve"><value>Book</value></data>
+  <data name="Born" xml:space="preserve"><value>Born</value></data>
+  <data name="Box" xml:space="preserve"><value>Box</value></data>
+  <data name="Brilliant" xml:space="preserve"><value>Brilliant</value></data>
+  <data name="Browse or continue watching" xml:space="preserve"><value>Browse or continue watching</value></data>
+  <data name="Browse saved songs" xml:space="preserve"><value>Browse saved songs</value></data>
+  <data name="Browse your library" xml:space="preserve"><value>Browse your library</value></data>
+  <data name="Buffering" xml:space="preserve"><value>Buffering</value></data>
+  <data name="CPU load" xml:space="preserve"><value>CPU load</value></data>
+  <data name="CPU package:" xml:space="preserve"><value>CPU package:</value></data>
+  <data name="CPU warm at 70 °C, hot at 85 °C" xml:space="preserve"><value>CPU warm at 70 °C, hot at 85 °C</value></data>
+  <data name="Camera copy" xml:space="preserve"><value>Camera copy</value></data>
+  <data name="Can't reach your server" xml:space="preserve"><value>Can't reach your server</value></data>
+  <data name="Cancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="Cannot reach the server. Check your connection and try again." xml:space="preserve"><value>Cannot reach the server. Check your connection and try again.</value></data>
+  <data name="Card style" xml:space="preserve"><value>Card style</value></data>
+  <data name="Cast" xml:space="preserve"><value>Cast</value></data>
+  <data name="Catalogue lookup unavailable." xml:space="preserve"><value>Catalogue lookup unavailable.</value></data>
+  <data name="Catalogue work paused while the server is in use." xml:space="preserve"><value>Catalogue work paused while the server is in use.</value></data>
+  <data name="Catalogue worker configuration" xml:space="preserve"><value>Catalogue worker configuration</value></data>
+  <data name="Change picture" xml:space="preserve"><value>Change picture</value></data>
+  <data name="Change server" xml:space="preserve"><value>Change server</value></data>
+  <data name="Chapter list" xml:space="preserve"><value>Chapter list</value></data>
+  <data name="Chapter marks on the seek bar" xml:space="preserve"><value>Chapter marks on the seek bar</value></data>
+  <data name="Chapter {0}" xml:space="preserve"><value>Chapter {0}</value></data>
+  <data name="Chapters" xml:space="preserve"><value>Chapters</value></data>
+  <data name="Chapters,Trickplay" xml:space="preserve"><value>Chapters,Trickplay</value></data>
+  <data name="Check again" xml:space="preserve"><value>Check again</value></data>
+  <data name="Check the Jellyfin connection for this profile." xml:space="preserve"><value>Check the Jellyfin connection for this profile.</value></data>
+  <data name="Check the Jellyfin connection to load its status." xml:space="preserve"><value>Check the Jellyfin connection to load its status.</value></data>
+  <data name="Check the connection to download the update." xml:space="preserve"><value>Check the connection to download the update.</value></data>
+  <data name="Check the library before resubmitting the song." xml:space="preserve"><value>Check the library before resubmitting the song.</value></data>
+  <data name="Check the playlist before retrying the save." xml:space="preserve"><value>Check the playlist before retrying the save.</value></data>
+  <data name="Check the server address and your connection." xml:space="preserve"><value>Check the server address and your connection.</value></data>
+  <data name="Check the status of the accepted upload." xml:space="preserve"><value>Check the status of the accepted upload.</value></data>
+  <data name="Check the suggested values before saving." xml:space="preserve"><value>Check the suggested values before saving.</value></data>
+  <data name="Check your connection before adding songs." xml:space="preserve"><value>Check your connection before adding songs.</value></data>
+  <data name="Check your connection to load files." xml:space="preserve"><value>Check your connection to load files.</value></data>
+  <data name="Check your connection, or turn on Tailscale if you are away from home." xml:space="preserve"><value>Check your connection, or turn on Tailscale if you are away from home.</value></data>
+  <data name="Checking Trakt…" xml:space="preserve"><value>Checking Trakt…</value></data>
+  <data name="Checking for updates…" xml:space="preserve"><value>Checking for updates…</value></data>
+  <data name="Checking guess…" xml:space="preserve"><value>Checking guess…</value></data>
+  <data name="Checking server files…" xml:space="preserve"><value>Checking server files…</value></data>
+  <data name="Checking timing" xml:space="preserve"><value>Checking timing</value></data>
+  <data name="Choose" xml:space="preserve"><value>Choose</value></data>
+  <data name="Choose a file." xml:space="preserve"><value>Choose a file.</value></data>
+  <data name="Choose a film from the library." xml:space="preserve"><value>Choose a film from the library.</value></data>
+  <data name="Choose a folder" xml:space="preserve"><value>Choose a folder</value></data>
+  <data name="Choose a profile" xml:space="preserve"><value>Choose a profile</value></data>
+  <data name="Choose a recording" xml:space="preserve"><value>Choose a recording</value></data>
+  <data name="Choose a title from the results." xml:space="preserve"><value>Choose a title from the results.</value></data>
+  <data name="Choose an image smaller than 10 MB." xml:space="preserve"><value>Choose an image smaller than 10 MB.</value></data>
+  <data name="Choose an item." xml:space="preserve"><value>Choose an item.</value></data>
+  <data name="Choose another source" xml:space="preserve"><value>Choose another source</value></data>
+  <data name="Choose audio output" xml:space="preserve"><value>Choose audio output</value></data>
+  <data name="Choose family files or your files." xml:space="preserve"><value>Choose family files or your files.</value></data>
+  <data name="Choose how long the link works." xml:space="preserve"><value>Choose how long the link works.</value></data>
+  <data name="Choose image" xml:space="preserve"><value>Choose image</value></data>
+  <data name="Choose listener" xml:space="preserve"><value>Choose listener</value></data>
+  <data name="Choose listener, {0}" xml:space="preserve"><value>Choose listener, {0}</value></data>
+  <data name="Choose playlist image" xml:space="preserve"><value>Choose playlist image</value></data>
+  <data name="Choose recording" xml:space="preserve"><value>Choose recording</value></data>
+  <data name="Choose saved songs" xml:space="preserve"><value>Choose saved songs</value></data>
+  <data name="Choose songs" xml:space="preserve"><value>Choose songs</value></data>
+  <data name="Clear" xml:space="preserve"><value>Clear</value></data>
+  <data name="Clear YouTube links" xml:space="preserve"><value>Clear YouTube links</value></data>
+  <data name="Clear link" xml:space="preserve"><value>Clear link</value></data>
+  <data name="Clear listening history" xml:space="preserve"><value>Clear listening history</value></data>
+  <data name="Clear listening history?" xml:space="preserve"><value>Clear listening history?</value></data>
+  <data name="Clear playlist search" xml:space="preserve"><value>Clear playlist search</value></data>
+  <data name="Clear search" xml:space="preserve"><value>Clear search</value></data>
+  <data name="Clear selection" xml:space="preserve"><value>Clear selection</value></data>
+  <data name="Clear settings search" xml:space="preserve"><value>Clear settings search</value></data>
+  <data name="Clear song search" xml:space="preserve"><value>Clear song search</value></data>
+  <data name="Clipboard preview" xml:space="preserve"><value>Clipboard preview</value></data>
+  <data name="Close" xml:space="preserve"><value>Close</value></data>
+  <data name="Close Add songs" xml:space="preserve"><value>Close Add songs</value></data>
+  <data name="Close Connect" xml:space="preserve"><value>Close Connect</value></data>
+  <data name="Close Listen Together" xml:space="preserve"><value>Close Listen Together</value></data>
+  <data name="Close Now Playing" xml:space="preserve"><value>Close Now Playing</value></data>
+  <data name="Close Report song" xml:space="preserve"><value>Close Report song</value></data>
+  <data name="Close Spotify question" xml:space="preserve"><value>Close Spotify question</value></data>
+  <data name="Close Trakt link" xml:space="preserve"><value>Close Trakt link</value></data>
+  <data name="Close audio and subtitles" xml:space="preserve"><value>Close audio and subtitles</value></data>
+  <data name="Close clear listening history" xml:space="preserve"><value>Close clear listening history</value></data>
+  <data name="Close co-authors" xml:space="preserve"><value>Close co-authors</value></data>
+  <data name="Close create playlist" xml:space="preserve"><value>Close create playlist</value></data>
+  <data name="Close delete playlist" xml:space="preserve"><value>Close delete playlist</value></data>
+  <data name="Close episodes" xml:space="preserve"><value>Close episodes</value></data>
+  <data name="Close family board" xml:space="preserve"><value>Close family board</value></data>
+  <data name="Close feedback" xml:space="preserve"><value>Close feedback</value></data>
+  <data name="Close genre chooser" xml:space="preserve"><value>Close genre chooser</value></data>
+  <data name="Close help" xml:space="preserve"><value>Close help</value></data>
+  <data name="Close keep on this device" xml:space="preserve"><value>Close keep on this device</value></data>
+  <data name="Close listener options" xml:space="preserve"><value>Close listener options</value></data>
+  <data name="Close lyrics" xml:space="preserve"><value>Close lyrics</value></data>
+  <data name="Close metadata review" xml:space="preserve"><value>Close metadata review</value></data>
+  <data name="Close playback info" xml:space="preserve"><value>Close playback info</value></data>
+  <data name="Close player options" xml:space="preserve"><value>Close player options</value></data>
+  <data name="Close playlist details" xml:space="preserve"><value>Close playlist details</value></data>
+  <data name="Close playlist import" xml:space="preserve"><value>Close playlist import</value></data>
+  <data name="Close playlist options" xml:space="preserve"><value>Close playlist options</value></data>
+  <data name="Close playlist picker" xml:space="preserve"><value>Close playlist picker</value></data>
+  <data name="Close playlist search" xml:space="preserve"><value>Close playlist search</value></data>
+  <data name="Close preview" xml:space="preserve"><value>Close preview</value></data>
+  <data name="Close profile menu" xml:space="preserve"><value>Close profile menu</value></data>
+  <data name="Close recording choice" xml:space="preserve"><value>Close recording choice</value></data>
+  <data name="Close recording choices" xml:space="preserve"><value>Close recording choices</value></data>
+  <data name="Close remove downloaded songs" xml:space="preserve"><value>Close remove downloaded songs</value></data>
+  <data name="Close screenshot" xml:space="preserve"><value>Close screenshot</value></data>
+  <data name="Close settings" xml:space="preserve"><value>Close settings</value></data>
+  <data name="Close song options" xml:space="preserve"><value>Close song options</value></data>
+  <data name="Close song picker" xml:space="preserve"><value>Close song picker</value></data>
+  <data name="Close sort playlists" xml:space="preserve"><value>Close sort playlists</value></data>
+  <data name="Close sound and subtitle style" xml:space="preserve"><value>Close sound and subtitle style</value></data>
+  <data name="Close update" xml:space="preserve"><value>Close update</value></data>
+  <data name="Close yesterday’s results" xml:space="preserve"><value>Close yesterday’s results</value></data>
+  <data name="Close {0}" xml:space="preserve"><value>Close {0}</value></data>
+  <data name="Co-authors" xml:space="preserve"><value>Co-authors</value></data>
+  <data name="Collections" xml:space="preserve"><value>Collections</value></data>
+  <data name="Complete series" xml:space="preserve"><value>Complete series</value></data>
+  <data name="Compressed 4K disc video" xml:space="preserve"><value>Compressed 4K disc video</value></data>
+  <data name="Compressed HD disc video" xml:space="preserve"><value>Compressed HD disc video</value></data>
+  <data name="Confirm download" xml:space="preserve"><value>Confirm download</value></data>
+  <data name="Connect" xml:space="preserve"><value>Connect</value></data>
+  <data name="Connect to clear shared listening history." xml:space="preserve"><value>Connect to clear shared listening history.</value></data>
+  <data name="Connect to your server to see who is online." xml:space="preserve"><value>Connect to your server to see who is online.</value></data>
+  <data name="Connected" xml:space="preserve"><value>Connected</value></data>
+  <data name="Connected as {0}" xml:space="preserve"><value>Connected as {0}</value></data>
+  <data name="Connected to Trakt" xml:space="preserve"><value>Connected to Trakt</value></data>
+  <data name="Connecting..." xml:space="preserve"><value>Connecting...</value></data>
+  <data name="Connecting…" xml:space="preserve"><value>Connecting…</value></data>
+  <data name="Connection" xml:space="preserve"><value>Connection</value></data>
+  <data name="Contents of {0}" xml:space="preserve"><value>Contents of {0}</value></data>
+  <data name="Continue" xml:space="preserve"><value>Continue</value></data>
+  <data name="Continue watching" xml:space="preserve"><value>Continue watching</value></data>
+  <data name="Converted" xml:space="preserve"><value>Converted</value></data>
+  <data name="Copied." xml:space="preserve"><value>Copied.</value></data>
+  <data name="Copy link" xml:space="preserve"><value>Copy link</value></data>
+  <data name="Copy the address when you create a link." xml:space="preserve"><value>Copy the address when you create a link.</value></data>
+  <data name="Could not add audio." xml:space="preserve"><value>Could not add audio.</value></data>
+  <data name="Could not add subtitles. Try again or ask an admin to check subtitle permissions and storage." xml:space="preserve"><value>Could not add subtitles. Try again or ask an admin to check subtitle permissions and storage.</value></data>
+  <data name="Could not check Trakt. Close this window and try again." xml:space="preserve"><value>Could not check Trakt. Close this window and try again.</value></data>
+  <data name="Could not check for a trailer. Try again." xml:space="preserve"><value>Could not check for a trailer. Try again.</value></data>
+  <data name="Could not check for notifications. Sync again." xml:space="preserve"><value>Could not check for notifications. Sync again.</value></data>
+  <data name="Could not check for updates" xml:space="preserve"><value>Could not check for updates</value></data>
+  <data name="Could not check server files." xml:space="preserve"><value>Could not check server files.</value></data>
+  <data name="Could not check your library. Try again." xml:space="preserve"><value>Could not check your library. Try again.</value></data>
+  <data name="Could not confirm the download. Check On the server before trying again." xml:space="preserve"><value>Could not confirm the download. Check On the server before trying again.</value></data>
+  <data name="Could not confirm the download. Return to Movies &amp; TV and check Downloading before trying again." xml:space="preserve"><value>Could not confirm the download. Return to Movies &amp; TV and check Downloading before trying again.</value></data>
+  <data name="Could not confirm the request. Try again." xml:space="preserve"><value>Could not confirm the request. Try again.</value></data>
+  <data name="Could not connect this profile to Jellyfin." xml:space="preserve"><value>Could not connect this profile to Jellyfin.</value></data>
+  <data name="Could not download {0}. Check the connection and try again." xml:space="preserve"><value>Could not download {0}. Check the connection and try again.</value></data>
+  <data name="Could not download {0}. It may have been removed." xml:space="preserve"><value>Could not download {0}. It may have been removed.</value></data>
+  <data name="Could not download {0}. Try again." xml:space="preserve"><value>Could not download {0}. Try again.</value></data>
+  <data name="Could not enter full screen. Try again." xml:space="preserve"><value>Could not enter full screen. Try again.</value></data>
+  <data name="Could not exit full screen. Try again." xml:space="preserve"><value>Could not exit full screen. Try again.</value></data>
+  <data name="Could not load the biography and credits. Try again." xml:space="preserve"><value>Could not load the biography and credits. Try again.</value></data>
+  <data name="Could not match the audio automatically." xml:space="preserve"><value>Could not match the audio automatically.</value></data>
+  <data name="Could not match the series in TMDB." xml:space="preserve"><value>Could not match the series in TMDB.</value></data>
+  <data name="Could not open Movies. Try again." xml:space="preserve"><value>Could not open Movies. Try again.</value></data>
+  <data name="Could not open the audio picker. Try again." xml:space="preserve"><value>Could not open the audio picker. Try again.</value></data>
+  <data name="Could not open the browser. Go to trakt.tv/activate yourself and enter the code." xml:space="preserve"><value>Could not open the browser. Go to trakt.tv/activate yourself and enter the code.</value></data>
+  <data name="Could not open the download. Try again." xml:space="preserve"><value>Could not open the download. Try again.</value></data>
+  <data name="Could not open this chapter. Try again." xml:space="preserve"><value>Could not open this chapter. Try again.</value></data>
+  <data name="Could not remove this title. Try again." xml:space="preserve"><value>Could not remove this title. Try again.</value></data>
+  <data name="Could not resync the {0} subtitles. Try again later." xml:space="preserve"><value>Could not resync the {0} subtitles. Try again later.</value></data>
+  <data name="Could not save download options. Try again." xml:space="preserve"><value>Could not save download options. Try again.</value></data>
+  <data name="Could not save notifications. Try again." xml:space="preserve"><value>Could not save notifications. Try again.</value></data>
+  <data name="Could not save this to the server. It is kept on this device." xml:space="preserve"><value>Could not save this to the server. It is kept on this device.</value></data>
+  <data name="Could not save your display name. Try again." xml:space="preserve"><value>Could not save your display name. Try again.</value></data>
+  <data name="Could not search for subtitles. Try again." xml:space="preserve"><value>Could not search for subtitles. Try again.</value></data>
+  <data name="Could not skip. Try again." xml:space="preserve"><value>Could not skip. Try again.</value></data>
+  <data name="Could not start matching." xml:space="preserve"><value>Could not start matching.</value></data>
+  <data name="Could not update My list. Try again." xml:space="preserve"><value>Could not update My list. Try again.</value></data>
+  <data name="Couldn’t check that guess. Press Enter to retry." xml:space="preserve"><value>Couldn’t check that guess. Press Enter to retry.</value></data>
+  <data name="Couldn’t refresh the puzzle. Press Enter to retry." xml:space="preserve"><value>Couldn’t refresh the puzzle. Press Enter to retry.</value></data>
+  <data name="Couldn’t save this setting. Try again." xml:space="preserve"><value>Couldn’t save this setting. Try again.</value></data>
+  <data name="Create folder" xml:space="preserve"><value>Create folder</value></data>
+  <data name="Create link" xml:space="preserve"><value>Create link</value></data>
+  <data name="Create password and sign in" xml:space="preserve"><value>Create password and sign in</value></data>
+  <data name="Create playlist" xml:space="preserve"><value>Create playlist</value></data>
+  <data name="Create profile" xml:space="preserve"><value>Create profile</value></data>
+  <data name="Crossfade songs" xml:space="preserve"><value>Crossfade songs</value></data>
+  <data name="Current readings" xml:space="preserve"><value>Current readings</value></data>
+  <data name="Customise" xml:space="preserve"><value>Customise</value></data>
+  <data name="Customise Home" xml:space="preserve"><value>Customise Home</value></data>
+  <data name="Daily Wordle" xml:space="preserve"><value>Daily Wordle</value></data>
+  <data name="Daily listening chart, scroll for more dates" xml:space="preserve"><value>Daily listening chart, scroll for more dates</value></data>
+  <data name="Daily listening, {0}" xml:space="preserve"><value>Daily listening, {0}</value></data>
+  <data name="Daily puzzle" xml:space="preserve"><value>Daily puzzle</value></data>
+  <data name="Dark theme" xml:space="preserve"><value>Dark theme</value></data>
+  <data name="Data" xml:space="preserve"><value>Data</value></data>
+  <data name="Data saver" xml:space="preserve"><value>Data saver</value></data>
+  <data name="Data used" xml:space="preserve"><value>Data used</value></data>
+  <data name="Date" xml:space="preserve"><value>Date</value></data>
+  <data name="Decrease" xml:space="preserve"><value>Decrease</value></data>
+  <data name="Decrease audio delay" xml:space="preserve"><value>Decrease audio delay</value></data>
+  <data name="Deezer artist ID" xml:space="preserve"><value>Deezer artist ID</value></data>
+  <data name="Deezer chart checked {0}." xml:space="preserve"><value>Deezer chart checked {0}.</value></data>
+  <data name="Deezer chart unavailable" xml:space="preserve"><value>Deezer chart unavailable</value></data>
+  <data name="Default" xml:space="preserve"><value>Default</value></data>
+  <data name="Delete" xml:space="preserve"><value>Delete</value></data>
+  <data name="Delete everything inside" xml:space="preserve"><value>Delete everything inside</value></data>
+  <data name="Delete file" xml:space="preserve"><value>Delete file</value></data>
+  <data name="Delete folder" xml:space="preserve"><value>Delete folder</value></data>
+  <data name="Delete last letter" xml:space="preserve"><value>Delete last letter</value></data>
+  <data name="Delete playlist" xml:space="preserve"><value>Delete playlist</value></data>
+  <data name="Delete playlist?" xml:space="preserve"><value>Delete playlist?</value></data>
+  <data name="Delete source file" xml:space="preserve"><value>Delete source file</value></data>
+  <data name="Delete source file for " xml:space="preserve"><value>Delete source file for </value></data>
+  <data name="Delete the original source file from the server?" xml:space="preserve"><value>Delete the original source file from the server?</value></data>
+  <data name="Delete {0} files" xml:space="preserve"><value>Delete {0} files</value></data>
+  <data name="Deleted {0} {1}." xml:space="preserve"><value>Deleted {0} {1}.</value></data>
+  <data name="Deleted {0}." xml:space="preserve"><value>Deleted {0}.</value></data>
+  <data name="Demo library" xml:space="preserve"><value>Demo library</value></data>
+  <data name="Descending" xml:space="preserve"><value>Descending</value></data>
+  <data name="Description" xml:space="preserve"><value>Description</value></data>
+  <data name="Details" xml:space="preserve"><value>Details</value></data>
+  <data name="Device download progress" xml:space="preserve"><value>Device download progress</value></data>
+  <data name="Device language" xml:space="preserve"><value>Device language</value></data>
+  <data name="Devices" xml:space="preserve"><value>Devices</value></data>
+  <data name="Diagnostics" xml:space="preserve"><value>Diagnostics</value></data>
+  <data name="Dialogue" xml:space="preserve"><value>Dialogue</value></data>
+  <data name="Did not play: {0}" xml:space="preserve"><value>Did not play: {0}</value></data>
+  <data name="Direct play" xml:space="preserve"><value>Direct play</value></data>
+  <data name="Direct stream" xml:space="preserve"><value>Direct stream</value></data>
+  <data name="Disconnect" xml:space="preserve"><value>Disconnect</value></data>
+  <data name="Discovery uses these mappings to find new releases on Deezer." xml:space="preserve"><value>Discovery uses these mappings to find new releases on Deezer.</value></data>
+  <data name="Disk" xml:space="preserve"><value>Disk</value></data>
+  <data name="Disks warm at 45 °C, hot at 55 °C" xml:space="preserve"><value>Disks warm at 45 °C, hot at 55 °C</value></data>
+  <data name="Dismiss" xml:space="preserve"><value>Dismiss</value></data>
+  <data name="Dismiss listening request" xml:space="preserve"><value>Dismiss listening request</value></data>
+  <data name="Dismiss playback notice" xml:space="preserve"><value>Dismiss playback notice</value></data>
+  <data name="Display name" xml:space="preserve"><value>Display name</value></data>
+  <data name="Do you have Spotify Premium?" xml:space="preserve"><value>Do you have Spotify Premium?</value></data>
+  <data name="Don't see your device?" xml:space="preserve"><value>Don't see your device?</value></data>
+  <data name="Download" xml:space="preserve"><value>Download</value></data>
+  <data name="Download lookup did not respond." xml:space="preserve"><value>Download lookup did not respond.</value></data>
+  <data name="Download options" xml:space="preserve"><value>Download options</value></data>
+  <data name="Download progress for {0}" xml:space="preserve"><value>Download progress for {0}</value></data>
+  <data name="Download quality" xml:space="preserve"><value>Download quality</value></data>
+  <data name="Download ready" xml:space="preserve"><value>Download ready</value></data>
+  <data name="Download selected files" xml:space="preserve"><value>Download selected files</value></data>
+  <data name="Download songs to the server" xml:space="preserve"><value>Download songs to the server</value></data>
+  <data name="Download time" xml:space="preserve"><value>Download time</value></data>
+  <data name="Download {0}" xml:space="preserve"><value>Download {0}</value></data>
+  <data name="Downloaded" xml:space="preserve"><value>Downloaded</value></data>
+  <data name="Downloading" xml:space="preserve"><value>Downloading</value></data>
+  <data name="Downloading " xml:space="preserve"><value>Downloading </value></data>
+  <data name="Downloading is not switched on for your profile." xml:space="preserve"><value>Downloading is not switched on for your profile.</value></data>
+  <data name="Downloading {0}%{1}" xml:space="preserve"><value>Downloading {0}%{1}</value></data>
+  <data name="Downloading {0}…" xml:space="preserve"><value>Downloading {0}…</value></data>
+  <data name="Downloads" xml:space="preserve"><value>Downloads</value></data>
+  <data name="Downloads use Wi-Fi or Ethernet. Keep the app open until they finish." xml:space="preserve"><value>Downloads use Wi-Fi or Ethernet. Keep the app open until they finish.</value></data>
+  <data name="Drag this handle, or use the Up and Down buttons." xml:space="preserve"><value>Drag this handle, or use the Up and Down buttons.</value></data>
+  <data name="Drag {0}" xml:space="preserve"><value>Drag {0}</value></data>
+  <data name="Drama" xml:space="preserve"><value>Drama</value></data>
+  <data name="Earlier" xml:space="preserve"><value>Earlier</value></data>
+  <data name="Early listener" xml:space="preserve"><value>Early listener</value></data>
+  <data name="Edit" xml:space="preserve"><value>Edit</value></data>
+  <data name="Edit details" xml:space="preserve"><value>Edit details</value></data>
+  <data name="Edit search" xml:space="preserve"><value>Edit search</value></data>
+  <data name="Eight times HD picture; most are upscaled from 4K or less" xml:space="preserve"><value>Eight times HD picture; most are upscaled from 4K or less</value></data>
+  <data name="Encode" xml:space="preserve"><value>Encode</value></data>
+  <data name="End" xml:space="preserve"><value>End</value></data>
+  <data name="English" xml:space="preserve"><value>English</value></data>
+  <data name="English (original)" xml:space="preserve"><value>English (original)</value></data>
+  <data name="English subtitles" xml:space="preserve"><value>English subtitles</value></data>
+  <data name="English,Magyar" xml:space="preserve"><value>English,Magyar</value></data>
+  <data name="Enter" xml:space="preserve"><value>Enter</value></data>
+  <data name="Enter a name." xml:space="preserve"><value>Enter a name.</value></data>
+  <data name="Enter a title of 2 to 120 characters." xml:space="preserve"><value>Enter a title of 2 to 120 characters.</value></data>
+  <data name="Enter an artist ID" xml:space="preserve"><value>Enter an artist ID</value></data>
+  <data name="Enter five letters." xml:space="preserve"><value>Enter five letters.</value></data>
+  <data name="Episode" xml:space="preserve"><value>Episode</value></data>
+  <data name="Episode pictures are unavailable." xml:space="preserve"><value>Episode pictures are unavailable.</value></data>
+  <data name="Episode {0}" xml:space="preserve"><value>Episode {0}</value></data>
+  <data name="Episodes" xml:space="preserve"><value>Episodes</value></data>
+  <data name="Episodes and related series" xml:space="preserve"><value>Episodes and related series</value></data>
+  <data name="Error.csrf" xml:space="preserve"><value>Your session expired. Reconnect to your server and try again.</value></data>
+  <data name="Error.folder_not_empty" xml:space="preserve"><value>That folder is not empty.</value></data>
+  <data name="Estimated from size and the number of people sharing the file, assuming a {0} Mbps connection." xml:space="preserve"><value>Estimated from size and the number of people sharing the file, assuming a {0} Mbps connection.</value></data>
+  <data name="Estimated: {0} (from size and length)" xml:space="preserve"><value>Estimated: {0} (from size and length)</value></data>
+  <data name="Estimates for a typical film. Auto uses Original on Wi-Fi and Saver on mobile data." xml:space="preserve"><value>Estimates for a typical film. Auto uses Original on Wi-Fi and Saver on mobile data.</value></data>
+  <data name="Even out song volume" xml:space="preserve"><value>Even out song volume</value></data>
+  <data name="Everyone else, {0}" xml:space="preserve"><value>Everyone else, {0}</value></data>
+  <data name="Everyone on this server can see and play it." xml:space="preserve"><value>Everyone on this server can see and play it.</value></data>
+  <data name="Excellent" xml:space="preserve"><value>Excellent</value></data>
+  <data name="Exit full screen" xml:space="preserve"><value>Exit full screen</value></data>
+  <data name="Exit full screen (F11)" xml:space="preserve"><value>Exit full screen (F11)</value></data>
+  <data name="External" xml:space="preserve"><value>External</value></data>
+  <data name="Failed" xml:space="preserve"><value>Failed</value></data>
+  <data name="Family" xml:space="preserve"><value>Family</value></data>
+  <data name="Family activity" xml:space="preserve"><value>Family activity</value></data>
+  <data name="Family and private folders" xml:space="preserve"><value>Family and private folders</value></data>
+  <data name="Family board" xml:space="preserve"><value>Family board</value></data>
+  <data name="Family boards" xml:space="preserve"><value>Family boards</value></data>
+  <data name="Family listening time" xml:space="preserve"><value>Family listening time</value></data>
+  <data name="Family members who are online" xml:space="preserve"><value>Family members who are online</value></data>
+  <data name="Family profiles can see your Leaderboard stats. Admins can see individual plays." xml:space="preserve"><value>Family profiles can see your Leaderboard stats. Admins can see individual plays.</value></data>
+  <data name="Family streak" xml:space="preserve"><value>Family streak</value></data>
+  <data name="FamilyHub file link" xml:space="preserve"><value>FamilyHub file link</value></data>
+  <data name="FamilyHub home" xml:space="preserve"><value>FamilyHub home</value></data>
+  <data name="FamilyHub needs to reload" xml:space="preserve"><value>FamilyHub needs to reload</value></data>
+  <data name="FamilyHub web video" xml:space="preserve"><value>FamilyHub web video</value></data>
+  <data name="FamilyHub {0} is available" xml:space="preserve"><value>FamilyHub {0} is available</value></data>
+  <data name="Fantasy" xml:space="preserve"><value>Fantasy</value></data>
+  <data name="Favorite guesses" xml:space="preserve"><value>Favorite guesses</value></data>
+  <data name="Favourite artist" xml:space="preserve"><value>Favourite artist</value></data>
+  <data name="Favourite genre" xml:space="preserve"><value>Favourite genre</value></data>
+  <data name="Feedback" xml:space="preserve"><value>Feedback</value></data>
+  <data name="Feedback type" xml:space="preserve"><value>Feedback type</value></data>
+  <data name="Fetching " xml:space="preserve"><value>Fetching </value></data>
+  <data name="Few sources" xml:space="preserve"><value>Few sources</value></data>
+  <data name="Fewest guesses wins the day. A tie goes to the game that followed Hard Mode rules, then to the faster time." xml:space="preserve"><value>Fewest guesses wins the day. A tie goes to the game that followed Hard Mode rules, then to the faster time.</value></data>
+  <data name="Fewest guesses wins. A tie goes to the game that followed Hard Mode rules, then to the faster time." xml:space="preserve"><value>Fewest guesses wins. A tie goes to the game that followed Hard Mode rules, then to the faster time.</value></data>
+  <data name="File name for " xml:space="preserve"><value>File name for </value></data>
+  <data name="File name for {0}" xml:space="preserve"><value>File name for {0}</value></data>
+  <data name="File sharing is not set up on this server." xml:space="preserve"><value>File sharing is not set up on this server.</value></data>
+  <data name="Files" xml:space="preserve"><value>Files</value></data>
+  <data name="Film data from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB." xml:space="preserve"><value>Film data from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</value></data>
+  <data name="Filmed in a cinema" xml:space="preserve"><value>Filmed in a cinema</value></data>
+  <data name="Filter playlists" xml:space="preserve"><value>Filter playlists</value></data>
+  <data name="Find Bluetooth devices" xml:space="preserve"><value>Find Bluetooth devices</value></data>
+  <data name="Find a playlist" xml:space="preserve"><value>Find a playlist</value></data>
+  <data name="Find a setting" xml:space="preserve"><value>Find a setting</value></data>
+  <data name="Find releases" xml:space="preserve"><value>Find releases</value></data>
+  <data name="Find releases for {0}" xml:space="preserve"><value>Find releases for {0}</value></data>
+  <data name="Find season " xml:space="preserve"><value>Find season </value></data>
+  <data name="Find {0} audio" xml:space="preserve"><value>Find {0} audio</value></data>
+  <data name="Find {0} subtitles" xml:space="preserve"><value>Find {0} subtitles</value></data>
+  <data name="Finding recording choices…" xml:space="preserve"><value>Finding recording choices…</value></data>
+  <data name="Finish your puzzle to see the letters." xml:space="preserve"><value>Finish your puzzle to see the letters.</value></data>
+  <data name="Finished" xml:space="preserve"><value>Finished</value></data>
+  <data name="Finished days with two or more players" xml:space="preserve"><value>Finished days with two or more players</value></data>
+  <data name="Five-letter puzzle" xml:space="preserve"><value>Five-letter puzzle</value></data>
+  <data name="Folder" xml:space="preserve"><value>Folder</value></data>
+  <data name="Folders" xml:space="preserve"><value>Folders</value></data>
+  <data name="For titles missing a backdrop, Automatic uses the preset and Always backdrop uses a neutral background." xml:space="preserve"><value>For titles missing a backdrop, Automatic uses the preset and Always backdrop uses a neutral background.</value></data>
+  <data name="Forward 10 seconds" xml:space="preserve"><value>Forward 10 seconds</value></data>
+  <data name="Found" xml:space="preserve"><value>Found</value></data>
+  <data name="Free" xml:space="preserve"><value>Free</value></data>
+  <data name="Friends on Discord see the song and artist while the Discord app is open." xml:space="preserve"><value>Friends on Discord see the song and artist while the Discord app is open.</value></data>
+  <data name="Frightening scenes" xml:space="preserve"><value>Frightening scenes</value></data>
+  <data name="From " xml:space="preserve"><value>From </value></data>
+  <data name="Ft" xml:space="preserve"><value>Ft</value></data>
+  <data name="Full screen" xml:space="preserve"><value>Full screen</value></data>
+  <data name="Full screen (F11)" xml:space="preserve"><value>Full screen (F11)</value></data>
+  <data name="General" xml:space="preserve"><value>General</value></data>
+  <data name="Genre" xml:space="preserve"><value>Genre</value></data>
+  <data name="Genres" xml:space="preserve"><value>Genres</value></data>
+  <data name="Give the item a name." xml:space="preserve"><value>Give the item a name.</value></data>
+  <data name="Go back" xml:space="preserve"><value>Go back</value></data>
+  <data name="Go forward" xml:space="preserve"><value>Go forward</value></data>
+  <data name="Go to queue" xml:space="preserve"><value>Go to queue</value></data>
+  <data name="Goal recorded" xml:space="preserve"><value>Goal recorded</value></data>
+  <data name="Good" xml:space="preserve"><value>Good</value></data>
+  <data name="Good (720p)" xml:space="preserve"><value>Good (720p)</value></data>
+  <data name="Great" xml:space="preserve"><value>Great</value></data>
+  <data name="Green" xml:space="preserve"><value>Green</value></data>
+  <data name="Grid view" xml:space="preserve"><value>Grid view</value></data>
+  <data name="Guess cleared." xml:space="preserve"><value>Guess cleared.</value></data>
+  <data name="Guess letters {0}." xml:space="preserve"><value>Guess letters {0}.</value></data>
+  <data name="Guess ratings will appear after your board syncs." xml:space="preserve"><value>Guess ratings will appear after your board syncs.</value></data>
+  <data name="Guess the five-letter word in six tries. Type a word and press Enter." xml:space="preserve"><value>Guess the five-letter word in six tries. Type a word and press Enter.</value></data>
+  <data name="Guess {0}: {1}" xml:space="preserve"><value>Guess {0}: {1}</value></data>
+  <data name="HD streaming copy" xml:space="preserve"><value>HD streaming copy</value></data>
+  <data name="HDR to SDR" xml:space="preserve"><value>HDR to SDR</value></data>
+  <data name="HDR, Dolby Vision or original 4K disc video" xml:space="preserve"><value>HDR, Dolby Vision or original 4K disc video</value></data>
+  <data name="Hard Mode clear rate" xml:space="preserve"><value>Hard Mode clear rate</value></data>
+  <data name="Hard Mode rules" xml:space="preserve"><value>Hard Mode rules</value></data>
+  <data name="Height" xml:space="preserve"><value>Height</value></data>
+  <data name="Held by" xml:space="preserve"><value>Held by</value></data>
+  <data name="Hide family results until I finish" xml:space="preserve"><value>Hide family results until I finish</value></data>
+  <data name="Hide sound descriptions" xml:space="preserve"><value>Hide sound descriptions</value></data>
+  <data name="High" xml:space="preserve"><value>High</value></data>
+  <data name="History" xml:space="preserve"><value>History</value></data>
+  <data name="History preference saved on this device. It will sync when connected." xml:space="preserve"><value>History preference saved on this device. It will sync when connected.</value></data>
+  <data name="History range" xml:space="preserve"><value>History range</value></data>
+  <data name="Home" xml:space="preserve"><value>Home</value></data>
+  <data name="Home is back to the default layout." xml:space="preserve"><value>Home is back to the default layout.</value></data>
+  <data name="Home rows" xml:space="preserve"><value>Home rows</value></data>
+  <data name="How scores are counted" xml:space="preserve"><value>How scores are counted</value></data>
+  <data name="How to play" xml:space="preserve"><value>How to play</value></data>
+  <data name="Hungarian" xml:space="preserve"><value>Hungarian</value></data>
+  <data name="Hungarian audio" xml:space="preserve"><value>Hungarian audio</value></data>
+  <data name="Hungarian audio listed" xml:space="preserve"><value>Hungarian audio listed</value></data>
+  <data name="Hungarian subtitles" xml:space="preserve"><value>Hungarian subtitles</value></data>
+  <data name="IMDb,Rotten Tomatoes,Metacritic,TMDB,episode scores" xml:space="preserve"><value>IMDb,Rotten Tomatoes,Metacritic,TMDB,episode scores</value></data>
+  <data name="Import from a link" xml:space="preserve"><value>Import from a link</value></data>
+  <data name="Import playlist link" xml:space="preserve"><value>Import playlist link</value></data>
+  <data name="In your library" xml:space="preserve"><value>In your library</value></data>
+  <data name="Inaccuracy" xml:space="preserve"><value>Inaccuracy</value></data>
+  <data name="Includes subfolders" xml:space="preserve"><value>Includes subfolders</value></data>
+  <data name="Increase" xml:space="preserve"><value>Increase</value></data>
+  <data name="Increase audio delay" xml:space="preserve"><value>Increase audio delay</value></data>
+  <data name="Installed version" xml:space="preserve"><value>Installed version</value></data>
+  <data name="Installed version is newer than {0}" xml:space="preserve"><value>Installed version is newer than {0}</value></data>
+  <data name="Intro" xml:space="preserve"><value>Intro</value></data>
+  <data name="Invite a listener" xml:space="preserve"><value>Invite a listener</value></data>
+  <data name="Invite collaborators" xml:space="preserve"><value>Invite collaborators</value></data>
+  <data name="Join a session" xml:space="preserve"><value>Join a session</value></data>
+  <data name="Keep" xml:space="preserve"><value>Keep</value></data>
+  <data name="Keep file" xml:space="preserve"><value>Keep file</value></data>
+  <data name="Keep it" xml:space="preserve"><value>Keep it</value></data>
+  <data name="Keep on this device" xml:space="preserve"><value>Keep on this device</value></data>
+  <data name="Keep the current layout" xml:space="preserve"><value>Keep the current layout</value></data>
+  <data name="Keep them" xml:space="preserve"><value>Keep them</value></data>
+  <data name="Keep {0} songs" xml:space="preserve"><value>Keep {0} songs</value></data>
+  <data name="Kept downloads" xml:space="preserve"><value>Kept downloads</value></data>
+  <data name="Known for" xml:space="preserve"><value>Known for</value></data>
+  <data name="Label" xml:space="preserve"><value>Label</value></data>
+  <data name="Landscape stills" xml:space="preserve"><value>Landscape stills</value></data>
+  <data name="Language" xml:space="preserve"><value>Language</value></data>
+  <data name="Language unknown" xml:space="preserve"><value>Language unknown</value></data>
+  <data name="Large" xml:space="preserve"><value>Large</value></data>
+  <data name="Largest first" xml:space="preserve"><value>Largest first</value></data>
+  <data name="Later" xml:space="preserve"><value>Later</value></data>
+  <data name="Latest release" xml:space="preserve"><value>Latest release</value></data>
+  <data name="Latest:" xml:space="preserve"><value>Latest:</value></data>
+  <data name="Layout preview" xml:space="preserve"><value>Layout preview</value></data>
+  <data name="Leaderboard period" xml:space="preserve"><value>Leaderboard period</value></data>
+  <data name="Less than a minute left" xml:space="preserve"><value>Less than a minute left</value></data>
+  <data name="Library" xml:space="preserve"><value>Library</value></data>
+  <data name="Library additions" xml:space="preserve"><value>Library additions</value></data>
+  <data name="Library sections" xml:space="preserve"><value>Library sections</value></data>
+  <data name="Light theme" xml:space="preserve"><value>Light theme</value></data>
+  <data name="Limits loud peaks on this device, including in Listen Together." xml:space="preserve"><value>Limits loud peaks on this device, including in Listen Together.</value></data>
+  <data name="Link Trakt" xml:space="preserve"><value>Link Trakt</value></data>
+  <data name="Link address" xml:space="preserve"><value>Link address</value></data>
+  <data name="Link or disconnect Trakt" xml:space="preserve"><value>Link or disconnect Trakt</value></data>
+  <data name="Link works for" xml:space="preserve"><value>Link works for</value></data>
+  <data name="Linking sends what you watch in Movies and TV to your own Trakt account. Each family member links their own." xml:space="preserve"><value>Linking sends what you watch in Movies and TV to your own Trakt account. Each family member links their own.</value></data>
+  <data name="List view" xml:space="preserve"><value>List view</value></data>
+  <data name="Listen" xml:space="preserve"><value>Listen</value></data>
+  <data name="Listen Together" xml:space="preserve"><value>Listen Together</value></data>
+  <data name="Listening history" xml:space="preserve"><value>Listening history</value></data>
+  <data name="Listening history paused." xml:space="preserve"><value>Listening history paused.</value></data>
+  <data name="Listening history resumed." xml:space="preserve"><value>Listening history resumed.</value></data>
+  <data name="Listening request" xml:space="preserve"><value>Listening request</value></data>
+  <data name="Listening statistics for {0}" xml:space="preserve"><value>Listening statistics for {0}</value></data>
+  <data name="Listening time" xml:space="preserve"><value>Listening time</value></data>
+  <data name="Listening time and streaks use recorded daily playback. Favourites and replays use song history." xml:space="preserve"><value>Listening time and streaks use recorded daily playback. Favourites and replays use song history.</value></data>
+  <data name="Loading" xml:space="preserve"><value>Loading</value></data>
+  <data name="Loading Wordle settings…" xml:space="preserve"><value>Loading Wordle settings…</value></data>
+  <data name="Loading audio outputs…" xml:space="preserve"><value>Loading audio outputs…</value></data>
+  <data name="Loading automatic work…" xml:space="preserve"><value>Loading automatic work…</value></data>
+  <data name="Loading credits…" xml:space="preserve"><value>Loading credits…</value></data>
+  <data name="Loading episodes…" xml:space="preserve"><value>Loading episodes…</value></data>
+  <data name="Loading feedback…" xml:space="preserve"><value>Loading feedback…</value></data>
+  <data name="Loading guess ratings…" xml:space="preserve"><value>Loading guess ratings…</value></data>
+  <data name="Loading more songs..." xml:space="preserve"><value>Loading more songs...</value></data>
+  <data name="Loading movies and TV…" xml:space="preserve"><value>Loading movies and TV…</value></data>
+  <data name="Loading preferences…" xml:space="preserve"><value>Loading preferences…</value></data>
+  <data name="Loading preview…" xml:space="preserve"><value>Loading preview…</value></data>
+  <data name="Loading seasons…" xml:space="preserve"><value>Loading seasons…</value></data>
+  <data name="Loading seeding records…" xml:space="preserve"><value>Loading seeding records…</value></data>
+  <data name="Loading server statistics…" xml:space="preserve"><value>Loading server statistics…</value></data>
+  <data name="Loading sessions…" xml:space="preserve"><value>Loading sessions…</value></data>
+  <data name="Loading song review…" xml:space="preserve"><value>Loading song review…</value></data>
+  <data name="Loading statistics…" xml:space="preserve"><value>Loading statistics…</value></data>
+  <data name="Loading the leaderboard…" xml:space="preserve"><value>Loading the leaderboard…</value></data>
+  <data name="Loading today’s word…" xml:space="preserve"><value>Loading today’s word…</value></data>
+  <data name="Loading…" xml:space="preserve"><value>Loading…</value></data>
+  <data name="Logo" xml:space="preserve"><value>Logo</value></data>
+  <data name="Longer" xml:space="preserve"><value>Longer</value></data>
+  <data name="Longest game" xml:space="preserve"><value>Longest game</value></data>
+  <data name="Longest streak" xml:space="preserve"><value>Longest streak</value></data>
+  <data name="Looking up song details…" xml:space="preserve"><value>Looking up song details…</value></data>
+  <data name="Lookup queued" xml:space="preserve"><value>Lookup queued</value></data>
+  <data name="Loud" xml:space="preserve"><value>Loud</value></data>
+  <data name="Low" xml:space="preserve"><value>Low</value></data>
+  <data name="Lowest (360p)" xml:space="preserve"><value>Lowest (360p)</value></data>
+  <data name="Lucky guess" xml:space="preserve"><value>Lucky guess</value></data>
+  <data name="Lyrics" xml:space="preserve"><value>Lyrics</value></data>
+  <data name="Lyrics timing" xml:space="preserve"><value>Lyrics timing</value></data>
+  <data name="Magyar" xml:space="preserve"><value>Magyar</value></data>
+  <data name="Mainstream score" xml:space="preserve"><value>Mainstream score</value></data>
+  <data name="Mainstream score is the share of your top 10 artists and top 10 songs that appear in Deezer’s chart. Early listener marks artists you played before FamilyHub observed them enter the chart." xml:space="preserve"><value>Mainstream score is the share of your top 10 artists and top 10 songs that appear in Deezer’s chart. Early listener marks artists you played before FamilyHub observed them enter the chart.</value></data>
+  <data name="Manual retry" xml:space="preserve"><value>Manual retry</value></data>
+  <data name="Mappings" xml:space="preserve"><value>Mappings</value></data>
+  <data name="Mark resolved" xml:space="preserve"><value>Mark resolved</value></data>
+  <data name="Match genre" xml:space="preserve"><value>Match genre</value></data>
+  <data name="Matching audio" xml:space="preserve"><value>Matching audio</value></data>
+  <data name="Max" xml:space="preserve"><value>Max</value></data>
+  <data name="Max uses the original file, lossless when available. Downloaded songs always play from the device." xml:space="preserve"><value>Max uses the original file, lossless when available. Downloaded songs always play from the device.</value></data>
+  <data name="May never finish" xml:space="preserve"><value>May never finish</value></data>
+  <data name="Meaning" xml:space="preserve"><value>Meaning</value></data>
+  <data name="Media default" xml:space="preserve"><value>Media default</value></data>
+  <data name="Medium" xml:space="preserve"><value>Medium</value></data>
+  <data name="Memory" xml:space="preserve"><value>Memory</value></data>
+  <data name="Metadata lookup" xml:space="preserve"><value>Metadata lookup</value></data>
+  <data name="Mine" xml:space="preserve"><value>Mine</value></data>
+  <data name="Miss" xml:space="preserve"><value>Miss</value></data>
+  <data name="Missing byte count" xml:space="preserve"><value>Missing byte count</value></data>
+  <data name="Missing from library" xml:space="preserve"><value>Missing from library</value></data>
+  <data name="Mistake" xml:space="preserve"><value>Mistake</value></data>
+  <data name="Mixes with current song" xml:space="preserve"><value>Mixes with current song</value></data>
+  <data name="Mobile data" xml:space="preserve"><value>Mobile data</value></data>
+  <data name="Mobile data is allowed for downloads. Keep the app open until they finish." xml:space="preserve"><value>Mobile data is allowed for downloads. Keep the app open until they finish.</value></data>
+  <data name="Mono" xml:space="preserve"><value>Mono</value></data>
+  <data name="Monthly" xml:space="preserve"><value>Monthly</value></data>
+  <data name="Monthly energy estimate" xml:space="preserve"><value>Monthly energy estimate</value></data>
+  <data name="More films" xml:space="preserve"><value>More films</value></data>
+  <data name="More info" xml:space="preserve"><value>More info</value></data>
+  <data name="More like this" xml:space="preserve"><value>More like this</value></data>
+  <data name="More options" xml:space="preserve"><value>More options</value></data>
+  <data name="More options for {0}" xml:space="preserve"><value>More options for {0}</value></data>
+  <data name="More songs" xml:space="preserve"><value>More songs</value></data>
+  <data name="Most replayed" xml:space="preserve"><value>Most replayed</value></data>
+  <data name="Most songs" xml:space="preserve"><value>Most songs</value></data>
+  <data name="Mount unavailable" xml:space="preserve"><value>Mount unavailable</value></data>
+  <data name="Move earlier" xml:space="preserve"><value>Move earlier</value></data>
+  <data name="Move later" xml:space="preserve"><value>Move later</value></data>
+  <data name="Move {0} down" xml:space="preserve"><value>Move {0} down</value></data>
+  <data name="Move {0} up" xml:space="preserve"><value>Move {0} up</value></data>
+  <data name="Movie" xml:space="preserve"><value>Movie</value></data>
+  <data name="Movie and TV requests are disabled for this profile." xml:space="preserve"><value>Movie and TV requests are disabled for this profile.</value></data>
+  <data name="Movie library" xml:space="preserve"><value>Movie library</value></data>
+  <data name="Movie playback" xml:space="preserve"><value>Movie playback</value></data>
+  <data name="Movie player" xml:space="preserve"><value>Movie player</value></data>
+  <data name="Movie preferences are unavailable. Reopen Settings to try again." xml:space="preserve"><value>Movie preferences are unavailable. Reopen Settings to try again.</value></data>
+  <data name="Movie request cancelled" xml:space="preserve"><value>Movie request cancelled</value></data>
+  <data name="Movies" xml:space="preserve"><value>Movies</value></data>
+  <data name="Movies &amp; TV" xml:space="preserve"><value>Movies &amp; TV</value></data>
+  <data name="Movies &amp; TV streamed on mobile data" xml:space="preserve"><value>Movies &amp; TV streamed on mobile data</value></data>
+  <data name="Movies Home layout" xml:space="preserve"><value>Movies Home layout</value></data>
+  <data name="Movies and TV" xml:space="preserve"><value>Movies and TV</value></data>
+  <data name="Movies are not set up for this profile." xml:space="preserve"><value>Movies are not set up for this profile.</value></data>
+  <data name="Movies are unavailable for this profile." xml:space="preserve"><value>Movies are unavailable for this profile.</value></data>
+  <data name="Movies, series, or episodes" xml:space="preserve"><value>Movies, series, or episodes</value></data>
+  <data name="Music" xml:space="preserve"><value>Music</value></data>
+  <data name="Music cache" xml:space="preserve"><value>Music cache</value></data>
+  <data name="Music playback" xml:space="preserve"><value>Music playback</value></data>
+  <data name="Music playback attempts in the last 30 minutes" xml:space="preserve"><value>Music playback attempts in the last 30 minutes</value></data>
+  <data name="MusicBrainz recording" xml:space="preserve"><value>MusicBrainz recording</value></data>
+  <data name="Mute" xml:space="preserve"><value>Mute</value></data>
+  <data name="Muted" xml:space="preserve"><value>Muted</value></data>
+  <data name="My feedback" xml:space="preserve"><value>My feedback</value></data>
+  <data name="My files" xml:space="preserve"><value>My files</value></data>
+  <data name="My list" xml:space="preserve"><value>My list</value></data>
+  <data name="My list: " xml:space="preserve"><value>My list: </value></data>
+  <data name="My screen" xml:space="preserve"><value>My screen</value></data>
+  <data name="Name" xml:space="preserve"><value>Name</value></data>
+  <data name="Name A to Z" xml:space="preserve"><value>Name A to Z</value></data>
+  <data name="Name saved." xml:space="preserve"><value>Name saved.</value></data>
+  <data name="Needs trimming" xml:space="preserve"><value>Needs trimming</value></data>
+  <data name="Network" xml:space="preserve"><value>Network</value></data>
+  <data name="New" xml:space="preserve"><value>New</value></data>
+  <data name="New episode available" xml:space="preserve"><value>New episode available</value></data>
+  <data name="New folder" xml:space="preserve"><value>New folder</value></data>
+  <data name="New from artists you play" xml:space="preserve"><value>New from artists you play</value></data>
+  <data name="New password" xml:space="preserve"><value>New password</value></data>
+  <data name="New playlist" xml:space="preserve"><value>New playlist</value></data>
+  <data name="New playlist name" xml:space="preserve"><value>New playlist name</value></data>
+  <data name="Newest first" xml:space="preserve"><value>Newest first</value></data>
+  <data name="Next " xml:space="preserve"><value>Next </value></data>
+  <data name="Next episode" xml:space="preserve"><value>Next episode</value></data>
+  <data name="Next episode: " xml:space="preserve"><value>Next episode: </value></data>
+  <data name="Next file" xml:space="preserve"><value>Next file</value></data>
+  <data name="Next seasons" xml:space="preserve"><value>Next seasons</value></data>
+  <data name="Next song" xml:space="preserve"><value>Next song</value></data>
+  <data name="Night mode" xml:space="preserve"><value>Night mode</value></data>
+  <data name="Night owl" xml:space="preserve"><value>Night owl</value></data>
+  <data name="Night owl is the share of completed plays that started from 00:00 to 05:59 UTC. Replays count each time you listen to a song again this year." xml:space="preserve"><value>Night owl is the share of completed plays that started from 00:00 to 05:59 UTC. Replays count each time you listen to a song again this year.</value></data>
+  <data name="No" xml:space="preserve"><value>No</value></data>
+  <data name="No audio sources found. Place a file in Imports or finish a server download." xml:space="preserve"><value>No audio sources found. Place a file in Imports or finish a server download.</value></data>
+  <data name="No audio sources on this page." xml:space="preserve"><value>No audio sources on this page.</value></data>
+  <data name="No delay" xml:space="preserve"><value>No delay</value></data>
+  <data name="No family results yet." xml:space="preserve"><value>No family results yet.</value></data>
+  <data name="No genres match this search." xml:space="preserve"><value>No genres match this search.</value></data>
+  <data name="No guesses yet." xml:space="preserve"><value>No guesses yet.</value></data>
+  <data name="No listening or song additions recorded for {0} in {1}." xml:space="preserve"><value>No listening or song additions recorded for {0} in {1}.</value></data>
+  <data name="No matching official source found." xml:space="preserve"><value>No matching official source found.</value></data>
+  <data name="No matching settings." xml:space="preserve"><value>No matching settings.</value></data>
+  <data name="No matching sources found. Show more sources to check other files." xml:space="preserve"><value>No matching sources found. Show more sources to check other files.</value></data>
+  <data name="No other profiles on this server." xml:space="preserve"><value>No other profiles on this server.</value></data>
+  <data name="No other word does better from here." xml:space="preserve"><value>No other word does better from here.</value></data>
+  <data name="No profiles have listening history enabled." xml:space="preserve"><value>No profiles have listening history enabled.</value></data>
+  <data name="No readings in this range." xml:space="preserve"><value>No readings in this range.</value></data>
+  <data name="No recording choices found." xml:space="preserve"><value>No recording choices found.</value></data>
+  <data name="No release for this platform" xml:space="preserve"><value>No release for this platform</value></data>
+  <data name="No resource jobs are waiting or running." xml:space="preserve"><value>No resource jobs are waiting or running.</value></data>
+  <data name="No results at this quality" xml:space="preserve"><value>No results at this quality</value></data>
+  <data name="No saved songs match this search." xml:space="preserve"><value>No saved songs match this search.</value></data>
+  <data name="No saved songs." xml:space="preserve"><value>No saved songs.</value></data>
+  <data name="No seasons available to request" xml:space="preserve"><value>No seasons available to request</value></data>
+  <data name="No seasons available." xml:space="preserve"><value>No seasons available.</value></data>
+  <data name="No sessions are available." xml:space="preserve"><value>No sessions are available.</value></data>
+  <data name="No similar songs found." xml:space="preserve"><value>No similar songs found.</value></data>
+  <data name="No songs match this search." xml:space="preserve"><value>No songs match this search.</value></data>
+  <data name="No songs queued." xml:space="preserve"><value>No songs queued.</value></data>
+  <data name="No titles found." xml:space="preserve"><value>No titles found.</value></data>
+  <data name="No titles in your library." xml:space="preserve"><value>No titles in your library.</value></data>
+  <data name="No torrents in the last sample." xml:space="preserve"><value>No torrents in the last sample.</value></data>
+  <data name="No verified catalogue match." xml:space="preserve"><value>No verified catalogue match.</value></data>
+  <data name="No watch or download options found. Try another title." xml:space="preserve"><value>No watch or download options found. Try another title.</value></data>
+  <data name="Nobody is online right now." xml:space="preserve"><value>Nobody is online right now.</value></data>
+  <data name="None" xml:space="preserve"><value>None</value></data>
+  <data name="Normal" xml:space="preserve"><value>Normal</value></data>
+  <data name="Not available" xml:space="preserve"><value>Not available</value></data>
+  <data name="Not in library" xml:space="preserve"><value>Not in library</value></data>
+  <data name="Not linked" xml:space="preserve"><value>Not linked</value></data>
+  <data name="Nothing in this folder matches “{0}”." xml:space="preserve"><value>Nothing in this folder matches “{0}”.</value></data>
+  <data name="Nothing recorded for this period. Listen to music or watch a film with history turned on, and you appear here." xml:space="preserve"><value>Nothing recorded for this period. Listen to music or watch a film with history turned on, and you appear here.</value></data>
+  <data name="Notifications" xml:space="preserve"><value>Notifications</value></data>
+  <data name="Notifications appear when FamilyHub syncs. Allow notifications in your device settings." xml:space="preserve"><value>Notifications appear when FamilyHub syncs. Allow notifications in your device settings.</value></data>
+  <data name="Nudity" xml:space="preserve"><value>Nudity</value></data>
+  <data name="OLED black" xml:space="preserve"><value>OLED black</value></data>
+  <data name="Off" xml:space="preserve"><value>Off</value></data>
+  <data name="Offline" xml:space="preserve"><value>Offline</value></data>
+  <data name="Oldest first" xml:space="preserve"><value>Oldest first</value></data>
+  <data name="On Samsung, set FamilyHub’s Battery option to Unrestricted if music stops with the screen off." xml:space="preserve"><value>On Samsung, set FamilyHub’s Battery option to Unrestricted if music stops with the screen off.</value></data>
+  <data name="On server" xml:space="preserve"><value>On server</value></data>
+  <data name="On this device" xml:space="preserve"><value>On this device</value></data>
+  <data name="On-screen keyboard" xml:space="preserve"><value>On-screen keyboard</value></data>
+  <data name="One episode" xml:space="preserve"><value>One episode</value></data>
+  <data name="One episode, S{0}E{1}" xml:space="preserve"><value>One episode, S{0}E{1}</value></data>
+  <data name="One-off: works for a single download" xml:space="preserve"><value>One-off: works for a single download</value></data>
+  <data name="One-tap updates" xml:space="preserve"><value>One-tap updates</value></data>
+  <data name="Online now" xml:space="preserve"><value>Online now</value></data>
+  <data name="Only an administrator can view server statistics." xml:space="preserve"><value>Only an administrator can view server statistics.</value></data>
+  <data name="Only files can be shared by link." xml:space="preserve"><value>Only files can be shared by link.</value></data>
+  <data name="Only the person who added it can change it." xml:space="preserve"><value>Only the person who added it can change it.</value></data>
+  <data name="Only the person who added it can delete it." xml:space="preserve"><value>Only the person who added it can delete it.</value></data>
+  <data name="Open Downloads to choose another audio source." xml:space="preserve"><value>Open Downloads to choose another audio source.</value></data>
+  <data name="Open FamilyHub on another device with this profile to play there." xml:space="preserve"><value>Open FamilyHub on another device with this profile to play there.</value></data>
+  <data name="Open FamilyHub on the other device and sign in with this profile. It then appears in this list." xml:space="preserve"><value>Open FamilyHub on the other device and sign in with this profile. It then appears in this list.</value></data>
+  <data name="Open GitHub issue draft" xml:space="preserve"><value>Open GitHub issue draft</value></data>
+  <data name="Open app settings" xml:space="preserve"><value>Open app settings</value></data>
+  <data name="Open folder {0}" xml:space="preserve"><value>Open folder {0}</value></data>
+  <data name="Open library" xml:space="preserve"><value>Open library</value></data>
+  <data name="Open lyrics" xml:space="preserve"><value>Open lyrics</value></data>
+  <data name="Open playback queue" xml:space="preserve"><value>Open playback queue</value></data>
+  <data name="Open playlist search" xml:space="preserve"><value>Open playlist search</value></data>
+  <data name="Open the Trakt page below and enter this code. This window updates when Trakt confirms." xml:space="preserve"><value>Open the Trakt page below and enter this code. This window updates when Trakt confirms.</value></data>
+  <data name="Open the library to return to FamilyHub." xml:space="preserve"><value>Open the library to return to FamilyHub.</value></data>
+  <data name="Open the title page" xml:space="preserve"><value>Open the title page</value></data>
+  <data name="Open trakt.tv/activate" xml:space="preserve"><value>Open trakt.tv/activate</value></data>
+  <data name="Opening " xml:space="preserve"><value>Opening </value></data>
+  <data name="Opening FamilyHub" xml:space="preserve"><value>Opening FamilyHub</value></data>
+  <data name="Options for {0}" xml:space="preserve"><value>Options for {0}</value></data>
+  <data name="Opus 160 kbps" xml:space="preserve"><value>Opus 160 kbps</value></data>
+  <data name="Opus 48 kbps" xml:space="preserve"><value>Opus 48 kbps</value></data>
+  <data name="Opus 96 kbps" xml:space="preserve"><value>Opus 96 kbps</value></data>
+  <data name="Original" xml:space="preserve"><value>Original</value></data>
+  <data name="Original HD disc video" xml:space="preserve"><value>Original HD disc video</value></data>
+  <data name="Other computers and phones running FamilyHub with this profile." xml:space="preserve"><value>Other computers and phones running FamilyHub with this profile.</value></data>
+  <data name="Other language" xml:space="preserve"><value>Other language</value></data>
+  <data name="Other watch and download options" xml:space="preserve"><value>Other watch and download options</value></data>
+  <data name="Output" xml:space="preserve"><value>Output</value></data>
+  <data name="Output {0}" xml:space="preserve"><value>Output {0}</value></data>
+  <data name="Outro" xml:space="preserve"><value>Outro</value></data>
+  <data name="Page not found" xml:space="preserve"><value>Page not found</value></data>
+  <data name="Page unavailable" xml:space="preserve"><value>Page unavailable</value></data>
+  <data name="Parental guide" xml:space="preserve"><value>Parental guide</value></data>
+  <data name="Password" xml:space="preserve"><value>Password</value></data>
+  <data name="Password (optional)" xml:space="preserve"><value>Password (optional)</value></data>
+  <data name="Paste" xml:space="preserve"><value>Paste</value></data>
+  <data name="Paste YouTube links" xml:space="preserve"><value>Paste YouTube links</value></data>
+  <data name="Paste image" xml:space="preserve"><value>Paste image</value></data>
+  <data name="Pause" xml:space="preserve"><value>Pause</value></data>
+  <data name="Pause download" xml:space="preserve"><value>Pause download</value></data>
+  <data name="Pause history" xml:space="preserve"><value>Pause history</value></data>
+  <data name="Pause on {0}" xml:space="preserve"><value>Pause on {0}</value></data>
+  <data name="Pause only for me" xml:space="preserve"><value>Pause only for me</value></data>
+  <data name="Pending" xml:space="preserve"><value>Pending</value></data>
+  <data name="Per month" xml:space="preserve"><value>Per month</value></data>
+  <data name="Pick up where you left off?" xml:space="preserve"><value>Pick up where you left off?</value></data>
+  <data name="Picture previews when seeking" xml:space="preserve"><value>Picture previews when seeking</value></data>
+  <data name="Pin playlist" xml:space="preserve"><value>Pin playlist</value></data>
+  <data name="Plain" xml:space="preserve"><value>Plain</value></data>
+  <data name="Play" xml:space="preserve"><value>Play</value></data>
+  <data name="Play a song with BPM and key to find compatible songs." xml:space="preserve"><value>Play a song with BPM and key to find compatible songs.</value></data>
+  <data name="Play next" xml:space="preserve"><value>Play next</value></data>
+  <data name="Play now" xml:space="preserve"><value>Play now</value></data>
+  <data name="Play on this device" xml:space="preserve"><value>Play on this device</value></data>
+  <data name="Play playlist" xml:space="preserve"><value>Play playlist</value></data>
+  <data name="Play similar songs next" xml:space="preserve"><value>Play similar songs next</value></data>
+  <data name="Play the next episode automatically" xml:space="preserve"><value>Play the next episode automatically</value></data>
+  <data name="Play your queue" xml:space="preserve"><value>Play your queue</value></data>
+  <data name="Playback" xml:space="preserve"><value>Playback</value></data>
+  <data name="Playback cache" xml:space="preserve"><value>Playback cache</value></data>
+  <data name="Playback compatibility" xml:space="preserve"><value>Playback compatibility</value></data>
+  <data name="Playback diagnostics" xml:space="preserve"><value>Playback diagnostics</value></data>
+  <data name="Playback info" xml:space="preserve"><value>Playback info</value></data>
+  <data name="Playback position" xml:space="preserve"><value>Playback position</value></data>
+  <data name="Played" xml:space="preserve"><value>Played</value></data>
+  <data name="Played with hard-mode rules" xml:space="preserve"><value>Played with hard-mode rules</value></data>
+  <data name="Player options" xml:space="preserve"><value>Player options</value></data>
+  <data name="Players" xml:space="preserve"><value>Players</value></data>
+  <data name="Playing downloads missing songs." xml:space="preserve"><value>Playing downloads missing songs.</value></data>
+  <data name="Playing now" xml:space="preserve"><value>Playing now</value></data>
+  <data name="Playlist" xml:space="preserve"><value>Playlist</value></data>
+  <data name="Playlist URL" xml:space="preserve"><value>Playlist URL</value></data>
+  <data name="Playlist backlog" xml:space="preserve"><value>Playlist backlog</value></data>
+  <data name="Playlist cover preview" xml:space="preserve"><value>Playlist cover preview</value></data>
+  <data name="Playlist import and server downloads" xml:space="preserve"><value>Playlist import and server downloads</value></data>
+  <data name="Playlist link" xml:space="preserve"><value>Playlist link</value></data>
+  <data name="Playlist matching and downloads" xml:space="preserve"><value>Playlist matching and downloads</value></data>
+  <data name="Playlist name" xml:space="preserve"><value>Playlist name</value></data>
+  <data name="Playlist options" xml:space="preserve"><value>Playlist options</value></data>
+  <data name="Playlists" xml:space="preserve"><value>Playlists</value></data>
+  <data name="Posters" xml:space="preserve"><value>Posters</value></data>
+  <data name="Posters and details from TMDB. " xml:space="preserve"><value>Posters and details from TMDB. </value></data>
+  <data name="Posters are unavailable right now." xml:space="preserve"><value>Posters are unavailable right now.</value></data>
+  <data name="Power" xml:space="preserve"><value>Power</value></data>
+  <data name="Preferred audio" xml:space="preserve"><value>Preferred audio</value></data>
+  <data name="Preferred subtitles" xml:space="preserve"><value>Preferred subtitles</value></data>
+  <data name="Preparing song on server" xml:space="preserve"><value>Preparing song on server</value></data>
+  <data name="Preparing song..." xml:space="preserve"><value>Preparing song...</value></data>
+  <data name="Preset colour" xml:space="preserve"><value>Preset colour</value></data>
+  <data name="Press play to start." xml:space="preserve"><value>Press play to start.</value></data>
+  <data name="Preview suggestion" xml:space="preserve"><value>Preview suggestion</value></data>
+  <data name="Preview the suggested recording on YouTube (opens in a new tab)" xml:space="preserve"><value>Preview the suggested recording on YouTube (opens in a new tab)</value></data>
+  <data name="Preview {0}" xml:space="preserve"><value>Preview {0}</value></data>
+  <data name="Previous " xml:space="preserve"><value>Previous </value></data>
+  <data name="Previous file" xml:space="preserve"><value>Previous file</value></data>
+  <data name="Previous seasons" xml:space="preserve"><value>Previous seasons</value></data>
+  <data name="Previous song" xml:space="preserve"><value>Previous song</value></data>
+  <data name="Private playlist" xml:space="preserve"><value>Private playlist</value></data>
+  <data name="Private playlist; share with family" xml:space="preserve"><value>Private playlist; share with family</value></data>
+  <data name="Profile" xml:space="preserve"><value>Profile</value></data>
+  <data name="Profile menu" xml:space="preserve"><value>Profile menu</value></data>
+  <data name="Projector or very large screen" xml:space="preserve"><value>Projector or very large screen</value></data>
+  <data name="Prowlarr could not send this release. Try again." xml:space="preserve"><value>Prowlarr could not send this release. Try again.</value></data>
+  <data name="Prowlarr has no download client set up for this release." xml:space="preserve"><value>Prowlarr has no download client set up for this release.</value></data>
+  <data name="Puzzle, family boards and stats" xml:space="preserve"><value>Puzzle, family boards and stats</value></data>
+  <data name="Quality" xml:space="preserve"><value>Quality</value></data>
+  <data name="Quality guide" xml:space="preserve"><value>Quality guide</value></data>
+  <data name="Quality unknown" xml:space="preserve"><value>Quality unknown</value></data>
+  <data name="Queue" xml:space="preserve"><value>Queue</value></data>
+  <data name="Queue replacement" xml:space="preserve"><value>Queue replacement</value></data>
+  <data name="Queue suggested recording" xml:space="preserve"><value>Queue suggested recording</value></data>
+  <data name="Queued" xml:space="preserve"><value>Queued</value></data>
+  <data name="Queued &amp; retrying" xml:space="preserve"><value>Queued &amp; retrying</value></data>
+  <data name="Quick play" xml:space="preserve"><value>Quick play</value></data>
+  <data name="Quiet" xml:space="preserve"><value>Quiet</value></data>
+  <data name="Radio" xml:space="preserve"><value>Radio</value></data>
+  <data name="Radio &amp; mixes" xml:space="preserve"><value>Radio &amp; mixes</value></data>
+  <data name="Ratings on title pages" xml:space="preserve"><value>Ratings on title pages</value></data>
+  <data name="Read full biography" xml:space="preserve"><value>Read full biography</value></data>
+  <data name="Reading folder…" xml:space="preserve"><value>Reading folder…</value></data>
+  <data name="Recap" xml:space="preserve"><value>Recap</value></data>
+  <data name="Recent" xml:space="preserve"><value>Recent</value></data>
+  <data name="Recent diagnostics go to the developer with this report." xml:space="preserve"><value>Recent diagnostics go to the developer with this report.</value></data>
+  <data name="Recently added" xml:space="preserve"><value>Recently added</value></data>
+  <data name="Recently checked songs" xml:space="preserve"><value>Recently checked songs</value></data>
+  <data name="Recently fixed" xml:space="preserve"><value>Recently fixed</value></data>
+  <data name="Recently played" xml:space="preserve"><value>Recently played</value></data>
+  <data name="Recommend" xml:space="preserve"><value>Recommend</value></data>
+  <data name="Reconnect before sending this report." xml:space="preserve"><value>Reconnect before sending this report.</value></data>
+  <data name="Reconnect to check your library for episodes." xml:space="preserve"><value>Reconnect to check your library for episodes.</value></data>
+  <data name="Reconnect to load episode details." xml:space="preserve"><value>Reconnect to load episode details.</value></data>
+  <data name="Reconnect to load feedback reports." xml:space="preserve"><value>Reconnect to load feedback reports.</value></data>
+  <data name="Reconnect to load listening sessions." xml:space="preserve"><value>Reconnect to load listening sessions.</value></data>
+  <data name="Reconnect to load lyrics for this song." xml:space="preserve"><value>Reconnect to load lyrics for this song.</value></data>
+  <data name="Reconnect to load movie genres." xml:space="preserve"><value>Reconnect to load movie genres.</value></data>
+  <data name="Reconnect to load new releases." xml:space="preserve"><value>Reconnect to load new releases.</value></data>
+  <data name="Reconnect to load server statistics." xml:space="preserve"><value>Reconnect to load server statistics.</value></data>
+  <data name="Reconnect to load the full season list." xml:space="preserve"><value>Reconnect to load the full season list.</value></data>
+  <data name="Reconnect to load the leaderboard." xml:space="preserve"><value>Reconnect to load the leaderboard.</value></data>
+  <data name="Reconnect to load this folder." xml:space="preserve"><value>Reconnect to load this folder.</value></data>
+  <data name="Reconnect to load this shelf." xml:space="preserve"><value>Reconnect to load this shelf.</value></data>
+  <data name="Reconnect to load today's puzzle." xml:space="preserve"><value>Reconnect to load today's puzzle.</value></data>
+  <data name="Reconnect to load your Wordle preferences." xml:space="preserve"><value>Reconnect to load your Wordle preferences.</value></data>
+  <data name="Reconnect to load your share links." xml:space="preserve"><value>Reconnect to load your share links.</value></data>
+  <data name="Reconnect to search for download options." xml:space="preserve"><value>Reconnect to search for download options.</value></data>
+  <data name="Reconnect to search for releases." xml:space="preserve"><value>Reconnect to search for releases.</value></data>
+  <data name="Reconnect to search for songs." xml:space="preserve"><value>Reconnect to search for songs.</value></data>
+  <data name="Reconnect to search your movie library." xml:space="preserve"><value>Reconnect to search your movie library.</value></data>
+  <data name="Reconnect to update Wordle statistics." xml:space="preserve"><value>Reconnect to update Wordle statistics.</value></data>
+  <data name="Reconnect to update artist mappings." xml:space="preserve"><value>Reconnect to update artist mappings.</value></data>
+  <data name="Record" xml:space="preserve"><value>Record</value></data>
+  <data name="Records" xml:space="preserve"><value>Records</value></data>
+  <data name="Red" xml:space="preserve"><value>Red</value></data>
+  <data name="Refresh" xml:space="preserve"><value>Refresh</value></data>
+  <data name="Refresh history" xml:space="preserve"><value>Refresh history</value></data>
+  <data name="Refresh leaderboard" xml:space="preserve"><value>Refresh leaderboard</value></data>
+  <data name="Refresh readings" xml:space="preserve"><value>Refresh readings</value></data>
+  <data name="Refresh server work" xml:space="preserve"><value>Refresh server work</value></data>
+  <data name="Related" xml:space="preserve"><value>Related</value></data>
+  <data name="Related films are unavailable" xml:space="preserve"><value>Related films are unavailable</value></data>
+  <data name="Related series are unavailable" xml:space="preserve"><value>Related series are unavailable</value></data>
+  <data name="Release details" xml:space="preserve"><value>Release details</value></data>
+  <data name="Release history" xml:space="preserve"><value>Release history</value></data>
+  <data name="Release results" xml:space="preserve"><value>Release results</value></data>
+  <data name="Release search is unavailable. Try again." xml:space="preserve"><value>Release search is unavailable. Try again.</value></data>
+  <data name="Reload" xml:space="preserve"><value>Reload</value></data>
+  <data name="Reload your preferences to check whether the change was saved." xml:space="preserve"><value>Reload your preferences to check whether the change was saved.</value></data>
+  <data name="Remove download" xml:space="preserve"><value>Remove download</value></data>
+  <data name="Remove downloaded songs?" xml:space="preserve"><value>Remove downloaded songs?</value></data>
+  <data name="Remove from Continue watching" xml:space="preserve"><value>Remove from Continue watching</value></data>
+  <data name="Remove from playlist" xml:space="preserve"><value>Remove from playlist</value></data>
+  <data name="Remove from this device" xml:space="preserve"><value>Remove from this device</value></data>
+  <data name="Removed {0} from Continue watching" xml:space="preserve"><value>Removed {0} from Continue watching</value></data>
+  <data name="Remux" xml:space="preserve"><value>Remux</value></data>
+  <data name="Rename" xml:space="preserve"><value>Rename</value></data>
+  <data name="Repeat all" xml:space="preserve"><value>Repeat all</value></data>
+  <data name="Repeat off" xml:space="preserve"><value>Repeat off</value></data>
+  <data name="Repeat one" xml:space="preserve"><value>Repeat one</value></data>
+  <data name="Repeat password" xml:space="preserve"><value>Repeat password</value></data>
+  <data name="Replacement queued" xml:space="preserve"><value>Replacement queued</value></data>
+  <data name="Reply" xml:space="preserve"><value>Reply</value></data>
+  <data name="Report a problem" xml:space="preserve"><value>Report a problem</value></data>
+  <data name="Report problem" xml:space="preserve"><value>Report problem</value></data>
+  <data name="Report song" xml:space="preserve"><value>Report song</value></data>
+  <data name="Report status" xml:space="preserve"><value>Report status</value></data>
+  <data name="Report this problem" xml:space="preserve"><value>Report this problem</value></data>
+  <data name="Request" xml:space="preserve"><value>Request</value></data>
+  <data name="Request a feature" xml:space="preserve"><value>Request a feature</value></data>
+  <data name="Request all seasons" xml:space="preserve"><value>Request all seasons</value></data>
+  <data name="Request approved" xml:space="preserve"><value>Request approved</value></data>
+  <data name="Request download" xml:space="preserve"><value>Request download</value></data>
+  <data name="Request needs attention" xml:space="preserve"><value>Request needs attention</value></data>
+  <data name="Request received" xml:space="preserve"><value>Request received</value></data>
+  <data name="Request season " xml:space="preserve"><value>Request season </value></data>
+  <data name="Requested" xml:space="preserve"><value>Requested</value></data>
+  <data name="Requests disabled for this title" xml:space="preserve"><value>Requests disabled for this title</value></data>
+  <data name="Reset saved song search" xml:space="preserve"><value>Reset saved song search</value></data>
+  <data name="Reset subtitle " xml:space="preserve"><value>Reset subtitle </value></data>
+  <data name="Reset to default" xml:space="preserve"><value>Reset to default</value></data>
+  <data name="Resize library sidebar" xml:space="preserve"><value>Resize library sidebar</value></data>
+  <data name="Resolve shown reports" xml:space="preserve"><value>Resolve shown reports</value></data>
+  <data name="Resolve shown requests" xml:space="preserve"><value>Resolve shown requests</value></data>
+  <data name="Result" xml:space="preserve"><value>Result</value></data>
+  <data name="Resume" xml:space="preserve"><value>Resume</value></data>
+  <data name="Resume live session" xml:space="preserve"><value>Resume live session</value></data>
+  <data name="Resume prompt" xml:space="preserve"><value>Resume prompt</value></data>
+  <data name="Resync {0} subtitles" xml:space="preserve"><value>Resync {0} subtitles</value></data>
+  <data name="Retry" xml:space="preserve"><value>Retry</value></data>
+  <data name="Retry " xml:space="preserve"><value>Retry </value></data>
+  <data name="Retry Add songs connection" xml:space="preserve"><value>Retry Add songs connection</value></data>
+  <data name="Retry Deezer chart" xml:space="preserve"><value>Retry Deezer chart</value></data>
+  <data name="Retry Wordle settings" xml:space="preserve"><value>Retry Wordle settings</value></data>
+  <data name="Retry Wordle statistics" xml:space="preserve"><value>Retry Wordle statistics</value></data>
+  <data name="Retry YouTube" xml:space="preserve"><value>Retry YouTube</value></data>
+  <data name="Retry album" xml:space="preserve"><value>Retry album</value></data>
+  <data name="Retry artist mappings" xml:space="preserve"><value>Retry artist mappings</value></data>
+  <data name="Retry current readings" xml:space="preserve"><value>Retry current readings</value></data>
+  <data name="Retry current song" xml:space="preserve"><value>Retry current song</value></data>
+  <data name="Retry download lookup" xml:space="preserve"><value>Retry download lookup</value></data>
+  <data name="Retry episode data" xml:space="preserve"><value>Retry episode data</value></data>
+  <data name="Retry feedback list" xml:space="preserve"><value>Retry feedback list</value></data>
+  <data name="Retry files" xml:space="preserve"><value>Retry files</value></data>
+  <data name="Retry folder listing" xml:space="preserve"><value>Retry folder listing</value></data>
+  <data name="Retry genres" xml:space="preserve"><value>Retry genres</value></data>
+  <data name="Retry guess sync" xml:space="preserve"><value>Retry guess sync</value></data>
+  <data name="Retry history" xml:space="preserve"><value>Retry history</value></data>
+  <data name="Retry leaderboard" xml:space="preserve"><value>Retry leaderboard</value></data>
+  <data name="Retry library check" xml:space="preserve"><value>Retry library check</value></data>
+  <data name="Retry library search" xml:space="preserve"><value>Retry library search</value></data>
+  <data name="Retry listening sessions" xml:space="preserve"><value>Retry listening sessions</value></data>
+  <data name="Retry loading songs" xml:space="preserve"><value>Retry loading songs</value></data>
+  <data name="Retry lyrics" xml:space="preserve"><value>Retry lyrics</value></data>
+  <data name="Retry movie server check" xml:space="preserve"><value>Retry movie server check</value></data>
+  <data name="Retry movies" xml:space="preserve"><value>Retry movies</value></data>
+  <data name="Retry new releases" xml:space="preserve"><value>Retry new releases</value></data>
+  <data name="Retry online list" xml:space="preserve"><value>Retry online list</value></data>
+  <data name="Retry person details" xml:space="preserve"><value>Retry person details</value></data>
+  <data name="Retry playback" xml:space="preserve"><value>Retry playback</value></data>
+  <data name="Retry playback diagnostics" xml:space="preserve"><value>Retry playback diagnostics</value></data>
+  <data name="Retry playlist connection" xml:space="preserve"><value>Retry playlist connection</value></data>
+  <data name="Retry playlist progress" xml:space="preserve"><value>Retry playlist progress</value></data>
+  <data name="Retry puzzle" xml:space="preserve"><value>Retry puzzle</value></data>
+  <data name="Retry radio shortcuts" xml:space="preserve"><value>Retry radio shortcuts</value></data>
+  <data name="Retry release lookup" xml:space="preserve"><value>Retry release lookup</value></data>
+  <data name="Retry report connection" xml:space="preserve"><value>Retry report connection</value></data>
+  <data name="Retry search" xml:space="preserve"><value>Retry search</value></data>
+  <data name="Retry season lookup" xml:space="preserve"><value>Retry season lookup</value></data>
+  <data name="Retry seeding" xml:space="preserve"><value>Retry seeding</value></data>
+  <data name="Retry server connection" xml:space="preserve"><value>Retry server connection</value></data>
+  <data name="Retry server work" xml:space="preserve"><value>Retry server work</value></data>
+  <data name="Retry share links" xml:space="preserve"><value>Retry share links</value></data>
+  <data name="Retry song job status" xml:space="preserve"><value>Retry song job status</value></data>
+  <data name="Retry song review" xml:space="preserve"><value>Retry song review</value></data>
+  <data name="Retry source check" xml:space="preserve"><value>Retry source check</value></data>
+  <data name="Retry the video search." xml:space="preserve"><value>Retry the video search.</value></data>
+  <data name="Retry to check for the latest chart." xml:space="preserve"><value>Retry to check for the latest chart.</value></data>
+  <data name="Retry trailer lookup" xml:space="preserve"><value>Retry trailer lookup</value></data>
+  <data name="Retry update download" xml:space="preserve"><value>Retry update download</value></data>
+  <data name="Retry upload connection" xml:space="preserve"><value>Retry upload connection</value></data>
+  <data name="Retry upload status" xml:space="preserve"><value>Retry upload status</value></data>
+  <data name="Review" xml:space="preserve"><value>Review</value></data>
+  <data name="Review recording" xml:space="preserve"><value>Review recording</value></data>
+  <data name="Review recordings" xml:space="preserve"><value>Review recordings</value></data>
+  <data name="Revoke" xml:space="preserve"><value>Revoke</value></data>
+  <data name="Revoke link to {0}" xml:space="preserve"><value>Revoke link to {0}</value></data>
+  <data name="Revoked the link to {0}." xml:space="preserve"><value>Revoked the link to {0}.</value></data>
+  <data name="Rounds played" xml:space="preserve"><value>Rounds played</value></data>
+  <data name="Rounds won" xml:space="preserve"><value>Rounds won</value></data>
+  <data name="Rows, the banner, Continue watching, title pages and OLED black. Saved to your profile on the server." xml:space="preserve"><value>Rows, the banner, Continue watching, title pages and OLED black. Saved to your profile on the server.</value></data>
+  <data name="Running" xml:space="preserve"><value>Running</value></data>
+  <data name="Same length" xml:space="preserve"><value>Same length</value></data>
+  <data name="Save" xml:space="preserve"><value>Save</value></data>
+  <data name="Save name" xml:space="preserve"><value>Save name</value></data>
+  <data name="Save status" xml:space="preserve"><value>Save status</value></data>
+  <data name="Saved on this device for your profile." xml:space="preserve"><value>Saved on this device for your profile.</value></data>
+  <data name="Saved {0} to your Downloads folder." xml:space="preserve"><value>Saved {0} to your Downloads folder.</value></data>
+  <data name="Saver (480p)" xml:space="preserve"><value>Saver (480p)</value></data>
+  <data name="Savings" xml:space="preserve"><value>Savings</value></data>
+  <data name="Saving…" xml:space="preserve"><value>Saving…</value></data>
+  <data name="Science Fiction" xml:space="preserve"><value>Science Fiction</value></data>
+  <data name="Screen resolution limit" xml:space="preserve"><value>Screen resolution limit</value></data>
+  <data name="Screenshots" xml:space="preserve"><value>Screenshots</value></data>
+  <data name="Search" xml:space="preserve"><value>Search</value></data>
+  <data name="Search YouTube" xml:space="preserve"><value>Search YouTube</value></data>
+  <data name="Search again" xml:space="preserve"><value>Search again</value></data>
+  <data name="Search again and select a Videa release." xml:space="preserve"><value>Search again and select a Videa release.</value></data>
+  <data name="Search again and select a movie or series." xml:space="preserve"><value>Search again and select a movie or series.</value></data>
+  <data name="Search again and select a release." xml:space="preserve"><value>Search again and select a release.</value></data>
+  <data name="Search again to get a download reference." xml:space="preserve"><value>Search again to get a download reference.</value></data>
+  <data name="Search artist mappings" xml:space="preserve"><value>Search artist mappings</value></data>
+  <data name="Search artists or IDs" xml:space="preserve"><value>Search artists or IDs</value></data>
+  <data name="Search for a title" xml:space="preserve"><value>Search for a title</value></data>
+  <data name="Search for this song on YouTube (opens in a new tab)" xml:space="preserve"><value>Search for this song on YouTube (opens in a new tab)</value></data>
+  <data name="Search genres" xml:space="preserve"><value>Search genres</value></data>
+  <data name="Search in playlist" xml:space="preserve"><value>Search in playlist</value></data>
+  <data name="Search movies and TV" xml:space="preserve"><value>Search movies and TV</value></data>
+  <data name="Search playlists" xml:space="preserve"><value>Search playlists</value></data>
+  <data name="Search results" xml:space="preserve"><value>Search results</value></data>
+  <data name="Search saved songs" xml:space="preserve"><value>Search saved songs</value></data>
+  <data name="Search settings" xml:space="preserve"><value>Search settings</value></data>
+  <data name="Search songs" xml:space="preserve"><value>Search songs</value></data>
+  <data name="Search songs or artists" xml:space="preserve"><value>Search songs or artists</value></data>
+  <data name="Search this folder" xml:space="preserve"><value>Search this folder</value></data>
+  <data name="Searching for {0} subtitles" xml:space="preserve"><value>Searching for {0} subtitles</value></data>
+  <data name="Searching the web is not set up on this server." xml:space="preserve"><value>Searching the web is not set up on this server.</value></data>
+  <data name="Searching {0}…" xml:space="preserve"><value>Searching {0}…</value></data>
+  <data name="Searching…" xml:space="preserve"><value>Searching…</value></data>
+  <data name="Season" xml:space="preserve"><value>Season</value></data>
+  <data name="Season " xml:space="preserve"><value>Season </value></data>
+  <data name="Season {0}" xml:space="preserve"><value>Season {0}</value></data>
+  <data name="Seasons" xml:space="preserve"><value>Seasons</value></data>
+  <data name="Seasons {0} to {1}" xml:space="preserve"><value>Seasons {0} to {1}</value></data>
+  <data name="Seeding" xml:space="preserve"><value>Seeding</value></data>
+  <data name="Seek" xml:space="preserve"><value>Seek</value></data>
+  <data name="Seerr could not accept this request. Check your request permissions and limits with the server owner." xml:space="preserve"><value>Seerr could not accept this request. Check your request permissions and limits with the server owner.</value></data>
+  <data name="Select a text subtitle to adjust timing." xml:space="preserve"><value>Select a text subtitle to adjust timing.</value></data>
+  <data name="Select the link and copy it." xml:space="preserve"><value>Select the link and copy it.</value></data>
+  <data name="Select {0}" xml:space="preserve"><value>Select {0}</value></data>
+  <data name="Selected audio track unavailable. Using the default track." xml:space="preserve"><value>Selected audio track unavailable. Using the default track.</value></data>
+  <data name="Selected files" xml:space="preserve"><value>Selected files</value></data>
+  <data name="Send reply" xml:space="preserve"><value>Send reply</value></data>
+  <data name="Send what I watch" xml:space="preserve"><value>Send what I watch</value></data>
+  <data name="Sending request…" xml:space="preserve"><value>Sending request…</value></data>
+  <data name="Sending…" xml:space="preserve"><value>Sending…</value></data>
+  <data name="Series" xml:space="preserve"><value>Series</value></data>
+  <data name="Server" xml:space="preserve"><value>Server</value></data>
+  <data name="Server address" xml:space="preserve"><value>Server address</value></data>
+  <data name="Server and updates" xml:space="preserve"><value>Server and updates</value></data>
+  <data name="Server details" xml:space="preserve"><value>Server details</value></data>
+  <data name="Server download paused." xml:space="preserve"><value>Server download paused.</value></data>
+  <data name="Server online" xml:space="preserve"><value>Server online</value></data>
+  <data name="Server updated {0:t}" xml:space="preserve"><value>Server updated {0:t}</value></data>
+  <data name="Session expired" xml:space="preserve"><value>Session expired</value></data>
+  <data name="Settings" xml:space="preserve"><value>Settings</value></data>
+  <data name="Settings categories" xml:space="preserve"><value>Settings categories</value></data>
+  <data name="Settings search results" xml:space="preserve"><value>Settings search results</value></data>
+  <data name="Shadow" xml:space="preserve"><value>Shadow</value></data>
+  <data name="Share link" xml:space="preserve"><value>Share link</value></data>
+  <data name="Share with the family" xml:space="preserve"><value>Share with the family</value></data>
+  <data name="Shared playlist" xml:space="preserve"><value>Shared playlist</value></data>
+  <data name="Shared playlist; make private" xml:space="preserve"><value>Shared playlist; make private</value></data>
+  <data name="Shared with me" xml:space="preserve"><value>Shared with me</value></data>
+  <data name="Share…" xml:space="preserve"><value>Share…</value></data>
+  <data name="Shifted to the film's start" xml:space="preserve"><value>Shifted to the film's start</value></data>
+  <data name="Shorter" xml:space="preserve"><value>Shorter</value></data>
+  <data name="Shortest solve" xml:space="preserve"><value>Shortest solve</value></data>
+  <data name="Show IMDb, Rotten Tomatoes and Metacritic scores when they are known." xml:space="preserve"><value>Show IMDb, Rotten Tomatoes and Metacritic scores when they are known.</value></data>
+  <data name="Show demo titles in Movies Home. Playback and downloads are unavailable in preview." xml:space="preserve"><value>Show demo titles in Movies Home. Playback and downloads are unavailable in preview.</value></data>
+  <data name="Show full description" xml:space="preserve"><value>Show full description</value></data>
+  <data name="Show less" xml:space="preserve"><value>Show less</value></data>
+  <data name="Show less biography" xml:space="preserve"><value>Show less biography</value></data>
+  <data name="Show lyrics earlier" xml:space="preserve"><value>Show lyrics earlier</value></data>
+  <data name="Show lyrics later" xml:space="preserve"><value>Show lyrics later</value></data>
+  <data name="Show more" xml:space="preserve"><value>Show more</value></data>
+  <data name="Show more " xml:space="preserve"><value>Show more </value></data>
+  <data name="Show more additions" xml:space="preserve"><value>Show more additions</value></data>
+  <data name="Show more sources" xml:space="preserve"><value>Show more sources</value></data>
+  <data name="Show password" xml:space="preserve"><value>Show password</value></data>
+  <data name="Show the banner" xml:space="preserve"><value>Show the banner</value></data>
+  <data name="Show the parental guide" xml:space="preserve"><value>Show the parental guide</value></data>
+  <data name="Show what I'm listening to on Discord" xml:space="preserve"><value>Show what I'm listening to on Discord</value></data>
+  <data name="Show {0}" xml:space="preserve"><value>Show {0}</value></data>
+  <data name="Showing the last loaded statistics." xml:space="preserve"><value>Showing the last loaded statistics.</value></data>
+  <data name="Showing titles {0} to {1} of {2}." xml:space="preserve"><value>Showing titles {0} to {1} of {2}.</value></data>
+  <data name="Shuffle" xml:space="preserve"><value>Shuffle</value></data>
+  <data name="Shuffle episodes" xml:space="preserve"><value>Shuffle episodes</value></data>
+  <data name="Shuffle playlist" xml:space="preserve"><value>Shuffle playlist</value></data>
+  <data name="Shuffle your library" xml:space="preserve"><value>Shuffle your library</value></data>
+  <data name="Sign in" xml:space="preserve"><value>Sign in</value></data>
+  <data name="Sign in again and try again." xml:space="preserve"><value>Sign in again and try again.</value></data>
+  <data name="Sign in again to download." xml:space="preserve"><value>Sign in again to download.</value></data>
+  <data name="Sign in again to upload." xml:space="preserve"><value>Sign in again to upload.</value></data>
+  <data name="Sign in again to use your files." xml:space="preserve"><value>Sign in again to use your files.</value></data>
+  <data name="Signing in…" xml:space="preserve"><value>Signing in…</value></data>
+  <data name="Silence, talking or an intro should be cut." xml:space="preserve"><value>Silence, talking or an intro should be cut.</value></data>
+  <data name="Similar songs" xml:space="preserve"><value>Similar songs</value></data>
+  <data name="Size" xml:space="preserve"><value>Size</value></data>
+  <data name="Size needed to estimate quality" xml:space="preserve"><value>Size needed to estimate quality</value></data>
+  <data name="Skip intro" xml:space="preserve"><value>Skip intro</value></data>
+  <data name="Skip intros automatically" xml:space="preserve"><value>Skip intros automatically</value></data>
+  <data name="Skip recaps automatically" xml:space="preserve"><value>Skip recaps automatically</value></data>
+  <data name="Skip to content" xml:space="preserve"><value>Skip to content</value></data>
+  <data name="Skip {0}" xml:space="preserve"><value>Skip {0}</value></data>
+  <data name="Skipped {0}" xml:space="preserve"><value>Skipped {0}</value></data>
+  <data name="Slate" xml:space="preserve"><value>Slate</value></data>
+  <data name="Slowest word" xml:space="preserve"><value>Slowest word</value></data>
+  <data name="Small" xml:space="preserve"><value>Small</value></data>
+  <data name="Smaller HD picture" xml:space="preserve"><value>Smaller HD picture</value></data>
+  <data name="Solved in {0} guess" xml:space="preserve"><value>Solved in {0} guess</value></data>
+  <data name="Solved in {0} guesses" xml:space="preserve"><value>Solved in {0} guesses</value></data>
+  <data name="Some songs could not be downloaded to the server." xml:space="preserve"><value>Some songs could not be downloaded to the server.</value></data>
+  <data name="Something with that name already exists." xml:space="preserve"><value>Something with that name already exists.</value></data>
+  <data name="Song metadata" xml:space="preserve"><value>Song metadata</value></data>
+  <data name="Song or artist" xml:space="preserve"><value>Song or artist</value></data>
+  <data name="Song review" xml:space="preserve"><value>Song review</value></data>
+  <data name="Songs" xml:space="preserve"><value>Songs</value></data>
+  <data name="Songs added" xml:space="preserve"><value>Songs added</value></data>
+  <data name="Songs can keep processing on the server." xml:space="preserve"><value>Songs can keep processing on the server.</value></data>
+  <data name="Songs on this device" xml:space="preserve"><value>Songs on this device</value></data>
+  <data name="Songs, playlists and radio" xml:space="preserve"><value>Songs, playlists and radio</value></data>
+  <data name="Sort files" xml:space="preserve"><value>Sort files</value></data>
+  <data name="Sort playlist songs" xml:space="preserve"><value>Sort playlist songs</value></data>
+  <data name="Sort playlists" xml:space="preserve"><value>Sort playlists</value></data>
+  <data name="Sound &amp; subtitle style" xml:space="preserve"><value>Sound &amp; subtitle style</value></data>
+  <data name="Sound mode" xml:space="preserve"><value>Sound mode</value></data>
+  <data name="Sound output" xml:space="preserve"><value>Sound output</value></data>
+  <data name="Sound: " xml:space="preserve"><value>Sound: </value></data>
+  <data name="Source and audio stream" xml:space="preserve"><value>Source and audio stream</value></data>
+  <data name="Source file deleted." xml:space="preserve"><value>Source file deleted.</value></data>
+  <data name="Source quality scan" xml:space="preserve"><value>Source quality scan</value></data>
+  <data name="Speakers on this device" xml:space="preserve"><value>Speakers on this device</value></data>
+  <data name="Specials" xml:space="preserve"><value>Specials</value></data>
+  <data name="Speed" xml:space="preserve"><value>Speed</value></data>
+  <data name="Spotify Premium" xml:space="preserve"><value>Spotify Premium</value></data>
+  <data name="Spotify, YouTube, Deezer or SoundCloud. Songs already in this playlist are skipped." xml:space="preserve"><value>Spotify, YouTube, Deezer or SoundCloud. Songs already in this playlist are skipped.</value></data>
+  <data name="Stalled" xml:space="preserve"><value>Stalled</value></data>
+  <data name="Standard-definition video" xml:space="preserve"><value>Standard-definition video</value></data>
+  <data name="Start matching" xml:space="preserve"><value>Start matching</value></data>
+  <data name="Start over" xml:space="preserve"><value>Start over</value></data>
+  <data name="Start the name with a character other than a dot." xml:space="preserve"><value>Start the name with a character other than a dot.</value></data>
+  <data name="Starting audio job…" xml:space="preserve"><value>Starting audio job…</value></data>
+  <data name="Statistics" xml:space="preserve"><value>Statistics</value></data>
+  <data name="Stereo" xml:space="preserve"><value>Stereo</value></data>
+  <data name="Storage" xml:space="preserve"><value>Storage</value></data>
+  <data name="Storage and downloads" xml:space="preserve"><value>Storage and downloads</value></data>
+  <data name="Stores songs prepared for playback. Songs you choose to download are stored separately." xml:space="preserve"><value>Stores songs prepared for playback. Songs you choose to download are stored separately.</value></data>
+  <data name="Streak" xml:space="preserve"><value>Streak</value></data>
+  <data name="Streaming" xml:space="preserve"><value>Streaming</value></data>
+  <data name="Streaming on Wi-Fi" xml:space="preserve"><value>Streaming on Wi-Fi</value></data>
+  <data name="Streaming on mobile data" xml:space="preserve"><value>Streaming on mobile data</value></data>
+  <data name="Streaming quality" xml:space="preserve"><value>Streaming quality</value></data>
+  <data name="Streaming quality limit" xml:space="preserve"><value>Streaming quality limit</value></data>
+  <data name="Submit guess" xml:space="preserve"><value>Submit guess</value></data>
+  <data name="Subtitle" xml:space="preserve"><value>Subtitle</value></data>
+  <data name="Subtitle background" xml:space="preserve"><value>Subtitle background</value></data>
+  <data name="Subtitle preview" xml:space="preserve"><value>Subtitle preview</value></data>
+  <data name="Subtitle provider is not set up" xml:space="preserve"><value>Subtitle provider is not set up</value></data>
+  <data name="Subtitle size" xml:space="preserve"><value>Subtitle size</value></data>
+  <data name="Subtitle style" xml:space="preserve"><value>Subtitle style</value></data>
+  <data name="Subtitle sync unavailable" xml:space="preserve"><value>Subtitle sync unavailable</value></data>
+  <data name="Subtitle timing" xml:space="preserve"><value>Subtitle timing</value></data>
+  <data name="Subtitle timing unavailable" xml:space="preserve"><value>Subtitle timing unavailable</value></data>
+  <data name="Subtitle track" xml:space="preserve"><value>Subtitle track</value></data>
+  <data name="Subtitle track unavailable" xml:space="preserve"><value>Subtitle track unavailable</value></data>
+  <data name="Subtitles" xml:space="preserve"><value>Subtitles</value></data>
+  <data name="Subtitles added to the video" xml:space="preserve"><value>Subtitles added to the video</value></data>
+  <data name="Subtitles were saved. Give the library a moment, then retry or reopen the video." xml:space="preserve"><value>Subtitles were saved. Give the library a moment, then retry or reopen the video.</value></data>
+  <data name="Subtitles were saved. Jellyfin could not refresh this title. Retry or ask an admin to check the library." xml:space="preserve"><value>Subtitles were saved. Jellyfin could not refresh this title. Retry or ask an admin to check the library.</value></data>
+  <data name="Subtitles: {0}" xml:space="preserve"><value>Subtitles: {0}</value></data>
+  <data name="Suggested details available." xml:space="preserve"><value>Suggested details available.</value></data>
+  <data name="Suggested guess" xml:space="preserve"><value>Suggested guess</value></data>
+  <data name="Suitable for all ages" xml:space="preserve"><value>Suitable for all ages</value></data>
+  <data name="Supported sites" xml:space="preserve"><value>Supported sites</value></data>
+  <data name="Switch apps" xml:space="preserve"><value>Switch apps</value></data>
+  <data name="Switch profile" xml:space="preserve"><value>Switch profile</value></data>
+  <data name="Switched to Saver on mobile data." xml:space="preserve"><value>Switched to Saver on mobile data.</value></data>
+  <data name="Synced to the film's English subtitles" xml:space="preserve"><value>Synced to the film's English subtitles</value></data>
+  <data name="Synced to the film's dialogue" xml:space="preserve"><value>Synced to the film's dialogue</value></data>
+  <data name="System" xml:space="preserve"><value>System</value></data>
+  <data name="System default" xml:space="preserve"><value>System default</value></data>
+  <data name="Temperature" xml:space="preserve"><value>Temperature</value></data>
+  <data name="That did not work. Try again." xml:space="preserve"><value>That did not work. Try again.</value></data>
+  <data name="That folder is nested too deeply." xml:space="preserve"><value>That folder is nested too deeply.</value></data>
+  <data name="That folder is not empty." xml:space="preserve"><value>That folder is not empty.</value></data>
+  <data name="That folder is not valid." xml:space="preserve"><value>That folder is not valid.</value></data>
+  <data name="That is not a file." xml:space="preserve"><value>That is not a file.</value></data>
+  <data name="That is not a folder." xml:space="preserve"><value>That is not a folder.</value></data>
+  <data name="That item is not available." xml:space="preserve"><value>That item is not available.</value></data>
+  <data name="That item no longer exists." xml:space="preserve"><value>That item no longer exists.</value></data>
+  <data name="That link no longer exists." xml:space="preserve"><value>That link no longer exists.</value></data>
+  <data name="That space is not available." xml:space="preserve"><value>That space is not available.</value></data>
+  <data name="The action could not finish. Try again." xml:space="preserve"><value>The action could not finish. Try again.</value></data>
+  <data name="The app may clear cached songs to free up space." xml:space="preserve"><value>The app may clear cached songs to free up space.</value></data>
+  <data name="The audio was slowed down slightly to match the video." xml:space="preserve"><value>The audio was slowed down slightly to match the video.</value></data>
+  <data name="The audio was sped up slightly to match the video." xml:space="preserve"><value>The audio was sped up slightly to match the video.</value></data>
+  <data name="The code expired. Close this window and choose Link Trakt again." xml:space="preserve"><value>The code expired. Close this window and choose Link Trakt again.</value></data>
+  <data name="The cuts may differ. The largest timing difference was {0} s." xml:space="preserve"><value>The cuts may differ. The largest timing difference was {0} s.</value></data>
+  <data name="The destination folder changed. Open the folder you want and upload again." xml:space="preserve"><value>The destination folder changed. Open the folder you want and upload again.</value></data>
+  <data name="The download limit is 1 to 1000." xml:space="preserve"><value>The download limit is 1 to 1000.</value></data>
+  <data name="The download queue is full. Try again later." xml:space="preserve"><value>The download queue is full. Try again later.</value></data>
+  <data name="The end of a song fades into the start of the next. At 0 each song plays to the end." xml:space="preserve"><value>The end of a song fades into the start of the next. At 0 each song plays to the end.</value></data>
+  <data name="The file is empty." xml:space="preserve"><value>The file is empty.</value></data>
+  <data name="The file picker could not open." xml:space="preserve"><value>The file picker could not open.</value></data>
+  <data name="The full season list is unavailable." xml:space="preserve"><value>The full season list is unavailable.</value></data>
+  <data name="The letter is absent." xml:space="preserve"><value>The letter is absent.</value></data>
+  <data name="The letter is in a different spot." xml:space="preserve"><value>The letter is in a different spot.</value></data>
+  <data name="The letter is in the right spot." xml:space="preserve"><value>The letter is in the right spot.</value></data>
+  <data name="The password needs 4 to 200 characters." xml:space="preserve"><value>The password needs 4 to 200 characters.</value></data>
+  <data name="The password needs at least 4 characters." xml:space="preserve"><value>The password needs at least 4 characters.</value></data>
+  <data name="The passwords do not match yet." xml:space="preserve"><value>The passwords do not match yet.</value></data>
+  <data name="The puzzle changed. Check your guesses and try again." xml:space="preserve"><value>The puzzle changed. Check your guesses and try again.</value></data>
+  <data name="The puzzle could not update." xml:space="preserve"><value>The puzzle could not update.</value></data>
+  <data name="The server can keep working while progress is unavailable." xml:space="preserve"><value>The server can keep working while progress is unavailable.</value></data>
+  <data name="The server could not check the folder size in time. Try again." xml:space="preserve"><value>The server could not check the folder size in time. Try again.</value></data>
+  <data name="The server could not prepare an SDR stream." xml:space="preserve"><value>The server could not prepare an SDR stream.</value></data>
+  <data name="The server did not answer in time. Check your connection and try again." xml:space="preserve"><value>The server did not answer in time. Check your connection and try again.</value></data>
+  <data name="The server did not answer. Check the connection and try again." xml:space="preserve"><value>The server did not answer. Check the connection and try again.</value></data>
+  <data name="The server did not provide a playable version." xml:space="preserve"><value>The server did not provide a playable version.</value></data>
+  <data name="The server did not respond to the subtitle request. Try again." xml:space="preserve"><value>The server did not respond to the subtitle request. Try again.</value></data>
+  <data name="The server did not respond. Try again." xml:space="preserve"><value>The server did not respond. Try again.</value></data>
+  <data name="The server did not return playback information." xml:space="preserve"><value>The server did not return playback information.</value></data>
+  <data name="The server found no compatible stream." xml:space="preserve"><value>The server found no compatible stream.</value></data>
+  <data name="The server is nearly out of disk space. Ask the administrator." xml:space="preserve"><value>The server is nearly out of disk space. Ask the administrator.</value></data>
+  <data name="The server stream could not start." xml:space="preserve"><value>The server stream could not start.</value></data>
+  <data name="The server’s board has changed. Your saved guesses are shown." xml:space="preserve"><value>The server’s board has changed. Your saved guesses are shown.</value></data>
+  <data name="The source has no English track. The match used changes in volume." xml:space="preserve"><value>The source has no English track. The match used changes in volume.</value></data>
+  <data name="The sources did not respond. Try again." xml:space="preserve"><value>The sources did not respond. Try again.</value></data>
+  <data name="The track was saved. Refresh this title in Jellyfin to make it available." xml:space="preserve"><value>The track was saved. Refresh this title in Jellyfin to make it available.</value></data>
+  <data name="The upload did not finish. Try again." xml:space="preserve"><value>The upload did not finish. Try again.</value></data>
+  <data name="The upload was larger than announced." xml:space="preserve"><value>The upload was larger than announced.</value></data>
+  <data name="The video stream could not be decoded." xml:space="preserve"><value>The video stream could not be decoded.</value></data>
+  <data name="The video stream stopped responding." xml:space="preserve"><value>The video stream stopped responding.</value></data>
+  <data name="Theme" xml:space="preserve"><value>Theme</value></data>
+  <data name="Theme effects" xml:space="preserve"><value>Theme effects</value></data>
+  <data name="These {0} files will be deleted for good. Links to them stop working." xml:space="preserve"><value>These {0} files will be deleted for good. Links to them stop working.</value></data>
+  <data name="This applies to today’s family boards and results." xml:space="preserve"><value>This applies to today’s family boards and results.</value></data>
+  <data name="This board is unavailable." xml:space="preserve"><value>This board is unavailable.</value></data>
+  <data name="This device cannot resume this video. Continue on another device." xml:space="preserve"><value>This device cannot resume this video. Continue on another device.</value></data>
+  <data name="This device could not save your movie preferences. Reopen Settings to try again." xml:space="preserve"><value>This device could not save your movie preferences. Reopen Settings to try again.</value></data>
+  <data name="This file could not be opened here. Download it instead." xml:space="preserve"><value>This file could not be opened here. Download it instead.</value></data>
+  <data name="This file is unusually small for a 1080p video of this length." xml:space="preserve"><value>This file is unusually small for a 1080p video of this length.</value></data>
+  <data name="This file uses over 40 GB of server space." xml:space="preserve"><value>This file uses over 40 GB of server space.</value></data>
+  <data name="This folder contains files added by another profile." xml:space="preserve"><value>This folder contains files added by another profile.</value></data>
+  <data name="This folder is empty." xml:space="preserve"><value>This folder is empty.</value></data>
+  <data name="This guess gave up most of your chances, or could not win on the last turn." xml:space="preserve"><value>This guess gave up most of your chances, or could not win on the last turn.</value></data>
+  <data name="This guess guarantees a solve in the guesses you have left. Only a few words do." xml:space="preserve"><value>This guess guarantees a solve in the guesses you have left. Only a few words do.</value></data>
+  <data name="This is how subtitles look." xml:space="preserve"><value>This is how subtitles look.</value></data>
+  <data name="This month" xml:space="preserve"><value>This month</value></data>
+  <data name="This picture format cannot be shown here. Download it instead." xml:space="preserve"><value>This picture format cannot be shown here. Download it instead.</value></data>
+  <data name="This product uses the TMDB API but is not endorsed or certified by TMDB." xml:space="preserve"><value>This product uses the TMDB API but is not endorsed or certified by TMDB.</value></data>
+  <data name="This release is no longer available. Search again." xml:space="preserve"><value>This release is no longer available. Search again.</value></data>
+  <data name="This removes the playlist’s downloaded songs from this device, including copies used by other playlists." xml:space="preserve"><value>This removes the playlist’s downloaded songs from this device, including copies used by other playlists.</value></data>
+  <data name="This removes your listening history, yearly listening stats, and this device's pending events. Songs you added remain credited to you." xml:space="preserve"><value>This removes your listening history, yearly listening stats, and this device's pending events. Songs you added remain credited to you.</value></data>
+  <data name="This sets the resolution limit for converted playback and flags larger downloads. Automatic uses your display’s pixel size. The projector setting allows up to 8K." xml:space="preserve"><value>This sets the resolution limit for converted playback and flags larger downloads. Automatic uses your display’s pixel size. The projector setting allows up to 8K.</value></data>
+  <data name="This word cannot be the answer, yet it guarantees a solve in the guesses you have left. No possible answer did." xml:space="preserve"><value>This word cannot be the answer, yet it guarantees a solve in the guesses you have left. No possible answer did.</value></data>
+  <data name="This word isn’t accepted. Try another." xml:space="preserve"><value>This word isn’t accepted. Try another.</value></data>
+  <data name="Three-letter language code" xml:space="preserve"><value>Three-letter language code</value></data>
+  <data name="Thriller" xml:space="preserve"><value>Thriller</value></data>
+  <data name="Time" xml:space="preserve"><value>Time</value></data>
+  <data name="Time listened" xml:space="preserve"><value>Time listened</value></data>
+  <data name="Time per game" xml:space="preserve"><value>Time per game</value></data>
+  <data name="Time per guess" xml:space="preserve"><value>Time per guess</value></data>
+  <data name="Time remaining" xml:space="preserve"><value>Time remaining</value></data>
+  <data name="Timed to the English track" xml:space="preserve"><value>Timed to the English track</value></data>
+  <data name="Times assume a {0} Mbps connection." xml:space="preserve"><value>Times assume a {0} Mbps connection.</value></data>
+  <data name="Timing" xml:space="preserve"><value>Timing</value></data>
+  <data name="Timing from the release" xml:space="preserve"><value>Timing from the release</value></data>
+  <data name="Timing is unavailable for image subtitles." xml:space="preserve"><value>Timing is unavailable for image subtitles.</value></data>
+  <data name="Timing not checked" xml:space="preserve"><value>Timing not checked</value></data>
+  <data name="Title" xml:space="preserve"><value>Title</value></data>
+  <data name="Title details are unavailable." xml:space="preserve"><value>Title details are unavailable.</value></data>
+  <data name="Title page background" xml:space="preserve"><value>Title page background</value></data>
+  <data name="Title page sections" xml:space="preserve"><value>Title page sections</value></data>
+  <data name="Title pages" xml:space="preserve"><value>Title pages</value></data>
+  <data name="Title search is unavailable. Try again." xml:space="preserve"><value>Title search is unavailable. Try again.</value></data>
+  <data name="Title unavailable" xml:space="preserve"><value>Title unavailable</value></data>
+  <data name="Titles" xml:space="preserve"><value>Titles</value></data>
+  <data name="Today" xml:space="preserve"><value>Today</value></data>
+  <data name="Today’s guesses" xml:space="preserve"><value>Today’s guesses</value></data>
+  <data name="Too many files share that name." xml:space="preserve"><value>Too many files share that name.</value></data>
+  <data name="Too many links made this hour. Try later." xml:space="preserve"><value>Too many links made this hour. Try later.</value></data>
+  <data name="Too many uploads. Wait a minute." xml:space="preserve"><value>Too many uploads. Wait a minute.</value></data>
+  <data name="Top listener this month" xml:space="preserve"><value>Top listener this month</value></data>
+  <data name="Top three, {0}" xml:space="preserve"><value>Top three, {0}</value></data>
+  <data name="Total" xml:space="preserve"><value>Total</value></data>
+  <data name="Total saved" xml:space="preserve"><value>Total saved</value></data>
+  <data name="Track language" xml:space="preserve"><value>Track language</value></data>
+  <data name="Trailer" xml:space="preserve"><value>Trailer</value></data>
+  <data name="Trailer on YouTube" xml:space="preserve"><value>Trailer on YouTube</value></data>
+  <data name="Trakt is not available right now." xml:space="preserve"><value>Trakt is not available right now.</value></data>
+  <data name="Trakt,scrobble,watch history" xml:space="preserve"><value>Trakt,scrobble,watch history</value></data>
+  <data name="Transcode" xml:space="preserve"><value>Transcode</value></data>
+  <data name="Try again" xml:space="preserve"><value>Try again</value></data>
+  <data name="Try saving again" xml:space="preserve"><value>Try saving again</value></data>
+  <data name="Trying again in " xml:space="preserve"><value>Trying again in </value></data>
+  <data name="Trying again in {0} s. " xml:space="preserve"><value>Trying again in {0} s. </value></data>
+  <data name="Trying again…" xml:space="preserve"><value>Trying again…</value></data>
+  <data name="Trying again… " xml:space="preserve"><value>Trying again… </value></data>
+  <data name="Type to find more songs." xml:space="preserve"><value>Type to find more songs.</value></data>
+  <data name="Unavailable" xml:space="preserve"><value>Unavailable</value></data>
+  <data name="Unavailable in layout preview" xml:space="preserve"><value>Unavailable in layout preview</value></data>
+  <data name="Undo" xml:space="preserve"><value>Undo</value></data>
+  <data name="Undo restores the original recording or details." xml:space="preserve"><value>Undo restores the original recording or details.</value></data>
+  <data name="Unknown" xml:space="preserve"><value>Unknown</value></data>
+  <data name="Unknown quality" xml:space="preserve"><value>Unknown quality</value></data>
+  <data name="Unknown space." xml:space="preserve"><value>Unknown space.</value></data>
+  <data name="Unlucky finish" xml:space="preserve"><value>Unlucky finish</value></data>
+  <data name="Unmute" xml:space="preserve"><value>Unmute</value></data>
+  <data name="Unpin playlist" xml:space="preserve"><value>Unpin playlist</value></data>
+  <data name="Unsolved" xml:space="preserve"><value>Unsolved</value></data>
+  <data name="Unsupported audio codec" xml:space="preserve"><value>Unsupported audio codec</value></data>
+  <data name="Unsupported file format" xml:space="preserve"><value>Unsupported file format</value></data>
+  <data name="Unsupported subtitle format" xml:space="preserve"><value>Unsupported subtitle format</value></data>
+  <data name="Unsupported video codec" xml:space="preserve"><value>Unsupported video codec</value></data>
+  <data name="Up to 200 links, separated by spaces or new lines." xml:space="preserve"><value>Up to 200 links, separated by spaces or new lines.</value></data>
+  <data name="Up to date ({0})" xml:space="preserve"><value>Up to date ({0})</value></data>
+  <data name="Update the server to see queue and retry counts." xml:space="preserve"><value>Update the server to see queue and retry counts.</value></data>
+  <data name="Updates unavailable on this platform" xml:space="preserve"><value>Updates unavailable on this platform</value></data>
+  <data name="Updating FamilyHub" xml:space="preserve"><value>Updating FamilyHub</value></data>
+  <data name="Upload files" xml:space="preserve"><value>Upload files</value></data>
+  <data name="Upload to this folder" xml:space="preserve"><value>Upload to this folder</value></data>
+  <data name="Uploaded" xml:space="preserve"><value>Uploaded</value></data>
+  <data name="Uploading song" xml:space="preserve"><value>Uploading song</value></data>
+  <data name="Uploading {0}" xml:space="preserve"><value>Uploading {0}</value></data>
+  <data name="Uploading {0}: {1}%" xml:space="preserve"><value>Uploading {0}: {1}%</value></data>
+  <data name="Use at least 8 characters." xml:space="preserve"><value>Use at least 8 characters.</value></data>
+  <data name="Use recording" xml:space="preserve"><value>Use recording</value></data>
+  <data name="Used" xml:space="preserve"><value>Used</value></data>
+  <data name="Used when a movie has no preferred audio. Has no effect while Preferred audio is Media default." xml:space="preserve"><value>Used when a movie has no preferred audio. Has no effect while Preferred audio is Media default.</value></data>
+  <data name="Uses Low quality and skips preloading songs on mobile data." xml:space="preserve"><value>Uses Low quality and skips preloading songs on mobile data.</value></data>
+  <data name="Uses Low quality on mobile data and skips early song downloads." xml:space="preserve"><value>Uses Low quality on mobile data and skips early song downloads.</value></data>
+  <data name="Videa downloads are unavailable. Ask the server admin to check yt-dlp." xml:space="preserve"><value>Videa downloads are unavailable. Ask the server admin to check yt-dlp.</value></data>
+  <data name="Video" xml:space="preserve"><value>Video</value></data>
+  <data name="View" xml:space="preserve"><value>View</value></data>
+  <data name="View history" xml:space="preserve"><value>View history</value></data>
+  <data name="Violence" xml:space="preserve"><value>Violence</value></data>
+  <data name="Violet" xml:space="preserve"><value>Violet</value></data>
+  <data name="Volume" xml:space="preserve"><value>Volume</value></data>
+  <data name="Volume above 100% can distort." xml:space="preserve"><value>Volume above 100% can distort.</value></data>
+  <data name="Volume level" xml:space="preserve"><value>Volume level</value></data>
+  <data name="Volume {0}%" xml:space="preserve"><value>Volume {0}%</value></data>
+  <data name="Wait a minute before searching again." xml:space="preserve"><value>Wait a minute before searching again.</value></data>
+  <data name="Wait a minute before starting another download." xml:space="preserve"><value>Wait a minute before starting another download.</value></data>
+  <data name="Waiting" xml:space="preserve"><value>Waiting</value></data>
+  <data name="Waiting for approval" xml:space="preserve"><value>Waiting for approval</value></data>
+  <data name="Waiting for the library" xml:space="preserve"><value>Waiting for the library</value></data>
+  <data name="Waiting to retry" xml:space="preserve"><value>Waiting to retry</value></data>
+  <data name="Watch credits" xml:space="preserve"><value>Watch credits</value></data>
+  <data name="Watch on YouTube" xml:space="preserve"><value>Watch on YouTube</value></data>
+  <data name="Watch progress could not be saved." xml:space="preserve"><value>Watch progress could not be saved.</value></data>
+  <data name="Watching" xml:space="preserve"><value>Watching</value></data>
+  <data name="Web" xml:space="preserve"><value>Web</value></data>
+  <data name="Weekly" xml:space="preserve"><value>Weekly</value></data>
+  <data name="Welcome back" xml:space="preserve"><value>Welcome back</value></data>
+  <data name="What can I connect to?" xml:space="preserve"><value>What can I connect to?</value></data>
+  <data name="When" xml:space="preserve"><value>When</value></data>
+  <data name="When pressed" xml:space="preserve"><value>When pressed</value></data>
+  <data name="Where to save" xml:space="preserve"><value>Where to save</value></data>
+  <data name="Whole machine:" xml:space="preserve"><value>Whole machine:</value></data>
+  <data name="Whose files" xml:space="preserve"><value>Whose files</value></data>
+  <data name="Wi-Fi-only downloads" xml:space="preserve"><value>Wi-Fi-only downloads</value></data>
+  <data name="Width" xml:space="preserve"><value>Width</value></data>
+  <data name="Win rate" xml:space="preserve"><value>Win rate</value></data>
+  <data name="Winning guesses" xml:space="preserve"><value>Winning guesses</value></data>
+  <data name="Withheld from streamers" xml:space="preserve"><value>Withheld from streamers</value></data>
+  <data name="Wordle" xml:space="preserve"><value>Wordle</value></data>
+  <data name="Wordle settings saved." xml:space="preserve"><value>Wordle settings saved.</value></data>
+  <data name="Wordle,spoilers,privacy,boards" xml:space="preserve"><value>Wordle,spoilers,privacy,boards</value></data>
+  <data name="Worker slots" xml:space="preserve"><value>Worker slots</value></data>
+  <data name="Workers" xml:space="preserve"><value>Workers</value></data>
+  <data name="Workers, queues and retries" xml:space="preserve"><value>Workers, queues and retries</value></data>
+  <data name="Works until {0}. This is the only time the address is shown; make a new link if you lose it." xml:space="preserve"><value>Works until {0}. This is the only time the address is shown; make a new link if you lose it.</value></data>
+  <data name="Write feedback" xml:space="preserve"><value>Write feedback</value></data>
+  <data name="Writing audio" xml:space="preserve"><value>Writing audio</value></data>
+  <data name="Wrong source" xml:space="preserve"><value>Wrong source</value></data>
+  <data name="Yes" xml:space="preserve"><value>Yes</value></data>
+  <data name="Yesterday’s results" xml:space="preserve"><value>Yesterday’s results</value></data>
+  <data name="You" xml:space="preserve"><value>You</value></data>
+  <data name="You can pause downloads from the playlist." xml:space="preserve"><value>You can pause downloads from the playlist.</value></data>
+  <data name="You have not made any links yet." xml:space="preserve"><value>You have not made any links yet.</value></data>
+  <data name="YouTube did not respond" xml:space="preserve"><value>YouTube did not respond</value></data>
+  <data name="YouTube downloads are not set up on this server." xml:space="preserve"><value>YouTube downloads are not set up on this server.</value></data>
+  <data name="YouTube recording link" xml:space="preserve"><value>YouTube recording link</value></data>
+  <data name="YouTube video links" xml:space="preserve"><value>YouTube video links</value></data>
+  <data name="Your board" xml:space="preserve"><value>Your board</value></data>
+  <data name="Your guesses are saved on this device." xml:space="preserve"><value>Your guesses are saved on this device.</value></data>
+  <data name="Your layout changed on another device. Reopen this sheet to load it." xml:space="preserve"><value>Your layout changed on another device. Reopen this sheet to load it.</value></data>
+  <data name="Your layout changed on another device. The current layout is shown." xml:space="preserve"><value>Your layout changed on another device. The current layout is shown.</value></data>
+  <data name="Your library" xml:space="preserve"><value>Your library</value></data>
+  <data name="Your library is empty" xml:space="preserve"><value>Your library is empty</value></data>
+  <data name="Your links" xml:space="preserve"><value>Your links</value></data>
+  <data name="Your music queue and settings are kept." xml:space="preserve"><value>Your music queue and settings are kept.</value></data>
+  <data name="Your playlists" xml:space="preserve"><value>Your playlists</value></data>
+  <data name="Your recent puzzles" xml:space="preserve"><value>Your recent puzzles</value></data>
+  <data name="Your session expired. Reconnect to your server and try again." xml:space="preserve"><value>Your session expired. Reconnect to your server and try again.</value></data>
+  <data name="Your session was restored. Try again." xml:space="preserve"><value>Your session was restored. Try again.</value></data>
+  <data name="Your session was restored. Try the action again." xml:space="preserve"><value>Your session was restored. Try the action again.</value></data>
+  <data name="about {0}" xml:space="preserve"><value>about {0}</value></data>
+  <data name="about {0} left" xml:space="preserve"><value>about {0} left</value></data>
+  <data name="absent" xml:space="preserve"><value>absent</value></data>
+  <data name="account,connect,unlink" xml:space="preserve"><value>account,connect,unlink</value></data>
+  <data name="active time" xml:space="preserve"><value>active time</value></data>
+  <data name="age rating,content warning" xml:space="preserve"><value>age rating,content warning</value></data>
+  <data name="all time" xml:space="preserve"><value>all time</value></data>
+  <data name="animation,motion,visual effects" xml:space="preserve"><value>animation,motion,visual effects</value></data>
+  <data name="appearance,colour,color,dark" xml:space="preserve"><value>appearance,colour,color,dark</value></data>
+  <data name="artist aliases,identity" xml:space="preserve"><value>artist aliases,identity</value></data>
+  <data name="audio quality,bitrate,cellular" xml:space="preserve"><value>audio quality,bitrate,cellular</value></data>
+  <data name="audio quality,bitrate,wireless,wifi" xml:space="preserve"><value>audio quality,bitrate,wireless,wifi</value></data>
+  <data name="autoplay,up next,credits" xml:space="preserve"><value>autoplay,up next,credits</value></data>
+  <data name="avatar,photo,profile image" xml:space="preserve"><value>avatar,photo,profile image</value></data>
+  <data name="backdrop,wallpaper,appearance" xml:space="preserve"><value>backdrop,wallpaper,appearance</value></data>
+  <data name="background,color,palette" xml:space="preserve"><value>background,color,palette</value></data>
+  <data name="bandwidth,low quality,mobile data" xml:space="preserve"><value>bandwidth,low quality,mobile data</value></data>
+  <data name="build,app version" xml:space="preserve"><value>build,app version</value></data>
+  <data name="cellular,mobile data,wireless,wifi" xml:space="preserve"><value>cellular,mobile data,wireless,wifi</value></data>
+  <data name="changelog,what's new" xml:space="preserve"><value>changelog,what's new</value></data>
+  <data name="connection,address,url" xml:space="preserve"><value>connection,address,url</value></data>
+  <data name="credits" xml:space="preserve"><value>credits</value></data>
+  <data name="delete,privacy,reset plays" xml:space="preserve"><value>delete,privacy,reset plays</value></data>
+  <data name="demo,example titles" xml:space="preserve"><value>demo,example titles</value></data>
+  <data name="did not solve it" xml:space="preserve"><value>did not solve it</value></data>
+  <data name="different spot" xml:space="preserve"><value>different spot</value></data>
+  <data name="empty" xml:space="preserve"><value>empty</value></data>
+  <data name="episode {0}, {1}" xml:space="preserve"><value>episode {0}, {1}</value></data>
+  <data name="fade,transition,mix" xml:space="preserve"><value>fade,transition,mix</value></data>
+  <data name="from FamilyHub? Downloaded songs stay on the server and devices." xml:space="preserve"><value>from FamilyHub? Downloaded songs stay on the server and devices.</value></data>
+  <data name="health,cpu,memory" xml:space="preserve"><value>health,cpu,memory</value></data>
+  <data name="in total" xml:space="preserve"><value>in total</value></data>
+  <data name="intro" xml:space="preserve"><value>intro</value></data>
+  <data name="language,dubbing,fallback" xml:space="preserve"><value>language,dubbing,fallback</value></data>
+  <data name="language,dubbing,soundtrack" xml:space="preserve"><value>language,dubbing,soundtrack</value></data>
+  <data name="logs,timing,playback problems" xml:space="preserve"><value>logs,timing,playback problems</value></data>
+  <data name="loud,quiet,normalisation" xml:space="preserve"><value>loud,quiet,normalisation</value></data>
+  <data name="matching titles, row {0}" xml:space="preserve"><value>matching titles, row {0}</value></data>
+  <data name="monthly" xml:space="preserve"><value>monthly</value></data>
+  <data name="movies,bandwidth,data saver,bitrate" xml:space="preserve"><value>movies,bandwidth,data saver,bitrate</value></data>
+  <data name="new releases" xml:space="preserve"><value>new releases</value></data>
+  <data name="normalization,normalisation,loudness" xml:space="preserve"><value>normalization,normalisation,loudness</value></data>
+  <data name="notifications,alerts,new releases,continue watching" xml:space="preserve"><value>notifications,alerts,new releases,continue watching</value></data>
+  <data name="notifications,alerts,requested titles" xml:space="preserve"><value>notifications,alerts,requested titles</value></data>
+  <data name="offline,audio quality,bitrate" xml:space="preserve"><value>offline,audio quality,bitrate</value></data>
+  <data name="opening,skip introduction" xml:space="preserve"><value>opening,skip introduction</value></data>
+  <data name="performance,server metrics" xml:space="preserve"><value>performance,server metrics</value></data>
+  <data name="presence,status" xml:space="preserve"><value>presence,status</value></data>
+  <data name="previously on,skip summary" xml:space="preserve"><value>previously on,skip summary</value></data>
+  <data name="privacy,stop tracking,listening history" xml:space="preserve"><value>privacy,stop tracking,listening history</value></data>
+  <data name="queues,workers" xml:space="preserve"><value>queues,workers</value></data>
+  <data name="recap" xml:space="preserve"><value>recap</value></data>
+  <data name="rename,username,profile name" xml:space="preserve"><value>rename,username,profile name</value></data>
+  <data name="resolution,display,4k,projector" xml:space="preserve"><value>resolution,display,4k,projector</value></data>
+  <data name="right spot" xml:space="preserve"><value>right spot</value></data>
+  <data name="samsung,battery,unrestricted,screen off" xml:space="preserve"><value>samsung,battery,unrestricted,screen off</value></data>
+  <data name="shortcut,SideStore" xml:space="preserve"><value>shortcut,SideStore</value></data>
+  <data name="size unknown" xml:space="preserve"><value>size unknown</value></data>
+  <data name="solved in {0} guesses" xml:space="preserve"><value>solved in {0} guesses</value></data>
+  <data name="storage,space,cache size" xml:space="preserve"><value>storage,space,cache size</value></data>
+  <data name="subscription,account" xml:space="preserve"><value>subscription,account</value></data>
+  <data name="subtitle language,captions,cc" xml:space="preserve"><value>subtitle language,captions,cc</value></data>
+  <data name="the upload failed." xml:space="preserve"><value>the upload failed.</value></data>
+  <data name="timeline,chapter markers,scrub" xml:space="preserve"><value>timeline,chapter markers,scrub</value></data>
+  <data name="torrents,ratio,uploads" xml:space="preserve"><value>torrents,ratio,uploads</value></data>
+  <data name="trickplay,thumbnail,scrubbing,timeline" xml:space="preserve"><value>trickplay,thumbnail,scrubbing,timeline</value></data>
+  <data name="update,upgrade" xml:space="preserve"><value>update,upgrade</value></data>
+  <data name="usage,cellular,this month" xml:space="preserve"><value>usage,cellular,this month</value></data>
+  <data name="used" xml:space="preserve"><value>used</value></data>
+  <data name="weekly" xml:space="preserve"><value>weekly</value></data>
+  <data name="your playlists" xml:space="preserve"><value>your playlists</value></data>
+  <data name="{0:0.0} GB" xml:space="preserve"><value>{0:0.0} GB</value></data>
+  <data name="{0:0.0} MB" xml:space="preserve"><value>{0:0.0} MB</value></data>
+  <data name="{0:N0} words fit the clues before the final guess." xml:space="preserve"><value>{0:N0} words fit the clues before the final guess.</value></data>
+  <data name="{0} (build {1}), {2}" xml:space="preserve"><value>{0} (build {1}), {2}</value></data>
+  <data name="{0} (you)" xml:space="preserve"><value>{0} (you)</value></data>
+  <data name="{0} Confidence {1}." xml:space="preserve"><value>{0} Confidence {1}.</value></data>
+  <data name="{0} GB" xml:space="preserve"><value>{0} GB</value></data>
+  <data name="{0} MB" xml:space="preserve"><value>{0} MB</value></data>
+  <data name="{0} audio unavailable. Using the default track." xml:space="preserve"><value>{0} audio unavailable. Using the default track.</value></data>
+  <data name="{0} available" xml:space="preserve"><value>{0} available</value></data>
+  <data name="{0} ch" xml:space="preserve"><value>{0} ch</value></data>
+  <data name="{0} channels" xml:space="preserve"><value>{0} channels</value></data>
+  <data name="{0} day" xml:space="preserve"><value>{0} day</value></data>
+  <data name="{0} days" xml:space="preserve"><value>{0} days</value></data>
+  <data name="{0} download complete." xml:space="preserve"><value>{0} download complete.</value></data>
+  <data name="{0} episode" xml:space="preserve"><value>{0} episode</value></data>
+  <data name="{0} episodes" xml:space="preserve"><value>{0} episodes</value></data>
+  <data name="{0} found." xml:space="preserve"><value>{0} found.</value></data>
+  <data name="{0} h" xml:space="preserve"><value>{0} h</value></data>
+  <data name="{0} h {1} min" xml:space="preserve"><value>{0} h {1} min</value></data>
+  <data name="{0} hour" xml:space="preserve"><value>{0} hour</value></data>
+  <data name="{0} hours" xml:space="preserve"><value>{0} hours</value></data>
+  <data name="{0} is ready. Choose where to keep it." xml:space="preserve"><value>{0} is ready. Choose where to keep it.</value></data>
+  <data name="{0} left" xml:space="preserve"><value>{0} left</value></data>
+  <data name="{0} listening" xml:space="preserve"><value>{0} listening</value></data>
+  <data name="{0} min" xml:space="preserve"><value>{0} min</value></data>
+  <data name="{0} min {1} s" xml:space="preserve"><value>{0} min {1} s</value></data>
+  <data name="{0} minute" xml:space="preserve"><value>{0} minute</value></data>
+  <data name="{0} minutes" xml:space="preserve"><value>{0} minutes</value></data>
+  <data name="{0} more site" xml:space="preserve"><value>{0} more site</value></data>
+  <data name="{0} more sites" xml:space="preserve"><value>{0} more sites</value></data>
+  <data name="{0} opened. Download started." xml:space="preserve"><value>{0} opened. Download started.</value></data>
+  <data name="{0} results" xml:space="preserve"><value>{0} results</value></data>
+  <data name="{0} s" xml:space="preserve"><value>{0} s</value></data>
+  <data name="{0} second" xml:space="preserve"><value>{0} second</value></data>
+  <data name="{0} seconds" xml:space="preserve"><value>{0} seconds</value></data>
+  <data name="{0} selected" xml:space="preserve"><value>{0} selected</value></data>
+  <data name="{0} setting found." xml:space="preserve"><value>{0} setting found.</value></data>
+  <data name="{0} settings" xml:space="preserve"><value>{0} settings</value></data>
+  <data name="{0} settings found." xml:space="preserve"><value>{0} settings found.</value></data>
+  <data name="{0} song to download" xml:space="preserve"><value>{0} song to download</value></data>
+  <data name="{0} songs to download" xml:space="preserve"><value>{0} songs to download</value></data>
+  <data name="{0} subtitles resynced" xml:space="preserve"><value>{0} subtitles resynced</value></data>
+  <data name="{0} title" xml:space="preserve"><value>{0} title</value></data>
+  <data name="{0} titles" xml:space="preserve"><value>{0} titles</value></data>
+  <data name="{0} view" xml:space="preserve"><value>{0} view</value></data>
+  <data name="{0} views" xml:space="preserve"><value>{0} views</value></data>
+  <data name="{0} {1}" xml:space="preserve"><value>{0} {1}</value></data>
+  <data name="{0} {1} this file" xml:space="preserve"><value>{0} {1} this file</value></data>
+  <data name="{0} {1} uploaded." xml:space="preserve"><value>{0} {1} uploaded.</value></data>
+  <data name="{0}% watched" xml:space="preserve"><value>{0}% watched</value></data>
+  <data name="{0}, in your library" xml:space="preserve"><value>{0}, in your library</value></data>
+  <data name="{0}, new" xml:space="preserve"><value>{0}, new</value></data>
+  <data name="{0}, {1} of 6 guesses" xml:space="preserve"><value>{0}, {1} of 6 guesses</value></data>
+  <data name="{0}, {1}% downloaded." xml:space="preserve"><value>{0}, {1}% downloaded.</value></data>
+  <data name="{0}. {1:N0} word left." xml:space="preserve"><value>{0}. {1:N0} word left.</value></data>
+  <data name="{0}. {1:N0} words left." xml:space="preserve"><value>{0}. {1:N0} words left.</value></data>
+  <data name="{0}: no longer works" xml:space="preserve"><value>{0}: no longer works</value></data>
+  <data name="{0}: the upload did not finish." xml:space="preserve"><value>{0}: the upload did not finish.</value></data>
+  <data name="{0}: {1} percent" xml:space="preserve"><value>{0}: {1} percent</value></data>
+  <data name="{0}h" xml:space="preserve"><value>{0}h</value></data>
+  <data name="{0}h {1}m" xml:space="preserve"><value>{0}h {1}m</value></data>
+  <data name="{0}m" xml:space="preserve"><value>{0}m</value></data>
+  <data name="“{0}” and everything inside it will be deleted for good." xml:space="preserve"><value>“{0}” and everything inside it will be deleted for good.</value></data>
+  <data name="“{0}” will be deleted for good." xml:space="preserve"><value>“{0}” will be deleted for good.</value></data>
+  <data name="“{0}” will be deleted for good. Links to it stop working." xml:space="preserve"><value>“{0}” will be deleted for good. Links to it stop working.</value></data>
+  <data name="S{0} E{1}" xml:space="preserve"><value>S{0} E{1}</value></data>
+  <data name="from {0}" xml:space="preserve"><value>from {0}</value></data>
+</root>

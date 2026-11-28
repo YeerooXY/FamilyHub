@@ -4,16 +4,16 @@
 <div class="profile-picture-editor">
     <label class="profile-picture-input">
         <ProfileAvatar Profile="Profile" Size="72" ShowCrown="false" />
-        <span class="profile-picture-caption" aria-hidden="true">@(working ? "Saving…" : "Change picture")</span>
-        <InputFile id="profile-image-file" OnChange="ChooseImage" accept="image/jpeg,image/png" aria-label="Change picture" disabled="@(!Session.Connected)" aria-busy="@(working ? "true" : "false")" />
+        <span class="profile-picture-caption" aria-hidden="true">@L[working ? "Saving…" : "Change picture"]</span>
+        <InputFile id="profile-image-file" OnChange="ChooseImage" accept="image/jpeg,image/png" aria-label="@L["Change picture"].Value" disabled="@(!Session.Connected)" aria-busy="@(working ? "true" : "false")" />
     </label>
     <form class="profile-display-form" @onsubmit="SaveName" @onsubmit:preventDefault>
-        <label for="profile-display-name">Display name</label>
+        <label for="profile-display-name">@L["Display name"]</label>
         <div class="profile-name-fields">
             <input id="profile-display-name" type="text" @bind="draftName" @bind:event="oninput" @bind:after="() => nameMessage = string.Empty"
                    readonly="@(!Session.Connected || savingName)" autocomplete="off"
                    aria-describedby="@(nameMessage.Length != 0 ? "profile-name-feedback" : null)" />
-            <button id="profile-save-name" type="submit" aria-disabled="@(!CanSaveName ? "true" : null)">@(savingName ? "Saving…" : "Save name")</button>
+            <button id="profile-save-name" type="submit" aria-disabled="@(!CanSaveName ? "true" : null)">@L[savingName ? "Saving…" : "Save name"]</button>
         </div>
         <Notice Id="profile-name-feedback" Level="@(nameSaved ? "success" : "error")" Message="@nameMessage" />
     </form>

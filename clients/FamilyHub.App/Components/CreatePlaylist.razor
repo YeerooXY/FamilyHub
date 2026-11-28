@@ -6,43 +6,43 @@
 @* Create playlist: one screen for an empty playlist, a pasted link from a supported site (detected
    from the link itself), or songs and folders from this device through the upload dialog. *@
 <dialog id="create-playlist-dialog" class="popup-panel popup-centered create-playlist-screen animated-dialog" aria-labelledby="create-playlist-heading" data-return-focus="create-playlist" @onclose="Reset">
-    <div class="dialog-heading"><h2 id="create-playlist-heading" tabindex="-1">Create playlist</h2><button class="quiet" aria-label="Close create playlist" @onclick="Close"><MusicIcon Name="close" /></button></div>
+    <div class="dialog-heading"><h2 id="create-playlist-heading" tabindex="-1">@L["Create playlist"]</h2><button class="quiet" aria-label="@L["Close create playlist"].Value" @onclick="Close"><MusicIcon Name="close" /></button></div>
     <form class="create-playlist-form inline-form" @onsubmit="Submit" @onsubmit:preventDefault>
         <label class="create-field">
-            <span>Name</span>
+            <span>@L["Name"]</span>
             <input id="new-playlist" @bind="name" @bind:event="oninput" placeholder="@NamePlaceholder" maxlength="200" autocomplete="off" />
         </label>
 
         <section class="create-section" aria-labelledby="create-link-title">
-            <h3 id="create-link-title">Import from a link</h3>
+            <h3 id="create-link-title">@L["Import from a link"]</h3>
             <div class="create-link create-link-with-paste @(Source is { } linkSite ? "is-" + linkSite : "") @(link.Length > 0 && Source is null ? "is-unknown" : "")">
-                <button class="create-link-paste" type="button" disabled="@(Files > 0 || busy)" @onclick="PasteLink">Paste</button>
-                <label class="sr" for="new-playlist-url">Playlist link</label>
-                <input id="new-playlist-url" type="url" @bind="link" @bind:event="oninput" @bind:after="LinkEdited" placeholder="Playlist URL" autocomplete="off" spellcheck="false" disabled="@(Files > 0 || busy)" />
-                @if (link.Length > 0) { <button type="button" class="create-link-clear" aria-label="Clear link" @onclick="ClearLink"><MusicIcon Name="close" /></button> }
+                <button class="create-link-paste" type="button" disabled="@(Files > 0 || busy)" @onclick="PasteLink">@L["Paste"]</button>
+                <label class="sr" for="new-playlist-url">@L["Playlist link"]</label>
+                <input id="new-playlist-url" type="url" @bind="link" @bind:event="oninput" @bind:after="LinkEdited" placeholder="@L["Playlist URL"].Value" autocomplete="off" spellcheck="false" disabled="@(Files > 0 || busy)" />
+                @if (link.Length > 0) { <button type="button" class="create-link-clear" aria-label="@L["Clear link"].Value" @onclick="ClearLink"><MusicIcon Name="close" /></button> }
             </div>
-            <output class="create-clipboard-preview" aria-label="Clipboard preview" for="new-playlist-url">@clipboardPreview</output>
+            <output class="create-clipboard-preview" aria-label="@L["Clipboard preview"].Value" for="new-playlist-url">@clipboardPreview</output>
             <Notice Level="@(Source is null ? "warning" : "info")" Message="@LinkStatus" />
             <MusicProviders Sites="Sites" Detected="@Source" />
         </section>
 
         @* A pasted link replaces the device choices; they fold away and come back when the link is cleared. *@
         <section class="create-section create-collapse @(Source is not null ? "is-collapsed" : "")" aria-labelledby="create-files-title" inert="@(Source is not null)"><div>
-            <h3 id="create-files-title">Add songs from this device</h3>
+            <h3 id="create-files-title">@L["Add songs from this device"]</h3>
             <UploadSongs @ref="uploader" Prefix="create-upload" SubmitId="create-playlist-submit" Illustrated="true" Disabled="DeviceLocked" Changed="StateHasChanged" />
         </div></section>
 
-        <section class="create-section create-options" aria-label="Playlist options">
-            <label class="create-toggle"><span><strong>Share with the family</strong><small>Everyone on this server can see and play it.</small></span><input type="checkbox" role="switch" @bind="shared" /></label>
+        <section class="create-section create-options" aria-label="@L["Playlist options"].Value">
+            <label class="create-toggle"><span><strong>@L["Share with the family"]</strong><small>@L["Everyone on this server can see and play it."]</small></span><input type="checkbox" role="switch" @bind="shared" /></label>
             @if (Source is not null)
             {
-                <label class="create-toggle"><span><strong>Download songs to the server</strong><small>You can pause downloads from the playlist.</small></span><input type="checkbox" role="switch" @bind="download" /></label>
+                <label class="create-toggle"><span><strong>@L["Download songs to the server"]</strong><small>@L["You can pause downloads from the playlist."]</small></span><input type="checkbox" role="switch" @bind="download" /></label>
             }
         </section>
 
         <Notice Level="error" Message="@error" />
         <div class="actions">
-            <button type="button" @onclick="Close">Cancel</button>
+            <button type="button" @onclick="Close">@L["Cancel"]</button>
             <button id="create-playlist-submit" class="primary" type="submit" aria-disabled="@Aria(busy || uploader?.Busy == true || (link.Length > 0 && Source is null))">@SubmitLabel</button>
         </div>
     </form>

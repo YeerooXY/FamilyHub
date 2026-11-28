@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Localization;
 using Microsoft.JSInterop;
 using FamilyHub.App.Services;
 using FamilyHub.Client.Core;
@@ -15,7 +16,9 @@ var session = (MusicSession)Activator.CreateInstance(typeof(MusicSession), Bindi
 await session.ConnectServerAsync("https://ui-check.test");
 await session.SelectProfileAsync("alex");
 var activator = new CaptureActivator();
-var services = new ServiceCollection().AddLogging().AddSingleton(session).AddSingleton(new MusicPlayer())
+var services = new ServiceCollection().AddLogging().AddLocalization()
+    .AddSingleton<IStringLocalizer>(services => services.GetRequiredService<IStringLocalizerFactory>().Create(typeof(Program)))
+    .AddSingleton(session).AddSingleton(new MusicPlayer())
     .AddSingleton(new PublicAppReleases(new HttpClient(new FixtureHandler())))
     .AddSingleton<IJSRuntime, NoJs>().AddSingleton<IComponentActivator>(activator).BuildServiceProvider();
 await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());

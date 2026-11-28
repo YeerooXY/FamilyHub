@@ -7,16 +7,16 @@
     <div class="stats-toolbar">
         @if (Leaderboard)
         {
-            <div class="lb-periods" role="group" aria-label="Leaderboard period">
+            <div class="lb-periods" role="group" aria-label="@L["Leaderboard period"].Value">
                 @foreach (var choice in new[] { ("week", "Weekly"), ("month", "Monthly"), ("all", "All time") })
-                { <button class="lb-period" aria-pressed="@Aria(period == choice.Item1)" @onclick="() => SetPeriod(choice.Item1)">@choice.Item2</button> }
+                { <button class="lb-period" aria-pressed="@Aria(period == choice.Item1)" @onclick="() => SetPeriod(choice.Item1)">@L[choice.Item2]</button> }
             </div>
         }
         else
         {
-            <div class="stats-server-status" hidden="@Offline"><i class="stats-online-dot is-online" aria-hidden="true"></i><span>Server online</span></div>
+            <div class="stats-server-status" hidden="@Offline"><i class="stats-online-dot is-online" aria-hidden="true"></i><span>@L["Server online"]</span></div>
         }
-        <button id="server-stats-refresh" class="quiet stats-refresh @(Refreshing ? "is-refreshing" : "")" aria-label="@(Leaderboard ? "Refresh leaderboard" : "Refresh server work")" title="Refresh" @onclick="RefreshPage" aria-disabled="@Aria(Refreshing)"><MusicIcon Name="refresh" /></button>
+        <button id="server-stats-refresh" class="quiet stats-refresh @(Refreshing ? "is-refreshing" : "")" aria-label="@L[Leaderboard ? "Refresh leaderboard" : "Refresh server work"].Value" title="@L["Refresh"].Value" @onclick="RefreshPage" aria-disabled="@Aria(Refreshing)"><MusicIcon Name="refresh" /></button>
     </div>
     @* On Home the shell already reports a lost connection, so only a leaderboard failure with a live connection shows here. *@
     <ServiceStatus Active="@(Embedded ? !Offline && error is not null : Offline || error is not null || Refreshing && reconnecting)"
@@ -25,7 +25,7 @@
                    RetryLabel="@(Leaderboard ? "Retry leaderboard" : "Retry server work")"
                    Retry="RefreshNow" Busy="Refreshing" AutoRetry="@(!needsSignIn)" FocusTarget="#server-stats-refresh" />
     <Notice Message="@(fetching && data is null && !Offline && error is null ? Leaderboard ? "Loading the leaderboard…" : "Loading server statistics…" : null)" />
-    @if (Leaderboard && SnapshotStale) { <small class="catalogue-timestamp">Server updated @snapshotAt.ToLocalTime().ToString("t")</small> }
+    @if (Leaderboard && SnapshotStale) { <small class="catalogue-timestamp">@L["Server updated {0:t}", snapshotAt.ToLocalTime()]</small> }
     @if (data is { } stats && Leaderboard)
     {
         var ranking = Ranking.ToList();
@@ -37,12 +37,12 @@
         @if (ranking.Count == 0)
         {
             @* Ranking places and the chart wait for recorded time. Who is online shows in its own panel. *@
-            <Notice Level="empty" Message="Nothing recorded for this period. Listen to music or watch a film with history turned on, and you appear here." />
+            <Notice Level="empty" Message="@L["Nothing recorded for this period. Listen to music or watch a film with history turned on, and you appear here."].Value" />
         }
         else
         {
         <div class="lb-board stats-leaderboard">
-            <ol class="lb-top" aria-label="@("Top three, " + PeriodName)">
+            <ol class="lb-top" aria-label="@L["Top three, {0}", L[PeriodName].Value].Value">
                 @for (var i = 0; i < Math.Min(3, ranking.Count); i++)
                 {
                     var profile = ranking[i];
@@ -51,7 +51,7 @@
                         <ProfileAvatar Profile="ProfileFor(profile)" Size="56" ShowCrown="false" />
                         <div class="lb-who">
                             <strong>@profile.Name</strong>
-                            <span class="lb-time">@Duration(PeriodSeconds(profile) + PeriodWatch(profile)) <small>in total</small></span>
+                            <span class="lb-time">@Duration(PeriodSeconds(profile) + PeriodWatch(profile)) <small>@L["in total"]</small></span>
                         </div>
                         @Measures(profile, musicLeader, watchLeader)
                     </li>
@@ -59,7 +59,7 @@
             </ol>
             @if (ranking.Count > 3)
             {
-                <ol class="lb-list" start="4" aria-label="@("Everyone else, " + PeriodName)">
+                <ol class="lb-list" start="4" aria-label="@L["Everyone else, {0}", L[PeriodName].Value].Value">
                     @for (var i = 3; i < ranking.Count; i++)
                     {
                         var profile = ranking[i];
@@ -68,7 +68,7 @@
                             <ProfileAvatar Profile="ProfileFor(profile)" Size="40" ShowCrown="false" />
                             <div class="lb-who">
                                 <strong>@profile.Name</strong>
-                                <span class="lb-time">@Duration(PeriodSeconds(profile) + PeriodWatch(profile)) <small>in total</small></span>
+                                <span class="lb-time">@Duration(PeriodSeconds(profile) + PeriodWatch(profile)) <small>@L["in total"]</small></span>
                             </div>
                             @Measures(profile, musicLeader, watchLeader)
                         </li>
@@ -80,14 +80,14 @@
         @if (total > 0)
         {
         <section class="stats-listening glass-panel" aria-labelledby="stats-listening-title">
-            <div class="stats-section-heading"><h2 id="stats-listening-title">Family listening time</h2><span>@PeriodLabel</span></div>
+            <div class="stats-section-heading"><h2 id="stats-listening-title">@L["Family listening time"]</h2><span>@L[PeriodLabel]</span></div>
             <strong class="stats-time">@Duration(total)</strong>
             @if (days.Count > 0)
             {
-                <p class="stats-latest">Latest: @ExactDay(days[^1].Day), <strong>@ExactDuration(days[^1].Seconds)</strong></p>
+                <p class="stats-latest">@L["Latest:"] @ExactDay(days[^1].Day), <strong>@ExactDuration(days[^1].Seconds)</strong></p>
                 <div class="stats-chart-frame">
-                    <div class="stats-chart-axis" aria-hidden="true"><span>@Duration(peak)</span><span>0 s</span></div>
-                    <div class="stats-chart-scroll" role="region" aria-label="Daily listening chart, scroll for more dates" tabindex="0">
+                    <div class="stats-chart-axis" aria-hidden="true"><span>@Duration(peak)</span><span>@L["{0} s", 0]</span></div>
+                    <div class="stats-chart-scroll" role="region" aria-label="@L["Daily listening chart, scroll for more dates"].Value" tabindex="0">
                     <div class="stats-chart-plot">
                     <div class="stats-chart-surface">
                 <svg class="stats-line-chart" viewBox="0 0 560 156" preserveAspectRatio="none" aria-hidden="true" focusable="false">
@@ -105,7 +105,7 @@
                 <div class="stats-chart-labels"><span>@DayLabel(days[0].Day)</span><span>@DayLabel(days[^1].Day)</span></div>
                     </div></div>
                 </div>
-                <table class="sr"><caption>Daily listening, @PeriodLabel</caption><thead><tr><th scope="col">Date</th><th scope="col">Time listened</th></tr></thead><tbody>@foreach (var day in days) { <tr><th scope="row">@ExactDay(day.Day)</th><td>@ExactDuration(day.Seconds)</td></tr> }</tbody></table>
+                <table class="sr"><caption>@L["Daily listening, {0}", L[PeriodLabel].Value]</caption><thead><tr><th scope="col">@L["Date"]</th><th scope="col">@L["Time listened"]</th></tr></thead><tbody>@foreach (var day in days) { <tr><th scope="row">@ExactDay(day.Day)</th><td>@ExactDuration(day.Seconds)</td></tr> }</tbody></table>
             }
         </section>
         }
@@ -115,13 +115,13 @@
             var member = members.Find(p => p.Id == wrappedMemberId) ?? members.Find(p => p.Id == Session.User) ?? members.FirstOrDefault();
             <section class="lb-wrapped" aria-labelledby="lb-wrapped-title">
                 <header class="lb-person-header">
-                    <h2 id="lb-wrapped-title">@year listening</h2>
+                    <h2 id="lb-wrapped-title">@L["{0} listening", year]</h2>
                     @if (member is not null)
                     {
-                        <button type="button" id="lb-wrapped-member" class="lb-person-picker" aria-haspopup="dialog" aria-label="@($"Choose listener, {member.Name}")" @onclick="() => OpenMemberPicker(member.Id)">
+                        <button type="button" id="lb-wrapped-member" class="lb-person-picker" aria-haspopup="dialog" aria-label="@L["Choose listener, {0}", member.Name].Value" @onclick="() => OpenMemberPicker(member.Id)">
                             <ProfileAvatar Profile="ProfileFor(member)" Size="30" ShowCrown="false" /><span>@member.Name</span><MusicIcon Name="chevron-down" />
                         </button>
-                        <dialog id="lb-person-menu" class="popup-panel popup-menu" data-popup-anchor="lb-wrapped-member" aria-label="Choose listener">
+                        <dialog id="lb-person-menu" class="popup-panel popup-menu" data-popup-anchor="lb-wrapped-member" aria-label="@L["Choose listener"].Value">
                             @foreach (var person in members)
                             {
                                 <button id="@("lb-person-" + person.Id)" type="button" @key="person.Id" aria-pressed="@Aria(person.Id == member.Id)" @onclick="() => SelectMember(person.Id)">
@@ -133,32 +133,32 @@
                 </header>
                 @if (member is null)
                 {
-                    <Notice Level="empty" Message="No profiles have listening history enabled." />
+                    <Notice Level="empty" Message="@L["No profiles have listening history enabled."].Value" />
                 }
                 else if (member.Wrapped is not { } summary || summary.TotalMinutes <= 0 && summary.SongsAdded <= 0)
                 {
-                    <Notice Level="empty" Message="@($"No listening or song additions recorded for {member.Name} in {year}.")" />
+                    <Notice Level="empty" Message="@L["No listening or song additions recorded for {0} in {1}.", member.Name, year].Value" />
                 }
                 else
                 {
                     var chartDate = summary.ChartDate;
-                    <dl class="lb-year-metrics glass-panel" aria-label="@($"Listening statistics for {member.Name}")">
+                    <dl class="lb-year-metrics glass-panel" aria-label="@L["Listening statistics for {0}", member.Name].Value">
                         @foreach (var metric in WrappedMetrics)
                         {
-                            <div @key="metric.Label"><dt>@metric.Label</dt><dd>@metric.Value(summary)</dd></div>
+                            <div @key="metric.Label"><dt>@L[metric.Label]</dt><dd>@metric.Value(summary)</dd></div>
                         }
                     </dl>
                     <details class="lb-wrapped-help">
-                        <summary id="lb-wrapped-help">How scores are counted</summary>
-                        <p>Listening time and streaks use recorded daily playback. Favourites and replays use song history.</p>
-                        <p>Night owl is the share of completed plays that started from 00:00 to 05:59 UTC. Replays count each time you listen to a song again this year.</p>
-                        <p>Mainstream score is the share of your top 10 artists and top 10 songs that appear in Deezer’s chart. Early listener marks artists you played before FamilyHub observed them enter the chart.</p>
+                        <summary id="lb-wrapped-help">@L["How scores are counted"]</summary>
+                        <p>@L["Listening time and streaks use recorded daily playback. Favourites and replays use song history."]</p>
+                        <p>@L["Night owl is the share of completed plays that started from 00:00 to 05:59 UTC. Replays count each time you listen to a song again this year."]</p>
+                        <p>@L["Mainstream score is the share of your top 10 artists and top 10 songs that appear in Deezer’s chart. Early listener marks artists you played before FamilyHub observed them enter the chart."]</p>
                         @if (chartDate is null)
                         {
-                            <ServiceStatus Title="Deezer chart unavailable" Detail="Retry to check for the latest chart."
-                                           RetryLabel="Retry Deezer chart" Retry="RefreshNow" Busy="Refreshing" FocusTarget="#server-stats-refresh" />
+                            <ServiceStatus Title="@L["Deezer chart unavailable"].Value" Detail="@L["Retry to check for the latest chart."].Value"
+                                           RetryLabel="@L["Retry Deezer chart"].Value" Retry="RefreshNow" Busy="Refreshing" FocusTarget="#server-stats-refresh" />
                         }
-                        else { <p>Deezer chart checked @ExactDay(chartDate).</p> }
+                        else { <p>@L["Deezer chart checked {0}.", ExactDay(chartDate)]</p> }
                     </details>
                 }
             </section>
@@ -167,7 +167,7 @@
     else if (!Leaderboard)
     {
         <section class="glass-panel srv-automatic" aria-labelledby="stats-work-title" aria-busy="@Aria(Refreshing && data is null)">
-            <h2 id="stats-work-title">Automatic work</h2>
+            <h2 id="stats-work-title">@L["Automatic work"]</h2>
             @if (data is { } server)
             {
                 var jobs = server.Workers.Where(worker => worker.State == "working").ToList();
@@ -178,14 +178,14 @@
                         <span>@stages.Sum(stage => stage.Queued) queued</span>
                         <span>@stages.Sum(stage => stage.BackingOff) waiting to retry</span>
                     }
-                    @if (server.CataloguePaused) { <span>Catalogue work paused while the server is in use.</span> }
+                    @if (server.CataloguePaused) { <span>@L["Catalogue work paused while the server is in use."]</span> }
                 </div>
                 @if (SnapshotStale || Offline || error is not null) { <small class="catalogue-timestamp">Server updated @snapshotAt.ToLocalTime().ToString("t")</small> }
                 <details class="srv-worker-details">
-                    <summary><MusicIcon Name="chevron-down" />Workers, queues and retries</summary>
+                    <summary><MusicIcon Name="chevron-down" />@L["Workers, queues and retries"]</summary>
                     @if (jobs.Count > 0)
                     {
-                        <ul class="srv-work-list srv-current-jobs" aria-label="Active jobs">
+                        <ul class="srv-work-list srv-current-jobs" aria-label="@L["Active jobs"].Value">
                             @foreach (var job in jobs)
                             {
                                 <li class="srv-work-job" @key="job.Id">
@@ -200,11 +200,11 @@
                     }
                     @if (server.WorkerStages is null && server.PlaylistBacklog is null)
                     {
-                        <Notice Level="warning" Message="Update the server to see queue and retry counts." />
+                        <Notice Level="warning" Message="@L["Update the server to see queue and retry counts."].Value" />
                     }
                     else if (server.WorkerStages is { Count: 0 } && server.PlaylistBacklog is null)
                     {
-                        <Notice Level="empty" Message="No resource jobs are waiting or running." />
+                        <Notice Level="empty" Message="@L["No resource jobs are waiting or running."].Value" />
                     }
                     else
                     {
@@ -215,20 +215,20 @@
                             <li class="srv-stage-card" @key="stage.Stage">
                                 <h3><MusicIcon Name="@icon" />@title</h3>
                                 <dl>
-                                    <div><dt>Queued</dt><dd class="music-admin-count">@stage.Queued</dd></div>
-                                    <div><dt>Waiting to retry</dt><dd class="music-admin-count">@stage.BackingOff</dd></div>
-                                    <div><dt>Running</dt><dd class="music-admin-count">@stage.Running</dd></div>
+                                    <div><dt>@L["Queued"]</dt><dd class="music-admin-count">@stage.Queued</dd></div>
+                                    <div><dt>@L["Waiting to retry"]</dt><dd class="music-admin-count">@stage.BackingOff</dd></div>
+                                    <div><dt>@L["Running"]</dt><dd class="music-admin-count">@stage.Running</dd></div>
                                 </dl>
                             </li>
                         }
                         @if (server.PlaylistBacklog is { } backlog)
                         {
                             <li class="srv-stage-card">
-                                <h3><MusicIcon Name="playlist" />Playlist backlog</h3>
+                                <h3><MusicIcon Name="playlist" />@L["Playlist backlog"]</h3>
                                 <dl>
-                                    <div><dt>Pending</dt><dd class="music-admin-count">@backlog.Pending</dd></div>
-                                    <div><dt>Waiting to retry</dt><dd class="music-admin-count">@backlog.WaitingToRetry</dd></div>
-                                    <div><dt>Running</dt><dd class="music-admin-count">@backlog.Running</dd></div>
+                                    <div><dt>@L["Pending"]</dt><dd class="music-admin-count">@backlog.Pending</dd></div>
+                                    <div><dt>@L["Waiting to retry"]</dt><dd class="music-admin-count">@backlog.WaitingToRetry</dd></div>
+                                    <div><dt>@L["Running"]</dt><dd class="music-admin-count">@backlog.Running</dd></div>
                                 </dl>
                             </li>
                         }
@@ -238,7 +238,7 @@
             }
             else if (!Offline && error is null)
             {
-                <p class="srv-work-empty" role="status">Loading automatic work…</p>
+                <p class="srv-work-empty" role="status">@L["Loading automatic work…"]</p>
             }
         </section>
         @ChildContent
@@ -248,7 +248,7 @@
             var seedingProblem = Offline ? "Connect to the server to load seeding." : seedingIdentity == Identity ? seedingError : null;
             <section class="srv-seeding srv-automatic glass-panel" aria-labelledby="srv-seeding-title">
                 <div class="stats-section-heading">
-                    <h2 id="srv-seeding-title">Seeding</h2>
+                    <h2 id="srv-seeding-title">@L["Seeding"]</h2>
                     <button id="seeding-refresh" type="button" class="quiet" @onclick="RefreshSeedingFromButton" aria-disabled="@Aria(seedingFetching)">
                         Refresh seeding
                     </button>
@@ -256,15 +256,15 @@
                 <ServiceStatus Active="@(seedingProblem is not null || seeding?.Stale == true)"
                     Title="@(seedingNeedsSignIn ? "Session expired" : seedingProblem is null ? "Seeding records are out of date" : "Can't reach your server")"
                     Detail="@(seeding is null ? "Reconnect to load seeding records." : "Showing the last recorded ratios.")"
-                    RetryLabel="Retry seeding" Retry="RefreshSeedingFromButton" Busy="seedingFetching"
+                    RetryLabel="@L["Retry seeding"].Value" Retry="RefreshSeedingFromButton" Busy="seedingFetching"
                     AutoRetry="@(!Offline && !seedingNeedsSignIn)" FocusTarget="#seeding-refresh" />
-                @if (seedingFetching && seedingProblem is null && seeding?.Stale != true) { <Notice Message="Loading seeding records…" /> }
+                @if (seedingFetching && seedingProblem is null && seeding?.Stale != true) { <Notice Message="@L["Loading seeding records…"].Value" /> }
                 @if (seeding is not null)
                 {
                     <p class="srv-seeding-sample">@(seeding.Stale || seedingProblem is not null || seedingFetching ? "Last snapshot" : "Sampled") <time datetime="@seeding.LastSampleAt.ToString("o", Inv)">@seeding.LastSampleAt.ToLocalTime().ToString("g")</time></p>
                     @if (seeding.Items.Count == 0)
                     {
-                        <Notice Level="empty" Message="No torrents in the last sample." />
+                        <Notice Level="empty" Message="@L["No torrents in the last sample."].Value" />
                     }
                     else
                     {
@@ -280,14 +280,14 @@
                                         <span aria-hidden="true">@share</span>
                                     </div>
                                     <dl class="srv-seeding-facts">
-                                        <div><dt>Uploaded</dt><dd>@Bytes(torrent.Uploaded)</dd></div>
-                                        <div><dt>Downloaded</dt><dd>@Bytes(torrent.Downloaded)</dd></div>
-                                        <div><dt>Goal recorded</dt><dd>
+                                        <div><dt>@L["Uploaded"]</dt><dd>@Bytes(torrent.Uploaded)</dd></div>
+                                        <div><dt>@L["Downloaded"]</dt><dd>@Bytes(torrent.Downloaded)</dd></div>
+                                        <div><dt>@L["Goal recorded"]</dt><dd>
                                             @if (torrent.ReachedGoalAt is { } reached)
                                             {
                                                 <time datetime="@reached.ToString("o", Inv)">@reached.ToLocalTime().ToString("g")</time>
                                             }
-                                            else { <text>Pending</text> }
+                                            else { <text>@L["Pending"]</text> }
                                         </dd></div>
                                     </dl>
                                 </li>
@@ -303,14 +303,14 @@
             var used = Math.Max(0, details.StorageTotalBytes - details.StorageFreeBytes);
             var usedPercent = details.StorageTotalBytes > 0 ? Math.Clamp(100d * used / details.StorageTotalBytes, 0, 100) : 0;
             <details class="srv-details">
-                <summary>Server details</summary>
+                <summary>@L["Server details"]</summary>
                 <div class="srv-grid">
                     <section class="srv-work glass-panel" aria-labelledby="srv-workers-title">
-                        <h2 id="srv-workers-title">Workers</h2>
+                        <h2 id="srv-workers-title">@L["Workers"]</h2>
                     @if (details.Workers.Count > 0)
                     {
                         <details class="srv-worker-details">
-                            <summary><MusicIcon Name="chevron-down" />Worker slots</summary>
+                            <summary><MusicIcon Name="chevron-down" />@L["Worker slots"]</summary>
                             <ul class="srv-work-list">
                             @foreach (var group in WorkGroups(details.Workers))
                             {
@@ -333,29 +333,29 @@
                     @if (details.CatalogueWorkers is { } settings)
                     {
                         <details class="srv-worker-details">
-                            <summary><MusicIcon Name="chevron-down" />Catalogue worker configuration</summary>
+                            <summary><MusicIcon Name="chevron-down" />@L["Catalogue worker configuration"]</summary>
                             <dl class="srv-storage-facts">
-                                <div><dt>Playlist matching and downloads</dt><dd>@OnOff(settings.PlaylistMatching)</dd></div>
-                                <div><dt>Metadata lookup</dt><dd>@OnOff(settings.Metadata)</dd></div>
-                                <div><dt>Source quality scan</dt><dd>@OnOff(settings.SourceScan)</dd></div>
-                                <div><dt>Automatic source replacement</dt><dd>@OnOff(settings.SourceAutoReplace)</dd></div>
-                                <div><dt>Automatic catalogue attempts per hour</dt><dd>@settings.AttemptsPerHour</dd></div>
+                                <div><dt>@L["Playlist matching and downloads"]</dt><dd>@OnOff(settings.PlaylistMatching)</dd></div>
+                                <div><dt>@L["Metadata lookup"]</dt><dd>@OnOff(settings.Metadata)</dd></div>
+                                <div><dt>@L["Source quality scan"]</dt><dd>@OnOff(settings.SourceScan)</dd></div>
+                                <div><dt>@L["Automatic source replacement"]</dt><dd>@OnOff(settings.SourceAutoReplace)</dd></div>
+                                <div><dt>@L["Automatic catalogue attempts per hour"]</dt><dd>@settings.AttemptsPerHour</dd></div>
                             </dl>
                         </details>
                     }
                     </section>
                     <section class="srv-savings glass-panel" aria-labelledby="srv-savings-title">
-                        <h2 id="srv-savings-title">Savings</h2>
+                        <h2 id="srv-savings-title">@L["Savings"]</h2>
                         <div class="srv-figures">
-                            <div class="srv-figure"><span>Total saved</span><strong>@Huf(details.SavedHuf)<small> Ft</small></strong></div>
-                            <div class="srv-figure"><span>Per month</span><strong>@Huf(details.MonthlySavedHuf)<small> Ft</small></strong></div>
-                            <div class="srv-figure"><span>Withheld from streamers</span><strong>@Usd(details.RoyaltyUsd)</strong><small>@details.TotalQualifiedPlays.ToString("N0", Inv) plays</small></div>
+                            <div class="srv-figure"><span>@L["Total saved"]</span><strong>@Huf(details.SavedHuf)<small> @L["Ft"]</small></strong></div>
+                            <div class="srv-figure"><span>@L["Per month"]</span><strong>@Huf(details.MonthlySavedHuf)<small> @L["Ft"]</small></strong></div>
+                            <div class="srv-figure"><span>@L["Withheld from streamers"]</span><strong>@Usd(details.RoyaltyUsd)</strong><small>@details.TotalQualifiedPlays.ToString("N0", Inv) plays</small></div>
                         </div>
                     </section>
                     <section class="srv-storage glass-panel" aria-labelledby="srv-storage-title">
-                        <h2 id="srv-storage-title">Storage</h2>
-                        <div class="srv-ring" style="--used:@usedPercent.ToString("0.#", Inv)" role="img" aria-label="@($"{usedPercent:0} percent of storage used")"><span><strong>@usedPercent.ToString("0", Inv)%</strong><small>used</small></span></div>
-                        <dl class="srv-storage-facts"><div><dt>Used</dt><dd>@Bytes(used)</dd></div><div><dt>Free</dt><dd>@Bytes(details.StorageFreeBytes)</dd></div><div><dt>Total</dt><dd>@Bytes(details.StorageTotalBytes)</dd></div></dl>
+                        <h2 id="srv-storage-title">@L["Storage"]</h2>
+                        <div class="srv-ring" style="--used:@usedPercent.ToString("0.#", Inv)" role="img" aria-label="@($"{usedPercent:0} percent of storage used")"><span><strong>@usedPercent.ToString("0", Inv)%</strong><small>@L["used"]</small></span></div>
+                        <dl class="srv-storage-facts"><div><dt>@L["Used"]</dt><dd>@Bytes(used)</dd></div><div><dt>@L["Free"]</dt><dd>@Bytes(details.StorageFreeBytes)</dd></div><div><dt>@L["Total"]</dt><dd>@Bytes(details.StorageTotalBytes)</dd></div></dl>
                     </section>
                 </div>
             </details>
@@ -364,10 +364,10 @@
     @if (Leaderboard && data is { Records.Count: > 0 } recordStats)
     {
         <section class="stats-records" aria-labelledby="stats-records-title">
-            <h2 id="stats-records-title">Records</h2>
+            <h2 id="stats-records-title">@L["Records"]</h2>
             <div class="stats-record-table glass-panel">
             <table>
-                <thead><tr><th scope="col">Record</th><th scope="col">Held by</th><th scope="col" class="num">Result</th><th scope="col">When</th></tr></thead>
+                <thead><tr><th scope="col">@L["Record"]</th><th scope="col">@L["Held by"]</th><th scope="col" class="num">@L["Result"]</th><th scope="col">@L["When"]</th></tr></thead>
                 @foreach (var group in RecordGroups(recordStats.Records))
                 {
                     <tbody @key="group.Key">
@@ -425,15 +425,15 @@
     // Music and watch time each get a label, a value and a bar scaled to the family's leader for that measure.
     private RenderFragment Measures(ListenerStatistics profile, double musicLeader, double watchLeader) => @<div class="lb-measures">
         <div class="lb-measure">
-            <span class="lb-measure-label">Music</span><strong class="lb-measure-value">@Measure(PeriodSeconds(profile))</strong>
+            <span class="lb-measure-label">@L["Music"]</span><strong class="lb-measure-value">@Measure(PeriodSeconds(profile))</strong>
             <span class="lb-bar" aria-hidden="true"><i style="width:@((100 * PeriodSeconds(profile) / musicLeader).ToString("0.#", Inv))%"></i></span>
         </div>
         <div class="lb-measure is-watch">
-            <span class="lb-measure-label">Watching</span><strong class="lb-measure-value">@Measure(PeriodWatch(profile))</strong>
+            <span class="lb-measure-label">@L["Watching"]</span><strong class="lb-measure-value">@Measure(PeriodWatch(profile))</strong>
             <span class="lb-bar" aria-hidden="true"><i style="width:@((100 * PeriodWatch(profile) / watchLeader).ToString("0.#", Inv))%"></i></span>
         </div>
     </div>;
-    private static string Measure(double seconds) => seconds < 1 ? "0 min" : Duration(seconds);
+    private string Measure(double seconds) => seconds < 1 ? L["{0} min", 0].Value : Duration(seconds);
     private string StartDay => period == "week" ? DateTime.UtcNow.Date.AddDays(-6).ToString("yyyy-MM-dd",Inv) : DateTime.UtcNow.ToString("yyyy-MM-01",Inv);
     private IReadOnlyList<DailyListening> Days => (data?.Daily ?? []).Where(d => period == "all" || string.CompareOrdinal(d.Day,StartDay) >= 0).ToArray();
     private double SelectedTotal => period == "week" ? Days.Sum(d => d.Seconds) : data?.Profiles.Sum(PeriodSeconds) ?? 0;
@@ -468,11 +468,11 @@
     private static string DayLabel(string day) => DateTime.TryParse(day, out var date) ? date.ToString("d MMM", Inv) : day;
     private static string OnOff(bool enabled) => enabled ? "On" : "Off";
     private static string ExactDay(string day) => DateTime.TryParse(day, Inv, DateTimeStyles.None, out var date) ? date.ToString("d MMM yyyy", Inv) : day;
-    private static string ExactDuration(double seconds)
+    private string ExactDuration(double seconds)
     {
         // Whole minutes read well; seconds only matter below an hour.
         var total = (long)Math.Round(Math.Max(0, seconds));
-        if (total >= 3600) return $"{total / 3600} h {total % 3600 / 60} min";
+        if (total >= 3600) return L["{0} h {1} min", total / 3600, total % 3600 / 60].Value;
         return total >= 60 ? $"{total / 60} min {total % 60} s" : $"{total} s";
     }
     private string? error;
@@ -674,16 +674,16 @@
     private static IEnumerable<(string Key, string Title, List<ListeningRecord> Rows)> RecordGroups(IReadOnlyList<ListeningRecord> records) =>
         records.GroupBy(r => r.Title).OrderBy(g => g.Any(r => r.Owner.Length > 0)).ThenBy(g => g.Count())
             .Select(g => ("record-" + g.Key.ToLowerInvariant().Replace(' ', '-'), g.Key, g.OrderByDescending(r => r.Days ?? 0).ThenByDescending(r => r.Seconds ?? 0).ThenBy(r => r.User).ToList()));
-    private static string RecordValue(ListeningRecord record) => record.Days is { } count ? count + (count == 1 ? " day" : " days") : ExactDuration(record.Seconds ?? 0);
+    private string RecordValue(ListeningRecord record) => record.Days is { } count ? L[count == 1 ? "{0} day" : "{0} days", count].Value : ExactDuration(record.Seconds ?? 0);
     private ListenerProfile WorkProfile(ServerWork job) => Session.Profiles.FirstOrDefault(p => p.Id == job.Owner) ?? new() { Id = job.Owner, Name = job.User };
     private static string Aria(bool value) => value ? "true" : "false";
     private static string Usd(double value) => "$" + value.ToString("N2", Inv);
     private static string Huf(double value) => value.ToString("N0", Inv);
     private static string Percent(double? value) => value is { } share ? share.ToString("0%", Inv) : "—";
-    private static string Duration(double seconds)
+    private string Duration(double seconds)
     {
         var total = (long)Math.Max(0, seconds);
-        return total >= 3600 ? $"{total / 3600} h {total % 3600 / 60} min" : total >= 60 ? $"{total / 60} min" : $"{total} s";
+        return total >= 3600 ? L["{0} h {1} min", total / 3600, total % 3600 / 60].Value : total >= 60 ? L["{0} min", total / 60].Value : L["{0} s", total].Value;
     }
     private static string Bytes(long bytes)
     {

@@ -590,6 +590,7 @@ public sealed class FamilyHubApi : IDisposable
             _ => "The server could not complete the request. Try again."
         };
         var staleSession = false;
+        string? errorCode = null;
         if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Forbidden or HttpStatusCode.NotFound
             or HttpStatusCode.Conflict or HttpStatusCode.RequestEntityTooLarge or HttpStatusCode.TooManyRequests
             or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.InsufficientStorage
@@ -608,8 +609,10 @@ public sealed class FamilyHubApi : IDisposable
                         && !detail.Any(char.IsControl)
                         && !Regex.IsMatch(detail, @"\b(?:HTTP(?:/\d+(?:\.\d+)?)?(?: status)?|status(?: code)?)\s*[:=]?\s*[45]\d{2}\b|^\s*[45]\d{2}\b", RegexOptions.IgnoreCase))
                         message = detail;
-                    staleSession = response.StatusCode == HttpStatusCode.BadRequest && body.RootElement.ValueKind == JsonValueKind.Object
-                        && body.RootElement.TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String && code.GetString() == "csrf";
+                    if (body.RootElement.ValueKind == JsonValueKind.Object && body.RootElement.TryGetProperty("code", out var code)
+                        && code.ValueKind == JsonValueKind.String && code.GetString() is { Length: > 0 and <= 64 } value)
+                        errorCode = value;
+                    staleSession = response.StatusCode == HttpStatusCode.BadRequest && errorCode == "csrf";
                     if (staleSession) message = "Your session expired. Reconnect to your server and try again.";
                 }
             }
@@ -618,7 +621,7 @@ public sealed class FamilyHubApi : IDisposable
         }
         var retry = response.Headers.RetryAfter;
         var wait = retry?.Delta ?? (retry?.Date is { } retryAt ? retryAt - DateTimeOffset.UtcNow : (TimeSpan?)null);
-        throw new FamilyHubApiException(message, (int)response.StatusCode, staleSession) { RetryAfter = wait };
+        throw new FamilyHubApiException(message, (int)response.StatusCode, staleSession) { RetryAfter = wait, ErrorCode = errorCode };
     }
 
     private static string FindHtmlAttribute(string html, string tag, string key, string expected, string attribute)

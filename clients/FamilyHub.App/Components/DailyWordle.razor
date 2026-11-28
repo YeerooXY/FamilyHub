@@ -8,17 +8,17 @@
 <section class="daily-wordle" aria-labelledby="daily-wordle-title" @ref="surface" tabindex="-1"
          data-playing="@((puzzle?.Status == "playing").ToString().ToLowerInvariant())">
     <div class="dw-screen">
-    <aside class="dw-family-rail" aria-label="Family boards">
+    <aside class="dw-family-rail" aria-label="@L["Family boards"].Value">
         @foreach (var (board, rows) in familyBoards.Select(board => (Board: board, Rows: BoardRows(board)))
             .OrderBy(entry => IsSolved(entry.Rows) ? entry.Rows.Length : 7)
             .ThenBy(entry => IsSolved(entry.Rows) ? BoardTime(entry.Board) ?? long.MaxValue : long.MaxValue))
         {
             var own = board.Id == Session.User;
-            var name = own ? $"{board.Name} (you)" : board.Name;
-            var label = $"{name}, {rows.Length} of 6 guesses";
+            var name = own ? L["{0} (you)", board.Name].Value : board.Name;
+            var label = L["{0}, {1} of 6 guesses", name, rows.Length].Value;
             var playing = !own && board.Playing;
             var count = own ? draft.Length : playing ? board.DraftCount : 0;
-            if (playing) label += count == 0 ? ", playing" : $", typing, {count} tiles filled";
+            if (playing) label += count == 0 ? L[", playing"].Value : L[", typing, {0} tiles filled", count].Value;
             var profile = Session.Profiles.FirstOrDefault(p => p.Id == board.Id) ?? new ListenerProfile { Id = board.Id, Name = board.Name };
             <button id="@("dw-board-" + board.Id)" class="dw-family-card" @key="board.Id" type="button" title="@label"
                     aria-haspopup="dialog" aria-label="@BoardDescription(label, rows)" @onclick="() => OpenFamilyBoard(board.Id)">
@@ -36,15 +36,15 @@
     <span class="dw-visually-hidden" role="status">@FamilyActivityLabel</span>
     <div class="dw-shell">
         <header class="dw-header">
-            <button class="dw-icon" type="button" aria-label="How to play" title="How to play" @onclick="OpenHelp">
+            <button class="dw-icon" type="button" aria-label="@L["How to play"].Value" title="@L["How to play"].Value" @onclick="OpenHelp">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4.1 1.9c-1 .6-1.6 1.3-1.6 2.6m0 2.5h.01"/></svg>
             </button>
-            <h1 id="daily-wordle-title">Wordle</h1>
+            <h1 id="daily-wordle-title">@L["Wordle"]</h1>
             <div class="dw-actions">
-                <button class="dw-icon" type="button" aria-label="Statistics" title="Statistics" @ref="statsButton" @onclick="ShowStats">
+                <button class="dw-icon" type="button" aria-label="@L["Statistics"].Value" title="@L["Statistics"].Value" @ref="statsButton" @onclick="ShowStats">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16M6 20v-6h3v6m3 0V9h3v11m3 0V4h3v16"/></svg>
                 </button>
-                <button class="dw-icon dw-theme" type="button" aria-label="Dark theme" title="Dark theme" aria-pressed="false">
+                <button class="dw-icon dw-theme" type="button" aria-label="@L["Dark theme"].Value" title="@L["Dark theme"].Value" aria-pressed="false">
                     <svg class="dw-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 13.1A9 9 0 0 1 10.9 3 9 9 0 1 0 21 13.1Z"/></svg>
                     <svg class="dw-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.4 1.4m11.2 11.2L19 19M5 19l1.4-1.4M17.6 6.4 19 5"/></svg>
                 </button>
@@ -56,25 +56,25 @@
         <div class="dw-message" role="status" aria-atomic="true">
             @if (loading)
             {
-                <span>Loading today’s word…</span>
+                <span>@L["Loading today’s word…"]</span>
             }
             else if (message is not null)
             {
-                <span class="dw-error">@message</span>
+                <span class="dw-error">@L[message]</span>
             }
             else if (submitting)
             {
-                <span>Checking guess…</span>
+                <span>@L["Checking guess…"]</span>
             }
             else
             {
-                <span class="dw-visually-hidden">@announcement</span>
+                <span class="dw-visually-hidden">@L[announcement]</span>
             }
         </div>
         <div class="dw-play-area">
-        <ServiceStatus Active="syncFailed" Detail="Your guesses are saved on this device."
-                       RetryLabel="Retry guess sync" Retry="SyncGuesses" Busy="syncing" AutoRetry="true" FocusTarget=".daily-wordle" />
-        <div class="dw-board" role="group" aria-label="Five-letter puzzle">
+        <ServiceStatus Active="syncFailed" Detail="@L["Your guesses are saved on this device."].Value"
+                       RetryLabel="@L["Retry guess sync"].Value" Retry="SyncGuesses" Busy="syncing" AutoRetry="true" FocusTarget=".daily-wordle" />
+        <div class="dw-board" role="group" aria-label="@L["Five-letter puzzle"].Value">
             @for (var row = 0; row < 6; row++)
             {
                 var guess = puzzle?.Guesses.ElementAtOrDefault(row);
@@ -91,17 +91,17 @@
                 </div>
             }
         </div>
-        <ServiceStatus Active="@(puzzle is null && loadAttempted)" Detail="Reconnect to load today's puzzle."
-                       RetryLabel="Retry puzzle" Retry="Reload" Busy="loading" AutoRetry="true" FocusTarget=".daily-wordle" />
+        <ServiceStatus Active="@(puzzle is null && loadAttempted)" Detail="@L["Reconnect to load today's puzzle."].Value"
+                       RetryLabel="@L["Retry puzzle"].Value" Retry="Reload" Busy="loading" AutoRetry="true" FocusTarget=".daily-wordle" />
         </div>
-        <div class="dw-keyboard" role="group" aria-label="On-screen keyboard">
+        <div class="dw-keyboard" role="group" aria-label="@L["On-screen keyboard"].Value">
             @for (var row = 0; row < KeyboardRows.Length; row++)
             {
                 <div class="dw-key-row @(row == 1 ? "dw-key-middle" : "")">
                     @if (row == 2)
                     {
-                        <button class="dw-key dw-wide dw-enter" type="button" aria-label="Submit guess"
-                                aria-disabled="@KeysDisabled" tabindex="@KeyTabIndex" @onclick='() => Press("Enter")'>Enter</button>
+                        <button class="dw-key dw-wide dw-enter" type="button" aria-label="@L["Submit guess"].Value"
+                                aria-disabled="@KeysDisabled" tabindex="@KeyTabIndex" @onclick='() => Press("Enter")'>@L["Enter"]</button>
                     }
                     @foreach (var letter in KeyboardRows[row])
                     {
@@ -112,7 +112,7 @@
                     }
                     @if (row == 2)
                     {
-                        <button class="dw-key dw-wide" type="button" aria-label="Delete last letter"
+                        <button class="dw-key dw-wide" type="button" aria-label="@L["Delete last letter"].Value"
                                 aria-disabled="@KeysDisabled" tabindex="@KeyTabIndex" @onclick='() => Press("Backspace")'>
                             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 5H9l-6 7 6 7h12V5Zm-5 4-6 6m0-6 6 6"/></svg>
                         </button>
@@ -127,37 +127,37 @@
     <section class="dw-stats-page" aria-labelledby="dw-stats-title" @ref="statsPage">
         <div class="dw-stats-inner">
             <header class="dw-stats-head">
-                <h2 id="dw-stats-title" tabindex="-1" @ref="statsHeading">Statistics</h2>
-                <button class="dw-text" type="button" @onclick="BackToPuzzle">Back to puzzle</button>
+                <h2 id="dw-stats-title" tabindex="-1" @ref="statsHeading">@L["Statistics"]</h2>
+                <button class="dw-text" type="button" @onclick="BackToPuzzle">@L["Back to puzzle"]</button>
             </header>
             <div role="status">
-                @if (loadingStats && stats is null) { <p>Loading statistics…</p> }
+                @if (loadingStats && stats is null) { <p>@L["Loading statistics…"]</p> }
             </div>
-            <ServiceStatus Active="statsError" Detail="Reconnect to update Wordle statistics."
-                           RetryLabel="Retry Wordle statistics" Retry="LoadStats" Busy="loadingStats" AutoRetry="true" FocusTarget="#dw-stats-title" />
+            <ServiceStatus Active="statsError" Detail="@L["Reconnect to update Wordle statistics."].Value"
+                           RetryLabel="@L["Retry Wordle statistics"].Value" Retry="LoadStats" Busy="loadingStats" AutoRetry="true" FocusTarget="#dw-stats-title" />
             @if (stats is { } data)
             {
                 var insights = data.Insights;
                 <section class="dw-stats-group" aria-labelledby="dw-family-title">
-                    <h3 id="dw-family-title">Family</h3>
+                    <h3 id="dw-family-title">@L["Family"]</h3>
                     <dl class="dw-cards">
                         @if (insights?.Family is { } familyInsight)
                         {
-                            <div class="dw-card"><dt>Family streak</dt><dd>@familyInsight.CurrentStreak @(familyInsight.CurrentStreak == 1 ? "day" : "days")</dd>
+                            <div class="dw-card"><dt>@L["Family streak"]</dt><dd>@familyInsight.CurrentStreak @(familyInsight.CurrentStreak == 1 ? "day" : "days")</dd>
                                 <dd class="dw-card-note">Best @familyInsight.BestStreak @(familyInsight.BestStreak == 1 ? "day" : "days"). A day counts when someone solves the word.</dd></div>
                         }
                         @if (data.FamilyTotals is { } totals)
                         {
                             @if (totals.Today is { } today)
                             {
-                                <div class="dw-card"><dt>Today</dt><dd>@today.Completed of @today.Members finished</dd>
+                                <div class="dw-card"><dt>@L["Today"]</dt><dd>@today.Completed of @today.Members finished</dd>
                                     <dd class="dw-card-note">@today.Won @(today.Won == 1 ? "solve" : "solves") so far</dd></div>
                             }
-                            <div class="dw-card"><dt>All time</dt><dd>@totals.Won wins</dd><dd class="dw-card-note">in @totals.Played puzzles played</dd></div>
+                            <div class="dw-card"><dt>@L["All time"]</dt><dd>@totals.Won wins</dd><dd class="dw-card-note">in @totals.Played puzzles played</dd></div>
                         }
                         @if (insights?.Family is { } rounds)
                         {
-                            <div class="dw-card"><dt>Rounds played</dt><dd>@rounds.Rounds</dd><dd class="dw-card-note">Finished days with two or more players</dd></div>
+                            <div class="dw-card"><dt>@L["Rounds played"]</dt><dd>@rounds.Rounds</dd><dd class="dw-card-note">@L["Finished days with two or more players"]</dd></div>
                         }
                     </dl>
                 </section>
@@ -166,8 +166,8 @@
                     var leaders = data.Family.OrderByDescending(member => RoundsWonOf(member)).ThenBy(member => member.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
                     var most = Math.Max(1, leaders.Max(member => RoundsWonOf(member)));
                     <section class="dw-stats-group" aria-labelledby="dw-rounds-title">
-                        <h3 id="dw-rounds-title">Rounds won</h3>
-                        <p class="dw-note">Fewest guesses wins the day. A tie goes to the game that followed Hard Mode rules, then to the faster time.</p>
+                        <h3 id="dw-rounds-title">@L["Rounds won"]</h3>
+                        <p class="dw-note">@L["Fewest guesses wins the day. A tie goes to the game that followed Hard Mode rules, then to the faster time."]</p>
                         <ol class="dw-leaders">
                             @foreach (var member in leaders)
                             {
@@ -183,36 +183,36 @@
                     </section>
                 }
                 <section class="dw-stats-group" aria-labelledby="dw-players-title">
-                    <h3 id="dw-players-title">Players</h3>
-                    @if (data.Family.Length == 0) { <p>No family results yet.</p> }
+                    <h3 id="dw-players-title">@L["Players"]</h3>
+                    @if (data.Family.Length == 0) { <p>@L["No family results yet."]</p> }
                     <div class="dw-players">
                         @foreach (var member in data.Family.OrderByDescending(member => member.Id == Session.User).ThenByDescending(member => member.Won))
                         {
                             var facts = member.Id is { } memberId && insights?.Members is { } all && all.TryGetValue(memberId, out var found) ? found : null;
                             var board = familyBoards.FirstOrDefault(candidate => candidate.Id == member.Id);
                             <article class="dw-player" @key="member.Id ?? member.Name" aria-label="@($"{member.Name}{(member.Id == Session.User ? " (you)" : "")} statistics")">
-                                <h4>@member.Name @if (member.Id == Session.User) { <small>(you)</small> }</h4>
+                                <h4>@member.Name @if (member.Id == Session.User) { <small>@L["(you)"]</small> }</h4>
                                 <dl class="dw-facts">
-                                    <div><dt>Played</dt><dd>@member.Played</dd></div>
-                                    <div><dt>Win rate</dt><dd>@(facts?.WinPercent is { } win ? $"{win}%" : "–")</dd></div>
-                                    <div><dt>Streak</dt><dd>@member.CurrentStreak <small>best @member.BestStreak</small></dd></div>
-                                    <div><dt>Average guesses to solve</dt><dd>@(facts?.AverageGuesses is { } guesses ? guesses.ToString("0.0", CultureInfo.CurrentCulture) : "–")</dd></div>
-                                    <div><dt>Hard Mode clear rate</dt><dd>@(facts is { HardPlayed: > 0 } ? $"{facts.HardClearPercent}%" : "–")@if (facts is { HardPlayed: > 0 }) { <small> @facts.HardWon of @facts.HardPlayed</small> }</dd></div>
-                                    <div><dt>Time per guess</dt><dd>@TimeOrDash(facts?.AverageMsPerGuess)</dd></div>
-                                    <div><dt>Time per game</dt><dd>@TimeOrDash(facts?.AverageMsPerGame)</dd></div>
-                                    <div><dt>Longest game</dt><dd>@TimeOrDash(facts?.LongestGame?.Ms)</dd></div>
-                                    <div><dt>Shortest solve</dt><dd>@TimeOrDash(facts?.ShortestGame?.Ms)</dd></div>
-                                    <div><dt>Slowest word</dt><dd>@if (facts?.SlowestWord is { } slow) { <span>@slow.Word.ToUpperInvariant() <small>@FormatActiveTime(slow.Ms)</small></span> } else { <span>–</span> }</dd></div>
-                                    <div><dt>Rounds won</dt><dd>@(facts?.RoundsWon ?? 0) <small>of @(facts?.RoundsPlayed ?? 0)</small></dd></div>
+                                    <div><dt>@L["Played"]</dt><dd>@member.Played</dd></div>
+                                    <div><dt>@L["Win rate"]</dt><dd>@(facts?.WinPercent is { } win ? $"{win}%" : "–")</dd></div>
+                                    <div><dt>@L["Streak"]</dt><dd>@member.CurrentStreak <small>best @member.BestStreak</small></dd></div>
+                                    <div><dt>@L["Average guesses to solve"]</dt><dd>@(facts?.AverageGuesses is { } guesses ? guesses.ToString("0.0", Language.Culture) : "–")</dd></div>
+                                    <div><dt>@L["Hard Mode clear rate"]</dt><dd>@(facts is { HardPlayed: > 0 } ? $"{facts.HardClearPercent}%" : "–")@if (facts is { HardPlayed: > 0 }) { <small> @facts.HardWon of @facts.HardPlayed</small> }</dd></div>
+                                    <div><dt>@L["Time per guess"]</dt><dd>@TimeOrDash(facts?.AverageMsPerGuess)</dd></div>
+                                    <div><dt>@L["Time per game"]</dt><dd>@TimeOrDash(facts?.AverageMsPerGame)</dd></div>
+                                    <div><dt>@L["Longest game"]</dt><dd>@TimeOrDash(facts?.LongestGame?.Ms)</dd></div>
+                                    <div><dt>@L["Shortest solve"]</dt><dd>@TimeOrDash(facts?.ShortestGame?.Ms)</dd></div>
+                                    <div><dt>@L["Slowest word"]</dt><dd>@if (facts?.SlowestWord is { } slow) { <span>@slow.Word.ToUpperInvariant() <small>@FormatActiveTime(slow.Ms)</small></span> } else { <span>–</span> }</dd></div>
+                                    <div><dt>@L["Rounds won"]</dt><dd>@(facts?.RoundsWon ?? 0) <small>of @(facts?.RoundsPlayed ?? 0)</small></dd></div>
                                 </dl>
                                 @if (member.Favorites is { Length: > 0 } favorites)
                                 {
-                                    <p class="dw-favorites"><span>Favorite guesses</span> @string.Join(", ", favorites.Take(5).Select(favorite => favorite.Word.ToUpperInvariant()))</p>
+                                    <p class="dw-favorites"><span>@L["Favorite guesses"]</span> @string.Join(", ", favorites.Take(5).Select(favorite => favorite.Word.ToUpperInvariant()))</p>
                                 }
                                 @if (Finished && board?.Guesses is { Length: > 0 } lines)
                                 {
                                     <details>
-                                        <summary>Today’s guesses</summary>
+                                        <summary>@L["Today’s guesses"]</summary>
                                         @InspectRows(board.Rows, lines, board.Review)
                                     </details>
                                 }
@@ -221,16 +221,16 @@
                     </div>
                 </section>
                 <section class="dw-stats-group dw-distributions" aria-labelledby="dw-distribution-title">
-                    <h3 id="dw-distribution-title">Winning guesses</h3>
+                    <h3 id="dw-distribution-title">@L["Winning guesses"]</h3>
                     <div class="dw-distribution-pair">
                         <div>
-                            <h4>You</h4>
+                            <h4>@L["You"]</h4>
                             @DistributionList(data.Personal.Distribution)
                         </div>
                         @if (data.FamilyTotals?.Distribution is { Length: 6 } together)
                         {
                             <div>
-                                <h4>Family</h4>
+                                <h4>@L["Family"]</h4>
                                 @DistributionList(together)
                             </div>
                         }
@@ -239,7 +239,7 @@
                 @if (data.History.Length > 0)
                 {
                     <section class="dw-stats-group" aria-labelledby="dw-history-title">
-                        <h3 id="dw-history-title">Your recent puzzles</h3>
+                        <h3 id="dw-history-title">@L["Your recent puzzles"]</h3>
                         <ul class="dw-family">
                             @foreach (var item in data.History.Take(14))
                             {
@@ -255,22 +255,22 @@
     <dialog class="dw-dialog" aria-labelledby="dw-help-title" @ref="help">
         <div class="dw-dialog-content">
             <header class="dw-dialog-header">
-                <h2 id="dw-help-title">How to play</h2>
-                <form method="dialog"><button class="dw-icon" type="submit" aria-label="Close help"><MusicIcon Name="close" /></button></form>
+                <h2 id="dw-help-title">@L["How to play"]</h2>
+                <form method="dialog"><button class="dw-icon" type="submit" aria-label="@L["Close help"].Value"><MusicIcon Name="close" /></button></form>
             </header>
-            <p>Guess the five-letter word in six tries. Type a word and press Enter.</p>
+            <p>@L["Guess the five-letter word in six tries. Type a word and press Enter."]</p>
             <ul class="dw-help-list">
-                <li><span class="dw-tile correct" aria-hidden="true">W</span> The letter is in the right spot.</li>
-                <li><span class="dw-tile present" aria-hidden="true">O</span> The letter is in a different spot.</li>
-                <li><span class="dw-tile absent" aria-hidden="true">R</span> The letter is absent.</li>
+                <li><span class="dw-tile correct" aria-hidden="true">W</span> @L["The letter is in the right spot."]</li>
+                <li><span class="dw-tile present" aria-hidden="true">O</span> @L["The letter is in a different spot."]</li>
+                <li><span class="dw-tile absent" aria-hidden="true">R</span> @L["The letter is absent."]</li>
             </ul>
         </div>
     </dialog>
     <dialog class="dw-dialog dw-member-dialog" aria-labelledby="dw-member-title" @ref="memberDialog" data-dismiss-backdrop>
         <div class="dw-dialog-content">
             <header class="dw-dialog-header">
-                <h2 id="dw-member-title">@(InspectedBoard?.Name ?? "Family board")</h2>
-                <form method="dialog"><button class="dw-icon" type="submit" aria-label="Close family board"><MusicIcon Name="close" /></button></form>
+                <h2 id="dw-member-title">@(InspectedBoard?.Name ?? L["Family board"].Value)</h2>
+                <form method="dialog"><button class="dw-icon" type="submit" aria-label="@L["Close family board"].Value"><MusicIcon Name="close" /></button></form>
             </header>
             <div>
                 @if (InspectedBoard is { } inspected)
@@ -282,35 +282,35 @@
                     @if (IsSolved(rows) || rows.Length == 6)
                     {
                         <div class="dw-member-summary">
-                            <p>@(IsSolved(rows) ? $"Solved in {rows.Length} {(rows.Length == 1 ? "guess" : "guesses")}" : "Unsolved")</p>
-                            @if (activeTime is { } duration) { <p><strong>@FormatActiveTime(duration)</strong> active time</p> }
-                            @if (review?.HardRules == true) { <p>Played with hard-mode rules</p> }
+                            <p>@(IsSolved(rows) ? L[rows.Length == 1 ? "Solved in {0} guess" : "Solved in {0} guesses", rows.Length] : L["Unsolved"])</p>
+                            @if (activeTime is { } duration) { <p><strong>@FormatActiveTime(duration)</strong> @L["active time"]</p> }
+                            @if (review?.HardRules == true) { <p>@L["Played with hard-mode rules"]</p> }
                         </div>
                     }
-                    else if (rows.Length == 0) { <p>No guesses yet.</p> }
+                    else if (rows.Length == 0) { <p>@L["No guesses yet."]</p> }
                     @if (review is { Outcome: "lucky" or "unlucky", FinalOptions: > 1 } verdict)
                     {
                         <div class="dw-outcome" data-outcome="@verdict.Outcome">
-                            <h3>@(verdict.Outcome == "lucky" ? "Lucky guess" : "Unlucky finish")</h3>
-                            <p>@verdict.FinalOptions.GetValueOrDefault().ToString("N0") words fit the clues before the final guess.</p>
+                            <h3>@L[verdict.Outcome == "lucky" ? "Lucky guess" : "Unlucky finish"]</h3>
+                            <p>@L["{0:N0} words fit the clues before the final guess.", verdict.FinalOptions.GetValueOrDefault()]</p>
                         </div>
                     }
                     @if (rows.Length > 0) { @InspectRows(rows, words, review, interactive: true) }
                     @if (inspected.Id == Session.User && Finished && review is null)
                     {
-                        <p role="status">@(syncFailed ? "Guess ratings will appear after your board syncs." : "Loading guess ratings…")</p>
+                        <p role="status">@L[syncFailed ? "Guess ratings will appear after your board syncs." : "Loading guess ratings…"]</p>
                     }
-                    @if (!Finished && inspected.Id != Session.User && rows.Length > 0) { <p>Finish your puzzle to see the letters.</p> }
+                    @if (!Finished && inspected.Id != Session.User && rows.Length > 0) { <p>@L["Finish your puzzle to see the letters."]</p> }
                 }
-                else { <p>This board is unavailable.</p> }
+                else { <p>@L["This board is unavailable."]</p> }
             </div>
         </div>
     </dialog>
     <dialog class="dw-dialog dw-recap-dialog" aria-labelledby="dw-recap-title" @ref="recapDialog" data-dismiss-backdrop>
         <div class="dw-dialog-content">
             <header class="dw-dialog-header">
-                <h2 id="dw-recap-title">Yesterday’s results</h2>
-                <form method="dialog"><button class="dw-icon" type="submit" aria-label="Close yesterday’s results"><MusicIcon Name="close" /></button></form>
+                <h2 id="dw-recap-title">@L["Yesterday’s results"]</h2>
+                <form method="dialog"><button class="dw-icon" type="submit" aria-label="@L["Close yesterday’s results"].Value"><MusicIcon Name="close" /></button></form>
             </header>
             @if (recap is { } yesterday)
             {
@@ -319,18 +319,24 @@
                     @foreach (var row in yesterday.Results)
                     {
                         var own = row.Id == Session.User;
-                        var result = row.Status == "won" ? $"{row.Guesses}/6" : "Unsolved";
+                        var result = row.Status == "won" ? $"{row.Guesses}/6" : L["Unsolved"].Value;
+                        var playerName = own ? L["{0} (you)", row.Name].Value : row.Name;
+                        var solved = row.Status == "won" ? L["solved in {0} guesses", row.Guesses].Value : L["did not solve it"].Value;
+                        var recapLabel = $"{row.Rank}. {playerName}, {solved}";
+                        if (row.ActiveMs is { } spent) recapLabel += L[", {0} active time", FormatActiveTime(spent)].Value;
+                        if (row.Hard) recapLabel += L[", Hard Mode rules"].Value;
+                        if (row.Winner) recapLabel += L[", won the round"].Value;
                         <li class="@(row.Winner ? "dw-recap-winner" : "")"
-                            aria-label="@($"{row.Rank}. {row.Name}{(own ? " (you)" : "")}, {(row.Status == "won" ? $"solved in {row.Guesses} guesses" : "did not solve it")}{(row.ActiveMs is { } spent ? $", {FormatActiveTime(spent)} active time" : "")}{(row.Hard ? ", Hard Mode rules" : "")}{(row.Winner ? ", won the round" : "")}")">
+                            aria-label="@recapLabel">
                             <span class="dw-rank" aria-hidden="true">@row.Rank</span>
-                            <span class="dw-recap-name" aria-hidden="true">@row.Name@(own ? " (you)" : "")@if (row.Hard) { <small>Hard Mode rules</small> }</span>
+                            <span class="dw-recap-name" aria-hidden="true">@playerName@if (row.Hard) { <small>@L["Hard Mode rules"]</small> }</span>
                             <strong aria-hidden="true">@result</strong>
                             <span class="dw-recap-time" aria-hidden="true">@(row.ActiveMs is { } time ? FormatActiveTime(time) : "")</span>
                         </li>
                     }
                 </ol>
-                @if (yesterday.Missed.Length > 0) { <p class="dw-note">Did not play: @string.Join(", ", yesterday.Missed)</p> }
-                <p class="dw-note">Fewest guesses wins. A tie goes to the game that followed Hard Mode rules, then to the faster time.</p>
+                @if (yesterday.Missed.Length > 0) { <p class="dw-note">@L["Did not play: {0}", string.Join(", ", yesterday.Missed)]</p> }
+                <p class="dw-note">@L["Fewest guesses wins. A tie goes to the game that followed Hard Mode rules, then to the faster time."]</p>
             }
         </div>
     </dialog>
@@ -356,8 +362,8 @@
     private bool fetchingFamily;
     private string? lastFamilySnapshot;
     private string FamilyActivityLabel => string.Join(". ", familyBoards.Where(board => board.Id != Session.User)
-        .Select(board => $"{board.Name}, {board.Rows.Length} of 6 guesses" + (board.Playing
-            ? board.DraftCount > 0 ? $", typing, {board.DraftCount} tiles filled" : ", playing"
+        .Select(board => L["{0}, {1} of 6 guesses", board.Name, board.Rows.Length].Value + (board.Playing
+            ? board.DraftCount > 0 ? L[", typing, {0} tiles filled", board.DraftCount].Value : L[", playing"].Value
             : "")));
     private sealed record PersonalStats(int Played, int Won,
         [property: JsonPropertyName("current_streak")] int CurrentStreak,
@@ -453,14 +459,14 @@
     private int? expandedGrade;
     private FamilyBoard? InspectedBoard => familyBoards.FirstOrDefault(board => board.Id == inspectedBoardId)
         ?? (inspectedBoardId == Session.User && puzzle is not null
-            ? new FamilyBoard(Session.User, Session.Profiles.FirstOrDefault(profile => profile.Id == Session.User)?.Name ?? "Your board",
+            ? new FamilyBoard(Session.User, Session.Profiles.FirstOrDefault(profile => profile.Id == Session.User)?.Name ?? L["Your board"].Value,
                 [], null, false, 0)
             : null);
     private int revealRow = -1;
     private bool Finished => puzzle?.Status is "won" or "lost";
     private string KeysDisabled => puzzle?.Status != "playing" || submitting ? "true" : "false";
     private int KeyTabIndex => puzzle?.Status == "playing" ? 0 : -1;
-    private string DayLabel => puzzle is { } loaded ? FormatDay(loaded.Date) : "Daily puzzle";
+    private string DayLabel => puzzle is { } loaded ? FormatDay(loaded.Date) : L["Daily puzzle"].Value;
 
     protected override Task OnInitializedAsync()
     {
@@ -605,7 +611,7 @@
             draft += key;
         else return;
         message = null; shake = false;
-        announcement = draft.Length == 0 ? "Guess cleared." : $"Guess letters {string.Join(" ", draft.ToCharArray())}.";
+        announcement = draft.Length == 0 ? "Guess cleared." : L["Guess letters {0}.", string.Join(" ", draft.ToCharArray())].Value;
         PublishActivity();
     }
 
@@ -761,11 +767,11 @@
             var guess = guesses?.ElementAtOrDefault(i);
             int? remaining = review?.Remaining is { } counts && i < counts.Length ? counts[i] : null;
             var grade = review?.Grades?.ElementAtOrDefault(i);
-            var gradeName = GradeName(grade?.Kind);
+            var gradeName = GradeName(grade?.Kind) is { } gradeKey ? L[gradeKey].Value : null;
             var duration = review?.GuessTimes?.ElementAtOrDefault(i) ?? guess?.ActiveMs;
             var expanded = interactive && expandedGrade == index;
-            var label = guess is null ? $"Guess {i + 1}: {string.Join(", ", row.Select(MarkLabel))}" : RowLabel(i, guess.Word.ToUpperInvariant(), guess);
-            <li aria-label="@(remaining is { } left ? $"{label}. {left:N0} {(left == 1 ? "word" : "words")} left." : label)">
+            var label = guess is null ? L["Guess {0}: {1}", i + 1, string.Join(", ", row.Select(MarkLabel))].Value : RowLabel(i, guess.Word.ToUpperInvariant(), guess);
+            <li aria-label="@(remaining is { } left ? L[left == 1 ? "{0}. {1:N0} word left." : "{0}. {1:N0} words left.", label, left].Value : label)">
                 <span class="dw-inspect-number" aria-hidden="true">@(i + 1)</span>
                 @for (var column = 0; column < row.Length; column++)
                 {
@@ -774,12 +780,12 @@
                 @if (remaining is not null || duration is not null || gradeName is not null)
                 {
                     <div class="dw-inspect-meta">
-                        @if (remaining is { } count) { <span class="dw-inspect-count" aria-hidden="true">(@count.ToString("N0") left)</span> }
+                        @if (remaining is { } count) { <span class="dw-inspect-count" aria-hidden="true">@L["({0:N0} left)", count]</span> }
                         @if (grade is not null && gradeName is not null)
                         {
                             @if (interactive)
                             {
-                                <button type="button" class="dw-grade" aria-label="@($"Guess {i + 1}: {gradeName}")"
+                                <button type="button" class="dw-grade" aria-label="@L["Guess {0}: {1}", i + 1, gradeName].Value"
                                         aria-expanded="@expanded.ToString().ToLowerInvariant()" title="@gradeName"
                                         @onclick="() => expandedGrade = expanded ? null : index">
                                     <span class="dw-grade-icon @grade.Kind" aria-hidden="true"></span>
@@ -792,14 +798,14 @@
                         }
                         @if (duration is >= 0)
                         {
-                            <span class="dw-guess-time"><span class="dw-visually-hidden">Active time </span>@FormatActiveTime(duration.Value)</span>
+                            <span class="dw-guess-time"><span class="dw-visually-hidden">@L["Active time"] </span>@FormatActiveTime(duration.Value)</span>
                         }
                     </div>
                 }
                 @if (expanded && grade is not null && gradeName is not null)
                 {
-                    <p class="dw-grade-detail" role="status"><strong>@gradeName.</strong> @GradeExplanation(grade.Kind)
-                        @if (IsPuzzleWord(grade.Better)) { <span>Suggested guess <strong>@grade.Better?.ToUpperInvariant()</strong>.</span> }
+                    <p class="dw-grade-detail" role="status"><strong>@gradeName.</strong> @L[GradeExplanation(grade.Kind)]
+                        @if (IsPuzzleWord(grade.Better)) { <span>@L["Suggested guess"] <strong>@grade.Better?.ToUpperInvariant()</strong>.</span> }
                         @if (duration is >= 0 && review is { GuessTimes: { } times, Grades: { } grades })
                         {
                             var peers = times.Where((time, rowIndex) => time is >= 0 &&
@@ -825,9 +831,9 @@
         showMemberBoard = true;
     }
 
-    private static string BoardDescription(string label, string[][] rows) =>
+    private string BoardDescription(string label, string[][] rows) =>
         string.Join(". ", new[] { label }.Concat(rows.Select((row, i) =>
-            $"Guess {i + 1}: {string.Join(", ", row.Select(MarkLabel))}")));
+            L["Guess {0}: {1}", i + 1, string.Join(", ", row.Select(MarkLabel))].Value)));
 
     [JSInvokable]
     public Task UpdateLiveFamily(bool visible) => InvokeAsync(async () =>
@@ -907,16 +913,16 @@
         var mark = guess?.Marks.ElementAtOrDefault(column);
         return mark is "correct" or "present" or "absent" ? mark : "";
     }
-    private static string KeyLabel(string key, string mark) => mark.Length == 0 ? key : $"{key}, {MarkLabel(mark)}";
-    private static string MarkLabel(string mark) => mark switch
+    private string KeyLabel(string key, string mark) => mark.Length == 0 ? key : $"{key}, {MarkLabel(mark)}";
+    private string MarkLabel(string mark) => L[mark switch
     {
         "correct" => "right spot", "present" => "different spot", "absent" => "absent", _ => ""
-    };
-    private static string RowLabel(int row, string letters, Guess? guess) =>
-        $"Guess {row + 1}: {(letters.Length == 0 ? "empty" : string.Join(", ", letters.Select((letter, column) => KeyLabel(letter.ToString(), GuessMark(guess, column)))))}";
-    private static string FormatDay(string day) =>
+    }].Value;
+    private string RowLabel(int row, string letters, Guess? guess) =>
+        L["Guess {0}: {1}", row + 1, letters.Length == 0 ? L["empty"].Value : string.Join(", ", letters.Select((letter, column) => KeyLabel(letter.ToString(), GuessMark(guess, column))))].Value;
+    private string FormatDay(string day) =>
         DateOnly.TryParseExact(day, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
-            ? parsed.ToString("dddd, d MMMM", CultureInfo.CurrentCulture) : day;
+            ? (Language.Hungarian ? parsed.ToString("D", Language.Culture) : parsed.ToString("dddd, d MMMM", Language.Culture)) : day;
     private static int WinRate(int won, int played) => played > 0 ? (int)Math.Round(100d * won / played) : 0;
     private static int BarWidth(int count, int[] distribution) =>
         Math.Max(8, 100 * count / Math.Max(1, distribution.DefaultIfEmpty(0).Max()));

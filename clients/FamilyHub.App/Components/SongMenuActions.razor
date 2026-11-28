@@ -30,8 +30,8 @@
     <Notice Level="@(SaveState == "Saved" ? "success" : SaveState is "Queued" or "Working" or "Queuing..." ? "info" : "error")"
             Message="@(SaveState == "Failed" ? "The song could not be saved. Retry adding it to the library." : SaveState)" />
 }
-@if (MoveEarlier.HasDelegate) { <button @onclick="MoveEarlier"><MusicIcon Name="chevron-up" /><span>Move earlier</span></button> }
-@if (MoveLater.HasDelegate) { <button @onclick="MoveLater"><MusicIcon Name="chevron-down" /><span>Move later</span></button> }
+@if (MoveEarlier.HasDelegate) { <button @onclick="MoveEarlier"><MusicIcon Name="chevron-up" /><span>@L["Move earlier"]</span></button> }
+@if (MoveLater.HasDelegate) { <button @onclick="MoveLater"><MusicIcon Name="chevron-down" /><span>@L["Move later"]</span></button> }
 
 @code {
     [Parameter, EditorRequired] public MusicTrack Track { get; set; } = null!;

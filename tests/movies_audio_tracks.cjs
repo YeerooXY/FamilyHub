@@ -172,26 +172,29 @@ verifyMovieProfiles(async (browser, profile, options) => {
     assert.deepEqual(requested.map(request => request.AudioStreamIndex), [1, 7]);
     for (const flag of ["EnableDirectPlay", "EnableDirectStream", "AllowAudioStreamCopy", "AllowVideoStreamCopy"])
         assert.equal(requested[1][flag], false);
-    const plus = page.getByRole("button", {name: "Play audio 100 ms later"});
-    await plus.press("Enter");
-    await focused(plus);
-    await page.getByText("100 ms later", {exact: true}).waitFor();
-    await page.waitForFunction(() => window.fixtureAudio?.currentTime === 4.9 && document.querySelector("video").muted);
-    const minus = page.getByRole("button", {name: "Play audio 100 ms earlier"});
-    if (options.hasTouch) {
-        await minus.tap();
-        await minus.tap();
-    } else {
-        await minus.press("Space");
-        await minus.press("Enter");
-    }
-    await focused(minus);
-    await page.getByText("100 ms earlier", {exact: true}).waitFor();
-    await page.waitForFunction(() => window.fixtureAudio?.currentTime === 5.1 && document.querySelector("video").muted);
-    await page.screenshot({path: path.join(output, profile + "-sync.png")});
-    assert.equal(await findAudio.count(), 0);
+    // Audio delay lives in the Sound & subtitle style sheet (round 3): 25 ms steps, only for added audio tracks.
     await closeTracks.press("Enter");
     await focused(audio);
+    const styleOpener = page.getByRole("button", {name: "Sound & subtitle style", exact: true});
+    await styleOpener.press("Enter");
+    const delayValue = page.getByRole("status", {name: "Audio delay value"}).or(page.locator(".movie-audio-delay output"));
+    const plus = page.getByRole("button", {name: "Increase audio delay"});
+    for (let step = 0; step < 4; step++) await plus.press("Enter");
+    await focused(plus);
+    await page.waitForFunction(() => document.querySelector(".movie-audio-delay output")?.textContent === "+100 ms");
+    // Small changes are applied smoothly: the companion audio slows down (or speeds up) by up to 6% until it lines up.
+    await page.waitForFunction(() => document.querySelector("video").muted && window.fixtureAudio?.playbackRate < 1);
+    const minus = page.getByRole("button", {name: "Decrease audio delay"});
+    for (let step = 0; step < 8; step++) {
+        if (options.hasTouch) await minus.tap(); else await minus.press(step % 2 ? "Space" : "Enter");
+    }
+    await focused(minus);
+    await page.waitForFunction(() => document.querySelector(".movie-audio-delay output")?.textContent === "−100 ms");
+    await page.waitForFunction(() => document.querySelector("video").muted && window.fixtureAudio?.playbackRate > 1);
+    await page.screenshot({path: path.join(output, profile + "-sync.png")});
+    assert.equal(await findAudio.count(), 0);
+    await page.getByRole("button", {name: "Close sound and subtitle style"}).press("Enter");
+    await focused(styleOpener);
     await page.close();
 }).catch(error => { console.error(error); process.exitCode = 1; });
 
