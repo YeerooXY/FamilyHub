@@ -23,7 +23,8 @@ else
         ("Home", "Music", "music", "music", "Songs, playlists and radio"),
         ("Wordle", "Daily Wordle", "wordle", "word", "Puzzle, family boards and stats"),
         ("Movies & TV", "Movies & TV", "film", "movies", "Browse or continue watching"),
-        ("Files", "Files", "folder", "files", "Family and private folders")
+        ("Files", "Files", "folder", "files", "Family and private folders"),
+        ("Leaderboard", "Leaderboard", "crown", "leaderboard", "Music and watch time in the family")
     ];
     public static string AppIcon(string route) => Apps.FirstOrDefault(app => app.Route == route).Icon ?? "home";
     public static string AppLabel(string route) => Apps.FirstOrDefault(app => app.Route == route).Label ?? "FamilyHub";
@@ -132,14 +133,9 @@ else
     // Arrow keys move between the four tiles, two by two, for a remote or a keyboard.
     private async Task MoveFocus(int from, KeyboardEventArgs e)
     {
-        var next = e.Key switch
-        {
-            "ArrowRight" when from % 2 == 0 => from + 1,
-            "ArrowLeft" when from % 2 == 1 => from - 1,
-            "ArrowDown" when from < 2 => from + 2,
-            "ArrowUp" when from >= 2 => from - 2,
-            _ => -1
-        };
-        if (next >= 0) await cards[next].FocusAsync();
+        // The grid has three tiles on top and two below (two columns in the switcher and on phones),
+        // so arrow keys move to the nearest tile in that direction as laid out.
+        if (e.Key is "ArrowRight" or "ArrowLeft" or "ArrowDown" or "ArrowUp")
+            await JS.InvokeVoidAsync("familyhub.moveGridFocus", cards[from], e.Key);
     }
 }

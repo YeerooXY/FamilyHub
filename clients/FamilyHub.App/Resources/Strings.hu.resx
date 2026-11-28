@@ -423,6 +423,8 @@
   <data name="Family" xml:space="preserve"><value>Család</value></data>
   <data name="Family activity" xml:space="preserve"><value>Családi tevékenység</value></data>
   <data name="Family and private folders" xml:space="preserve"><value>Családi és saját mappák</value></data>
+  <data name="Leaderboard" xml:space="preserve"><value>Ranglista</value></data>
+  <data name="Music and watch time in the family" xml:space="preserve"><value>Zenehallgatás és filmnézés a családban</value></data>
   <data name="Family board" xml:space="preserve"><value>Családi tábla</value></data>
   <data name="Family boards" xml:space="preserve"><value>Családi táblák</value></data>
   <data name="Family listening time" xml:space="preserve"><value>A család zenehallgatási ideje</value></data>

@@ -162,7 +162,7 @@ else
 <div class="workspace" data-app-view="@view"><main id="content" class="@(Session.ReconnectingToServer ? "server-reconnecting" : null)" tabindex="-1">
     @{ var restartBanner = Session.ServerStatusMessage;
        var searchBanner = restartBanner is null && view == "Search" && searchFailed && searchUnavailable;
-       var connectionBanner = restartBanner is null && !searchBanner && error is null && ConnectionLost && view is not ("Movies & TV" or "Files") && !ServerSettingsOpen; }
+       var connectionBanner = restartBanner is null && !searchBanner && error is null && ConnectionLost && view is not ("Movies & TV" or "Files" or "Leaderboard") && !ServerSettingsOpen; }
     <div class="shell-status">
     <Notice Id="server-restart-status" Level="@(Session.ReconnectingToServer ? "info" : "warning")" Message="@restartBanner" Announce="false" />
     <ServiceStatus Active="@connectionBanner"
@@ -207,6 +207,10 @@ else
     else if (view == "Files")
     {
         <FilesView @key="AppearanceKey" />
+    }
+    else if (view == "Leaderboard")
+    {
+        <ServerStats Leaderboard="true" />
     }
     else if (view == "Album" && selectedAlbum is { } album)
     {
@@ -1023,7 +1027,7 @@ else
         settingsDrilled = true;
         settingsSearchTarget = setting.Target;
     }
-    private string SwitcherApp => view is "Hub" or "Wordle" or "Movies & TV" or "Files" ? view : "Home";
+    private string SwitcherApp => view is "Hub" or "Wordle" or "Movies & TV" or "Files" or "Leaderboard" ? view : "Home";
 
     private async Task OpenAppSwitcher()
     {
@@ -1869,8 +1873,8 @@ else
         var target = uri.Fragment.TrimStart('#');
         if (target.Length == 0) target = RouteView ?? uri.AbsolutePath.Trim('/');
         if (target is "hub" or "wordle") { view = target == "hub" ? "Hub" : "Wordle"; pendingFocus = "content"; return; }
-        // The leaderboard moved to Home, so old links to it open Home.
-        if (target is "leaderboard") { view = "Home"; pendingFocus = "content"; return; }
+        // The leaderboard is its own app on the Apps screen.
+        if (target is "leaderboard") { view = "Leaderboard"; pendingFocus = "content"; return; }
         var section = Uri.UnescapeDataString(target).ToLowerInvariant().Replace(' ', '-') switch
         {
             "artist-mappings" or "artist-mappings-title" => "artist-mappings-title",

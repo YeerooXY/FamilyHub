@@ -20,6 +20,9 @@ async function openMusicSection(page, name) {
     if (name === 'Leaderboard') {
         assert.equal(await page.getByRole('button', {name: 'Leaderboard', exact: true}).count(), 0);
         assert.equal(await page.getByRole('button', {name: 'Server', exact: true}).count(), 0);
+        // The leaderboard is its own app, opened from the app switcher.
+        await page.getByRole('button', {name: 'Switch apps', exact: true}).click();
+        await page.locator('#app-switcher').getByRole('button', {name: 'Leaderboard', exact: true}).click();
         await page.getByRole('group', {name: 'Leaderboard period'}).waitFor();
         return;
     }

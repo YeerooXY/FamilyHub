@@ -787,6 +787,26 @@ window.familyhub.tintPlaylistHeader = () => {
 };
 // The app's own effects setting and the system's reduced-motion setting both mean "no animation".
 window.familyhub.motionOff = () => matchMedia('(prefers-reduced-motion: reduce)').matches || document.body.dataset.effects === 'off';
+// Arrow keys in a grid of buttons (the Apps screen, the app switcher) move to the nearest sibling in that direction
+// as the tiles are laid out, so rows of different lengths work: the closest one along the arrow, then the most aligned.
+window.familyhub.moveGridFocus = (from, key) => {
+    const grid = from?.parentElement;
+    if (!grid) return;
+    const a = from.getBoundingClientRect(), ax = a.left + a.width / 2, ay = a.top + a.height / 2;
+    const horizontal = key === 'ArrowLeft' || key === 'ArrowRight', sign = key === 'ArrowRight' || key === 'ArrowDown' ? 1 : -1;
+    let best, bestScore = Infinity;
+    for (const node of grid.children) {
+        if (node === from || node.tagName !== 'BUTTON' || node.hidden) continue;
+        const b = node.getBoundingClientRect(), bx = b.left + b.width / 2, by = b.top + b.height / 2;
+        const along = (horizontal ? bx - ax : by - ay) * sign;
+        // Same row (or column) only: the other tile must overlap this one across the arrow.
+        const overlap = horizontal ? Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) : Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        if (along <= 1 || (horizontal && overlap <= 0)) continue;
+        const score = along + Math.abs(horizontal ? by - ay : bx - ax) * 2;
+        if (score < bestScore) { bestScore = score; best = node; }
+    }
+    best?.focus();
+};
 // Focus inside an Online now row that is about to go moves to the next row, then the previous one, then the heading.
 window.familyhub.captureOnlineFocus = leaving => {
  const root=document.querySelector('.online-now'); if(!root)return;

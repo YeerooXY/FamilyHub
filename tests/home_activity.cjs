@@ -77,13 +77,20 @@ async function check(browser, profileName, profile, reduced, engineName) {
         assert.equal(await page.getByRole('button', {name: /^Options for /}).count(), 4);
         assert.equal(await board.getByRole('button', {name: /^Options for /}).count(), 0);
 
-        // Layout: side by side on wide screens, Online now above the leaderboard on phones.
-        const onlineBox = await online.boundingBox(), boardBox = await board.boundingBox();
-        if (phone) assert(onlineBox.y + onlineBox.height <= boardBox.y + 1, name + ' Online now comes first');
-        else {
-            assert(onlineBox.x > boardBox.x + boardBox.width - 1, name + ' Online now is the right column');
-            assert(Math.abs(onlineBox.y - boardBox.y) < 4, name + ' columns start together');
-        }
+        // Music Home shows Online now across the page; the leaderboard is its own app.
+        assert.equal(await board.count(), 0, name + ' no leaderboard on Music Home');
+        const shots = path.join(root, '.local/home-activity');
+        fs.mkdirSync(shots, {recursive: true});
+        const activity = page.locator('.home-activity');
+        await activity.scrollIntoViewIfNeeded();
+        await activity.screenshot({path: path.join(shots, name + '-activity.png'), animations: 'disabled'});
+        const switcher = page.locator('#app-switcher');
+        const openApp = async label => {
+            await page.getByRole('button', {name: 'Switch apps', exact: true}).click();
+            await switcher.getByRole('button', {name: label, exact: true}).click();
+        };
+        await openApp('Leaderboard');
+        await page.getByRole('heading', {name: 'Leaderboard', level: 1, exact: true}).waitFor();
 
         // Leaderboard: Weekly, Monthly and All time; each person has a labelled music bar and watch bar.
         const periods = page.getByRole('group', {name: 'Leaderboard period', exact: true});
@@ -101,12 +108,7 @@ async function check(browser, profileName, profile, reduced, engineName) {
         assert.equal(await measure(first, 'Music'), '1 h 3 min');
         assert.equal(await measure(first, 'Watching'), '2 h 30 min');
         assert.equal(await first.locator('.lb-measure').count(), 2);
-        const shots = path.join(root, '.local/home-activity');
-        fs.mkdirSync(shots, {recursive: true});
-        const activity = page.locator('.home-activity');
-        await activity.scrollIntoViewIfNeeded();
-        await activity.screenshot({path: path.join(shots, name + '-activity.png'), animations: 'disabled'});
-        await page.screenshot({path: path.join(shots, name + '-home.png'), animations: 'disabled'});
+        await page.screenshot({path: path.join(shots, name + '-leaderboard.png'), animations: 'disabled'});
         await page.getByRole('list', {name: 'Everyone else, monthly'}).getByText('Sam', {exact: true}).waitFor();
         assert.equal(await board.getByRole('heading', {name: "Who's here"}).count(), 0);
 
@@ -127,6 +129,8 @@ async function check(browser, profileName, profile, reduced, engineName) {
         await page.getByRole('list', {name: 'Top three, all time'}).waitFor();
         assert.equal(await focusedPeriod(), 'All time');
         await periods.getByRole('button', {name: 'Monthly'}).click();
+        await openApp('Music');
+        await online.getByRole('heading', {name: 'Online now', level: 2}).waitFor();
 
         // Someone coming online slides and fades in; reduced motion and effects off show them at once.
         const requested = await requests(page);

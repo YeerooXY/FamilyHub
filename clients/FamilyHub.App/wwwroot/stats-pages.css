@@ -68,14 +68,8 @@ body[data-view=stats] { --stats-page-width:1100px; }
 .leaderboard-page .stats-listening h2,.srv-grid h2 { margin:0 0 12px; font-size:18px; }
 .lb-empty { margin:0; font-size:14px; color:var(--muted); }
 
-/* Home activity: the leaderboard on the left, Online now on the right. Online now comes first in the page, so phones show it above the leaderboard. */
+/* Music Home shows Online now across the page; the leaderboard is its own app (view "Leaderboard"). */
 .home-activity { display:grid; grid-template-columns:minmax(0,1fr); gap:20px; align-items:start; }
-.home-activity .leaderboard-page { max-width:none; margin:0; grid-template-columns:minmax(0,1fr); }
-@media(min-width:900px) {
- .home-activity { grid-template-columns:minmax(0,1fr) minmax(280px,360px); }
- .home-activity>.leaderboard-page { grid-column:1; grid-row:1; }
- .home-activity>.online-now { grid-column:2; grid-row:1; }
-}
 .online-now { min-width:0; padding:20px; border-radius:16px; }
 .online-now h2 { margin:0 0 12px; font-size:18px; }
 .online-now h2:focus-visible { outline:2px solid var(--accent-blue); outline-offset:3px; }

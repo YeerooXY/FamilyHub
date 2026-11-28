@@ -586,7 +586,12 @@ async function audit(name, engine, options) {
         await capture('review-recording', target('transfer-review-dialog'));
         await closeByEscape(target('transfer-review-dialog'));
 
-        if (before) await nav('Leaderboard'); else await select(target('open-home'));
+        if (before) await nav('Leaderboard');
+        else {
+            // The leaderboard is its own app, opened from the app switcher.
+            await select(target('open-hub'));
+            await select(target('app-switcher').getByRole('button', {name: 'Leaderboard', exact: true}));
+        }
         await page.locator('.leaderboard-page[aria-busy=false]').waitFor();
         await capture('leaderboard');
         await target('lb-wrapped-title').evaluate(node => {
@@ -639,6 +644,12 @@ async function audit(name, engine, options) {
             assert(await help.evaluate(node => node === document.activeElement), 'Toggling help must preserve focus');
             assert(await heading('Records').evaluate(node => Boolean(document.querySelector('.lb-wrapped')
                 .compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)), 'Records must follow annual listening');
+        }
+        if (!before) {
+            // Back to Music, where Online now and the music navigation live.
+            await select(target('open-hub'));
+            await select(target('app-switcher').getByRole('button', {name: 'Music', exact: true}));
+            await page.locator('.home-activity').waitFor();
         }
         const listener = page.locator('.listener-options').first();
         if (await listener.count()) {
