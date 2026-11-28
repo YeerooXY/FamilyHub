@@ -1073,12 +1073,55 @@ export function buildPlayerUi(ctx) {
     // The touch itself wakes the controls (show runs on pointerdown), so remember what the tap found.
     root.addEventListener("pointerdown", () => { hiddenAtTouch = root.classList.contains("movie-idle"); }, { capture: true, signal });
     surfaceLayer.addEventListener("mousedown", event => event.preventDefault(), { signal });
+
+    // Hold for 2x speed: press and hold the picture on touch, or hold Right on TV. Releasing restores the speed.
+    const fastBadge = make("div", "movie-ui-fast", "2× speed");
+    fastBadge.hidden = true;
+    fastBadge.setAttribute("role", "status");
+    let fastFrom = null, holdTimer, holdEndedAt = -Infinity, lastTap = null;
+    function startFast() {
+        if (fastFrom !== null || media.paused || media.ended) return false;
+        fastFrom = media.playbackRate;
+        media.playbackRate = 2;
+        fastBadge.hidden = false;
+        return true;
+    }
+    function endFast() {
+        clearTimeout(holdTimer);
+        if (fastFrom === null) return;
+        media.playbackRate = fastFrom;
+        fastFrom = null;
+        fastBadge.hidden = true;
+        holdEndedAt = performance.now();
+    }
+    surfaceLayer.addEventListener("pointerdown", event => {
+        if (event.pointerType !== "touch") return;
+        clearTimeout(holdTimer);
+        holdTimer = setTimeout(startFast, 500);
+    }, { signal });
+    for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, endFast, { signal, capture: true });
+    surfaceLayer.addEventListener("contextmenu", event => event.preventDefault(), { signal });
+    for (const type of ["pause", "ended"]) media.addEventListener(type, endFast, { signal });
+    window.addEventListener("blur", endFast, { signal });
+    document.addEventListener("keyup", event => { if (event.key === "ArrowRight") endFast(); }, { signal, capture: true });
+    signal.addEventListener("abort", endFast, { once: true });
+
     surfaceLayer.addEventListener("click", event => {
+        if (performance.now() - holdEndedAt < 400) return;
         if (document.activeElement === document.body) playPause.focus({ preventScroll: true });
         if (event.pointerType === "touch" || !matchMedia("(hover: hover) and (pointer: fine)").matches) {
             // Like YouTube: a tap on the picture hides visible controls at once and brings hidden ones back.
             if (hiddenAtTouch) show();
             else hide();
+            // Two quick taps on the same side skip 10 s. The two toggles above cancel out, so the controls end as they began.
+            const box = surfaceLayer.getBoundingClientRect(), side = event.clientX < box.left + box.width / 2 ? -1 : 1;
+            if (lastTap && lastTap.side === side && performance.now() - lastTap.at < 300) {
+                const startedHidden = lastTap.hidden;
+                lastTap = null;
+                seekBy(side * 10);
+                // The skip wakes the controls; put them back the way the first tap found them.
+                if (startedHidden) hide();
+            } else lastTap = { side, at: performance.now(), hidden: hiddenAtTouch };
             return;
         }
         if (event.detail > 1) { clearTimeout(tapTimer); void toggleFullscreen(); return; }
@@ -1112,7 +1155,39 @@ export function buildPlayerUi(ctx) {
         clearTimeout(shortcutTimer);
         shortcutTimer = setTimeout(() => { shortcutStatus.textContent = ""; }, 1200);
     }
-    root.append(surfaceLayer, subs, spinnerRoot, message, top, bottom, skipSegment, nextCard, guide, guideAnnouncement, shortcutStatus, info, audioSheet, styleSheet);
+    // Pause screen: after 30 s paused, the title, episode and description show over a dimmed frame. Any input dismisses it.
+    // It repeats what the player already names, so assistive technology skips it.
+    const pauseScreen = make("div", "movie-pause-screen"), pauseText = make("div", "movie-pause-text");
+    pauseScreen.hidden = true;
+    pauseScreen.setAttribute("aria-hidden", "true");
+    if (ctx.kicker) pauseText.append(make("p", "movie-pause-kicker", ctx.kicker));
+    pauseText.append(make("h2", "movie-pause-title", ctx.title));
+    if (ctx.description) pauseText.append(make("p", "movie-pause-description", ctx.description));
+    pauseScreen.append(pauseText);
+    let pauseTimer;
+    const armPauseScreen = () => {
+        clearTimeout(pauseTimer);
+        if (media.paused && !media.ended) pauseTimer = setTimeout(() => {
+            if (!media.paused || media.ended) return;
+            if (openSheet || dragging) armPauseScreen();
+            else pauseScreen.hidden = false;
+        }, ctx.pauseDelay ?? 30000);
+    };
+    const clearPauseScreen = () => { clearTimeout(pauseTimer); pauseScreen.hidden = true; };
+    media.addEventListener("pause", armPauseScreen, { signal });
+    for (const type of ["play", "playing", "ended", "emptied"]) media.addEventListener(type, clearPauseScreen, { signal });
+    for (const type of ["keydown", "pointerdown", "touchstart", "wheel"]) document.addEventListener(type, () => {
+        const shown = !pauseScreen.hidden;
+        pauseScreen.hidden = true;
+        if (shown || pauseTimer) armPauseScreen();
+    }, { signal, capture: true, passive: true });
+    surfaceLayer.addEventListener("pointermove", () => {
+        if (pauseScreen.hidden) return;
+        pauseScreen.hidden = true;
+        armPauseScreen();
+    }, { signal, passive: true });
+    signal.addEventListener("abort", () => clearTimeout(pauseTimer), { once: true });
+    root.append(surfaceLayer, pauseScreen, subs, spinnerRoot, message, top, bottom, skipSegment, nextCard, guide, guideAnnouncement, shortcutStatus, fastBadge, info, audioSheet, styleSheet);
 
     // Controls hide a few seconds after the last touch, playing or paused. Reduced motion only removes the fade, not the hiding.
     // A keyboard or remote focus ring keeps them up so the focused control stays visible.
@@ -1454,6 +1529,12 @@ export function buildPlayerUi(ctx) {
         if (event.keyCode === 461 || key === "browserback") {
             event.preventDefault();
             root.dispatchEvent(new Event("movie-back"));
+            return;
+        }
+        // TV: holding Right while playing plays at 2x until it is released. A single press still seeks or moves focus.
+        if (tv && key === "arrowright" && event.repeat && !inSheet && !media.paused) {
+            event.preventDefault();
+            startFast();
             return;
         }
         if (inSheet) {

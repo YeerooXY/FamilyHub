@@ -26,17 +26,61 @@ function loadingShape(className, ...children) {
     return node;
 }
 
-function movieLoading(kind, count = 3) {
+// Movies customisation (round 5): the saved layout, kept per profile on the server and cached on this device.
+export const homeRowIds = ["continue", "list", "recent", "series", "movies", "collections", "genres"];
+export const homeRowNames = {continue: "Continue watching", list: "My list", recent: "Recently added", series: "Series",
+    movies: "Movies", collections: "Collections", genres: "Genres"};
+export const titleSectionIds = ["episodes", "related", "cast"];
+const titleSectionNames = {episodes: "Episodes", related: "Related", cast: "Cast"};
+const uiChoices = {resumeStyle: ["landscape", "poster"], resumePress: ["resume", "title"], titleBackground: ["backdrop", "blurred", "plain"]};
+const uiFlags = {banner: true, resumePrompt: true, spoilerBlur: false, oled: false};
+const uiKey = viewer => "familyhub:movie-tracks:" + JSON.stringify(viewer) + ":ui";
+
+function ordered(saved, ids) {
+    const known = (Array.isArray(saved) ? saved : []).map(entry => entry?.id ?? entry).filter((id, index, all) => ids.includes(id) && all.indexOf(id) === index);
+    return [...known, ...ids.filter(id => !known.includes(id))];
+}
+
+export function normalizeMovieUi(value) {
+    const hidden = new Set((Array.isArray(value?.rows) ? value.rows : []).filter(row => row?.visible === false).map(row => row.id));
+    return {
+        ...Object.fromEntries(Object.entries(uiFlags).map(([key, fallback]) => [key, typeof value?.[key] === "boolean" ? value[key] : fallback])),
+        ...Object.fromEntries(Object.entries(uiChoices).map(([key, list]) => [key, list.includes(value?.[key]) ? value[key] : list[0]])),
+        rows: ordered(value?.rows, homeRowIds).map(id => ({id, visible: !hidden.has(id)})),
+        titleSections: ordered(value?.titleSections, titleSectionIds),
+        revision: Number.isSafeInteger(value?.revision) && value.revision >= 0 ? value.revision : 0
+    };
+}
+
+export function readMovieUi(viewer) {
+    try { return normalizeMovieUi(JSON.parse(localStorage.getItem(uiKey(viewer)))); } catch { return normalizeMovieUi(); }
+}
+
+function saveMovieUi(viewer, ui) {
+    try { localStorage.setItem(uiKey(viewer), JSON.stringify(ui)); } catch {}
+}
+
+// Settings asks Movies Home to open the Customise Home sheet once it has loaded.
+export function requestCustomiseHome(viewer) {
+    localStorage.setItem(uiKey(viewer) + ":open", "1");
+}
+
+const landscapeRow = (id, ui) => id === "recent" || id === "continue" && ui.resumeStyle !== "poster";
+
+function movieLoading(kind, count = 3, ui) {
     const block = (className = "") => loadingShape("movie-loading-block " + className);
     const repeated = (count, make) => Array.from({length: count}, make);
     let parts;
     if (kind === "home") {
+        ui ??= normalizeMovieUi();
         const hero = loadingShape("movie-hero", loadingShape("movie-hero-body",
             block("movie-loading-heading"), block("movie-loading-line"), block("movie-loading-action")));
         const cards = format => loadingShape(`movie-shelf movie-loading-${format}`, block("movie-loading-label"),
             loadingShape("movie-shelf-scroll", loadingShape("movie-cards", ...repeated(6, () =>
                 loadingShape("movie-loading-card", block("movie-art"), loadingShape("movie-caption", block("movie-loading-line")))))));
-        parts = [hero, cards("landscape"), cards("portrait")];
+        // The first screen holds the banner and two rows, or three rows without a banner.
+        const shown = ui.rows.filter(row => row.visible).slice(0, ui.banner ? 2 : 3);
+        parts = [...(ui.banner ? [hero] : []), ...shown.map(row => cards(landscapeRow(row.id, ui) ? "landscape" : "portrait"))];
     } else if (kind === "seasons") {
         parts = [loadingShape("movie-season-picker", loadingShape("movie-season-pills",
             ...repeated(3, () => block("movie-loading-pill"))))];
@@ -58,12 +102,12 @@ function movieLoading(kind, count = 3) {
     return node;
 }
 
-export function showMovieLoading(host, show = true) {
+export function showMovieLoading(host, show = true, viewer) {
     if (show) {
         const status = el("p", "Loading movies and TV…");
         status.className = "movie-visually-hidden";
         status.setAttribute("role", "status");
-        host.replaceChildren(loadingShape("movie-session-loading", status, movieLoading("home")));
+        host.replaceChildren(loadingShape("movie-session-loading", status, movieLoading("home", 3, viewer ? readMovieUi(viewer) : undefined)));
     } else host.querySelector(":scope > .movie-session-loading")?.remove();
 }
 
@@ -423,6 +467,89 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     player.tabIndex = -1;
     player.setAttribute("aria-label", "Movie player");
     const preferenceViewer = viewer ?? [base.origin, session.user];
+    // Customisation: this device's cached copy paints first, then the profile's saved copy on the server replaces it.
+    let movieUi = readMovieUi(preferenceViewer), uiChanged = () => {}, uiNotice = null, uiNoticeChanged = () => {};
+    let uiSaving = Promise.resolve(), queuedUiSaves = 0, uiConflict = null;
+    const applyThemeUi = () => {
+        host.dataset.movieOled = String(movieUi.oled);
+        document.body.dataset.movieOled = String(movieUi.oled);
+    };
+    life.signal.addEventListener("abort", () => { delete document.body.dataset.movieOled; }, {once: true});
+    applyThemeUi();
+    function adoptUi(preferences) {
+        const next = normalizeMovieUi({...preferences?.movie_ui, revision: preferences?.movie_ui_revision});
+        const same = JSON.stringify({...next, revision: 0}) === JSON.stringify({...movieUi, revision: 0});
+        if (same && next.revision === movieUi.revision) return false;
+        movieUi = next;
+        saveMovieUi(preferenceViewer, movieUi);
+        applyThemeUi();
+        // A new revision alone changes nothing on screen, so the sheet is not rebuilt under the user's hands.
+        if (!same) uiChanged();
+        return !same;
+    }
+    function setUiNotice(text, actions = []) {
+        uiNotice = text ? {text, actions} : null;
+        uiNoticeChanged();
+    }
+    // A failed layout save keeps the change on this device and reports why, so the server log shows the cause.
+    function uiSaveFailed(reason, retry) {
+        note("layout-sync-failed", "", {reason});
+        setUiNotice("Could not save this to the server. It is kept on this device.", [["Try saving again", retry]]);
+    }
+    async function readServerUi() {
+        if (preview) return null;
+        try {
+            const reply = JSON.parse(await app.invokeMethodAsync("MovieProfilePreferences", null));
+            if (reply?.preferences) return reply.preferences;
+            if (reply?.error) note("layout-sync-failed", "", {reason: "request_failed"});
+        } catch (error) { noteLookupFailure("layout-sync-failed", error); }
+        return null;
+    }
+    // Only the changed keys are sent, so a setting changed on another device is kept. A list order carries the
+    // revision the user saw: when it is stale the current layout is shown and the user confirms the change again.
+    function saveUi(changes) {
+        movieUi = normalizeMovieUi({...movieUi, ...changes});
+        saveMovieUi(preferenceViewer, movieUi);
+        applyThemeUi();
+        uiChanged();
+        if (preview) return Promise.resolve(true);
+        queuedUiSaves++;
+        return uiSaving = uiSaving.then(() => sendUi(changes)).finally(() => { queuedUiSaves--; });
+    }
+    async function sendUi(changes) {
+        const lists = "rows" in changes || "titleSections" in changes;
+        const retry = () => void saveUi(changes);
+        try {
+            const reply = JSON.parse(await app.invokeMethodAsync("MovieProfilePreferences",
+                {movie_ui: changes, ...(lists ? {movie_ui_revision: movieUi.revision} : {})}));
+            if (reply?.preferences) {
+                uiConflict = null;
+                // Later saves are still queued: keep their optimistic state and only take the new revision.
+                if (queuedUiSaves === 1) adoptUi(reply.preferences);
+                else if (Number.isSafeInteger(reply.preferences.movie_ui_revision)) {
+                    movieUi = {...movieUi, revision: reply.preferences.movie_ui_revision};
+                    saveMovieUi(preferenceViewer, movieUi);
+                }
+                setUiNotice("");
+                return true;
+            }
+            if (reply?.status === 409) {
+                const current = await readServerUi();
+                if (current) adoptUi(current);
+                note("layout-sync-failed", "", {reason: "conflict"});
+                uiConflict = changes;
+                setUiNotice(current ? "Your layout changed on another device. The current layout is shown."
+                    : "Your layout changed on another device. Reopen this sheet to load it.",
+                current ? [["Apply my change again", () => { uiConflict = null; void saveUi(changes); }],
+                    ["Keep the current layout", () => { uiConflict = null; setUiNotice(""); }]] : []);
+                return false;
+            }
+            throw Object.assign(Error("layout save failed"), {reason: "request_failed"});
+        } catch (error) {
+            uiSaveFailed(error?.reason ?? (error instanceof SyntaxError ? "invalid_response" : "request_failed"), retry);
+            return false;
+        }
+    }
     const connection = navigator.connection;
     let connectionRevision = 0, autoHintShown = false;
     async function currentConnection() {
@@ -867,7 +994,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 const promptOpener = options.promptOpener ?? opener;
                 if (!promptOpener?.isConnected || promptOpener.closest("[hidden]")) return;
                 const total = runtime / 1e7;
-                if (resume > 120 && resume < total * .95) {
+                if (resume > 120 && resume < total * .95 && movieUi.resumePrompt) {
                     const choice = await chooseResume(item, promptOpener, requestSignal, resume, total);
                     if (!choice || !active || rev !== selection || requestSignal.aborted) return;
                     if (choice === "restart") resume = 0;
@@ -1450,7 +1577,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             ui = buildPlayerUi({ media, surface: player, back, signal: playerSignal, subtitleSearch, subtitleSync, itemId: item.Id,
                 fullscreenEnabled: nativeFullscreen || document.fullscreenEnabled || document.webkitFullscreenEnabled, isFullscreen, setFullscreen, appFullscreen,
                 title: numbered ? `S${item.ParentIndexNumber}:E${item.IndexNumber} “${item.Name}”` : item.Name,
-                kicker: item.SeriesName, audioPick, subtitlePick, audioSync, notice, burnedSubtitle, originalLanguage,
+                kicker: item.SeriesName, description: item.Overview, audioPick, subtitlePick, audioSync, notice, burnedSubtitle, originalLanguage,
                 autoSkipIntro: prefs.autoSkipIntro, autoSkipRecap: prefs.autoSkipRecap, autoNext: prefs.autoNext !== false,
                 chapterMarks: prefs.chapterMarks !== false,
                 chapterFailed: reason => note("chapters-unavailable", method, {reason}),
@@ -2146,7 +2273,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         if (job && !isSeries) view.shouldPollLibrary = () => downloadPercent(queueEntry(job)) === 100 && !localTitle;
         updateJob();
         let backdrop, backdropKey;
+        section.dataset.titleBackground = movieUi.titleBackground;
         const updateBackdrop = () => {
+            if (movieUi.titleBackground === "plain") return;
             const key = JSON.stringify([item.TmdbBackdrop, backdropSources(item), innerWidth > 1920]);
             if (key === backdropKey) return;
             backdropKey = key;
@@ -2158,8 +2287,19 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         let stopCastLayout;
         signal.addEventListener("abort", () => stopCastLayout?.(), {once: true});
         intro.after(cast);
+        // The section order from Customise Home. The default leaves the page as it is: the cast beside the intro.
+        const placeSections = related => {
+            const order = movieUi.titleSections;
+            if (order.join() === titleSectionIds.join()) return;
+            const column = episodesColumn ?? list, base = order.indexOf(isSeries ? "episodes" : "related");
+            column.classList.add("movie-sections-ordered");
+            column.append(cast);
+            cast.style.order = order.indexOf("cast") - base;
+            if (related) related.style.order = order.indexOf("related") - base;
+        };
+        placeSections();
         function updateDetails() {
-            const background = backgroundFor(item);
+            const background = movieUi.titleBackground === "plain" ? homeBackgrounds.slate : backgroundFor(item);
             section.style.setProperty("--movie-hero-start", background[0]);
             section.style.setProperty("--movie-hero-end", background[1]);
             updateBackdrop();
@@ -2276,6 +2416,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             relatedHeader.append(relatedHeading, action);
             related.append(relatedHeader);
             (episodesColumn ?? list).append(related);
+            placeSections(related);
             observeEpisodeScroll?.(related);
             let loaded = false;
             action.addEventListener("blur", () => {
@@ -2912,6 +3053,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             if (episode) entry.dataset.episodeState = episode.UserData?.Played && !isShortMovie(episode.RunTimeTicks) ? "watched" : "ready";
             frame.className = "movie-episode-still";
             frame.setAttribute("aria-hidden", "true");
+            if (movieUi.spoilerBlur && entry.dataset.episodeState !== "watched" && !(episode && progressOf(episode) > 0)) frame.dataset.spoiler = "";
             const image = el("img"), tag = episode?.ImageTags?.Primary ?? episode?.ImageTags?.Thumb;
             const localStill = tag && url(`Items/${encodeURIComponent(episode.Id)}/Images/${episode.ImageTags.Primary ? "Primary" : "Thumb"}`,
                 {tag, maxWidth: 400}).href;
@@ -3424,7 +3566,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     .catch(() => { homeStatus.textContent = "Could not open the download. Try again."; })
                     .finally(() => b.removeAttribute("aria-busy"));
             } else if (findRelease) findRelease();
-            else if (continuing && !preview && !item.Demo) void play(item, b);
+            else if (continuing && !preview && !item.Demo && movieUi.resumePress !== "title") void play(item, b);
             else openSeries(title, b, item.ParentIndexNumber);
         });
         b.className = "movie-card";
@@ -3432,7 +3574,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         b.dataset.itemId = display.Id;
         b.dataset.titleKey = titleKey(item);
         if (title.ProductionYear) b.dataset.year = String(title.ProductionYear);
-        const artwork = cardArtwork(display, ["resume", "recent", "related"].includes(format));
+        const artwork = cardArtwork(display, ["resume", "recent", "related"].includes(format) && !(continuing && movieUi.resumeStyle === "poster"));
+        // An episode the viewer has not seen would otherwise show its still.
+        if (continuingEpisode && item.FamilyHubNextUp && movieUi.spoilerBlur) artwork.dataset.spoiler = "";
         if (findRelease) {
             const action = el("span");
             action.className = "movie-card-find";
@@ -4712,7 +4856,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     queueObserver.observe(library, {attributes: true, attributeFilter: ["hidden"]});
     document.addEventListener("visibilitychange", queueVisibility, {signal: life.signal});
     life.signal.addEventListener("abort", () => { clearTimeout(queueTimer); queueObserver.disconnect(); });
-    const skeleton = movieLoading("home");
+    const skeleton = movieLoading("home", 3, movieUi);
     const empty = el("section"), homeStatus = el("p"), entryFocus = document.activeElement;
     homeStatus.className = "movie-visually-hidden";
     homeStatus.setAttribute("role", "status");
@@ -4779,7 +4923,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
     const heroInterval = 9000;
     const heroName = item => item.SeriesName ? `${item.SeriesName}, ${item.Name}` : item.Name;
     const hasBackdrop = item => backdropSources(item).some(([, type]) => type === "Backdrop");
-    const heroVisible = () => active && !library.hidden && !browse.hidden && !featured.hidden;
+    const heroVisible = () => active && !library.hidden && !browse.hidden && !featured.hidden && movieUi.banner;
     let trailerTimer, trailerLoad, heroTrailer, trailerAttempt, lastHeroInput;
     const canPreviewHero = () => !preview && heroVisible() && heroSlide && !document.hidden && !quietMotion() &&
         !heroChoice && !featured.contains(document.activeElement);
@@ -5047,9 +5191,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         }
         const first = candidates.values().next().value ?? recentShelf.items[0] ?? moviesShelf.items[0] ?? tvShelf.items[0] ?? favoriteShelf.items[0];
         const pick = (heroPick && candidates.get(titleKey(heroPick))) ?? first;
-        heroItems = candidates.size ? [...candidates.values()] : first ? [first] : [];
+        heroItems = !movieUi.banner ? [] : candidates.size ? [...candidates.values()] : first ? [first] : [];
         empty.hidden = !!pick || !!pendingCards.size || !!browseShelves.some(shelf => shelf.cards.size || shelf.failed) || !genreRetry.hidden;
-        if (!pick) {
+        if (!pick || !movieUi.banner) {
             if (featured.contains(document.activeElement)) browse.focus({preventScroll: true});
             featured.hidden = true;
             heroSlide?.remove();
@@ -5269,6 +5413,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                     (document.activeElement === entryFocus || document.activeElement === document.body || host.contains(document.activeElement)))
                     browse.focus({preventScroll: true});
                 placeBrowseCards();
+                try {
+                    if (localStorage.getItem(uiKey(preferenceViewer) + ":open")) {
+                        localStorage.removeItem(uiKey(preferenceViewer) + ":open");
+                        openCustomise(customiseHome);
+                    }
+                } catch {}
             }
         } finally { loadingHome = false; }
     }
@@ -5278,6 +5428,261 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         refreshOnFocus();
     }, {signal: life.signal});
     document.addEventListener("visibilitychange", refreshOnFocus, {signal: life.signal});
+    // Customise Home: the banner, the order and visibility of rows, and the options for Continue watching and title pages.
+    const customiseHome = button("Customise", () => openCustomise(customiseHome));
+    customiseHome.className = "movie-customise-home";
+    customiseHome.setAttribute("aria-label", "Customise Home");
+    customiseHome.prepend(icon("M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4"));
+    const customiseBar = el("div");
+    customiseBar.className = "movie-customise-bar";
+    customiseBar.append(customiseHome);
+    browse.append(customiseBar);
+    let sheetRefresh, appliedCards;
+    const rowSections = () => ({
+        continue: [resumeShelf.section], list: [favoriteShelf.section], recent: [recentShelf.section],
+        series: [tvShelf.section], movies: [moviesShelf.section], collections: [collectionsShelf.section],
+        genres: genreShelves.map(shelf => shelf.section)
+    });
+    function rebuildResumeCards() {
+        resumeShelf.cards.clear();
+        for (const item of resumeShelf.items) {
+            const node = card(item, "resume");
+            node.dataset.titleKey = titleKey(item);
+            resumeShelf.cards.set(titleKey(item), node);
+        }
+        placeBrowseCards();
+    }
+    // Order and visibility only move and mark the shelves. placeBrowseCards still decides which shelves have cards.
+    function applyHomeLayout() {
+        const focused = document.activeElement, sections = rowSections();
+        browse.dataset.bannerOff = String(!movieUi.banner);
+        const wanted = movieUi.rows.flatMap(row => sections[row.id]);
+        let next = genreRetry;
+        for (let index = wanted.length - 1; index >= 0; index--) {
+            if (wanted[index].nextElementSibling !== next) browse.insertBefore(wanted[index], next);
+            next = wanted[index];
+        }
+        for (const row of movieUi.rows) for (const section of sections[row.id]) section.dataset.rowHidden = String(!row.visible);
+        const cards = movieUi.resumeStyle + movieUi.spoilerBlur;
+        resumeShelf.section.dataset.resumeStyle = movieUi.resumeStyle;
+        if (appliedCards !== undefined && appliedCards !== cards) rebuildResumeCards();
+        appliedCards = cards;
+        if (focused?.isConnected && document.activeElement !== focused) focused.focus({preventScroll: true});
+    }
+    uiChanged = () => {
+        applyHomeLayout();
+        if (homeReady) renderHome();
+        sheetRefresh?.();
+    };
+
+    function switchRow(label, checked, change, hiddenLabel) {
+        const row = el("label"), input = el("input"), track = el("span");
+        row.className = "movie-toggle-row";
+        input.type = "checkbox";
+        input.setAttribute("role", "switch");
+        input.checked = checked;
+        if (hiddenLabel) input.setAttribute("aria-label", hiddenLabel);
+        input.addEventListener("change", () => change(input.checked));
+        track.className = "movie-toggle-track";
+        track.setAttribute("aria-hidden", "true");
+        row.append(...(label ? [el("span", label)] : []), input, track);
+        return {row, input};
+    }
+    // A list the user can reorder by dragging the handle or with the Up and Down buttons. Focus follows the moved row's handle.
+    function reorderList(label, getEntries, save, hint) {
+        const list = el("ul");
+        list.className = "movie-customise-rows";
+        list.setAttribute("aria-label", label);
+        // TV: Up and Down move between rows and keep the column (handle, arrows, switch); the first and last rows hand off to the sheet.
+        list.addEventListener("keydown", event => {
+            if (innerWidth < 1920 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+            const row = event.target.closest?.("li");
+            const sibling = event.key === "ArrowUp" ? row?.previousElementSibling : row?.nextElementSibling;
+            if (!row || !sibling) return;
+            const controls = node => [...node.querySelectorAll("button, input")];
+            const column = controls(row).indexOf(event.target);
+            const targets = controls(sibling);
+            const target = targets[column] && !targets[column].disabled ? targets[column] : targets[0];
+            event.preventDefault();
+            event.stopPropagation();
+            target?.focus({preventScroll: true});
+        });
+        function render(focusId) {
+            const entries = getEntries(), current = document.activeElement?.closest?.("li");
+            const kept = list.contains(current) ? [current.dataset.rowId, [...current.querySelectorAll("button, input")].indexOf(document.activeElement)] : null;
+            function move(id, step) {
+                const index = entries.findIndex(entry => entry.id === id), target = index + step;
+                if (target < 0 || target >= entries.length) return;
+                const next = [...entries];
+                next.splice(target, 0, next.splice(index, 1)[0]);
+                save(next);
+                render(id);
+            }
+            list.replaceChildren(...entries.map((entry, index) => {
+                const item = el("li"), handle = button("", () => hint("Drag this handle, or use the Up and Down buttons.")), name = el("span", entry.name);
+                const up = button("", () => move(entry.id, -1)), down = button("", () => move(entry.id, 1));
+                item.dataset.rowId = entry.id;
+                handle.className = "movie-drag-handle";
+                handle.setAttribute("aria-label", `Drag ${entry.name}`);
+                handle.append(icon("M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"));
+                up.className = down.className = "movie-row-move";
+                up.setAttribute("aria-label", `Move ${entry.name} up`);
+                down.setAttribute("aria-label", `Move ${entry.name} down`);
+                up.append(icon("m6 15 6-6 6 6"));
+                down.append(icon("m6 9 6 6 6-6"));
+                up.disabled = index === 0;
+                down.disabled = index === entries.length - 1;
+                // Plain arrows move focus on TV, so they only move the row on smaller screens.
+                handle.addEventListener("keydown", event => {
+                    if (!["ArrowUp", "ArrowDown"].includes(event.key) || event.ctrlKey || event.metaKey || event.shiftKey ||
+                        innerWidth >= 1920 && !event.altKey) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    move(entry.id, event.key === "ArrowUp" ? -1 : 1);
+                });
+                handle.addEventListener("pointerdown", event => {
+                    if (event.button > 0 || event.pointerType === "mouse" && event.buttons !== 1) return;
+                    event.preventDefault();
+                    const drag = new AbortController();
+                    item.dataset.dragging = "";
+                    document.addEventListener("pointermove", over => {
+                        const before = [...list.children].filter(node => node !== item)
+                            .find(node => over.clientY < node.getBoundingClientRect().top + node.offsetHeight / 2);
+                        if ((before ?? null) !== item.nextElementSibling) list.insertBefore(item, before ?? null);
+                    }, {signal: drag.signal});
+                    const drop = () => {
+                        drag.abort();
+                        delete item.dataset.dragging;
+                        const ids = [...list.children].map(node => node.dataset.rowId);
+                        if (ids.join() !== entries.map(row => row.id).join())
+                            save(ids.map(id => entries.find(row => row.id === id)));
+                        render(entry.id);
+                    };
+                    document.addEventListener("pointerup", drop, {once: true, signal: drag.signal});
+                    document.addEventListener("pointercancel", drop, {once: true, signal: drag.signal});
+                });
+                item.append(handle, name, up, down);
+                if (entry.visible !== undefined) {
+                    const {row} = switchRow("", entry.visible, visible => {
+                        save(entries.map(other => other.id === entry.id ? {...other, visible} : other));
+                        render();
+                    }, `Show ${entry.name}`);
+                    row.className += " movie-row-toggle";
+                    item.append(row);
+                }
+                return item;
+            }));
+            const find = id => [...list.children].find(node => node.dataset.rowId === id);
+            if (focusId) find(focusId)?.querySelector(".movie-drag-handle").focus({preventScroll: true});
+            else if (kept) {
+                const controls = [...(find(kept[0])?.querySelectorAll("button, input") ?? [])];
+                (controls[kept[1]]?.disabled === false ? controls[kept[1]] : controls[0])?.focus({preventScroll: true});
+            }
+        }
+        render();
+        return {list, render};
+    }
+    function openCustomise(opener) {
+        const content = el("div"), head = el("header"), close = button("Close", () => dialog.close());
+        const notice = el("p"), noticeActions = el("div"), hint = text => { notice.textContent = text; };
+        content.className = "movie-customise";
+        notice.className = "movie-customise-notice";
+        notice.setAttribute("role", "status");
+        noticeActions.className = "movie-customise-actions";
+        head.append(el("h2", "Customise Home"), close);
+        const section = (name, ...parts) => {
+            const group = el("section"), heading = el("h3", name);
+            group.append(heading, ...parts);
+            return group;
+        };
+        const banner = switchRow("Show the banner", movieUi.banner, checked => void saveUi({banner: checked}));
+        const rows = reorderList("Home rows", () => movieUi.rows.map(row => ({...row, name: homeRowNames[row.id]})),
+            next => void saveUi({rows: next.map(({id, visible}) => ({id, visible}))}), hint);
+        const choice = (name, key, options) => {
+            const pick = select(name, options);
+            pick.value = movieUi[key];
+            pick.addEventListener("change", () => void saveUi({[key]: pick.value}));
+            return pick;
+        };
+        const style = choice("Card style", "resumeStyle", [["landscape", "Landscape stills"], ["poster", "Posters"]]);
+        const press = choice("When pressed", "resumePress", [["resume", "Resume"], ["title", "Open the title page"]]);
+        const prompt = switchRow("Resume prompt", movieUi.resumePrompt, checked => void saveUi({resumePrompt: checked}));
+        const spoilers = switchRow("Blur unwatched episode stills", movieUi.spoilerBlur, checked => void saveUi({spoilerBlur: checked}));
+        const sections = reorderList("Title page sections", () => movieUi.titleSections.map(id => ({id, name: titleSectionNames[id]})),
+            next => void saveUi({titleSections: next.map(entry => entry.id)}), hint);
+        const background = choice("Title page background", "titleBackground", [["backdrop", "Backdrop"], ["blurred", "Blurred"], ["plain", "Plain"]]);
+        const oled = switchRow("OLED black", movieUi.oled, checked => void saveUi({oled: checked}));
+        const reset = button("Reset to default", () => {
+            void saveUi(Object.fromEntries(["banner", "rows", "resumeStyle", "resumePress", "resumePrompt", "spoilerBlur",
+                "titleSections", "titleBackground", "oled"].map(key => [key, null])));
+            hint("Home is back to the default layout.");
+            reset.focus({preventScroll: true});
+        });
+        reset.className = "movie-customise-reset";
+        content.append(head,
+            banner.row,
+            section("Home rows", rows.list),
+            section("Continue watching", ...[style, press].map(pick => pick.parentElement), prompt.row, spoilers.row),
+            section("Title pages", sections.list, background.parentElement),
+            section("Appearance", oled.row),
+            notice, noticeActions, reset);
+        let shownNotice = false;
+        const refreshNotice = () => {
+            const hadFocus = noticeActions.contains(document.activeElement);
+            if (uiNotice || shownNotice) notice.textContent = uiNotice?.text ?? "";
+            shownNotice = Boolean(uiNotice);
+            noticeActions.replaceChildren(...(uiNotice?.actions ?? []).map(([label, run]) => button(label, run)));
+            if (hadFocus) (noticeActions.firstElementChild ?? reset).focus({preventScroll: true});
+        };
+        sheetRefresh = () => {
+            banner.input.checked = movieUi.banner;
+            style.value = movieUi.resumeStyle;
+            press.value = movieUi.resumePress;
+            prompt.input.checked = movieUi.resumePrompt;
+            spoilers.input.checked = movieUi.spoilerBlur;
+            background.value = movieUi.titleBackground;
+            oled.input.checked = movieUi.oled;
+            rows.render();
+            sections.render();
+        };
+        uiNoticeChanged = refreshNotice;
+        const dialog = movieDialog(host, opener, "Customise Home", life.signal,
+            {content, initialFocus: banner.input, className: "movie-audio-dialog movie-customise-dialog"});
+        refreshNotice();
+        // A bottom sheet closes with a downward swipe from the top of its content.
+        let swipeFrom = null;
+        dialog.addEventListener("touchstart", event => {
+            swipeFrom = dialog.scrollTop <= 0 && !event.target.closest(".movie-drag-handle, select") ? event.touches[0].clientY : null;
+        }, {passive: true});
+        dialog.addEventListener("touchend", event => {
+            if (swipeFrom !== null && event.changedTouches[0].clientY - swipeFrom > 90) dialog.close();
+            swipeFrom = null;
+        }, {passive: true});
+        // On TV the arrow keys move between controls: up and down by row, left and right within a row.
+        dialog.addEventListener("keydown", event => {
+            const step = {ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0]}[event.key];
+            if (!step || innerWidth < 1920 || event.defaultPrevented || event.altKey || event.target.matches("select")) return;
+            const controls = [...dialog.querySelectorAll("button:not(:disabled), input, select")];
+            const lines = [];
+            for (const control of controls) {
+                const top = Math.round(control.getBoundingClientRect().top / 8);
+                const line = lines.find(entry => Math.abs(entry.top - top) <= 1) ?? lines[lines.push({top, controls: []}) - 1];
+                line.controls.push(control);
+            }
+            const at = lines.findIndex(line => line.controls.includes(event.target));
+            if (at < 0) return;
+            const column = lines[at].controls.indexOf(event.target);
+            const target = step[1] ? lines[at + step[1]]?.controls[Math.min(column, lines[at + step[1]].controls.length - 1)]
+                : lines[at].controls[column + step[0]];
+            if (!target) return;
+            event.preventDefault();
+            target.focus({preventScroll: false});
+        });
+        dialog.addEventListener("close", () => { sheetRefresh = undefined; uiNoticeChanged = () => {}; }, {once: true});
+        return dialog;
+    }
+    applyHomeLayout();
+    void readServerUi().then(saved => { if (saved && active) adoptUi(saved); });
     const homeLoad = refreshHome();
     const largeBackdrop = matchMedia("(min-width: 1921px)");
     largeBackdrop.addEventListener?.("change", renderHome, {signal: life.signal});
@@ -5288,7 +5693,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         const details = event.target.closest?.(".movie-continue-menu-button");
         const tile = event.target.closest?.(".movie-resume-card");
         const current = details ? tile.querySelector(".movie-card") : event.target;
-        const navigate = ".movie-card, .movie-hero-actions button, .movie-hero-actions a, .movie-download-toggle, .movie-cast-action[data-person-id], .movie-person-page button, .movie-person-page a";
+        const navigate = ".movie-card, .movie-hero-actions button, .movie-hero-actions a, .movie-download-toggle, .movie-cast-action[data-person-id], .movie-person-page button, .movie-person-page a, .movie-customise-home";
         if ((!arrows && !page) || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
         const catalogue = seriesView?.section ?? (browse.hidden ? results : browse);
         if (!current.matches?.(navigate)) {
@@ -5304,7 +5709,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             (details ? current : tile.querySelector(".movie-continue-menu-button")).focus({preventScroll: true});
             return;
         }
-        const groups = [...catalogue.querySelectorAll(".movie-hero:not([hidden]) .movie-hero-slide:not([inert]) .movie-hero-actions, .movie-title-actions, .movie-shelf:not([hidden]) .movie-cards, .movie-cast ul, .movie-person-films ul")]
+        const groups = [...catalogue.querySelectorAll(".movie-hero:not([hidden]) .movie-hero-slide:not([inert]) .movie-hero-actions, .movie-title-actions, .movie-shelf:not([hidden]):not([data-row-hidden=true]) .movie-cards, .movie-cast ul, .movie-person-films ul")]
             .flatMap(group => {
                 const nodes = [...group.querySelectorAll(navigate)].filter(node => !node.closest("[hidden], [inert]"));
                 if (innerWidth < 1920 || !group.matches(".movie-cast ul, .movie-person-films ul")) return nodes.length ? [nodes] : [];
@@ -5319,6 +5724,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         if (catalogue.matches(".movie-person-page")) {
             groups.unshift([...catalogue.querySelectorAll(":scope > button, .movie-person-body > button:not([hidden])")]);
         }
+        if (catalogue === browse) groups.push([customiseHome]);
         if (!downloadTray.hidden) groups.push([downloadToggle]);
         const index = groups.findIndex(group => group.includes(current));
         if (index < 0) return;

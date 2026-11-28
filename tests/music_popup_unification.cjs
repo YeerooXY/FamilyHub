@@ -676,15 +676,8 @@ async function audit(name, engine, options) {
             await page.keyboard.press('Tab');
             await focused('settings-movies');
             await page.keyboard.press('Space');
-            const quality = page.getByRole('combobox', {name: 'Streaming quality'});
-            await quality.and(page.locator(':enabled')).waitFor();
-            assert.deepEqual(await quality.locator('option').evaluateAll(options => options.map(option => option.value)),
-                ['auto', 'full', 'good', 'saver', 'lowest']);
-            await quality.focus();
-            await quality.selectOption('good');
-            assert.equal(await quality.evaluate(node => node === document.activeElement), true);
-            await page.waitForFunction(() => JSON.parse(localStorage.getItem(
-                'familyhub:movie-tracks:' + JSON.stringify({server: 'https://music.fixture.test/', profile: 'fixture'})))?.dataSaver === 'good');
+            // Streaming quality moved to Settings > Data (round 4); settings_shell covers it there.
+            await target('movie-preferred-audio').and(page.locator(':enabled')).waitFor();
             if (output) await page.screenshot({path: path.join(output, name,
                 name + '-movie-settings.png'), scale: 'css', animations: 'disabled'});
             const audio = target('movie-preferred-audio');
@@ -706,7 +699,6 @@ async function audit(name, engine, options) {
             await target('settings-movies').press('Enter');
             await page.waitForFunction(() => document.getElementById('movie-preferred-audio')?.value === 'hu');
             assert.equal(await subtitles.inputValue(), 'off');
-            assert.equal(await quality.inputValue(), 'good');
             await backToCategories('settings-movies');
             await target('settings-music').press('Enter');
             // The phone shell focuses the new category after rendering it.

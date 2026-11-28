@@ -21,7 +21,7 @@ from .playlist_preparation import PlaylistPreparation
 from .listening_stats import ListeningStats
 from .wrapped import DeezerChart
 from .playlists import PlaylistError, PlaylistStore, fetch_playlist, fetch_youtube_playlist, rank_matches, preferred_match, library_match_key, reuse_library_match
-from .profiles import ProfileError, ProfileStore
+from .profiles import ProfileConflict, ProfileError, ProfileStore
 from .state import StateWriter, migrate_state, state_path, start_backups, wait_for_write, write_json as write_state_json
 from .mixing import transition
 from .audio_profile import profile
@@ -539,6 +539,10 @@ def create_app(test_config=None):
     @app.errorhandler(ProfileError)
     def profile_error(error):
         return jsonify(error=str(error)), 400
+
+    @app.errorhandler(ProfileConflict)
+    def profile_conflict(error):
+        return jsonify(error=str(error)), 409
 
     def establish_session(user, remember, activity_header=False):
         old = session.get("sid")

@@ -556,6 +556,8 @@ internal sealed class Preferences
     public void Set(string key, string value) => values[key] = value;
     public bool Get(string key, bool fallback) => values.TryGetValue(key, out var text) ? bool.Parse(text) : fallback;
     public void Set(string key, bool value) => values[key] = value.ToString();
+    public long Get(string key, long fallback) => values.TryGetValue(key, out var text) ? long.Parse(text) : fallback;
+    public void Set(string key, long value) => values[key] = value.ToString();
 }
 internal sealed class SecureStorage
 {

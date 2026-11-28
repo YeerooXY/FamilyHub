@@ -5,4 +5,5 @@
   <ItemGroup><Compile Include="../FamilyHub.App/Services/MusicSession.cs" Link="MusicSession.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../FamilyHub.App/Services/ConnectionKind.cs" Link="ConnectionKind.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../FamilyHub.App/Services/ProfileImages.cs" Link="ProfileImages.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../FamilyHub.App/Services/MovieNotifications.cs" Link="MovieNotifications.cs" /></ItemGroup>
 </Project>

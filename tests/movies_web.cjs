@@ -36,7 +36,8 @@ async function openSearch(browser, outcome, options = { viewport: { width: 412, 
             release_search_enabled: outcome === "videa", downloads_enabled: outcome === "videa" },
             { invokeMethodAsync: (name, ...args) => {
                 if (name === "MovieDownloads") return JSON.stringify({available: true, items: window.queue});
-                window.calls.push([name, ...args]);
+                // The Home layout read (round 5) is not part of these search checks.
+                if (name !== "MovieProfilePreferences" && name !== "MovieEvent") window.calls.push([name, ...args]);
                 if (outcome === "videa") {
                     const title = "Most Wanted A hajsza S02E03";
                     if (args[0] === "Most Wanted A hajsza S2") {
@@ -128,6 +129,7 @@ async function checkRequests(browser, name, options, screenshots) {
     const movie = page.getByRole("button", { name: "Request download: The Gentlemen (2019)" });
     await series.waitFor();
     assert.equal(await page.getByRole("button", { name: /1954/ }).count(), 0);
+    // Round 5 also reads the Home layout through the bridge; only the search calls matter here.
     assert.deepEqual(await page.evaluate(() => window.calls), [["MovieFind", "The Gentlemen"], ["MovieRequestSearch", "The Gentlemen"]]);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
     if (screenshots) await page.screenshot({ path: path.join(screenshots, name + ".png"), fullPage: true });

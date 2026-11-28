@@ -14,6 +14,19 @@ class ProfileError(ValueError):
     pass
 
 
+class ProfileConflict(ProfileError):
+    """Another device saved a newer Movies list order. The caller reloads the preferences and confirms again."""
+
+
+# Movies customisation (round 5). Lists are validated as complete orders; scalar keys merge without a revision.
+MOVIE_HOME_ROWS = ("continue", "list", "recent", "series", "movies", "collections", "genres")
+MOVIE_TITLE_SECTIONS = ("episodes", "related", "cast")
+MOVIE_UI_CHOICES = {"resumeStyle": ("landscape", "poster"), "resumePress": ("resume", "title"),
+                    "titleBackground": ("backdrop", "blurred", "plain")}
+MOVIE_UI_FLAGS = ("banner", "resumePrompt", "spoilerBlur", "oled")
+MOVIE_UI_LISTS = ("rows", "titleSections")
+
+
 def file_version(path):
     stat = path.stat()
     return stat.st_mtime_ns, stat.st_size, stat.st_ino
@@ -112,14 +125,54 @@ class ProfileStore:
             self.write(data)
         return self._public_profile(profile)
 
+    @staticmethod
+    def _movie_ui_valid(key, value):
+        if key in MOVIE_UI_FLAGS:
+            return type(value) is bool
+        if key in MOVIE_UI_CHOICES:
+            return isinstance(value, str) and value in MOVIE_UI_CHOICES[key]
+        if key == "rows":
+            return (isinstance(value, list) and all(isinstance(row, dict) and set(row) == {"id", "visible"} and type(row["visible"]) is bool for row in value)
+                    and sorted(str(row.get("id")) for row in value) == sorted(MOVIE_HOME_ROWS))
+        if key == "titleSections":
+            return isinstance(value, list) and sorted(str(name) for name in value) == sorted(MOVIE_TITLE_SECTIONS)
+        return False
+
+    def _movie_ui_changes(self, changes, preferences):
+        """Merge the changed keys into the saved settings. None resets a key. A list order needs the revision the user saw."""
+        ui = changes.get("movie_ui")
+        if not isinstance(ui, dict) or not ui or any(value is not None and not self._movie_ui_valid(key, value) for key, value in ui.items()):
+            raise ProfileError("Choose a supported Movies setting.")
+        revision = preferences.get("movie_ui_revision", 0)
+        lists = bool(set(ui) & set(MOVIE_UI_LISTS))
+        sent = changes.get("movie_ui_revision")
+        if sent is not None and type(sent) is not int:
+            raise ProfileError("Movies layout revision must be a whole number.")
+        if lists and sent is None:
+            raise ProfileError("Reload your Movies layout and try again.")
+        if lists and sent != revision:
+            raise ProfileConflict("Your Movies layout changed on another device. Review the current layout and save again.")
+        merged = dict(preferences.get("movie_ui", {}))
+        for key, value in ui.items():
+            if value is None:
+                merged.pop(key, None)
+            else:
+                merged[key] = value
+        return {"movie_ui": merged, **({"movie_ui_revision": revision + 1} if lists else {})}
+
     def preferences(self, profile_id, changes=None):
         data = self._load() if changes is None else self.read()
         self._find(profile_id, data)
         preferences = {"listening_history_paused": False, "volume": 1, "shuffle": False, "auto_dj": True, "crossfade_seconds": 6, "volume_level": "normal", "spotify_subscribed": None, "repeat_mode": "off",
                        **deepcopy(data["preferences"].get(profile_id, {}))}
         if changes is not None:
-            if not changes or set(changes) - {"listening_history_paused", "volume", "shuffle", "auto_dj", "crossfade_seconds", "volume_level", "spotify_subscribed", "repeat_mode"}:
+            if not changes or set(changes) - {"listening_history_paused", "volume", "shuffle", "auto_dj", "crossfade_seconds", "volume_level", "spotify_subscribed", "repeat_mode", "movie_ui", "movie_ui_revision"}:
                 raise ProfileError("Choose a supported profile preference.")
+            if "movie_ui" in changes or "movie_ui_revision" in changes:
+                if "movie_ui" not in changes:
+                    raise ProfileError("Choose a supported Movies setting.")
+                changes = {**{key: value for key, value in changes.items() if not key.startswith("movie_ui")},
+                           **self._movie_ui_changes(changes, preferences)}
             if "volume" in changes and (type(changes["volume"]) not in (float, int) or not 0 <= changes["volume"] <= 1):
                 raise ProfileError("Volume must be between 0 and 1.")
             if "listening_history_paused" in changes and type(changes["listening_history_paused"]) is not bool:

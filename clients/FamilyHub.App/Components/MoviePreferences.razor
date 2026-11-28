@@ -128,6 +128,11 @@ else
     </div>
     <p class="setting-help" id="movie-ratings-help">Show IMDb, Rotten Tomatoes and Metacritic scores when they are known.</p>
     <p class="setting-help">Saved on this device for your profile.</p>
+    <div class="setting-row">
+        <span id="movie-customise-label">Movies Home layout</span>
+        <button type="button" id="movie-customise-home" aria-labelledby="movie-customise-label" @onclick="CustomiseHome" disabled="@(!ready)">Customise Home</button>
+    </div>
+    <p class="setting-help">Rows, the banner, Continue watching, title pages and OLED black. Saved to your profile on the server.</p>
     <p class="setting-help" role="status">@message</p>
 </section>
 @if (MovieNotifications.Supported && Session.MoviesEnabled)
@@ -269,6 +274,23 @@ else
     {
         preferences.DataSaver = id;
         return Save();
+    }
+
+    [Parameter] public EventCallback OpenMovies { get; set; }
+
+    // Movies Home opens the Customise Home sheet once it has loaded.
+    private async Task CustomiseHome()
+    {
+        if (module is null || disposed) return;
+        try
+        {
+            await module.InvokeVoidAsync("requestCustomiseHome", viewer);
+            await OpenMovies.InvokeAsync();
+        }
+        catch (JSException)
+        {
+            message = "Could not open Movies. Try again.";
+        }
     }
 
     private async Task Save()

@@ -126,8 +126,8 @@ async function render(browser, label, options) {
         }
         if (url.pathname === "/Shows/s/Episodes") {
             await episodesGate;
-            assert.deepEqual(url.searchParams.get("fields")?.split(",").sort(), ["MediaStreams", "Overview"],
-                "episode details request the quality and overview fields");
+            assert.deepEqual(url.searchParams.get("fields")?.split(",").sort(), ["MediaStreams", "Overview", "ProviderIds"],
+                "episode details request the quality, overview and rating id fields");
             if (failEpisodes) return route.fulfill({headers, status: 502});
             return list(imported ? [...episodes, {...episodes[4], Id: "new", Name: "Return to port", ParentIndexNumber: 3}] : episodes);
         }

@@ -243,6 +243,38 @@ class FamilyProfiles(Base):
         client, _ = self.select()
         self.assertEqual(self.go(client, 'GET', '/api/profile/preferences').json['preferences']['volume_level'], 'quiet')
 
+    def test_movie_layout_is_validated_merged_and_conflict_checked(self):
+        client, token = self.select()
+        headers = {'X-CSRFToken': token}
+        patch = lambda body, c=client: self.go(c, 'PATCH', '/api/profile/preferences', json=body, headers=headers)
+        rows = [{'id': name, 'visible': True} for name in ('continue', 'list', 'recent', 'series', 'movies', 'collections', 'genres')]
+        swapped = [rows[1], rows[0], *rows[2:]]
+        for bad in ({'movie_ui': {}}, {'movie_ui': {'banner': 1}}, {'movie_ui': {'other': True}}, {'movie_ui': {'resumeStyle': 'wide'}},
+                    {'movie_ui': {'resumePress': 'play'}}, {'movie_ui': {'titleBackground': 'red'}}, {'movie_ui': {'oled': 'yes'}},
+                    {'movie_ui': {'rows': rows[:-1]}, 'movie_ui_revision': 0}, {'movie_ui': {'rows': [*rows[:-1], rows[0]]}, 'movie_ui_revision': 0},
+                    {'movie_ui': {'rows': [{'id': 'continue', 'visible': 1}, *rows[1:]]}, 'movie_ui_revision': 0},
+                    {'movie_ui': {'titleSections': ['cast', 'cast', 'episodes']}, 'movie_ui_revision': 0},
+                    {'movie_ui': {'rows': swapped}}, {'movie_ui': {'banner': False}, 'movie_ui_revision': 'x'}, {'movie_ui_revision': 0}):
+            self.assertEqual(patch(bad).status_code, 400, bad)
+        saved = patch({'movie_ui': {'banner': False, 'rows': swapped, 'titleSections': ['cast', 'episodes', 'related']}, 'movie_ui_revision': 0})
+        self.assertEqual(saved.status_code, 200, saved.json)
+        self.assertEqual(saved.json['preferences']['movie_ui_revision'], 1)
+        # A scalar change from another device merges and does not disturb the order or the revision.
+        merged = patch({'movie_ui': {'oled': True, 'resumeStyle': 'poster'}}).json['preferences']
+        self.assertEqual((merged['movie_ui']['banner'], merged['movie_ui']['oled'], merged['movie_ui']['rows'][0]['id'], merged['movie_ui_revision']),
+                         (False, True, 'list', 1))
+        stale = patch({'movie_ui': {'rows': rows}, 'movie_ui_revision': 0})
+        self.assertEqual(stale.status_code, 409)
+        self.assertIn('changed on another device', stale.json['error'])
+        reset = patch({'movie_ui': {'rows': None}, 'movie_ui_revision': 1}).json['preferences']
+        self.assertNotIn('rows', reset['movie_ui'])
+        self.assertEqual((reset['movie_ui']['oled'], reset['movie_ui_revision']), (True, 2))
+        other, _ = self.select('sample-b')
+        self.assertNotIn('movie_ui', self.go(other, 'GET', '/api/profile/preferences').json['preferences'])
+        self.restart()
+        client, _ = self.select()
+        self.assertEqual(self.go(client, 'GET', '/api/profile/preferences').json['preferences']['movie_ui_revision'], 2)
+
     def test_sharing_during_download_preserves_progress_and_track_edit_lock(self):
         client, token = self.select()
         playlist = self.post(client, token, '/api/playlists', json={'name': 'Downloading'}).json['playlist']

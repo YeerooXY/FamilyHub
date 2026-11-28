@@ -43,7 +43,7 @@
             movieApi = api;
             var viewer = new { server = Session.Server, profile = Session.User };
             module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./movies.js");
-            await module.InvokeVoidAsync("showMovieLoading", host);
+            await module.InvokeVoidAsync("showMovieLoading", host, true, viewer);
             callback ??= DotNetObjectReference.Create(this);
             var preferences = await module.InvokeAsync<System.Text.Json.JsonElement>("readMoviePreferences", viewer);
             if (closed.IsCancellationRequested) return;
@@ -281,6 +281,24 @@
             return reply.GetRawText();
         }
         catch (FamilyHubApiException error) { return Error(error.Message); }
+        catch (OperationCanceledException) when (closed.IsCancellationRequested) { return Error(""); }
+        catch (Exception) { return Error("The server did not respond. Try again."); }
+    }
+
+    // The profile's Movies layout and options. No changes reads them; changes save through the profile preferences.
+    // Answers as JSON text with the HTTP status so a conflict (409) can be told from an outage.
+    [JSInvokable]
+    public async Task<string> MovieProfilePreferences(System.Text.Json.JsonElement? changes)
+    {
+        string Error(string text, int status = 0) => System.Text.Json.JsonSerializer.Serialize(new { error = text, status });
+        try
+        {
+            if (Session.Api is not { } api) return Error("Sign in again and try again.");
+            var reply = await api.RequestJsonAsync<System.Text.Json.JsonElement>(
+                changes is null ? HttpMethod.Get : HttpMethod.Patch, "/api/profile/preferences", changes, cancellationToken: closed.Token);
+            return reply.GetRawText();
+        }
+        catch (FamilyHubApiException error) { return Error(error.Message, error.StatusCode); }
         catch (OperationCanceledException) when (closed.IsCancellationRequested) { return Error(""); }
         catch (Exception) { return Error("The server did not respond. Try again."); }
     }

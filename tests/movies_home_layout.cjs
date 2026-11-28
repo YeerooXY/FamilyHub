@@ -497,6 +497,8 @@ async function checkDownloads(browser) {
 
         const lastShelfCard = page.locator(".movie-browse .movie-shelf:not([hidden]) .movie-card").last();
         await lastShelfCard.press("ArrowDown");
+        // The quiet Customise button sits below the last row; the downloads tray comes after it.
+        if (await page.locator(".movie-customise-home").evaluate(node => node === document.activeElement)) await page.keyboard.press("ArrowDown");
         assert.equal(await focusIs(tray), true);
         assert.equal(await tray.evaluate(node => getComputedStyle(node).outlineWidth), "4px");
         await tray.press("Enter");

@@ -42,7 +42,7 @@ REPORT_KINDS = {'playback-error', 'open-failed', 'progress-save-failed', 'cannot
                 'segments-unavailable', 'segment-seek-failed', 'next-episode-unavailable', 'resume-position-unavailable',
                 'parental-guide-unavailable', 'film-estimate-unavailable', 'media-usage-unavailable',
                 'person-unavailable', 'trailer-unavailable', 'chapters-unavailable', 'seek-preview-unavailable',
-                'shuffle-unavailable', 'episode-ratings-unavailable', 'movie-notification-failed'}
+                'shuffle-unavailable', 'episode-ratings-unavailable', 'movie-notification-failed', 'layout-sync-failed'}
 PROBLEMS = REPORT_KINDS - {'started', 'stopped'}
 REPORT_METHODS = {'', 'DirectPlay', 'DirectStream', 'Transcode'}
 HLS_ERROR_TYPES = {'networkError', 'mediaError', 'keySystemError', 'muxError', 'otherError'}
@@ -1368,7 +1368,7 @@ def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals, wa
                        number('audioIndex', -1, 65535), flag('hlsLoaded'), number('httpStatus', 100, 599), flag('forced'))
         else:
             reason = diagnostics.get('reason') if isinstance(diagnostics, dict) else None
-            if reason in ('timeout', 'invalid_response', 'request_failed', 'image_failed', 'seek_failed', 'platform_failed') and kind in PROBLEMS:
+            if reason in ('timeout', 'invalid_response', 'request_failed', 'image_failed', 'seek_failed', 'platform_failed', 'conflict') and kind in PROBLEMS:
                 report_log('movie client %s profile=%s method=%s reason=%s', kind, g.user, method or '-', reason)
             else:
                 report_log('movie client %s profile=%s method=%s', kind, g.user, method or '-')
