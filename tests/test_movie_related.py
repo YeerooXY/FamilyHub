@@ -107,3 +107,49 @@ class MovieRelated(test_music_web.Base):
         result = self.go(self.viewer(), 'GET', self.route)
         self.assertEqual(result.status_code, 503)
         self.assertEqual(result.json, {'error': 'Related films are unavailable.'})
+
+    @patch('music_web.movies.monotonic')
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_person_caches_for_seven_days_and_includes_films_without_art(self, opener, clock):
+        data = {'name': 'Avery Vale', 'birthday': '1974-02-20', 'known_for_department': 'Acting',
+                'profile_path': '/avery.jpg', 'biography': 'Avery began acting in 1995.',
+                'movie_credits': {'cast': [
+                    {'id': 31, 'title': 'Open Road', 'release_date': '2009-03-01'},
+                    {'id': 31, 'title': 'Duplicate'},
+                    {'id': 32, 'title': 'Restricted', 'adult': True}
+                ]}}
+        opener.return_value.open.side_effect = [tmdb_reply(data), tmdb_reply({**data, 'biography': 'Updated biography.'})]
+        viewer = self.viewer()
+        route = '/api/movies/person/123'
+        clock.return_value = 50
+        first = self.go(viewer, 'GET', route).json
+        self.assertEqual((first['name'], first['born'], first['known_for']), ('Avery Vale', '1974', 'Acting'))
+        self.assertEqual([(film['title'], film['poster']) for film in first['films']], [('Open Road', None)])
+        clock.return_value += 7 * 86400 - 1
+        self.assertEqual(self.go(viewer, 'GET', route).json, first)
+        self.assertEqual(opener.return_value.open.call_count, 1)
+        clock.return_value += 2
+        self.assertEqual(self.go(viewer, 'GET', route).json['biography'], 'Updated biography.')
+        self.assertEqual(opener.return_value.open.call_count, 2)
+        req = opener.return_value.open.call_args.args[0]
+        self.assertEqual(urlsplit(req.full_url).path, '/3/person/123')
+        self.assertEqual(parse_qs(urlsplit(req.full_url).query), {'append_to_response': ['movie_credits']})
+        self.assertEqual(self.go(viewer, 'GET', '/api/movies/person/000').status_code, 400)
+        self.assertEqual(self.go(self.viewer('sample-b'), 'GET', route).status_code, 403)
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_trailer_prefers_valid_official_youtube_trailer(self, opener):
+        opener.return_value.open.side_effect = [tmdb_reply({'results': [
+            {'site': 'YouTube', 'type': 'Teaser', 'key': 'abcdefghijk', 'official': True},
+            {'site': 'Vimeo', 'type': 'Trailer', 'key': 'abcdefghijk', 'official': True},
+            {'site': 'YouTube', 'type': 'Trailer', 'key': 'abcdefghijk'},
+            {'site': 'YouTube', 'type': 'Trailer', 'key': '//evil.test', 'official': True},
+            {'site': 'YouTube', 'type': 'Trailer', 'key': 'validID_123', 'official': True}
+        ]}), tmdb_reply({'results': []})]
+        viewer = self.viewer()
+        film = '/api/movies/trailer?kind=movie&tmdb=42'
+        self.assertEqual(self.go(viewer, 'GET', film).json, {'youtube': 'validID_123'})
+        self.assertEqual(self.go(viewer, 'GET', film).json, {'youtube': 'validID_123'})
+        self.assertEqual(self.go(viewer, 'GET', '/api/movies/trailer?kind=tv&tmdb=42').json, {'youtube': None})
+        self.assertEqual([urlsplit(call.args[0].full_url).path for call in opener.return_value.open.call_args_list],
+                         ['/3/movie/42/videos', '/3/tv/42/videos'])

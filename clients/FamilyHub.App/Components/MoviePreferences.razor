@@ -95,6 +95,14 @@ else
         <span>Show the parental guide</span>
         <input id="movie-parental-guide" type="checkbox" role="switch" @bind="preferences.ParentalGuide" @bind:after="Save" disabled="@(!ready)" />
     </label>
+    <label class="setting-row movie-playback-toggle" for="movie-chapter-marks">
+        <span>Chapter marks on the seek bar</span>
+        <input id="movie-chapter-marks" type="checkbox" role="switch" @bind="preferences.ChapterMarks" @bind:after="Save" disabled="@(!ready)" />
+    </label>
+    <label class="setting-row movie-playback-toggle" for="movie-seek-pictures">
+        <span>Picture previews when seeking</span>
+        <input id="movie-seek-pictures" type="checkbox" role="switch" @bind="preferences.SeekPictures" @bind:after="Save" disabled="@(!ready)" />
+    </label>
     <div class="setting-row">
         <label for="movie-home-background">Preset colour</label>
         <select id="movie-home-background" @bind="preferences.HomeBackground" @bind:after="Save" disabled="@(!ready)">
@@ -122,6 +130,22 @@ else
     <p class="setting-help">Saved on this device for your profile.</p>
     <p class="setting-help" role="status">@message</p>
 </section>
+@if (MovieNotifications.Supported && Session.MoviesEnabled)
+{
+    <section class="settings-panel glass-panel" aria-labelledby="movie-notifications-heading">
+        <h2 id="movie-notifications-heading">Notifications</h2>
+        <label class="setting-row movie-playback-toggle" for="movie-notify-episodes">
+            <span>New episode available</span>
+            <input id="movie-notify-episodes" type="checkbox" role="switch" checked="@notifyEpisodes" @onchange="args => SaveNotification(true, args.Value is true)" aria-disabled="@(notificationSaving ? "true" : null)" />
+        </label>
+        <label class="setting-row movie-playback-toggle" for="movie-notify-downloads">
+            <span>Download ready</span>
+            <input id="movie-notify-downloads" type="checkbox" role="switch" checked="@notifyDownloads" @onchange="args => SaveNotification(false, args.Value is true)" aria-disabled="@(notificationSaving ? "true" : null)" />
+        </label>
+        <p class="setting-help">Notifications appear when FamilyHub syncs. Allow notifications in your device settings.</p>
+        <p class="setting-help" role="status">@notificationMessage</p>
+    </section>
+}
 }
 
 @code {
@@ -149,6 +173,8 @@ else
         public bool AutoNext { get; set; } = true;
         public bool ParentalGuide { get; set; }
         public bool Ratings { get; set; } = true;
+        public bool ChapterMarks { get; set; } = true;
+        public bool SeekPictures { get; set; } = true;
         public bool? DownloadAudio { get; set; }
         public bool? DownloadSubtitles { get; set; }
     }
@@ -158,6 +184,26 @@ else
     private object viewer = default!;
     private string message = "Loading preferences…";
     private bool ready, disposed;
+    private bool notifyEpisodes, notifyDownloads, notificationSaving;
+    private string notificationMessage = "";
+
+    protected override void OnInitialized()
+    {
+        if (DataOnly || !MovieNotifications.Supported || !Session.MoviesEnabled) return;
+        notifyEpisodes = Session.MovieNotificationEnabled(true);
+        notifyDownloads = Session.MovieNotificationEnabled(false);
+    }
+
+    private async Task SaveNotification(bool episodes, bool enabled)
+    {
+        if (notificationSaving) return;
+        notificationSaving = true;
+        var saved = await Session.SetMovieNotificationAsync(episodes, enabled);
+        notificationSaving = false;
+        notifyEpisodes = Session.MovieNotificationEnabled(true);
+        notifyDownloads = Session.MovieNotificationEnabled(false);
+        notificationMessage = saved ? "" : "Could not save notifications. Try again.";
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

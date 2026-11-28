@@ -15,7 +15,7 @@ verifyShell(async (page, phone) => {
         await focused(page, 'profile-menu-close');
         await page.locator('#profile-menu[open] #open-settings').press('Space');
         await focused(page, 'view-title');
-        assert.equal(await page.getByRole('searchbox').count(), 0);
+        assert.equal(await page.getByRole('searchbox', {name: 'Search settings'}).count(), 1);
         assert.equal(await close.count(), 1);
         assert.equal(await panel.isVisible(), !phone);
         await fits(page, categories);
@@ -36,6 +36,8 @@ verifyShell(async (page, phone) => {
     };
 
     await open();
+    await page.keyboard.press('Tab');
+    await focused(page, 'settings-search');
     await page.keyboard.press('Tab');
     await focused(page, 'settings-exit');
     await page.keyboard.press('Tab');
@@ -68,6 +70,26 @@ verifyShell(async (page, phone) => {
         await categories.locator('#settings-movies').press('ArrowDown');
         await focused(page, 'settings-data');
     }
+    const search = page.getByRole('searchbox', {name: 'Search settings'});
+    const results = page.getByRole('region', {name: 'Settings search results'});
+    await search.fill('subtit');
+    const subtitles = results.getByRole('button', {name: 'Preferred subtitles Movies & TV'});
+    await subtitles.waitFor();
+    assert.equal((await subtitles.locator('mark').textContent()).toLowerCase(), 'subtit');
+    await search.press('Escape');
+    await focused(page, 'settings-search');
+    await page.waitForFunction(() => document.getElementById('settings-search')?.value === '', null, {timeout: 3000}).catch(() => {});
+    assert.equal(await search.inputValue(), '');
+    await results.waitFor({state: 'detached'});
+    await search.fill('TRICKPLAY');
+    const preview = results.getByRole('button', {name: /Picture previews when seeking.*Movies & TV.*trickplay/i});
+    await preview.waitFor();
+    assert.equal(await preview.locator('mark').textContent(), 'trickplay');
+    await preview.press('Enter');
+    await focused(page, 'movie-seek-pictures');
+    assert.equal(await search.inputValue(), '');
+    assert.equal(await panel.locator('#movie-seek-pictures').isChecked(), true);
+    await returnToList('movies');
     await select('data', 'Space');
     const quality = panel.locator('#movie-data-saver input[value="good"]:enabled');
     await quality.press('Space');

@@ -21,6 +21,7 @@ const paths = {
     skip: ["M12 5a8 8 0 1 1-7.4 5", "M14.5 2.5L12 5l2.5 2.5"],
     next: ["M5 5v14l10-7z", "M19 5v14"],
     episodes: ["M8 4h12v12H8z", "M4 8v12h12"],
+    chapters: ["M12 6v14M12 6C9 3 5 3 2 4v14c4-1 7-1 10 2 3-3 6-3 10-2V4c-3-1-7-1-10 2", "M5 8h3m-3 4h3m8-4h3m-3 4h3"],
     subtitles: ["M4 5h16v11h-9l-4 4v-4H4z", "M7 9h10M7 12h6"],
     style: ["M4 8h16M4 16h16", "M9 5v6M15 13v6"],
     sound: ["M4 9v6h4l5 4V5L8 9z", "M16.5 9a4.5 4.5 0 0 1 0 6"],
@@ -246,8 +247,14 @@ export function buildPlayerUi(ctx) {
     const tip = make("span", "movie-seek-tip");
     tip.hidden = true;
     tip.setAttribute("aria-hidden", "true");
+    const previewFrame = make("span", "movie-seek-frame"), tipTime = make("span");
+    previewFrame.hidden = true;
+    tip.append(previewFrame, tipTime);
+    const chapterTrack = make("span", "movie-chapter-track");
+    chapterTrack.hidden = true;
+    chapterTrack.setAttribute("aria-hidden", "true");
     const seekWrap = make("div", "movie-seek-wrap");
-    seekWrap.append(seek, tip);
+    seekWrap.append(chapterTrack, seek, tip);
     const seekRow = make("div", "movie-ui-seekrow");
     seekRow.append(elapsed, seekWrap, remaining);
 
@@ -283,6 +290,13 @@ export function buildPlayerUi(ctx) {
         (ctx.fullscreenEnabled || document.fullscreenEnabled || document.webkitFullscreenEnabled);
     const episodesButton = button("movie-ui-action", "Episodes", paths.episodes, {}, () => toggleSheet("episodes"));
     episodesButton.hidden = true;
+    const chapterStrip = make("div", "movie-chapter-strip");
+    chapterStrip.hidden = true;
+    chapterStrip.setAttribute("role", "group");
+    chapterStrip.setAttribute("aria-label", "Chapter list");
+    const chaptersButton = button("movie-ui-action", "Chapters", paths.chapters, {}, () => setChapterStrip(chapterStrip.hidden));
+    chaptersButton.setAttribute("aria-expanded", "false");
+    chaptersButton.hidden = true;
     const tracksButton = button("movie-ui-action", "Audio & Subtitles", paths.subtitles, {}, () => toggleSheet("audio"));
     const styleButton = button("movie-ui-action", "Sound & subtitle style", paths.style, {}, () => toggleSheet("style"));
     const sound = soundPanelWanted() ? attachSound(media, { signal }) : null;
@@ -290,11 +304,11 @@ export function buildPlayerUi(ctx) {
     const nextButton = button("movie-ui-action", "Next episode", paths.next, {}, playNext);
     nextButton.hidden = true;
     const actions = make("div", "movie-ui-actions");
-    actions.append(episodesButton, nextButton, tracksButton, styleButton, fullscreen);
+    actions.append(episodesButton, nextButton, tracksButton, styleButton, chaptersButton, fullscreen);
     const transport = make("div", "movie-ui-transport");
     transport.append(mid, actions);
     const bottom = make("div", "movie-ui-bottom");
-    bottom.append(seekRow, transport);
+    bottom.append(chapterStrip, seekRow, transport);
     const skipSegment = button("movie-segment-skip", "Skip intro", null, {}, () => jumpSegment(activeSkip));
     skipSegment.hidden = true;
     skipSegment.tabIndex = -1;
@@ -1121,7 +1135,7 @@ export function buildPlayerUi(ctx) {
         if (button && event.detail > 0) button.focus({ preventScroll: true });
     }, { capture: true, signal });
     const {hide, show} = watchPlayerIdle(surface, signal, () => {
-        if (dragging || openSheet || retry.hidden && !root.classList.contains("movie-pointer") &&
+        if (dragging || openSheet || !chapterStrip.hidden || retry.hidden && !root.classList.contains("movie-pointer") &&
             root.querySelector(".movie-ui-top :focus-visible, .movie-ui-mid :focus-visible, .movie-ui-bottom :focus-visible")) return;
         root.classList.add("movie-idle");
     }, () => {
@@ -1135,7 +1149,7 @@ export function buildPlayerUi(ctx) {
     function placeSubs() {
         const area = root.getBoundingClientRect();
         const hidden = root.classList.contains("movie-idle");
-        const barTop = hidden ? null : seekRow.getBoundingClientRect().top - area.top;
+        const barTop = hidden ? null : (chapterStrip.hidden ? seekRow : chapterStrip).getBoundingClientRect().top - area.top;
         subs.style.bottom = subtitleBottom({ width: area.width, height: area.height, videoWidth: media.videoWidth, videoHeight: media.videoHeight, barTop }) + "px";
     }
     function drawCues() {
@@ -1202,36 +1216,104 @@ export function buildPlayerUi(ctx) {
 
     // Seek bar.
     const duration = () => Number.isFinite(media.duration) && media.duration > 0 ? media.duration : 0;
+    let chapters = [], chapterDuration, trickplay, previewIndex, hoverFraction, tipFraction;
+    const previewTiles = new Map();
+    function setChapterStrip(open) {
+        if (!open && chapterStrip.contains(document.activeElement)) chaptersButton.focus({preventScroll: true});
+        chapterStrip.hidden = !open;
+        chaptersButton.setAttribute("aria-expanded", String(open));
+        if (open) {
+            const index = Math.max(0, chapters.filter(chapter => chapter.time <= media.currentTime).length - 1);
+            chapterStrip.children[index]?.focus();
+        }
+        placeSubs();
+        show();
+    }
+    function paintChapters(total) {
+        if (chapterDuration === total) return;
+        chapterDuration = total;
+        const boundaries = chapters.filter(chapter => chapter.time > 0 && chapter.time < total);
+        chapterTrack.hidden = !ctx.chapterMarks || !boundaries.length;
+        seek.classList.toggle("movie-seek-chapters", !chapterTrack.hidden);
+        const stops = boundaries.map(({time}) => {
+            const at = (time / total * 100).toFixed(4) + "%";
+            return `#000 calc(${at} - 1px), transparent calc(${at} - 1px) calc(${at} + 1px), #000 calc(${at} + 1px)`;
+        });
+        chapterTrack.style.setProperty("--chapter-mask", stops.length ? `linear-gradient(90deg, ${stops.join(", ")})` : "none");
+    }
     function paint() {
         const total = duration(), at = Number.isFinite(media.currentTime) ? media.currentTime : 0;
         seek.max = String(total || 1);
         if (!dragging) seek.value = String(total ? Math.min(at, total) : 0);
         const fraction = total ? Math.min(1, (dragging ? Number(seek.value) : at) / total) : 0;
         seek.style.setProperty("--pct", (fraction * 100).toFixed(2) + "%");
+        chapterTrack.style.setProperty("--pct", seek.style.getPropertyValue("--pct"));
+        paintChapters(total);
         const left = total ? Math.max(0, total - (dragging ? Number(seek.value) : at)) : 0;
         remaining.textContent = clock(left);
         elapsed.textContent = clock(dragging ? Number(seek.value) : at);
         seek.setAttribute("aria-valuetext", `${clock(dragging ? Number(seek.value) : at)} of ${clock(total)}`);
         updatePlaybackOverlays();
     }
-    function showTip() {
+    function paintPreview() {
+        if (!trickplay || previewIndex == null) return;
+        const {width, height, columns, rows, url} = trickplay;
+        const perTile = columns * rows, sheet = Math.floor(previewIndex / perTile), frame = previewIndex % perTile;
+        let tile = previewTiles.get(sheet);
+        if (!tile) {
+            tile = new Image();
+            previewTiles.set(sheet, tile);
+            if (previewTiles.size > 6) previewTiles.delete(previewTiles.keys().next().value);
+            tile.onload = () => {
+                if (signal.aborted || tip.hidden) return;
+                paintPreview();
+                placeRangeTip(seek, tip, tipFraction, 14);
+            };
+            tile.onerror = () => { if (!signal.aborted) ctx.previewFailed?.("image_failed"); };
+            tile.src = url(sheet);
+        }
+        previewFrame.hidden = !tile.complete || !tile.naturalWidth;
+        if (previewFrame.hidden) return;
+        previewFrame.style.aspectRatio = `${width} / ${height}`;
+        previewFrame.style.backgroundImage = `url("${tile.src}")`;
+        previewFrame.style.backgroundSize = `${columns * 100}% ${rows * 100}%`;
+        previewFrame.style.backgroundPosition = `${columns === 1 ? 0 : frame % columns * 100 / (columns - 1)}% ${rows === 1 ? 0 : Math.floor(frame / columns) * 100 / (rows - 1)}%`;
+    }
+    function showTip(at = Number(seek.value)) {
         const total = duration();
-        const fraction = total ? Number(seek.value) / total : 0;
-        tip.textContent = clock(Number(seek.value));
+        const fraction = total ? at / total : 0;
+        tipFraction = fraction;
+        tipTime.textContent = clock(at);
         tip.hidden = false;
+        if (trickplay) {
+            previewIndex = Math.min(trickplay.count - 1, Math.floor(at * 1000 / trickplay.interval));
+            paintPreview();
+        }
         placeRangeTip(seek, tip, fraction, 14);
     }
+    seek.addEventListener("pointermove", event => {
+        if (event.pointerType === "touch" || dragging || !duration()) return;
+        const {left, width} = seek.getBoundingClientRect();
+        hoverFraction = Math.min(1, Math.max(0, (event.clientX - left - 7) / Math.max(1, width - 14)));
+        showTip(hoverFraction * duration());
+    }, {signal, passive: true});
+    seek.addEventListener("pointerleave", () => {
+        hoverFraction = undefined;
+        if (!dragging) tip.hidden = true;
+    }, {signal});
     seek.addEventListener("input", () => { dragging = true; paint(); showTip(); show(); }, { signal });
     seek.addEventListener("change", () => {
         media.currentTime = Number(seek.value);
         dragging = false;
-        tip.hidden = true;
+        if (hoverFraction != null) showTip(hoverFraction * duration());
+        else tip.hidden = true;
         paint();
         show();
     }, { signal });
     for (const type of ["blur", "pointercancel"])
         seek.addEventListener(type, () => {
             dragging = false;
+            hoverFraction = undefined;
             tip.hidden = true;
             paint();
         }, { signal });
@@ -1278,8 +1360,8 @@ export function buildPlayerUi(ctx) {
 
     // TV remotes use the arrows to move between controls and scrub on the seek bar.
     const rows = () => [[back, ...(!info.hidden ? [infoClose] : [])], ...(!nextCard.hidden ? [[playNow], [watchCredits]] : []),
-        ...(activeSkip ? [[skipSegment]] : []), [seek],
-        [playPause, rewind, forward, episodesButton, nextButton, tracksButton, styleButton, fullscreen].filter(b => !b.hidden)];
+        ...(activeSkip ? [[skipSegment]] : []), ...(!chapterStrip.hidden ? [[...chapterStrip.children]] : []), [seek],
+        [playPause, rewind, forward, episodesButton, nextButton, tracksButton, styleButton, chaptersButton, fullscreen].filter(b => !b.hidden)];
     function moveFocus(target, key) {
         const sheetNode = openSheet && sheets[openSheet].node;
         if (sheetNode?.contains(target)) {
@@ -1307,6 +1389,7 @@ export function buildPlayerUi(ctx) {
         const dialog = [...ctx.surface.querySelectorAll("dialog[open]")].at(-1);
         if (dialog) dialog.close();
         else if (openSheet) closeSheet();
+        else if (!chapterStrip.hidden) setChapterStrip(false);
         else if (!info.hidden) closePlaybackInfo();
         else if (isFullscreen()) void toggleFullscreen();
         else back.click();
@@ -1348,6 +1431,7 @@ export function buildPlayerUi(ctx) {
             event.preventDefault();
             if (event.repeat) return;
             if (openSheet) closeSheet();
+            else if (!chapterStrip.hidden) setChapterStrip(false);
             else if (!info.hidden) closePlaybackInfo();
             else if (fullscreenPending) return;
             else if (isFullscreen()) void toggleFullscreen();
@@ -1399,14 +1483,14 @@ export function buildPlayerUi(ctx) {
             if (tv && arrow && moveFocus(target, event.key)) event.preventDefault();
             return;
         }
-        if ((key === " " || key === "spacebar") && target.closest(".movie-segment-skip, .movie-next-card button, .movie-playback-info button")) return;
+        if ((key === " " || key === "spacebar") && target.closest(".movie-segment-skip, .movie-next-card button, .movie-playback-info button, .movie-chapter-strip button, [aria-label='Chapters']")) return;
         if (key === " " || key === "spacebar" || key === "k" || key === "enter" && !target.closest("button")) {
             event.preventDefault();
             if (!event.repeat) toggle();
         } else if (arrow) {
             if (target.matches(".movie-sound-slider") && (key === "arrowleft" || key === "arrowright")) return;
             event.preventDefault();
-            if (tv && !(event.shiftKey && target === seek) && moveFocus(target, event.key)) return;
+            if ((tv || chapterStrip.contains(target) || target === chaptersButton) && !(event.shiftKey && target === seek) && moveFocus(target, event.key)) return;
             if (key === "arrowleft" || key === "arrowright") {
                 seekBy((key === "arrowright" ? 1 : -1) * (event.shiftKey ? 30 : 10));
             } else if (sound) {
@@ -1435,6 +1519,33 @@ export function buildPlayerUi(ctx) {
     return {
         root,
         playButton: playPause,
+        setSeekImages(rows, images) {
+            chapters = rows;
+            trickplay = images;
+            chaptersButton.hidden = !chapters.length;
+            root.classList.toggle("movie-has-chapters", Boolean(chapters.length));
+            chapterDuration = undefined;
+            for (const chapter of chapters) {
+                const action = button("movie-chapter", `${chapter.name}, ${clock(chapter.time)}`, null, {}, () => {
+                    if (!duration()) return;
+                    try { media.currentTime = Math.min(chapter.time, duration()); }
+                    catch { ctx.chapterFailed?.("seek_failed"); showShortcut("Could not open this chapter. Try again."); return; }
+                    setChapterStrip(false);
+                });
+                if (chapter.image) {
+                    const image = make("img");
+                    image.alt = "";
+                    image.loading = "lazy";
+                    image.referrerPolicy = "no-referrer";
+                    image.onerror = () => { image.remove(); ctx.chapterFailed?.("image_failed"); };
+                    image.src = chapter.image;
+                    action.append(image);
+                }
+                action.append(make("strong", "", chapter.name), make("span", "", clock(chapter.time)));
+                chapterStrip.append(action);
+            }
+            paint();
+        },
         /** Episodes of the current season, or null when the title is not part of a series. */
         setEpisodes(list, currentId, play) {
             const body = sheets.episodes.body;

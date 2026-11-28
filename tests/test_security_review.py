@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 import urllib.error
+from datetime import datetime, timezone
 from email.message import Message
 from pathlib import Path
 from unittest.mock import patch
@@ -364,3 +365,48 @@ class MovieGrants(Base):
         registered = {','.join(sorted(rule.methods - {'HEAD', 'OPTIONS'})) + ' ' + rule.rule
                       for rule in self.app.url_map.iter_rules()}
         self.assertEqual(set(listed.splitlines()), registered)
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_movie_preview_images_use_the_scoped_media_grant(self, opener):
+        client, csrf = self.select()
+        movie = self.grant(client, csrf, opener)
+        prefix = movie['media_url'].removeprefix(ORIGIN)
+        chapter = f'{prefix}Items/{self.item}/Images/Chapter/0'
+        trickplay = f'{prefix}Videos/{self.item}/Trickplay/320/0.jpg'
+        for path, query in [(chapter, 'tag=chapter&maxWidth=320'), (trickplay, 'mediaSourceId=' + self.item)]:
+            stream = io.BytesIO(b'jpeg-fixture')
+            stream.headers, stream.status = Message(), 200
+            stream.headers['Content-Type'] = 'image/jpeg'
+            opener.return_value.open.return_value = stream
+            answer = self.go(client, 'GET', path + '?' + query)
+            self.assertEqual((answer.status_code, answer.data), (200, b'jpeg-fixture'))
+            self.assertEqual(answer.headers['X-Content-Type-Options'], 'nosniff')
+            self.assertIn('Token="upstream-secret"', opener.return_value.open.call_args.args[0].get_header('Authorization'))
+        opener.reset_mock()
+        self.assertEqual(self.go(client, 'GET', trickplay + '?mediaSourceId=invalid').status_code, 400)
+        self.assertEqual(self.go(client, 'GET', trickplay + '?format=svg').status_code, 400)
+        self.assertEqual(self.go(client, 'GET', trickplay.replace('/0.jpg', '/0.svg')).status_code, 404)
+        opener.assert_not_called()
+
+    @patch('music_web.movies.urllib.request.build_opener')
+    def test_episode_notifications_check_the_scoped_continue_feed(self, opener):
+        client, csrf = self.select()
+        movie = self.grant(client, csrf, opener)
+        route = '/api/movies/notifications'
+        since = int(datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+        snapshot = {'ticket': movie['media_ticket'], 'episodeSince': since}
+        stranger, stranger_csrf = self.select('sample-b')
+        self.assertEqual(self.post(stranger, stranger_csrf, route, json=snapshot).status_code, 404)
+        series = 'b' * 32
+        opener.return_value.open.side_effect = [io.BytesIO(json.dumps(value).encode()) for value in [
+            {'Items': [{'SeriesId': series}]}, {'Items': []}, {'Items': [{'SeriesId': series}]},
+            {'Items': [{'Id': series, 'Name': 'Night Signal', 'DateLastMediaAdded': '2026-01-02T10:00:00Z'},
+                       {'Id': 'c' * 32, 'Name': 'Other series', 'DateLastMediaAdded': '2026-01-02T10:00:00Z'}]}
+        ]]
+        response = self.post(client, csrf, route, json=snapshot)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['episodes'], ['Night Signal'])
+        self.assertGreater(response.json['checkpoint'], since)
+        self.assertIsNone(response.json['downloads'])
+        self.assertTrue(all('userId=viewer-id' in call.args[0].full_url
+                            for call in opener.return_value.open.call_args_list[1:]))

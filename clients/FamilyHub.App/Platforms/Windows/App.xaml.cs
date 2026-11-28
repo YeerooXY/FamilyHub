@@ -38,10 +38,11 @@ public partial class App : MauiWinUIApplication
 		finally
 		{
 			activationWait?.Unregister(null);
+			try { global::FamilyHub.App.Services.MovieNotifications.CloseWindows(); } catch (Exception) { }
 		}
 	}
 
-	private static void ActivateWindow()
+	internal static void ActivateWindow()
 	{
 		if (Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Handler?.PlatformView
 			is Microsoft.UI.Xaml.Window window)

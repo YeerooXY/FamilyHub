@@ -201,7 +201,7 @@ async function movieHomeFixture(page, {preview = false, matches = [], resumeItem
     return {library, favoriteWrites};
 }
 
-async function movieDetailFixture(page, {denseSeries = false} = {}) {
+async function movieDetailFixture(page, {denseSeries = false, extras = false} = {}) {
     await moviePage(page, {shell: true, nested: true});
     const film = (Id, Name, Tmdb, extra = {}) => ({
         Id, Name, Type: "Movie", ProviderIds: {Tmdb}, Genres: ["Science Fiction"], ImageTags: {},
@@ -210,7 +210,8 @@ async function movieDetailFixture(page, {denseSeries = false} = {}) {
     const filmA = film("film-a", "First Orbit", "101", {Overview: "A pilot finds an abandoned station.",
         ImageTags: {Primary: "poster", Logo: "logo"}, BackdropImageTags: ["backdrop"],
         RunTimeTicks: 110 * 6e8, ProductionYear: 2026, OfficialRating: "PG",
-        People: Array.from({length: 6}, (_, i) => ({Type: "Actor", Name: `Film Actor ${i + 1}`, Role: "Crew member"})),
+        People: Array.from({length: 6}, (_, i) => ({Type: "Actor", Name: `Film Actor ${i + 1}`, Role: "Crew member",
+            ...(extras && i === 0 ? {Id: "a".repeat(32), ProviderIds: {Tmdb: "555"}} : {})})),
         MediaStreams: [{Type: "Video", Width: 3840, Height: 1600},
             {Type: "Audio", IsDefault: true, Channels: 6, Codec: "eac3"}]});
     const filmB = film("film-b", "Second Orbit", "102", {ImageTags: {Logo: "missing"}, Genres: ["Comedy"],
@@ -239,6 +240,7 @@ async function movieDetailFixture(page, {denseSeries = false} = {}) {
             return route.fulfill({status: 204, headers: cors});
         }
         if (pathname === "/Items") {
+            if (searchParams.get("personIds") === "a".repeat(32)) return items([filmA, filmB]);
             const id = searchParams.get("ids");
             if (id) return items(library.filter(item => item.Id === id));
             const types = searchParams.get("includeItemTypes")?.split(",") ?? [];
@@ -255,6 +257,7 @@ async function movieDetailFixture(page, {denseSeries = false} = {}) {
         if (episodes) return items([...([1, 2].map(ParentIndexNumber => ({
             Type: "Episode", Id: episodes[1] + "-episode-" + ParentIndexNumber, SeriesId: episodes[1],
             Name: ParentIndexNumber === 1 ? "Pilot" : "Return", ParentIndexNumber, IndexNumber: 1,
+            ...(extras && ParentIndexNumber === 1 ? {ProviderIds: {Imdb: "tt1234"}} : {}),
             MediaStreams: ParentIndexNumber === 1 ? [{Type: "Video", Height: 1080}] : [],
             RunTimeTicks: 46 * 6e8, Overview: "The crew receives a radio signal.",
             ImageTags: {Primary: "still"}, UserData: ParentIndexNumber === 1 ? {PlayedPercentage: 30} : {}
@@ -268,7 +271,7 @@ async function movieDetailFixture(page, {denseSeries = false} = {}) {
         if (pathname === "/Sessions/Logout") return route.fulfill({status: 204, headers: cors});
         return route.fulfill({status: 404, headers: cors});
     });
-    await page.evaluate(async ({jellyfin, matches, libraryMatches, denseSeries}) => {
+    await page.evaluate(async ({jellyfin, matches, libraryMatches, denseSeries, extras}) => {
         const {openMovies, saveMoviePreferences} = await import("/movies.js");
         const host = document.querySelector(".movie-library");
         const viewer = {server: jellyfin + "/", profile: "fixture"};
@@ -291,8 +294,14 @@ async function movieDetailFixture(page, {denseSeries = false} = {}) {
             if (method === "MovieSeasonEpisodes") {
                 if (args[1] === window.slowDetailSeason)
                     await new Promise(resolve => { window.finishDetailSeason = resolve; });
-                return JSON.stringify({episodes: []});
+                return JSON.stringify({episodes: extras ? [{number: 1, rating: 7.2}] : []});
             }
+            if (method === "MoviePerson") return JSON.stringify({name: "Film Actor 1", born: "1974",
+                known_for: "Acting", biography: "Avery began acting in 1995. ".repeat(25),
+                films: [{kind: "movie", id: 102, title: "Second Orbit"}, {kind: "movie", id: 213, title: "Open Road", year: 2018}]});
+            if (method === "MovieTrailer") return JSON.stringify({youtube: extras ? "abcdefghijk" : null});
+            if (method === "MovieRequest") return JSON.stringify({state: "requested"});
+            if (method === "MovieRatings" && args[0] === "episode") return JSON.stringify({ratings: [{name: "IMDb", value: "8.5"}]});
             if (method === "MovieAudioSources") return JSON.stringify({sources: [], next: null});
             if (method === "MovieRatings") return JSON.stringify({ratings: window.movieRatings ?? []});
             if (method === "MovieDownloads" && denseSeries) return JSON.stringify({available: true, items: [{
@@ -308,10 +317,11 @@ async function movieDetailFixture(page, {denseSeries = false} = {}) {
             if (window.movies) await window.movies.close();
             saveMoviePreferences(viewer, {backgroundStyle: style, screen: "1080", ...preferences});
             window.movies = window.openMovieFixture(openMovies, host,
-                {url: jellyfin, user: "u", token: "t", release_search_enabled: true, downloads_enabled: denseSeries}, bridge, viewer);
+                {url: jellyfin, user: "u", token: "t", release_search_enabled: true, downloads_enabled: denseSeries,
+                    requests_enabled: extras}, bridge, viewer);
         };
         await window.openDetailFixture("auto");
-    }, {jellyfin, matches, libraryMatches, denseSeries});
+    }, {jellyfin, matches, libraryMatches, denseSeries, extras});
     await page.getByRole("searchbox").waitFor();
     return favoriteWrites;
 }

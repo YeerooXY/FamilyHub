@@ -90,6 +90,10 @@ Movie audio routes require an active FamilyHub session, administrator membership
 
 `GET /api/movies/ratings` answers mapped profiles only, validates IMDb and TMDB IDs, and makes one MDBList request per title through the server (the key never reaches the client). Results are cached for 7 days and a daily budget of 900 requests keeps the free tier safe; without a key or past the budget it returns an empty list.
 
+`GET /api/movies/person/<ident>` and `GET /api/movies/trailer` require a mapped movie profile, validate numeric TMDB IDs, and rate-limit lookups to the fixed TMDB host. Metadata is cached for seven days. Trailer results carry a validated YouTube video ID. Library cast matches and local trailers use the existing Jellyfin viewer grant. The media relay accepts bounded chapter and trickplay image paths and query values, forwards the grant's upstream header, and serves only supported raster types.
+
+`POST /api/movies/notifications` requires a mapped profile, CSRF, bounded JSON and a per-profile rate limit. Episode checks require the current session's Jellyfin grant and use its Continue watching feed. Download checks use the mapped Seerr account and verify each request's owner. The response carries ready titles and a sync checkpoint. The device stores its own per-profile checkpoints and posts notifications through the operating system.
+
 The `/api/trakt/*` routes act only on the signed-in profile's own Jellyfin user. They call the Jellyfin Trakt plugin with the server API key under a lock, return only the link state, the activation code and the fixed `https://trakt.tv/activate` address, and never return tokens. Link, poll, send and disconnect need CSRF (POST) and are rate limited. Every failed step logs its stage and exception type.
 
 `GET /api/server/seeding` remains admin-only and reads the local torrent snapshot. The existing recorder timer applies the one-time share-limit backfill and sets limits on new movie and TV torrents. It sends validated hashes to the configured private qBittorrent endpoint through its cookie session with redirects disabled and bounded timeouts. The policy requires an explicit Stop action before writing limits. Recorder errors use fixed messages and keep credentials and upstream responses out of logs.
@@ -232,6 +236,8 @@ POST /api/movies/library
 POST /api/movies/matches
 GET /api/movies/media/<ticket>/<path:resource>
 POST /api/movies/media/close
+POST /api/movies/notifications
+GET /api/movies/person/<ident>
 GET /api/movies/ratings
 GET /api/movies/related
 POST /api/movies/releases
@@ -244,6 +250,7 @@ POST /api/movies/season-episodes
 POST /api/movies/session
 POST /api/movies/subtitle
 GET,POST /api/movies/subtitle/sync
+GET /api/movies/trailer
 POST /api/movies/videa-download
 POST /api/movies/videa-search
 POST /api/movies/youtube-download

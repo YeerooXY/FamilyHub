@@ -17,6 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import Future, ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Lock
@@ -39,7 +40,9 @@ log = logging.getLogger('music_web.movies')
 # Playback diagnostics use fixed labels and a restricted media-error vocabulary.
 REPORT_KINDS = {'playback-error', 'open-failed', 'progress-save-failed', 'cannot-resume', 'started', 'stopped',
                 'segments-unavailable', 'segment-seek-failed', 'next-episode-unavailable', 'resume-position-unavailable',
-                'parental-guide-unavailable', 'film-estimate-unavailable', 'media-usage-unavailable'}
+                'parental-guide-unavailable', 'film-estimate-unavailable', 'media-usage-unavailable',
+                'person-unavailable', 'trailer-unavailable', 'chapters-unavailable', 'seek-preview-unavailable',
+                'shuffle-unavailable', 'episode-ratings-unavailable', 'movie-notification-failed'}
 PROBLEMS = REPORT_KINDS - {'started', 'stopped'}
 REPORT_METHODS = {'', 'DirectPlay', 'DirectStream', 'Transcode'}
 HLS_ERROR_TYPES = {'networkError', 'mediaError', 'keySystemError', 'muxError', 'otherError'}
@@ -288,6 +291,7 @@ def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals, wa
     seerr_key = requests.get('api_key', '')
     tmdb_token = requests.get('tmdb_read_token')
     poster_key = cfg.get('TMDB_API_KEY')
+    poster_key = poster_key if isinstance(poster_key, str) else None
     posters_enabled = bool(tmdb_token or isinstance(poster_key, str) and poster_key)
     search_cache, search_pending = {}, {}
     search_lock = Lock()
@@ -821,10 +825,12 @@ def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals, wa
             name = row.get('name')
             overview = row.get('overview')
             runtime = row.get('runtime')
+            rating = row.get('vote_average')
             return dict(number=number, name=name[:200] if isinstance(name, str) else '',
                         overview=overview[:2000] if isinstance(overview, str) else '',
                         runtime=runtime if type(runtime) is int and 0 < runtime < 1000 else None,
-                        still=stills.data_url(picture))
+                        still=stills.data_url(picture),
+                        rating=rating if type(rating) in (int, float) and 0 < rating <= 10 else None)
 
         with ThreadPoolExecutor(max_workers=6) as pool:
             episodes = list(pool.map(episode, rows))
@@ -915,7 +921,8 @@ def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals, wa
                                   and (url := tmdb.image_url('https://image.tmdb.org/t/p/w500', logo.get('file_path')))), None)
             match['cast'] = [
                 dict(name=actor['name'][:150], role=str(actor.get('character') or '')[:150],
-                     portrait=tmdb.image_url('https://image.tmdb.org/t/p/w185', actor.get('profile_path')))
+                     portrait=tmdb.image_url('https://image.tmdb.org/t/p/w185', actor.get('profile_path')),
+                     tmdb=actor['id'] if type(actor.get('id')) is int and 0 < actor['id'] < 10**10 else None)
                 for actor in (cast[:12] if isinstance(cast, list) else [])
                 if isinstance(actor, dict) and isinstance(actor.get('name'), str)
             ]
@@ -928,6 +935,165 @@ def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals, wa
 
         detail = cached_search(('tmdb-download-detail', kind, ident), 3600, lookup)
         return jsonify(detail) if detail else (jsonify(error='Title details are unavailable.'), 503)
+
+    @app.get('/api/movies/person/<ident>')
+    def movie_person(ident):
+        if g.user not in cfg.get('JELLYFIN_PROFILES', {}):
+            return jsonify(error='Movies are unavailable for this profile.'), 403
+        if not re.fullmatch(r'[1-9][0-9]{0,9}', ident):
+            return jsonify(error='Choose a person from the cast.'), 400
+        if not allow('movie-person:' + g.user, 30, 60):
+            return jsonify(error='Wait a minute before opening another person.'), 429
+
+        def lookup():
+            detail = tmdb_get('person/' + ident, poster_key, {'append_to_response': 'movie_credits'})
+            if not detail or not isinstance(detail.get('name'), str):
+                log.warning('movie person lookup failed cause=missing_details')
+                return None
+            credits = detail.get('movie_credits')
+            cast = credits.get('cast') if isinstance(credits, dict) else None
+            films = {}
+            for row in cast[:500] if isinstance(cast, list) else []:
+                if not isinstance(row, dict) or row.get('adult') is True:
+                    continue
+                match = tmdb.parse({'results': [{**row, 'media_type': 'movie'}]})
+                if match and 0 < match[0]['id'] < 10**10:
+                    films.setdefault(match[0]['id'], match[0])
+            birthday = detail.get('birthday')
+            return dict(name=detail['name'][:150],
+                        portrait=tmdb.image_url('https://image.tmdb.org/t/p/w500', detail.get('profile_path')),
+                        born=birthday[:4] if isinstance(birthday, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}', birthday) else None,
+                        known_for=str(detail.get('known_for_department') or '')[:80],
+                        biography=str(detail.get('biography') or '')[:12000], films=list(films.values()))
+
+        person = cached_search(('tmdb-person', ident), 7 * 86400, lookup)
+        return jsonify(person) if person else (jsonify(error='Could not load the biography and credits. Try again.'), 503)
+
+    @app.get('/api/movies/trailer')
+    def movie_trailer():
+        if g.user not in cfg.get('JELLYFIN_PROFILES', {}):
+            return jsonify(error='Movies are unavailable for this profile.'), 403
+        kind, ident = request.args.get('kind'), request.args.get('tmdb', '')
+        if kind not in ('movie', 'tv') or not re.fullmatch(r'[1-9][0-9]{0,9}', ident):
+            return jsonify(error='Choose a title from the library.'), 400
+        if not allow('movie-trailer:' + g.user, 60, 60):
+            return jsonify(error='Wait a minute before checking for another trailer.'), 429
+        if not posters_enabled:
+            return jsonify(youtube=None)
+
+        def lookup():
+            reply = tmdb_get(f'{kind}/{ident}/videos', poster_key)
+            rows = reply.get('results')
+            if not isinstance(rows, list):
+                log.warning('movie trailer lookup failed cause=missing_videos')
+                return None
+            choices = [row for row in rows[:200] if isinstance(row, dict) and row.get('site') == 'YouTube'
+                       and row.get('type') == 'Trailer' and isinstance(row.get('key'), str)
+                       and re.fullmatch(r'[A-Za-z0-9_-]{11}', row['key'])]
+            chosen = max(choices, key=lambda row: row.get('official') is True, default=None)
+            return dict(youtube=chosen['key'] if chosen else None)
+
+        trailer = cached_search(('tmdb-trailer', kind, ident), 7 * 86400, lookup)
+        return jsonify(trailer) if trailer is not None else (jsonify(error='Could not check for a trailer. Try again.'), 503)
+
+    @app.post('/api/movies/notifications')
+    def movie_notifications():
+        if g.user not in cfg.get('JELLYFIN_PROFILES', {}):
+            return jsonify(error='Movies are unavailable for this profile.'), 403
+        data = body(1024)
+        episodes, downloads, ticket = (data.get(name) for name in ('episodeSince', 'downloadSince', 'ticket'))
+        if (set(data) - {'episodeSince', 'downloadSince', 'ticket'} or any(
+                value is not None and (type(value) is not int or not 0 <= value <= 2**53 - 1) for value in (episodes, downloads))
+                or episodes and (not isinstance(ticket, str) or not movie_media.TICKET.fullmatch(ticket))):
+            return jsonify(error='Could not check for notifications. Sync again.'), 400
+        if not allow('movie-notifications:' + g.user, 12, 60):
+            return jsonify(error='Wait a minute before syncing movie notifications.'), 429
+        checkpoint = time.time_ns() // 1_000_000
+        result = dict(checkpoint=checkpoint, episodes=None, downloads=None)
+
+        def new_since(value, since):
+            if not isinstance(value, str):
+                return False
+            try:
+                added = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                if added.tzinfo is None:
+                    added = added.replace(tzinfo=timezone.utc)
+                return since < int(added.timestamp() * 1000) <= checkpoint
+            except (ValueError, OverflowError, OSError):
+                return False
+
+        if episodes == 0:
+            result['episodes'] = []
+        elif episodes:
+            library = audio_library(ticket)
+            try:
+                feeds = [('UserItems/Resume', {'includeItemTypes': 'Episode', 'mediaTypes': 'Video'}),
+                         ('Items', {'includeItemTypes': 'Episode', 'recursive': 'true', 'filters': 'IsResumable',
+                                    'sortBy': 'DatePlayed', 'sortOrder': 'Descending'}),
+                         ('Shows/NextUp', {'enableResumable': 'false', 'disableFirstEpisode': 'true'})]
+                series = set()
+                hidden = movie_dismissals(g.user)
+                for resource, extra in feeds:
+                    params = {**extra, 'limit': 20, 'enableImages': 'false'}
+                    page = library(resource, params, timeout=3)
+                    if not isinstance(page, dict) or not isinstance(page.get('Items'), list):
+                        raise ValueError('Invalid continue watching feed')
+                    movie_media.mark_dismissed_items(page, hidden, resource, list(params.items()))
+                    for item in page['Items'][:20]:
+                        series_id = item.get('SeriesId') if isinstance(item, dict) else None
+                        if isinstance(series_id, str) and re.fullmatch(movie_media.DISMISS_ID, series_id):
+                            series.add(series_id)
+                items = library('Items', {'ids': ','.join(sorted(series)), 'includeItemTypes': 'Series',
+                                'fields': 'DateLastMediaAdded', 'enableImages': 'false', 'recursive': 'true',
+                                'limit': len(series)}, timeout=3).get('Items') if series else []
+                if not isinstance(items, list):
+                    raise ValueError('Invalid series data')
+                result['episodes'] = [row['Name'][:150] for row in items[:40] if isinstance(row, dict) and row.get('Id') in series
+                                      and isinstance(row.get('Name'), str) and new_since(row.get('DateLastMediaAdded'), episodes)]
+            except (OSError, ValueError, TypeError, AttributeError) as error:
+                log.warning('movie notification check failed type=episodes cause=%s', type(error).__name__)
+
+        user = request_user()
+        if downloads == 0 or downloads is not None and user is None:
+            result['downloads'] = []
+        elif downloads:
+            try:
+                _, page = seerr_call('request?' + urllib.parse.urlencode(
+                    {'take': 40, 'requestedBy': user, 'sort': 'modified', 'filter': 'completed'}), user)
+                if not isinstance(page, dict) or not isinstance(page.get('results'), list):
+                    raise ValueError('Invalid download requests')
+                ready = {}
+                for row in page['results'][:40]:
+                    if not isinstance(row, dict) or row.get('status') != 5 or not new_since(row.get('updatedAt'), downloads):
+                        continue
+                    owner, media = row.get('requestedBy'), row.get('media')
+                    if not isinstance(owner, dict) or owner.get('id') != user or not isinstance(media, dict):
+                        continue
+                    ident, kind = media.get('tmdbId'), row.get('type')
+                    availability = media.get('status4k' if row.get('is4k') is True else 'status')
+                    if (type(ident) is int and 0 < ident < 10**10 and
+                            (kind == 'movie' and availability == 5 or kind == 'tv' and availability in (4, 5))):
+                        ready[(kind, ident)] = None
+
+                def title(entry):
+                    kind, ident = entry
+                    field = 'title' if kind == 'movie' else 'name'
+
+                    def lookup():
+                        name = tmdb_get(f'{kind}/{ident}', poster_key).get(field) if posters_enabled else None
+                        return name[:150] if isinstance(name, str) and name else None
+
+                    return cached_search(('notification-title', kind, ident), 7 * 86400, lookup)
+                names = []
+                if ready:
+                    with ThreadPoolExecutor(max_workers=4) as pool:
+                        names = list(pool.map(title, list(ready)[:4]))
+                result['downloads'] = [name or '' for name in names] + [''] * max(0, len(ready) - len(names))
+            except (OSError, ValueError, TypeError, AttributeError) as error:
+                log.warning('movie notification check failed type=downloads cause=%s', type(error).__name__)
+        response = jsonify(result)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
 
     @app.get('/api/movies/related')
     def movie_related():
@@ -1202,9 +1368,7 @@ def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals, wa
                        number('audioIndex', -1, 65535), flag('hlsLoaded'), number('httpStatus', 100, 599), flag('forced'))
         else:
             reason = diagnostics.get('reason') if isinstance(diagnostics, dict) else None
-            if reason in ('timeout', 'invalid_response', 'request_failed') and kind in {
-                    'segments-unavailable', 'next-episode-unavailable', 'resume-position-unavailable', 'parental-guide-unavailable',
-                    'film-estimate-unavailable', 'media-usage-unavailable'}:
+            if reason in ('timeout', 'invalid_response', 'request_failed', 'image_failed', 'seek_failed', 'platform_failed') and kind in PROBLEMS:
                 report_log('movie client %s profile=%s method=%s reason=%s', kind, g.user, method or '-', reason)
             else:
                 report_log('movie client %s profile=%s method=%s', kind, g.user, method or '-')

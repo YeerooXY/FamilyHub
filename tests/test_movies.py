@@ -261,8 +261,8 @@ class MovieSeasons(Base):
                              json={'series': 42, 'season': 2})
         self.assertEqual(episodes.status_code, 200)
         self.assertEqual(episodes.json['episodes'], [
-            dict(number=1, name='Across the bay', runtime=42, overview='A boat leaves the harbour.', still=None),
-            dict(number=2, name='The bridge', runtime=None, overview='', still=None)])
+            dict(number=1, name='Across the bay', runtime=42, overview='A boat leaves the harbour.', still=None, rating=None),
+            dict(number=2, name='The bridge', runtime=None, overview='', still=None, rating=None)])
 
 
 class MovieRequests(Base):

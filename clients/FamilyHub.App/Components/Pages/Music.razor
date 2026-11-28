@@ -284,9 +284,18 @@ else
     }
     else if (view == "Preferences")
     {
-        <div class="settings-shell @(settingsDrilled ? "settings-drilled" : null)">
+        <div class="settings-shell @(settingsDrilled ? "settings-drilled" : null) @(SearchingSettings ? "settings-searching" : null)">
             <header class="settings-header">
                 <h1 id="view-title" tabindex="-1">Settings</h1>
+                <div class="settings-search" role="search" aria-label="Find a setting">
+                    <MusicIcon Name="search" />
+                    <label class="sr" for="settings-search">Search settings</label>
+                    <input id="settings-search" type="search" placeholder="Search settings" maxlength="100" @bind="settingsQuery" @bind:event="oninput" @onkeydown="SettingsSearchKey" />
+                    @if (settingsQuery.Length > 0)
+                    {
+                        <button id="settings-search-clear" class="quiet" type="button" aria-label="Clear settings search" @onclick="ClearSettingsSearch"><MusicIcon Name="close" /></button>
+                    }
+                </div>
                 <button id="settings-exit" class="quiet" type="button" @onclick="BackFromSettings">
                     <span class="settings-close"><MusicIcon Name="close" /><span class="sr">Close settings</span></span>
                     <span class="settings-back"><MusicIcon Name="back" /><span class="sr">Back to settings categories</span></span>
@@ -300,6 +309,26 @@ else
                     </button>
                 }
             </nav>
+            @if (SearchingSettings)
+            {
+                var matches = SettingsSearchEntries.Where(MatchesSetting).ToArray();
+                <div class="settings-page settings-search-results" role="region" aria-label="Settings search results">
+                    <p class="@(matches.Length > 0 ? "sr" : "setting-help")" role="status">@(matches.Length == 0 ? "No matching settings." : $"{matches.Length} {(matches.Length == 1 ? "setting" : "settings")} found.")</p>
+                    @foreach (var setting in matches)
+                    {
+                        var synonym = MatchedSettingSynonym(setting);
+                        <button @key="setting" class="settings-search-result" type="button" @onclick="() => OpenSetting(setting)">
+                            <span>
+                                <strong>@HighlightSetting(setting.Label)</strong>
+                                <small>@(SettingsCategories.First(category => category.Id == setting.Section).Label) @if (synonym is not null) { <span class="settings-search-alias">@HighlightSetting(synonym)</span> }</small>
+                            </span>
+                            <MusicIcon Name="forward" />
+                        </button>
+                    }
+                </div>
+            }
+            else
+            {
             <div id="settings-category" @key="settingsSection" class="settings-page" role="region" aria-label="@($"{SettingsCategories.First(category => category.Id == settingsSection).Label} settings")" tabindex="-1">
             @if (settingsSection == "general")
             {
@@ -313,14 +342,14 @@ else
                 <section class="settings-panel glass-panel" aria-labelledby="appearance-settings-heading">
                     <h2 id="appearance-settings-heading">Appearance</h2>
                     <div class="setting-row"><label for="appearance-theme">Theme</label><select id="appearance-theme" value="@theme" @onchange="SetTheme">@foreach (var option in themes) { <option value="@option.Id">@option.Label</option> }</select></div>
-                    <label class="setting-toggle"><input type="checkbox" checked="@themeEffects" @onchange="SetEffects" /><span>Theme effects</span></label>
+                    <label class="setting-toggle"><input id="settings-theme-effects" type="checkbox" checked="@themeEffects" @onchange="SetEffects" /><span>Theme effects</span></label>
                 </section>
             }
             else if (settingsSection == "about")
             {
                 <section class="settings-panel glass-panel" aria-labelledby="connection-settings-heading">
                     <h2 id="connection-settings-heading">Server and updates</h2>
-                    <div class="setting-row"><span>Server <span class="settings-connection-state">@(Session.Connected ? "Connected" : "Offline")</span></span><button @onclick='() => Navigate("Settings")'>Change server</button></div>
+                    <div class="setting-row"><span>Server <span class="settings-connection-state">@(Session.Connected ? "Connected" : "Offline")</span></span><button id="settings-change-server" @onclick='() => Navigate("Settings")'>Change server</button></div>
                     <div class="setting-row"><span>Installed version</span><span id="installed-app-version">@($"{AppUpdater.CurrentVersion} (build {AppUpdater.CurrentBuild}), {AppUpdater.PlatformDisplay}")</span></div>
                     <div class="setting-row"><span>Latest release</span><span id="settings-update-status" role="status">@UpdateStatus</span></div>
                     <div class="setting-row"><button id="settings-release-history" type="button" @onclick="OpenReleaseHistory">Release history</button></div>
@@ -341,10 +370,10 @@ else
                         <span class="crossfade-scale" aria-hidden="true">12 s</span>
                     </div>
                     <p class="setting-help">The end of a song fades into the start of the next. At 0 each song plays to the end.</p>
-                    <label class="setting-toggle"><input type="checkbox" checked="@Session.EvenSongVolume" @onchange="args => Player.SetEvenSongVolumeAsync(args.Value is true)" aria-describedby="even-song-volume-help" /><span>Even out song volume</span></label>
+                    <label class="setting-toggle"><input id="settings-even-volume" type="checkbox" checked="@Session.EvenSongVolume" @onchange="args => Player.SetEvenSongVolumeAsync(args.Value is true)" aria-describedby="even-song-volume-help" /><span>Even out song volume</span></label>
                     <p class="setting-help" id="even-song-volume-help">Limits loud peaks on this device, including in Listen Together.</p>
                     <div class="setting-row"><label for="volume-level">Volume level</label><select id="volume-level" disabled="@(!Session.EvenSongVolume)" value="@Session.PlaybackPreferences.VolumeLevel" @onchange='args => Session.SavePreferencesAsync(SavedVolume, Session.PlaybackPreferences.Shuffle, volumeLevel: args.Value?.ToString() ?? "normal")'><option value="loud">Loud</option><option value="normal">Normal</option><option value="quiet">Quiet</option></select></div>
-                    <label class="setting-toggle"><input type="checkbox" checked="@Session.DataSaver" @onchange="SetMusicDataSaver" aria-describedby="music-data-saver-help" /><span>Data saver</span></label>
+                    <label class="setting-toggle"><input id="settings-music-data-saver" type="checkbox" checked="@Session.DataSaver" @onchange="SetMusicDataSaver" aria-describedby="music-data-saver-help" /><span>Data saver</span></label>
                     <p class="setting-help" id="music-data-saver-help">@(OperatingSystem.IsAndroid() ? "Uses Low quality on mobile data and skips early song downloads." : "Uses Low quality and skips preloading songs on mobile data.")</p>
                     <div class="setting-row"><label for="streaming-wifi">Streaming on Wi-Fi</label><select id="streaming-wifi" value="@Session.StreamingQualityWifi" @onchange="SetStreamingQualityWifi" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
                     <div class="setting-row"><label for="streaming-mobile">Streaming on mobile data</label><select id="streaming-mobile" value="@Session.StreamingQualityMobile" @onchange="SetStreamingQualityMobile" disabled="@Player.Preparing"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="max">Max</option></select></div>
@@ -352,18 +381,18 @@ else
                     {
                         <div class="setting-row">
                             <span id="screen-off-playback-help">On Samsung, set FamilyHub’s Battery option to Unrestricted if music stops with the screen off.</span>
-                            <button type="button" aria-describedby="screen-off-playback-help" @onclick="OpenPlaybackAppSettingsAsync"><MusicIcon Name="external-link" /> Open app settings</button>
+                            <button id="settings-battery" type="button" aria-describedby="screen-off-playback-help" @onclick="OpenPlaybackAppSettingsAsync"><MusicIcon Name="external-link" /> Open app settings</button>
                         </div>
                     }
                     @if (OperatingSystem.IsWindows() && DiscordPresence.ApplicationId.Length > 0)
                     {
-                        <label class="setting-toggle"><input type="checkbox" checked="@DiscordPresence.Enabled" @onchange="args => DiscordPresence.SetEnabled(args.Value is true)" /><span>Show what I'm listening to on Discord</span></label>
+                        <label class="setting-toggle"><input id="settings-discord" type="checkbox" checked="@DiscordPresence.Enabled" @onchange="args => DiscordPresence.SetEnabled(args.Value is true)" /><span>Show what I'm listening to on Discord</span></label>
                         <p class="setting-help">Friends on Discord see the song and artist while the Discord app is open.</p>
                     }
                 </section>
                 <section class="settings-panel glass-panel" aria-labelledby="listening-history-heading">
                     <h2 id="listening-history-heading">Listening history</h2>
-                    <label class="setting-toggle"><input type="checkbox" checked="@Session.PlaybackPreferences.ListeningHistoryPaused" @onchange="SetHistoryPaused" disabled="@busy" /><span>Pause history</span></label>
+                    <label class="setting-toggle"><input id="settings-pause-history" type="checkbox" checked="@Session.PlaybackPreferences.ListeningHistoryPaused" @onchange="SetHistoryPaused" disabled="@busy" /><span>Pause history</span></label>
                     <div class="setting-row"><span>Family profiles can see your Leaderboard stats. Admins can see individual plays.</span><button id="clear-history" @onclick='() => JS.InvokeVoidAsync("familyhub.showDialog", "clear-history-dialog", "cancel-clear-history", "clear-history").AsTask()' disabled="@(!Session.Connected)">Clear listening history</button></div>
                     @if (!Session.Connected) { <p class="setting-help">Connect to clear shared listening history.</p> }
                 </section>
@@ -377,7 +406,7 @@ else
                     <p class="setting-help">Max uses the original file, lossless when available. Downloaded songs always play from the device.</p>
                     <div class="setting-row"><label for="cache-limit">Music cache</label><select id="cache-limit" value="@Session.CacheLimitGb" @onchange="SetMusicCacheLimit"><option value="1">1 GB</option><option value="3">3 GB</option><option value="5">5 GB</option><option value="10">10 GB</option></select></div>
                     <p class="setting-help">Stores songs prepared for playback. Songs you choose to download are stored separately.</p>
-                    <label class="setting-toggle"><input type="checkbox" checked="@Session.DownloadsWifiOnly" @onchange="args => Session.SetDownloadsWifiOnly(args.Value is true)" /><span>Wi-Fi-only downloads</span></label>
+                    <label class="setting-toggle"><input id="settings-downloads-wifi" type="checkbox" checked="@Session.DownloadsWifiOnly" @onchange="args => Session.SetDownloadsWifiOnly(args.Value is true)" /><span>Wi-Fi-only downloads</span></label>
                 </section>
             }
             else if (settingsSection == "accounts")
@@ -414,6 +443,7 @@ else
                 <MoviePreferences @key="AppearanceKey" DataOnly="@(settingsSection == "data")" />
             }
             </div>
+            }
         </div>
     }
     else if (view == "Playlists")
@@ -870,8 +900,114 @@ else
         ("server", "Server", "device")  // Administrators only; the list above hides it from everyone else.
     ];
     private string settingsSection = "general";
-    private bool ServerSettingsOpen => view == "Preferences" && settingsSection == "server";
+    private bool ServerSettingsOpen => view == "Preferences" && settingsSection == "server" && !SearchingSettings;
     private bool settingsDrilled, appSwitcherOpen;
+    private string settingsQuery = "";
+    private string? settingsSearchTarget;
+    private bool SearchingSettings => !string.IsNullOrWhiteSpace(settingsQuery);
+    private string[] SettingsSearchTerms => settingsQuery.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+    private sealed record SettingsEntry(string Section, string Label, string Target, string Synonyms);
+    private static readonly SettingsEntry[] SettingsSearchEntries =
+    [
+        new("general", "Change picture", "#profile-image-file", "avatar,photo,profile image"),
+        new("general", "Display name", "#profile-display-name", "rename,username,profile name"),
+        new("appearance", "Theme", "#appearance-theme", "appearance,colour,color,dark"),
+        new("appearance", "Theme effects", "#settings-theme-effects", "animation,motion,visual effects"),
+        new("music", "Spotify Premium", "#spotify-premium,#spotify-profile-choice", "subscription,account"),
+        new("music", "Crossfade songs", "#crossfade-seconds", "fade,transition,mix"),
+        new("music", "Even out song volume", "#settings-even-volume", "normalization,normalisation,loudness"),
+        new("music", "Volume level", "#volume-level", "loud,quiet,normalisation"),
+        new("music", "Data saver", "#settings-music-data-saver", "bandwidth,low quality,mobile data"),
+        new("music", "Streaming on Wi-Fi", "#streaming-wifi", "audio quality,bitrate,wireless,wifi"),
+        new("music", "Streaming on mobile data", "#streaming-mobile", "audio quality,bitrate,cellular"),
+        new("music", "Open app settings", "#settings-battery", "samsung,battery,unrestricted,screen off"),
+        new("music", "Show what I'm listening to on Discord", "#settings-discord", "presence,status"),
+        new("music", "Pause history", "#settings-pause-history", "privacy,stop tracking,listening history"),
+        new("music", "Clear listening history", "#clear-history", "delete,privacy,reset plays"),
+        new("music", "Playback diagnostics", "#playback-diagnostics-refresh", "logs,timing,playback problems"),
+        new("movies", "My screen", "#movie-screen", "resolution,display,4k,projector"),
+        new("movies", "Background style", "#movie-background-style", "backdrop,wallpaper,appearance"),
+        new("movies", "Preferred audio", "#movie-preferred-audio", "language,dubbing,soundtrack"),
+        new("movies", "Backup audio", "#movie-backup-audio", "language,dubbing,fallback"),
+        new("movies", "Preferred subtitles", "#movie-preferred-subtitles", "subtitle language,captions,cc"),
+        new("movies", "Skip intros automatically", "#movie-auto-skip-intro", "opening,skip introduction"),
+        new("movies", "Skip recaps automatically", "#movie-auto-skip-recap", "previously on,skip summary"),
+        new("movies", "Play the next episode automatically", "#movie-auto-next", "autoplay,up next,credits"),
+        new("movies", "Show the parental guide", "#movie-parental-guide", "age rating,content warning"),
+        new("movies", "Chapter marks on the seek bar", "#movie-chapter-marks", "timeline,chapter markers,scrub"),
+        new("movies", "Picture previews when seeking", "#movie-seek-pictures", "trickplay,thumbnail,scrubbing,timeline"),
+        new("movies", "Preset colour", "#movie-home-background", "background,color,palette"),
+        new("movies", "Layout preview", "#movie-layout-preview", "demo,example titles"),
+        new("movies", "Ratings on title pages", "#movie-ratings", "IMDb,Rotten Tomatoes,Metacritic,TMDB,episode scores"),
+        new("movies", "New episode available", "#movie-notify-episodes", "notifications,alerts,new releases,continue watching"),
+        new("movies", "Download ready", "#movie-notify-downloads", "notifications,alerts,requested titles"),
+        new("data", "Streaming quality", "#movie-data-saver input:checked", "movies,bandwidth,data saver,bitrate"),
+        new("data", "Movies & TV streamed on mobile data", "#movie-data-used", "usage,cellular,this month"),
+        new("accounts", "Link or disconnect Trakt", "#trakt-link,#trakt-disconnect,#trakt-retry", "account,connect,unlink"),
+        new("accounts", "Send what I watch", "#trakt-send,#trakt-link,#trakt-retry", "Trakt,scrobble,watch history"),
+        new("wordle", "Hide family results until I finish", "#wordle-settings-choice", "Wordle,spoilers,privacy,boards"),
+        new("storage", "Downloads", "#downloads-quality", "offline,audio quality,bitrate"),
+        new("storage", "Music cache", "#cache-limit", "storage,space,cache size"),
+        new("storage", "Wi-Fi-only downloads", "#settings-downloads-wifi", "cellular,mobile data,wireless,wifi"),
+        new("about", "Change server", "#settings-change-server", "connection,address,url"),
+        new("about", "Installed version", "#installed-app-version", "build,app version"),
+        new("about", "Latest release", "#settings-app-update,#settings-update-status", "update,upgrade"),
+        new("about", "Release history", "#settings-release-history", "changelog,what's new"),
+        new("about", "One-tap updates", ".one-tap-option input", "shortcut,SideStore"),
+        new("server", "Current readings", "#health-refresh-current", "health,cpu,memory"),
+        new("server", "History", "#health-refresh-history", "performance,server metrics"),
+        new("server", "Automatic work", "#server-stats-refresh", "queues,workers"),
+        new("server", "Seeding", "#seeding-refresh", "torrents,ratio,uploads"),
+        new("server", "Artist mappings", "#artist-mappings-title", "artist aliases,identity")
+    ];
+    private bool MatchesSetting(SettingsEntry setting)
+    {
+        if (setting.Section == "server" && !Session.ServerHealthAdmin) return false;
+        if (setting.Target == "#settings-battery" && !OperatingSystem.IsAndroid()) return false;
+        if (setting.Target == "#settings-discord" && (!OperatingSystem.IsWindows() || DiscordPresence.ApplicationId.Length == 0)) return false;
+        if (setting.Target.StartsWith("#movie-notify-", StringComparison.Ordinal) && (!MovieNotifications.Supported || !Session.MoviesEnabled)) return false;
+        if (setting.Target == ".one-tap-option input" && !AppUpdater.UpdatesInSideStore) return false;
+        return SettingsSearchTerms.All(term => setting.Label.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+            setting.Synonyms.Contains(term, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private string? MatchedSettingSynonym(SettingsEntry setting)
+    {
+        var terms = SettingsSearchTerms.Where(term => !setting.Label.Contains(term, StringComparison.OrdinalIgnoreCase)).ToArray();
+        return terms.Length == 0 ? null : string.Join(", ", setting.Synonyms.Split(',').Where(alias =>
+            terms.Any(term => alias.Contains(term, StringComparison.OrdinalIgnoreCase))));
+    }
+
+    private RenderFragment HighlightSetting(string label) => builder =>
+    {
+        var marked = new bool[label.Length];
+        foreach (var term in SettingsSearchTerms)
+            for (var index = label.IndexOf(term, StringComparison.OrdinalIgnoreCase); index >= 0;
+                index = label.IndexOf(term, index + term.Length, StringComparison.OrdinalIgnoreCase))
+                Array.Fill(marked, true, index, term.Length);
+        for (int start = 0, end; start < label.Length; start = end)
+        {
+            for (end = start + 1; end < label.Length && marked[end] == marked[start]; end++) { }
+            if (marked[start]) builder.OpenElement(0, "mark");
+            builder.AddContent(1, label[start..end]);
+            if (marked[start]) builder.CloseElement();
+        }
+    };
+
+    private async Task ClearSettingsSearch()
+    {
+        await JS.InvokeVoidAsync("familyhub.focus", "settings-search");
+        settingsQuery = "";
+    }
+
+    private async Task OpenSetting(SettingsEntry setting)
+    {
+        await JS.InvokeVoidAsync("familyhub.focus", "settings-exit");
+        settingsQuery = "";
+        settingsSection = setting.Section;
+        settingsDrilled = true;
+        settingsSearchTarget = setting.Target;
+    }
     private string SwitcherApp => view is "Hub" or "Wordle" or "Movies & TV" or "Files" ? view : "Home";
 
     private async Task OpenAppSwitcher()
@@ -899,12 +1035,20 @@ else
         var phone = await JS.InvokeAsync<bool>("familyhub.isPhone");
         await JS.InvokeVoidAsync("familyhub.focus", phone ? "settings-exit" : "settings-" + section);
         settingsSection = section;
+        settingsQuery = "";
         settingsDrilled = true;
         if (phone) pendingFocus = "settings-category";
     }
 
+    // Escape clears the search and keeps focus in the field.
+    private async Task SettingsSearchKey(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape" && settingsQuery.Length > 0) await ClearSettingsSearch();
+    }
+
     private async Task BackFromSettings()
     {
+        if (settingsQuery.Length > 0) { await ClearSettingsSearch(); return; }
         if (settingsDrilled && await PlaybackInterop.InvokeOrAsync(JS, "familyhub.isPhone", PhoneVolume))
         {
             await PlaybackInterop.TryInvokeVoidAsync(JS, "familyhub.focus", "settings-exit");
@@ -1773,6 +1917,11 @@ else
         }
         if (pendingFocus is { } target && (!EntryScreen || target is not ("artist-mappings-title" or "catalogue-review-title" or "view-title"))
             && await RenderJs("familyhub.focus", target) && pendingFocus == target) pendingFocus = null;
+        if (view == "Preferences" && settingsSearchTarget is { } settingTarget)
+        {
+            settingsSearchTarget = null;
+            await RenderJs("familyhub.focusSetting", settingTarget);
+        }
         if (AppUpdater.Platform is not null && !updateCheckInFlight && updateCheckOrigin != Session.Server)
             _ = CheckStartupUpdate(Session.Server);
         if (updateFocusPending)
@@ -1923,6 +2072,7 @@ else
         {
             settingsSection = view switch { "Wordle" => "wordle", "Movies & TV" => "movies", _ => "general" };
             settingsDrilled = false;
+            settingsQuery = "";
         }
         RememberView(tab);
         if (tab == "Playlists") selectedId = "";

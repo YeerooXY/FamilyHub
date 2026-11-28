@@ -1034,6 +1034,7 @@ public sealed class MusicSession
             await RefreshCatalogueAsync(timeout.Token, background);
             if (version != accountVersion) return;
             ServerAnswered(); UpdateMessage("", "info");
+            if (MovieNotifications.Supported && MoviesEnabled && UiActive) _ = SyncMovieNotificationsAsync(version);
 #if ANDROID
             ReportPreviousExit();
 #endif
@@ -1045,6 +1046,124 @@ public sealed class MusicSession
                 or "Reconnect to your server. Downloaded songs are available offline.") SetMessage("");
         }
         catch (Exception error) { if (version == accountVersion) OfflineError(error); }
+    }
+
+    private int movieNotificationSync;
+    private readonly string movieNotificationDevice = Guid.NewGuid().ToString("N");
+    private const string EpisodeNotification = ":movie-notify-episodes", DownloadNotification = ":movie-notify-downloads";
+    private const long NotificationsOff = -1;
+    private static string MovieNotificationKey(string profile, bool episodes) => profile + (episodes ? EpisodeNotification : DownloadNotification);
+
+    internal bool MovieNotificationEnabled(bool episodes) =>
+        Preferences.Default.Get(MovieNotificationKey(PreferenceKey(Server, User), episodes), NotificationsOff) >= 0;
+
+    internal async Task<bool> SetMovieNotificationAsync(bool episodes, bool enabled)
+    {
+        var version = accountVersion;
+        var key = MovieNotificationKey(PreferenceKey(Server, User), episodes);
+        try
+        {
+            if (enabled) await MovieNotifications.RequestPermissionAsync();
+            if (version != accountVersion) return false;
+            Preferences.Default.Set(key, enabled ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : NotificationsOff);
+            if (enabled && Connected && MoviesEnabled) _ = SyncMovieNotificationsAsync(version);
+            return true;
+        }
+        catch (Exception)
+        {
+            if (version == accountVersion && Api is { } api) _ = ReportMovieNotificationFailure(api, "platform_failed");
+            return false;
+        }
+    }
+
+    private async Task SyncMovieNotificationsAsync(int version)
+    {
+        if (version != accountVersion || Api is not { } api || Interlocked.Exchange(ref movieNotificationSync, 1) != 0) return;
+        string? ticket = null;
+        try
+        {
+            var profile = PreferenceKey(Server, User);
+            var episodeKey = MovieNotificationKey(profile, true);
+            var downloadKey = MovieNotificationKey(profile, false);
+            var episodeSince = Preferences.Default.Get(episodeKey, NotificationsOff);
+            var downloadSince = Preferences.Default.Get(downloadKey, NotificationsOff);
+            if (episodeSince < 0 && downloadSince < 0) return;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(32));
+            var current = () => version == accountVersion && ReferenceEquals(Api, api);
+            if (episodeSince > 0)
+            {
+                try
+                {
+                    var connection = await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, "/api/movies/session",
+                        new { device = movieNotificationDevice }, timeout.Token, background: true);
+                    ticket = connection.GetProperty("media_ticket").GetString();
+                }
+                catch (Exception)
+                {
+                    if (current()) _ = ReportMovieNotificationFailure(api, "request_failed");
+                    episodeSince = NotificationsOff;
+                }
+            }
+            if (!current() || episodeSince < 0 && downloadSince < 0) return;
+            var reply = await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, "/api/movies/notifications",
+                new { ticket, episodeSince = episodeSince >= 0 ? (long?)episodeSince : null,
+                    downloadSince = downloadSince >= 0 ? (long?)downloadSince : null }, timeout.Token, background: true);
+            if (!current()) return;
+            if (!reply.TryGetProperty("checkpoint", out var value) || !value.TryGetInt64(out var checkpoint))
+            {
+                await ReportMovieNotificationFailure(api, "invalid_response");
+                return;
+            }
+            await Publish("episodes", episodeKey, episodeSince, "New episode available",
+                count => count == 1 ? "A series in Continue watching has a new episode." : $"{count} series in Continue watching have new episodes.");
+            await Publish("downloads", downloadKey, downloadSince, "Download ready",
+                count => count == 1 ? "A requested title is ready." : $"{count} requested titles are ready.");
+
+            async Task Publish(string field, string key, long previous, string title, Func<int, string> summary)
+            {
+                bool StillEnabled() => current() && Preferences.Default.Get(key, NotificationsOff) == previous;
+                if (previous < 0 || !StillEnabled() || !reply.TryGetProperty(field, out var list) || list.ValueKind != JsonValueKind.Array) return;
+                var rows = list.GetArrayLength();
+                if (rows > 0)
+                {
+                    var name = rows == 1 ? list[0].GetString() : null;
+                    if (!await MovieNotifications.ShowAsync(title, !string.IsNullOrWhiteSpace(name) ? name : summary(rows), StillEnabled))
+                    {
+                        if (StillEnabled()) await ReportMovieNotificationFailure(api, "platform_failed");
+                        return;
+                    }
+                }
+                if (StillEnabled()) Preferences.Default.Set(key, checkpoint);
+            }
+        }
+        catch (Exception)
+        {
+            if (version == accountVersion) await ReportMovieNotificationFailure(api, "request_failed");
+        }
+        finally
+        {
+            if (ticket is not null && version == accountVersion)
+            {
+                try
+                {
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+                    await api.RequestJsonAsync<JsonElement>(HttpMethod.Post, "/api/movies/media/close", new { ticket }, timeout.Token, background: true);
+                }
+                catch (Exception) { if (version == accountVersion) await ReportMovieNotificationFailure(api, "request_failed"); }
+            }
+            Interlocked.Exchange(ref movieNotificationSync, 0);
+        }
+    }
+
+    private static async Task ReportMovieNotificationFailure(FamilyHubApi api, string reason)
+    {
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await api.RequestJsonAsync<JsonElement?>(HttpMethod.Post, "/api/movies/report",
+                new { kind = "movie-notification-failed", diagnostics = new { reason } }, timeout.Token, background: true);
+        }
+        catch (Exception) { }
     }
 
     private readonly SemaphoreSlim catalogueRefresh = new(1, 1);

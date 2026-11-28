@@ -42,9 +42,13 @@ async function verify(browser, profile, options) {
             const ui = buildPlayerUi({
                 media, surface, back, signal: new AbortController().signal,
                 title: "The movie", notice: document.createElement("p"),
-                audioPick, subtitlePick,
+                audioPick, subtitlePick, chapterMarks: true,
                 fullscreenEnabled: true, isFullscreen: () => fullscreen && !appFullscreen, appFullscreen: () => appFullscreen,
                 setFullscreen: async on => { fullscreen = on; return true; }
+            });
+            window.addChapters = () => ui.setSeekImages([{name: "Opening", time: 0}, {name: "Arrival", time: 40}], {
+                width: 320, height: 180, columns: 2, rows: 2, interval: 10000, count: 10,
+                url: sheet => "/movie-art/movie.jpg?tile=" + sheet
             });
             const input = document.createElement("input");
             input.setAttribute("aria-label", "Player test input");
@@ -239,6 +243,37 @@ async function verify(browser, profile, options) {
         await page.waitForFunction(() => document.querySelector(".movie-ui-spinner").getAnimations()
             .some(animation => animation.playState === "running"));
         await page.locator("video").dispatchEvent("canplay");
+        assert.equal(await button("Chapters").count(), 0);
+        await page.evaluate(() => window.addChapters());
+        const chapters = button("Chapters");
+        const strip = page.getByRole("group", {name: "Chapter list"});
+        await chapters.press("Enter");
+        await strip.waitFor();
+        const opening = strip.getByRole("button", {name: "Opening, 0:00"});
+        const arrival = strip.getByRole("button", {name: "Arrival, 0:40"});
+        assert.equal(await focused(opening), true);
+        await page.keyboard.press("ArrowRight");
+        assert.equal(await focused(arrival), true);
+        assert.equal(await arrival.locator("img").count(), 0);
+        assert.ok((await arrival.boundingBox()).height >= (options.viewport.width >= 1920 ? 60 : 44));
+        assert.equal(await page.locator(".movie-chapter-track").isVisible(), true);
+        await page.keyboard.press("Space");
+        assert.equal(await position(), 40);
+        assert.equal(await focused(chapters), true);
+        await chapters.press("Enter");
+        await page.keyboard.press("Escape");
+        assert.equal(await strip.isVisible(), false);
+        assert.equal(await focused(chapters), true);
+        if (!options.hasTouch) {
+            const seek = page.getByRole("slider", {name: "Seek"});
+            const box = await seek.boundingBox();
+            await seek.hover({position: {x: box.width * .74, y: box.height / 2}});
+            const frame = page.locator(".movie-seek-frame");
+            await frame.waitFor();
+            assert.match(await frame.evaluate(node => node.style.backgroundImage), /\?tile=1/);
+            assert.equal(await frame.evaluate(node => node.style.backgroundPosition), "100% 100%");
+            assert.equal(await position(), 40);
+        }
         await page.screenshot({path: path.join(output, profile + "-player.png")});
     } finally {
         await page.close();

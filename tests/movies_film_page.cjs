@@ -171,7 +171,7 @@ async function check(browser, profile, options) {
             await page.waitForFunction(card => card.tabIndex === 0, await peek.elementHandle());
             await viewport.evaluate(node => { node.dispatchEvent(new WheelEvent("wheel")); node.scrollLeft = 0; });
             await page.waitForFunction(card => card.tabIndex === -1, await peek.elementHandle());
-            const cast = film.locator(".movie-cast li").first();
+            const cast = film.locator(".movie-cast button").first();
             const checkOutline = async (target, width) => {
                 await page.waitForFunction(({node, width}) => {
                     const style = getComputedStyle(node);

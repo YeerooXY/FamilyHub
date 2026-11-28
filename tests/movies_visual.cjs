@@ -167,6 +167,7 @@ async function render(browser, label, options) {
                     (window.fullscreenCalls ??= []).push(query);
                     return query;
                 }
+                if (method === "MovieTrailer") return JSON.stringify({youtube: null});
                 if (method === "MovieRelated" && query === "101") return JSON.stringify({matches: relatedFilms});
                 if (method === "MovieRelated" && query === "42")
                     return JSON.stringify(window.failSeriesRelated ? {error:"Related series are unavailable."} :
@@ -214,7 +215,7 @@ async function render(browser, label, options) {
     };
     const desktop = options.viewport.width >= 1280;
     const checkCastNames = async detail => {
-        const splitWords = await detail.locator(".movie-cast li > strong").evaluateAll(names => names.flatMap(name => {
+        const splitWords = await detail.locator(".movie-cast-action > strong").evaluateAll(names => names.flatMap(name => {
             const node = name.firstChild;
             const range = document.createRange();
             return [...node.textContent.matchAll(/\S+/g)].filter(word => {

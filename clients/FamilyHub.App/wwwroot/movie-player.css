@@ -279,6 +279,59 @@ body[data-effects="off"] .movie-library .movie-ui .movie-ui-transport :is(.movie
     font-variant-numeric: tabular-nums;
     pointer-events: none;
 }
+.movie-ui .movie-seek { position:relative; }
+.movie-library .movie-ui .movie-seek { min-height:44px; }
+.movie-ui .movie-seek-tip { text-align:center; }
+.movie-ui .movie-seek-frame:not([hidden]) { display:block; width:min(9rem, 34vw); border-radius:.2rem; margin-bottom:.2rem; }
+.movie-ui .movie-chapter-track {
+    position:absolute;
+    inset:calc(50% - 2px) 0 auto;
+    height:4px;
+    border-radius:2px;
+    background:linear-gradient(90deg, var(--movie-accent, #e5484d) var(--pct), #ffffff59 var(--pct));
+    -webkit-mask-image:var(--chapter-mask);
+    mask-image:var(--chapter-mask);
+    pointer-events:none;
+}
+.movie-ui .movie-seek-chapters::-webkit-slider-runnable-track { background:transparent; }
+.movie-ui .movie-seek-chapters::-moz-range-track { background:transparent; }
+.movie-ui .movie-seek-chapters::-moz-range-progress { background:transparent; }
+.movie-ui .movie-chapter-strip:not([hidden]) {
+    display:flex;
+    align-items:stretch;
+    gap:.6rem;
+    overflow-x:auto;
+    overscroll-behavior-inline:contain;
+    padding:.4rem;
+}
+.movie-library .movie-ui .movie-chapter {
+    display:grid;
+    gap:.15rem;
+    align-content:end;
+    flex:0 0 clamp(7rem, 14vw, 13rem);
+    min-height:44px;
+    min-width:0;
+    padding:.4rem;
+    border-radius:.55rem;
+    background:#171920;
+    color:white;
+    text-align:left;
+    white-space:normal;
+    overflow-wrap:anywhere;
+}
+.movie-ui .movie-chapter img { width:100%; aspect-ratio:16 / 9; object-fit:cover; border-radius:.35rem; }
+.movie-ui .movie-chapter > span { color:#eee; font-size:.8em; }
+.movie-library .movie-ui .movie-chapter:focus-visible { outline:2px solid white; outline-offset:-2px; }
+@media (min-width:1920px) {
+    .movie-library .movie-ui :is(.movie-seek, .movie-chapter) { min-height:60px; }
+    .movie-library .movie-ui .movie-chapter:focus-visible { outline-width:4px; outline-offset:-4px; }
+}
+@media (max-width:425px) {
+    .movie-ui.movie-has-chapters .movie-ui-transport { flex-wrap:wrap; }
+}
+@media (max-height:460px) {
+    .movie-ui .movie-chapter img { max-height:18vh; }
+}
 
 .movie-volume { position: relative; pointer-events: auto; }
 .movie-volume-track {

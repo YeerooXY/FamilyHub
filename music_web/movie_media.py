@@ -29,13 +29,15 @@ USAGE_QUERY = 'fhUsage'
 QUERY_SECRET = re.compile(r'^(?:api[_-]?key|token|access[_-]?token|x-emby-token|x-mediabrowser-token)$', re.I)
 URI_ATTRIBUTE = re.compile(r'\bURI="([^"\r\n]+)"')
 WEBVIEW_ORIGINS = {'https://0.0.0.1', 'http://0.0.0.1', 'app://0.0.0.1', 'https://app.localhost', 'null'}
-LIBRARY_READ = re.compile(rf'(?:Items(?:/{ITEM})?|UserItems/Resume|Genres|Shows/NextUp|Shows/{ITEM}/Episodes|Items/{ITEM}/RemoteSearch/Subtitles/[a-z]{{3}})')
+LIBRARY_READ = re.compile(rf'(?:Items(?:/{ITEM})?|UserItems/Resume|Genres|Shows/NextUp|Shows/{ITEM}/Episodes|Items/{ITEM}/(?:LocalTrailers|RemoteSearch/Subtitles/[a-z]{{3}}))')
 DISMISS_ID = r'(?:[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})'
+PREVIEW_IMAGE = re.compile(rf'(?:Items/{DISMISS_ID}/Images/Chapter/[0-9]{{1,4}}|Videos/{DISMISS_ID}/Trickplay/[1-9][0-9]{{1,3}}/[0-9]{{1,6}}\.jpg)', re.I)
+PREVIEW_PARAMS = {'tag': r'[A-Za-z0-9_-]{1,100}', 'maxWidth': r'[1-9][0-9]{1,2}', 'mediaSourceId': DISMISS_ID}
 PLAYBACK_METADATA = re.compile(rf'(MediaSegments|ParentalGuide)/({DISMISS_ID})')
 HIDE_RESUME = re.compile(rf'UserItems/({DISMISS_ID})/HideFromResume')
 LIBRARY_WRITE = re.compile(rf'(?:{HIDE_RESUME.pattern}|Items/{ITEM}/PlaybackInfo|Sessions/Playing(?:/Progress|/Stopped)?|Items/{ITEM}/RemoteSearch/Subtitles/[A-Za-z0-9._~%+-]{{1,500}})')
 FAVORITE = re.compile(rf'UserFavoriteItems/({ITEM})')
-LIBRARY_PRIVATE_FIELDS = {'path', 'encoderpath', 'directstreamurl', 'password', 'pw'}
+LIBRARY_PRIVATE_FIELDS = {'path', 'imagepath', 'encoderpath', 'directstreamurl', 'password', 'pw'}
 # A two-hour film has thousands of segment lines and each carries Jellyfin's full query string (about 1.4 MB for 4,300 lines).
 MAX_PLAYLIST_BYTES = 8 << 20
 log = logging.getLogger(__name__)
@@ -307,6 +309,8 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
                 return jsonify(result=None)
             params = [('userId', grant.viewer) if key.casefold() == 'userid' else (key, val)
                       for key, val in urllib.parse.parse_qsl(query, max_num_fields=100) if not QUERY_SECRET.fullmatch(key)]
+            if resource.endswith('/LocalTrailers'):
+                params = [('userId', grant.viewer)]
             usage_id = None
             if payload is not None and resource.startswith('Sessions/Playing'):
                 usage_id = next((val for key, val in params if key == USAGE_QUERY and USAGE_ID.fullmatch(val)), None)
@@ -411,7 +415,8 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
 
     @app.route('/api/movies/media/<ticket>/<path:resource>', methods=['GET', 'HEAD', 'OPTIONS'])
     def movie_media(ticket, resource):
-        if not MEDIA_PATH.fullmatch(resource):
+        preview_image = PREVIEW_IMAGE.fullmatch(resource)
+        if not preview_image and not MEDIA_PATH.fullmatch(resource):
             abort(404)
         grant = live_grant(ticket)
         if not grant:
@@ -430,6 +435,10 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
         try:
             query = clean_query(request.query_string.decode('ascii'))
             params = urllib.parse.parse_qsl(query, max_num_fields=100)
+            if preview_image:
+                allowed = ('tag', 'maxWidth') if resource.lower().startswith('items/') else ('mediaSourceId',)
+                if any(key not in allowed or not re.fullmatch(PREVIEW_PARAMS[key], value, re.I) for key, value in params):
+                    return '', 400, cors
             usage_id = next((value for key, value in params if key == USAGE_QUERY and USAGE_ID.fullmatch(value)), None)
             query = urllib.parse.urlencode([(key, value) for key, value in params if key != USAGE_QUERY])
             req = urllib.request.Request(base + '/' + resource + ('?' + query if query else ''),
@@ -437,8 +446,12 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
             upstream = urllib.request.build_opener(NoRedirect).open(req, timeout=15)
         except urllib.error.HTTPError as error:
             with error:
+                if preview_image and error.code != 404:
+                    log.warning('movie preview image failed cause=upstream_http status=%s', error.code)
                 return '', error.code if error.code in (404, 416) else 502, cors
-        except (OSError, ValueError):
+        except (OSError, ValueError) as error:
+            if preview_image:
+                log.warning('movie preview image failed cause=%s', type(error).__name__)
             return '', 502, cors
         response_headers = {**cors, **{name: upstream.headers[name] for name in ('Accept-Ranges', 'Content-Range', 'Content-Length')
                                       if name in upstream.headers}}
@@ -464,7 +477,13 @@ def register(app, base, body, allow, session_is_live, movie_dismissals, refresh_
                 count(len(content))
                 return Response(content, upstream.status, response_headers, mimetype='application/vnd.apple.mpegurl')
         content_type = upstream.headers.get_content_type()
-        if not content_type.startswith(('audio/', 'video/')) and content_type not in ('text/vtt', 'application/octet-stream'):
+        if preview_image:
+            if content_type not in ('image/jpeg', 'image/png', 'image/webp', 'image/avif'):
+                upstream.close()
+                log.warning('movie preview image failed cause=invalid_content_type')
+                return '', 502, cors
+            response_headers.update({'Cache-Control': 'private, max-age=600', 'X-Content-Type-Options': 'nosniff'})
+        elif not content_type.startswith(('audio/', 'video/')) and content_type not in ('text/vtt', 'application/octet-stream'):
             upstream.close()
             return '', 502, cors
 

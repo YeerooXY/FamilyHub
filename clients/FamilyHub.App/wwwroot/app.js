@@ -16,8 +16,14 @@ document.addEventListener("focusin", event => {
 });
 document.addEventListener("keydown", event => {
     const arrow = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[event.key];
-    const region = event.target.closest?.(".health-dashboard, .settings-sections");
-    if (!arrow || !region || !matchMedia("(min-width:1920px)").matches || event.defaultPrevented) return;
+    if (!arrow || !matchMedia("(min-width:1920px)").matches || event.defaultPrevented) return;
+    if (event.target.id === "settings-search" && event.key === "ArrowDown") {
+        const first = document.querySelector(".settings-search-result");
+        if (first) { event.preventDefault(); first.focus(); }
+        return;
+    }
+    const region = event.target.closest?.(".health-dashboard, .settings-sections, .settings-search-results");
+    if (!region) return;
     const origin = event.target.closest("button,input");
     const [x, y] = arrow;
     if (!origin || (x && !origin.matches(".health-table-button"))) return;
@@ -34,6 +40,9 @@ document.addEventListener("keydown", event => {
     if (candidates.length) {
         event.preventDefault();
         candidates[0].control.focus();
+    } else if (region.classList.contains("settings-search-results") && event.key === "ArrowUp") {
+        event.preventDefault();
+        document.getElementById("settings-search").focus();
     }
 });
 window.familyhub = { press(id) { document.getElementById(id)?.click(); }, retainFocus(id) { if (document.activeElement === document.body) document.getElementById(id)?.focus(); }, restoreFocus(removedId, successorId) {
@@ -840,12 +849,40 @@ window.familyhub.revealWhenReady = id => {
 };
 const phoneLayout = matchMedia('(max-width:720px)');
 window.familyhub.isPhone = () => phoneLayout.matches;
+window.familyhub.focusSetting = selector => {
+    const page = document.getElementById("settings-category");
+    if (!page) return;
+    page.focus({preventScroll:true});
+    const targets = selector.split(",");
+    const focus = (fallback = false) => {
+        if (!page.isConnected || document.activeElement !== page) return true;
+        const target = targets.map(value => page.querySelector(value)).find(node =>
+            node?.getClientRects().length && !node.matches(":disabled"));
+        if (!target && !fallback) return false;
+        if (!target) {
+            const control = page.querySelector(targets[0]);
+            const row = control?.closest("label, .setting-row, fieldset, .settings-panel");
+            if (row?.getClientRects().length) { row.tabIndex = -1; row.focus(); }
+            return true;
+        }
+        if (!target.matches("a[href], button, input, select, summary, textarea, [tabindex]")) target.tabIndex = -1;
+        target.focus();
+        return true;
+    };
+    if (focus()) return;
+    let timeout;
+    const observer = new MutationObserver(() => {
+        if (focus()) { observer.disconnect(); clearTimeout(timeout); }
+    });
+    observer.observe(page.parentElement, {subtree:true, childList:true, attributes:true, attributeFilter:["disabled"]});
+    timeout = setTimeout(() => { observer.disconnect(); focus(true); }, 5000);
+};
 document.addEventListener('keydown', event => {
     if (event.target.closest?.('.switcher-grid') && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
         event.preventDefault();
     }
     if (event.key === 'Escape' && !event.defaultPrevented && !document.querySelector('dialog[open]')) {
-        const exit = document.getElementById('settings-exit');
+        const exit = document.getElementById('settings-search-clear') ?? document.getElementById('settings-exit');
         if (exit) {
             event.preventDefault();
             if (!event.repeat) exit.click();

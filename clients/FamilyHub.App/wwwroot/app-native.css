@@ -462,6 +462,27 @@ select option { background:#12141a; color:#f3f4f7; }
  padding:12px clamp(12px,2.4vw,28px); border-bottom:1px solid #ffffff1a;
 }
 .settings-header #view-title { width:auto; margin:0; }
+.settings-search {
+ display:flex; align-items:center; gap:8px; min-width:0; width:min(100%,520px);
+ min-height:44px; padding-inline:12px 4px; border:1px solid var(--border); border-radius:12px;
+ background:var(--panel-bg);
+}
+.settings-shell .settings-search input {
+ flex:1; min-width:0; min-height:44px; margin:0; padding:0 4px;
+ color:var(--ink); border:0; background:transparent; font:inherit;
+}
+.settings-search input::-webkit-search-cancel-button { display:none; }
+.settings-shell #settings-search-clear { min-width:44px; min-height:44px; border:0; }
+.settings-search-results { gap:0; }
+.settings-shell .settings-search-result {
+ display:flex; align-items:center; justify-content:space-between; gap:.75rem; min-height:60px; padding:10px 12px;
+ border:0; border-bottom:1px solid var(--border); border-radius:0; text-align:start;
+ white-space:normal; color:var(--ink);
+}
+.settings-search-result strong, .settings-search-result small { display:block; }
+.settings-search-result small { color:var(--muted); }
+.settings-search-alias { display:inline-block; margin-inline-start:.65rem; }
+.settings-search-result mark { background:transparent; color:var(--lilac); font-weight:700; }
 #settings-exit { display:grid; place-items:center; width:44px; min-height:44px; flex:none; border-radius:10px; }
 #settings-exit:hover { background:#ffffff12; }
 .settings-shell .icon { flex:none; }
@@ -548,9 +569,18 @@ select option { background:#12141a; color:#f3f4f7; }
  .settings-sections { border:0; background:transparent; }
  .settings-sections, .settings-page { padding-bottom:max(16px,env(safe-area-inset-bottom)); }
  .settings-shell:not(.settings-drilled) .settings-page, .settings-drilled .settings-sections, .settings-drilled .settings-close { display:none; }
+ .settings-header { flex-wrap:wrap; }
+ .settings-search { order:1; width:100%; }
+ .settings-shell.settings-searching .settings-search-results { display:grid; }
+ .settings-shell.settings-searching .settings-sections { display:none; }
  .settings-chevron, .settings-drilled .settings-back { display:inline-flex; }
  .settings-chevron { margin-inline-start:auto; }
  .settings-panel { padding:16px; }
+}
+@media(min-width:1920px) {
+ .settings-search, .settings-shell .settings-search input, .settings-shell #settings-search-clear { min-height:60px; }
+ .settings-shell #settings-search-clear { min-width:60px; }
+ .settings-shell :is(.settings-search-result,.settings-search input):focus-visible { outline-width:4px; outline-offset:-4px; }
 }
 body[data-effects=off] :is(#settings-exit,.settings-sections button,.settings-page button) { transition:none; transform:none; }
 @media(prefers-reduced-motion:reduce) {
