@@ -28,7 +28,7 @@ async function check(browser, profile, options) {
         const related = series.locator('.movie-shelf[data-format="related"]');
         await related.getByRole("heading", {name: "More like this"}).waitFor();
         await related.getByRole("button", {name: "Quiet Port, in your library"}).waitFor();
-        assert.equal(await related.getByRole("button", {name: "Find releases for Distant Signal"}).count(), 1);
+        assert.equal(await related.getByRole("button", {name: "Distant Signal, not in your library"}).count(), 1);
         assert.equal(await page.evaluate(() => window.detailCalls.some(call =>
             call[0] === "MovieRelated" && call[1] === "201" && call[2] === "tv")), true);
         const checkCast = async () => {

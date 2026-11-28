@@ -423,6 +423,9 @@
   <data name="Family" xml:space="preserve"><value>Family</value></data>
   <data name="Family activity" xml:space="preserve"><value>Family activity</value></data>
   <data name="Family and private folders" xml:space="preserve"><value>Family and private folders</value></data>
+  <data name="{0}, not in your library" xml:space="preserve"><value>{0}, not in your library</value></data>
+  <data name="Find" xml:space="preserve"><value>Find</value></data>
+  <data name="Find {0}" xml:space="preserve"><value>Find {0}</value></data>
   <data name="Leaderboard" xml:space="preserve"><value>Leaderboard</value></data>
   <data name="Music and watch time in the family" xml:space="preserve"><value>Music and watch time in the family</value></data>
   <data name="Family board" xml:space="preserve"><value>Family board</value></data>

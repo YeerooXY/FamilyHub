@@ -300,6 +300,8 @@ async function movieDetailFixture(page, {denseSeries = false, extras = false} = 
                 known_for: "Acting", biography: "Avery began acting in 1995. ".repeat(25),
                 films: [{kind: "movie", id: 102, title: "Second Orbit"}, {kind: "movie", id: 213, title: "Open Road", year: 2018}]});
             if (method === "MovieTrailer") return JSON.stringify({youtube: extras ? "abcdefghijk" : null});
+            if (method === "MovieTitleDetails" && args[1] === "213") return JSON.stringify({id: 213, kind: "movie", title: "Open Road",
+                year: 2018, overview: "Two friends drive across the country.", genres: ["Drama"], cast: []});
             if (method === "MovieRequest") return JSON.stringify({state: "requested"});
             if (method === "MovieRatings" && args[0] === "episode") return JSON.stringify({ratings: [{name: "IMDb", value: "8.5"}]});
             if (method === "MovieAudioSources") return JSON.stringify({sources: [], next: null});

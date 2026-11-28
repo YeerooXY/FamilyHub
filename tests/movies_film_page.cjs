@@ -78,7 +78,7 @@ async function check(browser, profile, options) {
 
         const related = film.locator('.movie-shelf[data-format="related"]');
         const owned = related.getByRole("button", {name: "Second Orbit, in your library", exact: true});
-        const missing = related.getByRole("button", {name: "Find releases for Outer Station 1", exact: true});
+        const missing = related.getByRole("button", {name: "Outer Station 1, not in your library", exact: true});
         await owned.waitFor();
         assert.equal(await related.getByText("Untitled Home Alone Film").count(), 0);
         assert.equal(await more.count(), 1);
@@ -239,6 +239,17 @@ async function check(browser, profile, options) {
         assert.equal(await focused(missing), true);
         await page.keyboard.press("ArrowLeft");
         assert.equal(await focused(owned), true);
+        // At television width the arrow scrolls the shelf smoothly; activate once it has settled.
+        await owned.evaluate(node => new Promise(resolve => {
+            const lane = node.closest(".movie-shelf-scroll");
+            let last = -1, still = 0;
+            (function frame() {
+                const now = lane?.scrollLeft ?? 0;
+                still = now === last ? still + 1 : 0;
+                last = now;
+                if (still >= 6 || !lane) resolve(); else requestAnimationFrame(frame);
+            })();
+        }));
         await owned.press("Enter");
         const sequel = page.getByRole("region", {name: "Second Orbit", exact: true});
         const plainTitle = sequel.getByRole("heading", {name: "Second Orbit"});
@@ -282,7 +293,9 @@ async function check(browser, profile, options) {
         assert.equal(await focused(owned), true);
 
         assert.equal(await missing.locator(".movie-card-find svg").count(), 1);
+        // A related title that is not in the library opens its page first; Find there searches for it.
         await missing.press("Space");
+        await page.getByRole("button", {name: "Find Outer Station 1", exact: true}).press("Enter");
         await page.waitForFunction(() => window.detailCalls.some(([method, name]) =>
             method === "MovieReleaseSearch" && name === "Outer Station 1"));
         assert.equal(await page.getByRole("searchbox").inputValue(), "Outer Station 1");

@@ -36,6 +36,18 @@ reviewMovieProfiles(async (browser, profile, options) => {
         const receipt = more.getByRole("status");
         await receipt.filter({hasText: "Request received"}).waitFor();
         assert.equal(await receipt.evaluate(node => document.activeElement === node), true);
+        // A film that is not in the library opens its own page with TMDB details and a Find action.
+        const openRoad = more.getByRole("button", {name: "Open Road (2018)", exact: true});
+        await openRoad.press("Enter");
+        const preview = page.getByRole("region", {name: "Open Road", exact: true});
+        await preview.getByText("Two friends drive across the country.").waitFor();
+        const find = preview.getByRole("button", {name: "Find Open Road", exact: true});
+        await find.waitFor();
+        assert.equal(await preview.getByRole("button", {name: /^(Play|Resume)/}).count(), 0);
+        await page.keyboard.press("Escape");
+        await preview.waitFor({state: "hidden"});
+        await person.waitFor();
+        assert.equal(await openRoad.evaluate(node => document.activeElement === node), true);
         await page.keyboard.press("Escape");
         await person.waitFor({state: "hidden"});
         assert.equal(await credit.evaluate(node => document.activeElement === node), true);

@@ -1703,17 +1703,19 @@ body:has(.workspace > main :is(.movie-film-detail, .movie-show-detail):not([hidd
 .movie-library .movie-person-page {
     display:grid;
     width:100%;
-    max-width:90rem;
+    max-width:none;
+    /* The page uses the whole window: photo column on the left, films across the rest. */
     grid-template-columns:minmax(8rem, 17rem) minmax(0, 1fr);
     align-items:start;
-    gap:clamp(1rem, 4vw, 3rem);
-    padding:clamp(.8rem, 3vw, 2.5rem);
+    gap:clamp(1rem, 3vw, 3rem);
+    padding:clamp(.8rem, 2.5vw, 2.5rem) clamp(.8rem, 3vw, 3.5rem);
+    box-sizing:border-box;
 }
 .movie-library .movie-person-page[hidden] { display:none; }
 .movie-person-page > .movie-title-back { grid-column:1 / -1; justify-self:start; }
 .movie-person-page :is(h2, h3) { margin:0 0 .65rem; }
 .movie-person-page h2 { font-size:clamp(1.6rem, 3.5vw, 3.25rem); }
-.movie-person-page > aside { min-width:0; }
+.movie-person-page > aside { min-width:0; position:sticky; top:1rem; }
 .movie-person-page > aside .movie-art { width:100%; max-width:17rem; }
 .movie-person-page dl { display:grid; grid-template-columns:max-content 1fr; gap:.3rem .65rem; font-size:.9rem; }
 .movie-person-page dd { margin:0; }
@@ -1721,7 +1723,7 @@ body:has(.workspace > main :is(.movie-film-detail, .movie-show-detail):not([hidd
 .movie-person-page .movie-shelf, .movie-person-films { margin-top:1.25rem; }
 /* The library shelf sits in the text column: line its first card up with the heading instead of the page-wide peek inset. */
 .movie-person-page .movie-shelf > h2 { padding-inline-start:0; }
-.movie-person-page .movie-shelf-scroll .movie-cards { padding-inline-start:0; }
+.movie-person-page .movie-shelf-scroll .movie-cards { padding-inline-start:0; padding-block:.9rem; }
 /* Cards keep a poster size on wide screens instead of filling a 2000 px column. */
 .movie-person-page .movie-shelf-scroll .movie-card { flex-basis:min(var(--movie-card-width), 13rem); width:min(var(--movie-card-width), 13rem); }
 .movie-person-page .movie-caption small { display:block; font-weight:400; }
@@ -1734,6 +1736,17 @@ body:has(.workspace > main :is(.movie-film-detail, .movie-show-detail):not([hidd
     list-style:none;
 }
 .movie-person-films li { display:flex; flex-direction:column; gap:.3rem; min-width:0; max-width:13rem; overflow-wrap:anywhere; }
+/* Each film opens its page: the poster, title and year are one control. */
+.movie-library .movie-person-films .movie-person-film {
+    display:flex; flex-direction:column; align-items:stretch; gap:.3rem; padding:0; border:0; border-radius:.6rem;
+    background:none; color:inherit; font:inherit; text-align:start; cursor:pointer;
+    transition:transform 180ms ease-out;
+}
+.movie-person-film > .movie-art { width:100%; border-radius:.6rem; overflow:hidden; }
+.movie-person-film > small { opacity:.75; }
+@media (hover:hover) and (pointer:fine) { .movie-library .movie-person-films .movie-person-film:hover { transform:translateY(-3px); } }
+@media (prefers-reduced-motion:reduce) { .movie-library .movie-person-films .movie-person-film { transition:none; } }
+body[data-effects="off"] .movie-library .movie-person-films .movie-person-film { transition:none; }
 .movie-person-films li > .movie-art { width:100%; }
 .movie-person-films li > p { margin:0; }
 .movie-person-films li > p:empty { display:none; }

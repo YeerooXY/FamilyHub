@@ -2026,9 +2026,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             for (const film of films) {
                 const row = el("li"), message = el("p");
                 message.setAttribute("role", "status");
-                row.append(cardArtwork({Id: "tmdb-" + film.id, Name: film.title, TmdbPoster: film.poster}),
-                    el("strong", film.title));
-                if (film.year) row.append(el("small", film.year));
+                const target = lookupTitle({id: film.id, title: film.title, year: film.year, poster: film.poster}, "Movie");
+                const open = button("", () => openSeries(target, open));
+                open.className = "movie-person-film";
+                open.append(cardArtwork(target), el("strong", film.title));
+                if (film.year) open.append(el("small", film.year));
+                open.setAttribute("aria-label", film.year ? `${film.title} (${film.year})` : film.title);
+                row.append(open);
                 if (session.requests_enabled) {
                     const action = requestTitleAction(film, null, message, row);
                     if (action) row.append(action);
@@ -2039,6 +2043,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             shelves.append(more);
         }
         void load();
+    }
+    // A title from TMDB that is not in the library; openSeries shows its details and a Find action.
+    function lookupTitle(match, type) {
+        return {Name: match.title, Id: "tmdb-" + match.id, Type: type, ProductionYear: Number(match.year) || undefined,
+            ProviderIds: {Tmdb: String(match.id)}, TmdbPoster: match.poster, TmdbBackdrop: match.backdrop, FamilyHubLookup: true};
     }
     function openSeries(item, opener, preferredSeason, fromHistory = false, keepFocus = false, handoff) {
         cancelSlowSearch?.();
@@ -2206,8 +2215,11 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             return;
         }
         const demo = preview || item.Demo;
+        // A title that is not in the library (an actor's other films, related titles): its page shows TMDB details,
+        // and its main action finds it in the search bar instead of playing.
+        const lookup = Boolean(item.FamilyHubLookup);
         const playButton = playAction(isSeries ? null : item, true);
-        const favorite = demo || job ? null : favoriteAction(item, detailStatus, original);
+        const favorite = demo || job || lookup ? null : favoriteAction(item, detailStatus, original);
         playButton.prepend(icon(playPath));
         let selectedMovie = isSeries ? null : item, continuing, removed;
         const remove = button("", () => {
@@ -2224,9 +2236,18 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         remove.setAttribute("aria-label", removeContinueLabel);
         remove.append(icon(removePath));
         remove.hidden = true;
-        if (!demo) actions.append(playButton, remove, ...[favorite].filter(Boolean));
+        if (lookup) {
+            const find = button(t("Find"), () => {
+                query.value = item.Name.slice(0, query.maxLength).trimEnd();
+                startSearch(true);
+            });
+            find.className = "movie-hero-play";
+            find.setAttribute("aria-label", t("Find {0}", item.Name));
+            find.prepend(icon("m21 21-4.3-4.3M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z"));
+            actions.append(find);
+        } else if (!demo) actions.append(playButton, remove, ...[favorite].filter(Boolean));
         view.syncContinue = () => {
-            if (demo || job || signal.aborted) return;
+            if (demo || job || lookup || signal.aborted) return;
             continuing = resumeShelf.items.find(entry => titleKey(entry) === titleKey(item));
             const next = continuing ?? selectedMovie;
             if (continuing) removed = undefined;
@@ -2236,7 +2257,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             playButton.setMovie(next, Boolean(continuing), next?.Id === removed || next?.FamilyHubResumeHidden);
         };
         view.syncContinue();
-        if (!demo && !job && !isSeries && session.downloads_enabled) list.before(audioJobSlot(item));
+        if (!demo && !job && !lookup && !isSeries && session.downloads_enabled) list.before(audioJobSlot(item));
         const trackStatus = el("p");
         if (job) {
             trackStatus.className = "movie-download-tracks";
@@ -2316,10 +2337,10 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         updateDetails();
         largeBackdrop.addEventListener?.("change", updateBackdrop, {signal});
         const prepareSignal = handoff?.signal ?? signal;
-        const details = job ? loadDownloadMetadata(item, prepareSignal).then(detail => {
+        const details = job || lookup ? loadDownloadMetadata(item, prepareSignal).then(detail => {
             if (!detail || prepareSignal.aborted) return;
             Object.assign(item, detail);
-            if (detail.TmdbPoster && detail.TmdbPoster !== job.item.TmdbPoster) {
+            if (job && detail.TmdbPoster && detail.TmdbPoster !== job.item.TmdbPoster) {
                 job.item.TmdbPoster = detail.TmdbPoster;
                 if (trackedDownloads.get(job.item.Id) === job) saveDownloads();
                 placeBrowseCards();
@@ -2449,7 +2470,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 details.then(() => !prepareSignal.aborted && retry(prepareSignal));
         }
         if (!isSeries) return reveal(relatedReady, () => job ? playButton : heading);
-        if (demo) return;
+        if (demo || lookup) return;
 
         const seasons = el("div"), lane = el("div"), pills = new Map();
         seasons.className = "movie-season-picker";
@@ -2979,12 +3000,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         for (const match of matches) {
             const local = owned.get(String(match.id)) ?? matchedTitle.get(searchTitle(match.title) + ":" + match.year);
             if (!local && libraryMatches.includes(match)) continue;
-            const pick = local ? card(local, "related") : card({
-                Name: match.title, Id: "tmdb-" + match.id, Type: item.Type, ProductionYear: match.year
-            }, "related", () => {
-                query.value = match.title.slice(0, query.maxLength).trimEnd();
-                startSearch(true);
-            });
+            const target = local ? null : lookupTitle(match, item.Type);
+            const pick = local ? card(local, "related") : card(target, "related", () => openSeries(target, pick));
             if (!local) chainImages(pick.querySelector("img"), [match.backdrop, match.poster].filter(Boolean));
             rows.append(pick);
         }
@@ -3586,7 +3603,8 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             action.className = "movie-card-find";
             action.append(icon(searchPath));
             artwork.append(action);
-            b.setAttribute("aria-label", t("Find releases for {0}", name));
+            // A related title that is not in the library opens its page; search results start the search right away.
+            b.setAttribute("aria-label", format === "related" ? t("{0}, not in your library", name) : t("Find releases for {0}", name));
         } else if (format === "related") {
             const check = el("span");
             check.className = "movie-card-find movie-card-owned";
