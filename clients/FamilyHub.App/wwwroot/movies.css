@@ -326,6 +326,14 @@ body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--ca
 .movie-downloads .movie-download-audio-failure { padding: .55rem .65rem; border: 1px solid #ffffff28; border-radius: .55rem; }
 .movie-download-audio-failure > p { margin: .3rem 0; }
 .movie-download-audio-failure > p:empty { display: none; }
+.movie-download-audio-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .45rem; }
+.movie-downloads .movie-download-audio-actions > button {
+    min-height: 36px; padding: .4rem .85rem; border: 0; border-radius: 999px;
+    font: inherit; font-size: .88rem; font-weight: 600; cursor: pointer;
+}
+.movie-downloads .movie-download-audio-actions > button:first-child { background: #f3f4f8; color: #17191f; }
+.movie-downloads .movie-download-audio-actions > button:last-child { background: #ffffff1f; color: #fff; }
+.movie-downloads .movie-download-audio-actions > button:is(:hover, :focus-visible) { filter: brightness(1.1); }
 .movie-library .movie-downloads li button {
     display: grid;
     gap: .2rem;

@@ -312,6 +312,50 @@ def target_path(item):
     raise ValueError('The library video is outside the movie and TV folders.')
 
 
+def library_inodes(item):
+    """The (device, inode) pairs of the title's own library files: its video, or a season folder's videos.
+
+    Completed torrents are hard-linked into the library, so the title's own download is the same file as the library
+    video. Offering it as a source only ends in "Choose a different source from the library video."."""
+    raw = item.get('Path')
+    if not isinstance(raw, str):
+        return set()
+    path = Path(raw)
+    for kind, root in LIBRARIES.items():
+        for prefix in (Path('/data') / kind, root):
+            if path.is_relative_to(prefix):
+                path = root / path.relative_to(prefix)
+                break
+        else:
+            continue
+        break
+    else:
+        return set()
+    try:
+        if path.is_dir():
+            return {(info.st_dev, info.st_ino) for child in path.iterdir()
+                    if child.suffix.lower() in VIDEO and stat.S_ISREG((info := child.stat(follow_symlinks=False)).st_mode)}
+        info = path.stat(follow_symlinks=False)
+        return {(info.st_dev, info.st_ino)} if stat.S_ISREG(info.st_mode) else set()
+    except OSError:
+        return set()
+
+
+def same_as_library(path, folder, own):
+    """True when a source (a file, or a folder of episodes) is a hard link of the title's own library files."""
+    if not own:
+        return False
+    try:
+        files = [child for child in path.iterdir() if child.suffix.lower() in FORMATS] if folder else [path]
+        for file in files[:40]:
+            info = file.stat(follow_symlinks=False)
+            if (info.st_dev, info.st_ino) in own:
+                return True
+    except OSError:
+        return False
+    return False
+
+
 def media_command(tool, path, args, timeout, probe=False, expected=None, diagnostics=False):
     with opened(path) as fd:
         if expected is not None and fingerprint(os.fstat(fd)) != expected:
@@ -535,7 +579,10 @@ def register(app, cfg, body, allow, access, audio_library):
             results = []
             ticks = item.get('RunTimeTicks')
             runtime = ticks / 1e7 if item.get('Type') == 'Movie' and type(ticks) is int and ticks > 0 else None
+            own = library_inodes(item) if offset is None else set()
             for root, path, folder in page:
+                if same_as_library(path, folder, own):
+                    continue
                 if path not in probe_cache:
                     sample = next((file for _, file, group in rows
                                    if folder and not group and file.parent == path and EPISODE.search(file.stem)), path)

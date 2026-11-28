@@ -4662,6 +4662,13 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         scheduleDownloads(3100);
     }
     const runningDownloads = () => runningMovieDownloads(downloadItems);
+    const dismissedAudioKey = "familyhub.movies.dismissedAudioJobs";
+    function dismissedAudioJobs() {
+        try {
+            const list = JSON.parse(localStorage.getItem(dismissedAudioKey) ?? "[]");
+            return Array.isArray(list) ? list.filter(id => typeof id === "string") : [];
+        } catch { return []; }
+    }
     function renderDownloadQueue() {
         const running = runningDownloads().filter(item => typeof item.name === "string" && item.name.trim());
         const jobs = new Map([...trackedDownloads.values()].map(job => [searchTitle(job.release), job]));
@@ -4672,6 +4679,7 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             audioTargets.add(job.item);
             if (audioJobRunning(job)) continue;
             if (job.state !== "Failed" && !job.results.some(result => result.state === "Failed")) continue;
+            if (dismissedAudioJobs().includes(job.id)) continue;
             const key = "audio-job:" + job.id;
             shown.add(key);
             if (downloadRows.has(key)) continue;
@@ -4696,7 +4704,18 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
                 } finally { open.removeAttribute("aria-busy"); }
             });
             open.setAttribute("aria-describedby", title.id);
-            tile.append(title, detail, open, feedback);
+            // A failed job stays until it is retried or dismissed; Dismiss is remembered on this device.
+            const dismiss = button(t("Dismiss"), () => {
+                const kept = dismissedAudioJobs().filter(id => audioJobs.some(other => other.id === id));
+                try { localStorage.setItem(dismissedAudioKey, JSON.stringify([...kept, job.id].slice(-50))); } catch { /* storage full or blocked */ }
+                // The queue removes the row and moves focus to the next row, Close, or the page when nothing is left.
+                renderDownloadQueue();
+            });
+            dismiss.setAttribute("aria-describedby", title.id);
+            const actions = el("div");
+            actions.className = "movie-download-audio-actions";
+            actions.append(open, dismiss);
+            tile.append(title, detail, actions, feedback);
             downloadRows.set(key, {tile, open});
             queue.append(tile);
         }
@@ -4760,9 +4779,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             row.bar.firstElementChild.style.transform = `scaleX(${percent / 100})`;
         }
         const count = shown.size;
-        if (!count && downloadTray.contains(document.activeElement)) {
-            (seriesView?.section.querySelector("h2") ?? (browse.hidden ? submit : browse)).focus({preventScroll: true});
-        }
+        // The panel closes when nothing is left, so focus anywhere in the tray or the panel moves to the page
+        // once the panel is closed (the open panel keeps the page behind it out of reach).
+        const landOnPage = !count && (downloadTray.contains(document.activeElement) || downloadsPanel.contains(document.activeElement));
         for (const [release, row] of downloadRows) {
             if (shown.has(release)) continue;
             if (row.tile.contains(document.activeElement)) {
@@ -4774,6 +4793,12 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         }
         downloadTray.hidden = !count;
         if (!count) setDownloadPanel(false);
+        if (landOnPage) {
+            const landing = seriesView?.section.querySelector("h2") ?? (browse.hidden ? submit : browse);
+            // A heading takes focus only with a tabindex.
+            if (landing.tagName === "H2" && !landing.hasAttribute("tabindex")) landing.tabIndex = -1;
+            landing.focus({preventScroll: true});
+        }
         else {
             if (downloadCount.textContent !== String(count)) {
                 downloadCount.textContent = count;

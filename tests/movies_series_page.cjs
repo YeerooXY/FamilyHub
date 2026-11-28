@@ -222,7 +222,13 @@ async function check(browser, profile, options) {
         const audio = page.getByRole("dialog", {name: "Add audio track", exact: true});
         await audio.getByText("Signal 2", {exact: true}).waitFor();
         await audio.getByRole("button", {name: "Close", exact: true}).press("Enter");
-        await downloads.getByRole("button", {name: "Close", exact: true}).press("Enter");
+        // Dismiss removes the failed job for good on this device; focus stays in the Downloads panel.
+        await downloads.getByRole("button", {name: "Dismiss", exact: true}).press("Enter");
+        await downloads.getByText("Choose a different source from the library video.").waitFor({state: "detached"});
+        // It was the only item, so the tray closes and focus returns to the page, never to <body>.
+        await downloads.waitFor({state: "hidden"});
+        assert.notEqual(await page.evaluate(() => document.activeElement?.tagName), "BODY");
+        assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("familyhub.movies.dismissedAudioJobs")).length), 1);
         await page.emulateMedia({reducedMotion: "reduce"});
         await episode.focus();
         assert.deepEqual(await episode.evaluate(node => {
