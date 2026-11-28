@@ -633,6 +633,44 @@ class MovieDownloads(Base):
         sample(path, [], '2099-01-01T00:00:00+00:00')
         self.assertEqual(self.go(client, 'GET', route).json['items'], [])
 
+    def test_admins_can_pause_and_resume_a_listed_download_and_see_when_it_was_added(self):
+        path = Path(self.ws) / '.torrent-ratio.sqlite3'
+        client, profile = self.select('sample-a')
+        other, other_profile = self.select('sample-b')
+        now = datetime.now(timezone.utc).isoformat()
+        row = dict(hash='c' * 40, name='Big season', category='other', state='downloading',
+                   ratio=0, uploaded=0, downloaded=10, progress=0.1, size=100, dlspeed=5, upspeed=0)
+        sample(path, [row], now)
+        calls = []
+
+        class Opener:
+            def open(self, request, timeout):
+                url = request if isinstance(request, str) else request.full_url
+                calls.append(url.split('/api/v2/', 1)[1])
+                if 'torrents/stop' in url:
+                    raise urllib.error.HTTPError(url, 404, 'Not Found', {}, io.BytesIO())
+                if 'torrents/info' in url:
+                    return io.BytesIO(json.dumps([dict(hash='c' * 40, state='pausedDL', added_on=1795000000)]).encode())
+                return io.BytesIO(b'Ok.')
+
+        with patch.dict(self.app.config, {}),                 patch('music_web.movies.service_url', side_effect=lambda value, *rest: 'http://qb.test' if value else ''),                 patch('music_web.movies.movie_import.torrent_login', return_value=Opener()):
+            route = '/api/server/seeding/' + 'c' * 40
+            self.assertEqual(self.post(other, other_profile['csrf_token'], route + '/pause', json={}).status_code, 403)
+            self.assertEqual(self.post(client, profile['csrf_token'], route + '/delete', json={}).status_code, 404)
+            self.assertEqual(self.post(client, profile['csrf_token'], '/api/server/seeding/' + 'd' * 40 + '/pause',
+                                       json={}).status_code, 404)
+            paused = self.post(client, profile['csrf_token'], route + '/pause', json={})
+            self.assertEqual(paused.status_code, 200)
+            self.assertEqual(paused.json, dict(paused=True))
+            # qBittorrent 4 has no stop: the older pause name is used instead.
+            self.assertEqual(calls[-2:], ['torrents/stop', 'torrents/pause'])
+            resumed = self.post(client, profile['csrf_token'], route + '/resume', json={})
+            self.assertEqual(resumed.json, dict(paused=False))
+            self.assertEqual(calls[-1], 'torrents/start')
+            item, = self.go(client, 'GET', '/api/server/seeding').json['items']
+            self.assertTrue(item['paused'])
+            self.assertTrue(item['added_on'].startswith('2026-11-18'))
+
     @patch('music_web.movies.urllib.request.build_opener')
     def test_search_and_grab_require_permission_and_keep_indexer_links_private(self, opener):
         def upstream(req, timeout):

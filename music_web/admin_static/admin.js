@@ -104,7 +104,8 @@ function torrentRow(item, download, goal, snapshot) {
   header.className = 'torrent-header';
   title.textContent = item.subtitle ? `${item.title}, ${item.subtitle}` : item.title || item.name;
   title.title = item.name;
-  const speed = snapshot.stale ? 0 : download ? item.dl_speed : item.up_speed;
+  // A paused download's last sampled speed is out of date, so it is not shown.
+  const speed = snapshot.stale || (download && item.paused) ? 0 : download ? item.dl_speed : item.up_speed;
   tag.className = 'tag';
   tag.textContent = download || item.complete ? item.state : speed > 0 ? 'Uploading' : 'Waiting to seed';
   header.append(title, tag);
@@ -138,8 +139,49 @@ function torrentRow(item, download, goal, snapshot) {
   } else {
     detail.prepend('Progress unavailable');
   }
+  // When qBittorrent first got the torrent, so a seed can be matched to its original download.
+  const added = item.added_on ? new Date(item.added_on) : null;
+  if (added && !Number.isNaN(+added)) {
+    detail.append(part('Added', added.toLocaleDateString(undefined, {day: 'numeric', month: 'short', year: 'numeric'})));
+  }
   content.append(detail);
+  if (download && typeof item.paused === 'boolean') content.append(pauseButton(item, title.textContent, tag));
   return node;
+}
+
+function pauseButton(item, name, tag) {
+  const action = document.createElement('button'), message = document.createElement('span');
+  const paused = item.paused;
+  action.type = 'button';
+  action.className = 'torrent-action';
+  action.dataset.hash = item.hash;
+  action.textContent = paused ? 'Resume' : 'Pause';
+  action.setAttribute('aria-label', `${paused ? 'Resume' : 'Pause'} ${name}`);
+  message.className = 'torrent-action-message';
+  message.setAttribute('role', 'status');
+  action.addEventListener('click', async () => {
+    if (action.getAttribute('aria-disabled') === 'true') return;
+    action.setAttribute('aria-disabled', 'true');
+    message.textContent = paused ? 'Resuming…' : 'Pausing…';
+    const {status, data} = await api(`/api/server/seeding/${item.hash}/${paused ? 'resume' : 'pause'}`,
+      {method: 'POST', body: '{}'}).catch(() => ({status: 0, data: null}));
+    action.removeAttribute('aria-disabled');
+    if (status !== 200) {
+      message.textContent = data?.error || 'Could not reach the server. Try again.';
+      return;
+    }
+    // Show the new state at once; the next reading confirms it.
+    item.paused = data.paused;
+    action.textContent = data.paused ? 'Resume' : 'Pause';
+    action.setAttribute('aria-label', `${data.paused ? 'Resume' : 'Pause'} ${name}`);
+    tag.textContent = data.paused ? 'Paused' : 'Downloading';
+    message.textContent = data.paused ? 'Paused.' : 'Resumed.';
+    setTimeout(refresh, 4000);
+  });
+  const row = document.createElement('div');
+  row.className = 'torrent-actions';
+  row.append(action, message);
+  return row;
 }
 
 function render(snapshot) {
@@ -168,7 +210,16 @@ function render(snapshot) {
     .sort((left, right) => (seedOrder[left.state] ?? 2) - (seedOrder[right.state] ?? 2));
   const seedingCount = seeds.filter(item => item.state === 'Seeding').length;
   $('seeding-count').textContent = `${seedingCount} ${seedingCount === 1 ? 'title' : 'titles'} seeding`;
+  // The list redraws on every reading; a focused Pause or Resume button keeps focus.
+  const focusedHash = document.activeElement?.closest?.('.torrent-action')?.dataset.hash;
   $('download-items').replaceChildren(...downloads.map(item => torrentRow(item, true, goal, snapshot)));
+  if (focusedHash) {
+    const again = $('download-items').querySelector(`.torrent-action[data-hash="${focusedHash}"]`);
+    // A finished download leaves the list: focus goes to the Downloads heading instead of the page.
+    const heading = $('downloads-title');
+    if (!again && !heading.hasAttribute('tabindex')) heading.tabIndex = -1;
+    (again ?? heading).focus();
+  }
   $('seed-items').replaceChildren(...seeds.map(item => torrentRow(item, false, goal, snapshot)));
   $('downloads-empty').hidden = downloads.length > 0;
   $('seeds-empty').hidden = seeds.length > 0;

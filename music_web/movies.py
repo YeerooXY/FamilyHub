@@ -23,7 +23,7 @@ from tempfile import NamedTemporaryFile
 from threading import Lock
 from time import monotonic
 
-from flask import Response, g, jsonify, request, session
+from flask import Response, abort, g, jsonify, request, session
 
 from . import audio_tracks, feedback, movie_import, movie_media, movie_search, movie_subtitles, movie_trakt, tmdb, tmdb_stills, torrent_seeding
 from .catalog_search import NoRedirect
@@ -37,6 +37,7 @@ except ImportError:
 
 
 log = logging.getLogger('music_web.movies')
+TORRENT_HASH = re.compile(r'[0-9a-f]{40}')
 # Playback diagnostics use fixed labels and a restricted media-error vocabulary.
 REPORT_KINDS = {'playback-error', 'open-failed', 'progress-save-failed', 'cannot-resume', 'started', 'stopped',
                 'segments-unavailable', 'segment-seek-failed', 'next-episode-unavailable', 'resume-position-unavailable',
@@ -405,11 +406,79 @@ def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals, wa
         response.headers['Cache-Control'] = 'no-store'
         return response
 
+    PAUSED_STATES = {'pausedDL', 'stoppedDL', 'pausedUP', 'stoppedUP'}
+
+    def torrent_session():
+        url = service_url(qb.get('url'))
+        if not all((url, qb.get('user'), qb.get('password'))):
+            return None, None
+        return url, movie_import.torrent_login(url, qb, timeout=2)
+
+    def add_live_torrent_details(result):
+        """When each torrent was added and whether it is paused, read live from qBittorrent (best effort)."""
+        hashes = [item['hash'] for item in result.get('items', ()) if TORRENT_HASH.fullmatch(item.get('hash') or '')]
+        if not hashes:
+            return
+        try:
+            url, opener = torrent_session()
+            if not opener:
+                return
+            rows = movie_import.torrent_rows(opener, url + '/api/v2/torrents/info?hashes=' + '|'.join(hashes[:200]), 2)
+        except (OSError, http.client.HTTPException, ValueError, TypeError, KeyError):
+            return
+        live = {row.get('hash'): row for row in rows if isinstance(row, dict)}
+        for item in result['items']:
+            row = live.get(item['hash'])
+            if not row:
+                continue
+            added = row.get('added_on')
+            if type(added) is int and 0 < added < 2**33:
+                item['added_on'] = datetime.fromtimestamp(added, timezone.utc).isoformat()
+            item['paused'] = row.get('state') in PAUSED_STATES
+
+    @app.post('/api/server/seeding/<ident>/<action>')
+    def server_seeding_control(ident, action):
+        """Pause or resume one torrent from the admin page. Only torrents the sampler lists can be changed."""
+        if g.user not in cfg['ADMIN_USERS']:
+            return jsonify(error='Only an admin can change downloads.'), 403
+        if action not in ('pause', 'resume') or not TORRENT_HASH.fullmatch(ident):
+            abort(404)
+        if not allow('server-seeding-control:' + g.user, 20, 60):
+            return jsonify(error='Wait a minute before changing more downloads.'), 429
+        listed = torrent_seeding.snapshot(cfg)
+        if not any(item.get('hash') == ident for item in listed.get('items', ())):
+            return jsonify(error='That torrent is no longer listed.'), 404
+        try:
+            url, opener = torrent_session()
+            if not opener:
+                return jsonify(error='Server downloads are not set up.'), 503
+            # qBittorrent 5 names these stop and start; version 4 used pause and resume.
+            for name in (('stop', 'pause') if action == 'pause' else ('start', 'resume')):
+                request_ = urllib.request.Request(url + '/api/v2/torrents/' + name, headers={'Referer': url + '/'},
+                                                  data=urllib.parse.urlencode({'hashes': ident}).encode())
+                try:
+                    with opener.open(request_, timeout=4) as reply:
+                        reply.read(64)
+                    break
+                except urllib.error.HTTPError as error:
+                    error.close()
+                    if error.code != 404:
+                        raise
+            else:
+                return jsonify(error='The download server did not accept the change.'), 502
+        except (OSError, http.client.HTTPException, ValueError) as error:
+            log.warning('seeding %s failed cause=%s', action, type(error).__name__)
+            return jsonify(error='The download server is unavailable. Try again.'), 502
+        log.info('seeding %s by %s', action, g.user)
+        return jsonify(paused=action == 'pause')
+
     @app.get('/api/server/seeding')
     def server_seeding():
         if g.user not in cfg['ADMIN_USERS']:
             return jsonify(error='Only an admin can view seeding.'), 403
         result = torrent_seeding.snapshot(cfg)
+        if result.get('available') and 'poster' not in request.args:
+            add_live_torrent_details(result)
         if 'poster' in request.args:
             ident = request.args['poster']
             item = next((item for item in result.get('items', ()) if item['hash'] == ident), None)

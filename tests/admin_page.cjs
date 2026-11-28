@@ -22,7 +22,7 @@ const snapshot = {
             ratio: .5, uploaded: 10 * gb, downloaded: 20 * gb, up_speed: 3 * 1024 ** 2},
         {hash: "c".repeat(40), name: "An archive of restored public domain films – winter collection",
             complete: 0, state: "Downloading", ratio: 0, progress: .4, size: 5 * gb, downloaded: 2 * gb,
-            dl_speed: 1024 * 600},
+            dl_speed: 1024 * 600, paused: false, added_on: "2026-11-18T09:00:00+00:00"},
         {hash: "d".repeat(40), name: "Film preservation project", complete: 0, state: "Fetching metadata",
             ratio: 0, progress: 0, downloaded: 0}
     ]
@@ -30,6 +30,7 @@ const snapshot = {
 
 async function verify(browser, profile, options) {
     const page = await browser.newPage(options);
+    const window_controls = [];
     try {
         page.setDefaultTimeout(8000);
         const errors = [];
@@ -46,6 +47,10 @@ async function verify(browser, profile, options) {
                 if (password !== "fixture-password") return route.fulfill({status: 403, json: {error: "Incorrect password. Try again."}});
                 signedIn = profile_id;
                 return route.fulfill({json: {csrf_token: "signed-in"}});
+            }
+            if (resource === "/api/server/seeding/" + "c".repeat(40) + "/pause") {
+                window_controls.push(route.request().headers()["x-csrftoken"] ? "pause" : "no-csrf");
+                return route.fulfill({json: {paused: true}});
             }
             if (resource === "/api/server/seeding") {
                 if (!signedIn) return route.fulfill({status: 401, json: {}});
@@ -90,6 +95,16 @@ async function verify(browser, profile, options) {
         const heading = page.getByRole("heading", {name: "Downloads", exact: true});
         await heading.waitFor();
         assert.equal(await focused(heading), true);
+        // Downloads can be paused from here, and every torrent shows when it was added.
+        const pause = page.getByRole("button", {name: /^Pause An archive of restored/});
+        await page.getByText(/^(18 Nov 2026|Nov 18, 2026)$/).first().waitFor();
+        await pause.press("Enter");
+        const resume = page.getByRole("button", {name: /^Resume An archive of restored/});
+        await resume.waitFor();
+        assert.equal(await focused(resume), true);
+        assert.deepEqual(window_controls, ["pause"]);
+        await page.getByRole("status").filter({hasText: "Paused."}).waitFor();
+        await heading.focus();
         const meter = page.getByRole("progressbar", {name: "All-time share ratio"});
         const globalDetail = "63.0 GB uploaded, 42.0 GB downloaded. 21.0 GB more to reach 2.0×";
         assert.equal(await meter.getAttribute("aria-valuenow"), "75");
