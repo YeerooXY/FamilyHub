@@ -707,6 +707,8 @@ window.familyhub.observeSeekBar = (slider, reference) => {
     const show = target => {
         const button = target.closest?.('button[title],button[data-tooltip],button[aria-label],.storage-state[title],.storage-state[data-tooltip],.playlist-column-label,.playlist-track-album,.playlist-track-date');
         if (!button || (!button.hasAttribute('title') && !button.dataset.tooltip && button.textContent.trim())) return;
+        // The movie player names its transport buttons itself, above the seek row (movie-player.css).
+        if (button.closest('.movie-ui-transport')) return;
         if (active === button) return;
         hide(); active = button;
         if (!tip) { tip = document.createElement('div'); tip.id = 'app-control-tooltip'; tip.className = 'app-tooltip'; tip.setAttribute('role','tooltip'); document.body.append(tip); }
