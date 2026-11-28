@@ -96,6 +96,12 @@
                disabled="@(!ready)" aria-describedby="movie-layout-preview-help" />
     </div>
     <p class="setting-help" id="movie-layout-preview-help">Show demo titles in Movies Home. Playback and downloads are unavailable in preview.</p>
+    <div class="setting-row">
+        <label for="movie-ratings">Ratings on title pages</label>
+        <input id="movie-ratings" type="checkbox" role="switch" @bind="preferences.Ratings" @bind:after="Save"
+               disabled="@(!ready)" aria-describedby="movie-ratings-help" />
+    </div>
+    <p class="setting-help" id="movie-ratings-help">Show IMDb, Rotten Tomatoes and Metacritic scores when they are known.</p>
     <p class="setting-help">Saved on this device for your profile.</p>
     <p class="setting-help" role="status">@message</p>
 </section>
@@ -116,6 +122,7 @@
         public bool AutoSkipRecap { get; set; }
         public bool AutoNext { get; set; } = true;
         public bool ParentalGuide { get; set; }
+        public bool Ratings { get; set; } = true;
         public bool? DownloadAudio { get; set; }
         public bool? DownloadSubtitles { get; set; }
     }

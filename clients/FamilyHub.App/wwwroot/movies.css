@@ -556,7 +556,8 @@ body.native-titlebar .movie-library .movie-player.movie-expanded { top: var(--ca
     gap: .3em;
     align-items: center;
 }
-.movie-sound-chip .movie-icon { width: 1em; height: 1em; flex: none; }
+.movie-sound-chip .movie-icon, .movie-rating-chip .movie-icon { width: 1em; height: 1em; flex: none; }
+.movie-chip.movie-rating-chip { display: inline-flex; gap: .3em; align-items: center; }
 .movie-external .movie-release-title { margin: 0; font-size: 1.2rem; line-height: 1.25; font-weight: 700; color: #fff; }
 .movie-release .movie-release-note { color: #ffffffb8; font-size: .9rem; }
 .movie-library .movie-release .movie-release-action { justify-self: start; min-height: 46px; padding: 0 1.5rem; border: 0; border-radius: .75rem; background: linear-gradient(135deg, #89b4ff, #f19cda); color: #0b0d12; font: inherit; font-weight: 700; cursor: pointer; }

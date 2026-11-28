@@ -24,7 +24,7 @@ from time import monotonic
 
 from flask import Response, g, jsonify, request, session
 
-from . import audio_tracks, feedback, movie_import, movie_media, movie_search, movie_subtitles, tmdb, tmdb_stills, torrent_seeding
+from . import audio_tracks, feedback, movie_import, movie_media, movie_search, movie_subtitles, movie_trakt, tmdb, tmdb_stills, torrent_seeding
 from .catalog_search import NoRedirect
 from .movie_youtube_downloads import DEFAULT_DIR, MAX_PENDING, YouTubeDownloads
 from .state import state_path
@@ -339,6 +339,7 @@ def register_movies(app, cfg, body, allow, session_is_live, movie_dismissals, wa
     issue_media, audio_library = movie_media.register(app, base, body, allow, session_is_live, movie_dismissals,
         cfg.get('JELLYFIN_API_KEY'), lambda path: subtitle_imported(path) if subtitle_imported else False, cached_search,
         watching)
+    movie_trakt.register(app, cfg, body, allow, base)
     audio_items = audio_tracks.register(app, cfg, body, allow, download_access, audio_library)
     subtitle_provider = movie_subtitles.register(app, cfg, body, allow, audio_library)
     subtitle_imported = movie_import.start(cfg, service_url(qb.get('url')), base, subtitle_provider)

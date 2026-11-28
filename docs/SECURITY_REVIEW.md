@@ -88,6 +88,10 @@ Movie audio routes require an active FamilyHub session, administrator membership
 
 `GET /api/movies/related` keeps the mapped-profile and rate-limit checks. Filtered film records carry only TMDB IDs, titles and years for matching against the viewer's library. The client displays those records only after verifying a library match through the existing Jellyfin lookup.
 
+`GET /api/movies/ratings` answers mapped profiles only, validates IMDb and TMDB IDs, and makes one MDBList request per title through the server (the key never reaches the client). Results are cached for 7 days and a daily budget of 900 requests keeps the free tier safe; without a key or past the budget it returns an empty list.
+
+The `/api/trakt/*` routes act only on the signed-in profile's own Jellyfin user. They call the Jellyfin Trakt plugin with the server API key under a lock, return only the link state, the activation code and the fixed `https://trakt.tv/activate` address, and never return tokens. Link, poll, send and disconnect need CSRF (POST) and are rate limited. Every failed step logs its stage and exception type.
+
 `GET /api/server/seeding` remains admin-only and reads the local torrent snapshot. The existing recorder timer applies the one-time share-limit backfill and sets limits on new movie and TV torrents. It sends validated hashes to the configured private qBittorrent endpoint through its cookie session with redirects disabled and bounded timeouts. The policy requires an explicit Stop action before writing limits. Recorder errors use fixed messages and keep credentials and upstream responses out of logs.
 
 The recorder removes up to 20 torrents per run from the movie and TV categories after observing them stopped at a 2.0× ratio or 14 days of seeding. It commits each candidate to local SQLite history before posting its hash to qBittorrent with `deleteFiles=false`. This preserves the download files and imported library links. The read-only Seeding endpoint adds aggregate `finished.goal` and `finished.no_demand` counts for confirmed removals and uses qBittorrent's all-time counters for transfer totals. Failed requests leave the history and the next sample checks whether removal succeeded before retrying.
@@ -227,6 +231,7 @@ POST /api/movies/library
 POST /api/movies/matches
 GET /api/movies/media/<ticket>/<path:resource>
 POST /api/movies/media/close
+GET /api/movies/ratings
 GET /api/movies/related
 POST /api/movies/releases
 POST /api/movies/report
@@ -284,6 +289,11 @@ GET /api/server/stats
 GET /api/server/stats/now
 GET /api/share/<secret>
 GET,POST /api/share/<secret>/download
+POST /api/trakt/disconnect
+POST /api/trakt/link
+POST /api/trakt/link/poll
+POST /api/trakt/send
+GET /api/trakt/status
 POST /api/transition
 POST /api/uploads
 PUT /api/wordle/activity

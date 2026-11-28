@@ -294,6 +294,7 @@ async function movieDetailFixture(page, {denseSeries = false} = {}) {
                 return JSON.stringify({episodes: []});
             }
             if (method === "MovieAudioSources") return JSON.stringify({sources: [], next: null});
+            if (method === "MovieRatings") return JSON.stringify({ratings: window.movieRatings ?? []});
             if (method === "MovieDownloads" && denseSeries) return JSON.stringify({available: true, items: [{
                 id: "failed-audio", item: "show-a-extra-0", name: "Adding Hungarian audio to Signal 2", state: "Failed",
                 progress: 1, results: [{title: "Signal 2", state: "Failed", error: "Choose a different source from the library video."}]
@@ -303,9 +304,9 @@ async function movieDetailFixture(page, {denseSeries = false} = {}) {
             }]});
             return JSON.stringify({results: []});
         }};
-        window.openDetailFixture = async style => {
+        window.openDetailFixture = async (style, preferences = {}) => {
             if (window.movies) await window.movies.close();
-            saveMoviePreferences(viewer, {backgroundStyle: style, screen: "1080"});
+            saveMoviePreferences(viewer, {backgroundStyle: style, screen: "1080", ...preferences});
             window.movies = window.openMovieFixture(openMovies, host,
                 {url: jellyfin, user: "u", token: "t", release_search_enabled: true, downloads_enabled: denseSeries}, bridge, viewer);
         };

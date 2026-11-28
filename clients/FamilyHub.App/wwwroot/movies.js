@@ -194,6 +194,7 @@ function normalizeMoviePreferences(prefs) {
         ...(typeof prefs?.downloadSubtitles === "boolean" ? {downloadSubtitles: prefs.downloadSubtitles} : {}),
         ...(["preset", "backdrop"].includes(prefs?.backgroundStyle) ? {backgroundStyle: prefs.backgroundStyle} : {}),
         ...(prefs?.layoutPreview === true ? {layoutPreview: true} : {}),
+        ...(prefs?.ratings === false ? {ratings: false} : {}),
         ...(Object.prototype.hasOwnProperty.call(homeBackgrounds, prefs?.homeBackground) ? {homeBackground: prefs.homeBackground} : {})
     };
 }
@@ -1796,7 +1797,9 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
             markFavorite(favorite, isFavorite(item));
             updateDetails();
         });
-        const reveal = async (data, mainAction) => {
+        if (!demo) void Promise.resolve(details).catch(() => {}).then(() => loadRatings(item, signal))
+            .then(found => { if (found && !signal.aborted) updateDetails(); }).catch(() => {});
+        const reveal =async (data, mainAction) => {
             if (!staged) return;
             await Promise.race([Promise.resolve(data).then(() => preloadDetailImages(section, prepareSignal)).catch(() => {}), handoff.deadline]);
             if (handoff.cancelled() || !active || seriesView !== parent) {
@@ -2222,6 +2225,34 @@ export function openMovies(host, session, app, viewer, homeBudget = 9500) {
         facts.replaceChildren(titleFacts(item, ratingBadge(item.OfficialRating)));
         const genres = (item.Genres ?? []).slice(0, 3);
         if (item.Type === "Series" && genres.length) facts.append(el("span", genres.join(", ")));
+        for (const rating of item.MovieRatings ?? []) {
+            const path = ratingIcons[rating.source];
+            if (!path) continue;
+            const badge = chip(rating.value);
+            badge.classList.add("movie-rating-chip");
+            badge.setAttribute("role", "img");
+            badge.setAttribute("aria-label", `${rating.name} ${rating.value}`);
+            badge.prepend(icon(path));
+            facts.append(badge);
+        }
+    }
+    // Single-colour marks on the 24 px grid, drawn for this app; no logo files.
+    const ratingIcons = {
+        imdb: "M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1ZM7 10v4m3.5 0v-4l1.75 2.25L14 10v4m2-4v4",
+        tomatoes: "M12 9c-4.4 0-8 2.7-8 6.5S7.6 21 12 21s8-1.7 8-5.5S16.4 9 12 9ZM12 9V4M8.5 6l3.5 2 3.5-2",
+        metacritic: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM7.5 16V8l4.5 5 4.5-5v8"
+    };
+    // Scores are optional: a missing key, a switched-off preference or any failure leaves the page without chips.
+    async function loadRatings(item, signal) {
+        if (preview || signal.aborted || item.MovieRatings || readMoviePreferences(preferenceViewer).ratings === false) return false;
+        const imdb = String(item.ProviderIds?.Imdb ?? item.ProviderIds?.IMDb ?? "");
+        const tmdb = String(item.ProviderIds?.Tmdb ?? item.ProviderIds?.TMDb ?? "");
+        const kind = item.Type === "Series" ? "tv" : item.Type === "Episode" ? "episode" : "movie";
+        if (!/^tt\d{1,10}$/.test(imdb) && !(kind !== "episode" && /^[1-9]\d{0,9}$/.test(tmdb))) return false;
+        const reply = await boundedCall(signal, "MovieRatings", kind, /^tt\d{1,10}$/.test(imdb) ? imdb : "", tmdb).catch(() => null);
+        if (signal.aborted || !Array.isArray(reply?.ratings)) return false;
+        item.MovieRatings = reply.ratings;
+        return reply.ratings.length > 0;
     }
     function setTitleLogo(item, heading, name = item.Name) {
         const tag = item.TmdbLogo ?? item.ImageTags?.Logo;

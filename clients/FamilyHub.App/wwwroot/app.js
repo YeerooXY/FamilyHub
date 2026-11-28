@@ -863,7 +863,9 @@ window.familyhub.dismissKeyboard = (input, successor) => {
     document.getElementById(input)?.blur();
     familyhub.focus(successor);
 };
-window.familyhub.searchSubmitted = () => familyhub.dismissKeyboard('q', 'view-title');
+// A background phone tab reports "hidden" so a dialog that polls can pause instead of polling unseen.
+window.familyhub.dialogState = id => document.getElementById(id)?.open ? (document.hidden ? 'hidden' : 'open') : 'closed';
+window.familyhub.searchSubmitted =() => familyhub.dismissKeyboard('q', 'view-title');
 window.familyhub.bindGenreSearch = () => {
     const input = document.getElementById('genre-search');
     input?.addEventListener('keydown', event => {

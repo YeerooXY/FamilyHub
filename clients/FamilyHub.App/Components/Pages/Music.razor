@@ -380,6 +380,10 @@ else
                     <label class="setting-toggle"><input type="checkbox" checked="@Session.DownloadsWifiOnly" @onchange="args => Session.SetDownloadsWifiOnly(args.Value is true)" /><span>Wi-Fi-only downloads</span></label>
                 </section>
             }
+            else if (settingsSection == "accounts")
+            {
+                <TraktAccount @key="(Session.Server, Session.User)" />
+            }
             else if (settingsSection == "wordle")
             {
                 <WordleSettings @key="AppearanceKey" />
@@ -857,6 +861,7 @@ else
         ("general", "Profile", "person"),
         ("music", "Music", "music"),
         ("movies", "Movies & TV", "film"),
+        ("accounts", "Accounts", "link"),
         ("wordle", "Wordle", "wordle"),
         ("appearance", "Appearance", "sparkle"),
         ("storage", "Storage and downloads", "download"),

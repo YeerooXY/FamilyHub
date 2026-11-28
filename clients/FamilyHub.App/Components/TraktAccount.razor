@@ -1,0 +1,178 @@
+@implements IDisposable
+@using System.Text.Json
+@inject MusicSession Session
+@inject IJSRuntime JS
+
+<section class="settings-panel glass-panel" aria-labelledby="trakt-heading">
+    <h2 id="trakt-heading">Trakt</h2>
+    <p class="setting-help" id="trakt-help">Linking sends what you watch in Movies and TV to your own Trakt account. Each family member links their own.</p>
+    @if (phase == Phase.Loading)
+    {
+        <p class="setting-help" role="status">Checking Trakt…</p>
+    }
+    else if (phase == Phase.Unavailable)
+    {
+        <div class="setting-row"><span>Trakt is not available right now.</span><button id="trakt-retry" type="button" @onclick="Refresh">Check again</button></div>
+    }
+    else if (phase == Phase.Unlinked)
+    {
+        <div class="setting-row"><span>Not linked</span><button id="trakt-link" type="button" aria-describedby="trakt-help" disabled="@busy" @onclick="StartLink">Link Trakt</button></div>
+    }
+    else
+    {
+        <div class="setting-row"><span id="trakt-name">@(name is null ? "Connected to Trakt" : $"Connected as {name}")</span><button id="trakt-disconnect" type="button" disabled="@busy" @onclick="Disconnect">Disconnect</button></div>
+        <label class="setting-toggle"><input id="trakt-send" type="checkbox" role="switch" checked="@send" disabled="@busy" @onchange="SetSend" /><span>Send what I watch</span></label>
+    }
+    @if (error is not null) { <Notice Level="error" Message="@error" /> }
+</section>
+
+<dialog id="trakt-link-dialog" class="popup-panel" aria-labelledby="trakt-link-title" aria-describedby="trakt-link-steps">
+    <div class="dialog-heading"><h2 id="trakt-link-title">Link Trakt</h2><button class="quiet" type="button" aria-label="Close Trakt link" @onclick="CloseLink"><MusicIcon Name="close" /></button></div>
+    <p id="trakt-link-steps">Open the Trakt page below and enter this code. This window updates when Trakt confirms.</p>
+    <p class="trakt-code" id="trakt-code">@userCode</p>
+    <button id="trakt-open" class="trakt-link-open" type="button" @onclick="OpenActivate"><MusicIcon Name="external-link" /> Open trakt.tv/activate</button>
+    @if (linkError is not null) { <Notice Level="error" Message="@linkError" /> }
+</dialog>
+
+@code {
+    private enum Phase { Loading, Unavailable, Unlinked, Linked }
+    private const string ActivateUrl = "https://trakt.tv/activate";
+    private Phase phase = Phase.Loading;
+    private bool send, busy;
+    private string? name, error, userCode, linkError, focusAfterRender;
+    private CancellationTokenSource? polling;
+    private readonly CancellationTokenSource disposed = new();
+
+    protected override Task OnInitializedAsync() => Refresh();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusAfterRender is not { } id) return;
+        focusAfterRender = null;
+        await JS.InvokeVoidAsync("familyhub.focus", id);
+    }
+
+    private async Task<JsonElement?> Call(HttpMethod method, string path, object? payload = null)
+    {
+        try
+        {
+            if (Session.Api is not { } api) { error = "Sign in again and try again."; return null; }
+            return await api.RequestJsonAsync<JsonElement>(method, path, payload, disposed.Token);
+        }
+        catch (OperationCanceledException) when (disposed.IsCancellationRequested) { return null; }
+        catch (Exception exception) { error = NoticeText.Error(exception); return null; }
+    }
+
+    private async Task Refresh()
+    {
+        error = null;
+        var reply = await Call(HttpMethod.Get, "/api/trakt/status");
+        if (disposed.IsCancellationRequested) return;
+        if (reply is not { } status) { phase = Phase.Unavailable; return; }
+        if (status.GetProperty("linked").GetBoolean())
+        {
+            send = status.TryGetProperty("send", out var sends) && sends.ValueKind == JsonValueKind.True;
+            name = status.TryGetProperty("name", out var who) && who.ValueKind == JsonValueKind.String ? who.GetString() : null;
+            phase = Phase.Linked;
+        }
+        else phase = Phase.Unlinked;
+    }
+
+    private async Task StartLink()
+    {
+        if (busy) return;
+        busy = true; error = linkError = null;
+        var reply = await Call(HttpMethod.Post, "/api/trakt/link", new { });
+        busy = false;
+        if (reply is not { } link) return;
+        userCode = link.GetProperty("user_code").GetString();
+        var interval = Math.Clamp(link.GetProperty("interval").GetInt32(), 1, 30);
+        var expires = Math.Clamp(link.GetProperty("expires_in").GetInt32(), 30, 1800);
+        polling?.Cancel();
+        var cancel = polling = CancellationTokenSource.CreateLinkedTokenSource(disposed.Token);
+        await InvokeAsync(StateHasChanged);
+        await JS.InvokeVoidAsync("familyhub.showDialog", "trakt-link-dialog", "trakt-open", "trakt-link");
+        _ = Poll(interval, expires, cancel);
+    }
+
+    // Polls only while the dialog is open and visible; closing it, expiry, or leaving the page ends the loop.
+    private async Task Poll(int interval, int expires, CancellationTokenSource cancel)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(expires);
+        var failures = 0;
+        try
+        {
+            while (!cancel.IsCancellationRequested && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(interval), cancel.Token);
+                var state = await JS.InvokeAsync<string>("familyhub.dialogState", "trakt-link-dialog");
+                if (state == "closed") return;
+                if (state == "hidden") continue;
+                var reply = await Call(HttpMethod.Post, "/api/trakt/link/poll", new { });
+                if (cancel.IsCancellationRequested) return;
+                if (reply is not { } poll)
+                {
+                    error = null;
+                    if (++failures < 3) continue;
+                    linkError = "Could not check Trakt. Close this window and try again.";
+                    await InvokeAsync(StateHasChanged);
+                    return;
+                }
+                failures = 0;
+                if (poll.TryGetProperty("linked", out var linked) && linked.ValueKind == JsonValueKind.True)
+                {
+                    await Refresh();
+                    focusAfterRender = phase == Phase.Linked ? "trakt-send" : "trakt-link";
+                    await InvokeAsync(StateHasChanged);
+                    await JS.InvokeVoidAsync("familyhub.closeDialog", "trakt-link-dialog", focusAfterRender);
+                    return;
+                }
+            }
+            if (!cancel.IsCancellationRequested)
+            {
+                linkError = "The code expired. Close this window and choose Link Trakt again.";
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (JSDisconnectedException) { }
+    }
+
+    private async Task CloseLink()
+    {
+        polling?.Cancel();
+        await JS.InvokeVoidAsync("familyhub.closeDialog", "trakt-link-dialog", "trakt-link");
+    }
+
+    private async Task OpenActivate()
+    {
+        try { await Microsoft.Maui.ApplicationModel.Launcher.Default.OpenAsync(new Uri(ActivateUrl)); }
+        catch (Exception) { linkError = "Could not open the browser. Go to trakt.tv/activate yourself and enter the code."; }
+    }
+
+    private async Task SetSend(ChangeEventArgs args)
+    {
+        if (busy) return;
+        busy = true; error = null;
+        var value = args.Value is true;
+        send = value;
+        if (await Call(HttpMethod.Post, "/api/trakt/send", new { send = value }) is null) send = !value;
+        busy = false;
+        focusAfterRender = "trakt-send";
+    }
+
+    private async Task Disconnect()
+    {
+        if (busy) return;
+        busy = true; error = null;
+        if (await Call(HttpMethod.Post, "/api/trakt/disconnect", new { }) is not null) { phase = Phase.Unlinked; name = null; }
+        busy = false;
+        focusAfterRender = phase == Phase.Unlinked ? "trakt-link" : "trakt-disconnect";
+    }
+
+    public void Dispose()
+    {
+        polling?.Cancel();
+        disposed.Cancel();
+    }
+}

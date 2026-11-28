@@ -136,6 +136,11 @@
         SendMovieRequest("/api/movies/title-details?kind=" + Uri.EscapeDataString(kind) + "&tmdb=" + Uri.EscapeDataString(tmdb));
 
     [JSInvokable]
+    public Task<string> MovieRatings(string kind, string imdb, string tmdb) =>
+        SendMovieRequest("/api/movies/ratings?kind=" + Uri.EscapeDataString(kind) + "&imdb=" + Uri.EscapeDataString(imdb)
+            + "&tmdb=" + Uri.EscapeDataString(tmdb));
+
+    [JSInvokable]
     public Task<string> MovieRelated(string tmdb, string kind) =>
         SendMovieRequest("/api/movies/related?tmdb=" + Uri.EscapeDataString(tmdb) + "&kind=" + Uri.EscapeDataString(kind));
     [JSInvokable]
