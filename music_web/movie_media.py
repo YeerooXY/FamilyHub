@@ -115,11 +115,15 @@ def playlist_urls(text, resource, ticket, base_path='', usage_id=None):
         return f'/api/movies/media/{ticket}/{path}' + (f'?{query}' if query else '')
 
     def line(value):
+        # Jellyfin lists trickplay tiles as an image stream once trickplay is generated. The player loads seek
+        # previews through PREVIEW_IMAGE instead, so the line is dropped rather than failing the whole playlist.
+        if value.upper().startswith('#EXT-X-IMAGE-STREAM-INF'):
+            return None
         if not value or value.startswith('#'):
             return URI_ATTRIBUTE.sub(lambda match: f'URI="{rewrite(match[1])}"', value)
         return rewrite(value)
 
-    return '\n'.join(map(line, text.splitlines())) + '\n'
+    return '\n'.join(rewritten for rewritten in map(line, text.splitlines()) if rewritten is not None) + '\n'
 
 
 def library_json(value, base_path):

@@ -40,6 +40,16 @@ class LongFilmPlaylistTests(unittest.TestCase):
         self.assertIn(f'init.mp4?fhUsage={"a" * 32}"', rewritten)
         self.assertIn(f'0.ts?start=0&fhUsage={"a" * 32}', rewritten)
 
+    def test_the_trickplay_image_stream_is_dropped_from_the_master_playlist(self):
+        # Jellyfin 12 adds this line once trickplay exists; the whole playlist used to fail with 502.
+        text = ('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=8000000,RESOLUTION=1920x800\nmain.m3u8?VideoCodec=h264\n'
+                '#EXT-X-IMAGE-STREAM-INF:BANDWIDTH=10196,RESOLUTION=320x132,CODECS="jpeg",'
+                'URI="Trickplay/320/tiles.m3u8?MediaSourceId=abc&ApiKey=secret"\n')
+        rewritten = movie_media.playlist_urls(text, f'videos/{ITEM}/master.m3u8', 'T' * 43)
+        self.assertNotIn('Trickplay', rewritten)
+        self.assertNotIn('secret', rewritten)
+        self.assertIn(f'/api/movies/media/{"T" * 43}/videos/{ITEM}/main.m3u8?VideoCodec=h264', rewritten)
+
 
 class MovieUsageTests(unittest.TestCase):
     def test_estimate_uses_decimal_gigabytes_and_rounds_to_a_tenth(self):
